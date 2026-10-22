@@ -1186,8 +1186,9 @@ This gives Kagari a practical embedded scripting model early, especially for the
 
 ## Native async producers
 
-The native producer, source async callables and owned SDK driver are implemented.
-Host Task scopes, shared waits and generic script spawn are implemented. The
+Native producers, source async functions/closures/blocks, host Task scopes and
+structured composition share the owned interpreter. The SDK exposes borrowed driving
+Calls and Runtime polling, not a separate native execution loop. The
 [async executable contracts](../async-execution-design.md#executable-contracts)
 define the checked handoff.
 
@@ -1250,7 +1251,7 @@ catalog's unique checked `NativeStorageLayout::Future` role. `NativeStorage::fut
 provides sealed runtime payload storage with exactly one invariant output parameter.
 The foundation installs `core::future::Future<T>` and exposes it through the
 prelude and `std::future`. Application producers use the engine's installed
-declaration catalog. SDK owned driving works without source/native features.
+declaration catalog. Typed SDK calls and scheduling work without source/native features.
 
 Calling a producer captures traced script values without invoking its Rust callback.
 The first await removes the cold state, roots the captured values, reserves bounded
@@ -1273,21 +1274,33 @@ owners in this guarded drain. Late endpoints cannot restart or retain the execut
 MIR lowering, encoded bytecode `Await` and VM Waiting are implemented. Independent
 bounded MIR/bytecode flow checks reject uninitialized resume reads and statically visible host capabilities live across an await.
 Runtime checks remain mandatory for actual values and active native/host resources.
-The SDK exposes start/drive, rooted terminal values, owner wakers and explicit
-retirement draining. `start_future` queues a supplied script or native Future;
-the first drive claims it and runs exactly one layer. Calling a source async
-function returns a cold value through the ordinary entry path. Future-valued
-outputs are not implicitly flattened. Cancelling a queued owner before its first
-drive releases that owner's root without claiming the cold Future.
+The SDK admits typed invocations through `call_async` (borrowed driving Call) or
+`submit_async` (result-only PendingCall plus `Runtime::poll`). Argument conversion
+and rooting precede cold admission; the factory and exactly one returned Future
+layer run only when scheduled. Future-valued outputs are not implicitly flattened.
+See [typed async calls](embedding-api.md#typed-async-calls-scheduling-and-native-waits)
+for bounds, context and cleanup guarantees.
+
+Backend `Vm::start_future` remains a lower-level primitive: it queues a supplied
+script or native Future, which the first drive claims. Cancelling that queued owner
+before its first drive releases its root without claiming the cold Future. Backend
+owner wakers and retirement draining retain their low-level contracts; they are not
+SDK start/drive aliases.
 
 ### Shared Task waits
 
-The host creates a TaskScope, admits a deferred factory with Runtime::spawn_task,
-and drives scope-owned Tasks explicitly. Awaiting a Task never drives its producer.
-Successful and failed outcomes are cached in the sealed Task payload; consuming a
-host report retires the scheduling slot without invalidating retained Task handles.
-Completion detaches registrations before waking waiting executions. Wakes only
-publish readiness; the host still owns continuation execution.
+The SDK host creates a managed scope with `Runtime::create_task_scope` and passes
+its rooted `scope.handle()` as a typed TaskScope argument. Script spawn admits a
+deferred factory; Runtime polling or a driving Call advances it. Awaiting a Task
+registers a dependency, never recursively drives its producer. Successful and failed
+outcomes are cached in the sealed Task payload. Managed terminal records retire
+automatically, independently of retained Task handles and diagnostic event consumption.
+Completion detaches registrations before waking waiters; wakes never execute script.
+
+Core runtime manual scopes retain `spawn_task`, explicit `Vm::drive_task` and host
+report consumption as a distinct backend integration. They are not the managed SDK
+scope API. Structured `join`/`try_join` branches use the same native-wait lifecycle;
+closing a branch detaches its Task wait without cancelling the shared producer.
 
 `RuntimeConfig::async_limits.max_task_waiters` is a nonzero runtime-wide bound,
 defaulting to 4096. It counts unresolved Task waits, including independent owned
@@ -1298,14 +1311,16 @@ not driven implicitly to resolve a cycle. Waiter cancellation never cancels a ta
 including a target owned by another scope. Target cancellation/failure terminates
 dependent waiters with the original error class and originating Task identity.
 
-TaskFailure reports distinguish local cancellation causes from Dependency. The
+TaskFailure diagnostics distinguish local cancellation causes from Dependency. The
 RuntimeError and EmbeddingError task_origin accessors retain the original Task ID
 and its original cancellation cause through any number of waiting executions.
 Business Err remains a successful Task output and participates in ordinary `?`.
 
-TaskReport.origin exposes detached factory identity and the script spawn site when
-available. RuntimeError/EmbeddingError traces carry bounded logical Spawn/Await
-boundaries alongside the original failure stack. Module/function/instruction
+Managed `TaskEvent::Failed` carries detached task/scope identities, failure and spawn
+origin, including failures already observed by script. It is a bounded failure stream,
+not successful output delivery or an unhandled-error detector. Backend `TaskReport.origin`
+likewise exposes detached factory identity and the script spawn site when available.
+RuntimeError/EmbeddingError traces carry bounded logical Spawn/Await boundaries alongside the original failure stack. Module/function/instruction
 identity remains usable without source maps; snapshots own no roots or executable
 version leases. [Error reporting](error-reporting.md#async-terminal-reporting)
 defines the ordering and truncation contract.

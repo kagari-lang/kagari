@@ -25,16 +25,35 @@ edge-free take are implemented. External Ref/RefMut scopes retain their separate
 host ownership under the implemented branded scope contract. Shared resources
 inside a payload need their own Rust access guarantees.
 
-The [host facade proposal](host-api-refactor.md) continues to own the cohesive
-prepare/load/reload workflow and proposed logical latest-version Function handles.
-Its confirmed outer-tuple argument rule applies here. This track supplies its
-conversion, roots and object-call foundation. Pinned callable handles here do not
-activate or implement that proposal's latest-version policy.
+The SDK already exposes typed pinned binding, calls and shared async scheduling.
+The [host facade proposal](host-api-refactor.md) owns further workflow redesign and
+logical latest-version Function handles, not these implemented entrypoints. Its
+outer-tuple argument rule applies here. Pinned callable handles do not activate or
+implement a latest-version policy.
 
 The [async](async-execution-design.md) and
 [task-scope](host-task-scope-design.md) contracts own implemented suspension and
 scheduling on this ownership model. Exclusive runtime transfer does not introduce
 concurrent script execution or require a particular host executor.
+
+## SDK facade and core API ownership
+
+The ordinary host facade is `kagari::runtime::Runtime`, created with
+`KagariEngine::runtime(ExecutionContext)`. Bind through `function`/`async_function`,
+`object_type`, `field`, `method` and their associated/interface forms. Use `call`,
+`get`, `set` and `call_method` for synchronous work. Async forms return either a
+borrowed driving `Call` or a nonborrowing, result-only `PendingCall`; Runtime polling
+drives submitted work and managed Task scopes. Context overrides are explicit
+`_with_context` methods with a final `&ExecutionContext` argument. The
+[embedding specification](spec/embedding-api.md#typed-async-calls-scheduling-and-native-waits)
+owns exact names, bounds and scheduling/shutdown contracts.
+
+The `bind_*` and `cx` examples below describe advanced `kagari_runtime::Runtime`
+binding and `NativeContext` access, unless explicitly labelled SDK. These are the
+shared mechanisms beneath the facade, not additional SDK aliases. The SDK retains
+`runtime()`/`runtime_mut()` core access, `backend()` VM access and scoped `with_context`
+for integrations that need them. Native callbacks continue to use their supplied
+context; they cannot start an independent driver or hold borrows across suspension.
 
 ## Central ownership and checked identities
 
@@ -644,7 +663,8 @@ layouts in the installed product; binding does not compile missing declarations.
 
 ## Binding preparation and reuse
 
-bind_field, bind_method and bind_function are preparation operations. Perform them
+Core `bind_field`, `bind_method` and `bind_function` (SDK `field`, `method` and
+`function`) are preparation operations. Perform them
 when installing a program, initializing a host service or first using an applied
 type, then retain their handles. Binding does not generate machine code. The example
 above uses an ordinary application-owned PlayerBindings struct to make this lifetime
@@ -709,15 +729,17 @@ Function and method invocation share one conversion, rooting and execution path.
 The normal API returns typed data or retained handles instead of a mandatory raw
 ExecutionReport. Observers provide optional execution statistics.
 
+For the SDK Runtime:
+
 ```rust
-let make = runtime.bind_function::<(), Object>(&loaded, "make_player")?;
+let make = runtime.function::<(), Object>(&loaded, "make_player")?;
 let player = runtime.call(&make, ())?;
-let accepted: bool = predicate.call(cx, (player.clone(),))?;
 ```
 
-`bind_function` resolves a public path relative to the installed Program root and
-returns `PinnedFunction<A, R>`. For `pub use internal::calculate as damage`, binding
-`damage` uses the verified target in `internal`; a dependency module handle does not
+SDK `function` delegates to core `bind_function`, resolves a public path relative
+to the installed Program root and returns `PinnedFunction<A, R>`. For
+`pub use internal::calculate as damage`, binding `damage` uses the verified target
+in `internal`; a dependency module handle does not
 change the lookup root or expose its private paths. Binding checks the complete Rust
 signature before execution and retains that exact target generation through reload.
 The export table survives artifact loading, so ordinary binding does not scan private
@@ -827,6 +849,18 @@ shares cancellation, call depth and the pinned dependency graph. Object and meth
 version checks prevent accidentally applying a new layout to an old object.
 Old closures/interfaces continue to invoke their retained implementations after
 reload. Failed publication leaves existing handles usable.
+
+`AsyncFunction<A, R>` retains the same checked target and the lexical output scope
+of exactly one installed `Future<R>` layer. Admission converts and roots arguments
+without running the factory; completion conversion uses that original session and
+output scope. A Call exclusively borrows the SDK Runtime and drives the shared
+scheduler; a PendingCall retains only synchronized result/cancellation state, not a
+runtime borrow. Invocation and structured-child cleanup precede result publication.
+Dropping an unfinished Call before its first poll never runs its factory; dropping
+a PendingCall requests cancellation without driving. Completed host values survive
+runtime teardown, but retained Objects still need their live owning runtime for
+access. Neither retained objects nor pinned function/member handles retarget on
+reload, even when used to start a new invocation.
 
 ## Crate responsibilities
 

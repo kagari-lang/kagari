@@ -2024,7 +2024,13 @@ Prepare reusable checked products, then link them in each runtime. `execute`
 interprets; `prepare_native` compiles/caches and installs exact-version handles;
 `execute_prepared` consumes that decision. Reload validates a prepared candidate
 before publication and retains old dependency versions needed by values/calls.
-Public facade changes are [queued](host-api-refactor.md), not current API names.
+The current typed facade binds generation-pinned `function`/`async_function` and
+member descriptors once. `call` returns typed results; `call_async` returns a
+borrowed driving `Call`, while `submit_async` returns a result-only `PendingCall`.
+Both async modes use one runtime-owned scheduler. `poll` supports external host
+integration, `close` acknowledges local cleanup, and `take_task_event` drains bounded
+managed-Task failures. Latest-version lookup and broader preparation workflow changes
+remain in the [host facade proposal](host-api-refactor.md).
 See [embedding](spec/embedding-api.md), [loading](spec/module-loading.md) and
 [activation](spec/module-activation.md).
 
@@ -2590,7 +2596,9 @@ the SDK's `runtime::call` exposes borrowed driving calls and nonborrowing result
 receivers over the shared runtime scheduler, using `RunResult` diagnostics. Per-execution cancellation is separate
 from the host's shared context signal. Native preparation rejects resume bodies
 before invoking a backend. Source async functions and explicit async closures lower
-to ordinary factories plus private resume functions. Portable `MakeFuture` captures
+to ordinary factories plus private resume functions. An async block shares capture
+and resume lowering but emits `MakeFuture` directly, without a callable factory
+invocation. Portable `MakeFuture` captures
 checked arguments without running the resume body; its sealed payload retains a
 fully captured closure with the existing executable/type environment edges.
 Independent verifiers check the Future storage role, resume target, exact capture
@@ -2610,9 +2618,9 @@ return cold values, including Future-valued outputs without flattening. Nested
 script awaits push owned resume frames; native waits also work directly as a root
 without an artificial script caller. Real deferred for-body waits retain the same
 cursor and lease, observe later element replacement and reject structural writes.
-Cancellation and owner retirement release the lease. Source, Task scope and
-lifecycle integration have passed focused local gates; the roadmap distinguishes
-these results from full GitHub CI acceptance.
+Cancellation and owner retirement release the lease. Backend owned tokens request
+retirement on drop; the SDK's borrowed Call has the stronger synchronous cleanup
+contract described below.
 
 The SDK `Runtime` binds typed `AsyncFunction`/member descriptors through existing
 native callable owners. `frame::factory::QueuedFactory` retains checked pinned or
@@ -2654,8 +2662,9 @@ recording owner. The [execution contract](spec/execution.md#structured-two-input
 defines bounds, cycles and non-owning shared Task waits.
 
 Waiting frames and cold factories retain their original executable/type environment
-through compatible reload. New roots resolve the new publication. Detached bounded
-Spawn/Await origins preserve portable task, scope and code identities without
+through compatible reload. Explicit binding against a newly published module selects
+new code; new calls through an old pinned handle still select its original generation.
+Detached bounded Spawn/Await origins preserve portable task, scope and code identities without
 retaining GC or version leases. Debug snapshots identify their root execution;
 independent parked roots do not become synchronous reentry frames or consume each
 other's single-step requests. Observers can be replaced between bounded drives.

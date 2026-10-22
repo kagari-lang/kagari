@@ -49,12 +49,12 @@ below; the public Pages site has not been activated by this work.
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
-- [Async blocks, structured concurrency and Runtime API](async-runtime-plan.md):
-  AR01-AR06 cover `async { ... }`, cold-Future `join`/`try_join` and direct/awaitable
-  host calls with internal task scheduling. API proposals cover reusable function/
-  member handles, struct/trait calls and retained object access. Existing async,
-  typed-call and ownership mechanisms remain the foundation. Implementation is
-  authorized with one commit per phase; AR01 design closure is complete.
+- [Async Runtime CI acceptance](implementation-roadmap.md#async-blocks-structured-concurrency-and-runtime-api):
+  async blocks, structured pair composition and the typed Runtime facade are
+  implemented with focused local acceptance. Current contracts are in the
+  [embedding guide](spec/embedding-api.md#typed-async-calls-scheduling-and-native-waits),
+  [async execution](async-execution-design.md) and [task scopes](host-task-scope-design.md).
+  Complete workspace/feature/backend/platform acceptance remains pending CI.
 
 - [Compilation latency follow-up](implementation-roadmap.md#fast-compilation-and-eager-startup):
   the source-preparation implementation is closed with the 500 ms compile/load

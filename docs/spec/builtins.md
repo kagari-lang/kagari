@@ -42,12 +42,14 @@ constructors and tooling navigation.
 Corresponding `std::ops`, `std::cmp`, `std::hash`, `std::fmt`, `std::convert`,
 `std::iter`, `std::str`, `std::default`, `std::num`, `std::option`, `std::result`, `std::future`, `std::string`
 and `std::vec` expose the canonical declarations through checked re-exports.
+`std::task` exposes the `core::task` declarations, including `join` and `try_join`.
 The package/module spelling does not change Kagari's GC or shared-object semantics.
 There is no installed `core::language` module or ArrayList declaration.
 
 `std::prelude` explicitly exports Iterator, Iterable, FromIterator, PartialEq,
 Eq, PartialOrd, Ord, From, Into, TryFrom, TryInto, Default, Fn, Option, Result, Some, None,
-Ok, Err, String, Vec and Future. Iterable is a retained Kagari extension. Local declarations
+Ok, Err, String, Vec, Future, Task, TaskScope and SpawnError. `join` and `try_join`
+require an explicit import or qualified call. Iterable is a retained Kagari extension. Local declarations
 and explicit imports take precedence over these implicit imports.
 Operators use their checked language roles independently of name imports; writing
 an explicit operator trait bound or implementation requires that name in scope.
@@ -67,10 +69,15 @@ try_join<A, B, E>(left: Future<Result<A, E>>, right: Future<Result<B, E>>)
     -> Future<Result<(A, B), E>>
 ```
 
-Construction is cold. Awaiting starts both branches cooperatively, returns values
+Construction evaluates the two argument expressions in ordinary left-to-right order
+but does not start either Future. For example, `core::task::join(async { read_a().await },
+async { read_b().await }).await` permits both IO waits to be pending without creating
+public Tasks. Awaiting starts both branches cooperatively, returns values
 in input order, and completes local cleanup before exposing the result. `join`
 does not inspect Result values. `try_join` returns the first observed Err without
-replacing its optional diagnostic origin, or Ok of both success values. Execution
+replacing its optional diagnostic origin, or Ok of both success values. A selected
+Err closes the unfinished sibling before publication; an execution failure closes
+siblings and terminates the parent for either combinator. Execution
 failures and cancellation are not converted to E. Duplicate/already-awaited Future
 operands trap; nested Future outputs are not flattened. See the
 [execution contract](execution.md#structured-two-input-composition) for admission,

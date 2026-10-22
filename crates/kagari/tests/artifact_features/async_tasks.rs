@@ -16,8 +16,24 @@ use std::{
     future::Future,
     path::Path,
     pin::Pin,
-    task::{Context, Poll, Waker},
+    sync::{
+        Arc,
+        mpsc::{self, SyncSender, TrySendError},
+    },
+    task::{Context, Poll, Wake, Waker},
+    time::Duration,
 };
+
+struct Notify(SyncSender<()>);
+
+impl Wake for Notify {
+    fn wake(self: Arc<Self>) {
+        match self.0.try_send(()) {
+            Ok(()) | Err(TrySendError::Full(())) => {}
+            Err(TrySendError::Disconnected(())) => panic!("artifact driver disconnected"),
+        }
+    }
+}
 
 #[test]
 fn source_free_structured_pair_contract() {
@@ -62,23 +78,46 @@ pub async fn run() -> i32 {
     let mut runtime = engine.runtime(Default::default());
     let module = runtime.load_program(&program, Default::default()).unwrap();
     let run = runtime.async_function::<(), i32>(&module, "run").unwrap();
+    let (send, ready) = mpsc::sync_channel(1);
+    let wake = Waker::from(Arc::new(Notify(send)));
+    let mut cx = Context::from_waker(&wake);
+    assert!(runtime.poll(&mut cx).is_pending());
     let mut ticket = runtime.submit_async(&run, ()).unwrap();
     for _ in 0..100 {
+        ready
+            .recv_timeout(Duration::from_secs(2))
+            .expect("submitted composition must notify its runtime driver");
+        assert!(runtime.poll(&mut cx).is_pending());
+        runtime.runtime().collect_garbage().unwrap();
         if ticket.is_finished() {
             break;
         }
-        assert!(
-            runtime
-                .poll(&mut Context::from_waker(Waker::noop()))
-                .is_pending()
-        );
-        runtime.runtime().collect_garbage().unwrap();
     }
     assert!(matches!(
-        Pin::new(&mut ticket).poll(&mut Context::from_waker(Waker::noop())),
+        Pin::new(&mut ticket).poll(&mut cx),
         Poll::Ready(Ok(34))
     ));
+
+    // The direct path borrows Runtime and must drive the same decoded composition
+    // without an external runtime poll. Only real wakes permit another Future poll.
+    while ready.try_recv().is_ok() {}
+    let mut call = runtime.call_async(&run, ()).unwrap();
+    let mut result = None;
+    for _ in 0..100 {
+        match Pin::new(&mut call).poll(&mut cx) {
+            Poll::Ready(value) => {
+                result = Some(value.unwrap());
+                break;
+            }
+            Poll::Pending => ready
+                .recv_timeout(Duration::from_secs(2))
+                .expect("direct composition must wake its awaiting task"),
+        }
+    }
+    assert_eq!(result, Some(34));
+    drop(call);
     assert!(runtime.take_task_event().is_none());
+    runtime.close().unwrap();
 }
 
 #[test]

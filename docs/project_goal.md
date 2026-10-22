@@ -32,7 +32,7 @@ remain host-owned and are accessed through installed typed interfaces, opaque
 handles and checked paths. Script values do not retain unrestricted Rust borrows.
 The GC does not scan Rust object graphs; retained script values use explicit roots.
 
-One script heap is driven on one host thread. Independent isolates may run on
+One script heap has one exclusive driver at a time. Independent isolates may run on
 different host threads; shared mutable heap access and script threading are outside
 the current model. Host services own resource lifecycle, synchronization and IO.
 
@@ -80,10 +80,14 @@ origins without making source analysis a runtime dependency.
 The current direction does not include script-visible Rust lifetimes/borrow
 checking, raw references, Send/Sync, concurrent script execution, higher-kinded
 types, unrestricted specialization/overlapping impls, monkey-patching or direct
-host IO that bypasses installed services. Async, package distribution, a new
-embedding facade and state replacement remain separately queued designs.
-Associated types and shared generic interface calls already exist and must not
-be excluded by an outdated product overview.
+host IO that bypasses installed services. Async functions, closures and cold blocks,
+structured two-input `join`/`try_join`, and typed Runtime calls/objects are implemented.
+Borrowed `Call` drives its invocation without a separate pump; submitted `PendingCall`
+receives results while the host drives Runtime separately. Managed Tasks can continue
+under that external driver after a handler returns. See the
+[embedding contract](spec/embedding-api.md#typed-async-calls-scheduling-and-native-waits).
+Package distribution, logical latest-version handles, state replacement and broader
+async composition remain separate work; they are not prerequisites for these APIs.
 
 ## Document authority
 

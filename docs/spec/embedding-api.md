@@ -1,7 +1,7 @@
 # Kagari Embedding API Specification
 
-This document defines the Rust-facing API shape for embedding Kagari.
-It is a semantic API specification, not a commitment to exact Rust type names.
+This document defines the Rust-facing embedding contracts and implemented SDK APIs.
+Lower-level runtime and VM interfaces are identified separately from the SDK facade.
 The SDK package and Rust import are `kagari`, located at `crates/kagari`.
 Its independent `source` and `native` features retain their existing contracts.
 
@@ -522,9 +522,10 @@ the root code fingerprint, deterministic inputs and ordered host-call trace.
 active, including after a host error. Trace capture is bounded and marks omitted
 data; it does not automatically replay host results.
 
-At the lower-level API, Vm starts a session from Runtime defaults automatically.
-Hosts can select explicit ExecutionOptions with Runtime::begin_execution and keep
-the returned ExecutionSession alive while driving the VM. Nested scopes inherit
+At the lower-level API, Vm starts a session from core runtime defaults automatically.
+Hosts can select explicit ExecutionOptions with
+`kagari_runtime::Runtime::begin_execution` and keep the returned ExecutionSession
+alive while driving the VM. Nested scopes inherit
 the pinned dependency program, cancellation and call-depth limit.
 Dropping the final scope releases the session; dropping an outer handle early does
 not reset a still-active nested scope. ExecutionSession::counters reports root-call
@@ -667,8 +668,8 @@ preserve identity and share retention; dropping the last handle permits collecti
 `ScriptValue` forwards an exact declared generic value without erasing its type.
 Ordinary field/collection reads and callback results need no manual root operation.
 
-VM and SDK direct execution (`execute`, `execute_typed`, `start`,
-`execute_prepared`) and SDK `prepare_native` accept `ProgramEntry` from
+Backend VM execution (`execute`, `execute_typed`, `start`, `execute_prepared`),
+SDK `execute`/`execute_prepared` and SDK `prepare_native` accept `ProgramEntry` from
 `kagari_runtime::module::entry`. A string converts to `ProgramEntry::Export` and
 selects only a checked public path. Use `ProgramEntry::Main` to explicitly invoke
 the root's separately verified zero-argument script entry, including a private
@@ -679,8 +680,9 @@ matching. Missing entries fail before script execution, and implementation displ
 names do not participate in selection. Ordinary typed paths can accept arguments;
 the explicit root entry remains zero-argument.
 
-`Runtime::bind_function` resolves verified public paths from the Program root,
-including re-exports into dependencies, and returns a typed `PinnedFunction`.
+Core `kagari_runtime::Runtime::bind_function`, exposed by SDK `Runtime::function`,
+resolves verified public paths from the Program root, including re-exports into
+dependencies, and returns a typed `PinnedFunction`.
 Passing a child module handle does not change that lookup root. Private declarations,
 private `main` and public generic templates are absent from ordinary host lookup;
 use a concrete public script wrapper for a generic source application. Explicit
@@ -949,19 +951,25 @@ without changing the results retained by an earlier snapshot.
 
 ## Typed async calls, scheduling and native waits
 
-`kagari::runtime::Runtime` is the SDK execution facade. Bind once with
+`kagari::runtime::Runtime` is the SDK execution facade, constructed by
+`KagariEngine::runtime(context: ExecutionContext)`. `default_context()` exposes its
+chosen default; per-operation overrides do not replace it. Bind once with
 `function::<A, R>(&module, name)` or `async_function::<A, R>(&module, name)`.
 The latter returns `kagari_runtime::native::function_handle::asynchronous::AsyncFunction<A, R>`:
 a checked callable and the retained lexical output scope of exactly one `Future<R>`
 layer. Both handles remain generation-pinned across reload; binding against a newly
-published module is explicit.
+published module is explicit. Callable binding takes `&self` and requires
+`A: KagariArguments + 'static, R: KagariType + 'static`; binding checks type mappings,
+whereas invocation requires value conversions. All binding operations return `RunResult`.
 
 - `call(&mut self, &PinnedFunction<A, R>, A) -> RunResult<R>` uses the default context.
 - `call_async(&mut self, &AsyncFunction<A, R>, A) -> RunResult<Call<'_, R>>`
   admits a cold invocation and returns an exclusive borrowing, driving Future.
 - `submit_async(&mut self, &AsyncFunction<A, R>, A) -> RunResult<PendingCall<R>>`
   admits the same invocation but returns a nonborrowing, result-only Future.
-- Each call has a `_with_context` variant taking `&ExecutionContext`.
+- Each call has a `_with_context` variant with a final `&ExecutionContext` parameter.
+
+Synchronous invocation requires `A: IntoKagariArguments, R: FromKagari`.
 
 `Call` and `PendingCall` live in `kagari::runtime::call` and yield `RunResult<R>`.
 Async outputs require `FromKagari + Send + 'static`, not Sync. Arguments require
@@ -971,47 +979,70 @@ Completion conversion uses the retained output type scope in that same session;
 publication follows local cleanup. A completed result survives runtime teardown,
 but retained objects still require their live owning runtime for access.
 
-Awaiting `Call` drives the common bounded scheduler without a second pump. Its
-exclusive runtime borrow lasts until completion or drop. Dropping an unfinished
+Awaiting `Call` drives the common bounded scheduler without a second pump. The Call
+holds an exclusive runtime borrow: `.await` consumes it, but a manually polled Call
+still holds that borrow after Ready until released. Dropping an unfinished
 Call synchronously retires that invocation and structured descendants, without a
 subsequent poll or a remote IO acknowledgement. Dropping/cancelling `PendingCall`
-requests cancellation; the application must keep driving Runtime for cleanup, or
-close/drop it. Runtime teardown resolves unfinished tickets. Cancellation does not
-propagate back into a shared host context token. Cleanup faults quarantine the runtime.
+requests cancellation; `PendingCall::cancel(&self)` and `is_finished(&self)` expose
+control/observation without driving. The application must keep driving Runtime for
+cleanup, or close/drop it. Runtime teardown resolves unfinished tickets. Cancellation
+does not propagate back into a shared host context token. Cleanup faults quarantine the runtime.
 
 `Runtime::poll(&mut self, &mut Context<'_>) -> Poll<RunResult<()>>` drives one shared
 bounded turn across invocations, structured branches and managed scope Tasks.
-An open idle runtime returns Pending; `close() -> RunResult<()>` synchronously stops
-admission and cleans up, after which poll returns Ready(Ok(())). A fatal error drains
-remaining work before terminal failure. Register a reliable coalescing host Waker and
+An open idle runtime returns Pending; `close() -> RunResult<()>` is idempotent and
+synchronously stops admission and cleans up without executing script bodies. A clean
+closed runtime polls Ready(Ok(())). A fatal error drains remaining work before
+terminal failure. Register a reliable coalescing host Waker and
 poll on notification, not a per-Task loop. A temporary Call route preserves and then
 restores the external driver's route on completion/drop, notifying remaining work.
 Host adapters must explicitly handle disconnection; Waker cannot report dropped
 messages. Wakes never execute script, including completion from another thread.
 
 `create_task_scope(&mut self, &module)` uses the default context; its
-`_with_context` variant takes an explicit context. Pass `scope.handle()` through a
+`create_task_scope_with_context(&mut self, &module, &context)` variant takes an explicit
+context. Both return `RunResult<TaskScopeOwner>`. Pass `scope.handle()` through a
 typed call as `kagari_runtime::task::value::TaskScope`. Script `scope.spawn(factory)`
 admits without executing the factory. Shared scheduling automatically retires terminal
 admission slots; retained script Task handles still cache their result for multiple
-awaits. `take_task_event` returns bounded failure diagnostics (including failures
-observed by script waiters) and an explicit suppressed count on overflow.
+awaits. `take_task_event(&self) -> Option<TaskEvent>` returns bounded diagnostics
+from `kagari_runtime::scheduler::tasks`: `Failed(Box<TaskFailureEvent>)` holds task,
+scope, origin and failure; `Suppressed { count: u64 }` follows buffered failures on
+overflow. Script-observed failures are included; successful outputs (including business
+Err) are not. Ignoring events does not hold admission capacity.
 `TaskScopeOwner::close`/drop requests cancellation; Runtime polling or close acknowledges
 cleanup. Keeping a capability or dropping a script Task does not change owner lifetime.
 
-Use `object_type`, `field`, `method`, `associated_function`, `get`, `set` and
-`call_method` for retained structs. Future-returning members use `async_method`,
-`async_associated_function`, `call_async_method` or `submit_async_method`. An existing
-script-provided `Interface` uses explicitly named `interface_method`,
-`call_interface_method` and their async/submit forms. Access and call context overrides
-preserve cancellation, observers and backend-policy checks. There is no arbitrary
-Object-to-trait cast, implicit specialization or latest-version handle. Concrete
+For retained objects and interfaces, binding uses `&self`; access/invocation uses
+`&mut self`:
+
+| Binding | Access or invocation |
+| --- | --- |
+| `object_type(&module, name)` | Resolve a public nongeneric `ObjectType`; retained Objects also supply applied generic descriptors |
+| `field::<T>(&ObjectType, name)` | `get(&object, &field)` / `set(&object, &field, value)` |
+| `method::<A, R>(&impl InherentType, name)` | `call_method(&object, &method, arguments)` |
+| `associated_function::<A, R>(&impl InherentType, name)` | `call(&function, arguments)` |
+| `async_method::<A, R>(&impl InherentType, name)` | `call_async_method` / `submit_async_method` with object, method and arguments |
+| `async_associated_function::<A, R>(&impl InherentType, name)` | `call_async` / `submit_async` with function and arguments |
+| `interface_method::<A, R>(&interface, name)` | `call_interface_method(&interface, &method, arguments)` |
+| `async_interface_method::<A, R>(&interface, name)` | `call_async_interface_method` / `submit_async_interface_method` with interface, method and arguments |
+
+Callable/member binding uses the same A/R bounds as function binding; field binding
+requires `T: KagariType + 'static`. Field get requires `FromKagari`, set requires
+`IntoKagari`. Method invocation uses the same synchronous/async conversion bounds
+as free calls. Interface binding requires an existing script-provided `Interface`,
+not an arbitrary Object. Every access/invocation operation above has a
+`_with_context` variant with final `&ExecutionContext`, preserving cancellation,
+deterministic inputs, recording, observers and backend-policy checks. There is no
+arbitrary Object-to-trait cast, implicit specialization or latest-version handle. Concrete
 member instantiations must already have checked executable evidence in the program.
 The [host_objects example](../../crates/kagari/examples/host_objects.rs) executes
 binding, object round trips, direct await, submission and pinned reload.
 
-The async driver requires `JitPolicy::Disabled`. Native preparation rejects resume
-bodies before compilation. Synchronous execution/reentry never drives a suspendable
+Typed interpreter calls/accessors, async admission and scope creation require
+`JitPolicy::Disabled`; native execution retains its explicit preparation and
+`execute_prepared` path. Native preparation rejects resume bodies before compilation. Synchronous execution/reentry never drives a suspendable
 body, even when its operation could complete immediately. Native producers registered
 using `Async<A>` remain cold until await, receive owned inputs/completion endpoints,
 and convert completion data on the driver. Native calls remain cooperative and may

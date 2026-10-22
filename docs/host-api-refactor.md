@@ -11,15 +11,13 @@ The object model and latest-version function handles are the proposed design to
 review at activation. This document authorizes neither implementation nor commits.
 Existing specifications remain authoritative until implementation updates them.
 
-The [async Runtime execution plan](async-runtime-plan.md) now owns the bounded
-synchronous/async invocation and object-interaction facade, wake/poll integration
-and internal script-task scheduling work. Its [API proposal](async-runtime-plan.md#public-invocation-and-object-api-proposal)
-includes reusable function/member bindings, struct/trait calls and retained object
-access. AR01 reviews and freezes those signatures; AR05 implements the agreed facade.
-The initial proposed foundation is existing pinned handles, not the logical
-latest-version Function model below.
-This plan retains preparation/loading and logical latest-version entry proposals;
-those broader migrations are not prerequisites automatically activated by AR01-AR06.
+The synchronous/async invocation and object-interaction facade is implemented in
+SDK Runtime. The [embedding contract](spec/embedding-api.md#typed-async-calls-scheduling-and-native-waits)
+owns driving Call, submitted PendingCall, runtime wake/poll integration and managed
+scope scheduling. Reusable function/member bindings and retained object access use
+pinned generations, not the logical latest-version Function model below. This plan
+retains preparation/loading and logical latest-version entry proposals only; do not
+reimplement the completed invocation/object facade when activating those proposals.
 
 The later [runtime ownership and host object design](runtime-ownership-and-host-api-design.md)
 owns automatic roots, common typed calls/conversion, object access and the Send
@@ -47,18 +45,19 @@ DTO derives, Serde and runtime-owned opaque access/extraction.
 The [roadmap](implementation-roadmap.md) owns activation and scheduling.
 
 This track retains preparation/loading workflows and proposed reload-aware logical
-entry handles. Its argument convention is reused by the invocation/object facade
-now owned by AR01-AR06; do not implement a parallel call surface here. GO owns common conversion/retention and
+entry handles. Its argument convention is implemented by the current invocation/
+object facade; do not implement a parallel call surface here. The ownership contract
+owns common conversion/retention and
 object APIs; Rust interop owns DTO/Serde/opaque extensions; execution policy owns
 resource semantics; native providers own linked invocation. Reuse those
 implementations and contracts.
 
 The implemented [async execution](async-execution-design.md) and
 [host task scope](host-task-scope-design.md) contracts own current task lifetimes,
-suspension and scheduling boundaries. The [async Runtime plan](async-runtime-plan.md)
-extends these with async blocks, structured composition and the ordinary invocation
-surface while reusing current loading, type and version guarantees. Keep this
-plan's remaining facade scope separate from that execution work.
+suspension and scheduling boundaries, including async blocks and structured pair
+composition. The implemented invocation surface reuses current loading, type and
+version guarantees. Keep this plan's remaining facade scope separate from those
+existing execution contracts.
 
 ## Current API inventory
 
@@ -69,17 +68,17 @@ behavior at activation; it is not a current build report or the proposed facade.
 | --- | --- |
 | Source preparation | [Engine source APIs](../crates/kagari/src/engine/source.rs) expose source mutation, overlays, analysis queries, `CheckedModule`, artifact emission and `compile_to_artifact` |
 | Program preparation | [PreparedProgram](../crates/kagari/src/program/mod.rs) validates artifacts/native input before loading; it uses `Rc` and an interior-mutable native cache, not a thread-transferable public program |
-| Runtime facade | [KagariRuntime](../crates/kagari/src/runtime.rs) exposes registration, load/reload, raw runtime access and `execute`/`execute_prepared`; both execution methods reject nonempty argument slices |
-| Call configuration | [ExecutionContext](../crates/kagari/src/context.rs) combines language/authority, resources, host exposure, JIT, tracing, deterministic inputs and panic policy; some JIT modes are declared but rejected by ordinary execution |
+| Runtime facade | [Runtime](../crates/kagari/src/runtime.rs) exposes typed bindings/calls, retained object/member operations, driving/submitted async calls, managed scopes and poll/close; low-level `execute`/`execute_prepared` remain zero-argument backend entry wrappers |
+| Call configuration | [ExecutionContext](../crates/kagari/src/context.rs) combines cancellation, JIT policy, tracing, deterministic inputs and panic policy; some JIT modes are declared but rejected by ordinary execution |
 | Native preparation | [Native APIs](../crates/kagari/src/program/native.rs) expose backend preparation and runtime installation separately from ordinary execution |
 | Errors | [Embedding errors](../crates/kagari/src/error.rs) classify several stages, while preparation and registration also return other error types |
 | Reload | [Runtime loading](../crates/kagari-runtime/src/loading.rs) stages, validates and publishes candidates; the SDK returns a new version-bound `LoadedModule`, not a stable latest-version logical entry |
 
-The common workflow exposes `CheckedModule`, artifact construction,
-`PreparedProgram::from_artifact`, `LoadedModule`, raw `Value` and `ExecutionReport`.
-Some compilation steps are already combined; the problem is their presence in the
-normal embedding workflow, not the existence of separate internal phases. An
-in-memory artifact object is not necessarily a serialized byte round trip.
+Preparation/loading still expose `CheckedModule`, `PreparedProgram` and
+`LoadedModule`. Direct source preparation already combines common steps; ordinary
+typed invocation no longer requires raw `Value` or `ExecutionReport`. Review the
+remaining preparation/loading workflow independently of completed call ergonomics.
+An in-memory artifact object is not necessarily a serialized byte round trip.
 
 The [module activation contract](spec/module-activation.md) already guarantees
 validation before publication, no implicit execution on load, candidate isolation
@@ -326,8 +325,9 @@ Place options at the lifetime where they belong:
 
 Normal calls use runtime defaults. A `call_with` variant may take focused
 `CallOptions`; it must distinguish an absent override from an explicit setting.
-Do not recreate ExecutionContext's per-call permission/JIT/host-exposure bundle or
-reset nested call-depth/cancellation state. Preserve installation-based access;
+Reuse current ExecutionContext overrides unless a narrower replacement is explicitly
+approved. Do not add per-call permission/host-exposure matrices or reset nested
+call-depth/cancellation state. Preserve installation-based access;
 host services own admission and deadlines, without generic runtime work quotas.
 
 Interpreter and native execution use one call surface and identical boundary
@@ -351,19 +351,20 @@ completed script/host effects. A host panic policy must have implemented behavio
 it cannot promise recovery from aborts or leave a corrupted runtime executable.
 Reporting/statistics are optional and must not require precise hot-path charging.
 
-## Tooling and future asynchronous calls
+## Tooling and existing asynchronous calls
 
 Move source editing, overlays and semantic queries behind a cohesive tooling
 surface rather than making them prerequisites for loading a script. Preserve query
 snapshot ownership and diagnostics; do not delete valuable analysis APIs merely to
 make the ordinary facade small. Backend and tooling APIs retain their feature gates.
 
-Future async entry points reuse Script/Function identity, outer-tuple arguments,
-conversion and root version rules. They create scope-owned executions through the
-async design, not a second loader or a second host interface catalog. Synchronous
-`call` must not block the Actor thread waiting for external RPC; reject incompatible
-async entry usage before starting it. Async admission establishes version ownership
-according to the async task contract; later polls/resumes cannot switch generations.
+Any proposed logical Script/Function identity must integrate with the existing
+`call_async`/`submit_async` facade, outer-tuple arguments, conversion and pinned
+invocation rules. Reuse the shared scheduler, not a second loader or host interface
+catalog. Synchronous `call` does not drive suspendable bodies; external waits use
+async calls. Admission pins the selected generation, so later polls/resumes cannot
+switch generations. Invocation ownership remains distinct from independent
+scope-owned Tasks.
 
 No Tokio dependency is introduced in the core SDK by this facade plan. GO owns the
 Send runtime and callback/payload transfer requirements; it does not require Sync
@@ -373,7 +374,8 @@ validated completion data; only the owning scheduler drives script execution.
 ## Implementation phases
 
 All phases are unstarted. Re-audit predecessor APIs before choosing changes and
-reuse accepted GO typed call/root contracts rather than rebuilding them.
+reuse implemented typed call/root and async scheduling contracts rather than
+rebuilding them. Only preparation/loading and logical-entry changes are queued here.
 
 - [ ] HA00: Confirm latest-version entry policy, public compatibility rules,
   handle lifetimes, tuple arity, configuration precedence, error/panic behavior and
@@ -381,9 +383,10 @@ reuse accepted GO typed call/root contracts rather than rebuilding them.
 - [ ] HA01: Introduce the cohesive Engine/Program preparation surface and shared
   binding descriptors. Separate normal sources from tooling snapshots; retain
   artifact-only support and verification without mandatory serialization round trips.
-- [ ] HA02: Introduce runtime-owned Script/Function identities, ordinary loading and
-  IntoArgs-based typed calls using RI conversions. Implement nonempty arguments,
-  preflight signature checks, rooted outputs and focused call options.
+- [ ] HA02: Introduce runtime-owned Script/Function identities and ordinary loading.
+  Adapt logical entries to existing typed calls, nonempty tuple arguments, preflight
+  signature checks, rooted outputs and context overrides; do not add a parallel
+  argument-conversion or invocation surface.
 - [ ] HA03: Integrate UP's compatible publication through stable logical handles and
   generation-aware entry caching. Preserve staged validation, candidate cleanup,
   dependency pinning and reentry; keep state replacement a separate lifecycle API.
@@ -391,7 +394,8 @@ reuse accepted GO typed call/root contracts rather than rebuilding them.
   API boundaries, and migrate SDK examples, CLI and embedding consumers. Remove
   superseded public wrappers rather than keeping compatibility-only duplicates.
 - [ ] HA05: Update embedding, loading, activation and execution specifications and
-  cross-check queued async/interop designs. Run final feature/behavior acceptance.
+  cross-check implemented async/interop contracts. Run scoped local acceptance;
+    complete feature/backend matrices remain CI-only.
 
 HA does not repeat RI's converter/derive work or EP's permission/budget migration.
 Any new generic execution capability belongs in its actual owning layer, not in an

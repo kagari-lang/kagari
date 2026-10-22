@@ -435,7 +435,7 @@ This order keeps the interpreter as the semantic foundation while preserving JIT
 
 ## Owned interpreter driving
 
-The VM exposes `start` and `drive` for verified script entries, including native-wait
+The backend VM exposes `start` and `drive` for verified script entries, including native-wait
 resume bodies. Start validates and retains arguments without executing script. An `OwnedExecution` token contains
 a checked session identity and retirement/cancellation notification state, not a
 Runtime borrow. `drive` borrows the runtime for one exclusive activation and returns
@@ -508,9 +508,11 @@ is published for failed work, and this is not per-scalar-instruction phase track
 
 ## Owned async execution
 
-Source async callables, Future/Task waits, script spawn and host scope driving are implemented
-below. Lifecycle, reload, cancellation and diagnostic integration have focused
-local acceptance; full GitHub CI status is recorded separately in the roadmap. The
+Source async functions, closures and blocks, Future/Task waits, structured composition
+and host scope scheduling share the runtime-owned interpreter. Async blocks directly
+create cold one-shot Futures with closure capture rules and a private resume body;
+`return`/`?` target that body and loop control cannot cross it. No construct implicitly
+flattens nested Future outputs. The
 [async executable contracts](../async-execution-design.md#executable-contracts)
 define the checked handoff.
 
@@ -521,6 +523,26 @@ structured composition parks that execution and admits internal branch execution
 Task await waits for a scope-owned execution. Live cursor values remain in parked frames,
 so ordinary for bodies can await without retaining collection borrows.
 Rust borrows, mutation guards and synchronous reentry cannot cross suspension.
+
+### Runtime scheduling
+
+The SDK's `call_async` returns an exclusive borrowing `Call` whose poll drives the
+shared bounded scheduler. `submit_async` returns a nonborrowing `PendingCall` whose
+poll only receives results; the host must drive `Runtime::poll`. Both admit cold
+invocations without running the factory and convert results in the original pinned
+session before publishing them after cleanup. The scheduler also advances managed
+scope Tasks and structured branches, without another interpreter or background thread.
+
+An open idle Runtime polls Pending. `Runtime::close` synchronously stops admission
+and retires local owners; clean closure polls Ready(Ok(())). Fatal cleanup faults
+quarantine and drain remaining work. Dropping an unfinished Call synchronously retires
+its invocation and structured descendants. Dropping/cancelling a PendingCall requests
+cancellation for Runtime polling, close or destruction to finish. Independent scope
+Tasks remain scope-owned. Managed Tasks retire admission records automatically;
+bounded failure events do not retain successful outputs or gate slot reuse.
+See [SDK calls and scheduling](embedding-api.md#typed-async-calls-scheduling-and-native-waits)
+for exact API, context, Waker and scope contracts. Backend owner-token driving above
+remains distinct from this facade.
 
 ### Structured two-input composition
 
@@ -592,7 +614,7 @@ reuse, preserving a location if any logical alias is live. Dead managed slots ar
 discarded before the runtime resource check so unused values cannot falsely prevent
 suspension or retain heap objects. The foundation publishes `core::future::Future<T>`
 and `core::task::Task<T>`/`TaskScope`,
-and the SDK exposes this driver with or without source/native features. Each owned
+and the typed SDK facade uses this driver with or without source/native features. Each owned
 execution has its own cancellation token. Cancelling the owner terminates only that
 execution; the host-supplied context token forwards cancellation to all executions
 started with it, without receiving local cancellation requests back.
