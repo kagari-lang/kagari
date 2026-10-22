@@ -695,6 +695,35 @@ finite subset documented in the embedding guide. [Call preparation costs](review
 remain a bounded follow-up with no speedup claim; NC and the Host API facade
 remain independently queued.
 
+## Async blocks, structured concurrency and Runtime API
+
+The [AR01-AR06 execution plan](async-runtime-plan.md) is active; the user authorized
+implementation with one commit per completed phase. AR01 design closure is complete;
+AR02 async-block implementation is next. Its finite scope is
+script `async { ... }` expressions, cold-Future `join`/`try_join` composition and a
+Runtime facade with direct synchronous calls, Rust-awaitable async calls and
+internal script-task scheduling. API planning also covers reusable function/member
+handles, struct/trait calls and retained object access/round trips; proposed signatures
+remain under AR01 review. Named async functions, async closures, owned executions,
+typed bindings, object retention and completion transport are foundations to reuse.
+
+Runtime executes single-threadedly. call_async returns a Call borrowing Runtime
+exclusively and driving it during await; no separate pump is required. submit_async
+returns a non-borrowing, result-only PendingCall for optional interleaving with
+host-driven runtime polling. Both share registration and one execution scheduler.
+Call drop must clean up locally without an external pump; ticket drop requests
+cancellation through the driver. Independent scope Tasks retain their lifetime and
+can progress through external driving after root-call return. AR01 fixes Send output delivery, wake handoff, guarded local cleanup, bounded failure
+reports, synchronous close and two internal owned executions per structured group.
+Runtime remains the main public execution object; no public Driver or mandatory
+Tokio/Actor dependency is required. The plan owns the invocation/object-interaction
+portion of the queued Host API work, not its entire loading/latest-version facade.
+The API proposal starts from existing pinned handles; automatic latest-version
+entries and new update compatibility policy are not silently activated.
+Native async execution, Rust async-closure registration and wider combinators are
+out of scope. Local implementation acceptance uses focused boundary tests and the
+required lightweight checks/workspace Clippy; exhaustive matrices remain CI-only.
+
 ## Other queued designs
 
 These are proposals, not active execution plans. Activation and exact sequencing
@@ -702,7 +731,7 @@ require a concrete task; implemented foundations are not prerequisites to replay
 
 | Track | Scope and dependencies |
 | --- | --- |
-| [Host API](host-api-refactor.md) | Preparation/load/reload facade and logical entry policy; reuse typed calls/roots. Freeze affected package/update contracts before dependent phases. |
+| [Host API](host-api-refactor.md) | Preparation/load/reload facade and logical entry policy; reuse typed calls/roots. The [async Runtime plan](async-runtime-plan.md) owns the bounded invocation/object-interaction surface. Freeze affected package/update contracts before dependent phases. |
 | [Update model](update-model-design.md) | Compatible publication versus explicit state replacement; depends on the affected identity, value and host facade contracts. |
 | [Interactive debugger](debugger-design.md) | Confirmed synchronous waiting at safe debug points, preserving the executing host thread's Rust call chain. Pause control, inspection lifecycle and SDK/DAP integration are queued and unstarted; no whole-execution continuation migration or automatic process-wide freeze. Lifecycle defaults and CLI spellings remain proposals. |
 

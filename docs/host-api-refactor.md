@@ -11,6 +11,16 @@ The object model and latest-version function handles are the proposed design to
 review at activation. This document authorizes neither implementation nor commits.
 Existing specifications remain authoritative until implementation updates them.
 
+The [async Runtime execution plan](async-runtime-plan.md) now owns the bounded
+synchronous/async invocation and object-interaction facade, wake/poll integration
+and internal script-task scheduling work. Its [API proposal](async-runtime-plan.md#public-invocation-and-object-api-proposal)
+includes reusable function/member bindings, struct/trait calls and retained object
+access. AR01 reviews and freezes those signatures; AR05 implements the agreed facade.
+The initial proposed foundation is existing pinned handles, not the logical
+latest-version Function model below.
+This plan retains preparation/loading and logical latest-version entry proposals;
+those broader migrations are not prerequisites automatically activated by AR01-AR06.
+
 The later [runtime ownership and host object design](runtime-ownership-and-host-api-design.md)
 owns automatic roots, common typed calls/conversion, object access and the Send
 runtime contract. HA consumes that foundation. Its Function below remains a
@@ -36,17 +46,19 @@ conversion/root/call contracts; [Rust interoperability](spec/embedding-api.md#ty
 DTO derives, Serde and runtime-owned opaque access/extraction.
 The [roadmap](implementation-roadmap.md) owns activation and scheduling.
 
-This track owns the coherent host-facing facade, default workflows, call argument
-adapter and reload-aware entry handles. GO owns common conversion/retention and
+This track retains preparation/loading workflows and proposed reload-aware logical
+entry handles. Its argument convention is reused by the invocation/object facade
+now owned by AR01-AR06; do not implement a parallel call surface here. GO owns common conversion/retention and
 object APIs; Rust interop owns DTO/Serde/opaque extensions; execution policy owns
 resource semantics; native providers own linked invocation. Reuse those
 implementations and contracts.
 
-Synchronous acceptance does not require implementing async. The
-[async execution](async-execution-design.md) and [host task scope](host-task-scope-design.md)
-proposals remain responsible for task ownership, suspension and scheduling. They
-must reuse the final loading, type and version model when integrated. This plan does
-not silently add another prerequisite to their already queued execution order.
+The implemented [async execution](async-execution-design.md) and
+[host task scope](host-task-scope-design.md) contracts own current task lifetimes,
+suspension and scheduling boundaries. The [async Runtime plan](async-runtime-plan.md)
+extends these with async blocks, structured composition and the ordinary invocation
+surface while reusing current loading, type and version guarantees. Keep this
+plan's remaining facade scope separate from that execution work.
 
 ## Current API inventory
 
