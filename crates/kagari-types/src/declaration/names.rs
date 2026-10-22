@@ -18,9 +18,10 @@ impl NameNamespace {
             | DefinitionKind::Enum
             | DefinitionKind::Trait
             | DefinitionKind::AssociatedType => Some(Self::Type),
-            DefinitionKind::Function | DefinitionKind::Const | DefinitionKind::Variant => {
-                Some(Self::Value)
-            }
+            DefinitionKind::Function
+            | DefinitionKind::Const
+            | DefinitionKind::Static
+            | DefinitionKind::Variant => Some(Self::Value),
             _ => None,
         }
     }

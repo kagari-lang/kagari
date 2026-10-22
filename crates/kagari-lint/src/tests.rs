@@ -117,6 +117,39 @@ fn naming_rules_cover_declarations_and_preserve_trait_contracts() {
 }
 
 #[test]
+fn static_initializers_use_eligible_body_facts_and_declaration_policy() {
+    let (_, _, snapshot, root) = analyze(
+        &[(
+            "root",
+            r#"
+            static var bad_global: i32 = { var BadLocal = 1; val unused = 2; BadLocal };
+            #[tool::allow("non_upper_case_globals", "unused_binding", "unnecessary_var")]
+            static val quiet_global: i32 = { var unused = 2; 3 };
+        "#,
+        )],
+        100,
+    );
+    snapshot.check_program(root, &Default::default()).unwrap();
+    let records = findings(&snapshot, root, &Policy::default());
+    assert_eq!(codes(&records, "non_upper_case_globals"), 1, "{records:?}");
+    assert_eq!(codes(&records, "non_snake_case"), 1, "{records:?}");
+    assert_eq!(codes(&records, "unused_binding"), 1, "{records:?}");
+    assert_eq!(codes(&records, "unnecessary_var"), 1, "{records:?}");
+    assert_eq!(codes(&records, "KG_LINT_POLICY"), 0, "{records:?}");
+
+    let (_, _, snapshot, root) = analyze(
+        &[(
+            "root",
+            "static val BROKEN: i32 = { val unused = 1; true }; static val HEALTHY: i32 = { val unused = 2; 3 };",
+        )],
+        100,
+    );
+    assert!(snapshot.check_program(root, &Default::default()).is_err());
+    let records = findings(&snapshot, root, &Policy::default());
+    assert_eq!(codes(&records, "unused_binding"), 1, "{records:?}");
+}
+
+#[test]
 fn partial_facts_and_truncation_do_not_authorize_semantic_rules() {
     for limit in [0, 1, 100] {
         for (broken, expected) in [

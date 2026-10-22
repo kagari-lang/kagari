@@ -30,6 +30,11 @@ impl<'a> Parser<'a> {
         self.bump_trivia();
         while !self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) {
             match self.current_kind() {
+                Some(TokenKind::StaticKw | TokenKind::Hash | TokenKind::PubKw)
+                    if self.attributed_item_kind() == Some(TokenKind::StaticKw) =>
+                {
+                    self.reject_static()
+                }
                 Some(TokenKind::FnKw) => self.parse_function(),
                 Some(TokenKind::AsyncKw) if self.nth_nontrivia_kind(1) == Some(TokenKind::FnKw) => {
                     self.parse_function()

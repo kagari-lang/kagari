@@ -1,6 +1,9 @@
 //! Constant declarations and their semantic owners.
 
-use crate::hir::ids::{ConstId, ExprId, ImplId, TraitId, TypeRefId};
+use crate::hir::{
+    ids::{ConstId, ExprId, ImplId, StaticId, TraitId, TypeRefId},
+    writeability::Writeability,
+};
 use kagari_types::visibility::Visibility;
 
 /// A constant definition stored in Module.consts, with an expression initializer.
@@ -56,3 +59,30 @@ pub enum ConstOwner {
 
 /// Ordered `Vec<ConstItem>` storage for the owning declaration records.
 pub type ConstBuffer = Vec<ConstItem>;
+
+/// A module-owned runtime cell declaration, not a compile-time constant.
+///
+/// `pub static var count: i64 = seed();` produces a public `StaticItem` named
+/// `count`, with `Writeability::Var`, an annotation type reference and a call
+/// expression initializer. Both nodes carry `BodyOwner::Static(id)`; `id` indexes
+/// `Module.statics`. Missing annotations remain `None`, and missing initializers
+/// become `ExprKind::Missing` for recoverable checking. Type checking never
+/// executes this initializer or publishes a constant value for the declaration.
+#[derive(Debug, Clone)]
+pub struct StaticItem {
+    /// Slot in `Module.statics` within this lowering.
+    pub id: StaticId,
+    /// Declared visibility, including through imports.
+    pub visibility: Visibility,
+    /// Static name as written.
+    pub name: String,
+    /// Whether ordinary assignment may rebind the cell; `val` is shallow.
+    pub writeability: Writeability,
+    /// Required explicit closed annotation, absent only during recovery.
+    pub ty: Option<TypeRefId>,
+    /// Runtime initializer expression, possibly a recovery placeholder.
+    pub initializer: ExprId,
+}
+
+/// Ordered runtime cell declarations owned by a module.
+pub type StaticBuffer = Vec<StaticItem>;

@@ -1,6 +1,9 @@
 //! HIR-owned evidence for optional semantic consumers of recoverable snapshots.
 
-use crate::{analysis::FileAnalysis, hir::ids::FunctionId};
+use crate::{
+    analysis::FileAnalysis,
+    hir::ids::{FunctionId, StaticId},
+};
 
 /// Whether a body's bindings and types completed under a valid shared environment.
 /// This evidence is independent of the retained diagnostic count. It does not
@@ -15,6 +18,22 @@ impl FileAnalysis {
     /// Whether shared parser/declaration/signature inputs are valid for naming queries.
     pub fn declarations_eligible(&self) -> bool {
         self.shared_valid
+    }
+
+    /// Queries a runtime initializer from this file's lowering, independently of diagnostic truncation.
+    pub fn static_initializer_eligibility(&self, id: StaticId) -> BodyEligibility {
+        if self.shared_valid
+            && self
+                .result()
+                .facts()
+                .typed
+                .valid_static_initializers
+                .contains(&id)
+        {
+            BodyEligibility::Complete
+        } else {
+            BodyEligibility::Unavailable
+        }
     }
 
     /// Queries a function ID from this file's lowering; absent/bodyless IDs fail.

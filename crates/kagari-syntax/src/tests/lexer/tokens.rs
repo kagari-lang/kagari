@@ -221,8 +221,8 @@ fn lexes_array_and_tuple_tokens() {
 }
 
 #[test]
-fn lexes_unreserved_words_as_identifiers() {
-    let source = common::source("let static mut ref dyn");
+fn lexes_static_keyword_and_unreserved_words() {
+    let source = common::source("let static mut ref dyn static_value");
     let tokens = lex(source.text());
     let kinds: Vec<_> = tokens.into_iter().map(|token| token.kind).collect();
 
@@ -230,6 +230,8 @@ fn lexes_unreserved_words_as_identifiers() {
         kinds,
         vec![
             TokenKind::Ident,
+            TokenKind::Whitespace,
+            TokenKind::StaticKw,
             TokenKind::Whitespace,
             TokenKind::Ident,
             TokenKind::Whitespace,

@@ -69,15 +69,3 @@ fn parses_public_const_item() {
     );
     assert!(const_def.initializer().is_some());
 }
-
-#[test]
-fn rejects_script_static_item() {
-    let parse = common::parse("pub static mut COUNTER: i32 = 0;");
-
-    assert_eq!(
-        parse.diagnostics()[0].severity,
-        Severity::Error,
-        "expected an error, got {:?}",
-        parse.diagnostics()
-    );
-}

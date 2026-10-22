@@ -13,6 +13,7 @@ use crate::{
     imports::{
         ModuleGraph,
         functions::{FunctionCatalog, ImportedFunctions},
+        statics::ImportedStatics,
         types::TypeCatalog,
     },
     typeck::ModuleSignatures,
@@ -124,6 +125,11 @@ impl SignatureSnapshot {
     ) -> Result<HashMap<FileId, BodyEnvironment>, AnalysisError> {
         cancel.check()?;
         let catalog = FunctionCatalog::new(self.files.values().map(|file| &file.prepared));
+        let modules = self
+            .files
+            .values()
+            .map(|file| (file.source().id(), &file.prepared))
+            .collect();
         let aggregates = &self.aggregates;
         let mut result = HashMap::new();
         for (id, file) in self.files.iter() {
@@ -139,6 +145,11 @@ impl SignatureSnapshot {
             result.insert(
                 *id,
                 BodyEnvironment {
+                    imported_statics: ImportedStatics::bindings(
+                        &modules,
+                        &file.prepared.names.facts,
+                        cancel,
+                    )?,
                     imported_functions,
                     aggregates,
                 },
@@ -170,9 +181,11 @@ impl SignatureSnapshot {
 
 /// Semantic dependencies required to check one file's bodies.
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct BodyEnvironment {
+pub(crate) struct BodyEnvironment {
     /// Callable signatures selected by the file's imports, including inherent methods.
     pub imported_functions: ImportedFunctions,
+    /// Runtime static types and rebinding permissions selected by imports.
+    pub imported_statics: ImportedStatics,
     /// Aggregate and implementation contracts visible to this file.
     pub aggregates: AggregateCatalog,
 }
@@ -319,6 +332,7 @@ impl RemapDefinitions for BodyEnvironment {
     ) -> Result<Self, DefinitionMappingError> {
         Ok(BodyEnvironment {
             imported_functions: self.imported_functions.remap_definitions(mapper)?,
+            imported_statics: self.imported_statics.remap_definitions(mapper)?,
             aggregates: self.aggregates.remap_definitions(mapper)?,
         })
     }
@@ -332,6 +346,7 @@ impl DefinitionReferences for BodyEnvironment {
     ) -> Result<(), DefinitionMappingError> {
         self.imported_functions
             .visit_definition_ids(visit, cancel)?;
+        self.imported_statics.visit_definition_ids(visit, cancel)?;
         self.aggregates.visit_definition_ids(visit, cancel)
     }
 }

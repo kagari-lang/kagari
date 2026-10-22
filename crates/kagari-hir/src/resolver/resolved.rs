@@ -5,7 +5,7 @@ use crate::{
     hir::{
         ids::{
             BodyOwner, ConstId, EnumId, ExprId, FunctionId, HirOwner, LocalId, ModuleId,
-            OpaqueTypeId, ParamId, PatternId, PlaceId, StructId, TraitId,
+            OpaqueTypeId, ParamId, PatternId, PlaceId, StaticId, StructId, TraitId,
         },
         item::Module,
         pattern::PatternKind,
@@ -61,6 +61,8 @@ pub enum ResolvedName {
     Function(FunctionId),
     /// A local constant slot.
     Const(ConstId),
+    /// A module-owned runtime static slot; never a closure capture.
+    Static(StaticId),
     /// A parameter in the current body's function.
     Param(ParamId),
     /// A local binding in the current body.

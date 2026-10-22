@@ -19,6 +19,12 @@ use crate::{
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use std::collections::HashSet;
 
+#[derive(Clone, Copy)]
+enum InferenceRoot {
+    Block(BlockId),
+    Initializer(ExprId),
+}
+
 impl BodyChecker<'_> {
     pub(super) fn prepare_call_type_arguments(&mut self, site: ExprId, env: &BodyTypeEnv) {
         if env.exprs.contains_key(&site) {
@@ -294,6 +300,37 @@ impl BodyChecker<'_> {
         env: &mut BodyTypeEnv,
         expected: Option<&TypeId>,
     ) -> TypeId {
+        self.solve_root(InferenceRoot::Block(block), env, expected)
+    }
+
+    /// Checks a runtime initializer with the same inference/finalization as a function body.
+    pub(crate) fn solve_initializer(
+        &mut self,
+        expr: ExprId,
+        env: &mut BodyTypeEnv,
+        expected: Option<&TypeId>,
+    ) -> TypeId {
+        self.solve_root(InferenceRoot::Initializer(expr), env, expected)
+    }
+
+    fn infer_root(
+        &mut self,
+        root: InferenceRoot,
+        env: &mut BodyTypeEnv,
+        expected: Option<&TypeId>,
+    ) -> TypeId {
+        match root {
+            InferenceRoot::Block(block) => self.infer_block_types_expected(block, env, expected),
+            InferenceRoot::Initializer(expr) => self.infer_expr_with_coercion(expr, env, expected),
+        }
+    }
+
+    fn solve_root(
+        &mut self,
+        root: InferenceRoot,
+        env: &mut BodyTypeEnv,
+        expected: Option<&TypeId>,
+    ) -> TypeId {
         let initial_env = env.clone();
         let initial_table = self.type_table.clone();
         let diagnostic_start = self.diagnostics.len();
@@ -310,7 +347,7 @@ impl BodyChecker<'_> {
             *self.type_table = initial_table.clone();
             self.diagnostics.truncate(diagnostic_start);
             self.propagation_defaults.clear();
-            self.infer_block_types_expected(block, env, expected);
+            self.infer_root(root, env, expected);
             if self.solver.revision == revision {
                 if self.solver.apply_numeric_defaults() {
                     continue;
@@ -343,7 +380,7 @@ impl BodyChecker<'_> {
                     limit: MAX_ROUNDS,
                 }));
         }
-        let result = self.infer_block_types_expected(block, env, expected);
+        let result = self.infer_root(root, env, expected);
         self.type_table.inference_holes.clear();
         result
     }

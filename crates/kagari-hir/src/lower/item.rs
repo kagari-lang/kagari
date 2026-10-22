@@ -17,7 +17,7 @@ use crate::{
             },
             function::{Function, FunctionKind, Param},
             module::{Import, ImportLeaf, ModuleDecl},
-            storage::{ConstItem, ConstOwner},
+            storage::{ConstItem, ConstOwner, StaticItem},
         },
         ty::{TypeData, TypeKind},
         writeability::Writeability,
@@ -27,7 +27,7 @@ use crate::{
 use kagari_syntax::ast::{
     item::{
         AssociatedType as AstAssociatedType, ConstDef, EnumDef, FnDef, ImplBlock, Item as AstItem,
-        MethodDef, ModuleDef, StructDef, TraitDef as AstTraitDef, UseDecl, UseTree,
+        MethodDef, ModuleDef, StaticDef, StructDef, TraitDef as AstTraitDef, UseDecl, UseTree,
         Visibility as AstVisibility,
     },
     misc::{GenericParamList, ParamList, TraitRef as AstTraitRef, WhereClause},
@@ -92,6 +92,11 @@ impl Lowerer {
                     let hir_const = self.lower_const(&const_def);
                     self.module.items.push(Item::Const(hir_const.id));
                     self.module.consts.push(hir_const);
+                }
+                AstItem::StaticDef(definition) => {
+                    let item = self.lower_static(&definition);
+                    self.module.items.push(Item::Static(item.id));
+                    self.module.statics.push(item);
                 }
                 AstItem::StructDef(struct_def) => {
                     let hir_struct = self.lower_struct(&struct_def);
@@ -610,6 +615,37 @@ impl Lowerer {
         };
         self.source_map.set_owner(previous_owner);
         result
+    }
+
+    fn lower_static(&mut self, definition: &StaticDef) -> StaticItem {
+        let id = self.source_map.push_static(syntax_span(definition));
+        if let Some(name) = definition.name() {
+            self.source_map
+                .insert_item_name(Item::Static(id), token_span(&name));
+        }
+        let previous_owner = self
+            .source_map
+            .set_owner(HirOwner::Body(BodyOwner::Static(id)));
+        let item = StaticItem {
+            id,
+            visibility: lower_visibility(definition.visibility()),
+            name: definition
+                .name()
+                .and_then(|name| name.text())
+                .unwrap_or_default(),
+            writeability: if definition.is_mutable() {
+                Writeability::Var
+            } else {
+                Writeability::Val
+            },
+            ty: definition.ty().map(|ty| self.lower_type(&ty)),
+            initializer: definition
+                .initializer()
+                .map(|expr| self.lower_expr(&expr))
+                .unwrap_or_else(|| self.missing_expr()),
+        };
+        self.source_map.set_owner(previous_owner);
+        item
     }
 
     fn lower_associated_const(&mut self, item: &ConstDef, owner: ConstOwner) -> AssociatedConst {

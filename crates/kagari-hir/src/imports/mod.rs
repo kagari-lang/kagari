@@ -1,8 +1,8 @@
 //! Immutable import syntax, scope bindings and qualified namespace identities.
 use crate::{
     hir::ids::{
-        ConstId, EnumId, FunctionId, HirArenaId, ModuleId, OpaqueTypeId, StructId, TraitId,
-        VariantId,
+        ConstId, EnumId, FunctionId, HirArenaId, ModuleId, OpaqueTypeId, StaticId, StructId,
+        TraitId, VariantId,
     },
     imports::bindings::{LookupOutcome, PerNamespace},
     lower::LoweredModule,
@@ -40,6 +40,7 @@ mod signature_tests;
 pub mod solver;
 #[cfg(test)]
 mod solver_tests;
+pub mod statics;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -93,6 +94,8 @@ pub enum SourceItem {
     Function(FunctionId),
     /// A local `ConstId` interpreted in the enclosing `SourceDeclRef.unit`.
     Const(ConstId),
+    /// A local `StaticId` interpreted in the enclosing `SourceDeclRef.unit`.
+    Static(StaticId),
     /// A local `StructId` interpreted in the enclosing `SourceDeclRef.unit`.
     Struct(StructId),
     /// A local `EnumId` interpreted in the enclosing `SourceDeclRef.unit`.
@@ -108,7 +111,9 @@ pub enum SourceItem {
 impl SourceItem {
     pub(crate) fn namespace(self) -> NameNamespace {
         match self {
-            Self::Function(_) | Self::Const(_) | Self::Variant(_) => NameNamespace::Value,
+            Self::Function(_) | Self::Const(_) | Self::Static(_) | Self::Variant(_) => {
+                NameNamespace::Value
+            }
             Self::Struct(_) | Self::Enum(_) | Self::OpaqueType(_) | Self::Trait(_) => {
                 NameNamespace::Type
             }
@@ -120,6 +125,7 @@ impl SourceItem {
         Some(match self {
             Self::Function(id) => ResolvedName::Function(id),
             Self::Const(id) => ResolvedName::Const(id),
+            Self::Static(id) => ResolvedName::Static(id),
             Self::Struct(id) => ResolvedName::Struct(id),
             Self::Enum(id) => ResolvedName::Enum(id),
             Self::OpaqueType(id) => ResolvedName::OpaqueType(id),

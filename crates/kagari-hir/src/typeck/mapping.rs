@@ -20,6 +20,12 @@ impl RemapDefinitions for ModuleSignatures {
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(ModuleSignatures {
+            statics: map_hash_entries(
+                self.statics.len(),
+                self.statics
+                    .iter()
+                    .map(|(key, value)| Ok((*key, value.remap_definitions(mapper)?))),
+            )?,
             type_bounds: map_hash_entries(
                 self.type_bounds.len(),
                 self.type_bounds.iter().map(|(key, value)| {
@@ -54,6 +60,9 @@ impl DefinitionReferences for ModuleSignatures {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
+        for ty in self.statics.values() {
+            ty.visit_definition_ids(visit, cancel)?;
+        }
         for (key0, value0) in &self.type_bounds {
             check_cancel(cancel)?;
             visit(key0)?;
@@ -79,7 +88,14 @@ impl RemapDefinitions for TypedModule {
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(TypedModule {
+            statics: map_hash_entries(
+                self.statics.len(),
+                self.statics
+                    .iter()
+                    .map(|(key, value)| Ok((*key, value.remap_definitions(mapper)?))),
+            )?,
             valid_bodies: self.valid_bodies.clone(),
+            valid_static_initializers: self.valid_static_initializers.clone(),
             checked_bodies: self.checked_bodies,
             reused_bodies: self.reused_bodies,
             functions: map_sequence(self.functions.as_slice(), |value| {
@@ -108,6 +124,9 @@ impl DefinitionReferences for TypedModule {
         check_cancel(cancel)?;
         for value0 in &self.functions {
             (value0).visit_definition_ids(visit, cancel)?;
+        }
+        for ty in self.statics.values() {
+            ty.visit_definition_ids(visit, cancel)?;
         }
         for value0 in self.consts.values() {
             (value0).visit_definition_ids(visit, cancel)?;

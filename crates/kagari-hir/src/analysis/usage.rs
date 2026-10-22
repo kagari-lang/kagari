@@ -48,6 +48,9 @@ impl FileAnalysis {
             HirOwner::Body(BodyOwner::Function(function)) => {
                 self.body_eligibility(function) == BodyEligibility::Complete
             }
+            HirOwner::Body(BodyOwner::Static(id)) => {
+                self.static_initializer_eligibility(id) == BodyEligibility::Complete
+            }
             _ => false,
         };
         let mut usage = HashMap::new();

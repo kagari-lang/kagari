@@ -365,6 +365,27 @@ explicit decisions; neither a session identity split nor type/layout-code separa
 is silently activated. Close only resolved R13 subfindings. Completed CS/AE contracts
 remain foundations, and BO04/IP12/CS timing gaps are not acceptance targets here.
 
+## Persistent module static
+
+The [persistent static execution plan](persistent-static-plan.md) is active against
+`b744f131`: the user authorized PS01-PS05 in order, with one commit per phase;
+PS01 is locally complete; PS02 is next. Push/deployment remain unauthorized.
+PS01 supports source checking and deliberately rejects executable lowering until
+PS03. Its 36 selected tests and required local checks passed; complete CI remains
+unrun. The task implements module-level `static val` and
+`static var` with runtime/installation-local cells shared across compatible code
+updates. Old calls, closures and waiting tasks retain their pinned code/dependencies;
+shared state is not a per-version snapshot. Generic associated statics are excluded.
+
+The plan owns synchronous first-access initialization, fixed initializer generation,
+failed-initialization behavior, typed cross-generation storage, candidate isolation,
+joint state/object/program GC and source-free/tooling acceptance. Its conservative
+first version rejects deletion/rename and incompatible schema changes; it does not
+implement state replacement, automatic migration, callback rebinding, disk recovery
+or general additive reload. Current module specifications remain unchanged until
+implementation. Coordinate overlapping frame/module changes with RL02/RL03 rather
+than running both migrations concurrently.
+
 ## Runtime storage redesign
 
 RS01-RS06 are locally complete as of 2026-10-16. Receiver-independent interface

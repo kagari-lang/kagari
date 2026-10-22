@@ -152,6 +152,8 @@ pub enum BodyOwner {
     Function(FunctionId),
     /// Nodes belonging to a constant initializer.
     Const(ConstId),
+    /// Nodes belonging to a runtime static initializer.
+    Static(StaticId),
 }
 
 /// Allocation context stored in qualified node IDs and matching vector rows.
@@ -185,6 +187,11 @@ id_newtype!(
     /// A lowering-local index identifying `Module.consts`.
     /// See the [identity families](crate::hir::ids) for allocation and validity rules.
     ConstId
+);
+id_newtype!(
+    /// A lowering-local index identifying `Module.statics`.
+    /// See the [identity families](crate::hir::ids) for allocation and validity rules.
+    StaticId
 );
 id_newtype!(
     /// A lowering-local index identifying `Module.traits`.

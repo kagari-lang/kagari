@@ -1,4 +1,4 @@
-use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
+use crate::source::lower::{MirLoweringError, state::FunctionLowerer, unsupported_static};
 use kagari_abi::representation::ValueType;
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::operations::{BinaryOp, UnaryOp};
@@ -145,6 +145,9 @@ impl FunctionLowerer<'_, '_> {
                 .get(&id)
                 .copied()
                 .ok_or(MirLoweringError::MissingBinding("local")),
+            ResolvedName::Static(id) => Err(unsupported_static(Some(
+                self.analyzed.lowered.source_map.static_span(id),
+            ))),
             ResolvedName::Const(_)
             | ResolvedName::Function(_)
             | ResolvedName::Module(_)
@@ -328,6 +331,9 @@ impl FunctionLowerer<'_, '_> {
                     .ok_or(MirLoweringError::MissingBinding("const value"))?;
                 Ok(self.lower_constant(lower_scalar(constant), self.expr_type(expr_id)?))
             }
+            ResolvedName::Static(id) => Err(unsupported_static(Some(
+                self.analyzed.lowered.source_map.static_span(id),
+            ))),
             ResolvedName::Function(_) => Err(MirLoweringError::UnsupportedExpr(
                 "bare function values are not lowered yet",
             )),

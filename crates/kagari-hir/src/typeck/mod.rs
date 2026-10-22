@@ -21,11 +21,11 @@ use crate::{
     aggregates::AggregateCatalog,
     declarations::Declarations,
     hir::{
-        ids::{BodySelection, ConstId, ExprId, FunctionId, LocalId, ParamId},
+        ids::{BodySelection, ConstId, ExprId, FunctionId, LocalId, ParamId, StaticId},
         item::behavior::GenericParam,
         writeability::Writeability,
     },
-    imports::functions::ImportedFunctions,
+    imports::{functions::ImportedFunctions, statics::ImportedStatics},
     native::NativeBinding,
     typeck::{const_budget::ConstLimits, scalar::ScalarValue, table::TypeTable},
     types::{GenericParameterType, NominalType, TypeId},
@@ -84,6 +84,8 @@ pub struct ModuleSignatures {
     pub(crate) type_bounds: HashMap<DefinitionId, GenericBounds>,
     /// Callable contracts in the module's prepared function order.
     pub(crate) functions: TypedFunctionBuffer,
+    /// Explicit runtime static types, independent of initializer checking.
+    pub(crate) statics: HashMap<StaticId, TypeId>,
     /// Signature type-reference, field and constraint facts.
     pub(crate) type_table: TypeTable,
 }
@@ -117,6 +119,7 @@ impl ModuleSignatures {
         }
         assert_eq!(functions, other.functions);
         assert_eq!(this.type_bounds, other.type_bounds);
+        assert_eq!(this.statics, other.statics);
         this.type_table.assert_same_source_facts(
             left.definitions(),
             &other.type_table,
@@ -136,6 +139,8 @@ impl ModuleSignatures {
 pub struct TypedModule {
     /// Bodies completed without errors, recorded before presentation truncation.
     pub(crate) valid_bodies: HashSet<FunctionId>,
+    /// Initializers completed without errors, before diagnostic truncation.
+    pub(crate) valid_static_initializers: HashSet<StaticId>,
     /// Number of function bodies freshly checked for this result.
     pub checked_bodies: usize,
     /// Number of function bodies restored from compatible prior facts.
@@ -144,6 +149,8 @@ pub struct TypedModule {
     pub functions: TypedFunctionBuffer,
     /// Local constant IDs to inferred/declared semantic types.
     pub consts: HashMap<ConstId, TypeId>,
+    /// Runtime static IDs to their declared closed semantic types.
+    pub statics: HashMap<StaticId, TypeId>,
     /// Successfully evaluated scalar constants; absent entries have no published scalar value.
     pub const_values: HashMap<ConstId, ScalarValue>,
     /// Node-keyed types and selected call/member/protocol facts.
@@ -207,6 +214,8 @@ pub(crate) struct FunctionTypeIndex {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct TopLevelTypeIndex {
     pub(crate) consts: HashMap<ConstId, TypeId>,
+    pub(crate) statics: HashMap<StaticId, TypeId>,
+    pub(crate) imported_statics: ImportedStatics,
 }
 
 /// Borrowed semantic catalogs and lookup indexes shared by a body checker.
@@ -230,6 +239,8 @@ pub(crate) struct BodyInputs<'a> {
     pub signatures: &'a AnalysisResult<ModuleSignatures>,
     /// Canonical imported callable signatures available to this module.
     pub imported_functions: &'a ImportedFunctions,
+    /// Canonical runtime static declarations available to this module.
+    pub imported_statics: &'a ImportedStatics,
     /// Visible nominal, trait and implementation contracts.
     pub aggregates: &'a AggregateCatalog,
 }
@@ -262,6 +273,11 @@ impl ModuleSignatures {
     /// Borrows prepared callable contracts, including required/native declarations.
     pub fn functions(&self) -> &[TypedFunction] {
         &self.functions
+    }
+
+    /// Borrows explicit static declaration types without checking or executing initializers.
+    pub fn statics(&self) -> &HashMap<StaticId, TypeId> {
+        &self.statics
     }
 
     /// Borrows signature-level semantic facts; no body traversal is triggered.

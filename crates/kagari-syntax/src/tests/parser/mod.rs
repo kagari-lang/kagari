@@ -11,4 +11,5 @@ mod module_level;
 mod module_loading;
 mod postfix;
 mod statements;
+mod statics;
 mod struct_expr;

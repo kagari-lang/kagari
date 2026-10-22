@@ -1,4 +1,4 @@
-//! A function query checks its selected body and module constants.
+//! A function query checks its selected body, module constants and runtime static initializers.
 //! Local bodies additionally resolve lexical ancestors without checking their bodies.
 
 use super::signature_queries::BodyEnvironment;
@@ -42,7 +42,7 @@ use {
 #[cfg(test)]
 mod tests;
 
-/// Immutable analysis of one selected function and its constant prerequisites.
+/// Immutable analysis of one selected function and its constant/static initializer prerequisites.
 ///
 /// Retains the signature snapshot and file lowering that own all referenced HIR IDs.
 /// `names`, `declarations` and `typed` contain the selected analysis facts; they do not
@@ -133,7 +133,7 @@ impl FunctionAnalysis {
         &self.typed.facts.type_table
     }
 
-    /// Body diagnostics and module-constant prerequisites. Header diagnostics are
+    /// Body diagnostics and constant/static initializer prerequisites. Header diagnostics are
     /// available separately through the retained signature snapshot.
     pub fn diagnostics(&self) -> &[Diagnostic] {
         self.typed.diagnostics()
@@ -156,7 +156,8 @@ impl AnalysisDatabase {
     /// external path first look it up in a declaration snapshot; foreign IDs reject.
     ///
     /// Returns `Ok(None)` when the owner does not select an available source body (including
-    /// a trait method without a default). Constant prerequisites are also checked. Source
+    /// a trait method without a default). Constants and runtime static initializers,
+    /// including their local function declarations, are also checked. Source
     /// diagnostics remain in the returned analysis; signature diagnostics are available
     /// through its retained [`SignatureSnapshot`].
     ///
@@ -266,6 +267,7 @@ impl AnalysisDatabase {
                             .expect("previous body environment")
                             .imported_functions
                             == environment.imported_functions
+                        && old.environment.imported_statics == environment.imported_statics
                         && previous_environment
                             .as_ref()
                             .expect("previous body environment")
@@ -293,6 +295,7 @@ impl AnalysisDatabase {
                     selection,
                     signatures: &prepared.signatures,
                     imported_functions: &environment.imported_functions,
+                    imported_statics: &environment.imported_statics,
                     aggregates: &environment.aggregates,
                 },
                 reuse.as_ref(),

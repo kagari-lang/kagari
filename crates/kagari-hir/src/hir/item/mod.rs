@@ -4,15 +4,16 @@ use crate::hir::{
     body::Body,
     expr::ExprData,
     ids::{
-        BlockId, ConstId, EnumId, ExprId, FieldId, FunctionId, ImplId, ModuleId, OpaqueTypeId,
-        PatternId, PlaceId, StmtId, StructId, TraitId, TypeRefId, VariantId,
+        BlockId, BodyOwner, ConstId, EnumId, ExprId, FieldId, FunctionId, HirOwner, ImplId,
+        ModuleId, OpaqueTypeId, PatternId, PlaceId, StaticId, StmtId, StructId, TraitId, TypeRefId,
+        VariantId,
     },
     item::{
         adt::{EnumBuffer, Field, OpaqueType, StructBuffer, Variant},
         behavior::{ImplBuffer, TraitBuffer},
-        function::FunctionBuffer,
+        function::{FunctionBuffer, FunctionKind},
         module::{ImportBuffer, ModuleDeclBuffer},
-        storage::{ConstBuffer, ConstItem},
+        storage::{ConstBuffer, ConstItem, StaticBuffer, StaticItem},
     },
     pattern::PatternData,
     place::PlaceData,
@@ -66,6 +67,8 @@ pub struct Module {
     pub functions: FunctionBuffer,
     /// Constant declarations indexed by `ConstId`, including associated initializers.
     pub consts: ConstBuffer,
+    /// Runtime static declarations indexed by `StaticId`.
+    pub statics: StaticBuffer,
     /// Child module headers indexed by `ModuleId`; child analysis is separate.
     pub modules: ModuleDeclBuffer,
     /// Flattened named/glob use leaves, indexed by import slot.
@@ -85,6 +88,28 @@ pub struct Module {
 }
 
 impl Module {
+    pub(crate) fn static_initializer_for_function(&self, mut id: FunctionId) -> Option<StaticId> {
+        while let FunctionKind::Local { block } = self.functions[id.index()].kind {
+            match block.owner() {
+                HirOwner::Body(BodyOwner::Static(id)) => return Some(id),
+                HirOwner::Body(BodyOwner::Function(parent)) => id = parent,
+                _ => return None,
+            }
+        }
+        None
+    }
+
+    /// Borrows a runtime static declaration in this module's lowering.
+    ///
+    /// # Panics
+    ///
+    /// Panics for an out-of-range or mismatched declaration slot.
+    pub fn static_item(&self, id: StaticId) -> &StaticItem {
+        let item = &self.statics[id.index()];
+        assert_eq!(item.id, id, "static declaration slot mismatch");
+        item
+    }
+
     /// Const IDs address declaration slots within this module's lowering.
     pub fn constant(&self, id: ConstId) -> &ConstItem {
         let item = &self.consts[id.index()];
@@ -169,6 +194,8 @@ pub enum Item {
     Function(FunctionId),
     /// An entry in [`Module::consts`], indexed by the enclosed ID.
     Const(ConstId),
+    /// An entry in [`Module::statics`], indexed by the enclosed ID.
+    Static(StaticId),
     /// An entry in [`Module::modules`], indexed by the enclosed ID.
     Module(ModuleId),
     /// An entry in [`Module::structs`], indexed by the enclosed ID.

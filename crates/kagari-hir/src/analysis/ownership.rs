@@ -2,7 +2,9 @@
 use crate::{
     AnalysisPolicy, AnalysisResult, AnalyzedModule,
     aggregates::AggregateCatalog,
-    analysis::{error::AnalysisError, source_preparation::ParsedModule},
+    analysis::{
+        error::AnalysisError, signature_queries::BodyEnvironment, source_preparation::ParsedModule,
+    },
     analyze_parsed, declare_analysis,
     lower::lower_module_controlled,
 };
@@ -84,8 +86,11 @@ pub(crate) fn recover_invalid_identity(
             const_limits: Default::default(),
             max_semantic_diagnostics: super::DEFAULT_MAX_SEMANTIC_DIAGNOSTICS,
         },
-        Default::default(),
-        aggregates,
+        BodyEnvironment {
+            imported_functions: Default::default(),
+            imported_statics: Default::default(),
+            aggregates,
+        },
         None,
         &cancel,
     ))

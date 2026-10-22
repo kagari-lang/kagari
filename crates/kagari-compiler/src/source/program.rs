@@ -46,6 +46,17 @@ pub fn lower_program_to_mir(
     program: &CheckedProgram,
     options: &MirLoweringOptions,
 ) -> Result<VerifiedMirProgram, SourceProgramError> {
+    // Preflight the entire checked closure before specializing any function. This
+    // includes private, unused and inline dependency statics, and reports the
+    // declaration's own module rather than whichever consumer is lowered first.
+    for module in program.modules() {
+        lower::reject_static_declarations(module, &options.cancel).map_err(|error| {
+            SourceProgramError::Lowering {
+                module: Box::new(module.lowered.source.module_identity().clone()),
+                error,
+            }
+        })?;
+    }
     let context = program.root().definition_context();
     let root = program.root().lowered.source.module_identity().clone();
     // The root catalog already owns checked facts for the entire dependency

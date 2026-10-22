@@ -302,9 +302,17 @@ impl<'a> BodyChecker<'a> {
                     ResolvedName::Param(id) => env.params.get(&id).cloned(),
                     ResolvedName::Local(id) => env.locals.get(&id).cloned(),
                     ResolvedName::Const(id) => self.top_level_index.consts.get(&id).cloned(),
+                    ResolvedName::Static(id) => self.top_level_index.statics.get(&id).cloned(),
+                    ResolvedName::Source(source) => self
+                        .top_level_index
+                        .imported_statics
+                        .get(&source)
+                        .map(|item| {
+                            self.aggregates
+                                .normalize_type(self.declarations.definitions(), &item.ty)
+                        }),
                     ResolvedName::Function(_)
                     | ResolvedName::RuntimeHelper(_)
-                    | ResolvedName::Source(_)
                     | ResolvedName::Namespace(_)
                     | ResolvedName::Module(_)
                     | ResolvedName::OpaqueType(_)

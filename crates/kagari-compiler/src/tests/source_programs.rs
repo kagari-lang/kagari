@@ -1,4 +1,5 @@
 mod proof_visibility;
+mod static_lowering;
 
 use crate::{
     bytecode::{BytecodeLoweringError, lower_program_to_bytecode, lower_to_bytecode},

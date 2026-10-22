@@ -124,7 +124,7 @@ fn syntax_spec_rejects_unrecognized_forms() {
         ),
         (
             "docs/spec/syntax.md#module-structure",
-            "static items",
+            "static mut instead of static val/var",
             "pub static mut COUNTER: i32 = 0;",
         ),
         (

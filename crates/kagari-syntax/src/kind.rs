@@ -98,6 +98,8 @@ pub enum SyntaxKind {
     WhereKw,
     /// The `const` keyword.
     ConstKw,
+    /// The `static` keyword.
+    StaticKw,
     /// The `val` keyword.
     ValKw,
     /// The `var` keyword.
@@ -272,6 +274,8 @@ pub enum SyntaxKind {
     FnDef,
     /// A constant declaration; associated constants can omit their initializer. See [`ConstDef`](crate::ast::item::ConstDef).
     ConstDef,
+    /// A module static with an explicit type and initializer. See [`StaticDef`](crate::ast::item::StaticDef).
+    StaticDef,
     /// A nominal struct declaration with named fields. See [`StructDef`](crate::ast::item::StructDef).
     StructDef,
     /// A nominal enum declaration with unit or tuple-payload variants. See [`EnumDef`](crate::ast::item::EnumDef).

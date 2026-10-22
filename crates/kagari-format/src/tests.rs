@@ -16,6 +16,58 @@ fn formatted(text: &str, width: usize) -> String {
 }
 
 #[test]
+fn static_declarations_preserve_layout_comments_and_structure() {
+    for (input, expected) in [
+        (
+            "#[tag]pub static val cache:Vec<i32> =make(1,2);static var count:i32=0;",
+            "#[tag]\npub static val cache: Vec<i32> = make(1, 2);\n\nstatic var count: i32 = 0;\n",
+        ),
+        (
+            "mod state{static var count:i32=0;static val seed:i32={val x=1;x};}",
+            "mod state {\n    static var count: i32 = 0;\n    static val seed: i32 = {\n        val x = 1;\n        x\n    };\n}\n",
+        ),
+        (
+            "static /* binding */ val value:i32=make(first,second,third);",
+            "static /* binding */ val value: i32 = make(first, second, third);\n",
+        ),
+    ] {
+        assert_eq!(formatted(input, 100), expected);
+        assert_eq!(formatted(expected, 100), expected);
+        let narrow = formatted(input, 30);
+        assert_eq!(formatted(&narrow, 30), narrow);
+    }
+    for input in [
+        "#[tag] pub(crate) static val cache: Vec<i32> = make(); // retained\n",
+        "mod state { pub(super) static var count: i32 = 0; }",
+    ] {
+        let once = formatted(input, 40);
+        assert_eq!(formatted(&once, 40), once);
+    }
+}
+
+#[test]
+fn static_invalid_declarations_are_not_formatted() {
+    for input in [
+        "static val count = 0;",
+        "static var count: i32;",
+        "fn f() { static val count: i32 = 0; }",
+        "impl S { static var count: i32 = 0; }",
+    ] {
+        assert!(
+            matches!(
+                format(
+                    &SourceFile::new("bad", input),
+                    Options::default(),
+                    &Default::default()
+                ),
+                Err(FormatError::Diagnostics(_))
+            ),
+            "{input}"
+        );
+    }
+}
+
+#[test]
 fn functions_bindings_and_width_have_expected_layout() {
     let text = "fn add(a:i32,b:i32)->i32{val sum=a+b;sum}";
     let expected = "fn add(a: i32, b: i32) -> i32 {\n    val sum = a + b;\n    sum\n}\n";

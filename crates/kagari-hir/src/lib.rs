@@ -29,11 +29,11 @@
 use crate::analysis::error::AnalysisError;
 use crate::analysis::source_preparation::ParsedModule;
 use crate::{
-    analysis::ownership::recover_invalid_identity,
+    analysis::{ownership::recover_invalid_identity, signature_queries::BodyEnvironment},
     hir::ids::BodySelection,
     imports::{
         ModuleGraph, ModuleImportFacts, SourceUnit, catalog::NamespaceCatalog,
-        functions::ImportedFunctions, types::ImportedTypes,
+        functions::ImportedFunctions, statics::ImportedStatics, types::ImportedTypes,
     },
     language::items as language_items,
     resolver::{
@@ -131,6 +131,8 @@ pub struct AnalyzedModule {
     pub signatures: Arc<AnalysisResult<typeck::ModuleSignatures>>,
     /// Signatures/identities of callable declarations reached through imports.
     pub imported_functions: ImportedFunctions,
+    /// Canonical runtime static contracts reached through imports.
+    pub imported_statics: ImportedStatics,
 }
 
 /// Useful analysis facts together with diagnostics, including recoverable errors.
@@ -457,11 +459,15 @@ fn declare_analysis(
 fn analyze_prepared(
     prepared: PreparedAnalysis,
     const_limits: ConstLimits,
-    imported_functions: ImportedFunctions,
-    aggregates: aggregates::AggregateCatalog,
+    environment: BodyEnvironment,
     reuse: Option<&BodyReuse<'_>>,
     cancel: &CancellationToken,
 ) -> AnalysisResult<AnalyzedModule> {
+    let BodyEnvironment {
+        imported_functions,
+        imported_statics,
+        aggregates,
+    } = environment;
     let PreparedAnalysis {
         signatures_reused: _,
         local_signature_diagnostics: _,
@@ -484,6 +490,7 @@ fn analyze_prepared(
             selection: BodySelection::All,
             signatures: &signatures,
             imported_functions: &imported_functions,
+            imported_statics: &imported_statics,
             aggregates: &aggregates,
         },
         reuse,
@@ -500,6 +507,7 @@ fn analyze_prepared(
             declarations,
             signatures,
             imported_functions,
+            imported_statics,
             typed: typed.facts,
         },
         diagnostics,
@@ -562,19 +570,11 @@ pub(crate) fn analyze_parsed(
     prepared: PreparedAnalysis,
     parsed: &ParsedModule,
     policy: AnalysisPolicy,
-    imported_functions: ImportedFunctions,
-    aggregates: aggregates::AggregateCatalog,
+    environment: BodyEnvironment,
     reuse: Option<&BodyReuse<'_>>,
     cancel: &CancellationToken,
 ) -> AnalysisResult<AnalyzedModule> {
-    let mut analyzed = analyze_prepared(
-        prepared,
-        policy.const_limits,
-        imported_functions,
-        aggregates,
-        reuse,
-        cancel,
-    );
+    let mut analyzed = analyze_prepared(prepared, policy.const_limits, environment, reuse, cancel);
 
     analyzed.facts.source_diagnostics = parsed.physical().shared_diagnostics();
     for attribute in &analyzed.facts.lowered.attributes {

@@ -273,6 +273,14 @@ impl FileAnalysis {
         {
             return Some(&member.declaration);
         }
+        let declaration = |target: ResolvedName| {
+            if let ResolvedName::Source(source) = &target
+                && let Some(item) = facts.imported_statics.get(source)
+            {
+                return Some(&item.site);
+            }
+            facts.declarations.target(target)
+        };
         let expressions = facts
             .lowered
             .module
@@ -291,7 +299,7 @@ impl FileAnalysis {
                 let target = facts
                     .names
                     .expr_resolution(id)
-                    .and_then(|target| facts.declarations.target(target))
+                    .and_then(declaration)
                     .or_else(|| {
                         let fact = facts.typed.type_table.associated_const(id)?;
                         Some(
@@ -343,7 +351,7 @@ impl FileAnalysis {
                 let target = facts
                     .names
                     .place_resolution(facts.lowered.source_map.place_id(index))
-                    .and_then(|target| facts.declarations.target(target))
+                    .and_then(declaration)
                     .or_else(|| {
                         facts
                             .typed
@@ -889,8 +897,7 @@ impl AnalysisDatabase {
                             const_limits: self.const_limits,
                             max_semantic_diagnostics: self.max_semantic_diagnostics,
                         },
-                        environment.imported_functions,
-                        environment.aggregates,
+                        environment,
                         reuse.as_ref(),
                         cancel,
                     );
@@ -1090,6 +1097,8 @@ mod prelude_tests;
 mod scoped_identity_tests;
 #[cfg(test)]
 mod signature_tests;
+#[cfg(test)]
+mod static_tests;
 #[cfg(test)]
 mod trait_catalog_tests;
 #[cfg(test)]

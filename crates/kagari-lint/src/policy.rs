@@ -64,6 +64,7 @@ pub(crate) fn scopes(
                 | SyntaxKind::TraitDef
                 | SyntaxKind::ImplBlock
                 | SyntaxKind::ConstDef
+                | SyntaxKind::StaticDef
                 | SyntaxKind::AssociatedType
                 | SyntaxKind::ModuleDef
                 | SyntaxKind::UseDecl

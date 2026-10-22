@@ -3,8 +3,8 @@
 use crate::hir::{
     ids::{
         BlockId, ConstId, EnumId, ExprId, FieldId, FunctionId, GenericParamId, HirArenaId,
-        HirOwner, ImplId, LocalId, ModuleId, OpaqueTypeId, ParamId, PatternId, PlaceId, StmtId,
-        StructId, TraitId, TraitMethodId, TypeRefId, VariantId,
+        HirOwner, ImplId, LocalId, ModuleId, OpaqueTypeId, ParamId, PatternId, PlaceId, StaticId,
+        StmtId, StructId, TraitId, TraitMethodId, TypeRefId, VariantId,
     },
     item::Item,
 };
@@ -51,6 +51,7 @@ pub struct SourceMap {
     variant_spans: HashMap<VariantId, Span>,
     function_spans: Vec<Span>,
     const_spans: Vec<Span>,
+    static_spans: Vec<Span>,
     module_spans: Vec<Span>,
     trait_spans: Vec<Span>,
     trait_method_spans: Vec<Span>,
@@ -249,6 +250,7 @@ impl SourceMap {
             Item::OpaqueType(id) => self.opaque_type_span(id),
             Item::Function(id) => self.function_span(id),
             Item::Const(id) => self.const_span(id),
+            Item::Static(id) => self.static_span(id),
             Item::Module(id) => self.module_span(id),
             Item::Struct(id) => self.struct_span(id),
             Item::Enum(id) => self.enum_span(id),
@@ -276,6 +278,12 @@ impl SourceMap {
     pub(crate) fn push_function(&mut self, span: Span) -> FunctionId {
         let id = FunctionId::new(self.function_spans.len());
         self.function_spans.push(span);
+        id
+    }
+
+    pub(crate) fn push_static(&mut self, span: Span) -> StaticId {
+        let id = StaticId::new(self.static_spans.len());
+        self.static_spans.push(span);
         id
     }
 
@@ -456,6 +464,11 @@ impl SourceMap {
     /// Returns the constant byte range; see the [ID validity requirements](Self#panics).
     pub fn const_span(&self, id: ConstId) -> Span {
         self.const_spans[id.index()]
+    }
+
+    /// Returns the declaration span for a static in this lowering.
+    pub fn static_span(&self, id: StaticId) -> Span {
+        self.static_spans[id.index()]
     }
 
     /// Returns the parameter byte range; see the [ID validity requirements](Self#panics).

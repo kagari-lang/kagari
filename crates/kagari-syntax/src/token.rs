@@ -51,6 +51,8 @@ pub enum TokenKind {
     WhereKw,
     /// The `const` keyword.
     ConstKw,
+    /// The `static` keyword.
+    StaticKw,
     /// The `val` keyword.
     ValKw,
     /// The `var` keyword.
@@ -234,6 +236,7 @@ impl TokenKind {
             Self::UseKw => SyntaxKind::UseKw,
             Self::WhereKw => SyntaxKind::WhereKw,
             Self::ConstKw => SyntaxKind::ConstKw,
+            Self::StaticKw => SyntaxKind::StaticKw,
             Self::ValKw => SyntaxKind::ValKw,
             Self::VarKw => SyntaxKind::VarKw,
             Self::StructKw => SyntaxKind::StructKw,

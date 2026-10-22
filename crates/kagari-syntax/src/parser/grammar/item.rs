@@ -38,6 +38,7 @@ impl<'a> Parser<'a> {
             Some(TokenKind::AsyncKw | TokenKind::FnKw) => self.parse_function(),
             Some(TokenKind::TypeKw) if self.declarations => self.parse_associated_type(),
             Some(TokenKind::ConstKw) => self.parse_const(),
+            Some(TokenKind::StaticKw) => self.parse_static(SyntaxKind::StaticDef),
             Some(TokenKind::StructKw) => self.parse_struct(),
             Some(TokenKind::EnumKw) => self.parse_enum(),
             Some(TokenKind::TraitKw) => self.parse_trait(),
@@ -63,6 +64,7 @@ impl<'a> Parser<'a> {
             1
         };
         match self.nth_nontrivia_kind(offset) {
+            Some(TokenKind::StaticKw) => self.parse_static(SyntaxKind::StaticDef),
             Some(TokenKind::TypeKw) if self.declarations => self.parse_associated_type(),
             Some(TokenKind::ModKw) => self.parse_module(),
             Some(TokenKind::UseKw) => self.parse_use(),
@@ -80,6 +82,7 @@ impl<'a> Parser<'a> {
 
     fn parse_module_item(&mut self) {
         match self.current_kind() {
+            Some(TokenKind::StaticKw) => self.parse_static(SyntaxKind::StaticDef),
             Some(TokenKind::Hash) => self.parse_attributed_item(),
             Some(TokenKind::PubKw) => self.parse_public_item(),
             Some(TokenKind::ModKw) => self.parse_module(),
@@ -104,6 +107,7 @@ impl<'a> Parser<'a> {
 
     fn parse_attributed_item(&mut self) {
         match self.attributed_item_kind() {
+            Some(TokenKind::StaticKw) => self.parse_static(SyntaxKind::StaticDef),
             Some(TokenKind::TypeKw) if self.declarations => self.parse_associated_type(),
             Some(TokenKind::ModKw) => self.parse_module(),
             Some(TokenKind::UseKw) => self.parse_use(),
@@ -464,6 +468,86 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
+    /// Retains a forbidden local/associated static without exposing a valid item.
+    pub(crate) fn reject_static(&mut self) {
+        self.error_here(DiagnosticKind::UnexpectedToken);
+        self.parse_static(SyntaxKind::Error);
+    }
+
+    fn parse_static(&mut self, kind: SyntaxKind) {
+        self.start_node(kind);
+        self.parse_attributes();
+        self.parse_visibility();
+        self.expect(TokenKind::StaticKw, DiagnosticKind::UnexpectedToken);
+        self.parse_binding_kind();
+        self.start_node(SyntaxKind::Name);
+        self.expect(TokenKind::Ident, DiagnosticKind::ExpectedBindingName);
+        self.finish_node();
+        if self.expect(TokenKind::Colon, DiagnosticKind::ExpectedType) {
+            self.bump_trivia();
+            // A named function starts the next item, not a function type.
+            if self.at(TokenKind::FnKw) && self.nth_nontrivia_kind(1) == Some(TokenKind::Ident) {
+                self.error_here(DiagnosticKind::ExpectedType);
+            } else {
+                self.parse_type_ref();
+            }
+        }
+        self.expect(TokenKind::Eq, DiagnosticKind::ExpectedAssignmentOperator);
+        self.parse_expr();
+        if !self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator) {
+            self.recover_static_tail();
+        }
+        self.finish_node();
+    }
+
+    fn recover_static_tail(&mut self) {
+        // Keep malformed suffixes out of the enclosing member parser, while
+        // preserving the next declaration and the enclosing block's closing brace.
+        self.start_node(SyntaxKind::Error);
+        let mut braces = 0usize;
+        while !self.at(TokenKind::Eof) {
+            if braces == 0 {
+                if self.at_any(&[
+                    TokenKind::RBrace,
+                    TokenKind::Hash,
+                    TokenKind::PubKw,
+                    TokenKind::ModKw,
+                    TokenKind::UseKw,
+                    TokenKind::AsyncKw,
+                    TokenKind::FnKw,
+                    TokenKind::ConstKw,
+                    TokenKind::StaticKw,
+                    TokenKind::StructKw,
+                    TokenKind::EnumKw,
+                    TokenKind::TraitKw,
+                    TokenKind::ImplKw,
+                    TokenKind::TypeKw,
+                    TokenKind::ValKw,
+                    TokenKind::VarKw,
+                    TokenKind::ReturnKw,
+                    TokenKind::WhileKw,
+                    TokenKind::LoopKw,
+                    TokenKind::ForKw,
+                    TokenKind::BreakKw,
+                    TokenKind::ContinueKw,
+                ]) {
+                    break;
+                }
+                if self.at(TokenKind::Semi) {
+                    self.bump();
+                    break;
+                }
+            }
+            if self.at(TokenKind::LBrace) {
+                braces += 1;
+            } else if self.at(TokenKind::RBrace) {
+                braces -= 1;
+            }
+            self.bump();
+        }
+        self.finish_node();
+    }
+
     fn parse_struct(&mut self) {
         self.start_node(SyntaxKind::StructDef);
         self.parse_attributes();
@@ -578,6 +662,8 @@ impl<'a> Parser<'a> {
                 self.parse_associated_type();
             } else if self.attributed_item_kind() == Some(TokenKind::ConstKw) {
                 self.parse_associated_const();
+            } else if self.attributed_item_kind() == Some(TokenKind::StaticKw) {
+                self.reject_static();
             } else {
                 self.parse_method(false);
             }
@@ -621,6 +707,8 @@ impl<'a> Parser<'a> {
                 self.parse_associated_type();
             } else if self.attributed_item_kind() == Some(TokenKind::ConstKw) {
                 self.parse_associated_const();
+            } else if self.attributed_item_kind() == Some(TokenKind::StaticKw) {
+                self.reject_static();
             } else {
                 self.parse_method(true);
             }

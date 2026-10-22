@@ -5,8 +5,7 @@ use crate::{
     hir::{
         expr::{Condition, ExprKind},
         ids::{
-            BlockId, BodyOwner, ConstId, ExprId, FunctionId, HirOwner, ParamId, PatternId, PlaceId,
-            StmtId,
+            BlockId, BodyOwner, ExprId, FunctionId, HirOwner, ParamId, PatternId, PlaceId, StmtId,
         },
         item::Module,
         pattern::PatternKind,
@@ -103,14 +102,14 @@ impl<'a> BodyResolver<'a> {
         self.scopes.clear();
     }
 
-    /// Resolves a constant initializer under its asserted constant owner.
-    pub(crate) fn resolve_top_level_expr(&mut self, owner: ConstId, expr: ExprId) {
+    /// Resolves an initializer under its asserted constant or runtime static owner.
+    pub(crate) fn resolve_top_level_expr(&mut self, owner: BodyOwner, expr: ExprId) {
         assert_eq!(
             expr.owner(),
-            HirOwner::Body(BodyOwner::Const(owner)),
-            "constant body owner mismatch"
+            HirOwner::Body(owner),
+            "initializer body owner mismatch"
         );
-        self.push_scope(self.source_map.expr_span(expr), BodyOwner::Const(owner));
+        self.push_scope(self.source_map.expr_span(expr), owner);
         self.resolve_expr(expr);
         self.pop_scope();
     }

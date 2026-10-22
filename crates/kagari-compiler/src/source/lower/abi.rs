@@ -362,6 +362,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                     });
                 }
             }
+            Item::Static(_) => unreachable!("static declarations must fail the lowering gate"),
             Item::Module(_) | Item::Impl(_) => {}
         }
     }

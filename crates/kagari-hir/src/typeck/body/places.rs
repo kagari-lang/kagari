@@ -45,9 +45,23 @@ impl<'a> BodyChecker<'a> {
             }
             PlaceKind::Name(_) => {
                 let ty = self.resolve_readable_place_type(place_id, env);
-                let writable = self.place_root_resolution(place_id).is_some_and(|resolved| {
-                    matches!(resolved, ResolvedName::Local(id) if env.local_writeability.get(&id).is_some_and(|writeability| writeability.is_var()))
-                });
+                let writable = self
+                    .place_root_resolution(place_id)
+                    .is_some_and(|resolved| match resolved {
+                        ResolvedName::Local(id) => env
+                            .local_writeability
+                            .get(&id)
+                            .is_some_and(|access| access.is_var()),
+                        ResolvedName::Static(id) => {
+                            self.lowered.module.static_item(id).writeability.is_var()
+                        }
+                        ResolvedName::Source(source) => self
+                            .top_level_index
+                            .imported_statics
+                            .get(&source)
+                            .is_some_and(|item| item.writeability.is_var()),
+                        _ => false,
+                    });
                 ty.filter(|_| writable)
             }
             PlaceKind::Field { base, name } => {
@@ -197,8 +211,16 @@ impl<'a> BodyChecker<'a> {
                         ResolvedName::Param(id) => env.params.get(&id).cloned(),
                         ResolvedName::Local(id) => env.locals.get(&id).cloned(),
                         ResolvedName::Const(id) => self.top_level_index.consts.get(&id).cloned(),
+                        ResolvedName::Static(id) => self.top_level_index.statics.get(&id).cloned(),
+                        ResolvedName::Source(source) => self
+                            .top_level_index
+                            .imported_statics
+                            .get(&source)
+                            .map(|item| {
+                                self.aggregates
+                                    .normalize_type(self.declarations.definitions(), &item.ty)
+                            }),
                         ResolvedName::Function(_)
-                        | ResolvedName::Source(_)
                         | ResolvedName::Namespace(_)
                         | ResolvedName::Module(_)
                         | ResolvedName::RuntimeHelper(_)
@@ -282,6 +304,18 @@ impl<'a> BodyChecker<'a> {
                         None => "unresolved assignment target".to_string(),
                     },
                     ResolvedName::Const(_) => "`const` item cannot be reassigned".to_string(),
+                    ResolvedName::Static(id) => {
+                        if self.lowered.module.static_item(id).writeability.is_var() {
+                            "assignment target type could not be resolved".to_string()
+                        } else {
+                            "`static val` binding cannot be reassigned".to_string()
+                        }
+                    }
+                    ResolvedName::Source(source)
+                        if self.top_level_index.imported_statics.get(&source).is_some() =>
+                    {
+                        "`static val` binding cannot be reassigned".to_string()
+                    }
                     ResolvedName::Function(_) => "function item is not assignable".to_string(),
                     ResolvedName::Source(_)
                     | ResolvedName::Namespace(_)

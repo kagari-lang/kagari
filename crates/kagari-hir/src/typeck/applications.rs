@@ -374,6 +374,49 @@ pub(crate) fn validate_signatures(
 ) {
     let definitions = declarations.definitions();
     families::validate(lowered, declarations, catalog, diagnostics, cancel);
+    for item in &lowered.module.statics {
+        if cancel.check().is_err() {
+            return;
+        }
+        let Some(ty) = signatures.statics.get(&item.id) else {
+            continue;
+        };
+        let span = item.ty.map_or_else(
+            || lowered.source_map.static_span(item.id),
+            |ty| lowered.source_map.type_span(ty),
+        );
+        let normalized = catalog.normalize_type(definitions, ty);
+        if !ty.is_unresolved() && !normalized.is_concrete() {
+            diagnostics.push(
+                Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
+                    type_name: normalized.display_name(definitions),
+                })
+                .with_span(span),
+            );
+        }
+        check::validate_reference_position(&normalized, span, diagnostics);
+        if normalized.contains_stored_reference() {
+            diagnostics.push(
+                Diagnostic::error(DiagnosticKind::InvalidReference {
+                    reason: "a scoped view cannot be stored in a static",
+                })
+                .with_span(span),
+            );
+        }
+        interfaces::validate_type(definitions, &normalized, catalog, span, diagnostics, cancel);
+        validate(
+            ApplicationContext {
+                definitions,
+                catalog,
+                receiver: None,
+            },
+            ty,
+            &Default::default(),
+            span,
+            diagnostics,
+            cancel,
+        );
+    }
     for function in signatures.functions() {
         if cancel.check().is_err() {
             return;

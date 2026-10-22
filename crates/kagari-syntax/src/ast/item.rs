@@ -521,6 +521,35 @@ ast_node!(
 );
 
 ast_node!(
+    /// A module-only `static val` or `static var` declaration.
+    ///
+    /// `#[tag] pub static var count: i32 = next();` has these direct children
+    /// (trivia omitted; descendants collapsed):
+    ///
+    /// ```text
+    /// StaticDef
+    /// +-- Attribute (#[tag]) [node] -> attributes()
+    /// +-- PubKw "pub" [token] -> visibility()
+    /// +-- StaticKw "static" [token]
+    /// +-- VarKw "var" [token] -> is_mutable()
+    /// +-- Name (count) [node] -> name()
+    /// +-- Colon ":" [token]
+    /// +-- TypeRef (i32) [node] -> ty()
+    /// +-- Eq "=" [token]
+    /// +-- CallExpr (next()) [node] [Expr #0] -> initializer()
+    /// `-- Semi ";" [token]
+    /// ```
+    ///
+    /// Attributes and visibility are optional; `val` replaces `var` for an
+    /// immutable binding. Name, type and initializer are required by the grammar
+    /// but may be missing or incomplete after recovery. Accessors filter direct
+    /// children, excluding expressions inside attributes. Local and associated
+    /// forms are retained as error nodes, not static declarations.
+    StaticDef,
+    StaticDef
+);
+
+ast_node!(
     /// A nominal struct declaration with named fields.
     ///
     /// See [AST conventions](crate::ast) for storage and diagram notation.
@@ -684,6 +713,8 @@ pub enum Item {
     FnDef(FnDef),
     /// A constant declaration, such as `const LIMIT: i32 = 10;`.
     ConstDef(ConstDef),
+    /// A module static, such as `static var count: i32 = 0;`.
+    StaticDef(StaticDef),
     /// A struct declaration, such as `struct Point { val x: i32, var y: i32 }`.
     StructDef(StructDef),
     /// An enum declaration, such as `enum Slot<T> { Empty, Value(T) }`.
@@ -701,6 +732,7 @@ impl AstNode for Item {
                 | SyntaxKind::ImplBlock
                 | SyntaxKind::FnDef
                 | SyntaxKind::ConstDef
+                | SyntaxKind::StaticDef
                 | SyntaxKind::StructDef
                 | SyntaxKind::EnumDef
         )
@@ -715,6 +747,7 @@ impl AstNode for Item {
             SyntaxKind::ImplBlock => ImplBlock::cast(syntax).map(Self::ImplBlock),
             SyntaxKind::FnDef => FnDef::cast(syntax).map(Self::FnDef),
             SyntaxKind::ConstDef => ConstDef::cast(syntax).map(Self::ConstDef),
+            SyntaxKind::StaticDef => StaticDef::cast(syntax).map(Self::StaticDef),
             SyntaxKind::StructDef => StructDef::cast(syntax).map(Self::StructDef),
             SyntaxKind::EnumDef => EnumDef::cast(syntax).map(Self::EnumDef),
             _ => None,
@@ -730,6 +763,7 @@ impl AstNode for Item {
             Self::ImplBlock(node) => node.syntax(),
             Self::FnDef(node) => node.syntax(),
             Self::ConstDef(node) => node.syntax(),
+            Self::StaticDef(node) => node.syntax(),
             Self::StructDef(node) => node.syntax(),
             Self::EnumDef(node) => node.syntax(),
         }
@@ -1165,6 +1199,41 @@ impl ConstDef {
     /// Returns `None` for an associated declaration such as `const LIMIT: i32;`.
     pub fn initializer(&self) -> Option<Expr> {
         self.syntax().children().filter_map(Expr::cast).next()
+    }
+}
+
+impl StaticDef {
+    /// Returns the direct visibility prefix, or `Private` when absent.
+    /// Supports `pub`, `pub(super)` and `pub(crate)` as on [`ConstDef`].
+    pub fn visibility(&self) -> Visibility {
+        visibility_of(self.syntax())
+    }
+
+    /// Returns `count` in `static var count: i32 = 0;`.
+    pub fn name(&self) -> Option<Name> {
+        support::child(self.syntax())
+    }
+
+    /// Returns `i32` in `static var count: i32 = 0;`, if retained after recovery.
+    pub fn ty(&self) -> Option<TypeRef> {
+        support::child(self.syntax())
+    }
+
+    /// Returns the first direct expression, `next()` in `static val count: i32 = next();`.
+    /// Returns `None` when the initializer is missing after recovery.
+    pub fn initializer(&self) -> Option<Expr> {
+        support::child(self.syntax())
+    }
+
+    /// Iterates direct attributes in source order, excluding initializer attributes.
+    pub fn attributes(&self) -> impl Iterator<Item = Attribute> {
+        support::children(self.syntax())
+    }
+
+    /// Returns true for a direct `var` token, false for `val` or a missing keyword.
+    /// This describes rebinding syntax, not deep immutability of the stored value.
+    pub fn is_mutable(&self) -> bool {
+        support::token(self.syntax(), SyntaxKind::VarKw).is_some()
     }
 }
 

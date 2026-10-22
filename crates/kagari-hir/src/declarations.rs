@@ -234,6 +234,19 @@ impl Declarations {
                 map.item_name_span(Item::Const(item.id)).is_some(),
             )?;
         }
+        for item in &module.statics {
+            cancel
+                .check()
+                .map_err(|_| DefinitionMappingError::Cancelled)?;
+            builder.definition(
+                ResolvedName::Static(item.id),
+                root,
+                DefinitionKind::Static,
+                &item.name,
+                map.item_declaration_span(Item::Static(item.id)),
+                map.item_name_span(Item::Static(item.id)).is_some(),
+            )?;
+        }
         for item in &module.modules {
             cancel
                 .check()
@@ -437,6 +450,9 @@ impl Declarations {
                 HirOwner::Body(BodyOwner::Const(id)) => {
                     builder.result.definition(ResolvedName::Const(id)).copied()
                 }
+                HirOwner::Body(BodyOwner::Static(id)) => {
+                    builder.result.definition(ResolvedName::Static(id)).copied()
+                }
                 _ => None,
             }
             .ok_or(DefinitionMappingError::InvalidContract)?;
@@ -524,6 +540,7 @@ impl Declarations {
             let owner = match scope.owner {
                 BodyOwner::Function(id) => ResolvedName::Function(id),
                 BodyOwner::Const(id) => ResolvedName::Const(id),
+                BodyOwner::Static(id) => ResolvedName::Static(id),
             };
             let DeclarationId::Definition(body) = builder.result.targets[&owner.into()].id.clone()
             else {

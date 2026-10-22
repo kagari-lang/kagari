@@ -543,6 +543,7 @@ pub fn lex_with_cancellation(
                     "use" => TokenKind::UseKw,
                     "where" => TokenKind::WhereKw,
                     "const" => TokenKind::ConstKw,
+                    "static" => TokenKind::StaticKw,
                     "val" => TokenKind::ValKw,
                     "var" => TokenKind::VarKw,
                     "struct" => TokenKind::StructKw,

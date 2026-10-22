@@ -67,7 +67,7 @@ pub(crate) fn collect(
             | SyntaxKind::GenericParam
             | SyntaxKind::Variant
             | SyntaxKind::AssociatedType => LintId::NonUpperCamelCase,
-            SyntaxKind::ConstDef => LintId::NonUpperCaseGlobals,
+            SyntaxKind::ConstDef | SyntaxKind::StaticDef => LintId::NonUpperCaseGlobals,
             SyntaxKind::FnDef
             | SyntaxKind::MethodDef
             | SyntaxKind::ModuleDef

@@ -25,6 +25,7 @@ impl DefinitionReferences for AnalyzedModule {
         (self.signatures.as_ref()).visit_definition_ids(visit, cancel)?;
         self.imported_functions
             .visit_definition_ids(visit, cancel)?;
+        self.imported_statics.visit_definition_ids(visit, cancel)?;
         Ok(())
     }
 }

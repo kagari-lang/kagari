@@ -49,6 +49,7 @@ use std::collections::{HashMap, HashSet};
 
 mod constants;
 mod native_defaults;
+mod statics;
 mod trait_surface;
 
 /// Resolves declaration types, generic bounds and associated members into reusable signature facts.
@@ -62,6 +63,7 @@ pub(crate) fn check_signatures(
     if !lowered.source.module_identity().within_path_limit() {
         return AnalysisResult {
             facts: super::ModuleSignatures {
+                statics: Default::default(),
                 type_bounds: Default::default(),
                 functions: Default::default(),
                 type_table: Default::default(),
@@ -393,10 +395,18 @@ pub(crate) fn check_signatures(
         functions.push(typed_function);
     }
 
+    let statics = statics::signatures(
+        lowered,
+        declarations,
+        &mut type_table,
+        &mut diagnostics,
+        cancel,
+    );
     validate_trait_surface(lowered, declarations, &mut type_table, &mut diagnostics);
     AnalysisResult {
         facts: super::ModuleSignatures {
             type_bounds,
+            statics,
             functions,
             type_table,
         },
@@ -421,10 +431,12 @@ pub(crate) fn check_bodies_controlled(
         return AnalysisResult {
             facts: TypedModule {
                 valid_bodies: Default::default(),
+                valid_static_initializers: Default::default(),
                 checked_bodies: 0,
                 reused_bodies: 0,
                 functions: Default::default(),
                 consts: Default::default(),
+                statics: Default::default(),
                 const_values: Default::default(),
                 type_table: Default::default(),
             },
@@ -436,6 +448,7 @@ pub(crate) fn check_bodies_controlled(
         selection,
         signatures,
         imported_functions,
+        imported_statics,
         aggregates,
     } = inputs;
     let reuse = reuse.filter(|reuse| reuse.environment_matches(lowered));
@@ -458,7 +471,21 @@ pub(crate) fn check_bodies_controlled(
     let function_index = FunctionTypeIndex {
         by_id: functions.iter().map(|f| (f.id, f.clone())).collect(),
     };
-    let mut top_level_index = TopLevelTypeIndex::default();
+    let mut top_level_index = TopLevelTypeIndex {
+        statics: signatures
+            .facts
+            .statics
+            .iter()
+            .map(|(id, ty)| {
+                (
+                    *id,
+                    aggregates.normalize_type(declarations.definitions(), ty),
+                )
+            })
+            .collect(),
+        imported_statics: imported_statics.clone(),
+        ..Default::default()
+    };
     let mut type_table = signatures.facts.type_table.clone();
     {
         // Explicit constant declarations are visible throughout the module,
@@ -590,6 +617,22 @@ pub(crate) fn check_bodies_controlled(
             &mut const_budget,
         );
 
+        let mut valid_static_initializers = statics::initializers(
+            lowered,
+            names,
+            TypeIndexes {
+                aggregates,
+                imported_functions,
+                declarations,
+                cancel,
+                function_index: &function_index,
+                top_level_index: &top_level_index,
+                const_values: Some(&const_values),
+            },
+            &mut type_table,
+            &mut diagnostics,
+        );
+
         let shared_valid = !diagnostics
             .iter()
             .any(|diagnostic| diagnostic.severity == Severity::Error);
@@ -610,7 +653,12 @@ pub(crate) fn check_bodies_controlled(
             {
                 continue;
             }
-            if !selection.includes(function.id) {
+            if !selection.includes(function.id)
+                && lowered
+                    .module
+                    .static_initializer_for_function(function.id)
+                    .is_none()
+            {
                 continue;
             }
             if reuse.is_some_and(|reuse| reuse.restore(lowered, function, &mut type_table)) {
@@ -720,6 +768,13 @@ pub(crate) fn check_bodies_controlled(
                         .with_span(lowered.source_map.function_span(function.id)),
                     );
                 }
+                if let Some(owner) = lowered.module.static_initializer_for_function(function.id)
+                    && diagnostics[diagnostic_start..]
+                        .iter()
+                        .any(|diagnostic| diagnostic.severity == Severity::Error)
+                {
+                    valid_static_initializers.remove(&owner);
+                }
                 if shared_valid
                     && cancel.check().is_ok()
                     && !diagnostics[diagnostic_start..]
@@ -775,10 +830,12 @@ pub(crate) fn check_bodies_controlled(
         AnalysisResult {
             facts: TypedModule {
                 valid_bodies,
+                valid_static_initializers,
                 checked_bodies,
                 reused_bodies,
                 functions,
                 consts: top_level_index.consts,
+                statics: top_level_index.statics,
                 const_values,
                 type_table,
             },

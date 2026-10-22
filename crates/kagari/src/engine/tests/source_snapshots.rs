@@ -17,6 +17,31 @@ use kagari_types::declaration::host::{
 use std::sync::Arc;
 
 #[test]
+fn static_source_checks_but_executable_products_report_the_declaration() {
+    let engine = KagariEngine::default();
+    let name = "memory://static-gate.kgr";
+    let text = "mod nested { static val UNUSED: i32 = 42; } fn main() -> i32 { 7 }";
+    let checked = engine.compile_source(SourceFile::new(name, text)).unwrap();
+    let errors = [
+        engine.prepare(&checked, Default::default()).unwrap_err(),
+        engine
+            .emit_artifact(&checked, Default::default())
+            .unwrap_err(),
+    ];
+    for error in errors {
+        let EmbeddingError::Diagnostics { diagnostics } = error else {
+            panic!("expected a source diagnostic, got {error:?}");
+        };
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        let diagnostic = &diagnostics[0];
+        assert_eq!(diagnostic.code, "KG_SYNTAX_UNSUPPORTED");
+        assert!(diagnostic.message.contains("static lowering"));
+        let span = diagnostic.span.expect("physical declaration span");
+        assert!(text[span.range.start..span.range.end].contains("static val UNUSED"));
+    }
+}
+
+#[test]
 fn module_rebinding_changes_analysis_and_artifacts_without_changing_text() {
     let engine = KagariEngine::default();
     let first = ModuleIdentity {

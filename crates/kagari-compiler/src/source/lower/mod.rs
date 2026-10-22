@@ -6,6 +6,7 @@ use kagari_common::{
         DefinitionPath, map::DefinitionContext, mapping::DefinitionMappingError,
         metadata::DefinitionMetadata,
     },
+    span::Span,
 };
 use kagari_contract::{
     host as module_host,
@@ -18,7 +19,9 @@ use kagari_hir::{
         ids::{ExprId, FunctionId, LocalId, PlaceId},
         item::function::FunctionKind,
     },
+    imports::{ResolvedTarget, SourceItem},
     native::NativeBinding,
+    resolver::resolved::ResolvedName,
     typeck::FunctionImplementation,
     types::semantic::raise_type,
 };
@@ -89,25 +92,87 @@ impl From<DefinitionMappingError> for MirLoweringError {
     }
 }
 
+pub(crate) fn unsupported_static(span: Option<Span>) -> MirLoweringError {
+    let mut diagnostic = Diagnostic::error(DiagnosticKind::UnsupportedSyntax {
+        feature: "static lowering (not implemented yet)",
+    });
+    diagnostic.span = span;
+    MirLoweringError::diagnostic(diagnostic)
+}
+
+// PS01 admits checked declarations, but PS03 owns executable static contracts.
+// Check declarations rather than reachable expressions: unused cells also matter.
+pub(super) fn reject_static_declarations(
+    module: &AnalyzedModule,
+    cancel: &CancellationToken,
+) -> Result<(), MirLoweringError> {
+    cancel.check().map_err(|_| MirLoweringError::Cancelled)?;
+    if let Some(item) = module.lowered.module.statics.first() {
+        return Err(unsupported_static(Some(
+            module.lowered.source_map.static_span(item.id),
+        )));
+    }
+    Ok(())
+}
+
+fn reject_statics(
+    module: &AnalyzedModule,
+    cancel: &CancellationToken,
+) -> Result<(), MirLoweringError> {
+    reject_static_declarations(module, cancel)?;
+    // Availability is not dependency reachability: imported_statics can include
+    // unreferenced sibling modules. Inspect selected bindings, not that entire map.
+    for directive in &module.names.imports.directives {
+        cancel.check().map_err(|_| MirLoweringError::Cancelled)?;
+        if directive.resolution.targets().any(|target| {
+            matches!(target, ResolvedTarget::Source(source) if matches!(source.item, SourceItem::Static(_)))
+        }) {
+            return Err(unsupported_static(None));
+        }
+    }
+    let references = module
+        .lowered
+        .module
+        .body
+        .expressions()
+        .filter_map(|(id, _)| module.names.expr_resolution(id))
+        .chain(
+            module
+                .lowered
+                .module
+                .body
+                .places()
+                .filter_map(|(id, _)| module.names.place_resolution(id)),
+        );
+    for resolved in references {
+        cancel.check().map_err(|_| MirLoweringError::Cancelled)?;
+        if matches!(resolved, ResolvedName::Source(source) if matches!(source.item, SourceItem::Static(_)))
+        {
+            return Err(unsupported_static(None));
+        }
+    }
+    Ok(())
+}
+
 /// Project a checked source module's declarations for source-independent products.
+/// Returns an unsupported-static-lowering diagnostic until executable static contracts exist.
 pub fn module_contract(
     module: &CheckedAnalysis,
     cancel: &CancellationToken,
-) -> Result<DefinitionMetadata<ModuleContract>, DefinitionMappingError> {
-    cancel
-        .check()
-        .map_err(|_| DefinitionMappingError::Cancelled)?;
-    DefinitionMetadata::checked(
+) -> Result<DefinitionMetadata<ModuleContract>, MirLoweringError> {
+    reject_statics(module, cancel)?;
+    Ok(DefinitionMetadata::checked(
         module.definitions().clone(),
         abi::collect_module_abi(module),
         cancel,
-    )
+    )?)
 }
 
 pub fn lower_to_mir(
     module: &CheckedAnalysis,
     options: &MirLoweringOptions,
 ) -> Result<VerifiedMirModule, MirLoweringError> {
+    reject_statics(module, &options.cancel)?;
     let context = module.definition_context();
     let module = module
         .to_unverified(&options.cancel)
@@ -131,6 +196,7 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
     catalog: &'a AggregateCatalog,
     context: &'a DefinitionContext,
 ) -> Result<VerifiedMirModule, MirLoweringError> {
+    reject_static_declarations(module, &options.cancel)?;
     identity::collect_language(context, &options.cancel)?;
     let mut planner = InstancePlanner::new(module, options, modules, catalog, context);
     planner.check()?;

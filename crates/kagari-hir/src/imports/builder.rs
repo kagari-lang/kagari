@@ -376,6 +376,17 @@ fn add_declarations(
             );
         }
     }
+    for item in &module.module.statics {
+        cancel.check()?;
+        add_source(
+            &mut names,
+            &unit,
+            &item.name,
+            SourceItem::Static(item.id),
+            item.visibility,
+            location(module, module.source_map.static_span(item.id)),
+        );
+    }
     for item in &module.module.structs {
         cancel.check()?;
         add_source(

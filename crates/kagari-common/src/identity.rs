@@ -92,6 +92,7 @@ pub enum DefinitionKind {
     Method,
     Variant,
     AssociatedType,
+    Static,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

@@ -101,6 +101,7 @@ pub fn check_module(
             selection: BodySelection::All,
             signatures: &signatures,
             imported_functions: &Default::default(),
+            imported_statics: &Default::default(),
             aggregates: &aggregates,
         },
         reuse,

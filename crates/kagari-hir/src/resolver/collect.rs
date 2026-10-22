@@ -226,13 +226,24 @@ pub(crate) fn resolve_bodies(
         if cancel.check().is_err() {
             break;
         }
-        resolver.resolve_top_level_expr(const_item.id, const_item.initializer);
+        resolver.resolve_top_level_expr(BodyOwner::Const(const_item.id), const_item.initializer);
+    }
+    for item in &lowered.module.statics {
+        if cancel.check().is_err() {
+            break;
+        }
+        resolver.resolve_top_level_expr(BodyOwner::Static(item.id), item.initializer);
     }
     // Resolve only selected bodies and their lexical ancestors. Ancestors supply
     // declaration-time scopes; their bodies are not type-checked by this traversal.
     let mut required = HashSet::new();
     for function in &lowered.module.functions {
-        if !selection.includes(function.id) {
+        if !selection.includes(function.id)
+            && lowered
+                .module
+                .static_initializer_for_function(function.id)
+                .is_none()
+        {
             continue;
         }
         let mut id = function.id;
