@@ -2,7 +2,7 @@
 
 ## Status and authority
 
-**Active: AR01-AR02 complete; AR03 runtime scheduling next.** Originally
+**Active: AR01-AR03 complete; AR04 structured composition next.** Originally
 planned on 2026-10-22 against `2bfcc77c`; the user subsequently authorized AR01-AR06
 implementation with one commit per completed phase. This document owns scope,
 dependencies, acceptance and progress. The [roadmap](implementation-roadmap.md#async-blocks-structured-concurrency-and-runtime-api)
@@ -855,14 +855,14 @@ blocks reuse existing GC/cancellation/pinning coverage where contracts are ident
 
 ### AR03 - Centralize runtime scheduling and lifecycle
 
-- [ ] Internalize ready-task selection, safe bounded progress and wake publication.
-- [ ] Reuse one executor for ordinary calls, queued factories and resumed work.
-- [ ] Implement runtime-level wake/drive integration with the external scheduler,
+- [x] Internalize ready-task selection, safe bounded progress and wake publication.
+- [x] Reuse one executor for ordinary calls, queued factories and resumed work.
+- [x] Implement runtime-level wake/drive integration with the external scheduler,
       separate result waiters, result/report retirement and shutdown decisions.
-- [ ] Exercise a minimal real host wake adapter now, before the final AR05 facade:
+- [x] Exercise a minimal real host wake adapter now, before the final AR05 facade:
       synchronous root return, independent Task IO completion, bounded-turn rescheduling
       and cancellation cleanup must progress without busy polling or per-Task driving.
-- [ ] Preserve independent scope Tasks, dispatcher failure cleanup and synchronous
+- [x] Preserve independent scope Tasks, dispatcher failure cleanup and synchronous
       host reentry; coordinate parking edits with RL02 rather than duplicating proofs.
 
 Acceptance: a spawned Task progresses without host per-Task driving; a parent
@@ -990,7 +990,7 @@ artifacts and batch fixture regeneration at a coherent checkpoint.
 | Planning | Complete; implementation and one commit per phase authorized | Original baseline 2bfcc77c; scope remains AR01-AR06. |
 | AR01 | Complete (design/documentation) | Closure decisions above resolve ownership, bounds, scheduler, groups, reports/close and finite migration. Source/link/diff review only; runtime acceptance remains in implementation phases. |
 | AR02 | Complete (focused local acceptance) | Distinct AST/HIR block, shared capture/type checking and direct MakeFuture lowering; tooling and contracts updated. Validation below; exhaustive CI unrun. |
-| AR03 | Not started | Internal runtime scheduling and cleanup. |
+| AR03 | Complete (focused local acceptance) | Shared runtime/VM turn, durable dual wake routes, scheduled results and completion-before-retirement, managed Task retirement and synchronous close. Temporary manual-scope path removal belongs to AR05. |
 | AR04 | Not started | Structured groups and stdlib join/try_join. |
 | AR05 | Not started | Public synchronous/awaitable calls, reusable bindings and retained object/member facade. |
 | AR06 | Not started | Integrated contracts and focused local acceptance. |
@@ -1001,6 +1001,47 @@ through shared capture lowering and both failing block contracts passed. Parser/
 fixture and editor-token fixture failures were corrected and rerun. The initial
 default-feature SDK build hit the 120-second compound-command timeout before tests
 ran; source-only focused SDK validation passed afterward. Full CI acceptance is unrun.
+
+### AR03 validation and review
+
+Implemented scheduler records for invocations and managed scope Tasks, conservative
+shared turn budgeting, temporary/persistent driver wake handoff, typed Send result
+sinks, synchronous cancellation/close and bounded independent-task failure events.
+create_scheduled_task_scope opts into automatic scheduling/retirement; existing manual
+scopes remain a finite migration bridge until AR05 consumer conversion. No group
+scheduler or public typed-call facade was added prematurely. Branch cleanup belongs
+to AR04; borrowed Call wiring belongs to AR05. New modules split wake, result, task,
+lifecycle and backend responsibilities; structure checks found no exceptions.
+
+Review found two defects, reproduced and repaired before acceptance: activation-entry
+errors lost their original outcome through cancellation Drop, and off-driver contained
+result-destructor faults could set dirty without waking. Selected outcomes now retain
+original errors/traces with cleanup precedence, fatal faults drain local state, and
+first fault notification cannot recursively retry a hostile Waker. An impl-scoped
+manual_noop_waker allowance preserves a deliberately hostile Waker destructor test;
+ordinary no-op wakers still use the standard helper. No outstanding AR03 failures.
+
+Passed checks (selection covers wake-driven source/source-free execution, task waiting,
+reentry, output publication and cleanup; no workspace test sweep):
+
+```text
+cargo test -p kagari-runtime --lib scheduler:: --no-fail-fast
+cargo test -p kagari --lib scheduler_ --no-fail-fast
+cargo test -p kagari --lib scoped_task --no-fail-fast
+cargo test -p kagari --lib sdk_owned_future_factory_contract
+cargo test -p kagari --lib async_output_publication_contract
+cargo test -p kagari --no-default-features --test async_execution sdk_scheduler_source_free_wake_contract
+uv run --locked scripts/check_structure.py
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+git diff --check
+```
+
+Final scheduler sets passed 3 runtime and 10 SDK tests. Existing five scoped-task,
+factory/reentry, publication and source-free checks passed before the focused repairs;
+unaffected results remain evidence. First workspace Clippy found the hostile-drop
+Waker lint; final workspace Clippy passed after the narrow documented correction.
+Complete feature/platform/backend matrices remain CI-only.
 
 ### AR02 validation and review
 

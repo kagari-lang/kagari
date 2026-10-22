@@ -60,6 +60,7 @@ impl Runtime {
             .map(|(id, _)| TaskId(id))
             .collect::<Vec<_>>();
         let count = ids.len();
+        let mut failure = None;
         for id in ids {
             let state = {
                 let mut tasks = self.tasks.borrow_mut();
@@ -89,14 +90,16 @@ impl Runtime {
                 Some(trace) => error.with_trace(trace),
                 None => error,
             };
-            self.publish_task_result(id, Err(error))?;
+            if let Err(error) = self.publish_task_result(id, Err(error)) {
+                failure.get_or_insert(error);
+            }
         }
         self.acknowledge_task_scopes();
         self.release_dropped_task_scopes();
-        Ok(count)
+        failure.map_or(Ok(count), Err)
     }
 
-    fn release_dropped_task_scopes(&self) {
+    pub(crate) fn release_dropped_task_scopes(&self) {
         let mut tasks = self.tasks.borrow_mut();
         let ids = tasks
             .scopes
@@ -130,20 +133,6 @@ impl Runtime {
 
 impl Drop for Runtime {
     fn drop(&mut self) {
-        let controls = self
-            .tasks
-            .get_mut()
-            .scopes
-            .iter()
-            .map(|(_, scope)| scope.control.clone())
-            .collect::<Vec<_>>();
-        for control in &controls {
-            control.close(CancellationCause::RuntimeShutdown);
-        }
-        // Provider failures quarantine the runtime and still retire their session.
-        let _ = self.drain_cancelled_tasks();
-        // Standalone owned executions need the same guarded retirement even when
-        // the host still holds their handles during runtime teardown.
-        let _ = self.drain_owned_executions(true);
+        let _ = self.close();
     }
 }

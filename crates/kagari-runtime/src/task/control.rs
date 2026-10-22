@@ -1,6 +1,7 @@
 //! Notifications carry identities only. Publication never enters script execution.
 use crate::{
     gc::roots::RootedValue,
+    scheduler::wake::WakeHub,
     task::{CancellationCause, ScopeId, TaskId},
 };
 use kagari_common::cancellation::{CancellationSubscription, CancellationToken};
@@ -35,6 +36,7 @@ impl<F: Fn(ReadyNotice) -> Result<(), DispatchUnavailable> + Send + Sync> TaskDi
 
 pub(crate) struct ScopeControl {
     pub id: ScopeId,
+    pub scheduler: Option<Arc<WakeHub>>,
     pub closing: AtomicBool,
     pub owner_dropped: AtomicBool,
     pub failed: AtomicBool,
@@ -61,9 +63,11 @@ impl ScopeControl {
         id: ScopeId,
         dispatcher: Arc<dyn TaskDispatcher>,
         cancellation: &CancellationToken,
+        scheduler: Option<Arc<WakeHub>>,
     ) -> Arc<Self> {
         let control = Arc::new(Self {
             id,
+            scheduler,
             closing: AtomicBool::new(false),
             owner_dropped: AtomicBool::new(false),
             failed: AtomicBool::new(false),
@@ -110,6 +114,9 @@ impl ScopeControl {
     }
 
     pub fn notify(&self, task: Option<TaskId>) -> Result<(), DispatchUnavailable> {
+        if let Some(hub) = &self.scheduler {
+            hub.mark_ready();
+        }
         if self.failed.load(Ordering::Acquire) {
             return Err(DispatchUnavailable);
         }
@@ -155,6 +162,9 @@ impl ScopeControl {
         &self,
         dispatcher: Arc<dyn TaskDispatcher>,
     ) -> Result<(), DispatchUnavailable> {
+        if self.scheduler.is_some() {
+            return Err(DispatchUnavailable);
+        }
         let previous = {
             let mut installed = self.dispatcher.lock().unwrap_or_else(|e| e.into_inner());
             let previous = mem::replace(

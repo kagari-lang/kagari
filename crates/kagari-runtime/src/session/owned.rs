@@ -111,6 +111,14 @@ impl OwnedExecution {
         self.owner.cancellation.cancel();
     }
 
+    pub(crate) fn cancellation_token(&self) -> CancellationToken {
+        self.owner.cancellation.clone()
+    }
+
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.owner.cancellation.check().is_err()
+    }
+
     /// Readiness is durable and coalesced. A wake is only a scheduling hint.
     pub fn is_ready(&self) -> bool {
         !self.owner.finished.load(Ordering::Acquire)
@@ -333,11 +341,13 @@ impl Runtime {
     ) -> Result<ExecutionStack<'_>, RuntimeError> {
         self.require_idle_driver()?;
         self.gc().ensure_no_native_borrow()?;
+        self.ensure_scheduler_open()?;
+        self.validate_owned_execution(owner)?;
         let state = self
             .resources()
             .sessions
             .get(owner.id)
-            .ok_or_else(|| RuntimeError::module_validation("foreign or retired execution"))?;
+            .expect("validated owner");
         if state
             .owner
             .borrow()
@@ -363,9 +373,33 @@ impl Runtime {
         ExecutionStack::resume(session)
     }
 
+    pub(crate) fn validate_owned_execution(
+        &self,
+        owner: &OwnedExecution,
+    ) -> Result<(), RuntimeError> {
+        let state = self
+            .resources()
+            .sessions
+            .get(owner.id)
+            .ok_or_else(|| RuntimeError::module_validation("foreign or retired execution"))?;
+        if state.scopes.get() != 0
+            || state
+                .owner
+                .borrow()
+                .as_ref()
+                .is_none_or(|held| !Arc::ptr_eq(held, &owner.owner))
+        {
+            return Err(RuntimeError::module_validation(
+                "foreign or active execution owner",
+            ));
+        }
+        Ok(())
+    }
+
     /// Release a terminal execution after its activation and output rooting end.
     pub fn finish_owned_execution(&self, owner: &OwnedExecution) -> Result<(), RuntimeError> {
         self.require_idle_driver()?;
+        self.validate_owned_execution(owner)?;
         self.retire_execution(owner.id)
     }
 

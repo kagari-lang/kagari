@@ -2,6 +2,7 @@
 pub(crate) mod fixtures;
 pub mod native;
 pub mod owned;
+mod scheduler;
 mod tasks;
 mod typed;
 use kagari_bytecode::{

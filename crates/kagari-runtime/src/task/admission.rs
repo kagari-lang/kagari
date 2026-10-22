@@ -6,6 +6,7 @@ use crate::{
     gc::roots::RootedValue,
     module::LoadedModule,
     native::binding::NativeResult,
+    scheduler::{WorkKey, wake::WakeHub},
     session::{ExecutionOptions, ExecutionPhase},
     task::{
         CancellationCause, ScopeId, SpawnError, TaskId,
@@ -31,6 +32,17 @@ impl Runtime {
         options: ExecutionOptions,
         dispatcher: Arc<dyn TaskDispatcher>,
     ) -> NativeResult<TaskScopeOwner> {
+        self.create_task_scope_inner(owner, options, dispatcher, None)
+    }
+
+    pub(crate) fn create_task_scope_inner(
+        &self,
+        owner: &LoadedModule,
+        options: ExecutionOptions,
+        dispatcher: Arc<dyn TaskDispatcher>,
+        scheduler: Option<Arc<WakeHub>>,
+    ) -> NativeResult<TaskScopeOwner> {
+        self.ensure_scheduler_open()?;
         self.reject_static_initialization("TaskScope creation")?;
         self.require_idle_driver()?;
         self.validate_loaded_module(owner)?;
@@ -47,7 +59,7 @@ impl Runtime {
                 .map_err(|_| RuntimeError::resource_limit("task scopes"))?,
         );
         let result = (|| {
-            let control = ScopeControl::new(id, dispatcher, &options.cancellation);
+            let control = ScopeControl::new(id, dispatcher, &options.cancellation, scheduler);
             let ty = Ty::NativeObject(NominalTy {
                 declaration: self.task_role(NativeStorageLayout::TaskScope)?,
                 arguments: vec![],
@@ -90,6 +102,7 @@ impl Runtime {
         capability: &Value,
         factory: &Value,
     ) -> NativeResult<Result<RootedValue, SpawnError>> {
+        self.ensure_scheduler_open()?;
         self.resources().poll_execution()?;
         self.reject_static_initialization("task spawn")?;
         if self.execution_options().phase != ExecutionPhase::Ordinary {
@@ -125,6 +138,9 @@ impl Runtime {
             task.declaration = declaration;
             Some(Ty::NativeObject(task))
         })?;
+        if control.scheduler.is_some() && self.scheduler.reserve_work().is_err() {
+            return Ok(Err(SpawnError::CapacityExceeded));
+        }
         let id = match self.tasks.borrow_mut().tasks.reserve() {
             Ok(id) => TaskId(id),
             Err(error) => return Ok(Err(error)),
@@ -199,6 +215,9 @@ impl Runtime {
             .get_mut(id.0)
             .expect("admitting task")
             .state = TaskState::Queued(prepared);
+        if control.scheduler.is_some() {
+            self.scheduler.enqueue(WorkKey::Task(id));
+        }
         Ok(Ok(value))
     }
 

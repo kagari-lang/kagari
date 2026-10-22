@@ -21,6 +21,8 @@ pub struct AsyncLimits {
     pub max_tasks: NonZeroUsize,
     pub max_task_scopes: NonZeroUsize,
     pub max_task_waiters: NonZeroUsize,
+    pub max_scheduled_invocations: NonZeroUsize,
+    pub max_task_failure_events: NonZeroUsize,
 }
 
 impl Default for AsyncLimits {
@@ -30,6 +32,8 @@ impl Default for AsyncLimits {
             max_tasks: NonZeroUsize::new(1024).expect("positive default"),
             max_task_scopes: NonZeroUsize::new(64).expect("positive default"),
             max_task_waiters: NonZeroUsize::new(4096).expect("positive default"),
+            max_scheduled_invocations: NonZeroUsize::new(1024).expect("positive default"),
+            max_task_failure_events: NonZeroUsize::new(256).expect("positive default"),
         }
     }
 }
@@ -223,6 +227,10 @@ impl ResourceState {
 
     pub(crate) fn limit(&self, name: &'static str) -> RuntimeError {
         self.admit_execution_error(RuntimeError::resource_limit(name))
+    }
+
+    pub(crate) fn close_execution(&self) {
+        self.execution.close();
     }
 
     pub fn ensure_execution_allowed(&self) -> Result<(), RuntimeError> {

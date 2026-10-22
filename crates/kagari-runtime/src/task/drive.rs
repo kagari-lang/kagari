@@ -2,10 +2,11 @@
 use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
+    error_trace::ErrorTrace,
     gc::roots::RootedValue,
     native::binding::NativeResult,
     session::owned::OwnedExecution,
-    task::{CancellationCause, TaskId, control::TaskScopeOwner, store::TaskState},
+    task::{CancellationCause, ScopeId, TaskId, control::TaskScopeOwner, store::TaskState},
     value::Value,
 };
 use std::{mem, sync::atomic::Ordering, task::Waker};
@@ -57,6 +58,16 @@ impl TaskActivation<'_> {
         })
     }
 
+    /// Retire a failed scheduler activation and publish its original error, with
+    /// cleanup faults taking precedence. No continuation is resumed for cleanup.
+    pub fn fail(self, error: RuntimeError) -> NativeResult<TaskDriveResult> {
+        self.runtime.require_idle_driver()?;
+        let error = self
+            .runtime
+            .retire_scheduled_execution(self.execution(), error);
+        self.complete(Err(error))
+    }
+
     /// The execution backend has already retired the completed owned execution.
     pub fn complete(mut self, result: NativeResult<RootedValue>) -> NativeResult<TaskDriveResult> {
         self.runtime.require_idle_driver()?;
@@ -71,10 +82,9 @@ impl Drop for TaskActivation<'_> {
         if let Some(execution) = self.execution.take() {
             let signal = {
                 let mut tasks = self.runtime.tasks.borrow_mut();
-                let record = tasks
-                    .tasks
-                    .get_mut(self.task.0)
-                    .expect("active task record");
+                let Some(record) = tasks.tasks.get_mut(self.task.0) else {
+                    return;
+                };
                 if matches!(record.state, TaskState::Terminal(_)) {
                     return;
                 }
@@ -116,12 +126,27 @@ impl Runtime {
         self.require_idle_driver()?;
         self.gc().ensure_no_native_borrow()?;
         self.validate_scope_owner(scope)?;
+        if scope.control.scheduler.is_some() {
+            return Err(RuntimeError::module_validation(
+                "managed Tasks use the runtime scheduler",
+            ));
+        }
+        self.acquire_task_inner(scope.id(), task)
+    }
+
+    pub(crate) fn acquire_task_inner(
+        &self,
+        scope: ScopeId,
+        task: TaskId,
+    ) -> NativeResult<TaskAcquisition<'_>> {
+        self.require_idle_driver()?;
+        self.gc().ensure_no_native_borrow()?;
         let (state, signal, options) = {
             let mut tasks = self.tasks.borrow_mut();
             let Some(record) = tasks.tasks.get_mut(task.0) else {
                 return Ok(TaskAcquisition::Inactive(TaskDriveResult::Stale));
             };
-            if record.scope != scope.id() {
+            if record.scope != scope {
                 return Err(RuntimeError::module_validation(
                     "Task belongs to another scope",
                 ));
@@ -179,7 +204,25 @@ impl Runtime {
                     }
                 }
             }
-            TaskState::Owned(execution) => execution,
+            TaskState::Owned(execution) => {
+                if signal.cancellation.check().is_err()
+                    && signal
+                        .scope
+                        .upgrade()
+                        .is_some_and(|scope| scope.scheduler.is_some())
+                {
+                    let trace = ErrorTrace::capture_session(self.resources(), execution.id);
+                    let error = self
+                        .finish_owned_execution(&execution)
+                        .err()
+                        .unwrap_or_else(|| {
+                            RuntimeError::new(RuntimeErrorKind::Cancelled, "task cancelled")
+                        });
+                    self.publish_task_result(task, Err(error.with_trace(trace)))?;
+                    return Ok(TaskAcquisition::Inactive(TaskDriveResult::Complete));
+                }
+                execution
+            }
             _ => unreachable!("checked task state"),
         };
         Ok(TaskAcquisition::Active(TaskActivation {

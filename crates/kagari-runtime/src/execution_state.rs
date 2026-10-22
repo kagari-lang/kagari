@@ -9,6 +9,7 @@ use crate::error::{RuntimeError, RuntimeErrorKind};
 enum Phase {
     #[default]
     Ready,
+    Closed,
     Committing,
     Collecting,
     Quarantined(&'static str),
@@ -27,6 +28,10 @@ impl ExecutionState {
     pub(crate) fn ensure_allowed(&self) -> Result<(), RuntimeError> {
         match self.0.get() {
             Phase::Ready => Ok(()),
+            Phase::Closed => Err(RuntimeError::new(
+                RuntimeErrorKind::Cancelled,
+                "runtime is closed",
+            )),
             Phase::Committing => {
                 self.0.set(Phase::Quarantined(
                     "execution attempted during host path commit",
@@ -42,6 +47,12 @@ impl ExecutionState {
             Phase::Quarantined(reason) => {
                 Err(RuntimeError::new(RuntimeErrorKind::EngineFault, reason))
             }
+        }
+    }
+
+    pub(crate) fn close(&self) {
+        if !self.is_quarantined() {
+            self.0.set(Phase::Closed);
         }
     }
 

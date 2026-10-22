@@ -8,11 +8,16 @@ use kagari::{
 };
 use kagari_runtime::{gc::roots::RootedValue, native::completion::CompletionStatus, value::Value};
 use std::{
+    future::Future,
+    pin::Pin,
+    sync::mpsc::{self, SyncSender, TrySendError},
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     },
-    task::{Wake, Waker},
+    task::{Context, Poll, Wake, Waker},
+    thread,
+    time::Duration,
 };
 
 #[path = "support/async_fixture.rs"]
@@ -44,6 +49,74 @@ impl Wake for Notice {
     fn wake(self: Arc<Self>) {
         self.0.fetch_add(1, Ordering::SeqCst);
     }
+}
+
+struct RuntimeReady(SyncSender<()>);
+
+impl Wake for RuntimeReady {
+    fn wake(self: Arc<Self>) {
+        match self.0.try_send(()) {
+            Ok(()) | Err(TrySendError::Full(())) => {}
+            Err(TrySendError::Disconnected(())) => panic!("host loop disconnected"),
+        }
+    }
+}
+
+#[test]
+fn sdk_scheduler_source_free_wake_contract() {
+    let mut f = Fixture::new();
+    let (send, receive) = mpsc::sync_channel(1);
+    let wake = Waker::from(Arc::new(RuntimeReady(send)));
+    assert!(f.runtime.poll(&mut Context::from_waker(&wake)).is_pending());
+    for (input, expected) in [(1, 8), (21, 42)] {
+        let cold = f.cold(input);
+        let owner = f
+            .runtime
+            .start_future(
+                &cold.value(f.runtime.runtime().gc()).unwrap(),
+                &Default::default(),
+            )
+            .unwrap();
+        let mut ticket = f
+            .runtime
+            .runtime()
+            .schedule_execution(owner, |runtime, value| {
+                assert!(runtime.execution_root().is_some());
+                let Some(Value::I32(value)) = value.value(runtime.gc()) else {
+                    panic!("i32 output")
+                };
+                Ok(value)
+            })
+            .unwrap();
+        drop(cold);
+        let mut completed = false;
+        for _ in 0..32 {
+            if let Poll::Ready(value) =
+                Pin::new(&mut ticket).poll(&mut Context::from_waker(Waker::noop()))
+            {
+                assert_eq!(value.unwrap(), expected);
+                completed = true;
+                break;
+            }
+            receive
+                .recv_timeout(Duration::from_secs(2))
+                .expect("source-free runtime wake");
+            assert!(f.runtime.poll(&mut Context::from_waker(&wake)).is_pending());
+            if let Some(completion) = f.sent.lock().unwrap().pop() {
+                thread::spawn(move || {
+                    assert_eq!(completion.complete(Ok(42)), CompletionStatus::Accepted);
+                })
+                .join()
+                .unwrap();
+            }
+        }
+        assert!(completed, "bounded notification-driven completion");
+    }
+    f.runtime.close().unwrap();
+    assert!(matches!(
+        f.runtime.poll(&mut Context::from_waker(&wake)),
+        Poll::Ready(Ok(()))
+    ));
 }
 
 #[test]

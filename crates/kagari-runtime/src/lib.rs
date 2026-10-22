@@ -30,6 +30,7 @@ use crate::{
     objects::{invocation::MethodInvocation, method::BoundReceiver},
     reflection::ReflectionError,
     resource::{AsyncLimits, ResourceState, RuntimeLimits},
+    scheduler::Scheduler,
     session::{
         CandidateSession, ExecutionEntry, ExecutionObserver, ExecutionOptions, ExecutionPhase,
         ExecutionSession,
@@ -68,6 +69,7 @@ pub mod range;
 pub mod reflection;
 pub mod reload;
 pub mod resource;
+pub mod scheduler;
 #[cfg(test)]
 mod test_support;
 mod value_check;
@@ -125,6 +127,7 @@ pub struct RuntimeConfig {
 /// ```
 #[derive(Debug)]
 pub struct Runtime {
+    scheduler: Scheduler,
     tasks: RefCell<TaskStore>,
     operations: OnceLock<Result<CompletionRegistry, RuntimeError>>,
     async_limits: AsyncLimits,
@@ -169,6 +172,7 @@ impl Runtime {
         let resources = ResourceState::new(config.limits);
         let types = native_entries.metadata.runtime_registry();
         Self {
+            scheduler: Scheduler::new(config.async_limits),
             tasks: RefCell::new(TaskStore::new(config.async_limits)),
             operations: OnceLock::new(),
             async_limits: config.async_limits,
@@ -302,6 +306,7 @@ impl Runtime {
         options: ExecutionOptions,
         entry: ExecutionEntry,
     ) -> Result<ExecutionSession<'_>, RuntimeError> {
+        self.ensure_scheduler_open()?;
         self.gc.ensure_no_native_borrow()?;
         if self.modules.is_staged(module)
             && self.resources().active_session().is_none()

@@ -89,7 +89,11 @@ impl<'a> Executor<'a> {
         })
     }
 
-    pub(crate) fn run_slice(mut self, slice: NonZeroUsize) -> Result<DriveOutcome, VmError> {
+    pub(crate) fn run_slice(
+        mut self,
+        slice: NonZeroUsize,
+        complete: impl FnOnce(&Runtime, Value) -> Result<(), VmError>,
+    ) -> Result<DriveOutcome, VmError> {
         let value = self.run_inner(Some(slice.get())).map_err(|error| {
             error
                 .admit_execution_error(self.runtime.resources())
@@ -104,7 +108,11 @@ impl<'a> Executor<'a> {
                 .stack
                 .park_waiting(self.runtime)
                 .map_err(|error| self.runtime.resources().admit_execution_error(error))?,
-            DriveOutcome::Complete(_) => {}
+            DriveOutcome::Complete(value) => complete(self.runtime, *value).map_err(|error| {
+                error
+                    .admit_execution_error(self.runtime.resources())
+                    .with_trace(self.runtime.capture_error_trace())
+            })?,
         }
         Ok(value)
     }

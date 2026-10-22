@@ -107,6 +107,7 @@ impl Runtime {
         if let Some(scope) = signal.scope.upgrade() {
             let _ = scope.notify(Some(task));
         }
+        self.retire_managed_task(task);
         match failure {
             Some(error) => Err(error),
             None => Ok(()),

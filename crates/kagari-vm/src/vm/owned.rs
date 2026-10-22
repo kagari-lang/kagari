@@ -5,9 +5,11 @@ use crate::{
     vm::Vm,
 };
 use kagari_runtime::{
+    Runtime,
     error::RuntimeError,
     gc::roots::RootedValue,
     module::{LoadedModule, entry::ProgramEntry},
+    native::binding::NativeResult,
     session::{ExecutionOptions, owned::OwnedExecution},
     value::Value,
 };
@@ -54,20 +56,36 @@ impl Vm {
         slice: NonZeroUsize,
     ) -> Result<DriveResult, VmError> {
         self.runtime.drain_retired_executions()?;
+        let result = self.drive_with_completion(owner, slice, |_, _| Ok(()))?;
+        self.runtime.drain_retired_executions()?;
+        Ok(result)
+    }
+
+    /// Convert under the original active session, then retire before returning a
+    /// terminal outcome. The scheduler publishes only after this method returns.
+    pub(super) fn drive_with_completion(
+        &self,
+        owner: &OwnedExecution,
+        slice: NonZeroUsize,
+        complete: impl FnOnce(&Runtime, &RootedValue) -> NativeResult<()>,
+    ) -> Result<DriveResult, VmError> {
         let executor = Executor::resume(&self.runtime, owner)?;
-        let outcome = executor.run_slice(slice);
+        let mut output = None;
+        let outcome = executor.run_slice(slice, |runtime, value| {
+            let root = runtime
+                .root_value(value)
+                .ok_or_else(|| RuntimeError::module_validation("owned execution result root"))?;
+            complete(runtime, &root)?;
+            output = Some(root);
+            Ok(())
+        });
         let result = match outcome {
             Ok(DriveOutcome::Runnable) => return Ok(DriveResult::Runnable),
             Ok(DriveOutcome::Waiting) => return Ok(DriveResult::Waiting),
-            Ok(DriveOutcome::Complete(value)) => self.runtime.root_value(value).ok_or_else(|| {
-                VmError::RuntimeError(RuntimeError::module_validation(
-                    "owned execution result root",
-                ))
-            }),
+            Ok(DriveOutcome::Complete(_)) => Ok(output.expect("rooted terminal output")),
             Err(error) => Err(error),
         };
         self.runtime.finish_owned_execution(owner)?;
-        self.runtime.drain_retired_executions()?;
         Ok(DriveResult::Complete(result))
     }
 }
