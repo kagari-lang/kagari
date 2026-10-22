@@ -1,13 +1,13 @@
 //! A task factory and its returned Future share one owned execution lifetime.
 use crate::{
-    Runtime,
+    RootedInterfaceMethod, Runtime,
     closure::ClosureTarget,
     error::RuntimeError,
     error_trace::asynchronous::CallableOrigin,
     frame::{ExecutionStack, types::arguments::TypeArgument, waiting::QueuedFuture},
-    gc::roots::RootedValue,
+    gc::roots::{RootSet, RootedValue},
     module::LoadedModule,
-    native::binding::NativeResult,
+    native::{binding::NativeResult, function_handle::PreparedFunction},
     value::Value,
 };
 use kagari_bytecode::module::CallableTarget;
@@ -15,14 +15,40 @@ use kagari_types::{
     declaration::{TypeDefKind, native::NativeStorageLayout},
     ty::Ty,
 };
-use std::slice;
+use std::{slice, sync::Arc};
 
 #[derive(Debug)]
 pub(crate) struct QueuedFactory {
-    pub origin: CallableOrigin,
     pub owner: LoadedModule,
-    pub value: RootedValue,
+    pub entry: FactoryEntry,
     pub future: TypeArgument,
+}
+
+#[derive(Debug)]
+pub(crate) enum FactoryEntry {
+    Closure {
+        value: RootedValue,
+        origin: CallableOrigin,
+    },
+    Pinned {
+        function: Arc<PreparedFunction>,
+        arguments: Vec<Value>,
+        roots: RootSet,
+    },
+    Interface {
+        method: Box<RootedInterfaceMethod>,
+        arguments: Vec<Value>,
+        roots: RootSet,
+    },
+}
+
+impl QueuedFactory {
+    pub(crate) fn origin(&self) -> CallableOrigin {
+        match &self.entry {
+            FactoryEntry::Closure { origin, .. } => *origin,
+            _ => unreachable!("Task admission uses a closure factory"),
+        }
+    }
 }
 
 impl Runtime {
@@ -55,17 +81,19 @@ impl Runtime {
             return Err(invalid());
         }
         Ok(QueuedFactory {
-            origin: CallableOrigin {
-                epoch: closure.implementation.epoch.0,
-                code_fingerprint: closure.implementation.program_fingerprint(),
-                module: closure.implementation.slot(),
-                target: match closure.target {
-                    ClosureTarget::Script(function) => CallableTarget::Script(function),
-                    ClosureTarget::Native(ref native) => CallableTarget::Native(native.import),
+            entry: FactoryEntry::Closure {
+                value: self.root_value(*value).ok_or_else(invalid)?,
+                origin: CallableOrigin {
+                    epoch: closure.implementation.epoch.0,
+                    code_fingerprint: closure.implementation.program_fingerprint(),
+                    module: closure.implementation.slot(),
+                    target: match closure.target {
+                        ClosureTarget::Script(function) => CallableTarget::Script(function),
+                        ClosureTarget::Native(ref native) => CallableTarget::Native(native.import),
+                    },
                 },
             },
             owner: closure.implementation.clone(),
-            value: self.root_value(*value).ok_or_else(invalid)?,
             future: signature.result.clone(),
         })
     }
@@ -82,14 +110,35 @@ impl ExecutionStack<'_> {
                 "invalid factory activation",
             ));
         }
-        let value = queued
-            .value
-            .value(runtime.gc())
-            .ok_or_else(|| RuntimeError::module_validation("factory root"))?;
-        runtime
-            .gc()
-            .validate_async_values(slice::from_ref(&value))?;
-        self.push_closure(runtime, &value, &[], None)?;
+        match queued.entry {
+            FactoryEntry::Closure { value, .. } => {
+                let value = value
+                    .value(runtime.gc())
+                    .ok_or_else(|| RuntimeError::module_validation("factory root"))?;
+                runtime
+                    .gc()
+                    .validate_async_values(slice::from_ref(&value))?;
+                self.push_closure(runtime, &value, &[], None)?;
+            }
+            FactoryEntry::Pinned {
+                function,
+                arguments,
+                roots,
+            } => {
+                let _retained = roots;
+                runtime.gc().validate_async_values(&arguments)?;
+                self.push_pinned_call(runtime, &function, &arguments)?;
+            }
+            FactoryEntry::Interface {
+                method,
+                arguments,
+                roots,
+            } => {
+                let _retained = roots;
+                runtime.gc().validate_async_values(&arguments)?;
+                self.push_interface_method(runtime, *method, &arguments, None)?;
+            }
+        }
         *self.session.state().factory_output.borrow_mut() = Some(queued.future);
         Ok(())
     }

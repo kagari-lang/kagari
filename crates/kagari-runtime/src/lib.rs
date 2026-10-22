@@ -152,7 +152,7 @@ pub struct Runtime {
 
 /// A resolved dynamic method whose interface receiver stays rooted across
 /// safepoints and synchronous host reentry.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct RootedInterfaceMethod {
     invocation: MethodInvocation,
     bound_receiver: BoundReceiver,

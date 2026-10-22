@@ -3,11 +3,12 @@ use super::{
     Fixture,
     scheduler::{HostLoop, decode, result, scheduled},
 };
-use crate::{engine::EngineConfig, runtime::owned::DriveResult};
+use crate::engine::EngineConfig;
 use kagari_runtime::{
     error::RuntimeErrorKind, native::completion::CompletionStatus, scheduler::TurnBudget,
     value::Value,
 };
+use kagari_vm::vm::owned::DriveResult;
 use std::{num::NonZeroUsize, sync::atomic::Ordering};
 
 const SOURCE: &str = r#"
@@ -62,7 +63,7 @@ fn groups_waits_are_nonowning_and_cycles_cross_nested_groups() {
     assert!(f.runtime.poll(&mut host.context()).is_pending());
     let scope = f
         .runtime
-        .create_scheduled_task_scope(&f.module, &Default::default())
+        .create_task_scope_with_context(&f.module, &Default::default())
         .unwrap();
     let task = f.invoke("launch", &[f.value(scope.capability())]);
     host.until(&mut f.runtime, || f.starts.load(Ordering::SeqCst) == 1);
@@ -119,6 +120,7 @@ fn groups_pre_admission_cancel_capacity_and_parent_depth() {
     let owner = f.start_future(&composition);
     assert!(matches!(
         f.runtime
+            .backend()
             .drive(&owner, NonZeroUsize::new(256).unwrap())
             .unwrap(),
         DriveResult::Waiting
@@ -131,6 +133,7 @@ fn groups_pre_admission_cancel_capacity_and_parent_depth() {
     let blocked = f.start_future(&f.invoke("cold", &[]));
     assert!(matches!(
         f.runtime
+            .backend()
             .drive(&blocked, NonZeroUsize::new(256).unwrap())
             .unwrap(),
         DriveResult::Complete(Err(_))

@@ -11,7 +11,7 @@ use crate::{
 use bincode::{DefaultOptions, Options};
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_runtime::{
-    Runtime,
+    Runtime as CoreRuntime,
     error::RuntimeError,
     frame::ExecutionFrame,
     session::{ExecutionEvent, ExecutionObserver},
@@ -106,12 +106,7 @@ fn native_context() -> ExecutionContext {
     }
 }
 
-fn result(
-    runtime: &KagariRuntime,
-    loaded: &LoadedModule,
-    prepared: &PreparedNativeEntry,
-    expected: i32,
-) {
+fn result(runtime: &Runtime, loaded: &LoadedModule, prepared: &PreparedNativeEntry, expected: i32) {
     let report = runtime
         .execute_prepared(loaded, ProgramEntry::Main, &[], &native_context(), prepared)
         .unwrap();
@@ -191,7 +186,7 @@ struct Observer;
 impl ExecutionObserver for Observer {
     fn observe(
         &mut self,
-        _: &Runtime,
+        _: &CoreRuntime,
         _: ExecutionEvent,
         _: &[ExecutionFrame],
     ) -> Result<(), RuntimeError> {

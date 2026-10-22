@@ -419,7 +419,7 @@ The embedding API is organized around these concepts:
 KagariEngine
   owns compiler services, runtime configuration, and shared registries
 
-KagariRuntime
+Runtime
   owns loaded modules, heaps, host registries, security state, and execution policy
 
 DebugController
@@ -464,10 +464,10 @@ reload_program(previous, prepared_candidate, reload_options) -> ReloadResult<Loa
 Convenience functions may combine these operations for CLI use, but the underlying phases remain separate.
 
 The current Rust facade uses `KagariEngine` for compile and artifact emission and
-`KagariRuntime` for load, execute, reload and optional backend execution. Native
+`Runtime` for load, execute, reload and optional backend execution. Native
 declarations and bindings are installed through `KagariEngineBuilder` before engine
 construction; live object roots and scoped host access belong to the runtime.
-`KagariRuntime::reload_program` stages and validates the candidate before publishing,
+`Runtime::reload_program` stages and validates the candidate before publishing,
 following [module-activation.md](module-activation.md). Validation errors retain their
 reload codes.
 Reload preserves the existing module identities, public ABI and typed-path contracts.
@@ -492,13 +492,13 @@ candidate execution scope before dropping the candidate session.
 The candidate session borrows its staged owner. Ordinary execution rejects staged
 module handles, and publication requires candidate execution to have ended.
 
-`KagariRuntime::execute` runs through the interpreter.
+`Runtime::execute` runs through the interpreter.
 `PreparedProgram::from_artifact` consumes `DefinitionMetadata<BytecodeArtifact>`,
 checks resource limits against the retained input table, explicitly imports into
 its preparation context, and validates reusable code before runtime linking.
 Identity import never creates executable verification evidence.
 With `native`, it also verifies optional portable MIR and canonical bytecode
-correspondence. `KagariRuntime::prepare_native` uses a trusted, host-supplied
+correspondence. `Runtime::prepare_native` uses a trusted, host-supplied
 `CodegenBackend`, caches products by complete configuration/version identity and
 installs a handle for that runtime. `execute_prepared` consumes that decision without
 compiling. Only pre-entry unsupported/policy decisions fall back; compiler errors
@@ -561,12 +561,12 @@ session's cancellation and pinned program. The explicit named-entry policy match
 
 ### Scoped external host entry
 
-KagariRuntime::with_host_scope reserves the mutable runtime and gives its callback
+Runtime::with_host_scope reserves the mutable runtime and gives its callback
 an invariant native HostScope. The callback returns RunResult, so native lending
 errors use the existing SDK runtime error mapping without string conversion. No
 scope brand, borrowed result or host reference can escape.
 
-Inside that scope, KagariRuntime::execute_scoped(scope, loaded, entry, values,
+Inside that scope, Runtime::execute_scoped(scope, loaded, entry, values,
 execution) delegates to the VM's existing checked scoped entry. ExecutionContext is
 required: cancellation, deterministic inputs, host-call recording and the observer
 apply to this root session. JitPolicy::Disabled explicitly selects the interpreter;
@@ -697,7 +697,7 @@ and selected calls retain their checked implementations, including inherited,
 default and static members. Handles reject foreign runtimes and incompatible
 applications or generations; old handles keep their selected version after reload.
 
-`KagariRuntime::with_context(owner, execution, |cx| ...)` opens SDK host access
+`Runtime::with_context(owner, execution, |cx| ...)` opens SDK host access
 with cancellation, execution phase and backend policy. Field reads/writes and
 method/closure calls share that scope; native callbacks receive it automatically.
 No metadata or payload borrow spans script reentry. See the executable
@@ -899,15 +899,15 @@ The VM [debugger adapter boundary](debugger.md#adapter-boundary) exposes request
 ## Threading and Isolates
 
 A single Kagari runtime isolate is single-threaded from the script perspective.
-Hosts may run multiple isolates on different Rust threads. Runtime, Vm and
-KagariRuntime are Send and not Sync. A host can move a quiescent runtime, or own
+Hosts may run multiple isolates on different Rust threads. The core runtime, `Vm`
+and SDK `Runtime` are Send and not Sync. A host can move a quiescent runtime, or own
 it across message-receive awaits in a Send task; synchronous calls and scoped
 borrows finish before transfer. Native payloads/observers require Send, while
 shared registrations require Send + Sync. Thread-affine services stay outside the
 runtime and use host message/ID boundaries.
 
 PreparedProgram remains preparation-side Rc ownership with a RefCell native cache;
-it is neither Send nor Sync and is not retained by KagariRuntime. Load/install code
+it is neither Send nor Sync and is not retained by Runtime. Load/install code
 before transfer, or prepare independently on the receiving worker. Installed native
 products retain transferable finalized owners. This does not advertise concurrent
 shared native preparation or a portable shared Program API.
@@ -947,58 +947,83 @@ one. Full-file and per-function queries share this implementation. Repeating an
 unchanged query uses its cached snapshot; source movement rebases query positions
 without changing the results retained by an earlier snapshot.
 
-## Owned execution and native waits
+## Typed async calls, scheduling and native waits
 
-`KagariRuntime::{start, drive, drain_retired_executions}` exposes runtime-owned
-execution with or without SDK source/native features. Start validates a pinned
-entry, retains owned arguments and queues it without executing script. It returns
-`kagari_runtime::session::owned::OwnedExecution`, with no Runtime borrow in the
-handle. Drive takes a `NonZeroUsize` instruction slice and returns
-`kagari::runtime::owned::DriveResult`:
+`kagari::runtime::Runtime` is the SDK execution facade. Bind once with
+`function::<A, R>(&module, name)` or `async_function::<A, R>(&module, name)`.
+The latter returns `kagari_runtime::native::function_handle::asynchronous::AsyncFunction<A, R>`:
+a checked callable and the retained lexical output scope of exactly one `Future<R>`
+layer. Both handles remain generation-pinned across reload; binding against a newly
+published module is explicit.
 
-- `Runnable`: a safe slice exit; the host should schedule another turn.
-- `Waiting`: an incomplete operation; the host should wait for readiness.
-- `Complete(RunResult<RootedValue>)`: a terminal value or script/cancellation error,
-  after execution cleanup. Driver API errors are the outer `RunResult`.
+- `call(&mut self, &PinnedFunction<A, R>, A) -> RunResult<R>` uses the default context.
+- `call_async(&mut self, &AsyncFunction<A, R>, A) -> RunResult<Call<'_, R>>`
+  admits a cold invocation and returns an exclusive borrowing, driving Future.
+- `submit_async(&mut self, &AsyncFunction<A, R>, A) -> RunResult<PendingCall<R>>`
+  admits the same invocation but returns a nonborrowing, result-only Future.
+- Each call has a `_with_context` variant taking `&ExecutionContext`.
 
-`OwnedExecution::set_waker` registers a host scheduling notification and rechecks
-durable readiness. `is_ready` observes that coalesced state; a wake never enters the
-runtime. Typed `bind` producers using `Async<A>` return cold
-`core::future::Future<T>` values, receive owned input/completion endpoints on first
-await, and convert results on the driver. Completion can arrive before registration,
-during submission or from another thread without executing a continuation there.
+`Call` and `PendingCall` live in `kagari::runtime::call` and yield `RunResult<R>`.
+Async outputs require `FromKagari + Send + 'static`, not Sync. Arguments require
+`IntoKagariArguments`, without a new Send bound: conversion/rooting happens at
+admission, under the invocation's original context, without executing its factory.
+Completion conversion uses the retained output type scope in that same session;
+publication follows local cleanup. A completed result survives runtime teardown,
+but retained objects still require their live owning runtime for access.
 
-Owner cancellation affects only that execution. The context's cancellation token
-can cancel all executions started with that context, including while waiting;
-owner cancellation does not propagate back into this shared token. Drop requests
-retirement. Explicit drain, another start/drive or runtime destruction releases
-abandoned frames, leases and pending operations. Cancellation of a retained owner
-completes through its next drive; requesting cancellation alone is not cleanup.
+Awaiting `Call` drives the common bounded scheduler without a second pump. Its
+exclusive runtime borrow lasts until completion or drop. Dropping an unfinished
+Call synchronously retires that invocation and structured descendants, without a
+subsequent poll or a remote IO acknowledgement. Dropping/cancelling `PendingCall`
+requests cancellation; the application must keep driving Runtime for cleanup, or
+close/drop it. Runtime teardown resolves unfinished tickets. Cancellation does not
+propagate back into a shared host context token. Cleanup faults quarantine the runtime.
 
-The owned driver uses the interpreter and requires `JitPolicy::Disabled`, like
-ordinary baseline execution. `prepare_native` returns Unsupported for resume
-bodies before calling the backend, directing the host to this owned driver.
-Synchronous execute/reentry cannot drive a suspendable body, even if its operation
-would complete immediately. Native calls remain cooperative and may overrun a slice.
+`Runtime::poll(&mut self, &mut Context<'_>) -> Poll<RunResult<()>>` drives one shared
+bounded turn across invocations, structured branches and managed scope Tasks.
+An open idle runtime returns Pending; `close() -> RunResult<()>` synchronously stops
+admission and cleans up, after which poll returns Ready(Ok(())). A fatal error drains
+remaining work before terminal failure. Register a reliable coalescing host Waker and
+poll on notification, not a per-Task loop. A temporary Call route preserves and then
+restores the external driver's route on completion/drop, notifying remaining work.
+Host adapters must explicitly handle disconnection; Waker cannot report dropped
+messages. Wakes never execute script, including completion from another thread.
 
-Source `async`/`.await` is implemented. `start_future` queues one cold Future layer
-for owned driving; ordinary calls return the Future without running its body.
-`create_task_scope` installs a host-owned scheduling capability. Script
-`scope.spawn(factory)` and `Runtime::spawn_task` admit an independently driven Task
-without calling its factory. `drive_task` uses bounded interpreter activations;
-`ready_tasks` provides the scope's durable ready set. A dispatcher receives
-identity-only notices and must arrange exclusive host driving. It can use a mailbox,
-an event loop or a simple coalesced wake; it is not required to be an Actor.
+`create_task_scope(&mut self, &module)` uses the default context; its
+`_with_context` variant takes an explicit context. Pass `scope.handle()` through a
+typed call as `kagari_runtime::task::value::TaskScope`. Script `scope.spawn(factory)`
+admits without executing the factory. Shared scheduling automatically retires terminal
+admission slots; retained script Task handles still cache their result for multiple
+awaits. `take_task_event` returns bounded failure diagnostics (including failures
+observed by script waiters) and an explicit suppressed count on overflow.
+`TaskScopeOwner::close`/drop requests cancellation; Runtime polling or close acknowledges
+cleanup. Keeping a capability or dropping a script Task does not change owner lifetime.
 
-`take_task_report` transfers a terminal result/failure and retires its admission
-slot. Retained script Task handles still cache their result for multiple awaits.
-Reports preserve task/scope and original failure identity, including bounded detached
-spawn/await sites. `TaskScopeOwner::close` requests cancellation; the host calls
-`drain_cancelled_tasks` until cleanup is acknowledged by `is_closed`. No remote IO
-reply is required. Dropping a Task handle does not cancel the scope-owned job.
+Use `object_type`, `field`, `method`, `associated_function`, `get`, `set` and
+`call_method` for retained structs. Future-returning members use `async_method`,
+`async_associated_function`, `call_async_method` or `submit_async_method`. An existing
+script-provided `Interface` uses explicitly named `interface_method`,
+`call_interface_method` and their async/submit forms. Access and call context overrides
+preserve cancellation, observers and backend-policy checks. There is no arbitrary
+Object-to-trait cast, implicit specialization or latest-version handle. Concrete
+member instantiations must already have checked executable evidence in the program.
+The [host_objects example](../../crates/kagari/examples/host_objects.rs) executes
+binding, object round trips, direct await, submission and pinned reload.
 
-The [async_tasks example](../../crates/kagari/examples/async_tasks/main.rs)
-demonstrates this public API with two native providers, ordinary for-loop awaits,
-terminal reporting and scope shutdown. Its decoded artifact also executes without
-SDK source/native features. The [roadmap](../implementation-roadmap.md#verification-and-open-ci-acceptance)
-records the separate full GitHub CI gap.
+The async driver requires `JitPolicy::Disabled`. Native preparation rejects resume
+bodies before compilation. Synchronous execution/reentry never drives a suspendable
+body, even when its operation could complete immediately. Native producers registered
+using `Async<A>` remain cold until await, receive owned inputs/completion endpoints,
+and convert completion data on the driver. Native calls remain cooperative and may
+overrun a slice.
+
+For backend tooling, `Runtime::backend()` exposes `kagari_vm::vm::Vm`;
+`ExecutionContext::interpreter_options()` validates interpreter policy and preserves
+inputs. Low-level `Vm::{start, start_future, drive, drive_task}` and core runtime
+manual scopes, reports and retirement primitives remain at their backend owners.
+They are not SDK aliases or the normal async facade. A low-level OwnedExecution drop
+requests retirement rather than promising Call's synchronous cleanup contract.
+
+The [async_tasks example](../../crates/kagari/examples/async_tasks/main.rs) uses typed
+scope admission and a coalesced host event loop with two native providers. Its decoded
+artifact also executes without SDK source/native features.

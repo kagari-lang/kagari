@@ -22,7 +22,7 @@ use {
     kagari_contract::{ids::FunctionRef, native::NativeCompilationProduct},
 };
 
-use crate::{program::PreparedProgram, runtime::KagariRuntime};
+use crate::{program::PreparedProgram, runtime::Runtime};
 
 const MAX_CACHED_FUNCTIONS: usize = 4096;
 
@@ -61,7 +61,7 @@ pub enum NativePreparationError {
     Runtime(#[from] RuntimeError),
 }
 
-impl KagariRuntime {
+impl Runtime {
     /// Preparation performs no script execution. Trusted backend implementations
     /// supply products; runtime installation binds them to this runtime's versions.
     /// The runtime's default JIT policy controls preparation; each execution also

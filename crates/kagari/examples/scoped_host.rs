@@ -1,5 +1,5 @@
 //! One registered method set serves runtime-owned and externally borrowed players.
-use kagari::runtime::KagariRuntime;
+use kagari::runtime::Runtime;
 use kagari::{context::ExecutionContext, engine::KagariEngine};
 use kagari_runtime::{
     native::{
@@ -90,24 +90,13 @@ fn main() {
     let borrowed_hp = runtime
         .with_host_scope(|scope| {
             let view = scope.borrow_mut(descriptor.rust_type(), &mut external)?;
-            let Value::I32(hp) = KagariRuntime::execute_scoped(
-                scope,
-                &loaded,
-                "borrowed",
-                &[view.value()],
-                &context,
-            )?
+            let Value::I32(hp) =
+                Runtime::execute_scoped(scope, &loaded, "borrowed", &[view.value()], &context)?
             else {
                 unreachable!()
             };
             assert_eq!(
-                KagariRuntime::execute_scoped(
-                    scope,
-                    &loaded,
-                    "inspect",
-                    &[view.value()],
-                    &context
-                )?,
+                Runtime::execute_scoped(scope, &loaded, "inspect", &[view.value()], &context)?,
                 Value::I32(hp)
             );
             Ok(hp)
@@ -120,13 +109,7 @@ fn main() {
         .with_host_scope(|scope| {
             let view = scope.borrow(descriptor.rust_type(), &external)?;
             assert_eq!(
-                KagariRuntime::execute_scoped(
-                    scope,
-                    &loaded,
-                    "inspect",
-                    &[view.value()],
-                    &context
-                )?,
+                Runtime::execute_scoped(scope, &loaded, "inspect", &[view.value()], &context)?,
                 Value::I32(70)
             );
             Ok(())

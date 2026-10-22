@@ -62,7 +62,7 @@ validation and mutation commit guarantees through shared runtime services.
 
 ## Preparation and Fallback
 
-Hosts explicitly call `KagariRuntime::prepare_native`, then `execute_prepared`.
+Hosts explicitly call `Runtime::prepare_native`, then `execute_prepared`.
 Preparation performs no script execution. It checks the exact loaded/prepared version
 and policy, builds links, compiles or reuses a cached product, and installs it for the
 runtime. Source and artifact routes share this flow. `execute` remains interpreter-only.

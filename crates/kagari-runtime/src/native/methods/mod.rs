@@ -1,6 +1,7 @@
 //! Public inherent-member binding for script objects and native payloads.
 mod application;
 mod arguments;
+pub mod asynchronous;
 mod binding;
 pub(crate) mod receiver;
 mod resolution;

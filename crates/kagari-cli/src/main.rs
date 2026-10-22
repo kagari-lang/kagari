@@ -21,7 +21,7 @@ use kagari::{
     },
     error::EmbeddingError,
     program::{PreparedProgram, ProgramPreparationError},
-    runtime::{KagariRuntime, LoadOptions},
+    runtime::{LoadOptions, Runtime},
 };
 use kagari_bytecode::artifact::ArtifactCompatibility;
 #[cfg(feature = "jit")]
@@ -212,7 +212,7 @@ fn run_prepared_program(
 }
 
 fn execute_entry(
-    runtime: &mut KagariRuntime,
+    runtime: &mut Runtime,
     program: &PreparedProgram,
     loaded: &LoadedModule,
     context: &ExecutionContext,
@@ -228,7 +228,7 @@ fn execute_entry(
 
 #[cfg(feature = "jit")]
 fn execute_entry_with_jit(
-    runtime: &mut KagariRuntime,
+    runtime: &mut Runtime,
     program: &PreparedProgram,
     loaded: &LoadedModule,
     context: &ExecutionContext,
@@ -251,7 +251,7 @@ fn execute_entry_with_jit(
 
 #[cfg(not(feature = "jit"))]
 fn execute_entry_with_jit(
-    _runtime: &mut KagariRuntime,
+    _runtime: &mut Runtime,
     _program: &PreparedProgram,
     _loaded: &LoadedModule,
     _context: &ExecutionContext,

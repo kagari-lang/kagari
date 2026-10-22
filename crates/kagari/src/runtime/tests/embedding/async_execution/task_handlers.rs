@@ -66,6 +66,7 @@ fn drive(f: &Fixture, scope: &TaskScopeOwner, id: TaskId) -> TaskDriveResult {
         f.runtime.runtime().collect_garbage().unwrap();
         let result = f
             .runtime
+            .backend()
             .drive_task(scope, id, NonZeroUsize::new(1).unwrap())
             .unwrap();
         if result != TaskDriveResult::Runnable {
@@ -91,7 +92,8 @@ fn scoped_task_handler_contract() {
     let runtime = f.runtime.runtime();
     let scope = f
         .runtime
-        .create_task_scope(&f.module, &Default::default(), Arc::new(|_| Ok(())))
+        .runtime()
+        .create_task_scope(&f.module, Default::default(), Arc::new(|_| Ok(())))
         .unwrap();
     let capability = f.value(scope.capability());
     let events = f.invoke("events", &[]);
@@ -226,9 +228,10 @@ fn scoped_task_handler_contract() {
     );
     let failed_scope = f
         .runtime
+        .runtime()
         .create_task_scope(
             &f.module,
-            &Default::default(),
+            Default::default(),
             Arc::new(|_| Err(DispatchUnavailable)),
         )
         .unwrap();

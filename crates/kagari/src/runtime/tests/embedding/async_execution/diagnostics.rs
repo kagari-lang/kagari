@@ -1,6 +1,7 @@
 //! Detached failure origins survive shared waits, report retirement and stripped debug records.
 use super::{Fixture, Value};
-use crate::{BytecodeArtifact, program::PreparedProgram, runtime::owned::DriveResult};
+use crate::error::EmbeddingError;
+use crate::{BytecodeArtifact, program::PreparedProgram};
 use kagari_bytecode::{instruction::BytecodeInstruction, module::CallableTarget};
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_runtime::{
@@ -10,6 +11,7 @@ use kagari_runtime::{
     task::{CancellationCause, TaskId, control::TaskScopeOwner, drive::TaskDriveResult},
 };
 use kagari_source::source::SourceFile;
+use kagari_vm::vm::owned::DriveResult;
 use std::{
     num::NonZeroUsize,
     slice,
@@ -82,6 +84,7 @@ fn drive(f: &Fixture, scope: &TaskScopeOwner, id: TaskId) -> TaskDriveResult {
         f.runtime.runtime().collect_garbage().unwrap();
         let result = f
             .runtime
+            .backend()
             .drive_task(scope, id, NonZeroUsize::new(1).unwrap())
             .unwrap();
         if result != TaskDriveResult::Runnable {
@@ -98,7 +101,8 @@ fn async_failure_provenance_contract() {
         let runtime = f.runtime.runtime();
         let scope = f
             .runtime
-            .create_task_scope(&f.module, &Default::default(), Arc::new(|_| Ok(())))
+            .runtime()
+            .create_task_scope(&f.module, Default::default(), Arc::new(|_| Ok(())))
             .unwrap();
         let capability = f.value(scope.capability());
         let producer = f.invoke("submit", slice::from_ref(&capability));
@@ -187,11 +191,13 @@ fn async_failure_provenance_contract() {
         let execution = f.start_future(&future);
         let DriveResult::Complete(Err(error)) = f
             .runtime
+            .backend()
             .drive(&execution, NonZeroUsize::new(100).unwrap())
             .unwrap()
         else {
             panic!("cached failed Task propagates to the SDK")
         };
+        let error = EmbeddingError::from(error);
         assert_eq!(error.task_origin().unwrap().task, producer_id);
         assert_eq!(error.error_trace().unwrap().async_boundaries.len(), 2);
         drop((future, execution));

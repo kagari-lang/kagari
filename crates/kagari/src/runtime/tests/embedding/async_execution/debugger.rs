@@ -1,11 +1,9 @@
 //! Debug observation follows an owned root across slices and observer replacement.
 use super::{Fixture, Value};
-use crate::{
-    error::{EmbeddingError, RuntimeFailureKind},
-    runtime::owned::DriveResult,
-};
+use crate::error::{EmbeddingError, RuntimeFailureKind};
 use kagari_runtime::{native::completion::CompletionStatus, session::owned::OwnedExecution};
 use kagari_vm::debug::{DebugPauseReason, DebugSession, SourceBreakpoint};
+use kagari_vm::vm::owned::DriveResult;
 use std::{num::NonZeroUsize, sync::atomic::Ordering};
 
 const SOURCE: &str = r#"
@@ -22,6 +20,7 @@ fn drive(f: &Fixture, execution: &OwnedExecution) -> DriveResult {
     for _ in 0..1000 {
         let result = f
             .runtime
+            .backend()
             .drive(execution, NonZeroUsize::new(1).unwrap())
             .unwrap();
         f.runtime.runtime().collect_garbage().unwrap();
@@ -195,10 +194,10 @@ fn async_debugger_drive_contract() {
     cancelled.cancel();
     assert!(matches!(
         drive(&f, &cancelled),
-        DriveResult::Complete(Err(EmbeddingError::Runtime {
+        DriveResult::Complete(Err(error)) if matches!(EmbeddingError::from(error.clone()), EmbeddingError::Runtime {
             kind: RuntimeFailureKind::Cancelled,
             ..
-        }))
+        })
     ));
     assert_eq!(f.cancels.load(Ordering::SeqCst), 1);
     assert_eq!(late.complete(Ok(10)), CompletionStatus::Stale);

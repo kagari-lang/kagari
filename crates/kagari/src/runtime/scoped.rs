@@ -1,5 +1,5 @@
 //! Scoped external lending uses the common runtime owner and explicit SDK policy.
-use crate::{RunResult, context::ExecutionContext, error::EmbeddingError, runtime::KagariRuntime};
+use crate::{RunResult, context::ExecutionContext, error::EmbeddingError, runtime::Runtime};
 use kagari_runtime::{
     host_scope::scoped::HostScope,
     module::{LoadedModule, entry::ProgramEntry},
@@ -7,15 +7,15 @@ use kagari_runtime::{
 };
 use kagari_vm::vm::Vm;
 
-impl KagariRuntime {
+impl Runtime {
     /// Reserve host objects under an invariant lifetime brand. Native errors use
     /// the ordinary SDK execution mapping; errors/unwinds revoke all scoped views.
     ///
     /// Scoped views cannot escape through the SDK facade:
     /// ```compile_fail
-    /// use kagari::runtime::KagariRuntime;
+    /// use kagari::runtime::Runtime;
     /// use kagari_runtime::native::rust_type::RustType;
-    /// fn escape(runtime: &mut KagariRuntime, ty: &RustType<i32>, value: &mut i32) {
+    /// fn escape(runtime: &mut Runtime, ty: &RustType<i32>, value: &mut i32) {
     ///     let view = runtime.with_host_scope(|scope| {
     ///         Ok(scope.borrow_mut(ty, value)?)
     ///     }).unwrap();

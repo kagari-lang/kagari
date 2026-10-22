@@ -82,7 +82,7 @@ pub fn factory() -> fn()->Future<i32> { || nested() }
         assert!(f.runtime.poll(&mut host.context()).is_pending());
         let scope = task_root.then(|| {
             f.runtime
-                .create_scheduled_task_scope(&f.module, &Default::default())
+                .create_task_scope_with_context(&f.module, &Default::default())
                 .unwrap()
         });
         let mut ticket = if let Some(scope) = &scope {
@@ -285,7 +285,11 @@ pub async fn waiting() -> i32 { val (a,b)=join(request(10),request(20)).await; a
     );
     let context = ExecutionContext::default();
     let future = f.invoke("waiting", &[]);
-    let execution = f.runtime.start_future(&f.value(&future), &context).unwrap();
+    let execution = f
+        .runtime
+        .backend()
+        .start_future(&f.value(&future), context.interpreter_options().unwrap())
+        .unwrap();
     let mut ticket = f
         .runtime
         .runtime()
@@ -347,7 +351,11 @@ pub async fn serial() -> i32 { probe(); val a=probe(); val b=probe(); probe()+a+
     assert!(f.runtime.poll(&mut host.context()).is_pending());
     for entry in ["grouped", "serial"] {
         let future = f.invoke(entry, &[]);
-        let execution = f.runtime.start_future(&f.value(&future), &context).unwrap();
+        let execution = f
+            .runtime
+            .backend()
+            .start_future(&f.value(&future), context.interpreter_options().unwrap())
+            .unwrap();
         let mut ticket = f
             .runtime
             .runtime()

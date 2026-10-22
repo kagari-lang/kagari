@@ -10,10 +10,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use kagari::{context::ExecutionContext, runtime::KagariRuntime};
+use kagari::{context::ExecutionContext, runtime::Runtime};
 use kagari_bytecode::instruction::BytecodeInstruction;
 use kagari_runtime::{
-    Runtime,
+    Runtime as CoreRuntime,
     error::RuntimeError,
     frame::{ExecutionFrame, transfer::ReturnValue},
     module::{LoadedModule, entry::ProgramEntry, execution::ExecutionInstruction},
@@ -47,7 +47,7 @@ type InstructionCountMap = HashMap<Discriminant<BytecodeInstruction>, (String, u
 impl ExecutionObserver for InstructionCounts {
     fn observe(
         &mut self,
-        runtime: &Runtime,
+        runtime: &CoreRuntime,
         event: ExecutionEvent,
         frames: &[ExecutionFrame],
     ) -> Result<(), RuntimeError> {
@@ -81,7 +81,7 @@ impl ExecutionObserver for InstructionCounts {
 }
 
 fn execute(
-    runtime: &KagariRuntime,
+    runtime: &Runtime,
     module: &LoadedModule,
     context: &ExecutionContext,
     entry: ProgramEntry<'_>,
@@ -102,7 +102,7 @@ fn execute(
 }
 
 pub(super) fn run(
-    runtime: &KagariRuntime,
+    runtime: &Runtime,
     module: &LoadedModule,
     context: &ExecutionContext,
     entry: ProgramEntry<'_>,
@@ -147,7 +147,7 @@ pub(super) fn run(
 }
 
 pub(super) fn count(
-    runtime: &KagariRuntime,
+    runtime: &Runtime,
     module: &LoadedModule,
     context: &ExecutionContext,
     entry: ProgramEntry<'_>,

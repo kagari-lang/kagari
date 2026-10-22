@@ -543,7 +543,7 @@ The original host loan lasts until scope exit even if its branded view is droppe
 Scope/view values cannot transfer between threads. Execution stays within the scope;
 the interpreter's `Vm::execute_scoped` requires explicit ExecutionOptions, uses the
 ordinary checked public entry and validates its concrete parameters before execution.
-The SDK facade uses KagariRuntime::with_host_scope and its static execute_scoped
+The SDK facade uses Runtime::with_host_scope and its static execute_scoped
 with explicit ExecutionContext; it forwards cancellation, inputs and observation,
 and rejects unsupported JIT policies before entering the interpreter. Heap results remain rooted
 until scope exit; an owning handle is required to retain them beyond that scope.

@@ -3,11 +3,11 @@ use crate::{
     context::{ExecutionContext, JitPolicy},
     engine::KagariEngine,
     program::PreparedProgram,
-    runtime::KagariRuntime,
+    runtime::Runtime,
 };
 use kagari_derive::KagariValue;
 use kagari_runtime::{
-    Runtime,
+    Runtime as CoreRuntime,
     error::RuntimeError,
     frame::ExecutionFrame,
     native::{
@@ -113,13 +113,7 @@ fn scoped_native_calls_accept_compatible_reloaded_descriptors() {
                 for (entry, expected) in [("direct", hp), ("native", hp + offset), ("heal", hp + 1)]
                 {
                     assert_eq!(
-                        KagariRuntime::execute_scoped(
-                            scope,
-                            loaded,
-                            entry,
-                            &[view.value()],
-                            &context
-                        )?,
+                        Runtime::execute_scoped(scope, loaded, entry, &[view.value()], &context)?,
                         Value::I32(expected)
                     );
                 }
@@ -132,17 +126,11 @@ fn scoped_native_calls_accept_compatible_reloaded_descriptors() {
         .with_host_scope(|scope| {
             let view = scope.borrow(&descriptor, &stats)?;
             assert_eq!(
-                KagariRuntime::execute_scoped(
-                    scope,
-                    &current,
-                    "native",
-                    &[view.value()],
-                    &context
-                )?,
+                Runtime::execute_scoped(scope, &current, "native", &[view.value()], &context)?,
                 Value::I32(143)
             );
             assert!(
-                KagariRuntime::execute_scoped(scope, &current, "heal", &[view.value()], &context)
+                Runtime::execute_scoped(scope, &current, "heal", &[view.value()], &context)
                     .is_err()
             );
             Ok(())
@@ -156,7 +144,7 @@ struct ContextObserver(Arc<AtomicUsize>);
 impl ExecutionObserver for ContextObserver {
     fn observe(
         &mut self,
-        runtime: &Runtime,
+        runtime: &CoreRuntime,
         _: ExecutionEvent,
         _: &[ExecutionFrame],
     ) -> Result<(), RuntimeError> {
@@ -235,26 +223,14 @@ fn scoped_entries_use_explicit_sdk_context_and_the_common_pack_adapter() {
                 ..context.clone()
             };
             assert!(
-                KagariRuntime::execute_scoped(
-                    scope,
-                    &loaded,
-                    "tick",
-                    &[player.value()],
-                    &unsupported
-                )
-                .is_err()
+                Runtime::execute_scoped(scope, &loaded, "tick", &[player.value()], &unsupported)
+                    .is_err()
             );
             let cancelled = context.clone();
             cancelled.cancellation.cancel();
             assert!(
-                KagariRuntime::execute_scoped(
-                    scope,
-                    &loaded,
-                    "tick",
-                    &[player.value()],
-                    &cancelled
-                )
-                .is_err()
+                Runtime::execute_scoped(scope, &loaded, "tick", &[player.value()], &cancelled)
+                    .is_err()
             );
             // CancellationToken clones share cancellation. A fresh context establishes
             // a new root; failure cannot leave loans or observer/session state behind.
@@ -263,27 +239,15 @@ fn scoped_entries_use_explicit_sdk_context_and_the_common_pack_adapter() {
                 ..context.clone()
             };
             assert_eq!(
-                KagariRuntime::execute_scoped(
-                    scope,
-                    &loaded,
-                    "inspect",
-                    &[player.value()],
-                    &context
-                )?,
+                Runtime::execute_scoped(scope, &loaded, "inspect", &[player.value()], &context)?,
                 Value::I32(40)
             );
             assert_eq!(
-                KagariRuntime::execute_scoped(scope, &loaded, "tick", &[player.value()], &context)?,
+                Runtime::execute_scoped(scope, &loaded, "tick", &[player.value()], &context)?,
                 Value::I32(70)
             );
             assert_eq!(
-                KagariRuntime::execute_scoped(
-                    scope,
-                    &loaded,
-                    "inspect",
-                    &[player.value()],
-                    &context
-                )?,
+                Runtime::execute_scoped(scope, &loaded, "inspect", &[player.value()], &context)?,
                 Value::I32(70)
             );
             Ok(())

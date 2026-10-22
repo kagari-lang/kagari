@@ -169,8 +169,8 @@ fn unsupported_mir_selects_interpreter_before_any_script_instruction() {
 
 #[test]
 fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints() {
-    use crate::runtime::KagariRuntime;
-    use kagari_runtime::{Runtime, RuntimeConfig, gc::GcHeapConfig};
+    use crate::runtime::Runtime;
+    use kagari_runtime::{Runtime as CoreRuntime, RuntimeConfig, gc::GcHeapConfig};
     let engine = KagariEngine::default();
     let prepare = |value| {
         let artifact = engine
@@ -195,9 +195,9 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
         jit_policy: JitPolicy::Enabled,
         ..Default::default()
     };
-    let mut runtime = KagariRuntime::new(
+    let mut runtime = Runtime::new(
         {
-            let mut registered = Runtime::new(RuntimeConfig {
+            let mut registered = CoreRuntime::new(RuntimeConfig {
                 gc: GcHeapConfig {
                     collection_threshold: Some(1),
                     ..Default::default()

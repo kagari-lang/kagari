@@ -3,10 +3,10 @@ use kagari::{
     context::ExecutionContext,
     engine::KagariEngine,
     error::{EmbeddingError, RuntimeFailureKind},
-    runtime::{KagariRuntime, owned::DriveResult},
+    runtime::Runtime,
 };
 use kagari_runtime::{
-    Runtime,
+    Runtime as CoreRuntime,
     error::RuntimeError,
     frame::ExecutionFrame,
     module::LoadedModule,
@@ -14,6 +14,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::source::SourceFile;
+use kagari_vm::vm::owned::DriveResult;
 use std::{
     env,
     hint::black_box,
@@ -40,7 +41,7 @@ struct InstructionCount(Arc<AtomicUsize>);
 impl ExecutionObserver for InstructionCount {
     fn observe(
         &mut self,
-        _runtime: &Runtime,
+        _runtime: &CoreRuntime,
         event: ExecutionEvent,
         _frames: &[ExecutionFrame],
     ) -> Result<(), RuntimeError> {
@@ -71,7 +72,7 @@ impl Route {
 }
 
 struct Fixture {
-    runtime: KagariRuntime,
+    runtime: Runtime,
     module: LoadedModule,
     context: ExecutionContext,
     instructions: usize,
@@ -96,9 +97,16 @@ impl Fixture {
             .set_execution_observer(InstructionCount(count.clone()))
             .unwrap();
         let owner = runtime
-            .start(&module, "hold", &[Value::I32(1)], &context)
+            .backend()
+            .start(
+                &module,
+                "hold",
+                &[Value::I32(1)],
+                context.interpreter_options().unwrap(),
+            )
             .unwrap();
-        let DriveResult::Complete(result) = runtime.drive(&owner, slice(10_000)).unwrap() else {
+        let DriveResult::Complete(result) = runtime.backend().drive(&owner, slice(10_000)).unwrap()
+        else {
             panic!("bounded instruction count must complete");
         };
         assert_eq!(
@@ -128,15 +136,16 @@ impl Fixture {
         for index in 0..POPULATION {
             let owner = self
                 .runtime
+                .backend()
                 .start(
                     &self.module,
                     "hold",
                     &[Value::I32(index as i32 + 1)],
-                    &self.context,
+                    self.context.interpreter_options().unwrap(),
                 )
                 .unwrap();
             assert!(matches!(
-                self.runtime.drive(&owner, slice(steps)).unwrap(),
+                self.runtime.backend().drive(&owner, slice(steps)).unwrap(),
                 DriveResult::Runnable
             ));
             roots.push(owner);
@@ -147,13 +156,14 @@ impl Fixture {
         if cancel {
             owner.cancel();
         }
-        let DriveResult::Complete(result) = self.runtime.drive(owner, slice(10_000)).unwrap()
+        let DriveResult::Complete(result) =
+            self.runtime.backend().drive(owner, slice(10_000)).unwrap()
         else {
             panic!("bounded diagnostic must complete");
         };
         if cancel {
             assert!(matches!(
-                result,
+                result.map_err(EmbeddingError::from),
                 Err(EmbeddingError::Runtime {
                     kind: RuntimeFailureKind::Cancelled,
                     ..
@@ -178,6 +188,7 @@ impl Fixture {
             for owner in roots.iter().rev() {
                 assert!(matches!(
                     self.runtime
+                        .backend()
                         .drive(owner, slice(self.instructions - 2))
                         .unwrap(),
                     DriveResult::Runnable
@@ -196,7 +207,10 @@ impl Fixture {
                 checksum += self.finish(&owner, index, false);
             }
         }
-        assert_eq!(self.runtime.drain_retired_executions().unwrap(), 0);
+        assert_eq!(
+            self.runtime.runtime().drain_retired_executions().unwrap(),
+            0
+        );
         assert_eq!(
             self.runtime
                 .runtime()

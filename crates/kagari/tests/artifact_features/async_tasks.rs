@@ -7,7 +7,7 @@ mod host;
 mod provider;
 
 use kagari::{BytecodeArtifact, engine::KagariEngine, program::PreparedProgram};
-use kagari_runtime::native::conversion::context::ConversionContext;
+
 #[cfg(feature = "source")]
 use kagari_source::source::SourceFile;
 use provider::FakeIo;
@@ -61,23 +61,8 @@ pub async fn run() -> i32 {
         PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let mut runtime = engine.runtime(Default::default());
     let module = runtime.load_program(&program, Default::default()).unwrap();
-    let cold = runtime
-        .execute(&module, "run", &[], &Default::default())
-        .unwrap()
-        .return_value;
-    let execution = runtime
-        .start_future(
-            &cold.value(runtime.runtime().gc()).unwrap(),
-            &Default::default(),
-        )
-        .unwrap();
-    let mut ticket = runtime
-        .runtime()
-        .schedule_execution(execution, |runtime, value| {
-            let owner = runtime.execution_root().unwrap();
-            ConversionContext::new(runtime, &owner)?.decode::<i32>(value)
-        })
-        .unwrap();
+    let run = runtime.async_function::<(), i32>(&module, "run").unwrap();
+    let mut ticket = runtime.submit_async(&run, ()).unwrap();
     for _ in 0..100 {
         if ticket.is_finished() {
             break;

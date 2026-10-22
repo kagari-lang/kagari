@@ -1,13 +1,19 @@
 //! Script structs expose the common checked inherent-member path.
 use crate::{
+    Runtime,
     error::RuntimeError,
     native::{
         binding::NativeResult,
         conversion::{FromKagari, arguments::IntoKagariArguments},
-        methods::{InherentMember, InherentType, Method, receiver::AppliedReceiver},
+        methods::{
+            InherentMember, InherentType, Method, asynchronous::AsyncMethod,
+            receiver::AppliedReceiver,
+        },
         objects::{Object, ObjectType},
         typed::NativeContext,
     },
+    scheduler::result::ScheduledResult,
+    session::ExecutionOptions,
 };
 use kagari_common::identity::DefinitionPath;
 
@@ -39,6 +45,22 @@ impl InherentType for ObjectType {
 }
 
 impl<S> Object<S> {
+    pub fn schedule_async<A: IntoKagariArguments, R: FromKagari + Send + 'static>(
+        &self,
+        runtime: &Runtime,
+        method: &AsyncMethod<A, R>,
+        arguments: A,
+        options: ExecutionOptions,
+    ) -> NativeResult<ScheduledResult<R>> {
+        method.schedule_on(
+            runtime,
+            self.object_type.method_receiver()?,
+            self.root.clone(),
+            arguments,
+            options,
+        )
+    }
+
     pub fn call<A: IntoKagariArguments, R: FromKagari>(
         &self,
         cx: &mut NativeContext<'_>,

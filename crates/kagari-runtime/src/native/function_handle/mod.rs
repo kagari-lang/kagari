@@ -1,4 +1,5 @@
 //! Typed callable handles retain verified targets and their original program.
+pub mod asynchronous;
 pub(crate) mod cache;
 mod constructors;
 mod conversion;

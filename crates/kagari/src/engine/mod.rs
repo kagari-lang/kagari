@@ -8,7 +8,7 @@ pub mod packages;
 pub mod source;
 use crate::{
     context::ExecutionContext, engine::builder::KagariEngineBuilder, error::EmbeddingError,
-    runtime::KagariRuntime,
+    runtime::Runtime,
 };
 #[cfg(feature = "source")]
 use kagari_hir::{analysis::AnalysisDatabase, native::render::DeclarationSource};
@@ -121,11 +121,11 @@ impl KagariEngine {
         }
     }
 
-    pub fn runtime(&self, context: ExecutionContext) -> KagariRuntime {
+    pub fn runtime(&self, context: ExecutionContext) -> Runtime {
         let runtime = self
             .installation
             .runtime(self.config.default_runtime.clone());
-        KagariRuntime::new(runtime, context)
+        Runtime::new(runtime, context)
     }
 }
 

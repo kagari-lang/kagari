@@ -1,12 +1,11 @@
 #![cfg(feature = "source")]
 use crate::test_support::cancellation as support;
-use crate::{
-    BytecodeArtifact, engine::KagariEngine, program::PreparedProgram, runtime::KagariRuntime,
-};
+use crate::{BytecodeArtifact, engine::KagariEngine, program::PreparedProgram, runtime::Runtime};
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::{
-    Runtime, RuntimeConfig, module::LoadedModule, native::module::NativeModule, value::Value,
+    Runtime as CoreRuntime, RuntimeConfig, module::LoadedModule, native::module::NativeModule,
+    value::Value,
 };
 use kagari_source::source::SourceFile;
 use kagari_types::declaration::module::ModuleDecl;
@@ -33,7 +32,7 @@ pub(super) fn prepare_static_program(
     .unwrap()
 }
 
-fn static_call(runtime: &KagariRuntime, module: &LoadedModule, entry: &str) -> Value {
+fn static_call(runtime: &Runtime, module: &LoadedModule, entry: &str) -> Value {
     runtime
         .execute(module, entry, &[], &Default::default())
         .unwrap()
@@ -324,7 +323,7 @@ pub fn make() -> Run {
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
     config.limits.max_call_depth = Some(32);
-    let mut runtime = Runtime::new(config);
+    let mut runtime = CoreRuntime::new(config);
     NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
     let old = runtime.load_program("local-reload", program).unwrap();
     let contract = old
@@ -435,7 +434,7 @@ pub fn make() -> Run {{
         let mut config = RuntimeConfig::default();
         config.gc.collection_threshold = Some(1);
         let mut runtime = {
-            let mut registered = Runtime::new(config);
+            let mut registered = CoreRuntime::new(config);
             kagari_runtime::native::module::NativeModule::install_all(
                 &kagari_stdlib::modules().unwrap(),
                 &mut registered,
@@ -570,7 +569,7 @@ pub fn make_stopped()->Run {val keeper:Keep=0; Saved {callback:keeper.keep(Carri
     );
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
-    let mut runtime = Runtime::new(config);
+    let mut runtime = CoreRuntime::new(config);
     kagari_runtime::native::module::NativeModule::install_all(
         &kagari_stdlib::modules().unwrap(),
         &mut runtime,
@@ -676,7 +675,7 @@ pub fn probe() -> Probe { Checker {} }
     );
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
-    let mut runtime = Runtime::new(config);
+    let mut runtime = CoreRuntime::new(config);
     NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
     let old = runtime.load_program("receiver-reload", original).unwrap();
     let old_key = old.key();
@@ -855,7 +854,7 @@ fn assert_shared_collection_comparison_reloading(
     let replacement = prepare(&engine, &replacement(source));
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
-    let mut runtime = Runtime::new(config);
+    let mut runtime = CoreRuntime::new(config);
     NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
     let old = runtime
         .load_program("shared-comparison-reload", original)

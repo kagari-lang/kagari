@@ -1,8 +1,8 @@
 //! Notification-driven integration, not a busy-poll/per-Task host scheduler.
 use super::Fixture;
-use crate::{context::ExecutionContext, engine::EngineConfig, runtime::KagariRuntime};
+use crate::{context::ExecutionContext, engine::EngineConfig, runtime::Runtime};
 use kagari_runtime::{
-    Runtime,
+    Runtime as CoreRuntime,
     error::{RuntimeError, RuntimeErrorKind},
     frame::ExecutionFrame,
     gc::roots::RootedValue,
@@ -72,7 +72,7 @@ impl HostLoop {
 
     pub(super) fn turn(
         &self,
-        runtime: &mut KagariRuntime,
+        runtime: &mut Runtime,
         budget: TurnBudget,
         driver: Option<&DriverRegistration>,
     ) {
@@ -87,7 +87,7 @@ impl HostLoop {
         );
     }
 
-    pub(super) fn until(&self, runtime: &mut KagariRuntime, done: impl Fn() -> bool) {
+    pub(super) fn until(&self, runtime: &mut Runtime, done: impl Fn() -> bool) {
         for _ in 0..200 {
             if done() {
                 return;
@@ -97,7 +97,7 @@ impl HostLoop {
         panic!("bounded event-loop progress");
     }
 
-    pub(super) fn settle(&self, runtime: &mut KagariRuntime) {
+    pub(super) fn settle(&self, runtime: &mut Runtime) {
         for _ in 0..200 {
             if self.receive.try_recv().is_err() {
                 return;
@@ -124,7 +124,7 @@ pub async fn long() -> i32 { var n=0; while n < 200 { n+=1; } n }
 pub fn value() -> i32 { 42 }
 "#;
 
-pub(super) fn decode(runtime: &Runtime, value: &RootedValue) -> NativeResult<i32> {
+pub(super) fn decode(runtime: &CoreRuntime, value: &RootedValue) -> NativeResult<i32> {
     let owner = runtime
         .execution_root()
         .expect("conversion retains active invocation");
@@ -159,7 +159,7 @@ fn scheduler_scope_io_cached_results_and_retirement() {
     );
     let scope = f
         .runtime
-        .create_scheduled_task_scope(&f.module, &Default::default())
+        .create_task_scope_with_context(&f.module, &Default::default())
         .unwrap();
     let task = f.invoke("launch", &[f.value(scope.capability())]);
     assert_eq!(
@@ -249,7 +249,7 @@ fn scheduler_shared_budget_and_driver_handoff() {
 #[test]
 fn scheduler_conversion_context_results_and_local_cancellation() {
     fn send<T: Send>() {}
-    send::<KagariRuntime>();
+    send::<Runtime>();
     send::<ScheduledResult<Cell<i32>>>();
     let mut f = Fixture::source(SOURCE);
     let host = HostLoop::new();
@@ -257,7 +257,16 @@ fn scheduler_conversion_context_results_and_local_cancellation() {
     assert!(f.runtime.poll(&mut host.context()).is_pending());
     let mut options = ExecutionContext::default();
     options.inputs.unix_time_millis = 123;
-    let execution = f.runtime.start(&f.module, "value", &[], &options).unwrap();
+    let execution = f
+        .runtime
+        .backend()
+        .start(
+            &f.module,
+            "value",
+            &[],
+            options.interpreter_options().unwrap(),
+        )
+        .unwrap();
     let id = execution.execution_id();
     let mut ticket = f
         .runtime
@@ -329,7 +338,7 @@ fn scheduler_failure_overflow_shutdown_and_ticket_teardown() {
     assert!(f.runtime.poll(&mut host.context()).is_pending());
     let scope = f
         .runtime
-        .create_scheduled_task_scope(&f.module, &Default::default())
+        .create_task_scope_with_context(&f.module, &Default::default())
         .unwrap();
     for _ in 0..3 {
         let task = f.invoke("fail", &[f.value(scope.capability())]);
@@ -365,7 +374,8 @@ fn scheduler_failure_overflow_shutdown_and_ticket_teardown() {
     assert!(scope.is_closed());
     assert!(
         f.runtime
-            .start(&f.module, "value", &[], &Default::default())
+            .backend()
+            .start(&f.module, "value", &[], Default::default())
             .is_err()
     );
     let mut other = Fixture::source(SOURCE);
@@ -395,7 +405,8 @@ fn scheduler_receiver_drop_during_conversion_retires_output() {
     let (abandoned, dropped) = mpsc::sync_channel(1);
     let execution = f
         .runtime
-        .start(&f.module, "value", &[], &Default::default())
+        .backend()
+        .start(&f.module, "value", &[], Default::default())
         .unwrap();
     let ticket = f
         .runtime
@@ -429,13 +440,13 @@ fn scheduler_receiver_drop_during_conversion_retires_output() {
 struct RejectEntry(Option<RuntimeError>);
 
 impl ExecutionObserver for RejectEntry {
-    fn begin(&mut self, _: &Runtime, _: &LoadedModule) -> NativeResult<()> {
+    fn begin(&mut self, _: &CoreRuntime, _: &LoadedModule) -> NativeResult<()> {
         self.0.take().map_or(Ok(()), Err)
     }
 
     fn observe(
         &mut self,
-        _: &Runtime,
+        _: &CoreRuntime,
         _: ExecutionEvent,
         _: &[ExecutionFrame],
     ) -> NativeResult<()> {
@@ -454,7 +465,7 @@ fn scheduler_entry_failure_is_an_outcome_and_preserves_other_work() {
         let late = f.sent.lock().unwrap().pop().unwrap();
         let scope = f
             .runtime
-            .create_scheduled_task_scope(&f.module, &Default::default())
+            .create_task_scope_with_context(&f.module, &Default::default())
             .unwrap();
         let mut rejected = if task_entry {
             let task = f.invoke("busy", &[f.value(scope.capability())]);
@@ -478,7 +489,8 @@ fn scheduler_entry_failure_is_an_outcome_and_preserves_other_work() {
         } else {
             let execution = f
                 .runtime
-                .start(&f.module, "value", &[], &Default::default())
+                .backend()
+                .start(&f.module, "value", &[], Default::default())
                 .unwrap();
             f.runtime
                 .runtime()
@@ -534,7 +546,7 @@ fn scheduler_fatal_entry_failure_drains_other_work() {
         let late = f.sent.lock().unwrap().pop().unwrap();
         let scope = f
             .runtime
-            .create_scheduled_task_scope(&f.module, &Default::default())
+            .create_task_scope_with_context(&f.module, &Default::default())
             .unwrap();
         let mut rejected = if task_entry {
             let task = f.invoke("busy", &[f.value(scope.capability())]);
@@ -558,7 +570,8 @@ fn scheduler_fatal_entry_failure_drains_other_work() {
         } else {
             let execution = f
                 .runtime
-                .start(&f.module, "value", &[], &Default::default())
+                .backend()
+                .start(&f.module, "value", &[], Default::default())
                 .unwrap();
             f.runtime
                 .runtime()
@@ -612,7 +625,8 @@ fn scheduler_off_driver_result_drop_fault_wakes_io_driver() {
     let host = HostLoop::new();
     let execution = f
         .runtime
-        .start(&f.module, "value", &[], &Default::default())
+        .backend()
+        .start(&f.module, "value", &[], Default::default())
         .unwrap();
     let completed = f
         .runtime
@@ -658,7 +672,8 @@ fn scheduler_cleanup_fault_drains_without_later_poll() {
         let late = f.sent.lock().unwrap().pop().unwrap();
         let execution = f
             .runtime
-            .start(&f.module, "value", &[], &Default::default())
+            .backend()
+            .start(&f.module, "value", &[], Default::default())
             .unwrap();
         let fault = CleanupFault;
         let mut cancelled = f
@@ -707,7 +722,8 @@ fn scheduler_conversion_fault_drains_other_invocations() {
     let mut f = Fixture::source(SOURCE);
     let execution = f
         .runtime
-        .start(&f.module, "value", &[], &Default::default())
+        .backend()
+        .start(&f.module, "value", &[], Default::default())
         .unwrap();
     let mut broken = f
         .runtime

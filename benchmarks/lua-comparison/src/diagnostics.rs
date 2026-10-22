@@ -1,5 +1,5 @@
 //! Allocation and runtime-protocol counts, kept outside throughput measurements.
-use kagari::{context::ExecutionContext, runtime::KagariRuntime};
+use kagari::{context::ExecutionContext, runtime::Runtime};
 use kagari_runtime::{
     diagnostics::{self, allocations},
     module::{LoadedModule, entry::ProgramEntry},
@@ -10,7 +10,7 @@ use kagari_runtime::{
 static ALLOCATOR: allocations::Allocator = allocations::Allocator;
 
 pub(super) fn measure(
-    runtime: &KagariRuntime,
+    runtime: &Runtime,
     module: &LoadedModule,
     context: &ExecutionContext,
     entry: ProgramEntry<'_>,
@@ -29,7 +29,7 @@ pub(super) fn measure(
 }
 
 fn count(
-    runtime: &KagariRuntime,
+    runtime: &Runtime,
     module: &LoadedModule,
     context: &ExecutionContext,
     entry: ProgramEntry<'_>,

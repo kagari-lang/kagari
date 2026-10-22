@@ -1,5 +1,5 @@
 //! Shared native-wait fixture for unit and standalone consumer contracts.
-use super::{EngineConfig, KagariEngine, KagariEngineBuilder, KagariRuntime, PreparedProgram};
+use super::{EngineConfig, KagariEngine, KagariEngineBuilder, PreparedProgram, Runtime};
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     artifact::KbcArtifact,
@@ -105,7 +105,7 @@ pub(super) struct Fixture {
     #[allow(dead_code)]
     #[cfg(feature = "source")]
     pub(super) engine: KagariEngine,
-    pub(super) runtime: KagariRuntime,
+    pub(super) runtime: Runtime,
     pub(super) module: LoadedModule,
     pub(super) program: PreparedProgram,
     pub(super) starts: Arc<AtomicUsize>,

@@ -31,7 +31,10 @@ use kagari_bytecode::{
     },
     program::ModuleRef,
 };
-use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{map::DefinitionContext, metadata::DefinitionMetadata},
+};
 use kagari_contract::{ids::FunctionRef, types::PublicItem};
 use kagari_stdlib::catalog;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
@@ -109,6 +112,49 @@ impl Drop for ControlWake {
         self.0.fetch_add(1, Ordering::SeqCst);
         panic!("retired host control waker destructor");
     }
+}
+
+#[test]
+fn owned_initializer_unwind_releases_session_and_cancellation_owner_immediately() {
+    let f = Fixture::new(false);
+    let session = f
+        .runtime
+        .begin_execution(&f.module, Default::default())
+        .unwrap();
+    let id = session.id;
+    let external = CancellationToken::default();
+    let mut owner = None;
+    let panic = catch_unwind(AssertUnwindSafe(|| {
+        let _ = f
+            .runtime
+            .initialize_owned_factory(session, external.clone(), || {
+                let state = f.runtime.resources().active_session().unwrap();
+                owner = Some(Arc::downgrade(state.owner.borrow().as_ref().unwrap()));
+                panic!("admission conversion unwound");
+            });
+    }))
+    .expect_err("preserve the original panic");
+    assert_eq!(
+        panic.downcast_ref::<&str>(),
+        Some(&"admission conversion unwound")
+    );
+    assert!(f.runtime.resources().active_session().is_none());
+    assert!(
+        f.runtime.resources().sessions.get(id).is_none(),
+        "no parked session remains"
+    );
+    assert!(
+        owner.unwrap().upgrade().is_none(),
+        "owner and its two cancellation subscriptions must be released"
+    );
+    assert_eq!(
+        f.runtime.resources().frame_values.borrow().active_windows(),
+        0
+    );
+    assert_eq!(f.runtime.resources().counters().current_call_depth, 0);
+    assert_eq!(f.runtime.gc().active_roots(), 0);
+    external.cancel();
+    assert!(f.runtime.check_scheduler_health().is_ok());
 }
 
 struct Fixture {

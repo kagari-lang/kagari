@@ -67,6 +67,14 @@ impl<R> ScheduledResult<R> {
         }
     }
 
+    /// Discard an extracted output when backend driver cleanup overrides success.
+    /// Destruction uses this invocation's scheduler containment, just like an
+    /// abandoned result. A destructor fault quarantines through scheduler health;
+    /// the driver must finish closing the runtime before returning its failure.
+    pub fn discard_output(&self, output: R) {
+        self.cell.hub.contain(|| drop(output));
+    }
+
     pub(crate) fn belongs_to(&self, hub: &Arc<WakeHub>) -> bool {
         Arc::ptr_eq(&self.cell.hub, hub)
     }

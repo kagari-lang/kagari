@@ -2,9 +2,10 @@
 use crate::{
     engine::{KagariEngine, builder::KagariEngineBuilder},
     program::PreparedProgram,
-    runtime::{KagariRuntime, owned::DriveResult},
+    runtime::Runtime,
 };
 use kagari_runtime::{native::completion::CompletionStatus, value::Value};
+use kagari_vm::vm::owned::DriveResult;
 use std::sync::atomic::Ordering;
 
 // Shared with the source-free standalone consumer; it uses these parent imports.
@@ -84,12 +85,13 @@ impl Fixture {
                 .execute(&self.module, entry, arguments, &Default::default())
                 .map(|report| report.return_value);
         }
-        let owner = self
-            .runtime
-            .start(&self.module, entry, arguments, &Default::default())?;
+        let owner =
+            self.runtime
+                .backend()
+                .start(&self.module, entry, arguments, Default::default())?;
         for _ in 0..1000 {
-            match self.runtime.drive(&owner, slice())? {
-                DriveResult::Complete(result) => return result,
+            match self.runtime.backend().drive(&owner, slice())? {
+                DriveResult::Complete(result) => return result.map_err(EmbeddingError::from),
                 DriveResult::Runnable => {}
                 DriveResult::Waiting => panic!("synchronous entry waited"),
             }
@@ -103,7 +105,8 @@ impl Fixture {
 
     fn start_future(&self, future: &RootedValue) -> OwnedExecution {
         self.runtime
-            .start_future(&self.value(future), &Default::default())
+            .backend()
+            .start_future(&self.value(future), Default::default())
             .unwrap()
     }
 
@@ -111,6 +114,7 @@ impl Fixture {
         for _ in 0..1000 {
             match self
                 .runtime
+                .backend()
                 .drive(owner, NonZeroUsize::new(1).unwrap())
                 .unwrap()
             {
@@ -164,6 +168,7 @@ pub fn nested() -> fn()->Future<Future<i32>> { || outer() }
             f.runtime.runtime().collect_garbage().unwrap();
             match f
                 .runtime
+                .backend()
                 .drive(&owner, NonZeroUsize::new(1).unwrap())
                 .unwrap()
             {
@@ -201,11 +206,11 @@ pub fn nested() -> fn()->Future<Future<i32>> { || outer() }
     let factory = f.invoke("trapped", &[f.value(&events)]);
     let owner = start(&factory);
     assert!(matches!(
-        f.runtime.drive(&owner, slice()).unwrap(),
-        DriveResult::Complete(Err(EmbeddingError::Runtime {
+        f.runtime.backend().drive(&owner, slice()).unwrap(),
+        DriveResult::Complete(Err(error)) if matches!(EmbeddingError::from(error.clone()), EmbeddingError::Runtime {
             kind: RuntimeFailureKind::ScriptTrap,
             ..
-        }))
+        })
     ));
     assert_eq!(f.starts.load(Ordering::SeqCst), 2);
     assert_eq!(
@@ -215,11 +220,11 @@ pub fn nested() -> fn()->Future<Future<i32>> { || outer() }
     let owner = start(&factory);
     owner.cancel();
     assert!(matches!(
-        f.runtime.drive(&owner, slice()).unwrap(),
-        DriveResult::Complete(Err(EmbeddingError::Runtime {
+        f.runtime.backend().drive(&owner, slice()).unwrap(),
+        DriveResult::Complete(Err(error)) if matches!(EmbeddingError::from(error.clone()), EmbeddingError::Runtime {
             kind: RuntimeFailureKind::Cancelled,
             ..
-        }))
+        })
     ));
     assert_eq!(
         f.value(&f.invoke("count", &[f.value(&events)])),
@@ -230,15 +235,15 @@ pub fn nested() -> fn()->Future<Future<i32>> { || outer() }
     let first = start(&factory);
     let second = start(&factory);
     assert!(matches!(
-        f.runtime.drive(&first, slice()).unwrap(),
+        f.runtime.backend().drive(&first, slice()).unwrap(),
         DriveResult::Waiting
     ));
     assert!(matches!(
-        f.runtime.drive(&second, slice()).unwrap(),
-        DriveResult::Complete(Err(EmbeddingError::Runtime {
+        f.runtime.backend().drive(&second, slice()).unwrap(),
+        DriveResult::Complete(Err(error)) if matches!(EmbeddingError::from(error.clone()), EmbeddingError::Runtime {
             kind: RuntimeFailureKind::ScriptTrap,
             ..
-        }))
+        })
     ));
     assert_eq!(
         f.sent.lock().unwrap().pop().unwrap().complete(Ok(9)),
@@ -254,7 +259,7 @@ pub fn nested() -> fn()->Future<Future<i32>> { || outer() }
     );
     let owner = f.start_future(&inner);
     assert!(matches!(
-        f.runtime.drive(&owner, slice()).unwrap(),
+        f.runtime.backend().drive(&owner, slice()).unwrap(),
         DriveResult::Waiting
     ));
     assert_eq!(
@@ -266,7 +271,7 @@ pub fn nested() -> fn()->Future<Future<i32>> { || outer() }
     let factory = f.invoke("reentry", &[f.value(&events)]);
     let owner = start(&factory);
     assert!(matches!(
-        f.runtime.drive(&owner, slice()).unwrap(),
+        f.runtime.backend().drive(&owner, slice()).unwrap(),
         DriveResult::Waiting
     ));
     assert_eq!(
@@ -337,7 +342,7 @@ pub async fn trapping(items:Vec<i32>) -> i32 {
     let owner = f.start_future(&future);
     for (input, count) in [(11, 111), (12, 112)] {
         assert!(matches!(
-            f.runtime.drive(&owner, slice()).unwrap(),
+            f.runtime.backend().drive(&owner, slice()).unwrap(),
             DriveResult::Waiting
         ));
         assert_eq!(*f.inputs.lock().unwrap().last().unwrap(), input);
@@ -362,7 +367,7 @@ pub async fn trapping(items:Vec<i32>) -> i32 {
     let owner = f.start_future(&future);
     for (index, input) in [20, 109, 109, 198].into_iter().enumerate() {
         assert!(matches!(
-            f.runtime.drive(&owner, slice()).unwrap(),
+            f.runtime.backend().drive(&owner, slice()).unwrap(),
             DriveResult::Waiting
         ));
         assert_eq!(*f.inputs.lock().unwrap().last().unwrap(), input);
@@ -384,7 +389,7 @@ pub async fn trapping(items:Vec<i32>) -> i32 {
     let future = f.invoke("nested", &[f.value(&invalidated_items)]);
     let invalidated = f.start_future(&future);
     assert!(matches!(
-        f.runtime.drive(&invalidated, slice()).unwrap(),
+        f.runtime.backend().drive(&invalidated, slice()).unwrap(),
         DriveResult::Waiting
     ));
     let starts = f.starts.load(Ordering::SeqCst);
@@ -398,9 +403,12 @@ pub async fn trapping(items:Vec<i32>) -> i32 {
         f.sent.lock().unwrap().pop().unwrap().complete(Ok(42)),
         CompletionStatus::Accepted
     );
-    let DriveResult::Complete(Err(error)) = f.runtime.drive(&invalidated, slice()).unwrap() else {
+    let DriveResult::Complete(Err(error)) =
+        f.runtime.backend().drive(&invalidated, slice()).unwrap()
+    else {
         panic!("invalidated cursor must trap on resume");
     };
+    let error = EmbeddingError::from(error);
     assert!(
         matches!(
             error,
@@ -420,16 +428,18 @@ pub async fn trapping(items:Vec<i32>) -> i32 {
     let future = f.invoke("trapping", &[f.value(&items)]);
     let owner = f.start_future(&future);
     assert!(matches!(
-        f.runtime.drive(&owner, slice()).unwrap(),
+        f.runtime.backend().drive(&owner, slice()).unwrap(),
         DriveResult::Waiting
     ));
     assert_eq!(
         f.sent.lock().unwrap().pop().unwrap().complete(Ok(0)),
         CompletionStatus::Accepted
     );
-    let DriveResult::Complete(Err(error)) = f.runtime.drive(&owner, slice()).unwrap() else {
+    let DriveResult::Complete(Err(error)) = f.runtime.backend().drive(&owner, slice()).unwrap()
+    else {
         panic!("division trap after resume");
     };
+    let error = EmbeddingError::from(error);
     assert!(
         matches!(
             error,
@@ -517,7 +527,7 @@ pub async fn early() -> Result<i32, i32> {
     drop(future);
     f.runtime.runtime().collect_garbage().unwrap();
     assert!(matches!(
-        f.runtime.drive(&owner, slice()).unwrap(),
+        f.runtime.backend().drive(&owner, slice()).unwrap(),
         DriveResult::Waiting
     ));
     assert_eq!(*f.inputs.lock().unwrap(), [10]);
@@ -528,7 +538,7 @@ pub async fn early() -> Result<i32, i32> {
             CompletionStatus::Accepted
         );
         assert!(matches!(
-            f.runtime.drive(&owner, slice()).unwrap(),
+            f.runtime.backend().drive(&owner, slice()).unwrap(),
             DriveResult::Waiting
         ));
         assert_eq!(
@@ -559,7 +569,7 @@ pub async fn early() -> Result<i32, i32> {
     let early = f.invoke("early", &[]);
     let owner = f.start_future(&early);
     assert!(matches!(
-        f.runtime.drive(&owner, slice()).unwrap(),
+        f.runtime.backend().drive(&owner, slice()).unwrap(),
         DriveResult::Waiting
     ));
     assert_eq!(
@@ -582,7 +592,7 @@ pub async fn early() -> Result<i32, i32> {
     let owner = f.start_future(&success);
     for (input, reply) in [(50, 21), (21, 42)] {
         assert!(matches!(
-            f.runtime.drive(&owner, slice()).unwrap(),
+            f.runtime.backend().drive(&owner, slice()).unwrap(),
             DriveResult::Waiting
         ));
         assert_eq!(*f.inputs.lock().unwrap().last().unwrap(), input);
@@ -612,21 +622,21 @@ pub async fn early() -> Result<i32, i32> {
         let future = f.invoke("total", &[f.value(&items)]);
         let owner = f.start_future(&future);
         assert!(matches!(
-            f.runtime.drive(&owner, slice()).unwrap(),
+            f.runtime.backend().drive(&owner, slice()).unwrap(),
             DriveResult::Waiting
         ));
         let completion = f.sent.lock().unwrap().pop().unwrap();
         if abandon {
             drop(owner);
-            assert_eq!(f.runtime.drain_retired_executions().unwrap(), 1);
+            assert_eq!(f.runtime.runtime().drain_retired_executions().unwrap(), 1);
         } else {
             owner.cancel();
             assert!(matches!(
-                f.runtime.drive(&owner, slice()).unwrap(),
-                DriveResult::Complete(Err(EmbeddingError::Runtime {
+                f.runtime.backend().drive(&owner, slice()).unwrap(),
+                DriveResult::Complete(Err(error)) if matches!(EmbeddingError::from(error.clone()), EmbeddingError::Runtime {
                     kind: RuntimeFailureKind::Cancelled,
                     ..
-                }))
+                })
             ));
         }
         assert_eq!(completion.complete(Ok(100)), CompletionStatus::Stale);
@@ -659,11 +669,11 @@ pub async fn early() -> Result<i32, i32> {
     let queued = f.start_future(&future);
     queued.cancel();
     assert!(matches!(
-        f.runtime.drive(&queued, slice()).unwrap(),
-        DriveResult::Complete(Err(EmbeddingError::Runtime {
+        f.runtime.backend().drive(&queued, slice()).unwrap(),
+        DriveResult::Complete(Err(error)) if matches!(EmbeddingError::from(error.clone()), EmbeddingError::Runtime {
             kind: RuntimeFailureKind::Cancelled,
             ..
-        }))
+        })
     ));
     // Cancellation before first drive does not claim the cold value.
     drop(f.complete(&f.start_future(&future)));
@@ -673,11 +683,11 @@ pub async fn early() -> Result<i32, i32> {
     );
     let repeated = f.start_future(&future);
     assert!(matches!(
-        f.runtime.drive(&repeated, slice()).unwrap(),
-        DriveResult::Complete(Err(EmbeddingError::Runtime {
+        f.runtime.backend().drive(&repeated, slice()).unwrap(),
+        DriveResult::Complete(Err(error)) if matches!(EmbeddingError::from(error.clone()), EmbeddingError::Runtime {
             kind: RuntimeFailureKind::ScriptTrap,
             ..
-        }))
+        })
     ));
     assert_eq!(
         f.value(&f.invoke("size", &[f.value(&items)])),

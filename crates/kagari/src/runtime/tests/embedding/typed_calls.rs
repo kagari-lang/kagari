@@ -66,10 +66,15 @@ fn bound_calls_use_the_sdk_execution_context_and_return_retained_values() {
         .runtime()
         .bind_function::<(), PinnedFunction<(), i32>>(&loaded, "make_callback")
         .unwrap();
-    let player = runtime.call(&make, (), &context).unwrap();
-    let callback = runtime.call(&make_callback, (), &context).unwrap();
+    let player = runtime.call_with_context(&make, (), &context).unwrap();
+    let callback = runtime
+        .call_with_context(&make_callback, (), &context)
+        .unwrap();
     runtime.runtime().collect_garbage().unwrap();
-    assert_eq!(runtime.call(&callback, (), &context).unwrap(), 42);
+    assert_eq!(
+        runtime.call_with_context(&callback, (), &context).unwrap(),
+        42
+    );
     let hp = runtime
         .runtime()
         .bind_field::<i32>(player.object_type(), "hp")
@@ -94,7 +99,7 @@ fn bound_calls_use_the_sdk_execution_context_and_return_retained_values() {
     assert!(observations.load(Ordering::Relaxed) > 0);
     let cancelled = ExecutionContext::default();
     cancelled.cancellation.cancel();
-    assert!(runtime.call(&make, (), &cancelled).is_err());
+    assert!(runtime.call_with_context(&make, (), &cancelled).is_err());
     assert!(
         runtime
             .with_context(&loaded, &cancelled, |cx| player.set(cx, &hp, 0))
@@ -110,8 +115,15 @@ fn bound_calls_use_the_sdk_execution_context_and_return_retained_values() {
         jit_policy: JitPolicy::Enabled,
         ..Default::default()
     };
-    assert!(runtime.call(&callback, (), &unsupported).is_err());
-    assert_eq!(runtime.call(&callback, (), &context).unwrap(), 42);
+    assert!(
+        runtime
+            .call_with_context(&callback, (), &unsupported)
+            .is_err()
+    );
+    assert_eq!(
+        runtime.call_with_context(&callback, (), &context).unwrap(),
+        42
+    );
     drop(callback);
     drop(player);
     assert_eq!(runtime.runtime().collect_garbage().unwrap().live_objects, 0);

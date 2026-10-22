@@ -7,6 +7,7 @@ pub mod drive;
 mod outcome;
 pub(crate) mod payload;
 pub(crate) mod store;
+pub mod value;
 pub(crate) mod waiting;
 
 use crate::{error::RuntimeError, error_trace::asynchronous::SpawnOrigin, gc::roots::RootedValue};

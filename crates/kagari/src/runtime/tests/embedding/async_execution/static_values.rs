@@ -1,9 +1,8 @@
 //! Persistent async values retain code, not a snapshot of mutable module state.
 use super::{Fixture, Value, slice};
-use crate::runtime::{
-    owned::DriveResult, tests::embedding::generic_reload::prepare_static_program,
-};
+use crate::runtime::tests::embedding::generic_reload::prepare_static_program;
 use kagari_runtime::task::drive::TaskDriveResult;
+use kagari_vm::vm::owned::DriveResult;
 use std::sync::{Arc, atomic::Ordering};
 
 #[test]
@@ -46,7 +45,8 @@ pub fn state() -> i32 { STATE }
         let _ = f.invoke("save_future", &[]);
         let scope = f
             .runtime
-            .create_task_scope(&f.module, &Default::default(), Arc::new(|_| Ok(())))
+            .runtime()
+            .create_task_scope(&f.module, Default::default(), Arc::new(|_| Ok(())))
             .unwrap();
         let factory = f.invoke("factory", &[]);
         let task = f
@@ -72,7 +72,7 @@ pub fn state() -> i32 { STATE }
         let owner = f.start_future(&future);
         drop(future);
         assert!(matches!(
-            f.runtime.drive(&owner, slice()).unwrap(),
+            f.runtime.backend().drive(&owner, slice()).unwrap(),
             DriveResult::Waiting
         ));
         assert_eq!(*f.inputs.lock().unwrap(), vec![10]);
@@ -83,18 +83,18 @@ pub fn state() -> i32 { STATE }
         let waiter = f.invoke("await_task", &[]);
         let waiter = f.start_future(&waiter);
         assert!(matches!(
-            f.runtime.drive(&waiter, slice()).unwrap(),
+            f.runtime.backend().drive(&waiter, slice()).unwrap(),
             DriveResult::Waiting
         ));
         assert_eq!(
-            f.runtime.drive_task(&scope, id, slice()).unwrap(),
+            f.runtime.backend().drive_task(&scope, id, slice()).unwrap(),
             TaskDriveResult::Waiting
         );
         assert_eq!(*f.inputs.lock().unwrap(), vec![10, 10]);
         let _ = f.invoke("set_state", &[Value::I32(50)]);
         f.sent.lock().unwrap().pop().unwrap().complete(Ok(30));
         assert_eq!(
-            f.runtime.drive_task(&scope, id, slice()).unwrap(),
+            f.runtime.backend().drive_task(&scope, id, slice()).unwrap(),
             TaskDriveResult::Complete
         );
         let report = f

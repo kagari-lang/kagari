@@ -177,11 +177,7 @@ impl Runtime {
                         "task cancelled before start",
                     ))
                 } else {
-                    factory
-                        .value
-                        .value(self.gc())
-                        .ok_or_else(|| RuntimeError::module_validation("task factory root"))
-                        .and_then(|value| self.start_owned_factory(&value, options))
+                    self.start_queued_factory(factory, options)
                 };
                 match result {
                     Ok(execution) => {

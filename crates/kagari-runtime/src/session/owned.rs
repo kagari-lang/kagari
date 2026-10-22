@@ -158,6 +158,31 @@ impl Drop for OwnedExecution {
     }
 }
 
+/// Own admission until a parked handle is transferred to its caller. Declare this
+/// before the activation so unwinding releases the active session before retirement.
+struct OwnedInitialization<'runtime> {
+    runtime: &'runtime Runtime,
+    execution: Option<OwnedExecution>,
+}
+
+impl OwnedInitialization<'_> {
+    fn retire(&mut self) -> Result<(), RuntimeError> {
+        let Some(execution) = self.execution.take() else {
+            return Ok(());
+        };
+        self.runtime
+            .retirement_cleanup(|| self.runtime.finish_owned_execution(&execution))
+    }
+}
+
+impl Drop for OwnedInitialization<'_> {
+    fn drop(&mut self) {
+        // Preserve the original unwind. Guarded retirement quarantines cleanup
+        // faults without panicking again or requiring a subsequent driver turn.
+        let _ = self.retire();
+    }
+}
+
 impl Drop for SessionState {
     fn drop(&mut self) {
         if let Some(owner) = self.owner.get_mut().as_ref() {
@@ -262,6 +287,30 @@ impl Runtime {
         self.create_owned_execution(&owner, options, OwnedStart::Factory(queued))
     }
 
+    pub(crate) fn start_queued_factory(
+        &self,
+        factory: QueuedFactory,
+        options: ExecutionOptions,
+    ) -> Result<OwnedExecution, RuntimeError> {
+        self.require_idle_driver()?;
+        let owner = factory.owner.clone();
+        self.create_owned_execution(&owner, options, OwnedStart::Factory(factory))
+    }
+
+    /// Prepare typed arguments inside the eventual invocation's session. The
+    /// caller has entered using the retained callable's checked authority.
+    pub(crate) fn initialize_owned_factory(
+        &self,
+        session: ExecutionSession<'_>,
+        external_cancellation: CancellationToken,
+        prepare: impl FnOnce() -> Result<QueuedFactory, RuntimeError>,
+    ) -> Result<OwnedExecution, RuntimeError> {
+        let owner = session.root();
+        self.initialize_owned_execution(&owner, session, external_cancellation, || {
+            prepare().map(OwnedStart::Factory)
+        })
+    }
+
     /// Reserve an inactive child without invoking observers, providers or script.
     pub(crate) fn prepare_owned_branch(
         &self,
@@ -339,6 +388,16 @@ impl Runtime {
         if !matches!(&entry, OwnedStart::Branch(_)) {
             self.attach_execution_observer()?;
         }
+        self.initialize_owned_execution(module, session, external_cancellation, || Ok(entry))
+    }
+
+    fn initialize_owned_execution<'args>(
+        &self,
+        module: &LoadedModule,
+        session: ExecutionSession<'_>,
+        external_cancellation: CancellationToken,
+        prepare: impl FnOnce() -> Result<OwnedStart<'args>, RuntimeError>,
+    ) -> Result<OwnedExecution, RuntimeError> {
         let id = session.id;
         let owner = Arc::new(ExecutionOwner {
             abandoned: AtomicBool::new(false),
@@ -361,16 +420,16 @@ impl Runtime {
                 )))),
             )
             .expect("new external cancellation registration");
+        let mut initialization = OwnedInitialization {
+            runtime: self,
+            execution: Some(OwnedExecution {
+                id,
+                owner: owner.clone(),
+            }),
+        };
+        *session.state().owner.borrow_mut() = Some(owner);
         let stack = ExecutionStack::new(session)?;
-        *self
-            .resources()
-            .sessions
-            .get(id)
-            .expect("new session")
-            .owner
-            .borrow_mut() = Some(owner.clone());
-        let handle = OwnedExecution { id, owner };
-        let initialized = match entry {
+        let initialized = (|| match prepare()? {
             OwnedStart::Function(function, args) => {
                 stack.push(self, module.slot(), function, args, None)
             }
@@ -394,17 +453,17 @@ impl Runtime {
                     .borrow_mut() = Some(queued);
                 Ok(())
             }
-        };
+        })();
         if let Err(error) = initialized {
             drop(stack);
-            self.finish_owned_execution(&handle)?;
+            initialization.retire()?;
             return Err(error);
         }
         if let Err(error) = stack.park(self) {
-            self.finish_owned_execution(&handle)?;
+            initialization.retire()?;
             return Err(error);
         }
-        Ok(handle)
+        Ok(initialization.execution.take().expect("initialized owner"))
     }
 
     /// Activate an existing stack. Independent and recursive roots cannot overlap.

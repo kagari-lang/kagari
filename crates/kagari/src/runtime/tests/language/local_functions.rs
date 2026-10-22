@@ -2,11 +2,9 @@
 
 use crate::{
     BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::PreparedProgram,
-    runtime::owned::DriveResult,
 };
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
-use std::num::NonZeroUsize;
 
 #[test]
 fn local_functions_execute_from_artifacts_without_export_leakage() {
@@ -79,25 +77,16 @@ pub async fn asynchronous() -> i32 {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .is_ok()
     );
-    let cold = runtime
-        .execute(&loaded, "asynchronous", &[], &context)
-        .unwrap()
-        .return_value;
-    let execution = runtime
-        .start_future(&cold.value(runtime.runtime().gc()).unwrap(), &context)
+    let function = runtime
+        .async_function::<(), i32>(&loaded, "asynchronous")
         .unwrap();
-    let result = loop {
-        match runtime
-            .drive(&execution, NonZeroUsize::new(64).unwrap())
-            .unwrap()
-        {
-            DriveResult::Runnable => continue,
-            DriveResult::Waiting => panic!("local async functions have no external wait"),
-            DriveResult::Complete(result) => break result.unwrap(),
-        }
-    };
+    let executor = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
     assert_eq!(
-        result.value(runtime.runtime().gc()).unwrap(),
-        Value::I32(42)
+        executor
+            .block_on(runtime.call_async(&function, ()).unwrap())
+            .unwrap(),
+        42
     );
 }

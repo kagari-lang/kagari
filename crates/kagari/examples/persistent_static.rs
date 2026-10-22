@@ -1,7 +1,7 @@
 //! Persistent state and generation-pinned code through the source embedding API.
 //! Run: cargo run -p kagari --example persistent_static --no-default-features --features source
 
-use kagari::{engine::KagariEngine, runtime::KagariRuntime};
+use kagari::{engine::KagariEngine, runtime::Runtime};
 use kagari_runtime::module::LoadedModule;
 use kagari_source::source::SourceFile;
 
@@ -21,7 +21,7 @@ pub fn current_code() -> i32 { version() + COUNT }
 pub fn late() -> i32 { LATE }
 "#;
 
-fn call(runtime: &KagariRuntime, module: &LoadedModule, entry: &str) -> i32 {
+fn call(runtime: &Runtime, module: &LoadedModule, entry: &str) -> i32 {
     runtime
         .execute_typed(module, entry, (), &Default::default())
         .unwrap()

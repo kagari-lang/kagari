@@ -1,5 +1,5 @@
 //! Executor-neutral runtime turns; typed invocation futures are a separate facade.
-use crate::{RunResult, context::ExecutionContext, error::EmbeddingError, runtime::KagariRuntime};
+use crate::{RunResult, context::ExecutionContext, error::EmbeddingError, runtime::Runtime};
 use kagari_runtime::{
     module::LoadedModule,
     scheduler::{TurnBudget, tasks::TaskEvent, wake::DriverRegistration},
@@ -8,7 +8,7 @@ use kagari_runtime::{
 use kagari_vm::error::VmError;
 use std::task::{Context, Poll};
 
-impl KagariRuntime {
+impl Runtime {
     /// Drive one bounded turn. Open idle runtimes remain Pending. Register a
     /// reliable host waker and poll again on notification; no TaskId loop is needed.
     pub fn poll(&mut self, cx: &mut Context<'_>) -> Poll<RunResult<()>> {
@@ -18,7 +18,7 @@ impl KagariRuntime {
     /// Low-level driver integration shared with borrowed invocation futures.
     /// `driver` is a temporary route obtained from the core runtime; it preserves
     /// the external registration installed by ordinary polling.
-    pub fn poll_scheduler(
+    pub(crate) fn poll_scheduler(
         &mut self,
         cx: &mut Context<'_>,
         budget: TurnBudget,
@@ -30,9 +30,13 @@ impl KagariRuntime {
     }
 
     /// Managed scopes progress through Runtime polling and retire admission slots
-    /// automatically. The legacy dispatcher-based scope API remains manual.
-    pub fn create_scheduled_task_scope(
-        &self,
+    /// automatically; scope owner drop requests cancellation of its independent Tasks.
+    pub fn create_task_scope(&mut self, module: &LoadedModule) -> RunResult<TaskScopeOwner> {
+        self.create_task_scope_with_context(module, &self.default_context.clone())
+    }
+
+    pub fn create_task_scope_with_context(
+        &mut self,
         module: &LoadedModule,
         context: &ExecutionContext,
     ) -> RunResult<TaskScopeOwner> {

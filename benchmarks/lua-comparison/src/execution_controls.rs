@@ -5,10 +5,11 @@ use kagari::{
     engine::KagariEngine,
     error::{EmbeddingError, RuntimeFailureKind},
     program::PreparedProgram,
-    runtime::{KagariRuntime, owned::DriveResult},
+    runtime::Runtime,
 };
 use kagari_runtime::{module::LoadedModule, session::owned::OwnedExecution, value::Value};
 use kagari_source::source::SourceFile;
+use kagari_vm::vm::owned::DriveResult;
 use std::{hint::black_box, num::NonZeroUsize, time::Instant};
 
 #[cfg(feature = "diagnostics")]
@@ -25,7 +26,7 @@ pub fn hold(n: i32) -> i32 {
 const CASES: [(usize, &str); 4] = [(1, "tail"), (32, "tail"), (256, "forward"), (256, "random")];
 
 struct Fixture {
-    runtime: KagariRuntime,
+    runtime: Runtime,
     module: LoadedModule,
     context: ExecutionContext,
 }
@@ -47,15 +48,17 @@ impl Fixture {
         for index in 0..population {
             let execution = self
                 .runtime
+                .backend()
                 .start(
                     &self.module,
                     "hold",
                     &[Value::I32(index as i32 + 1)],
-                    &self.context,
+                    self.context.interpreter_options().unwrap(),
                 )
                 .unwrap();
             assert!(matches!(
                 self.runtime
+                    .backend()
                     .drive(&execution, NonZeroUsize::new(1).unwrap())
                     .unwrap(),
                 DriveResult::Runnable
@@ -78,6 +81,7 @@ impl Fixture {
             }
             let DriveResult::Complete(result) = self
                 .runtime
+                .backend()
                 .drive(&execution, NonZeroUsize::new(10_000).unwrap())
                 .unwrap()
             else {
@@ -85,7 +89,7 @@ impl Fixture {
             };
             if cancel {
                 assert!(matches!(
-                    result,
+                    result.map_err(EmbeddingError::from),
                     Err(EmbeddingError::Runtime {
                         kind: RuntimeFailureKind::Cancelled,
                         ..
@@ -99,7 +103,10 @@ impl Fixture {
             }
         }
         roots.clear();
-        assert_eq!(self.runtime.drain_retired_executions().unwrap(), 0);
+        assert_eq!(
+            self.runtime.runtime().drain_retired_executions().unwrap(),
+            0
+        );
         checksum
     }
 }

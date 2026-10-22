@@ -47,6 +47,13 @@ pub struct ExecutionContext {
 }
 
 impl ExecutionContext {
+    /// Validate interpreter policy and preserve invocation inputs for backend tooling.
+    /// Typed SDK calls perform this validation themselves.
+    pub fn interpreter_options(&self) -> RunResult<ExecutionOptions> {
+        self.validate_for_execute("interpreter entry")?;
+        Ok(self.runtime_options())
+    }
+
     pub(crate) fn runtime_options(&self) -> ExecutionOptions {
         ExecutionOptions {
             phase: ExecutionPhase::Ordinary,

@@ -1,5 +1,6 @@
 //! Retained dynamic interface views preserve the declared access and lexical scope.
 mod applications;
+pub mod asynchronous;
 pub mod binding;
 mod calls;
 mod formatting;

@@ -2,7 +2,7 @@
 
 ## Status and authority
 
-**Active: AR01-AR04 complete; AR05 public Runtime facade next.** Originally
+**Active: AR01-AR05 complete; AR06 integration and documentation closeout next.** Originally
 planned on 2026-10-22 against `2bfcc77c`; the user subsequently authorized AR01-AR06
 implementation with one commit per completed phase. This document owns scope,
 dependencies, acceptance and progress. The [roadmap](implementation-roadmap.md#async-blocks-structured-concurrency-and-runtime-api)
@@ -63,7 +63,7 @@ This is source/test inspection, not a new behavioral run or performance result.
 | [Frame waiting](../crates/kagari-runtime/src/frame/waiting.rs) | One execution has one pending native/Task wait; nested script awaits push resume frames. | Own multiple branch continuations without duplicating interpreter semantics. |
 | [Task admission](../crates/kagari-runtime/src/task/admission.rs), [driving](../crates/kagari-runtime/src/task/drive.rs) | Scope retains factory, readiness and owned execution; first drive invokes the factory. | Move routine task scheduling behind the public Runtime facade. |
 | [Stdlib tasks](../crates/kagari-stdlib/src/foundation/tasks.rs) | Registered generic methods call checked runtime services and encode Result values. | Keep join policy and Result interpretation at this library boundary. |
-| [SDK owned API](../crates/kagari/src/runtime/owned.rs) | start/drive produces a cold Future; start_future/drive obtains its output. | Encapsulate both stages in one Rust-awaitable invocation. |
+| [Backend owned API](../crates/kagari-vm/src/vm/owned.rs) | Baseline SDK exposed start/drive followed by start_future/drive. AR05 removed that SDK staging surface; backend primitives remain for explicit sliced execution. | Ordinary SDK callers use typed call_async/submit_async. |
 | [SDK facade](../crates/kagari/src/runtime.rs) | KagariRuntime wraps Vm; execute rejects nonempty argument slices. | Reuse existing typed calls instead of extending raw-Value plumbing as the default API. |
 | [Task publication](../crates/kagari-runtime/src/task/outcome.rs) | Taking a report retires its admission record; script payload independently retains its result. | Internal result delivery/retirement must not depend on manual per-Task polling. |
 
@@ -888,20 +888,20 @@ shared external Task does not transfer its ownership or cancel it on group exit.
 
 ### AR05 - Deliver the public Runtime invocation and object surface
 
-- [ ] Expose synchronous call, borrowed driving call_async and result-only submit_async
+- [x] Expose synchronous call, borrowed driving call_async and result-only submit_async
       through one registration/execution implementation. Direct await needs no pump;
       submitted tickets allow additional Runtime calls with explicit driving.
-- [ ] Expose reusable function/type/field/method bindings, struct/trait invocation
+- [x] Expose reusable function/type/field/method bindings, struct/trait invocation
       and retained object get/set/round trips through the reviewed Runtime facade.
       Reuse existing conversion, dispatch, roots and version checks.
-- [ ] Deliver the coherent public-consumer example reviewed in AR01, including
+- [x] Deliver the coherent public-consumer example reviewed in AR01, including
       old handles/objects versus rebound entries after reload.
-- [ ] Hide factory/Future staging and internal task/report driving from normal use.
-- [ ] Provide the AR01 runtime-level persistent progress/wake integration without a
+- [x] Hide factory/Future staging and internal task/report driving from normal use.
+- [x] Provide the AR01 runtime-level persistent progress/wake integration without a
       required public Driver object or mandatory executor dependency.
-- [ ] Migrate affected SDK consumers/examples and remove superseded public entrypoints
+- [x] Migrate affected SDK consumers/examples and remove superseded public entrypoints
       or names directly. Retain only justified low-level operations, not aliases.
-- [ ] Exercise cancellation on Rust Future drop and concurrent-notification/reentry
+- [x] Exercise cancellation on Rust Future drop and concurrent-notification/reentry
       boundaries with the actual chosen ownership signatures.
 
 Acceptance: a host can call a named async script with arguments and await its typed
@@ -992,7 +992,7 @@ artifacts and batch fixture regeneration at a coherent checkpoint.
 | AR02 | Complete (focused local acceptance) | Distinct AST/HIR block, shared capture/type checking and direct MakeFuture lowering; tooling and contracts updated. Validation below; exhaustive CI unrun. |
 | AR03 | Complete (focused local acceptance) | Shared runtime/VM turn, durable dual wake routes, scheduled results and completion-before-retirement, managed Task retirement and synchronous close. Temporary manual-scope path removal belongs to AR05. |
 | AR04 | Complete (focused local acceptance) | Cold pair composition, atomic claims, internal owned branches, generalized dependencies and leaf-first cleanup; stdlib policy preserves original Err provenance. |
-| AR05 | Not started | Public synchronous/awaitable calls, reusable bindings and retained object/member facade. |
+| AR05 | Complete (focused local acceptance) | Runtime rename without alias, checked async admission, driving Call/result-only PendingCall, object/member facade and consumer migration. SDK manual scope/factory staging removed; justified backend primitives retained. |
 | AR06 | Not started | Integrated contracts and focused local acceptance. |
 
 Known intermediate build/test errors: no outstanding AR02 failures. Initial capture
@@ -1001,6 +1001,68 @@ through shared capture lowering and both failing block contracts passed. Parser/
 fixture and editor-token fixture failures were corrected and rerun. The initial
 default-feature SDK build hit the 120-second compound-command timeout before tests
 ran; source-only focused SDK validation passed afterward. Full CI acceptance is unrun.
+
+### AR05 validation and review
+
+SDK Runtime replaces KagariRuntime without an alias. function/async_function,
+associated/member/interface bindings, default/context calls, get/set and typed scope
+capabilities reuse existing validation/roots. Actual async member names are
+call_async_method/submit_async_method and call_async_interface_method/
+submit_async_interface_method. Core AsyncFunction admission retains checked target,
+arguments and exact Future output scope before execution. Direct Call drives shared
+work and cleans descendants synchronously on drop; PendingCall never drives. Outputs
+are Send but need not be Sync; argument conversion adds no blanket Send requirement.
+
+Removed SDK runtime/owned.rs and runtime/tasks.rs forwarding surfaces. Normal SDK
+create_task_scope uses managed scheduling and automatic retirement. Core dispatcher
+and owned-driver primitives remain explicitly backend-owned for low-level lifecycle/
+dispatch contracts, diagnostics/measurements and the browser's sliced ordinary-main
+protocol; they are not alternate normal SDK task APIs. CLI/web/bench/examples/tests
+were migrated; web declares its existing workspace VM backend dependency directly.
+No compatibility alias or second executor was introduced. host_objects is an executable
+public workflow covering mutation, methods/interfaces, submission and pinned reload.
+
+Review reproduced two correctness defects before repair: panicking argument conversion
+could leave an unregistered owned session parked, and driver-waker release faults
+could be hidden by an already prepared successful Call result. An initialization
+retirement guard now releases owned state after stack unwind without changing the
+original panic policy; Call completion preserves fatal cleanup precedence, trace and
+safe disposal of abandoned output. FactoryEntry boxes only its large interface payload,
+fixing both direct and downstream enum-size Clippy warnings without blanket allowances.
+No outstanding AR05 failures. Manual structural review plus checker passed.
+
+Passed selected validation:
+
+```text
+cargo test -p kagari --test async_facade --no-fail-fast
+cargo test -p kagari --test async_execution --no-fail-fast
+cargo test -p kagari --lib runtime::tests::embedding::async_execution --no-fail-fast
+cargo test -p kagari --lib typed_calls
+cargo test -p kagari --lib scoped_calls
+cargo test -p kagari --no-default-features --test async_execution --no-fail-fast
+cargo test -p kagari --no-default-features --test artifact_features async_tasks --no-fail-fast
+cargo test -p kagari-vm native_boundary_functions::interface_methods
+cargo test -p kagari-web owned_boundary
+cargo test -p kagari-web exclusive_run_cancellation
+cargo run -p kagari --example host_objects
+cargo check -p kagari --all-targets
+cargo check -p kagari-cli -p kagari-web -p kagari-lua-benchmark --all-targets
+cargo test -p kagari-runtime --lib owned_initializer --no-fail-fast
+cargo test -p kagari --lib driver_release_fault --no-fail-fast
+cargo test -p kagari-runtime --lib tests::owned_cleanup --no-fail-fast -- --skip owned_initializer
+cargo test -p kagari --lib scoped_task_handler_contract --no-fail-fast
+uv run --locked scripts/check_structure.py
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+git diff --check
+```
+
+Selection covers the changed SDK async contract owner (36 cases before focused
+repairs), public facade (6 cases after repairs), external/source-free consumers,
+interface dispatch, scoped host access and two browser sliced-execution boundaries.
+Four remaining owned-cleanup cases passed after the shared initialization fix. Public
+example and consumer checks passed. Workspace Clippy passed after enum representation
+and failure-path fixes. Full workspace tests and complete matrices remain CI-only.
 
 ### AR04 validation and review
 

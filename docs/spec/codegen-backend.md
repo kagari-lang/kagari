@@ -153,7 +153,7 @@ function identity, complete backend configuration and runtime/helper ABI version
 Successful products and unsupported decisions are reusable; cancellation and
 compiler errors are not cached. Runtime-specific handles are never cached there.
 
-`KagariRuntime::prepare_native` checks the exact prepared/loaded version identity,
+`Runtime::prepare_native` checks the exact prepared/loaded version identity,
 entry and runtime policy, compiles or reuses the product and installs it for this
 runtime. `Runtime::install_native_function` is unsafe for direct callers; it checks
 the descriptor, host ABI, declared access, entry/function/signature and metadata bounds,

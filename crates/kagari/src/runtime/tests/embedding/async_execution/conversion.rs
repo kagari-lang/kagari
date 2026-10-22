@@ -98,6 +98,7 @@ fn drive(f: &Fixture, scope: &TaskScopeOwner, task: TaskId) -> TaskDriveResult {
     for _ in 0..1000 {
         let result = f
             .runtime
+            .backend()
             .drive_task(scope, task, NonZeroUsize::new(1).unwrap())
             .unwrap();
         if result != TaskDriveResult::Runnable {
@@ -157,7 +158,12 @@ fn async_output_publication_contract() {
         let context = ExecutionContext::default();
         let scope = f
             .runtime
-            .create_task_scope(&f.module, &context, Arc::new(|_| Ok(())))
+            .runtime()
+            .create_task_scope(
+                &f.module,
+                context.interpreter_options().unwrap(),
+                Arc::new(|_| Ok(())),
+            )
             .unwrap();
         let items = f.invoke("items", &[]);
         let factory = f.invoke("factory", &[f.value(&items)]);

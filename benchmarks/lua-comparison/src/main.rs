@@ -15,7 +15,7 @@ use kagari::{
     context::{ExecutionContext, JitPolicy},
     engine::KagariEngine,
     program::PreparedProgram,
-    runtime::KagariRuntime,
+    runtime::Runtime,
 };
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_runtime::{
@@ -149,7 +149,7 @@ impl Record<'_> {
 }
 
 struct ExecutionRoutes {
-    runtime: KagariRuntime,
+    runtime: Runtime,
     module: LoadedModule,
     context: ExecutionContext,
     native_context: ExecutionContext,

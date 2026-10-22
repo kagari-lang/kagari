@@ -11,7 +11,7 @@ use crate::{
 use kagari_bytecode::module::CallableTarget;
 use kagari_types::ty::{NominalTy, Ty};
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub(crate) struct BoundReceiver {
     receiver: Value,
     concrete_type: Ty,

@@ -206,7 +206,12 @@ fn captured_packages_share_the_sdk_pipeline_and_retain_generations() {
         .runtime()
         .bind_function::<(), i32>(&loaded, "answer")
         .unwrap();
-    assert_eq!(runtime.call(&pinned, (), &Default::default()).unwrap(), 42);
+    assert_eq!(
+        runtime
+            .call_with_context(&pinned, (), &Default::default())
+            .unwrap(),
+        42
+    );
     assert_eq!(
         runtime
             .execute_typed::<(), i32>(&loaded, "dependency", (), &Default::default())
@@ -228,7 +233,12 @@ fn captured_packages_share_the_sdk_pipeline_and_retain_generations() {
             .unwrap(),
         43
     );
-    assert_eq!(runtime.call(&pinned, (), &Default::default()).unwrap(), 42);
+    assert_eq!(
+        runtime
+            .call_with_context(&pinned, (), &Default::default())
+            .unwrap(),
+        42
+    );
     // Changing only the generic implementation must rebuild its callers too;
     // signatures and the dependency constant are unchanged in this generation.
     let mut generic_files = files(43);
@@ -269,7 +279,12 @@ fn captured_packages_share_the_sdk_pipeline_and_retain_generations() {
             .unwrap(),
         44
     );
-    assert_eq!(runtime.call(&pinned, (), &Default::default()).unwrap(), 42);
+    assert_eq!(
+        runtime
+            .call_with_context(&pinned, (), &Default::default())
+            .unwrap(),
+        42
+    );
     let mut builder = ModuleBuilder::new(
         "unused",
         &StandardDeclarations::default().catalog().unwrap(),

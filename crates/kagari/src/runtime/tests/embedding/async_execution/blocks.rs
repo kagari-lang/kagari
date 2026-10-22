@@ -1,10 +1,8 @@
 //! Async blocks share decoded Future execution, capture roots and one-shot state.
 use super::{Fixture, Value, slice};
-use crate::{
-    error::{EmbeddingError, RuntimeFailureKind},
-    runtime::owned::DriveResult,
-};
+use crate::error::{EmbeddingError, RuntimeFailureKind};
 use kagari_runtime::native::completion::CompletionStatus;
+use kagari_vm::vm::owned::DriveResult;
 use std::sync::atomic::Ordering;
 
 #[test]
@@ -84,11 +82,11 @@ pub fn unit() -> Future<()> { async {} }
     );
     let repeated = f.start_future(&inner);
     assert!(matches!(
-        f.runtime.drive(&repeated, slice()).unwrap(),
-        DriveResult::Complete(Err(EmbeddingError::Runtime {
+        f.runtime.backend().drive(&repeated, slice()).unwrap(),
+        DriveResult::Complete(Err(error)) if matches!(EmbeddingError::from(error.clone()), EmbeddingError::Runtime {
             kind: RuntimeFailureKind::ScriptTrap,
             ..
-        }))
+        })
     ));
     assert_eq!(
         f.value(&f.invoke("count", &[f.value(&events)])),
@@ -113,7 +111,7 @@ pub fn cold() -> Future<i32> {
     let owner = f.start_future(&future);
     drop(future);
     assert!(matches!(
-        f.runtime.drive(&owner, slice()).unwrap(),
+        f.runtime.backend().drive(&owner, slice()).unwrap(),
         DriveResult::Waiting
     ));
     f.runtime.runtime().collect_garbage().unwrap();

@@ -1,5 +1,5 @@
 //! Explicit loading of trusted native bundles without compiler dependencies.
-use crate::{program::PreparedProgram, runtime::KagariRuntime};
+use crate::{program::PreparedProgram, runtime::Runtime};
 use blake3::hash;
 use kagari_abi::{
     native::NativeCodeOwner, native_call::JitCompiledFunction, representation::ValueType,
@@ -154,7 +154,7 @@ impl AotBundle {
     /// Installation is separate from execution and does not run script code.
     pub fn install(
         &self,
-        runtime: &KagariRuntime,
+        runtime: &Runtime,
         loaded: &LoadedModule,
     ) -> Result<PreparedNativeEntry, AotError> {
         if !self

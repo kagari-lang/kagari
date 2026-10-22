@@ -169,7 +169,7 @@ impl Runtime {
             .root_value(value.value(self.gc()).expect("new Task root"))
             .expect("new Task retention root");
         let origin = SpawnOrigin {
-            factory: prepared.origin,
+            factory: prepared.origin(),
             site: self.capture_async_site(),
         };
         self.tasks.borrow_mut().tasks.insert(

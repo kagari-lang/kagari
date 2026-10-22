@@ -5,7 +5,6 @@ use crate::{
     engine::EngineConfig,
     error::{EmbeddingError, RuntimeFailureKind},
     program::PreparedProgram,
-    runtime::owned::DriveResult,
 };
 use kagari_runtime::{
     error::RuntimeErrorKind,
@@ -14,6 +13,7 @@ use kagari_runtime::{
     task::{TaskId, control::TaskScopeOwner, drive::TaskDriveResult},
 };
 use kagari_source::source::SourceFile;
+use kagari_vm::vm::owned::DriveResult;
 use std::{
     num::NonZeroUsize,
     sync::{Arc, atomic::Ordering},
@@ -55,6 +55,7 @@ fn task_boundary(f: &Fixture, scope: &TaskScopeOwner, id: TaskId) -> TaskDriveRe
         f.runtime.runtime().collect_garbage().unwrap();
         let result = f
             .runtime
+            .backend()
             .drive_task(scope, id, NonZeroUsize::new(1).unwrap())
             .unwrap();
         if result != TaskDriveResult::Runnable {
@@ -69,6 +70,7 @@ fn owned_boundary(f: &Fixture, execution: &OwnedExecution) -> DriveResult {
         f.runtime.runtime().collect_garbage().unwrap();
         let result = f
             .runtime
+            .backend()
             .drive(execution, NonZeroUsize::new(1).unwrap())
             .unwrap();
         if !matches!(result, DriveResult::Runnable) {
@@ -158,7 +160,8 @@ fn lifecycle_reload_contract() {
     let mut f = Fixture::configured_source(SOURCE, config);
     let scope = f
         .runtime
-        .create_task_scope(&f.module, &Default::default(), Arc::new(|_| Ok(())))
+        .runtime()
+        .create_task_scope(&f.module, Default::default(), Arc::new(|_| Ok(())))
         .unwrap();
     let old_key = f.module.key();
     let factory = f.invoke("factory", &[]);

@@ -36,6 +36,29 @@ impl<S> Interface<S> {
         options: ExecutionOptions,
     ) -> NativeResult<R> {
         let runtime = cx.runtime();
+        let member = &binding.record.member;
+        let method = self.prepare_call(runtime, binding)?;
+        let owner = method.implementation(runtime)?;
+        let invoke = cx.invoke_script.ok_or_else(|| {
+            RuntimeError::module_validation("call context has no execution backend")
+        })?;
+        let _session = runtime.begin_interface_execution(&method, options)?;
+        let mut conversion = ConversionContext::new(runtime, &member.owner)?;
+        let (_roots, mut values) =
+            encode_arguments(&mut conversion, &binding.record.signature.params, arguments)?;
+        values
+            .try_reserve(1)
+            .map_err(|_| RuntimeError::resource_limit("interface receiver argument"))?;
+        values.insert(0, *method.receiver());
+        let result = invoke(runtime, &owner, ScriptCall::Interface(&method), &values)?;
+        conversion.decode_prepared(&binding.record.signature.result, &result)
+    }
+
+    pub(super) fn prepare_call<A, R>(
+        &self,
+        runtime: &Runtime,
+        binding: &InterfaceMethod<A, R>,
+    ) -> NativeResult<RootedInterfaceMethod> {
         runtime.gc().ensure_no_native_borrow()?;
         runtime.resources().ensure_execution_allowed()?;
         let member = &binding.record.member;
@@ -81,25 +104,12 @@ impl<S> Interface<S> {
                     application.constructions.clone()
                 }),
         )?;
-        let owner = method.implementation(runtime)?;
-        let invoke = cx.invoke_script.ok_or_else(|| {
-            RuntimeError::module_validation("call context has no execution backend")
-        })?;
-        let _session = runtime.begin_interface_execution(&method, options)?;
-        let mut conversion = ConversionContext::new(runtime, &member.owner)?;
-        let (_roots, mut values) =
-            encode_arguments(&mut conversion, &binding.record.signature.params, arguments)?;
-        values
-            .try_reserve(1)
-            .map_err(|_| RuntimeError::resource_limit("interface receiver argument"))?;
-        values.insert(0, *method.receiver());
-        let result = invoke(runtime, &owner, ScriptCall::Interface(&method), &values)?;
-        conversion.decode_prepared(&binding.record.signature.result, &result)
+        Ok(method)
     }
 }
 
 impl Runtime {
-    fn begin_interface_execution(
+    pub(crate) fn begin_interface_execution(
         &self,
         method: &RootedInterfaceMethod,
         options: ExecutionOptions,

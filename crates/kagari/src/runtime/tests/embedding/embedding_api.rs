@@ -4,7 +4,7 @@ use crate::{
     engine::{KagariEngine, source::ArtifactOptions},
     error::{EmbeddingError, RuntimeFailureKind},
     program::{PreparedProgram, ProgramPreparationError},
-    runtime::{KagariRuntime, LoadOptions, ReloadOptions},
+    runtime::{LoadOptions, ReloadOptions, Runtime},
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
@@ -163,7 +163,7 @@ fn embedding_host_path_module(path_access: PathAccess) -> NativeModule {
     builder.finish().unwrap()
 }
 
-fn register_embedding_host_path_runtime(runtime: &mut KagariRuntime) -> HostPathDescriptorId {
+fn register_embedding_host_path_runtime(runtime: &mut Runtime) -> HostPathDescriptorId {
     let player = runtime
         .runtime()
         .types()

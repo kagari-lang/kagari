@@ -1,8 +1,11 @@
 //! Host-facing runtime linking and execution orchestration.
-pub mod owned;
+mod bindings;
+pub mod call;
+mod invocation;
+mod members;
+
 mod scheduler;
 mod scoped;
-mod tasks;
 mod typed;
 use crate::{
     LoadResult, ReloadResult, RunResult,
@@ -12,7 +15,7 @@ use crate::{
 };
 
 use kagari_runtime::{
-    Runtime,
+    Runtime as CoreRuntime,
     module::{LoadedModule, entry::ProgramEntry},
     value::Value,
 };
@@ -25,24 +28,30 @@ use kagari_vm::{
 };
 
 #[derive(Debug)]
-pub struct KagariRuntime {
+pub struct Runtime {
     vm: Vm,
     default_context: ExecutionContext,
 }
 
-impl KagariRuntime {
-    pub fn new(runtime: Runtime, default_context: ExecutionContext) -> Self {
+impl Runtime {
+    pub fn new(runtime: CoreRuntime, default_context: ExecutionContext) -> Self {
         Self {
             vm: Vm::new(runtime),
             default_context,
         }
     }
 
-    pub fn runtime(&self) -> &Runtime {
+    /// Interpreter primitives for backend tooling and low-level contract tests.
+    /// Normal async callers use `call_async`, `submit_async` and `poll` instead.
+    pub fn backend(&self) -> &Vm {
+        &self.vm
+    }
+
+    pub fn runtime(&self) -> &CoreRuntime {
         self.vm.runtime()
     }
 
-    pub fn runtime_mut(&mut self) -> &mut Runtime {
+    pub fn runtime_mut(&mut self) -> &mut CoreRuntime {
         self.vm.runtime_mut()
     }
 

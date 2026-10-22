@@ -49,7 +49,7 @@ this is not standalone host code.
         .with_host_scope(|scope| {
             let view = scope.borrow(descriptor.rust_type(), &external)?;
             assert_eq!(
-                KagariRuntime::execute_scoped(
+                Runtime::execute_scoped(
                     scope,
                     &loaded,
                     "inspect",
@@ -70,7 +70,7 @@ unrestricted Rust reference. Methods acquire short checked loans; incompatible
 overlapping loans fail rather than violating Rust aliasing.
 
 `with_host_scope` reserves the mutable runtime for the closure. Call the associated
-`KagariRuntime::execute_scoped(scope, module, entry, arguments, context)` there,
+`Runtime::execute_scoped(scope, module, entry, arguments, context)` there,
 not an ordinary runtime call around the scope. It returns `RunResult<Value>` and
 requires an explicit `ExecutionContext`. This path is interpreter-only: the default
 `JitPolicy::Disabled` is supported, other policies reject before callback effects.
@@ -123,7 +123,7 @@ installed take capability and its `NativeTake` proof, not just a handle clone.
 
 ## Move a runtime, do not share its heap
 
-`KagariRuntime` is **Send, not Sync**. Move a quiescent runtime between workers
+`Runtime` is **Send, not Sync**. Move a quiescent runtime between workers
 only after synchronous scopes and loans finish; this does not enable concurrent
 heap execution. Scoped views cannot transfer between threads. `PreparedProgram`
 is neither Send nor Sync: load/install before moving the runtime, or prepare on

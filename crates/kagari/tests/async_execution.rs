@@ -4,9 +4,21 @@ use kagari::{
     engine::{EngineConfig, KagariEngine, builder::KagariEngineBuilder},
     error::{EmbeddingError, RuntimeFailureKind},
     program::PreparedProgram,
-    runtime::{KagariRuntime, owned::DriveResult},
+    runtime::Runtime,
 };
-use kagari_runtime::{gc::roots::RootedValue, native::completion::CompletionStatus, value::Value};
+use kagari_runtime::{
+    frame::types::arguments::TypeArgument,
+    gc::roots::RootedValue,
+    native::{
+        binding::NativeResult,
+        catalog::DeclarationCatalog,
+        completion::CompletionStatus,
+        conversion::{FromKagari, KagariType, context::ConversionContext},
+        types::Type,
+    },
+    value::Value,
+};
+use kagari_vm::vm::owned::DriveResult;
 use std::{
     future::Future,
     pin::Pin,
@@ -28,14 +40,17 @@ impl Fixture {
     fn cold(&self, input: i32) -> RootedValue {
         let execution = self
             .runtime
+            .backend()
             .start(
                 &self.module,
                 "create",
                 &[Value::I32(input)],
-                &Default::default(),
+                Default::default(),
             )
             .unwrap();
-        let DriveResult::Complete(result) = self.runtime.drive(&execution, slice()).unwrap() else {
+        let DriveResult::Complete(result) =
+            self.runtime.backend().drive(&execution, slice()).unwrap()
+        else {
             panic!("cold creation");
         };
         result.unwrap()
@@ -62,39 +77,43 @@ impl Wake for RuntimeReady {
     }
 }
 
+struct ActiveI32(i32);
+
+impl KagariType for ActiveI32 {
+    fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
+        i32::kagari_type(catalog)
+    }
+}
+
+impl FromKagari for ActiveI32 {
+    fn from_kagari(
+        cx: &mut ConversionContext<'_>,
+        ty: &TypeArgument,
+        value: &Value,
+    ) -> NativeResult<Self> {
+        assert!(cx.runtime().execution_root().is_some());
+        Ok(Self(i32::from_kagari(cx, ty, value)?))
+    }
+}
+
 #[test]
 fn sdk_scheduler_source_free_wake_contract() {
     let mut f = Fixture::new();
     let (send, receive) = mpsc::sync_channel(1);
     let wake = Waker::from(Arc::new(RuntimeReady(send)));
     assert!(f.runtime.poll(&mut Context::from_waker(&wake)).is_pending());
+    let create = f
+        .runtime
+        .async_function::<(i32,), ActiveI32>(&f.module, "create")
+        .unwrap();
     for (input, expected) in [(1, 8), (21, 42)] {
-        let cold = f.cold(input);
-        let owner = f
-            .runtime
-            .start_future(
-                &cold.value(f.runtime.runtime().gc()).unwrap(),
-                &Default::default(),
-            )
-            .unwrap();
-        let mut ticket = f
-            .runtime
-            .runtime()
-            .schedule_execution(owner, |runtime, value| {
-                assert!(runtime.execution_root().is_some());
-                let Some(Value::I32(value)) = value.value(runtime.gc()) else {
-                    panic!("i32 output")
-                };
-                Ok(value)
-            })
-            .unwrap();
-        drop(cold);
+        let mut ticket = f.runtime.submit_async(&create, (input,)).unwrap();
         let mut completed = false;
         for _ in 0..32 {
             if let Poll::Ready(value) =
                 Pin::new(&mut ticket).poll(&mut Context::from_waker(Waker::noop()))
             {
-                assert_eq!(value.unwrap(), expected);
+                assert_eq!(value.unwrap().0, expected);
                 completed = true;
                 break;
             }
@@ -137,11 +156,12 @@ fn sdk_owned_native_wait_contract() {
     assert_eq!(f.starts.load(Ordering::SeqCst), 0);
     let execution = f
         .runtime
+        .backend()
         .start(
             &f.module,
             "wait",
             &[future.value(f.runtime.runtime().gc()).unwrap()],
-            &Default::default(),
+            Default::default(),
         )
         .unwrap();
     let notice = Arc::new(Notice::default());
@@ -152,7 +172,7 @@ fn sdk_owned_native_wait_contract() {
         "registration observes queued readiness"
     );
     assert!(matches!(
-        f.runtime.drive(&execution, slice()).unwrap(),
+        f.runtime.backend().drive(&execution, slice()).unwrap(),
         DriveResult::Waiting
     ));
     assert!(!execution.is_ready());
@@ -175,7 +195,8 @@ fn sdk_owned_native_wait_contract() {
         1,
         "readiness and another root never drive this continuation"
     );
-    let DriveResult::Complete(result) = f.runtime.drive(&execution, slice()).unwrap() else {
+    let DriveResult::Complete(result) = f.runtime.backend().drive(&execution, slice()).unwrap()
+    else {
         panic!("ready continuation");
     };
     assert_eq!(
@@ -184,19 +205,21 @@ fn sdk_owned_native_wait_contract() {
     );
     assert!(!execution.is_ready());
     assert!(
-        f.runtime.drive(&execution, slice()).is_err(),
+        f.runtime.backend().drive(&execution, slice()).is_err(),
         "retired owner cannot resume twice"
     );
     for (input, output) in [(0, 7), (1, 8)] {
         let future = f.cold(input);
         let execution = f
             .runtime
+            .backend()
             .start_future(
                 &future.value(f.runtime.runtime().gc()).unwrap(),
-                &Default::default(),
+                Default::default(),
             )
             .unwrap();
-        let DriveResult::Complete(result) = f.runtime.drive(&execution, slice()).unwrap() else {
+        let DriveResult::Complete(result) = f.runtime.backend().drive(&execution, slice()).unwrap()
+        else {
             panic!("immediate publication");
         };
         assert_eq!(
@@ -209,25 +232,27 @@ fn sdk_owned_native_wait_contract() {
     let right_future = f.cold(16);
     let left = f
         .runtime
+        .backend()
         .start(
             &f.module,
             "wait",
             &[left_future.value(f.runtime.runtime().gc()).unwrap()],
-            &shared,
+            shared.interpreter_options().unwrap(),
         )
         .unwrap();
     let right = f
         .runtime
+        .backend()
         .start(
             &f.module,
             "wait",
             &[right_future.value(f.runtime.runtime().gc()).unwrap()],
-            &shared,
+            shared.interpreter_options().unwrap(),
         )
         .unwrap();
     for owner in [&left, &right] {
         assert!(matches!(
-            f.runtime.drive(owner, slice()).unwrap(),
+            f.runtime.backend().drive(owner, slice()).unwrap(),
             DriveResult::Waiting
         ));
     }
@@ -240,18 +265,18 @@ fn sdk_owned_native_wait_contract() {
     );
     assert!(!right.is_ready(), "independent waiter remains pending");
     assert!(matches!(
-        f.runtime.drive(&left, slice()).unwrap(),
-        DriveResult::Complete(Err(EmbeddingError::Runtime {
+        f.runtime.backend().drive(&left, slice()).unwrap(),
+        DriveResult::Complete(Err(error)) if matches!(EmbeddingError::from(error.clone()), EmbeddingError::Runtime {
             kind: RuntimeFailureKind::Cancelled,
             ..
-        }))
+        })
     ));
     assert_eq!(left_completion.complete(Ok(99)), CompletionStatus::Stale);
     assert_eq!(
         right_completion.complete(Ok(43)),
         CompletionStatus::Accepted
     );
-    let DriveResult::Complete(result) = f.runtime.drive(&right, slice()).unwrap() else {
+    let DriveResult::Complete(result) = f.runtime.backend().drive(&right, slice()).unwrap() else {
         panic!("uncancelled sibling execution");
     };
     assert_eq!(
@@ -263,25 +288,32 @@ fn sdk_owned_native_wait_contract() {
         let context = ExecutionContext::default();
         let execution = f
             .runtime
-            .start_future(&future.value(f.runtime.runtime().gc()).unwrap(), &context)
+            .backend()
+            .start_future(
+                &future.value(f.runtime.runtime().gc()).unwrap(),
+                context.interpreter_options().unwrap(),
+            )
             .unwrap();
         assert!(matches!(
-            f.runtime.drive(&execution, slice()).unwrap(),
+            f.runtime.backend().drive(&execution, slice()).unwrap(),
             DriveResult::Waiting
         ));
         let completion = f.sent.lock().unwrap().pop().unwrap();
         if abandon {
             drop(execution);
-            assert_eq!(f.runtime.drain_retired_executions().unwrap(), 1);
+            assert_eq!(f.runtime.runtime().drain_retired_executions().unwrap(), 1);
         } else {
             let wake = Arc::new(Notice::default());
             execution.set_waker(&Waker::from(wake.clone()));
             context.cancellation.cancel();
             assert_eq!(wake.0.load(Ordering::SeqCst), 1);
-            let DriveResult::Complete(Err(EmbeddingError::Runtime { kind, .. })) =
-                f.runtime.drive(&execution, slice()).unwrap()
+            let DriveResult::Complete(Err(error)) =
+                f.runtime.backend().drive(&execution, slice()).unwrap()
             else {
                 panic!("terminal cancellation");
+            };
+            let EmbeddingError::Runtime { kind, .. } = EmbeddingError::from(error) else {
+                panic!("runtime cancellation diagnostic");
             };
             assert_eq!(kind, RuntimeFailureKind::Cancelled);
         }
@@ -301,7 +333,6 @@ fn sdk_owned_native_wait_contract() {
 #[cfg(feature = "native")]
 mod native {
     use super::{Fixture, slice};
-    use kagari::runtime::owned::DriveResult;
     use kagari_abi::native::{BackendId, BackendTarget};
     use kagari_codegen::{
         BackendConfiguration, BackendFunctionInput, CodegenBackend, diagnostic::BackendCompileError,
@@ -309,6 +340,7 @@ mod native {
     use kagari_contract::native::NativeCompilationProduct;
     use kagari_runtime::{native::completion::CompletionStatus, value::Value};
     use kagari_vm::vm::native::PreparedNativeEntry;
+    use kagari_vm::vm::owned::DriveResult;
     use std::sync::atomic::Ordering;
 
     struct Backend {
@@ -367,10 +399,11 @@ mod native {
         assert_eq!(f.starts.load(Ordering::SeqCst), 0);
         let execution = f
             .runtime
-            .start(&f.module, "run", &[], &Default::default())
+            .backend()
+            .start(&f.module, "run", &[], Default::default())
             .unwrap();
         assert!(matches!(
-            f.runtime.drive(&execution, slice()).unwrap(),
+            f.runtime.backend().drive(&execution, slice()).unwrap(),
             DriveResult::Waiting
         ));
         assert_eq!(f.starts.load(Ordering::SeqCst), 1);
@@ -378,7 +411,8 @@ mod native {
             f.sent.lock().unwrap().pop().unwrap().complete(Ok(42)),
             CompletionStatus::Accepted
         );
-        let DriveResult::Complete(result) = f.runtime.drive(&execution, slice()).unwrap() else {
+        let DriveResult::Complete(result) = f.runtime.backend().drive(&execution, slice()).unwrap()
+        else {
             panic!("interpreter continuation");
         };
         assert_eq!(

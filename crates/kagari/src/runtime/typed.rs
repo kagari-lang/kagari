@@ -1,5 +1,5 @@
 //! Host entry conversion delegates to the VM's common runtime conversion scope.
-use crate::{RunResult, context::ExecutionContext, error::EmbeddingError, runtime::KagariRuntime};
+use crate::{RunResult, context::ExecutionContext, error::EmbeddingError, runtime::Runtime};
 use kagari_runtime::{
     module::{LoadedModule, entry::ProgramEntry},
     native::{
@@ -11,7 +11,7 @@ use kagari_runtime::{
 };
 use kagari_vm::error::VmError;
 
-impl KagariRuntime {
+impl Runtime {
     /// Access retained objects and invoke prepared members under the caller's
     /// execution policy. The context cannot escape; returned handles retain their
     /// own values. Traps and unwinds release the execution session automatically.
@@ -42,7 +42,15 @@ impl KagariRuntime {
     }
 
     pub fn call<A: IntoKagariArguments, R: FromKagari>(
-        &self,
+        &mut self,
+        function: &PinnedFunction<A, R>,
+        arguments: A,
+    ) -> RunResult<R> {
+        self.call_with_context(function, arguments, &self.default_context.clone())
+    }
+
+    pub fn call_with_context<A: IntoKagariArguments, R: FromKagari>(
+        &mut self,
         function: &PinnedFunction<A, R>,
         arguments: A,
         context: &ExecutionContext,

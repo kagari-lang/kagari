@@ -284,6 +284,12 @@ impl ReloadValidationError {
     }
 }
 
+impl From<VmError> for EmbeddingError {
+    fn from(error: VmError) -> Self {
+        Self::vm(error)
+    }
+}
+
 impl From<RuntimeError> for EmbeddingError {
     fn from(error: RuntimeError) -> Self {
         Self::vm(VmError::RuntimeError(error))

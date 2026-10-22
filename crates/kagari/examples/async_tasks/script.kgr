@@ -1,15 +1,19 @@
 use demo::rpc;
 use demo::database;
 
+pub struct Job { pub var total: i32 }
+pub fn job() -> Job { Job { total: 0 } }
+
 // Admission returns before the factory constructs its cold async block. The scope owns the Task
 // even though this handler does not retain its handle.
-pub fn handle(scope: TaskScope) -> bool {
+pub fn handle(scope: TaskScope, job: Job) -> bool {
     match scope.spawn(|| async {
         var total = 0;
         for id in [1, 2] {
             val profile = rpc::request(id).await;
             total += database::request(profile).await;
         }
+        job.total = total;
         total
     }) {
         Ok(_) => true,

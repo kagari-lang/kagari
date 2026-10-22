@@ -809,6 +809,7 @@ dependencies = [
  "kagari-runtime",
  "kagari-source",
  "kagari-types",
+ "kagari-vm",
  "serde",
  "serde_json",
  "wasm-bindgen",

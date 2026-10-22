@@ -5,7 +5,7 @@ use crate::{
     engine::source::PreparationOptions,
     error::EmbeddingError,
     program::PreparedProgram,
-    runtime::KagariRuntime,
+    runtime::Runtime,
 };
 use kagari_bytecode::artifact::{ArtifactCompatibility, KbcArtifact};
 use kagari_codegen_cranelift::CraneliftBackend;
@@ -17,7 +17,7 @@ use kagari_common::{
     },
 };
 use kagari_runtime::{
-    Runtime, RuntimeConfig,
+    Runtime as CoreRuntime, RuntimeConfig,
     error::{RuntimeError, RuntimeErrorKind},
     frame::ExecutionFrame,
     gc::GcHeap,
@@ -58,7 +58,7 @@ struct CancelAt {
 impl ExecutionObserver for CancelAt {
     fn observe(
         &mut self,
-        runtime: &Runtime,
+        runtime: &CoreRuntime,
         event: ExecutionEvent,
         _: &[ExecutionFrame],
     ) -> Result<(), RuntimeError> {
@@ -334,7 +334,7 @@ fn run_routes(case: &Case<'_>) {
 }
 
 fn assert_outcome(
-    runtime: &Runtime,
+    runtime: &CoreRuntime,
     case: &Case<'_>,
     route: Route,
     attempt: usize,
@@ -369,7 +369,7 @@ fn assert_outcome(
 }
 
 fn execute_route(
-    runtime: &KagariRuntime,
+    runtime: &Runtime,
     program: &PreparedProgram,
     loaded: &LoadedModule,
     case: &Case<'_>,
@@ -508,7 +508,7 @@ fn run(
         },
         ..Default::default()
     };
-    let vm = KagariRuntime::new(runtime, context);
+    let vm = Runtime::new(runtime, context);
     let session = (case.cancel_call.is_some() || case.cancel_at.is_some()).then(|| {
         let mut options = vm.runtime().execution_options();
         options.cancellation = cancellation.clone();

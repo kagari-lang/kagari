@@ -9,13 +9,10 @@ use crate::{
     output::Output,
     protocol::{OwnedResult, Response, WebError},
 };
-#[cfg(feature = "source")]
-use kagari::error::EmbeddingError;
+
 use kagari::{
-    BytecodeArtifact,
-    engine::KagariEngine,
-    program::PreparedProgram,
-    runtime::{KagariRuntime, owned::DriveResult},
+    BytecodeArtifact, engine::KagariEngine, error::EmbeddingError, program::PreparedProgram,
+    runtime::Runtime,
 };
 use kagari_runtime::{
     module::{LoadedModule, entry::ProgramEntry},
@@ -23,6 +20,7 @@ use kagari_runtime::{
 };
 #[cfg(feature = "source")]
 use kagari_source::source::SourceFile;
+use kagari_vm::vm::owned::DriveResult;
 use serde_json::to_string;
 use std::{
     fmt::Display,
@@ -43,7 +41,7 @@ const MAX_SLICE: u32 = 100_000;
 #[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), wasm_bindgen)]
 pub struct BrowserSession {
     engine: KagariEngine,
-    runtime: KagariRuntime,
+    runtime: Runtime,
     module: Option<LoadedModule>,
     active: Option<OwnedExecution>,
     output: Arc<Mutex<Output>>,
@@ -133,6 +131,8 @@ impl BrowserSession {
     }
 
     /// Queue the verified, zero-argument root main capability, not a public export alias.
+    /// This debugger-style sliced runner uses backend primitives deliberately: its
+    /// protocol drives ordinary main bodies, not typed Future-returning exports.
     pub fn start(&mut self) -> String {
         if self.active.is_some() {
             return self.reject("WEB_BUSY", "one run is already active");
@@ -142,7 +142,9 @@ impl BrowserSession {
         };
         match self
             .runtime
-            .start(module, ProgramEntry::Main, &[], &Default::default())
+            .backend()
+            .start(module, ProgramEntry::Main, &[], Default::default())
+            .map_err(EmbeddingError::from)
         {
             Ok(active) => {
                 self.active = Some(active);
@@ -161,7 +163,7 @@ impl BrowserSession {
         let Some(active) = &self.active else {
             return self.reject("WEB_NO_RUN", "start a run first");
         };
-        let response = match self.runtime.drive(
+        let response = match self.runtime.backend().drive(
             active,
             NonZeroUsize::new(slice as usize).expect("positive slice"),
         ) {
@@ -177,12 +179,12 @@ impl BrowserSession {
                         },
                         Err(error) => Response::error(error),
                     },
-                    Err(error) => Response::error(WebError::sdk(&error)),
+                    Err(error) => Response::error(WebError::sdk(&EmbeddingError::from(error))),
                 }
             }
             Err(error) => {
                 // Keep the owner available for explicit reset/retirement on API errors.
-                Response::error(WebError::sdk(&error))
+                Response::error(WebError::sdk(&EmbeddingError::from(error)))
             }
         };
         self.respond(response)
@@ -200,8 +202,8 @@ impl BrowserSession {
     pub fn reset(&mut self) -> String {
         self.cancel();
         self.active.take();
-        if let Err(error) = self.runtime.drain_retired_executions() {
-            return self.respond(Response::error(WebError::sdk(&error)));
+        if let Err(error) = self.runtime.runtime().drain_retired_executions() {
+            return self.respond(Response::error(WebError::sdk(&EmbeddingError::from(error))));
         }
         self.module = None;
         self.runtime = self.engine.runtime(Default::default());
@@ -251,6 +253,6 @@ impl Drop for BrowserSession {
         self.cancel();
         self.active.take();
         // Explicit reset reports cleanup failures; Drop cannot report a JSON response.
-        let _ = self.runtime.drain_retired_executions();
+        let _ = self.runtime.runtime().drain_retired_executions();
     }
 }

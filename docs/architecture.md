@@ -2014,7 +2014,7 @@ CPU/memory quota. See [execution](spec/execution.md) and [security](spec/securit
 
 ## Embedding API
 
-Current entrypoints are KagariEngine, KagariRuntime, PreparedProgram and
+Current entrypoints are KagariEngine, Runtime, PreparedProgram and
 ExecutionContext. SDK features are independent: no features gives artifact-only
 interpretation; `source` adds the frontend; `native` adds frontend-free MIR/codegen
 preparation. Default features enable both; the host supplies a concrete backend.
@@ -2586,8 +2586,8 @@ retains computed await liveness, which physical allocation maps to retained mana
 locations. The runtime discards dead slots before its resource check, preserving
 live aliases and debugger-visible locals. These facts are rebuilt after decoding,
 never trusted from an artifact flag. The foundation owns `core::future::Future<T>`;
-the SDK's `runtime::owned` maps drive results to embedding errors while reusing the
-runtime owner, readiness and cleanup path. Per-execution cancellation is separate
+the SDK's `runtime::call` exposes borrowed driving calls and nonborrowing result
+receivers over the shared runtime scheduler, using `RunResult` diagnostics. Per-execution cancellation is separate
 from the host's shared context signal. Native preparation rejects resume bodies
 before invoking a backend. Source async functions and explicit async closures lower
 to ordinary factories plus private resume functions. Portable `MakeFuture` captures
@@ -2605,7 +2605,7 @@ Runtime destruction uses this path for standalone owners as well as Tasks. These
 boundaries preserve reservations and roots without retrying failed host cleanup;
 see the [completion contract](spec/host-interop.md#completion-transport-foundation).
 
-The SDK/VM `start_future` entry explicitly queues one Future layer. Ordinary calls
+The low-level VM `start_future` entry explicitly queues one Future layer. Ordinary calls
 return cold values, including Future-valued outputs without flattening. Nested
 script awaits push owned resume frames; native waits also work directly as a root
 without an artificial script caller. Real deferred for-body waits retain the same
@@ -2613,6 +2613,20 @@ cursor and lease, observe later element replacement and reject structural writes
 Cancellation and owner retirement release the lease. Source, Task scope and
 lifecycle integration have passed focused local gates; the roadmap distinguishes
 these results from full GitHub CI acceptance.
+
+The SDK `Runtime` binds typed `AsyncFunction`/member descriptors through existing
+native callable owners. `frame::factory::QueuedFactory` retains checked pinned or
+interface dispatch targets and rooted arguments; admission converts under the owned
+session but does not run the factory. `TypeArgument` retains the exact lexical
+`Future<R>` output scope. Completion conversion runs before session retirement and
+publication follows cleanup. A driving `Call` exclusively borrows the SDK runtime,
+advances the common scheduler and synchronously retires its invocation/descendants
+on drop. `PendingCall` owns only synchronized result and cancellation state; its
+poll never drives script. `scheduler::wake` preserves the external driver route
+while a Call temporarily borrows it. The normal SDK scope API joins this scheduler,
+which retires admission records and buffers bounded failure events automatically.
+Low-level manual scopes and sliced execution remain runtime/VM tooling APIs, not
+SDK forwarding entrypoints. See the [typed call contract](spec/embedding-api.md#typed-async-calls-scheduling-and-native-waits).
 
 `task` owns bounded scope admission, generation-checked identities, readiness
 and terminal reports. `session::dependencies` owns the bounded graph shared by
@@ -2648,5 +2662,5 @@ other's single-step requests. Observers can be replaced between bounded drives.
 
 The [async_tasks host](../crates/kagari/examples/async_tasks/main.rs) and its
 source-free artifact consumer exercise two independently registered providers and
-a non-Actor dispatcher. No Tokio runtime, JIT suspension or script threads are
-required. Native preparation declines resume bodies before backend entry.
+a coalesced runtime Waker without manual per-Task driving. No Tokio runtime, JIT
+suspension or script threads are required. Native preparation declines resume bodies before backend entry.

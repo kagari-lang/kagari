@@ -698,10 +698,10 @@ remain independently queued.
 ## Async blocks, structured concurrency and Runtime API
 
 The [AR01-AR06 execution plan](async-runtime-plan.md) is active; the user authorized
-implementation with one commit per completed phase. AR01-AR04 design, async blocks,
-shared scheduling and structured composition are complete with focused local
-acceptance; AR05 public facade is next. Manual dispatcher scopes remain only until
-AR05 consumer migration. Its finite scope is
+implementation with one commit per completed phase. AR01-AR05 are complete with
+focused local acceptance; AR06 integration/documentation closeout is next. The SDK
+Runtime facade now owns typed calls and managed scopes; manual staging/Task driving
+remains only at justified backend boundaries, not as a compatibility SDK surface. Its finite scope is
 script `async { ... }` expressions, cold-Future `join`/`try_join` composition and a
 Runtime facade with direct synchronous calls, Rust-awaitable async calls and
 internal script-task scheduling. API planning also covers reusable function/member

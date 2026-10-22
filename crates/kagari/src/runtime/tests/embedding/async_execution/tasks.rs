@@ -48,9 +48,10 @@ pub fn trapped() -> fn()->Future<i32> { || { val zero=0; val bad=1/zero; request
     let failed = fail.clone();
     let scope = f
         .runtime
+        .runtime()
         .create_task_scope(
             &f.module,
-            &Default::default(),
+            Default::default(),
             Arc::new(move |notice| {
                 seen.lock().unwrap().push(notice);
                 if failed.load(Ordering::SeqCst) {
@@ -72,6 +73,7 @@ pub fn trapped() -> fn()->Future<i32> { || { val zero=0; val bad=1/zero; request
             runtime.collect_garbage().unwrap();
             let result = f
                 .runtime
+                .backend()
                 .drive_task(scope, id, NonZeroUsize::new(1).unwrap())
                 .unwrap();
             if result != TaskDriveResult::Runnable {
@@ -111,7 +113,10 @@ pub fn trapped() -> fn()->Future<i32> { || { val zero=0; val bad=1/zero; request
     let report = runtime.take_task_report(&scope, other_id).unwrap().unwrap();
     assert_eq!(f.value(&report.outcome.unwrap()), Value::I32(7));
     assert_eq!(
-        f.runtime.drive_task(&scope, other_id, slice()).unwrap(),
+        f.runtime
+            .backend()
+            .drive_task(&scope, other_id, slice())
+            .unwrap(),
         TaskDriveResult::Stale
     );
     f.sent.lock().unwrap().pop().unwrap().complete(Ok(11));
@@ -230,19 +235,22 @@ pub fn trapped() -> fn()->Future<i32> { || { val zero=0; val bad=1/zero; request
 
     let rejected = f
         .runtime
+        .runtime()
         .create_task_scope(
             &f.module,
-            &Default::default(),
+            Default::default(),
             Arc::new(|_| Err(DispatchUnavailable)),
         )
         .unwrap();
     assert!(
         f.runtime
-            .create_task_scope(&f.module, &Default::default(), Arc::new(|_| Ok(())))
+            .runtime()
+            .create_task_scope(&f.module, Default::default(), Arc::new(|_| Ok(())))
             .is_err()
     );
     assert!(
         f.runtime
+            .backend()
             .drive_task(&rejected, running_id, slice())
             .is_err(),
         "scope ownership is required"
@@ -275,13 +283,15 @@ pub fn trapped() -> fn()->Future<i32> { || { val zero=0; val bad=1/zero; request
     runtime.cancel_task(&f.value(&dropped)).unwrap();
     let replacement = f
         .runtime
-        .create_task_scope(&f.module, &Default::default(), Arc::new(|_| Ok(())))
+        .runtime()
+        .create_task_scope(&f.module, Default::default(), Arc::new(|_| Ok(())))
         .unwrap();
     let admitted = spawn(&replacement, f.value(&simple));
     let admitted_id = runtime.task_id(&f.value(&admitted)).unwrap();
     assert_ne!(admitted_id, queued_id);
     assert_eq!(
         f.runtime
+            .backend()
             .drive_task(&replacement, queued_id, slice())
             .unwrap(),
         TaskDriveResult::Stale
@@ -344,9 +354,10 @@ pub fn work() -> fn()->Future<i32> { async || request(10).await }
     );
     let scope = f
         .runtime
+        .runtime()
         .create_task_scope(
             &f.module,
-            &Default::default(),
+            Default::default(),
             Arc::new(|_| panic!("dispatcher fault")),
         )
         .unwrap();
@@ -367,7 +378,7 @@ pub fn work() -> fn()->Future<i32> { async || request(10).await }
         .unwrap();
     let id = f.runtime.runtime().task_id(&f.value(&task)).unwrap();
     assert_eq!(
-        f.runtime.drive_task(&scope, id, slice()).unwrap(),
+        f.runtime.backend().drive_task(&scope, id, slice()).unwrap(),
         TaskDriveResult::Waiting
     );
     let (entered, wait_entered) = mpsc::sync_channel(1);
@@ -395,7 +406,7 @@ pub fn work() -> fn()->Future<i32> { async || request(10).await }
     release.send(()).unwrap();
     producer.join().unwrap();
     assert_eq!(
-        f.runtime.drive_task(&scope, id, slice()).unwrap(),
+        f.runtime.backend().drive_task(&scope, id, slice()).unwrap(),
         TaskDriveResult::Complete,
         "old dispatcher failure cannot poison a replacement"
     );
@@ -414,7 +425,7 @@ pub fn work() -> fn()->Future<i32> { async || request(10).await }
         .unwrap();
     let id = f.runtime.runtime().task_id(&f.value(&task)).unwrap();
     assert_eq!(
-        f.runtime.drive_task(&scope, id, slice()).unwrap(),
+        f.runtime.backend().drive_task(&scope, id, slice()).unwrap(),
         TaskDriveResult::Waiting
     );
     let cancels = f.cancels.clone();
