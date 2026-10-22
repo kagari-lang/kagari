@@ -8,7 +8,7 @@ use kagari_hir::{
     types::{NominalType, TypeId},
 };
 use kagari_mir::{
-    ids::LocalId,
+    ids::{LocalId, ModuleSlotId},
     instruction::{AggregateFieldRef, Instruction, MirValue, PathRef, ValueBuffer},
 };
 use kagari_types::{language::Protocol, ty::Ty};
@@ -24,6 +24,7 @@ pub(super) struct PreparedPlace {
 enum Root {
     Local { local: LocalId, ty: ValueType },
     Cell { local: LocalId, ty: ValueType },
+    Static { slot: ModuleSlotId, value: MirValue },
     Value(MirValue),
 }
 
@@ -55,8 +56,9 @@ impl FunctionLowerer<'_, '_> {
             let Some(prepared) = self.prepare_place_inner(checked.root, true)? else {
                 return Ok(None);
             };
+
             let mut value = match prepared.root {
-                Root::Value(value) => value,
+                Root::Static { value, .. } | Root::Value(value) => value,
                 Root::Local { local, ty } => {
                     let dst = self.alloc_temp(ty);
                     self.emit(Instruction::LoadLocal { dst, local });
@@ -106,7 +108,19 @@ impl FunctionLowerer<'_, '_> {
         let place = self.analyzed.lowered.module.place(id).clone();
         match place.kind {
             PlaceKind::Name(_) => {
-                let local = self.lookup_binding(self.place_root_resolution(id)?)?;
+                let resolved = self.place_root_resolution(id)?;
+                if let Some(slot) = self.planner.static_slot(self.analyzed, &resolved)? {
+                    // Initialization is observable even for plain assignment. Preserve
+                    // this old value for compound assignment across RHS side effects.
+                    let value = self.load_static(slot);
+                    return Ok(Some(PreparedPlace {
+                        host_path: None,
+                        dynamic_args: Default::default(),
+                        root: Root::Static { slot, value },
+                        projections: Vec::new(),
+                    }));
+                }
+                let local = self.lookup_binding(resolved)?;
                 let ty = self.place_type(id)?;
                 let is_cell = matches!(self.place_root_resolution(id)?, ResolvedName::Local(local_id) if self.cell_locals.contains(&local_id));
                 let root_type = self
@@ -242,7 +256,7 @@ impl FunctionLowerer<'_, '_> {
                         .place_type(base)
                         .ok_or(MirLoweringError::UnresolvedPlace(base))?;
                     let mut value = match place.root {
-                        Root::Value(value) => value,
+                        Root::Static { value, .. } | Root::Value(value) => value,
                         Root::Local { local, ty } => {
                             let dst = self.alloc_temp(ty);
                             self.emit(Instruction::LoadLocal { dst, local });
@@ -348,7 +362,7 @@ impl FunctionLowerer<'_, '_> {
                 self.emit(Instruction::ReadCell { dst, cell });
                 dst
             }
-            Root::Value(value) => value,
+            Root::Static { value, .. } | Root::Value(value) => value,
         };
         let mut base = root;
         let mut path = Vec::new();
@@ -370,6 +384,20 @@ impl FunctionLowerer<'_, '_> {
                 None => root,
             };
             let dst = self.alloc_temp(current.ty);
+            // This synthesized expression has no HIR expression finalization. Preserve
+            // the checked left-hand type for semantic stores such as StoreModule.
+            if let Some(ty) = self
+                .function
+                .semantic
+                .registers
+                .get(&current.temp.index())
+                .cloned()
+            {
+                self.function
+                    .semantic
+                    .registers
+                    .insert(dst.temp.index(), ty);
+            }
             self.emit(Instruction::Binary {
                 dst,
                 op: numeric
@@ -428,6 +456,10 @@ impl FunctionLowerer<'_, '_> {
                     cell,
                     value: result,
                 });
+                Ok(())
+            }
+            Root::Static { slot, .. } => {
+                self.emit(Instruction::StoreModule { slot, src: result });
                 Ok(())
             }
             Root::Value(_) => Err(MirLoweringError::UnsupportedStatement(

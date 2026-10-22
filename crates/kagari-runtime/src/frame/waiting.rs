@@ -93,6 +93,7 @@ impl ExecutionStack<'_> {
         future: &Ty,
     ) -> NativeResult<()> {
         self.validate_runtime(runtime)?;
+        runtime.reject_static_initialization("await")?;
         self.discard_dead_await_slots(runtime)?;
         if !self.can_park(runtime)? || self.session.state().pending.borrow().is_some() {
             return Err(RuntimeError::module_validation(

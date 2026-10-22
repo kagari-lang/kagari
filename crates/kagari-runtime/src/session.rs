@@ -22,7 +22,7 @@ use std::{
     cell::{Cell, Ref, RefCell},
     collections::HashSet,
     fmt::Debug,
-    sync::Arc,
+    sync::{Arc, atomic::AtomicUsize},
 };
 
 use kagari_bytecode::artifact::ArtifactFingerprint;
@@ -184,6 +184,7 @@ pub(crate) struct SessionState {
     pub id: SessionId,
     pub owner: RefCell<Option<Arc<owned::ExecutionOwner>>>,
     pub parked_depth: Cell<u32>,
+    pub static_initializers: Arc<AtomicUsize>,
     pub pending: RefCell<Option<PendingWait>>,
     pub queued_future: RefCell<Option<QueuedFuture>>,
     pub queued_factory: RefCell<Option<QueuedFactory>>,
@@ -217,6 +218,7 @@ impl SessionState {
             id,
             owner: RefCell::new(None),
             parked_depth: Cell::new(0),
+            static_initializers: Arc::new(AtomicUsize::new(0)),
             pending: RefCell::new(None),
             queued_future: RefCell::new(None),
             queued_factory: RefCell::new(None),

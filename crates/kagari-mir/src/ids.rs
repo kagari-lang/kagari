@@ -21,13 +21,6 @@ id_newtype!(BlockId);
 id_newtype!(InstanceId);
 id_newtype!(LocalId);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct ModuleSlotId(u32);
-
-impl ModuleSlotId {
-    pub fn index(self) -> usize {
-        self.0 as usize
-    }
-}
+id_newtype!(ModuleSlotId);
 
 id_newtype!(TempId);

@@ -14,10 +14,17 @@ use kagari_runtime::{
 use std::task::Poll;
 
 impl Executor<'_> {
-    pub(super) fn run_inner(
-        &mut self,
-        mut remaining: Option<usize>,
-    ) -> Result<DriveOutcome, VmError> {
+    pub(super) fn run_inner(&mut self, remaining: Option<usize>) -> Result<DriveOutcome, VmError> {
+        self.drive_inner(remaining).inspect_err(|error| {
+            let cause = match error.cause() {
+                VmError::RuntimeError(error) => error.to_string(),
+                error => format!("{error:?}"),
+            };
+            self.stack.fail_static_initializers(&cause);
+        })
+    }
+
+    fn drive_inner(&mut self, mut remaining: Option<usize>) -> Result<DriveOutcome, VmError> {
         // Initial/resumed activations and waits reclassify; internal frame
         // transitions provide their established action without another lookup.
         let mut action = None;

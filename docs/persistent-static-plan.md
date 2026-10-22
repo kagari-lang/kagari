@@ -473,7 +473,7 @@ broader [update proposal](update-model-design.md) into this feature without auth
 | --- | --- | --- |
 | PS01 | Locally complete | 36 selected tests passed; structure, formatting, workspace all-target Clippy and diff checks passed. |
 | PS02 | Locally complete | Typed descriptors, persistent cells, reload/GC and source-free negative cases pass; required local checks pass. |
-| PS03 | Not started | No implementation checks run. |
+| PS03 | Locally complete | Lazy source/decoded execution, poisoning, reentry and assignment ordering pass; required local checks pass. |
 | PS04 | Not started | No implementation checks run. |
 | PS05 | Not started | No implementation checks run. |
 
@@ -540,3 +540,32 @@ Workspace all-target Clippy, formatting, structure (1463 files, zero violations)
 and diff checks pass. No selected failure remains. The final full CI/backend matrix
 is unrun; PS03 initializer execution and PS04 full retained-value coverage remain
 separate acceptance, not implied by internal cell fixtures.
+
+### PS03 checkpoint
+
+Connected checked initializer bodies and imported descriptors to ordinary compiler
+lowering and the interpreter frame driver. Removed both temporary gates. Initializer
+frames enter the retained recipe module directly, protect the return through frame
+retirement and semantic admission, and retry only the accessing instruction. Shared
+attempt completion poisons cycles immediately, including swallowed native reentry;
+unwind/drop settles started attempts. Shared session phase checks deny async work
+and parking during initialization. Native unsupported instructions still reject
+before entry and select the interpreter without replaying side effects.
+
+Selected validation passed: four compiler lowering cases, one SDK source preparation
+case, five runtime initializer cases, six storage contract cases, twelve VM static
+cases, one Ready-only frame case, one nested-session regression and one Cranelift
+pre-entry rejection case. Source and decoded cases cover reload sharing/fixed recipes,
+imports, lazy access, side-effect ordering, business Result errors, managed return
+GC, cancellation, observer failure, cycle poisoning, future rejection and slicing.
+Independent review reproduced premature intermediate projection capture (writing a
+displaced array and trapping before RHS effects). Static roots now remain captured,
+while intermediate locations resolve at ordinary commit time. Focused source/decoded
+regressions cover root rebinding, intermediate replacement and bounds-trap ordering.
+
+Required workspace all-target Clippy, formatting, structure (1469 files, zero
+violations) and diff checks pass. The missing MIR slot constructor and doc-comment
+spacing are repaired. Package-local stale linker output required cleaning runtime
+and SDK products; targeted reruns passed. IDE build requests timed out; Cargo
+supplies compilation evidence. No carried selected failure remains. Full CI and
+PS04 retained-value/lifecycle acceptance are not implied by these local results.

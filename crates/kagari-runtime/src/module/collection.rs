@@ -79,7 +79,12 @@ impl ProgramGraph<'_> {
                 return None;
             }
             for slot in 0..record.bindings.len() {
-                match &self.store.bound_cell(record, slot)?.state {
+                let cell = self.store.bound_cell(record, slot)?;
+                // A poisoned frame attempt no longer owns an executable recipe edge.
+                if cell.failed_attempt() {
+                    continue;
+                }
+                match &cell.state {
                     StaticState::Ready(value) => visit(value),
                     StaticState::Uninitialized(recipe) | StaticState::Initializing(recipe) => {
                         metadata.push(MetadataEdge::Program(&recipe.module))

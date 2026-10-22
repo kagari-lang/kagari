@@ -1,12 +1,11 @@
 use crate::source::lower::instances::MirLoweringOptions;
-use instances::InstancePlanner;
+use instances::{InstanceBody, InstancePlanner};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         DefinitionPath, map::DefinitionContext, mapping::DefinitionMappingError,
         metadata::DefinitionMetadata,
     },
-    span::Span,
 };
 use kagari_contract::{
     host as module_host,
@@ -19,9 +18,7 @@ use kagari_hir::{
         ids::{ExprId, FunctionId, LocalId, PlaceId},
         item::function::FunctionKind,
     },
-    imports::{ResolvedTarget, SourceItem},
     native::NativeBinding,
-    resolver::resolved::ResolvedName,
     typeck::FunctionImplementation,
     types::semantic::raise_type,
 };
@@ -45,6 +42,7 @@ mod interface_bridges;
 mod layouts;
 mod place;
 mod state;
+mod statics;
 mod stmt;
 mod support;
 
@@ -92,75 +90,12 @@ impl From<DefinitionMappingError> for MirLoweringError {
     }
 }
 
-pub(crate) fn unsupported_static(span: Option<Span>) -> MirLoweringError {
-    let mut diagnostic = Diagnostic::error(DiagnosticKind::UnsupportedSyntax {
-        feature: "static lowering (not implemented yet)",
-    });
-    diagnostic.span = span;
-    MirLoweringError::diagnostic(diagnostic)
-}
-
-// PS01 admits checked declarations, but PS03 owns executable static contracts.
-// Check declarations rather than reachable expressions: unused cells also matter.
-pub(super) fn reject_static_declarations(
-    module: &AnalyzedModule,
-    cancel: &CancellationToken,
-) -> Result<(), MirLoweringError> {
-    cancel.check().map_err(|_| MirLoweringError::Cancelled)?;
-    if let Some(item) = module.lowered.module.statics.first() {
-        return Err(unsupported_static(Some(
-            module.lowered.source_map.static_span(item.id),
-        )));
-    }
-    Ok(())
-}
-
-fn reject_statics(
-    module: &AnalyzedModule,
-    cancel: &CancellationToken,
-) -> Result<(), MirLoweringError> {
-    reject_static_declarations(module, cancel)?;
-    // Availability is not dependency reachability: imported_statics can include
-    // unreferenced sibling modules. Inspect selected bindings, not that entire map.
-    for directive in &module.names.imports.directives {
-        cancel.check().map_err(|_| MirLoweringError::Cancelled)?;
-        if directive.resolution.targets().any(|target| {
-            matches!(target, ResolvedTarget::Source(source) if matches!(source.item, SourceItem::Static(_)))
-        }) {
-            return Err(unsupported_static(None));
-        }
-    }
-    let references = module
-        .lowered
-        .module
-        .body
-        .expressions()
-        .filter_map(|(id, _)| module.names.expr_resolution(id))
-        .chain(
-            module
-                .lowered
-                .module
-                .body
-                .places()
-                .filter_map(|(id, _)| module.names.place_resolution(id)),
-        );
-    for resolved in references {
-        cancel.check().map_err(|_| MirLoweringError::Cancelled)?;
-        if matches!(resolved, ResolvedName::Source(source) if matches!(source.item, SourceItem::Static(_)))
-        {
-            return Err(unsupported_static(None));
-        }
-    }
-    Ok(())
-}
-
 /// Project a checked source module's declarations for source-independent products.
-/// Returns an unsupported-static-lowering diagnostic until executable static contracts exist.
 pub fn module_contract(
     module: &CheckedAnalysis,
     cancel: &CancellationToken,
 ) -> Result<DefinitionMetadata<ModuleContract>, MirLoweringError> {
-    reject_statics(module, cancel)?;
+    cancel.check().map_err(|_| MirLoweringError::Cancelled)?;
     Ok(DefinitionMetadata::checked(
         module.definitions().clone(),
         abi::collect_module_abi(module),
@@ -172,7 +107,6 @@ pub fn lower_to_mir(
     module: &CheckedAnalysis,
     options: &MirLoweringOptions,
 ) -> Result<VerifiedMirModule, MirLoweringError> {
-    reject_statics(module, &options.cancel)?;
     let context = module.definition_context();
     let module = module
         .to_unverified(&options.cancel)
@@ -196,10 +130,10 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
     catalog: &'a AggregateCatalog,
     context: &'a DefinitionContext,
 ) -> Result<VerifiedMirModule, MirLoweringError> {
-    reject_static_declarations(module, &options.cancel)?;
     identity::collect_language(context, &options.cancel)?;
     let mut planner = InstancePlanner::new(module, options, modules, catalog, context);
     planner.check()?;
+    planner.enqueue_statics()?;
     for function in &module.typed.functions {
         if matches!(
             function.implementation,
@@ -302,21 +236,28 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
     while let Some(instance) = planner.instances.get(functions.len()).cloned() {
         planner.check()?;
         let origin = planner.origin(&instance);
-        let function = origin
-            .lowered
-            .module
-            .functions
-            .iter()
-            .find(|function| function.id == instance.function)
-            .ok_or(MirLoweringError::MissingTypedFunction(instance.function))?;
         functions.push(if instance.callable.is_some() {
-            function::lower_callable(origin, function, instance, &mut planner)?
+            function::lower_callable(origin, instance, &mut planner)?
         } else if instance.protocol.is_some() {
-            function::lower_protocol(origin, function, instance, &mut planner)?
+            function::lower_protocol(origin, instance, &mut planner)?
         } else if let Some(closure) = instance.closure {
-            function::lower_closure(origin, function, closure, instance, &mut planner)?
+            function::lower_closure(origin, closure, instance, &mut planner)?
         } else {
-            function::lower_function(origin, function, instance, &mut planner)?
+            match instance.body {
+                InstanceBody::Function(id) => {
+                    let function = origin
+                        .lowered
+                        .module
+                        .functions
+                        .iter()
+                        .find(|function| function.id == id)
+                        .ok_or(MirLoweringError::MissingTypedFunction(id))?;
+                    function::lower_function(origin, function, instance, &mut planner)?
+                }
+                InstanceBody::Static(id) => {
+                    statics::lower_initializer(origin, id, instance, &mut planner)?
+                }
+            }
         });
     }
 
@@ -399,7 +340,7 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
         enumerations,
         identity: module.lowered.source.module_identity().clone(),
         source_name: module.lowered.source.name().to_owned(),
-        module_slots: Vec::new(),
+        module_slots: planner.static_slots,
         abi,
         functions,
     };

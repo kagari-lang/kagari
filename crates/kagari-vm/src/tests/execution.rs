@@ -280,3 +280,4 @@ mod debugger;
 mod frames;
 mod host_effects;
 mod interfaces;
+mod statics;

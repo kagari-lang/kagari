@@ -42,7 +42,7 @@ use crate::{
 };
 use kagari_bytecode::{
     artifact::{ArtifactFingerprint, ArtifactValidationError, validate_program_resource_limits},
-    instruction::{BytecodeInstruction, EnumId, PathId, StructId},
+    instruction::{EnumId, PathId, StructId},
     module::BytecodeModule,
     program::{
         BytecodeProgram, ModuleRef, exports::ExportTarget, verified::VerifiedBytecodeProgram,
@@ -134,7 +134,6 @@ pub struct LoadedModule {
 /// Host bindings and module instances are created separately for each runtime.
 #[derive(Debug, Clone)]
 pub struct VerifiedProgram {
-    static_access: bool,
     initializers: Arc<[HashSet<FunctionRef>]>,
     exports: Arc<ProgramExports>,
     export_targets: Arc<HashMap<DefinitionId, ExportTarget>>,
@@ -216,17 +215,7 @@ impl VerifiedProgram {
         for (index, prepared) in execution.iter_mut().enumerate() {
             prepared.prepare_calls(ModuleRef::new(index), program.program(), &definitions);
         }
-        let static_access = modules
-            .iter()
-            .flat_map(|module| &module.functions)
-            .flat_map(|function| &function.instructions)
-            .any(|instruction| {
-                matches!(
-                    instruction,
-                    BytecodeInstruction::LoadModule { .. }
-                        | BytecodeInstruction::StoreModule { .. }
-                )
-            });
+
         let initializers = modules
             .iter()
             .map(|module| {
@@ -240,7 +229,6 @@ impl VerifiedProgram {
             .collect::<Vec<HashSet<FunctionRef>>>()
             .into();
         Self {
-            static_access,
             initializers,
             execution: execution.into(),
             root: program.program().root,
@@ -318,10 +306,6 @@ impl Deref for LoadedModule {
 impl LoadedModule {
     pub(crate) fn is_static_initializer(&self, function: FunctionRef) -> bool {
         self.program.code.initializers[self.slot.index()].contains(&function)
-    }
-
-    pub(crate) fn requires_static_execution(&self) -> bool {
-        self.program.code.static_access
     }
 
     pub(crate) fn execution(&self) -> &ExecutionModule {
@@ -732,11 +716,7 @@ impl ModuleStore {
                 .bindings
                 .iter()
                 .enumerate()
-                .map(|(slot, _)| {
-                    inner
-                        .bound_cell(record, slot)
-                        .map(|cell| cell.state.clone())
-                })
+                .map(|(slot, _)| inner.bound_cell(record, slot).map(|cell| cell.snapshot()))
                 .collect::<Option<_>>()?,
         })
     }

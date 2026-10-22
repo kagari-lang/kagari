@@ -1,5 +1,6 @@
 mod compatibility;
 mod contracts;
+mod initialization;
 
 use super::*;
 use crate::{

@@ -108,11 +108,14 @@ fn source_free_imports_round_trip_and_bind_to_one_cell_without_initializing() {
             .module_slots[0],
         StaticState::Uninitialized(_)
     ));
-    assert!(
-        runtime
-            .begin_execution(&loaded, runtime.execution_options())
-            .is_err()
-    );
+    let session = runtime
+        .begin_execution(&loaded, runtime.execution_options())
+        .unwrap();
+    assert!(matches!(
+        runtime.modules.static_state(&loaded, ModuleSlot::new(0)),
+        Some(StaticState::Uninitialized(_))
+    ));
+    drop(session);
     ready(&runtime, &owner, 0, Value::I32(7));
     assert_eq!(
         runtime

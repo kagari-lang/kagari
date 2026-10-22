@@ -57,6 +57,8 @@ impl ExecutionStack<'_> {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::CallReturn);
         self.validate_runtime(runtime)?;
+        // Poll before borrowing frames so a terminated initializer keeps a complete trace.
+        runtime.resources().poll_execution()?;
         let borrow_frames = || {
             self.session
                 .resources
@@ -79,6 +81,10 @@ impl ExecutionStack<'_> {
             .last()
             .filter(|_| frames.len() > self.base)
             .ok_or_else(|| runtime.resources().quarantine("missing return frame"))?;
+        if frame.initializer.is_some() {
+            drop(frames);
+            return self.finish_static_return(runtime, packet);
+        }
         let destination = frame.return_to;
         let frame = frames.pop().expect("checked return frame");
         let mut values = frame.retire_values(self.session.resources);

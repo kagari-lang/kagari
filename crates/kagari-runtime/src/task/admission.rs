@@ -31,6 +31,7 @@ impl Runtime {
         options: ExecutionOptions,
         dispatcher: Arc<dyn TaskDispatcher>,
     ) -> NativeResult<TaskScopeOwner> {
+        self.reject_static_initialization("TaskScope creation")?;
         self.require_idle_driver()?;
         self.validate_loaded_module(owner)?;
         if options.phase != ExecutionPhase::Ordinary {
@@ -90,6 +91,7 @@ impl Runtime {
         factory: &Value,
     ) -> NativeResult<Result<RootedValue, SpawnError>> {
         self.resources().poll_execution()?;
+        self.reject_static_initialization("task spawn")?;
         if self.execution_options().phase != ExecutionPhase::Ordinary {
             return Err(RuntimeError::execution_phase_violation("task spawn"));
         }

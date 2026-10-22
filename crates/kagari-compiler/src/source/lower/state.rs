@@ -10,13 +10,12 @@ use kagari_hir::{
     AnalyzedModule,
     hir::{
         expr::ExprKind,
-        ids::{BodyOwner, HirOwner, LocalId as HirLocalId, ParamId},
-        item::function::Function,
+        ids::{HirOwner, LocalId as HirLocalId, ParamId},
         stmt::StmtKind,
         writeability::Writeability,
     },
     resolver::resolved::ResolvedName,
-    typeck::{GenericBounds, TypedFunction},
+    typeck::{GenericBounds, TypedFunction, TypedParameter},
     types::TypeId,
 };
 use kagari_mir::{
@@ -30,6 +29,25 @@ use std::{
     collections::{HashMap, HashSet},
     slice,
 };
+
+/// Executable signature independent of whether the authored body is a function or static.
+pub(super) struct LoweringSignature {
+    pub name: String,
+    pub params: Vec<TypedParameter>,
+    pub return_type: TypeId,
+    pub bounds: GenericBounds,
+}
+
+impl From<&TypedFunction> for LoweringSignature {
+    fn from(function: &TypedFunction) -> Self {
+        Self {
+            name: function.name.clone(),
+            params: function.params.to_vec(),
+            return_type: function.return_type.clone(),
+            bounds: function.bounds.clone(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct LoopScope {
@@ -58,13 +76,12 @@ pub(crate) struct FunctionLowerer<'a, 'p> {
 impl<'a, 'p> FunctionLowerer<'a, 'p> {
     pub(crate) fn new(
         analyzed: &'a AnalyzedModule,
-        hir_function: &Function,
-        typed_function: &TypedFunction,
+        signature: &LoweringSignature,
         instance: Instance,
         planner: &'p mut InstancePlanner<'a>,
     ) -> Result<Self, MirLoweringError> {
         let entry = BlockId::new(0);
-        let span = analyzed.lowered.source_map.function_span(hir_function.id);
+        let span = instance.body.span(analyzed);
         let value_type = |ty| planner.value_type(ty, &instance.substitution, span);
         let mut function = MirFunction {
             semantic: Default::default(),
@@ -76,12 +93,12 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
                 span,
             )?,
             name: if instance.key.arguments.is_empty() {
-                hir_function.name.clone()
+                signature.name.clone()
             } else {
-                format!("{}#{}", hir_function.name, instance.id.index())
+                format!("{}#{}", signature.name, instance.id.index())
             },
             params: ParameterBuffer::new(),
-            return_type: value_type(&typed_function.return_type)?,
+            return_type: value_type(&signature.return_type)?,
             locals: Vec::new(),
             temps: Vec::new(),
             blocks: vec![BasicBlock {
@@ -97,7 +114,7 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
             debug: MirFunctionDebugMetadata {
                 source: None,
                 source_module: Some(analyzed.lowered.source.module_identity().clone()),
-                source_span: analyzed.lowered.source_map.function_span(hir_function.id),
+                source_span: span,
                 locals: Vec::new(),
                 captured_bindings: Vec::new(),
                 lexical_scopes: vec![MirLexicalScope {
@@ -114,7 +131,7 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
             .body
             .statements()
             .filter_map(|(id, stmt)| {
-                if id.owner() != HirOwner::Body(BodyOwner::Function(hir_function.id)) {
+                if id.owner() != HirOwner::Body(instance.body.owner()) {
                     return None;
                 }
                 match &stmt.kind {
@@ -135,7 +152,7 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
             .body
             .expressions()
             .filter(|(id, expr)| {
-                id.owner() == HirOwner::Body(BodyOwner::Function(hir_function.id))
+                id.owner() == HirOwner::Body(instance.body.owner())
                     && matches!(expr.kind, ExprKind::Closure { .. })
             })
             .flat_map(|(id, _)| analyzed.names.closure_captures(id).iter())
@@ -144,7 +161,7 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
                 _ => None,
             })
             .collect();
-        for param in &typed_function.params {
+        for param in &signature.params {
             let local = LocalId::new(function.locals.len());
             function.locals.push(MirLocal {
                 name: param.name.clone(),
@@ -171,25 +188,30 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
                 .remove(0);
             Ok::<_, MirLoweringError>(planner.encode_type(&ty))
         };
-        function.semantic.result = Some(concrete(&typed_function.return_type)?);
-        let scope = if instance.closure.is_some() {
-            analyzed
-                .typed
-                .functions
-                .iter()
-                .find(|function| function.id == instance.function)
-                .ok_or(MirLoweringError::MissingTypedFunction(instance.function))?
+        function.semantic.result = Some(concrete(&signature.return_type)?);
+        let scope_bounds = if instance.closure.is_some() {
+            instance
+                .body
+                .function()
+                .and_then(|id| {
+                    analyzed
+                        .typed
+                        .functions
+                        .iter()
+                        .find(|function| function.id == id)
+                })
+                .map_or(&signature.bounds, |function| &function.bounds)
         } else {
-            typed_function
+            &signature.bounds
         };
         function.semantic.generic =
-            instance.shared_body(scope, planner.catalog, &planner.definitions());
-        for (index, param) in typed_function.params.iter().enumerate() {
+            instance.shared_body(scope_bounds, planner.catalog, &planner.definitions());
+        for (index, param) in signature.params.iter().enumerate() {
             function.semantic.params.insert(index, concrete(&param.ty)?);
             function.semantic.locals.insert(index, concrete(&param.ty)?);
         }
         let mut bounds = GenericBounds::new();
-        for (ty, constraints) in &scope.bounds {
+        for (ty, constraints) in scope_bounds {
             let actual = planner.catalog.normalize_type(
                 &planner.definitions(),
                 &ty.instantiate(&instance.substitution),

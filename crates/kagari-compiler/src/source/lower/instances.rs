@@ -12,7 +12,7 @@ use kagari_common::{
 };
 use kagari_contract::{
     native_import::NativeImport, representation::semantic_representation,
-    types::ConcreteFunctionIdentity,
+    statics::StaticDescriptor, types::ConcreteFunctionIdentity,
 };
 use kagari_hir::{
     AnalyzedModule,
@@ -20,7 +20,7 @@ use kagari_hir::{
         AggregateCatalog, implementations::ImplementationSearchLimits, traits::MethodDefault,
     },
     declarations::DeclarationId,
-    hir::ids::{ExprId, FunctionId},
+    hir::ids::{BodyOwner, ExprId, FunctionId, StaticId},
     resolver::resolved::ResolvedName,
     typeck::{FunctionImplementation, GenericBounds, TypedFunction, scalar::ScalarValue},
     types::{
@@ -48,6 +48,7 @@ mod native;
 mod operation_dependencies;
 mod results;
 mod shared;
+mod statics;
 mod tuple_bridges;
 mod views;
 
@@ -89,11 +90,40 @@ pub(super) struct Instance {
     pub resume: bool,
     pub origin: ModuleHandle,
     pub id: InstanceId,
-    pub function: FunctionId,
+    pub body: InstanceBody,
     pub key: InstanceKey,
     pub substitution: TypeSubstitution,
     pub closure: Option<ExprId>,
     pub protocol: Option<(Protocol, TypeId)>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) enum InstanceBody {
+    Function(FunctionId),
+    Static(StaticId),
+}
+
+impl InstanceBody {
+    pub fn owner(self) -> BodyOwner {
+        match self {
+            Self::Function(id) => BodyOwner::Function(id),
+            Self::Static(id) => BodyOwner::Static(id),
+        }
+    }
+
+    pub fn function(self) -> Option<FunctionId> {
+        match self {
+            Self::Function(id) => Some(id),
+            Self::Static(_) => None,
+        }
+    }
+
+    pub fn span(self, module: &AnalyzedModule) -> Span {
+        match self {
+            Self::Function(id) => module.lowered.source_map.function_span(id),
+            Self::Static(id) => module.lowered.source_map.static_span(id),
+        }
+    }
 }
 
 impl Instance {
@@ -162,6 +192,7 @@ pub(super) struct InstancePlanner<'a> {
     modules: HashMap<ModuleHandle, &'a AnalyzedModule>,
     pub options: &'a MirLoweringOptions,
     pub instances: Vec<Instance>,
+    pub static_slots: Vec<StaticDescriptor<InstanceId>>,
     pub layout_roots: Vec<(TypeId, Span)>,
     pub host_types: BTreeSet<DefinitionId>,
     pub interface_bridges: Vec<InterfaceBridgeRequest>,
@@ -280,7 +311,7 @@ impl<'a> InstancePlanner<'a> {
             callable: Some(body),
             origin: parent.origin,
             id,
-            function: parent.function,
+            body: parent.body,
             key,
             substitution: parent.substitution.clone(),
             closure: None,
@@ -316,6 +347,7 @@ impl<'a> InstancePlanner<'a> {
             module,
             options,
             instances: Vec::new(),
+            static_slots: Vec::new(),
             layout_roots: Vec::new(),
             host_types: Default::default(),
             interface_bridges: Vec::new(),
@@ -350,7 +382,7 @@ impl<'a> InstancePlanner<'a> {
         span: Span,
     ) -> Result<InstanceId, MirLoweringError> {
         self.enqueue_protocol_body(
-            (parent.origin, parent.function, parent.substitution.clone()),
+            (parent.origin, parent.body, parent.substitution.clone()),
             protocol,
             ty,
             span,
@@ -367,11 +399,26 @@ impl<'a> InstancePlanner<'a> {
         span: Span,
         shared_tuple: bool,
     ) -> Result<InstanceId, MirLoweringError> {
-        let parent = self.module.lowered.module.functions.first().ok_or(
-            MirLoweringError::MissingBinding("protocol adapter source context"),
-        )?;
+        let parent = self
+            .module
+            .lowered
+            .module
+            .functions
+            .first()
+            .map(|function| InstanceBody::Function(function.id))
+            .or_else(|| {
+                self.module
+                    .lowered
+                    .module
+                    .statics
+                    .first()
+                    .map(|item| InstanceBody::Static(item.id))
+            })
+            .ok_or(MirLoweringError::MissingBinding(
+                "protocol adapter source context",
+            ))?;
         self.enqueue_protocol_body(
-            (self.owner_handle(), parent.id, TypeSubstitution::default()),
+            (self.owner_handle(), parent, TypeSubstitution::default()),
             protocol,
             ty,
             span,
@@ -394,7 +441,7 @@ impl<'a> InstancePlanner<'a> {
 
     fn enqueue_protocol_body(
         &mut self,
-        context: (ModuleHandle, FunctionId, TypeSubstitution),
+        context: (ModuleHandle, InstanceBody, TypeSubstitution),
         protocol: Protocol,
         ty: &TypeId,
         span: Span,
@@ -402,7 +449,7 @@ impl<'a> InstancePlanner<'a> {
         shared_tuple: bool,
     ) -> Result<InstanceId, MirLoweringError> {
         self.check()?;
-        let (origin, function, substitution) = context;
+        let (origin, body, substitution) = context;
         let arity = match ty {
             TypeId::Tuple(items)
                 if (shared_tuple || !ty.is_concrete())
@@ -487,7 +534,7 @@ impl<'a> InstancePlanner<'a> {
             callable: None,
             origin,
             id,
-            function,
+            body,
             key,
             substitution,
             closure: None,
@@ -601,7 +648,7 @@ impl<'a> InstancePlanner<'a> {
             callable: None,
             origin,
             id,
-            function,
+            body: InstanceBody::Function(function),
             key,
             substitution,
             closure: None,
@@ -973,7 +1020,7 @@ impl<'a> InstancePlanner<'a> {
             callable: None,
             origin: self.module_handle(*declaration),
             id,
-            function,
+            body: InstanceBody::Function(function),
             key,
             substitution,
             closure: None,
@@ -1019,7 +1066,7 @@ impl<'a> InstancePlanner<'a> {
             callable: None,
             origin: parent.origin,
             id,
-            function: parent.function,
+            body: parent.body,
             key,
             substitution: parent.substitution.clone(),
             closure: Some(closure),

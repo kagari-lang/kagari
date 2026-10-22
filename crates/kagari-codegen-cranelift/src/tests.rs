@@ -51,9 +51,12 @@ fn compile(
 ) -> Result<NativeCompilationProduct, BackendCompileError> {
     let links = NativeLinkDescription::scalar();
     let module = root(mir);
-    backend.compile_function(
-        BackendFunctionInput::new(module, module.functions[0].id, &links).unwrap(),
-    )
+    let main = module
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .unwrap();
+    backend.compile_function(BackendFunctionInput::new(module, main.id, &links).unwrap())
 }
 
 #[test]
@@ -182,6 +185,8 @@ fn cranelift_backend_reports_unsupported_instructions_before_native_entry() {
         "fn main() -> i32 { val x = 1; x }",
         "fn main() -> i32 { 42 / 2 }",
         "struct Player {} fn main(value: Ref<Player>) -> i32 { 42 }",
+        "static val value: i32 = 7; fn main() -> i32 { value }",
+        "static var value: i32 = 7; fn main() -> i32 { value = 9; value }",
     ] {
         let error = compile(&mut backend, &mir(source)).unwrap_err();
         assert!(error.is_unsupported(), "{error:?}");

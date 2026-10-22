@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod host_tests;
 
-use crate::source::types::lower_native_kind;
+use crate::source::{lower::statics::static_contract, types::lower_native_kind};
 use kagari_common::identity::{DefinitionKind, table::DefinitionTable};
 use kagari_contract::types::{
     InterfaceTable, ModuleContract, PublicItem, TraitContract, inherent::InherentTable,
@@ -362,7 +362,11 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                     });
                 }
             }
-            Item::Static(_) => unreachable!("static declarations must fail the lowering gate"),
+            Item::Static(id) => {
+                if hir_module.static_item(id).visibility == Visibility::Public {
+                    public_items.push(PublicItem::Static(static_contract(module, id)));
+                }
+            }
             Item::Module(_) | Item::Impl(_) => {}
         }
     }

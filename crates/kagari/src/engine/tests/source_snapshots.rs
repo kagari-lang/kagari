@@ -1,6 +1,8 @@
 use crate::{
+    BytecodeArtifact,
     engine::{KagariEngine, source::ArtifactOptions},
     error::EmbeddingError,
+    program::PreparedProgram,
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -17,27 +19,39 @@ use kagari_types::declaration::host::{
 use std::sync::Arc;
 
 #[test]
-fn static_source_checks_but_executable_products_report_the_declaration() {
+fn static_source_prepares_and_roundtrips_unused_initializer_descriptors() {
     let engine = KagariEngine::default();
-    let name = "memory://static-gate.kgr";
-    let text = "mod nested { static val UNUSED: i32 = 42; } fn main() -> i32 { 7 }";
-    let checked = engine.compile_source(SourceFile::new(name, text)).unwrap();
-    let errors = [
-        engine.prepare(&checked, Default::default()).unwrap_err(),
-        engine
-            .emit_artifact(&checked, Default::default())
-            .unwrap_err(),
-    ];
-    for error in errors {
-        let EmbeddingError::Diagnostics { diagnostics } = error else {
-            panic!("expected a source diagnostic, got {error:?}");
-        };
-        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
-        let diagnostic = &diagnostics[0];
-        assert_eq!(diagnostic.code, "KG_SYNTAX_UNSUPPORTED");
-        assert!(diagnostic.message.contains("static lowering"));
-        let span = diagnostic.span.expect("physical declaration span");
-        assert!(text[span.range.start..span.range.end].contains("static val UNUSED"));
+    let text = "mod nested { static val UNUSED: i32 = seed(); fn seed() -> i32 { 42 } } static var COUNT: i32 = 0; fn main() -> i32 { COUNT += 1; COUNT }";
+    let checked = engine
+        .compile_source(SourceFile::new("memory://statics.kgr", text))
+        .unwrap();
+    engine.prepare(&checked, Default::default()).unwrap();
+    let artifact = engine.emit_artifact(&checked, Default::default()).unwrap();
+    let bytes = artifact.records().to_bytes(artifact.definitions()).unwrap();
+    let decoded = BytecodeArtifact::from_bytes(&bytes).unwrap();
+    for artifact in [artifact, decoded] {
+        let modules = &artifact.records().program.modules;
+        let owned: Vec<_> = modules
+            .iter()
+            .flat_map(|module| {
+                module
+                    .module_slots
+                    .iter()
+                    .filter(|slot| slot.contract.supplier == module.identity)
+                    .map(move |slot| (module, slot))
+            })
+            .collect();
+        assert_eq!(owned.len(), 2);
+        assert!(owned.iter().any(|(_, slot)| slot.contract.name == "UNUSED"));
+        for (module, slot) in owned {
+            assert!(
+                module.functions[slot.initializer.index()]
+                    .metadata
+                    .params
+                    .is_empty()
+            );
+        }
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     }
 }
 

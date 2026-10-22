@@ -14,6 +14,7 @@ use crate::{
             layout::{FrameLayout, Location},
         },
         linked_execution::LinkedFunction,
+        state::initialization::StaticInitialization,
     },
     objects::invocation::MethodInvocation,
     resource::ResourceState,
@@ -51,6 +52,7 @@ mod native;
 mod owned;
 mod returns;
 mod shared;
+mod statics;
 pub mod transfer;
 pub mod types;
 pub(crate) mod values;
@@ -362,6 +364,7 @@ pub struct ExecutionFrame {
     return_to: ReturnDestination,
     invocation: Option<MethodInvocation>,
     mutations: Vec<(Value, CollectionMutation)>,
+    initializer: Option<StaticInitialization>,
 }
 
 impl Debug for ExecutionFrame {
@@ -374,10 +377,10 @@ impl Debug for ExecutionFrame {
     }
 }
 
-#[derive(Clone, Copy)]
 enum FrameEntry {
     Call,
     Await,
+    StaticInitializer(StaticInitialization),
 }
 
 struct FrameDispatch<'call> {

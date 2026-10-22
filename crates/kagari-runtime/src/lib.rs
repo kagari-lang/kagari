@@ -259,6 +259,7 @@ impl Runtime {
         &self,
         candidate: &'candidate StagedReload,
     ) -> Result<CandidateSession<'_, 'candidate>, RuntimeError> {
+        self.reject_static_initialization("candidate session switch")?;
         if let Some(error) = candidate.initialization_error() {
             return Err(error);
         }
@@ -320,9 +321,7 @@ impl Runtime {
                 "staged modules require candidate initialization execution",
             ));
         }
-        if phase != ExecutionPhase::CandidateInitialization {
-            self.admit_static_execution(module)?;
-        }
+
         let id = if let Some(session) = self.resources().active_session() {
             if options.phase == ExecutionPhase::CandidateInitialization
                 && session.options.phase != ExecutionPhase::CandidateInitialization

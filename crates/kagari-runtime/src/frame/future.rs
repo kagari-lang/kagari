@@ -28,6 +28,7 @@ impl ExecutionStack<'_> {
         future: &Ty,
     ) -> NativeResult<Value> {
         self.validate_runtime(runtime)?;
+        runtime.reject_static_initialization("cold Future construction")?;
         if runtime.execution_options().phase != ExecutionPhase::Ordinary {
             return Err(RuntimeError::execution_phase_violation(
                 "cold Future construction",

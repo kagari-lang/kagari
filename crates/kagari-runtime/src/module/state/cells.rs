@@ -6,11 +6,14 @@ use crate::{
     module::{
         LoadedModule, ModuleKey, ModuleStore, ModuleStoreInner,
         records::ModuleRecord,
-        state::{StaticRecipe, StaticState, compatibility},
+        state::{StaticRecipe, StaticState, compatibility, initialization::InitializationAttempt},
     },
 };
 use kagari_common::identity::table::DefinitionId;
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 /// Monotonic within one runtime; IDs are never reused after retirement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -23,6 +26,27 @@ pub(in crate::module) struct StaticCell {
     pub(in crate::module) slot: usize,
     pub(in crate::module) lineage: ModuleKey,
     pub(in crate::module) state: StaticState,
+    pub(in crate::module) attempt: Option<Arc<InitializationAttempt>>,
+}
+
+impl StaticCell {
+    /// A detached frame can poison its attempt during termination/drop without
+    /// borrowing storage. Completion is authoritative until the next transition.
+    pub(in crate::module) fn snapshot(&self) -> StaticState {
+        self.attempt
+            .as_ref()
+            .and_then(|attempt| attempt.failure())
+            .map_or_else(
+                || self.state.clone(),
+                |failure| StaticState::Failed(failure.clone()),
+            )
+    }
+
+    pub(in crate::module) fn failed_attempt(&self) -> bool {
+        self.attempt
+            .as_ref()
+            .is_some_and(|attempt| attempt.failure().is_some())
+    }
 }
 
 impl ModuleStoreInner {
@@ -85,6 +109,7 @@ impl ModuleStoreInner {
                         owner: owner.clone(),
                         slot,
                         lineage: root.program_key(),
+                        attempt: None,
                         state: StaticState::Uninitialized(StaticRecipe {
                             module: owner.clone(),
                             function: descriptor.initializer,

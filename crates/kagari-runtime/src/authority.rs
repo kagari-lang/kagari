@@ -35,6 +35,9 @@ impl Runtime {
         effects: &HostFunctionEffects,
         passing: impl Iterator<Item = HostPassingStyle>,
     ) -> Result<(), RuntimeError> {
+        if effects.may_suspend {
+            self.reject_static_initialization("suspending native call")?;
+        }
         if self.is_candidate_initialization()
             && (effects.may_call_host_services
                 || effects.may_mutate_host_state

@@ -28,13 +28,22 @@ impl ExecutionStack<'_> {
     ) -> Result<ExecutionAction, RuntimeError> {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::CallAdmission);
-        runtime.admit_static_execution(&loaded)?;
+
         if let CallableTarget::Script(function) = target
             && loaded.is_static_initializer(function)
+            && !matches!(&dispatch.entry, FrameEntry::StaticInitializer(attempt)
+                if attempt.recipe().module.key() == loaded.key() && attempt.recipe().function == function)
         {
             return Err(RuntimeError::module_validation(
                 "static initializer requires runtime-owned transition authority",
             ));
+        }
+        if loaded
+            .execution()
+            .callee(target)
+            .is_some_and(|callee| callee.may_suspend)
+        {
+            runtime.reject_static_initialization("suspending frame entry")?;
         }
         let heap = runtime.gc();
         let resources = runtime.resources();
@@ -83,7 +92,7 @@ impl ExecutionStack<'_> {
         let prepare = || {
             let FrameDispatch {
                 prepared,
-                entry: _,
+                entry,
                 invocation,
                 environment,
             } = dispatch;
@@ -202,12 +211,24 @@ impl ExecutionStack<'_> {
                     }),
                     invocation,
                     mutations: Vec::new(),
+                    initializer: match entry {
+                        FrameEntry::StaticInitializer(attempt) => Some(attempt),
+                        FrameEntry::Call | FrameEntry::Await => None,
+                    },
                 },
                 action,
             ))
         };
         match prepare() {
-            Ok((frame, action)) => {
+            Ok((mut frame, action)) => {
+                if let Some(attempt) = &mut frame.initializer
+                    && let Err(error) = attempt.begin(runtime)
+                {
+                    frame.release_values(resources);
+                    drop(frames);
+                    resources.leave_call();
+                    return Err(resources.admit_execution_error(error));
+                }
                 frames.push(frame);
                 Ok(action)
             }

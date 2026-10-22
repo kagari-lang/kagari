@@ -12,7 +12,7 @@ use kagari_contract::callable::{generic::GenericBody, interface::TypeNormalizati
 use kagari_hir::{
     aggregates::AggregateCatalog,
     resolver::resolved::ResolvedName,
-    typeck::{GenericBounds, TypedFunction},
+    typeck::GenericBounds,
     types::{GenericParameterType, NominalType, TypeId, TypeSubstitution},
 };
 use kagari_types::{
@@ -405,7 +405,7 @@ impl InstancePlanner<'_> {
 impl Instance {
     pub(crate) fn shared_body(
         &self,
-        typed: &TypedFunction,
+        source_bounds: &GenericBounds,
         catalog: &AggregateCatalog,
         definitions: &DefinitionTable,
     ) -> Option<GenericBody> {
@@ -426,8 +426,7 @@ impl Instance {
         if parameters.is_empty() {
             return None;
         }
-        let bounds: GenericBounds = typed
-            .bounds
+        let bounds: GenericBounds = source_bounds
             .iter()
             .map(|(ty, targets)| {
                 (

@@ -62,6 +62,8 @@ where
                 .collect::<Vec<_>>(),
             Codec::Exact(result.clone()),
             move |call| {
+                call.runtime
+                    .reject_static_initialization("cold native Future construction")?;
                 if call.runtime.execution_options().phase != ExecutionPhase::Ordinary {
                     return Err(RuntimeError::execution_phase_violation(
                         "cold Future construction",

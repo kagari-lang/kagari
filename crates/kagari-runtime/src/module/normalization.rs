@@ -116,7 +116,6 @@ impl VerifiedProgram {
         )
         .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
         Ok(Self {
-            static_access: self.static_access,
             initializers: self.initializers.clone(),
             root: self.root,
             exports,

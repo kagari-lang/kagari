@@ -1,7 +1,7 @@
 use crate::source::lower::{
     MirLoweringError,
     instances::{Instance, InstancePlanner},
-    state::FunctionLowerer,
+    state::{FunctionLowerer, LoweringSignature},
 };
 use kagari_abi::representation::ValueType;
 use kagari_common::identity::{DefinitionKind, mapping::DefinitionMappingError};
@@ -11,7 +11,6 @@ use kagari_hir::{
     hir::{expr::ExprKind, ids::ExprId, item::function::Function},
     language::semantics::{ProtocolSemantics, callable_signature, ordering_type},
     resolver::resolved::ResolvedName,
-    typeck::{FunctionImplementation, TypedFunction},
     types::TypeId,
 };
 use kagari_mir::{
@@ -37,7 +36,6 @@ fn completed_output(future: &TypeId) -> Result<TypeId, MirLoweringError> {
 
 pub(crate) fn lower_callable<'a>(
     module: &'a AnalyzedModule,
-    parent: &Function,
     instance: Instance,
     planner: &mut InstancePlanner<'a>,
 ) -> Result<MirFunction, MirLoweringError> {
@@ -49,16 +47,13 @@ pub(crate) fn lower_callable<'a>(
             "callable adapter signature",
         ));
     };
-    let typed = TypedFunction {
-        implementation: FunctionImplementation::Script,
-        generic_params: vec![],
+    let typed = LoweringSignature {
         bounds: Default::default(),
-        id: parent.id,
         name: "$callable".into(),
         params: Default::default(),
         return_type: *result,
     };
-    let mut lowerer = FunctionLowerer::new(module, parent, &typed, instance, planner)?;
+    let mut lowerer = FunctionLowerer::new(module, &typed, instance, planner)?;
     lowerer.function.name = typed.name;
     lowerer.function.debug.source_span = body.span;
     let mut values = Vec::new();
@@ -131,7 +126,6 @@ pub(crate) fn lower_callable<'a>(
 
 pub(crate) fn lower_protocol<'a>(
     module: &'a AnalyzedModule,
-    parent: &Function,
     instance: Instance,
     planner: &mut InstancePlanner<'a>,
 ) -> Result<MirFunction, MirLoweringError> {
@@ -198,11 +192,8 @@ pub(crate) fn lower_protocol<'a>(
         .iter()
         .map(|parameter| (TypeId::Generic(parameter.clone()), vec![interface.clone()]))
         .collect();
-    let typed = TypedFunction {
-        implementation: FunctionImplementation::Script,
-        generic_params,
+    let typed = LoweringSignature {
         bounds,
-        id: parent.id,
         name: String::new(),
         params: Default::default(),
         return_type: match protocol {
@@ -227,7 +218,7 @@ pub(crate) fn lower_protocol<'a>(
         },
     };
 
-    let mut lowerer = FunctionLowerer::new(module, parent, &typed, instance, planner)?;
+    let mut lowerer = FunctionLowerer::new(module, &typed, instance, planner)?;
     let member_name = match protocol {
         Protocol::Iterable => "iter",
         Protocol::Iterator => "next",
@@ -391,7 +382,8 @@ pub(crate) fn lower_function<'a>(
     if instance.resume {
         typed.return_type = completed_output(&typed.return_type)?;
     }
-    let mut lowerer = FunctionLowerer::new(module, function, &typed, instance, planner)?;
+    let mut lowerer =
+        FunctionLowerer::new(module, &LoweringSignature::from(&typed), instance, planner)?;
     if function.is_async && !lowerer.instance.resume {
         lowerer.lower_future_factory()?;
         return lowerer.finish();
@@ -415,7 +407,6 @@ pub(crate) fn lower_function<'a>(
 
 pub(crate) fn lower_closure<'a>(
     module: &'a AnalyzedModule,
-    parent: &Function,
     closure: ExprId,
     instance: Instance,
     planner: &mut InstancePlanner<'a>,
@@ -436,11 +427,8 @@ pub(crate) fn lower_closure<'a>(
     else {
         return Err(MirLoweringError::MissingBinding("closure type"));
     };
-    let typed = TypedFunction {
-        implementation: FunctionImplementation::Script,
-        generic_params: Vec::new(),
+    let typed = LoweringSignature {
         bounds: Default::default(),
-        id: parent.id,
         name: format!("closure_{}", closure.index()),
         params: Default::default(),
         return_type: if instance.resume {
@@ -449,7 +437,7 @@ pub(crate) fn lower_closure<'a>(
             *result
         },
     };
-    let mut lowerer = FunctionLowerer::new(module, parent, &typed, instance, planner)?;
+    let mut lowerer = FunctionLowerer::new(module, &typed, instance, planner)?;
     lowerer.function.name = typed.name;
     lowerer.mark_resume();
     lowerer.function.debug.source_span = module.lowered.source_map.expr_span(closure);
@@ -464,7 +452,7 @@ pub(crate) fn lower_closure<'a>(
                 .typed
                 .functions
                 .iter()
-                .find(|function| function.id == parent.id)
+                .find(|function| Some(function.id) == lowerer.instance.body.function())
                 .and_then(|function| function.params.iter().find(|param| param.id == *id))
                 .map(|param| param.ty.clone())
                 .ok_or(MirLoweringError::MissingBinding("captured parameter type"))?,

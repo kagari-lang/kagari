@@ -1,7 +1,10 @@
-use crate::source::lower::{MirLoweringError, state::FunctionLowerer, unsupported_static};
+use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use kagari_abi::representation::ValueType;
 use kagari_common::identity::table::DefinitionId;
-use kagari_contract::operations::{BinaryOp, UnaryOp};
+use kagari_contract::{
+    operations::{BinaryOp, UnaryOp},
+    representation::semantic_representation,
+};
 use kagari_hir::{
     hir::{
         expr::ops::{BinaryOp as HirBinaryOp, PrefixOp},
@@ -13,7 +16,7 @@ use kagari_hir::{
     types::TypeId,
 };
 use kagari_mir::{
-    ids::LocalId,
+    ids::{LocalId, ModuleSlotId},
     instruction::{AggregateFieldRef, Constant, Instruction, MirValue, ValueBuffer},
 };
 use kagari_types::{
@@ -145,10 +148,8 @@ impl FunctionLowerer<'_, '_> {
                 .get(&id)
                 .copied()
                 .ok_or(MirLoweringError::MissingBinding("local")),
-            ResolvedName::Static(id) => Err(unsupported_static(Some(
-                self.analyzed.lowered.source_map.static_span(id),
-            ))),
-            ResolvedName::Const(_)
+            ResolvedName::Static(_)
+            | ResolvedName::Const(_)
             | ResolvedName::Function(_)
             | ResolvedName::Module(_)
             | ResolvedName::Source(_)
@@ -291,6 +292,17 @@ impl FunctionLowerer<'_, '_> {
         self.lower_constant(Constant::Unit, ValueType::Unit)
     }
 
+    pub(super) fn load_static(&mut self, slot: ModuleSlotId) -> MirValue {
+        let ty = self.planner.static_slots[slot.index()].contract.ty.clone();
+        let dst = self.alloc_temp(semantic_representation(&ty));
+        self.function
+            .semantic
+            .registers
+            .insert(dst.temp.index(), ty);
+        self.emit(Instruction::LoadModule { dst, slot });
+        dst
+    }
+
     pub(crate) fn lower_name_expr(
         &mut self,
         expr_id: ExprId,
@@ -300,6 +312,9 @@ impl FunctionLowerer<'_, '_> {
             .names
             .expr_resolution(expr_id)
             .ok_or(MirLoweringError::UnresolvedExpr(expr_id))?;
+        if let Some(slot) = self.planner.static_slot(self.analyzed, &resolved)? {
+            return Ok(self.load_static(slot));
+        }
 
         match resolved {
             ResolvedName::Param(_) | ResolvedName::Local(_) => {
@@ -331,9 +346,7 @@ impl FunctionLowerer<'_, '_> {
                     .ok_or(MirLoweringError::MissingBinding("const value"))?;
                 Ok(self.lower_constant(lower_scalar(constant), self.expr_type(expr_id)?))
             }
-            ResolvedName::Static(id) => Err(unsupported_static(Some(
-                self.analyzed.lowered.source_map.static_span(id),
-            ))),
+            ResolvedName::Static(_) => unreachable!("static binding lowered above"),
             ResolvedName::Function(_) => Err(MirLoweringError::UnsupportedExpr(
                 "bare function values are not lowered yet",
             )),

@@ -458,7 +458,7 @@ fn main() -> Point {
 }
 
 #[test]
-fn lazy_static_driver_is_rejected_before_entry_and_stores_cannot_initialize() {
+fn lazy_static_driver_enters_hidden_initializer_but_stores_cannot_initialize() {
     let mut runtime = standard_runtime(Default::default());
     let context = DefinitionContext::new().unwrap();
     let module = module_with_mutable_slot(&context, 7);
@@ -478,12 +478,7 @@ fn lazy_static_driver_is_rejected_before_entry_and_stores_cannot_initialize() {
         )
         .unwrap();
     let vm = Vm::new(runtime);
-    for function in [0, 1] {
-        assert!(
-            vm.execute_fixture(&loaded, FunctionRef::new(function))
-                .is_err()
-        );
-    }
+    assert!(vm.execute_fixture(&loaded, FunctionRef::new(0)).is_err());
     assert!(
         vm.runtime()
             .write_module_slot(&loaded, ModuleSlot::new(0), Value::I32(9))
@@ -493,6 +488,21 @@ fn lazy_static_driver_is_rejected_before_entry_and_stores_cannot_initialize() {
         vm.runtime()
             .read_module_slot(&loaded, ModuleSlot::new(0))
             .is_err()
+    );
+    let result = vm.execute_fixture(&loaded, FunctionRef::new(1)).unwrap();
+    assert_eq!(
+        result.return_value.value(vm.runtime().gc()),
+        Some(Value::I32(7))
+    );
+    drop(result);
+    vm.runtime()
+        .write_module_slot(&loaded, ModuleSlot::new(0), Value::I32(9))
+        .unwrap();
+    assert_eq!(
+        vm.runtime()
+            .read_module_slot(&loaded, ModuleSlot::new(0))
+            .unwrap(),
+        Value::I32(9)
     );
     assert!(!vm.runtime().is_quarantined());
     assert!(vm.runtime().execution_root().is_none());

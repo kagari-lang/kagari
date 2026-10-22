@@ -1,6 +1,7 @@
 //! Ready-only access to installation-owned persistent cells.
 pub(super) mod cells;
 mod compatibility;
+pub(crate) mod initialization;
 
 use crate::{
     Runtime,
@@ -67,7 +68,10 @@ impl fmt::Display for StaticFailure {
 }
 
 impl Runtime {
-    fn validate_module_state_access(&self, module: &LoadedModule) -> Result<(), RuntimeError> {
+    pub(in crate::module) fn validate_module_state_access(
+        &self,
+        module: &LoadedModule,
+    ) -> Result<(), RuntimeError> {
         self.gc.ensure_execution_allowed()?;
         self.validate_loaded_module(module)?;
         if self.is_candidate_initialization() || self.modules.is_staged(module) {
@@ -114,9 +118,12 @@ impl Runtime {
             StaticState::Uninitialized(_) => Err(RuntimeError::module_validation(
                 "static initialization requires an execution transition",
             )),
-            StaticState::Initializing(_) => Err(RuntimeError::module_validation(
-                "recursive static initialization",
-            )),
+            StaticState::Initializing(_) => {
+                self.poison_static_cycle(module, slot)?;
+                Err(RuntimeError::module_validation(
+                    "recursive static initialization",
+                ))
+            }
             StaticState::Failed(cause) => Err(RuntimeError::module_validation(format!(
                 "static initialization failed: {cause}"
             ))),
@@ -155,27 +162,13 @@ impl Runtime {
             })?;
         Ok(())
     }
-
-    /// Temporary PS02 admission boundary. No script effects may precede an
-    /// unsupported lazy transition, including indirect calls and host reentry.
-    pub(crate) fn admit_static_execution(&self, module: &LoadedModule) -> Result<(), RuntimeError> {
-        if self.is_candidate_initialization() {
-            return Ok(());
-        }
-        if module.requires_static_execution() {
-            return Err(RuntimeError::module_validation(
-                "lazy static execution is not supported by this execution driver",
-            ));
-        }
-        Ok(())
-    }
 }
 
 impl ModuleStore {
     fn static_state(&self, module: &LoadedModule, slot: ModuleSlot) -> Option<StaticState> {
         let store = self.inner.try_borrow().ok()?;
         let record = store.resolve(module)?;
-        Some(store.bound_cell(record, slot.index())?.state.clone())
+        Some(store.bound_cell(record, slot.index())?.snapshot())
     }
 
     fn replace_static(&self, module: &LoadedModule, slot: ModuleSlot, value: Value) -> Option<()> {

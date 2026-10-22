@@ -16,6 +16,9 @@ impl<'runtime> ExecutionStack<'runtime> {
     pub fn can_park(&self, runtime: &Runtime) -> Result<bool, RuntimeError> {
         self.validate_runtime(runtime)?;
         runtime.gc().ensure_no_native_borrow()?;
+        if runtime.static_initialization_active() {
+            return Ok(false);
+        }
         let state = self.session.state();
         if state.owner.borrow().is_none()
             || state.scopes.get() != 1

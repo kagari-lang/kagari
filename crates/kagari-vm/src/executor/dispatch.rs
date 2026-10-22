@@ -165,12 +165,18 @@ impl<'a> Executor<'a> {
                     .write_slot(self.runtime, dst, result)?;
             }
             BytecodeInstruction::LoadModule { dst, slot } => {
+                if !self.stack.ensure_static_ready(self.runtime, slot)? {
+                    return Ok(InstructionProgress::Continue);
+                }
                 let loaded = self.current_loaded()?;
                 let value = self.runtime.read_module_slot(&loaded, slot)?;
                 self.current_frame_mut()?
                     .write_slot(self.runtime, dst, value)?;
             }
             BytecodeInstruction::StoreModule { slot, src } => {
+                if !self.stack.ensure_static_ready(self.runtime, slot)? {
+                    return Ok(InstructionProgress::Continue);
+                }
                 let value = self.current_frame()?.read_slot(self.runtime, src)?;
                 let loaded = self.current_loaded()?;
                 self.runtime.write_module_slot(&loaded, slot, value)?;
