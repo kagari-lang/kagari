@@ -9,6 +9,7 @@ use crate::{
 use kagari_runtime::{
     error::RuntimeErrorKind,
     gc::roots::RootedValue,
+    native::completion::CompletionStatus,
     session::owned::OwnedExecution,
     task::{TaskId, control::TaskScopeOwner, drive::TaskDriveResult},
 };
@@ -151,6 +152,68 @@ fn reject_candidate_work(f: &Fixture, scope: &TaskScopeOwner, factory: &RootedVa
         assert_eq!(f.starts.load(Ordering::SeqCst), 1);
         assert!(!runtime.is_quarantined());
     }
+}
+
+#[test]
+fn string_cursor_retains_dynamic_source_across_native_waits() {
+    let mut config = EngineConfig::default();
+    config.default_runtime.gc.collection_threshold = Some(1);
+    let f = Fixture::configured_source(
+        r#"
+use test::async_sdk::request;
+use std::iter::CollectionCursor;
+pub fn cursor() -> CollectionCursor<(u64, char)> {
+    "a-é-🙂".replace("-", "").char_indices()
+}
+pub async fn traverse(cursor: CollectionCursor<(u64, char)>) -> i32 {
+    var total = 0;
+    for (offset, scalar) in cursor {
+        val input = if offset == 0u64 && scalar == 'a' { 10 }
+            else if offset == 1u64 && scalar == 'é' { 20 }
+            else if offset == 3u64 && scalar == '🙂' { 30 }
+            else { 0 };
+        total += request(input).await;
+    }
+    if cursor.next() != None { return 0; }
+    total
+}
+"#,
+        config,
+    );
+    let cursor = f.invoke("cursor", &[]);
+    let future = f.invoke("traverse", &[f.value(&cursor)]);
+    let owner = f.start_future(&future);
+    drop(cursor);
+    drop(future);
+    // Inputs 0 and 1 complete immediately in the shared native fixture.
+    for input in [10, 20, 30] {
+        assert!(matches!(owned_boundary(&f, &owner), DriveResult::Waiting));
+        assert_eq!(*f.inputs.lock().unwrap().last().unwrap(), input);
+        f.runtime.runtime().collect_garbage().unwrap();
+        assert_eq!(
+            f.sent.lock().unwrap().pop().unwrap().complete(Ok(14)),
+            CompletionStatus::Accepted
+        );
+    }
+    let DriveResult::Complete(result) = owned_boundary(&f, &owner) else {
+        panic!("String cursor must exhaust after three scalars")
+    };
+    let result = result.unwrap();
+    assert_eq!(f.value(&result), Value::I32(42));
+    assert_eq!(*f.inputs.lock().unwrap(), [10, 20, 30]);
+    drop(result);
+    drop(owner);
+    f.runtime.runtime().collect_garbage().unwrap();
+    assert_eq!(f.runtime.runtime().gc().active_roots(), 0);
+    assert_eq!(
+        f.runtime
+            .runtime()
+            .resources()
+            .counters()
+            .current_call_depth,
+        0
+    );
+    assert!(!f.runtime.runtime().is_quarantined());
 }
 
 #[test]

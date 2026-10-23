@@ -53,10 +53,25 @@ blocks writes. Replacing an element or mutating its referenced object remains
 allowed. See [iteration protocols](builtins.md#iteration-protocols) for the exact
 invalidation, short-circuit and custom iterator rules.
 
-String lengths and slices use byte offsets; slices validate UTF-8 boundaries.
-Unicode scalar counting is a separately named operation. Integer arithmetic is
-checked in every backend and build mode. Explicit wrapping operations are the
-only exception. Floating-point optimization must preserve specified results.
+String len, find and slice use UTF-8 byte counts/offsets; slices validate UTF-8
+boundaries. Explicit lazy chars yields `char`, char_indices yields `(u64, char)`
+with byte offsets, and bytes yields UTF-8 `u8` values. For `"aé🙂"`, len is seven,
+chars yields three scalars and char_indices reports offsets 0, 1 and 3. Scalars
+are not grapheme clusters; combining marks remain separate items.
+`text.chars().count()` counts scalars. There is no implicit String iteration or
+integer String indexing.
+
+String cursor copies share progress, not independent traversal state; a new
+chars, char_indices or bytes call creates a fresh cursor. The cursor retains and
+traces its immutable source through GC and async suspension. A native next
+commits progress only after successful item/result publication, so a publication
+failure leaves that cursor unadvanced. A later adapter callback failure does not
+undo an already completed source pull. See the
+[String traversal contract](builtins.md#explicit-string-traversal).
+
+Integer arithmetic is checked in every backend and build mode. Explicit wrapping
+operations are the only exception. Floating-point optimization must preserve
+specified results.
 
 Numeric literals follow the [literal typing rules](syntax.md#literals): suffixes
 select a primitive type, while unsuffixed literals use context and otherwise

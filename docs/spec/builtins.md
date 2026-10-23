@@ -400,12 +400,12 @@ occurrence reads then formats its value before the next name is read, including
 repeated names and statics with lazy initialization. Callbacks preserve normal
 effects and failure behavior. Raw strings never interpolate; both cooked and raw
 strings support the [multiline literal rules](syntax.md#string-literals).
-The optional predecessor query, parse and string-iterator helpers are not
-implicitly restored.
+The optional predecessor query and parse helpers are not implicitly restored.
 
 The inherent String surface is len/is_empty (UTF-8 bytes), literal
 contains/starts_with/ends_with/find, checked slice(start, end), Unicode whitespace
-trim/trim_start/trim_end, literal replace and eager split returning List<String>.
+trim/trim_start/trim_end, literal replace, eager split returning List<String>, and
+explicit lazy chars/char_indices/bytes traversal.
 len returns u64, find returns Option<u64>, and slice takes u64 byte offsets.
 Slice uses a half-open byte range and rejects reversed,
 out-of-range and non-boundary offsets. Empty patterns match at Unicode scalar
@@ -420,6 +420,34 @@ after lexical and declared names. A same-named function is an ordinary script ca
 a non-callable local is a call-target error. Logging requires an explicitly declared
 and installed host.log binding. Reflection remains subject to declared member access
 and metadata; it is not how native libraries dispatch their methods.
+
+### Explicit String traversal
+
+String supplies three lazy methods using the ordinary Iterator/Iterable protocols:
+
+| Method | Item | Meaning |
+| --- | --- | --- |
+| `text.chars()` | `char` | Unicode scalars in source order |
+| `text.char_indices()` | `(u64, char)` | UTF-8 byte offset and scalar |
+| `text.bytes()` | `u8` | UTF-8 encoded bytes in order |
+
+For `"aé🙂"`, chars yields `'a'`, `'é'`, `'🙂'`; char_indices yields
+`(0, 'a')`, `(1, 'é')`, `(3, '🙂')`; bytes yields seven bytes. A Unicode scalar
+is not a grapheme cluster: a base letter and a combining mark remain separate
+items. `text.chars().count()` counts scalars, while len, find and slice retain
+the byte-based contracts above. String does not implement implicit iteration:
+`for item in text` and integer String indexing are rejected. Select a traversal
+method explicitly; its cursor supports the existing adapters and terminals.
+
+Construction retains the immutable source without pulling an item or building an
+intermediate List. Copies of one cursor share progress; each new chars,
+char_indices or bytes call creates independent progress. Empty and exhausted
+cursors return None. A retained cursor traces its source across GC and async
+suspension, without retaining a Rust string borrow. Each native next previews an
+item and publishes its result before committing progress: failed item/result
+publication does not advance that cursor. This is not rollback of consumption
+already completed before an adapter callback fails; the ordinary
+[adapter rules](#iteration-protocols) still apply.
 
 ## Numeric scalar methods
 
@@ -648,8 +676,9 @@ types, available without optional library adapters. The foundation's shared
 The concrete `CollectionCursor<T>` type is distinct from the `Iterable::Iter` associated type:
 an Iterable implementation may use `type Iter = CollectionCursor<T>` or select a custom iterator.
 Array/Set items are elements, Map items are `(key, value)` tuples in the
-concrete implementation's traversal order. String traversal is not provided by
-the current foundation.
+concrete implementation's traversal order. String's
+[explicit traversal methods](#explicit-string-traversal) return cursors, rather
+than making String itself Iterable.
 Iter construction retains the source and reads each slot on demand, without
 copying all items. Contained objects retain their identity. Copying a cursor shares
 its position; converting a collection again creates independent progress.

@@ -134,7 +134,8 @@ backslash-line-break continuations remove the break and following ASCII whitespa
 raw forms retain the backslash and line break. Standalone CR is rejected outside
 continuation whitespace.
 
-These literals do not add String indexing, traversal or implicit text conversion.
+These literals do not add String indexing or implicit text conversion. To traverse
+an existing String, choose one of the explicit methods below.
 See the <a href={source('docs/spec/syntax.md#byte-literals')}>byte literal contract</a>
 for the exact lexical and typing rules.
 
@@ -155,11 +156,56 @@ list is different from iterating the original string.
 
 Empty patterns have defined behavior: `find("")` returns `Some(0)`, while empty-pattern
 replacement and splitting use Unicode scalar boundaries, including both ends.
-Do not infer string indexing, `.chars()`, `.bytes()`, regex or locale APIs from
-Rust: the current foundation does not provide string traversal. The
+String indexing, regex and locale APIs are not provided. The
 <a href={source('docs/spec/builtins.md#primitive-operations-and-formatting')}>string contract</a>
 and <a href={source('crates/kagari-stdlib/src/foundation/string.rs')}>String declarations</a>
 own the exact supported surface.
+
+## Choose scalars, byte offsets or bytes
+
+String traversal is explicit and lazy:
+
+| Method | Item | For `"aé🙂"` |
+| --- | --- | --- |
+| `.chars()` | `char` | `'a'`, `'é'`, `'🙂'` |
+| `.char_indices()` | `(u64, char)` | `(0, 'a')`, `(1, 'é')`, `(3, '🙂')` |
+| `.bytes()` | `u8` | Seven UTF-8 bytes: `61 C3 A9 F0 9F 99 82` in hexadecimal |
+
+```kgr
+val text = "aé🙂";
+val byte_count: u64 = text.len();                  // 7
+val scalar_count: u64 = text.chars().count();      // 3
+val prefix: String = text.slice(0, 3);             // "aé"
+val indexed: Vec<(u64, char)> = text.char_indices().take(2).collect();
+```
+
+`indexed` contains `(0, 'a')` and `(1, 'é')`. These offsets can locate UTF-8
+boundaries for slicing; they are not scalar ordinals. `len`, `find` and `slice`
+still count bytes. A scalar is not necessarily one displayed character:
+`"e\u{301}".chars().count()` is two because the combining accent is a separate
+scalar. These methods do not segment grapheme clusters.
+
+Use `for ch in text.chars()` rather than `for ch in text`; String itself is not
+Iterable, and `text[0]` is not supported. The returned cursors use the ordinary
+adapters below. Construction does not pull items or build an intermediate List;
+`collect` explicitly requests a collection.
+
+```kgr
+val cursor = text.chars();
+val alias = cursor;
+val first: Option<char> = cursor.next();          // Some('a')
+val second: Option<char> = alias.next();          // Some('é')
+val independent: Option<char> = text.chars().next(); // Some('a')
+```
+
+Copies of a cursor share progress. Each new `.chars()`, `.char_indices()` or
+`.bytes()` call starts independently. Empty or exhausted cursors return None.
+The cursor keeps its immutable source traced through garbage collection and async
+suspension, even if the original binding is no longer live; it does not hold a
+Rust string borrow. If native item/result publication fails, that cursor does not
+advance. This does not undo a successful source pull when a later adapter callback
+fails. See the <a href={source('docs/spec/builtins.md#explicit-string-traversal')}>String
+traversal contract</a> for the ownership and failure rules.
 
 ## Delay work until consumption
 

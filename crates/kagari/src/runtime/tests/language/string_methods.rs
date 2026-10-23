@@ -76,6 +76,64 @@ fn main() -> bool {
 }
 
 #[test]
+fn string_cursors_publish_typed_scalars_byte_offsets_and_utf8_bytes() {
+    run(
+        r#"
+use std::iter::CollectionCursor;
+fn source() -> String { "a-é-🙂".replace("-", "") }
+fn main() -> bool {
+    val chars: CollectionCursor<char> = source().chars();
+    val indices: CollectionCursor<(u64, char)> = source().char_indices();
+    val bytes: CollectionCursor<u8> = source().bytes();
+    val first: Option<char> = chars.next();
+    val indexed: Option<(u64, char)> = indices.next();
+    val byte: Option<u8> = bytes.next();
+    first == Some('a') && chars.next() == Some('é') && chars.next() == Some('🙂')
+        && indexed == Some((0u64, 'a')) && indices.next() == Some((1u64, 'é'))
+        && indices.next() == Some((3u64, '🙂'))
+        && byte == Some(97u8) && bytes.next() == Some(195u8) && bytes.next() == Some(169u8)
+        && bytes.next() == Some(240u8) && bytes.next() == Some(159u8)
+        && bytes.next() == Some(153u8) && bytes.next() == Some(130u8)
+        && chars.next() == None && chars.next() == None
+        && indices.next() == None && indices.next() == None
+        && bytes.next() == None && bytes.next() == None
+        && source().len() == 7u64 && source().chars().count() == 3u64
+        && source().char_indices().count() == 3u64 && source().bytes().count() == 7u64
+}
+"#,
+        None,
+    );
+}
+
+#[test]
+fn string_cursors_preserve_nul_combining_marks_and_empty_exhaustion() {
+    run(
+        r#"
+fn main() -> bool {
+    val text = "\0e\u{301}";
+    val chars = text.chars();
+    val indices = text.char_indices();
+    val bytes = text.bytes();
+    val empty_chars = "".chars();
+    val empty_indices = "".char_indices();
+    val empty_bytes = "".bytes();
+    chars.next() == Some('\0') && chars.next() == Some('e') && chars.next() == Some('\u{301}')
+        && chars.next() == None
+        && indices.next() == Some((0u64, '\0')) && indices.next() == Some((1u64, 'e'))
+        && indices.next() == Some((2u64, '\u{301}')) && indices.next() == None
+        && bytes.next() == Some(0u8) && bytes.next() == Some(101u8)
+        && bytes.next() == Some(204u8) && bytes.next() == Some(129u8) && bytes.next() == None
+        && text.len() == 4u64
+        && empty_chars.next() == None && empty_chars.next() == None
+        && empty_indices.next() == None && empty_indices.next() == None
+        && empty_bytes.next() == None && empty_bytes.next() == None
+}
+"#,
+        None,
+    );
+}
+
+#[test]
 fn trimming_and_literal_replacement_match_unicode_and_empty_patterns() {
     run(
         r#"
@@ -148,15 +206,27 @@ fn string_method_signatures_are_statically_checked() {
         "\"text\".contains(1)",
         "\"text\".replace(\"x\")",
         "\"text\".split(0)",
+        "\"text\".chars(0)",
+        "\"text\".char_indices(0)",
+        "\"text\".bytes(0)",
+        "val wrong: Option<String> = \"é\".chars().next()",
+        "val wrong: Option<(u64, String)> = \"é\".char_indices().next()",
+        "val wrong: Option<(u32, char)> = \"é\".char_indices().next()",
+        "val wrong: Option<u32> = \"é\".bytes().next()",
+        "for value in \"text\" {}",
+        "\"text\"[0u64]",
+        "\"text\"['a']",
+        "for value in 'a'..'z' {}",
     ] {
         let source = format!("fn main() {{ {expression}; }}");
         assert!(
             engine
                 .compile_to_artifact(
-                    SourceFile::new("invalid-string.kgr", source),
+                    SourceFile::new("invalid-string.kgr", &source),
                     Default::default()
                 )
-                .is_err()
+                .is_err(),
+            "unexpectedly accepted: {source}"
         );
     }
 }

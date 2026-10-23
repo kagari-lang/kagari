@@ -140,6 +140,7 @@ pub(super) fn iter(op: IterOp) -> &'static str {
         IterOp::New => "new",
         IterOp::Next => "next",
         IterOp::String(kind) => match kind {
+            StringIterKind::Chars => "string.chars",
             StringIterKind::Bytes => "string.bytes",
             StringIterKind::CharIndices => "string.char_indices",
             StringIterKind::Split => "string.split",

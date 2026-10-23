@@ -741,8 +741,9 @@ The [text literals execution plan](text-literals-plan.md) records TL01-TL05:
 a distinct Unicode `char`, identifier-only interpolation in ordinary strings,
 Rust-style raw/multiline strings, byte literals with fresh `[u8]` storage, and
 explicit lazy `chars`/`char_indices`/`bytes` traversal. Implementation and per-phase
-commits are authorized. TL01 Char, TL02 String cutover and TL03 byte literals are
-implemented with focused local acceptance; TL04 lazy String traversal is next. The plan owns phase order and the progress ledger;
+commits are authorized. TL01-TL04 (Char, String cutover, byte literals and lazy
+String traversal) are implemented with focused local acceptance; TL05 integration
+and documentation handoff is next. The plan owns phase order and the progress ledger;
 current specifications describe delivered slices. Full CI and native Node/WASM
 editor acceptance remain pending. Expression interpolation compatibility, a format
 API, broader Unicode APIs,

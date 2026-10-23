@@ -678,22 +678,19 @@ pub(super) fn verify(
                             {
                                 return Err(invalid());
                             }
-                            let item = match ty {
-                                Ty::Tuple(_) if matches!(op, IterOp::String(_)) => {
-                                    let IterOp::String(kind) = op else {
-                                        unreachable!()
-                                    };
-                                    Some(kind.item_type())
-                                }
-                                Ty::Builtin(B::String) => Some(Ty::Builtin(B::String)),
-                                Ty::Range(item, _)
-                                | Ty::Array(item)
-                                | Ty::Set(item, _)
-                                | Ty::Iter(item) => Some((**item).clone()),
-                                Ty::Map { key, value, .. } => {
-                                    Some(Ty::Tuple(vec![(**key).clone(), (**value).clone()]))
-                                }
-                                _ => None,
+                            let item = match op {
+                                IterOp::String(kind) => Some(kind.item_type()),
+                                IterOp::New | IterOp::Next => match ty {
+                                    Ty::Builtin(B::String) => Some(Ty::Builtin(B::String)),
+                                    Ty::Range(item, _)
+                                    | Ty::Array(item)
+                                    | Ty::Set(item, _)
+                                    | Ty::Iter(item) => Some((**item).clone()),
+                                    Ty::Map { key, value, .. } => {
+                                        Some(Ty::Tuple(vec![(**key).clone(), (**value).clone()]))
+                                    }
+                                    _ => None,
+                                },
                             };
                             produced = item
                                 .map(|item| {

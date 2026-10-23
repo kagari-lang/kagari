@@ -115,6 +115,7 @@ fn every_iterator_mode_and_optional_input_is_explicit() {
     for (op, name) in [
         (IterOp::New, "new"),
         (IterOp::Next, "next"),
+        (IterOp::String(StringIterKind::Chars), "string.chars"),
         (IterOp::String(StringIterKind::Bytes), "string.bytes"),
         (
             IterOp::String(StringIterKind::CharIndices),

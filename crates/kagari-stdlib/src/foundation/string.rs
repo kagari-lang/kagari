@@ -6,6 +6,7 @@ use crate::{
     identity,
 };
 use kagari_common::identity::DefinitionKind;
+use kagari_contract::operations::{IterOp, StringIterKind};
 use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
     native::{
@@ -28,7 +29,7 @@ use kagari_types::{
 use std::cell::Ref;
 
 pub(crate) const TYPE_DOCS: (&str, &str) = (
-    "An immutable UTF-8 string. len counts bytes and slice requires valid byte boundaries. Transformations produce strings without changing the receiver.",
+    "An immutable UTF-8 string. len counts bytes and slice requires valid byte boundaries. Transformations produce strings without changing the receiver. Explicit chars, char_indices and bytes methods return lazy cursors; String itself is not Iterable and has no indexing operator.",
     "fn greeting() -> String { \"  hello  \".trim() }",
 );
 
@@ -69,6 +70,16 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
             for (name, ty) in parameters { codecs.push(Codec::Exact(ty.clone())); method = method.parameter(name, ty); }
             methods.define(documented(method, description, name, example)
                 .implementation_send(NativeBinding::new(codecs, Codec::Exact(result), entry)))?;
+        }
+        for (name, kind, item, description) in [
+            ("chars", StringIterKind::Chars, Type::scalar(BuiltinType::Char), "Traverse Unicode scalars as char, not grapheme clusters. Combining marks and NUL are separate scalar items."),
+            ("char_indices", StringIterKind::CharIndices, Type::tuple([Type::u64(), Type::scalar(BuiltinType::Char)])?, "Traverse (u64, char) pairs of UTF-8 byte offsets and Unicode scalars. For aé🙂 the offsets are 0, 1 and 3, not scalar ordinals."),
+            ("bytes", StringIterKind::Bytes, Type::scalar(BuiltinType::U8), "Traverse UTF-8 encoded bytes as u8. For aé🙂 there are seven bytes but three Unicode scalars."),
+        ] {
+            let result = Type::iterator(item)?;
+            let description = format!("{description} Return a fresh lazy CollectionCursor on each call, retaining the source String. Cursor copies share progress; next returns None at exhaustion. Iterable adapters consume this cursor lazily without an intermediate List.");
+            methods.define(documented(MethodDecl::instance(name).returns(result.clone()), &description, name, "")
+                .implementation_send(NativeBinding::new(vec![Codec::Exact(string.clone())], Codec::Exact(result), move |cx| cx.iter_operation(0, IterOp::String(kind)))))?;
         }
         methods.define(documented(MethodDecl::instance("split").parameter("separator", string.clone()).returns(list),
             "Return an eager List<String> of literal-separated fields, preserving endpoint empties. An empty separator splits at Unicode scalar boundaries with endpoint empties.", "split", "\"a\"")
@@ -173,6 +184,6 @@ fn split(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 }
 
 pub(super) const MODULE_DOCS: (&str, &str) = (
-    "Immutable UTF-8 strings. Length and offsets count bytes; slicing validates UTF-8 boundaries.",
+    "Immutable UTF-8 strings. Length and offsets count bytes; slicing validates UTF-8 boundaries. Explicit lazy chars, char_indices and bytes cursors traverse scalars, byte-offset/scalar pairs and encoded bytes respectively.",
     "fn clean(text: String) -> String { text.trim() }",
 );

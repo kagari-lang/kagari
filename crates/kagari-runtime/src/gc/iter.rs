@@ -17,6 +17,7 @@ use crate::{
 
 use kagari_contract::operations::StringIterKind;
 use kagari_types::{declaration::native::NativeStorageLayout, scalar::BuiltinType, ty::Ty};
+use std::slice;
 
 struct IterTypeScope<'a> {
     source: &'a TypeArgument,
@@ -28,7 +29,6 @@ pub(super) enum PendingItem {
     Value(Value),
     Text(String),
     Pair(Value, Value),
-    CharIndex(u64, String),
 }
 
 impl PendingItem {
@@ -37,10 +37,6 @@ impl PendingItem {
             Self::Value(value) => Ok(value),
             Self::Text(text) => heap.alloc_string(text),
             Self::Pair(a, b) => heap.alloc_tuple(vec![a, b]),
-            Self::CharIndex(index, text) => {
-                let text = heap.alloc_string(text)?;
-                heap.alloc_tuple(vec![Value::U64(index), text])
-            }
         }
     }
 }
@@ -242,13 +238,20 @@ impl GcHeap {
         if !kind.valid_source(ty) {
             return Err(invalid());
         }
-        let Value::Tuple(fields) = source else {
-            return Err(invalid());
+        let (source, traversal) = match (ty, source) {
+            (Ty::Builtin(BuiltinType::String), Value::Str(_)) => (
+                *source,
+                StringTraversal::new(kind, slice::from_ref(source))?,
+            ),
+            (Ty::Tuple(_), Value::Tuple(fields)) => {
+                let fields = self.tuple(*fields).ok_or_else(invalid)?;
+                let traversal = StringTraversal::new(kind, &fields)?;
+                (fields[0], traversal)
+            }
+            _ => return Err(invalid()),
         };
-        let fields = self.tuple(*fields).ok_or_else(invalid)?.to_vec();
-        let traversal = StringTraversal::new(kind, &fields)?;
         self.new_iter_with(
-            &fields[0],
+            &source,
             &Ty::Builtin(BuiltinType::String),
             Some((kind.item_type(), traversal)),
             owner,

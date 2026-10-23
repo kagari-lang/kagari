@@ -377,6 +377,32 @@ reachable namespace surfaces and the relevant body/signature inputs; local arena
 reuse still goes through the existing explicit remappers. Older snapshots retain
 their immutable catalogs and continue answering old queries.
 
+Checked imported constants are source-owned prerequisites, not alias-owned
+initializer syntax. During body-environment preparation, the ordinary constant
+checker/evaluator runs for each declaring module before statics and function
+bodies. [`CheckedConstants`](../crates/kagari-hir/src/typeck/constant_facts.rs)
+retains types, scalar values, the type table and diagnostics for that exact
+lowering. Body checking reuses those facts instead of evaluating the initializers
+again. There is no interpolation-specific evaluator or new cross-module
+constant-initializer dependency model.
+
+[`ImportedConstants`](../crates/kagari-hir/src/imports/constants.rs) projects only
+reachable declarations whose complete SourceUnit matches the prepared owner.
+The owner's constant prerequisites must have no error diagnostics, and the checked
+value type must match its declared/inferred type; recovery facts cannot become
+valid imported values. Each SourceDeclRef maps to the checked scalar and original
+Declaration, so aliases share canonical identity and navigation. Definition
+remapping visits both source keys and declaration sites; scalar payloads are not
+reinterpreted from spelling.
+
+Full-file and per-body reuse compare imported constant facts alongside the other
+semantic dependencies, not just import names or signatures. For example, changing
+`pub const CODE: i32 = 7` to `9` must invalidate a consumer's checked value even
+when its `use ...::CODE as code` binding is unchanged. New analysis sees 9 while
+retained snapshots keep 7 and navigation still targets the declaring constant.
+The source revision/arena and existing explicit remapping rules bound reuse;
+there is no process-wide cache keyed by the alias.
+
 Import solving is dependency-driven: namespace observations and reverse watchers
 schedule affected modules. At quiescence the solver closes pending dependencies,
 rejects self-supporting cyclic derivations and publishes only complete graphs.
@@ -567,6 +593,33 @@ Runtime uses the existing scalar bank and compact Value with a distinct Char tag
 [Executable validation and backend admission](spec/bytecode.md#character-representation-and-validation)
 remain independent of source availability. Character support does not replace
 String decoding, formatting or cursor ownership.
+
+### String traversal ownership
+
+The installed String declarations own the explicit chars, char_indices and bytes
+methods and their checked Item contracts: `char`, `(u64, char)` and `u8`.
+Operation validation and executable lowering carry those contracts into the shared
+native cursor machinery; they do not infer Item from a shared physical scalar
+representation. In particular, bytes remains semantic u8 despite its I64 storage.
+String itself does not gain Iterable or integer indexing, and len/find/slice
+remain byte-based. See [String traversal](spec/builtins.md#explicit-string-traversal)
+for scalar versus byte positions and the public surface.
+
+Runtime's `gc::string_iter` owns UTF-8 traversal state; `gc::iter` owns the shared
+cursor payload, tracing and publication/commit kernel. A cursor retains the
+managed source String as a traced Value. Copies share its progress, whereas each
+new traversal call creates independent state. A cursor reachable from an active
+or suspended frame keeps its source alive through collection. No Rust string or
+storage borrow survives allocation, callback/reentry or suspension.
+
+A next step previews owned item data and candidate progress under scoped views,
+releases those views, materializes and roots the payload, then publishes the
+checked Option result before committing progress. Failed item/result publication
+leaves progress unchanged. Chars and CharIndices carry scalar Char values, not
+one-character Strings; tuple, cursor and result allocation retain the ordinary
+runtime rules. Existing Iterable adapters consume these cursors without an eager
+intermediate List or a second iteration engine. A callback failure after a
+successful source pull still leaves that item consumed.
 
 ## Crate responsibility target
 

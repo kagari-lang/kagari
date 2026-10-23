@@ -57,7 +57,7 @@ impl IterOp {
                 if !kind.valid_source(ty) {
                     return None;
                 }
-                ValueType::HeapObject
+                semantic_representation(ty)
             }
             Self::New => match ty {
                 Ty::Range(_, kind) if kind.has_start() => ValueType::HeapObject,
@@ -105,9 +105,10 @@ pub fn range_bound_valid(range: &Ty, bound: &Ty, table: &DefinitionTable) -> boo
         && (*kind == RangeKind::Full || nominal.arguments[0] == **item)
 }
 
-/// Native string traversal has a typed tuple of constructor arguments.
+/// Typed String traversal, with direct String input for scalar and byte cursors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StringIterKind {
+    Chars,
     Bytes,
     CharIndices,
     Split,
@@ -119,21 +120,25 @@ pub enum StringIterKind {
 impl StringIterKind {
     pub fn source_type(self) -> Ty {
         let string = Ty::Builtin(BuiltinType::String);
-        Ty::Tuple(match self {
-            Self::Split => vec![string.clone(), string],
-            Self::SplitN => vec![string.clone(), Ty::Builtin(BuiltinType::U64), string],
-            Self::Whitespace | Self::Lines | Self::Bytes | Self::CharIndices => vec![string],
-        })
+        match self {
+            Self::Chars | Self::Bytes | Self::CharIndices => string,
+            Self::Split => Ty::Tuple(vec![string.clone(), string]),
+            Self::SplitN => Ty::Tuple(vec![string.clone(), Ty::Builtin(BuiltinType::U64), string]),
+            Self::Whitespace | Self::Lines => Ty::Tuple(vec![string]),
+        }
     }
 
     pub fn item_type(self) -> Ty {
         match self {
+            Self::Chars => Ty::Builtin(BuiltinType::Char),
             Self::Bytes => Ty::Builtin(BuiltinType::U8),
             Self::CharIndices => Ty::Tuple(vec![
                 Ty::Builtin(BuiltinType::U64),
-                Ty::Builtin(BuiltinType::String),
+                Ty::Builtin(BuiltinType::Char),
             ]),
-            _ => Ty::Builtin(BuiltinType::String),
+            Self::Split | Self::SplitN | Self::Whitespace | Self::Lines => {
+                Ty::Builtin(BuiltinType::String)
+            }
         }
     }
 
@@ -149,4 +154,51 @@ pub fn object_identity_type(ty: &Ty) -> bool {
         ty,
         Ty::Struct(_) | Ty::NativeObject(_) | Ty::Array(_) | Ty::Map { .. } | Ty::Set(_, _)
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kagari_common::identity::map::DefinitionContext;
+
+    #[test]
+    fn string_traversal_contracts_keep_scalar_and_byte_domains() {
+        let definitions = DefinitionContext::new().unwrap().snapshot();
+        let string = Ty::Builtin(BuiltinType::String);
+        for (kind, item, representation) in [
+            (
+                StringIterKind::Chars,
+                Ty::Builtin(BuiltinType::Char),
+                ValueType::Char,
+            ),
+            (
+                StringIterKind::CharIndices,
+                Ty::Tuple(vec![
+                    Ty::Builtin(BuiltinType::U64),
+                    Ty::Builtin(BuiltinType::Char),
+                ]),
+                ValueType::HeapObject,
+            ),
+            (
+                StringIterKind::Bytes,
+                Ty::Builtin(BuiltinType::U8),
+                ValueType::I64,
+            ),
+        ] {
+            assert_eq!(kind.item_type(), item);
+            assert_eq!(semantic_representation(&item), representation);
+            assert_eq!(kind.source_type(), string);
+            assert_eq!(
+                IterOp::String(kind).contract(&kind.source_type(), &definitions),
+                Some((Some(ValueType::Str), ValueType::HeapObject))
+            );
+            for invalid in [Ty::Tuple(vec![string.clone()]), Ty::Tuple(vec![]), item] {
+                assert!(
+                    IterOp::String(kind)
+                        .contract(&invalid, &definitions)
+                        .is_none()
+                );
+            }
+        }
+    }
 }

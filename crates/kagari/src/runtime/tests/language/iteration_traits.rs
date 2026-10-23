@@ -164,6 +164,43 @@ fn execute(source: &str) {
 }
 
 #[test]
+fn string_cursors_use_iterable_adapters_without_prefetch() {
+    execute(
+        r#"
+struct Calls { var count: u64 }
+fn scalar_count<I: Iterable<Item=char>>(values: I) -> u64 { values.count() }
+fn byte_head<I: Iterator<Item=u8>>(values: I) -> Option<u8> { values.next() }
+fn offsets<I: Iterable<Item=(u64, char)>>(values: I) -> u64 {
+    var total = 0u64;
+    for (offset, scalar) in values { total += offset; }
+    total
+}
+fn main() -> i32 {
+    val calls = Calls { count: 0u64 };
+    val source = "a-é-🙂".replace("-", "").chars();
+    val mapped = source.map(|scalar| { calls.count += 1u64; String::from(scalar) });
+    if calls.count != 0u64 || mapped.take(0u64).next() != None { return 0; }
+    if calls.count != 0u64 || source.next() != Some('a') { return 0; }
+    val selected = mapped.filter(|text| text != "missing").take(1u64);
+    if selected.next() != Some("é") || calls.count != 1u64 { return 0; }
+    if selected.next() != None || calls.count != 1u64 { return 0; }
+    if source.next() != Some('🙂') || source.next() != None { return 0; }
+    if scalar_count("aé🙂".chars()) != 3u64 { return 0; }
+    if offsets("aé🙂".char_indices()) != 4u64 { return 0; }
+    if byte_head("é".bytes()) != Some(195u8) { return 0; }
+    val erased: Iterator<Item=char> = "aé🙂".chars();
+    val scalars: Vec<char> = erased.skip(1u64).collect();
+    if scalars.len() != 2u64 || scalars[0] != 'é' || scalars[1] != '🙂' { return 0; }
+    val positions: Vec<u64> = "aé🙂".char_indices().map(|pair| pair[0]).collect();
+    if positions.len() != 3u64 || positions[0] != 0u64 || positions[1] != 1u64 || positions[2] != 3u64 { return 0; }
+    if "aé🙂".bytes().filter(|byte| byte >= 128u8).count() != 6u64 { return 0; }
+    42
+}
+"#,
+    );
+}
+
+#[test]
 fn custom_iterators_and_iterables_use_static_calls() {
     execute(
         r#"
@@ -454,6 +491,22 @@ fn main()->i32 {
     if alias.next() != None { return 0; }
     if second.next() != Some(22) { return 0; }
     if second.next() != None { return 0; }
+    val text = "aé🙂";
+    val chars = text.chars(); val chars_copy = chars; val chars_iter = chars.iter();
+    val fresh_chars = text.chars();
+    if chars.next() != Some('a') || chars_copy.next() != Some('é') { return 0; }
+    if chars_iter.next() != Some('🙂') || chars.next() != None { return 0; }
+    if fresh_chars.next() != Some('a') { return 0; }
+    val indices = text.char_indices(); val indices_copy = indices; val indices_iter = indices.iter();
+    val fresh_indices = text.char_indices();
+    if indices.next() != Some((0u64, 'a')) || indices_copy.next() != Some((1u64, 'é')) { return 0; }
+    if indices_iter.next() != Some((3u64, '🙂')) || indices.next() != None { return 0; }
+    if fresh_indices.next() != Some((0u64, 'a')) { return 0; }
+    val bytes = text.bytes(); val bytes_copy = bytes; val bytes_iter = bytes.iter();
+    val fresh_bytes = text.bytes();
+    if bytes.next() != Some(97u8) || bytes_copy.next() != Some(195u8) { return 0; }
+    if bytes_iter.next() != Some(169u8) || fresh_bytes.next() != Some(97u8) { return 0; }
+    if bytes.count() != 4u64 || bytes_copy.next() != None { return 0; }
     values.push(42); values[2]
 }
 "#,

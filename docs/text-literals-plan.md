@@ -3,7 +3,7 @@
 ## Status and authority
 
 Planning baseline: `1b5da5df` (2026-10-23). Implementation and per-phase commits
-are authorized. TL01-TL03 are implemented with focused local acceptance; TL04 is next.
+are authorized. TL01-TL04 are implemented with focused local acceptance; TL05 is next.
 Publication and pushes remain outside this task.
 The user has selected identifier-only interpolation, Rust-style raw/multiline
 literal spelling, byte literals and a distinct Unicode `char` type.
@@ -382,7 +382,7 @@ pinned tooling or mark blocked tests passed.
 - [x] TL01: Char vertical slice and focused acceptance.
 - [x] TL02: String syntax/interpolation cutover and consumer/tool migration.
 - [x] TL03: Byte literals and fresh array semantics.
-- [ ] TL04: Lazy String traversal.
+- [x] TL04: Lazy String traversal.
 - [ ] TL05: Focused integration, lasting documentation and plan retirement.
 
 Planning checkpoint: documentation only; no implementation or phase commit made.
@@ -494,3 +494,30 @@ acceptance remains unavailable as recorded above. Structure (1,505 Rust files),
 workspace formatting, workspace/all-target Clippy and diff checks passed. Scoped
 IDE builds timed out; Cargo tests provide build evidence. No selected failure
 remains. Full-workspace and exhaustive backend/platform tests remain CI-only.
+
+### TL04 checkpoint
+
+Installed String methods expose existing CollectionCursor machinery with exact
+char, (u64, char) and u8 item contracts. Chars/CharIndices no longer allocate
+single-character Strings. Shared tracing and preview/publication/commit own
+cursor lifetime and failure behavior; no second iteration engine was introduced.
+
+Boundary review replaced the obsolete singleton-tuple source contract for the
+three unary traversals with direct String input, matching inherent method calls
+without synthetic managed tuples. Contract representation and bytecode semantic
+flow derive their output from the same item owner. Dormant multiargument String
+traversal contracts remain unchanged and unexposed; no compatibility reader or
+format-version bump was added.
+
+Fifteen selected tests passed: shared operation contracts (1), runtime failed
+publication/GC/root cleanup and invalid domains (2), SDK String method contracts
+(7), lazy adapter/shared versus independent progress (2), source retained across
+three native waits with forced GC (1), bytecode artifact round-trip/type rejection
+and disassembly (2). Supplementary characters, combining marks, NUL, empty strings,
+byte offsets and semantic u8 versus physical I64 remain covered. Two fixtures were
+corrected without dropping assertions; async wait inputs now genuinely park.
+
+Focused ownership review found no remaining defect. Structure, workspace formatting,
+workspace/all-target Clippy and diff checks passed. IDE scoped build timed out;
+Cargo tests/checks provide compilation evidence. Full-workspace/backend/platform
+acceptance and the recorded native Node/WASM tooling checks remain pending CI.
