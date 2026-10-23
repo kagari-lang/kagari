@@ -800,12 +800,21 @@ HM/UP implementation and phased commits are authorized on 2026-10-23. The user
 subsequently prioritized transparent generic type aliases first; that prerequisite
 is now locally complete. The user reauthorized the full sequence on 2026-10-24.
 The order remains joint HM00 + UP00, followed by HM01, UP01, HM02, UP02, HM03,
-HM04, UP03, UP04 and UP05. The joint design checkpoint is complete; HM01 begins
-implementation. The [resolved transitive-selection policy](update-model-design.md#resumed-up00-audit-at-bbe30666)
+HM04, UP03, UP04 and UP05. Joint HM00+UP00 was committed as `bbfc0af6`.
+**HM01 is locally complete; next is UP01.** Type exports, alias/layout demand and
+reload comparison include emitted/validated `private_types: Vec<TypeDeclaration>`
+separate from public authority. The `Cell<Hidden>` integration failure is resolved;
+fixtures were regenerated and post-repair focused tests, workspace Clippy and
+structure/fmt/diff checks passed. No carried errors remain. The
+[HM01 ledger](host-api-refactor.md#hm01-integration-and-up01-handoff) owns detailed
+evidence. Full CI remains pending.
+The public API still uses `LoadedModule` and pinned calls until HM02/UP02; HM01
+implements no dispatch migration.
+The [resolved transitive-selection policy](update-model-design.md#resumed-up00-audit-at-bbe30666)
 rejects changes to published Hash/Eq, static initializers and their transitive
 dependencies, independently of container liveness or initialization state. It adds
-no alternate pinned-call domain or eager initialization. Runtime behavior remains
-unchanged until its owning implementation phase.
+no alternate pinned-call domain or eager initialization. Enforcement of that
+update policy remains with its owning UP implementation phases.
 The [Host API plan](host-api-refactor.md) and
 [update plan](update-model-design.md) retain their own ledgers and acceptance.
 HM owns live Program/Module lookup and verified type exports; UP owns stable
@@ -820,9 +829,10 @@ is the single owner of scope, implementation progress, validation and compiler
 resource limits. Alias implementation, review repairs and local acceptance are
 complete. The later user instruction resumed HM00/UP00; alias work itself did not
 complete either phase.
-This prerequisite does not implement HM host export schemas, export-driven layout
-roots or UP dispatch. The linked ledger retains concise focused evidence; full CI
-remains unrun.
+Alias language semantics alone did not implement host exports or dispatch. HM01
+now supplies the export schema and layout roots; live handles/current-call dispatch
+remain with HM02/UP02. Detailed phase evidence stays in the owning plans, not a
+parallel roadmap progress queue.
 
 ## Other queued designs
 

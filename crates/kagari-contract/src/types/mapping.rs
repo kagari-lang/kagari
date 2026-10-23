@@ -24,6 +24,7 @@ impl RemapDefinitions for ModuleContract {
             public_items: map_sequence(&self.public_items, |value| {
                 (value).remap_definitions(mapper)
             })?,
+            private_types: self.private_types.remap_definitions(mapper)?,
             trait_references: map_sequence(&self.trait_references, |value| {
                 (value).remap_definitions(mapper)
             })?,
@@ -47,6 +48,7 @@ impl DefinitionReferences for ModuleContract {
         for value0 in &self.public_items {
             (value0).visit_definition_ids(visit, cancel)?;
         }
+        self.private_types.visit_definition_ids(visit, cancel)?;
         for value0 in &self.trait_references {
             (value0).visit_definition_ids(visit, cancel)?;
         }

@@ -1,6 +1,6 @@
 //! Bounded export records with explicit portable definition references.
 
-use crate::exports::{ExportNamespace, MAX_EXPORT_RECORDS, ProgramExports};
+use crate::exports::{ExportNamespace, MAX_EXPORT_RECORDS, ProgramExports, TypeExport};
 use kagari_common::{
     cancellation::CancellationToken,
     decode_limits::bounded_vec,
@@ -10,6 +10,7 @@ use kagari_common::{
         table::wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
     },
 };
+use kagari_types::ty::wire::WireType;
 use serde::{Deserialize, Deserializer, Serialize};
 
 #[cfg(test)]
@@ -30,6 +31,43 @@ struct NamespaceRecord {
     modules: Vec<(String, ModuleIdentity)>,
     #[serde(deserialize_with = "records")]
     functions: Vec<(String, PortableDefinitionRef)>,
+    #[serde(deserialize_with = "records")]
+    types: Vec<(String, TypeExportRecord)>,
+}
+
+#[derive(Serialize, Deserialize)]
+enum TypeExportRecord {
+    Declaration(PortableDefinitionRef),
+    Closed(WireType),
+    OpenAlias { arity: u32 },
+}
+
+impl TypeExportRecord {
+    fn encode(
+        value: &TypeExport,
+        encoding: &DefinitionEncoding,
+        cancel: &CancellationToken,
+    ) -> Result<Self, DefinitionMappingError> {
+        check_cancel(cancel)?;
+        Ok(match value {
+            TypeExport::Declaration(id) => Self::Declaration(encoding.reference(*id)?),
+            TypeExport::Closed(ty) => Self::Closed(WireType::encode(ty, encoding, cancel)?),
+            TypeExport::OpenAlias { arity } => Self::OpenAlias { arity: *arity },
+        })
+    }
+
+    fn decode(
+        self,
+        decoding: &DefinitionDecoding,
+        cancel: &CancellationToken,
+    ) -> Result<TypeExport, DefinitionMappingError> {
+        check_cancel(cancel)?;
+        Ok(match self {
+            Self::Declaration(id) => TypeExport::Declaration(decoding.resolve(id)?),
+            Self::Closed(ty) => TypeExport::Closed(ty.decode(decoding, cancel)?),
+            Self::OpenAlias { arity } => TypeExport::OpenAlias { arity },
+        })
+    }
 }
 
 fn records<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
@@ -67,6 +105,16 @@ impl ProgramExportsRecord {
                                 Ok((name.clone(), encoding.reference(*id)?))
                             })
                             .collect::<Result<_, DefinitionMappingError>>()?,
+                        types: namespace
+                            .types
+                            .iter()
+                            .map(|(name, export)| {
+                                Ok((
+                                    name.clone(),
+                                    TypeExportRecord::encode(export, encoding, cancel)?,
+                                ))
+                            })
+                            .collect::<Result<_, DefinitionMappingError>>()?,
                     })
                 })
                 .collect::<Result<_, DefinitionMappingError>>()?,
@@ -75,7 +123,7 @@ impl ProgramExportsRecord {
     }
 
     /// Resolve references without silently overwriting duplicate namespace/name records.
-    /// The Program verifier must subsequently check reachability and callable contracts.
+    /// The Program verifier must subsequently check reachability and callable/type authority.
     pub fn decode(
         self,
         decoding: &DefinitionDecoding,
@@ -92,6 +140,7 @@ impl ProgramExportsRecord {
             count = count
                 .checked_add(record.modules.len())
                 .and_then(|count| count.checked_add(record.functions.len()))
+                .and_then(|count| count.checked_add(record.types.len()))
                 .filter(|count| *count <= MAX_EXPORT_RECORDS)
                 .ok_or(DefinitionMappingError::LimitExceeded)?;
             let mut namespace = ExportNamespace::default();
@@ -106,6 +155,16 @@ impl ProgramExportsRecord {
                 if namespace
                     .functions
                     .insert(name, decoding.resolve(id)?)
+                    .is_some()
+                {
+                    return Err(DefinitionMappingError::InvalidContract);
+                }
+            }
+            for (name, export) in record.types {
+                check_cancel(cancel)?;
+                if namespace
+                    .types
+                    .insert(name, export.decode(decoding, cancel)?)
                     .is_some()
                 {
                     return Err(DefinitionMappingError::InvalidContract);

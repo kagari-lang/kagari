@@ -25,13 +25,14 @@ use kagari_contract::{
     decode_limits::{MAX_INSTRUCTIONS, MAX_TABLE_RECORDS},
     host,
     ids::FunctionRef,
-    layout,
-    layout::StructFieldLayout,
+    layout::{self, LayoutValidationError, StructFieldLayout},
     operations::BinaryOp as MirBinaryOp,
     representation::semantic_representation,
     standard::RuntimePrimitive,
     types::{
-        InterfaceBridge, InterfaceTable, PublicItem, inherent::native_signatures_match, verify,
+        InterfaceBridge, InterfaceTable, PublicItem,
+        inherent::native_signatures_match,
+        verify::{self, private_types},
     },
 };
 use kagari_types::{
@@ -286,6 +287,19 @@ pub(super) fn verify_module_with_program(
     }
     verify::validate(&module.public_items, &module.identity, &cancel, definitions)
         .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
+    private_types::validate(
+        &module.private_types,
+        &module.public_items,
+        &module.identity,
+        &module.structures,
+        &module.enumerations,
+        &cancel,
+        definitions,
+    )
+    .map_err(|error| match error {
+        LayoutValidationError::Cancelled => BytecodeVerificationError::Cancelled,
+        _ => BytecodeVerificationError::InvalidPublicAbi,
+    })?;
     validate_native_declarations(
         &module.native_declarations,
         &module.identity,

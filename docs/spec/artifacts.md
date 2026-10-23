@@ -159,6 +159,59 @@ Cooperative cancellation and individual mutation commit rules remain explicit.
 Native payloads trace retained script values/callables. Artifacts contain portable
 contracts, not live heap state, Rust references or function pointers.
 
+### Public type exports
+
+Dependency-only `private_types: Vec<TypeDeclaration>` records retain full declared
+binders/bounds separately from `public_items`. Compiler emission, contract identity
+mapping/bounded codecs and independent MIR/KBC verification preserve this separation,
+so valid internal `Cell<Hidden>` applications can be verified without exporting
+`Hidden`. Missing/unknown constraints reject rather than being skipped; private
+evidence cannot authorize a public type leaf.
+
+The Program export graph carries public module edges, function leaves and type
+leaves, separately from the optional root `main` entry. Type/module spellings share
+one namespace; function spellings remain independent. Type leaves use these
+source-free records:
+
+- `Declaration(DefinitionId)`: a canonical public type/trait declaration, including
+  renamed re-exports. Its retained declaration owns kind, binders and bounds.
+- `Closed(Ty)`: a transparent alias's normalized closed semantic target, including
+  nominal arguments and associated bindings. It introduces no new nominal identity.
+- `OpenAlias { arity: u32 }`: a rejection-only marker with arity 1..4096. It grants
+  no host application or layout authority, even when the alias erases its parameters.
+
+For example, `pub type IntCell = internal::Cell<i32>;` carries the canonical
+`Cell<i32>` target, not an `IntCell` runtime declaration. The private containing
+module need not become publicly navigable. Retaining layout/proof dependencies
+never grants private-field access or additional public names.
+
+Bounded codecs preserve canonical identity remapping and reject duplicate records
+and type/module name collisions. Independent MIR and bytecode verification prove
+public declaration authority, exact declaration-owned binders, nominal kind/arity,
+closedness, associated bindings, substituted nested bounds and matching script-
+struct layouts. Public exports and dependency-only proofs remain distinct: private
+supertraits may support a public interface's proof without becoming public exports.
+Graph-local indexes and successful-proof caches share bounded work accounting and
+cancellation; they confer no authority on a changed graph. Decoding is not verification.
+
+Compiler export demand supplies otherwise-unused closed struct layouts and nested
+struct/enum applications needed for layout or structural-bound proofs, including
+cross-module targets. Demand uses the ordinary bounded layout queue in canonical
+order; runtime performs no alias expansion, type inference or compilation. Enum
+proof layouts do not make enums host ObjectTypes. Open declarations do not demand
+all possible specializations, and open-alias markers demand none.
+
+Reload compares normalized type leaves in a common identity context through the
+bounded cyclic namespace graph. Equivalent declaration/closed-alias targets agree;
+a different nominal target or applied argument does not. Existing declaration,
+member and static compatibility checks remain separate. Export records are not a
+complete frozen declaration/dependency inventory, and open-alias markers do not
+prove preservation of their source templates or bounds.
+
+This unpublished schema change retains the current format/ABI identifiers and
+requires regenerating affected development artifacts, not an old-schema reader.
+It does not change the host `LoadedModule` API or pinned-call execution model.
+
 ### Unified executable slots and origins
 
 Current function records encode `slot_count: u32`, one `slots` representation vector,

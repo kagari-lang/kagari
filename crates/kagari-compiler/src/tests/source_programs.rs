@@ -1,5 +1,6 @@
 mod proof_visibility;
 mod static_lowering;
+mod type_exports;
 
 use crate::{
     bytecode::{BytecodeLoweringError, lower_program_to_bytecode, lower_to_bytecode},
@@ -67,17 +68,17 @@ fn source_products_ignore_prior_module_registration_order() {
     let generic = insert(
         &mut sources,
         "generic",
-        "pub fn pass<T>(value: T) -> T { value }",
+        "pub fn pass<T>(value: T) -> T { value } pub struct Cell<T> { val value: T }",
     );
     insert(
         &mut sources,
         "facade",
-        "pub use pkg::generic::pass; pub fn value() -> i32 { pass(7) }",
+        "pub use pkg::generic::pass; pub struct Token {} pub fn value() -> i32 { pass(7) }",
     );
     let root = insert(
         &mut sources,
         "root",
-        "pub use pkg::facade as api; use pkg::generic::pass; pub fn run() -> i32 { pass(api::value()) }",
+        "pub use pkg::facade as api; use pkg::generic::pass; pub type TokenCell = pkg::generic::Cell<api::Token>; pub type IntCell = pkg::generic::Cell<i32>; pub fn run() -> i32 { pass(api::value()) }",
     );
     let input = sources.snapshot();
     let mut root_indices = Vec::new();

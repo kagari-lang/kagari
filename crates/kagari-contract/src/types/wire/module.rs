@@ -10,7 +10,10 @@ use kagari_common::{
     },
 };
 use kagari_types::{
-    declaration::wire::{declarations::TraitDefRecord, native::NativeDeclarationRecord},
+    declaration::wire::{
+        declarations::{TraitDefRecord, TypeDeclarationRecord},
+        native::NativeDeclarationRecord,
+    },
     ty::wire::WireType,
 };
 use serde::{Deserialize, Serialize};
@@ -22,6 +25,8 @@ pub struct ModuleContractRecord {
     native_declarations: Vec<NativeDeclarationRecord>,
     #[serde(deserialize_with = "crate::decode_limits::table")]
     public_items: Vec<PublicItemRecord>,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
+    private_types: Vec<TypeDeclarationRecord>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     trait_references: Vec<TraitContractRecord>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
@@ -47,6 +52,11 @@ impl ModuleContractRecord {
                 .public_items
                 .iter()
                 .map(|value| PublicItemRecord::encode(value, encoding, cancel))
+                .collect::<Result<_, _>>()?,
+            private_types: value
+                .private_types
+                .iter()
+                .map(|value| TypeDeclarationRecord::encode(value, encoding, cancel))
                 .collect::<Result<_, _>>()?,
             trait_references: value
                 .trait_references
@@ -77,6 +87,11 @@ impl ModuleContractRecord {
                 .collect::<Result<_, _>>()?,
             public_items: self
                 .public_items
+                .into_iter()
+                .map(|value| value.decode(decoding, cancel))
+                .collect::<Result<_, _>>()?,
+            private_types: self
+                .private_types
                 .into_iter()
                 .map(|value| value.decode(decoding, cancel))
                 .collect::<Result<_, _>>()?,

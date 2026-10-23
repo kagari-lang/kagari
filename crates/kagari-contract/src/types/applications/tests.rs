@@ -199,7 +199,7 @@ fn unused_declarations_and_semantic_slots_cannot_hide_unknown_traits() {
     ];
     for item in items {
         assert_eq!(
-            validate_declarations(&check, &[item], &[], &cancel, &context.snapshot()),
+            validate_declarations(&check, &[item], &[], &[], &cancel, &context.snapshot()),
             Err(TypeTransformError::InvalidContract)
         );
     }
@@ -374,6 +374,7 @@ fn incompatible_traits_remain_static_contracts_but_cannot_hide_in_value_position
                 &check,
                 &[PublicItem::Trait(record.clone())],
                 &[],
+                &[],
                 &cancel,
                 &context.snapshot()
             )
@@ -406,7 +407,7 @@ fn incompatible_traits_remain_static_contracts_but_cannot_hide_in_value_position
             }],
         });
         assert_eq!(
-            validate_declarations(&check, &[field], &[], &cancel, &context.snapshot()).is_ok(),
+            validate_declarations(&check, &[field], &[], &[], &cancel, &context.snapshot()).is_ok(),
             compatible
         );
     }

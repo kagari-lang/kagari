@@ -2,7 +2,7 @@
 
 use crate::{
     Runtime,
-    module::{ModuleEpochRetention, VerifiedProgram},
+    module::{LoadedModule, ModuleEpochRetention, VerifiedProgram, state::StaticState},
     reload::{
         ReloadValidationError, validate_reload_artifact_candidate, validate_reload_candidate,
     },
@@ -177,6 +177,127 @@ fn public_paths_remain_rooted_and_generation_pinned_after_identity_import() {
     assert!(second.validate_loaded_module(&old_target).is_err());
 }
 
+fn type_reload_source(object: &str, cell: &str, open: &str) -> String {
+    format!(
+        r#"
+        mod implementation {{
+            pub struct A {{ }}
+            pub struct B {{ }}
+            pub struct Cell<T> {{ val value: T }}
+            pub type Alias = A;
+            pub type IntCell = Cell<i32>;
+            pub type Via = IntCell;
+            pub type Open<T> = A;
+            pub type OtherOpen<T> = B;
+            pub type Pair<T, U> = A;
+        }}
+        pub mod api {{
+            {object}
+            pub type Cell = {cell};
+            pub use crate::implementation::{open} as Open;
+            pub type Scalar = (i32, [i32]);
+            pub use crate::api as again;
+        }}
+        static var STATE: i32 = initialize();
+        fn initialize() -> i32 {{ 7 }}
+        pub fn value() -> i32 {{ 7 }}
+        fn main() {{ STATE = 99; }}
+        "#
+    )
+}
+
+#[test]
+fn reload_normalizes_type_aliases_and_reexports_before_publication() {
+    let original = type_reload_source(
+        "pub use crate::implementation::A as Object;",
+        "crate::implementation::IntCell",
+        "Open",
+    );
+    let equivalent = type_reload_source(
+        "pub type Object = crate::implementation::Alias;",
+        "crate::implementation::Via",
+        "OtherOpen",
+    );
+    let mut runtime = Runtime::default();
+    let loaded = runtime
+        .load_verified_program("exports", source_code(&original))
+        .unwrap();
+    assert_source_free_reload(&loaded, &equivalent, true);
+    let candidate = runtime
+        .stage_reload_verified_program(&loaded, "exports", source_code(&equivalent))
+        .unwrap();
+    let published = runtime.publish_staged_reload(candidate).unwrap();
+    assert_ne!(published.key(), loaded.key());
+    assert_eq!(
+        runtime.modules().latest("exports").unwrap().key(),
+        published.key()
+    );
+    assert!(matches!(
+        runtime
+            .module_instance_snapshot(&published)
+            .unwrap()
+            .module_slots
+            .as_slice(),
+        [StaticState::Uninitialized(_)]
+    ));
+    // Equivalence is symmetric: a closed alias can become a direct re-export too.
+    let candidate = runtime
+        .stage_reload_verified_program(&published, "exports", source_code(&original))
+        .unwrap();
+    runtime.publish_staged_reload(candidate).unwrap();
+}
+
+#[test]
+fn reload_rejects_changed_type_targets_arguments_and_marker_classes_without_effects() {
+    let original = type_reload_source(
+        "pub use crate::implementation::A as Object;",
+        "crate::implementation::IntCell",
+        "Open",
+    );
+    let mut runtime = Runtime::default();
+    let loaded = runtime
+        .load_verified_program("exports", source_code(&original))
+        .unwrap();
+    let (owner, function) = loaded.exported_function("value").unwrap();
+    for source in [
+        // Structurally identical nominal declarations are not interchangeable.
+        original.replace("implementation::A as Object", "implementation::B as Object"),
+        original.replace("implementation::IntCell;", "implementation::Cell<bool>;"),
+        original.replace(
+            "implementation::Open as Open",
+            "implementation::Pair as Open",
+        ),
+        original.replace("implementation::Open as Open", "implementation::A as Open"),
+        original.replace(
+            "pub type Scalar = (i32, [i32]);",
+            "pub type Scalar = (i32, [bool]);",
+        ),
+        original.replace("as Object;", "as Renamed;"),
+    ] {
+        assert_source_free_reload(&loaded, &source, false);
+        assert!(matches!(
+            runtime.stage_reload_verified_program(&loaded, "exports", source_code(&source)),
+            Err(ReloadValidationError::PublicExportMismatch)
+        ));
+        let latest = runtime.modules().latest("exports").unwrap();
+        assert_eq!(latest.key(), loaded.key());
+        assert_eq!(latest.program_fingerprint(), loaded.program_fingerprint());
+        let (still_owner, still_function) = latest.exported_function("value").unwrap();
+        assert_eq!(still_owner.key(), owner.key());
+        assert_eq!(still_function, function);
+        assert!(matches!(
+            runtime
+                .module_instance_snapshot(&latest)
+                .unwrap()
+                .module_slots
+                .as_slice(),
+            [StaticState::Uninitialized(_)]
+        ));
+        assert_eq!(runtime.resources().counters().peak_call_depth, 0);
+        assert_eq!(runtime.gc().active_roots(), 0);
+    }
+}
+
 fn reload_source(next: &str, target: &str, alias: &str, nominal: &str, entry: &str) -> String {
     format!(
         r#"
@@ -263,6 +384,50 @@ fn reload_compares_public_path_contracts_without_expanding_alias_cycles() {
     );
 }
 
+fn assert_source_free_reload(loaded: &LoadedModule, source: &str, compatible: bool) {
+    let context = DefinitionContext::new().unwrap();
+    let program = bytecode(source)
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    let artifact = KbcArtifact::from_program(
+        program.clone(),
+        Default::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
+    let raw = validate_reload_candidate(loaded, "exports", program, Some(loaded), &context);
+    let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
+    let decoded_context = DefinitionContext::new().unwrap();
+    let decoded = KbcArtifact::from_bytes(&bytes)
+        .unwrap()
+        .import_into(&decoded_context, &Default::default())
+        .unwrap()
+        .into_records();
+    let artifact = validate_reload_artifact_candidate(
+        loaded,
+        "exports",
+        decoded,
+        &Default::default(),
+        Some(loaded),
+        &decoded_context,
+    );
+    if compatible {
+        raw.unwrap();
+        artifact.unwrap();
+    } else {
+        assert!(matches!(
+            raw,
+            Err(ReloadValidationError::PublicExportMismatch)
+        ));
+        assert!(matches!(
+            artifact,
+            Err(ReloadValidationError::PublicExportMismatch)
+        ));
+    }
+}
+
 #[test]
 fn source_free_reload_validators_use_the_same_public_contract() {
     let original = source_code(&reload_source(
@@ -276,52 +441,10 @@ fn source_free_reload_validators_use_the_same_public_contract() {
     let loaded = runtime.load_verified_program("exports", original).unwrap();
     for compatible in [true, false] {
         let alias = if compatible { "value" } else { "renamed" };
-        let context = DefinitionContext::new().unwrap();
-        let program = bytecode(&reload_source(
-            "two",
-            "replacement",
-            alias,
-            "a",
-            "fn main() {}",
-        ))
-        .import_into(&context, &Default::default())
-        .unwrap()
-        .into_records();
-        let artifact = KbcArtifact::from_program(
-            program.clone(),
-            Default::default(),
-            &context,
-            &Default::default(),
-        )
-        .unwrap();
-        let raw = validate_reload_candidate(&loaded, "exports", program, Some(&loaded), &context);
-        let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
-        let decoded_context = DefinitionContext::new().unwrap();
-        let decoded = KbcArtifact::from_bytes(&bytes)
-            .unwrap()
-            .import_into(&decoded_context, &Default::default())
-            .unwrap()
-            .into_records();
-        let artifact = validate_reload_artifact_candidate(
+        assert_source_free_reload(
             &loaded,
-            "exports",
-            decoded,
-            &Default::default(),
-            Some(&loaded),
-            &decoded_context,
+            &reload_source("two", "replacement", alias, "a", "fn main() {}"),
+            compatible,
         );
-        if compatible {
-            raw.unwrap();
-            artifact.unwrap();
-        } else {
-            assert!(matches!(
-                raw,
-                Err(ReloadValidationError::PublicExportMismatch)
-            ));
-            assert!(matches!(
-                artifact,
-                Err(ReloadValidationError::PublicExportMismatch)
-            ));
-        }
     }
 }

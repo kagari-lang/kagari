@@ -16,12 +16,18 @@ use kagari_common::identity::{
 };
 use kagari_contract::{
     exports::wire::ProgramExportsRecord,
+    layout::{EnumLayout, EnumVariantLayout},
     numeric::NumericConversion,
     operations::BinaryOp,
     statics::{StaticContract, StaticDescriptor},
     types::{ConcreteFunctionIdentity, PublicItem},
 };
-use kagari_types::{scalar::BuiltinType, ty::Ty, visibility::Visibility};
+use kagari_types::{
+    declaration::{TypeDeclaration, TypeDef, TypeDefKind, VariantDef},
+    scalar::BuiltinType,
+    ty::{GenericParam, Ty},
+    visibility::Visibility,
+};
 use std::collections::HashSet;
 
 fn module(context: &DefinitionContext, name: &str) -> MirModule {
@@ -100,6 +106,89 @@ fn forged(context: &DefinitionContext, modules: &[MirModule]) -> Vec<u8> {
         definitions: encoding.table,
     };
     options().serialize(&(Header::current(), record)).unwrap()
+}
+
+#[test]
+fn private_types_codec_checks_enum_payloads_without_exporting_the_declaration() {
+    let context = DefinitionContext::new().unwrap();
+    let mut module = module(&context, "private-enum");
+    module.functions.clear();
+    let root = context.intern_root(&module.identity).unwrap();
+    let choice = context
+        .intern_child(root, DefinitionKind::Enum, "Choice", 0)
+        .unwrap();
+    let variant = context
+        .intern_child(choice, DefinitionKind::Variant, "Value", 0)
+        .unwrap();
+    let parameter = GenericParam {
+        owner: choice,
+        position: 0,
+    };
+    module.abi.private_types.push(TypeDeclaration {
+        declaration: choice,
+        definition: TypeDef {
+            name: "Choice".into(),
+            kind: TypeDefKind::Enum,
+            generic_params: vec![parameter.clone()],
+            bounds: vec![],
+            fields: vec![],
+            variants: vec![VariantDef {
+                name: "Value".into(),
+                reports_failure: false,
+                payload: vec![parameter.as_type()],
+            }],
+        },
+    });
+    module.enumerations.push(EnumLayout {
+        declaration: choice,
+        arguments: vec![parameter.as_type()],
+        variants: vec![EnumVariantLayout {
+            declaration: variant,
+            reports_failure: false,
+            payload: vec![parameter.as_type()],
+        }],
+    });
+    let bytes = forged(&context, &[module.clone()]);
+    let decoded = decode_program(&bytes, &Default::default()).unwrap();
+    let owner = &decoded.modules()[0];
+    assert!(owner.abi.public_items.is_empty());
+    assert!(owner.external_types.is_empty());
+    assert_eq!(owner.abi.private_types.len(), 1);
+    let definition = &owner.abi.private_types[0];
+    assert_eq!(
+        definition.definition.generic_params[0].owner,
+        definition.declaration
+    );
+    assert_eq!(
+        definition.definition.variants[0].payload[0],
+        owner.enumerations[0].variants[0].payload[0]
+    );
+    assert_eq!(
+        encode_program(&decoded, &Default::default()).unwrap(),
+        bytes
+    );
+    for corruption in 0..4 {
+        let mut invalid = module.clone();
+        match corruption {
+            0 => {
+                invalid.abi.private_types[0].definition.variants[0].payload[0] =
+                    Ty::Builtin(BuiltinType::Bool)
+            }
+            1 => invalid.abi.private_types[0].definition.variants[0].reports_failure = true,
+            2 => invalid.abi.private_types[0].definition.variants[0].name = "Other".into(),
+            3 => {
+                invalid.enumerations[0].arguments[0] = Ty::Parameter {
+                    owner: root,
+                    position: 0,
+                }
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            decode_program(&forged(&context, &[invalid]), &Default::default()).is_err(),
+            "corruption {corruption}"
+        );
+    }
 }
 
 #[test]

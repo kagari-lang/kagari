@@ -9,7 +9,9 @@ use kagari_common::{
     identity::table::{DefinitionId, DefinitionTable},
 };
 use kagari_types::{
-    declaration::{FnDecl, TraitDef, TypeDefKind, applications::ApplicationValidator},
+    declaration::{
+        FnDecl, TraitDef, TypeDeclaration, TypeDef, TypeDefKind, applications::ApplicationValidator,
+    },
     ty::{Ty, substitution::TypeTransformError},
 };
 
@@ -19,6 +21,7 @@ pub fn validate_declarations<'declaration, F, G>(
     validator: &ApplicationValidator<'_, F, G>,
     items: &[PublicItem],
     private: &[TraitContract],
+    private_types: &[TypeDeclaration],
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
 ) -> Result<(), TypeTransformError>
@@ -39,19 +42,7 @@ where
                 validate_types(validator, [&value.ty], cancel, definitions)?
             }
             PublicItem::Type(record) => {
-                validator.bounds(&record.bounds)?;
-                validate_types(
-                    validator,
-                    record.fields.iter().map(|field| &field.ty),
-                    cancel,
-                    definitions,
-                )?;
-                validate_types(
-                    validator,
-                    record.variants.iter().flat_map(|variant| &variant.payload),
-                    cancel,
-                    definitions,
-                )?;
+                validate_type_definition(validator, record, cancel, definitions)?
             }
             PublicItem::Trait(record) => validate_trait(validator, record, cancel, definitions)?,
             PublicItem::InherentTable(table) => {
@@ -81,10 +72,36 @@ where
             }
         }
     }
+    for record in private_types {
+        validate_type_definition(validator, &record.definition, cancel, definitions)?;
+    }
     for record in private {
         validate_trait(validator, &record.abi, cancel, definitions)?;
     }
     Ok(())
+}
+
+fn validate_type_definition<'declaration, F, G>(
+    validator: &ApplicationValidator<'_, F, G>,
+    record: &TypeDef,
+    cancel: &CancellationToken,
+    definitions: &DefinitionTable,
+) -> Result<(), TypeTransformError>
+where
+    F: Fn(&DefinitionId) -> Option<&'declaration TraitDef>,
+    G: Fn(&DefinitionId) -> Option<(TypeDefKind, usize)>,
+{
+    validator.bounds(&record.bounds)?;
+    validate_types(
+        validator,
+        record
+            .fields
+            .iter()
+            .map(|field| &field.ty)
+            .chain(record.variants.iter().flat_map(|variant| &variant.payload)),
+        cancel,
+        definitions,
+    )
 }
 
 /// Check actual value types; trait applications in bounds and impl headers use

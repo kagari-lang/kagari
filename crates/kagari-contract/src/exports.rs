@@ -1,6 +1,7 @@
 //! Source-independent public paths and the separate root entry capability.
 
 mod mapping;
+pub mod type_validation;
 pub mod wire;
 
 use crate::{slots::FunctionTypeFacts, types::PublicItem};
@@ -9,20 +10,44 @@ use kagari_common::{
     identity::{
         DefinitionKind, DefinitionPath, MAX_IDENTITY_PATH_SEGMENTS, ModuleIdentity,
         mapping::{DefinitionMappingError, check_cancel},
+        scoped::DefinitionReferences,
         table::{DefinitionId, DefinitionTable},
     },
 };
-use kagari_types::{callable::CallableImplementation, declaration::NativeDeclaration};
+use kagari_types::{
+    callable::CallableImplementation,
+    declaration::{NativeDeclaration, verify::concrete_type_valid},
+    decode_limits::MAX_NESTED_RECORDS,
+    ty::Ty,
+};
 use std::collections::{BTreeMap, HashSet};
 
 pub const MAX_EXPORT_RECORDS: usize = 65_536;
 
-/// Public module aliases and concrete free-function declarations in one namespace.
-/// The two name spaces are independent: `api` may name both a module and a function.
+/// Public module aliases, type exports and concrete free-function declarations.
+/// Types and modules share a namespace; functions occupy an independent namespace.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ExportNamespace {
     pub modules: BTreeMap<String, ModuleIdentity>,
     pub functions: BTreeMap<String, DefinitionId>,
+    pub types: BTreeMap<String, TypeExport>,
+}
+
+/// A public type name without source spelling or executable layout authority.
+///
+/// For `pub type IntCell = hidden::Cell<i32>`, `Closed` retains the normalized
+/// `Cell<i32>` application, not an alias identity. `pub type Erased<T> = User`
+/// remains `OpenAlias { arity: 1 }` even though its target does not use `T`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TypeExport {
+    /// Canonical struct, enum, trait, host or native declaration, including renames.
+    /// The defining public contract owns its kind, parameters and bounds.
+    Declaration(DefinitionId),
+    /// Fully normalized target of an alias with no declared alias parameters.
+    Closed(Ty),
+    /// Rejection-only marker; grants no binder, type application or layout authority.
+    /// Arity must be positive and at most `MAX_NESTED_RECORDS`.
+    OpenAlias { arity: u32 },
 }
 
 /// Editable export facts, owned and verified together with an executable Program.
@@ -57,9 +82,13 @@ impl ProgramExports {
         None
     }
 
-    /// Check graph bounds, reachable namespaces and canonical free-function identities.
-    /// The executable owner must additionally prove each leaf has a concrete public
-    /// script body, and that the separate entry has a zero-argument script body.
+    /// Check graph bounds, reachability and structural function/type leaf validity.
+    /// The executable callback must prove public script bodies and the separate
+    /// zero-argument entry. The type callback must prove retained public declaration,
+    /// application/bound and executable layout authority, not merely ID membership.
+    /// It receives every structurally valid type leaf, including rejection-only aliases.
+    /// Invalid leaves or rejected authority return `InvalidContract`; identity,
+    /// cancellation and bounded-shape failures retain their corresponding errors.
     /// An empty graph explicitly exposes no public paths; it can still carry an entry.
     pub fn validate(
         &self,
@@ -67,6 +96,7 @@ impl ProgramExports {
         definitions: &DefinitionTable,
         cancel: &CancellationToken,
         mut executable: impl FnMut(DefinitionId, bool) -> bool,
+        mut type_export: impl FnMut(&TypeExport) -> bool,
     ) -> Result<(), DefinitionMappingError> {
         self.check_shape(cancel)?;
         let invalid = DefinitionMappingError::InvalidContract;
@@ -86,6 +116,38 @@ impl ProgramExports {
                 check_cancel(cancel)?;
                 free_function(*id, definitions)?;
                 if !executable(*id, false) {
+                    return Err(invalid);
+                }
+            }
+            for export in namespace.types.values() {
+                check_cancel(cancel)?;
+                match export {
+                    TypeExport::Declaration(id) => {
+                        let path = definitions.resolve(*id)?.to_path();
+                        if path.path.len() != 1
+                            || path.path[0].occurrence != 0
+                            || !matches!(
+                                path.path[0].kind,
+                                DefinitionKind::Struct
+                                    | DefinitionKind::Enum
+                                    | DefinitionKind::Trait
+                                    | DefinitionKind::AssociatedType
+                            )
+                        {
+                            return Err(invalid);
+                        }
+                    }
+                    TypeExport::Closed(ty) => {
+                        let valid =
+                            ty.is_concrete() && concrete_type_valid(ty, cancel, definitions);
+                        check_cancel(cancel)?;
+                        if !valid {
+                            return Err(invalid);
+                        }
+                    }
+                    TypeExport::OpenAlias { .. } => {}
+                }
+                if !type_export(export) {
                     return Err(invalid);
                 }
             }
@@ -116,6 +178,7 @@ impl ProgramExports {
             count = count
                 .checked_add(namespace.modules.len())
                 .and_then(|count| count.checked_add(namespace.functions.len()))
+                .and_then(|count| count.checked_add(namespace.types.len()))
                 .filter(|count| *count <= MAX_EXPORT_RECORDS)
                 .ok_or(DefinitionMappingError::LimitExceeded)?;
             if !identity.within_path_limit()
@@ -125,9 +188,28 @@ impl ProgramExports {
                     .modules
                     .keys()
                     .chain(namespace.functions.keys())
+                    .chain(namespace.types.keys())
                     .any(|name| !valid_name(name))
+                || namespace
+                    .types
+                    .keys()
+                    .any(|name| namespace.modules.contains_key(name))
             {
                 return Err(DefinitionMappingError::InvalidContract);
+            }
+            for export in namespace.types.values() {
+                check_cancel(cancel)?;
+                match export {
+                    TypeExport::Closed(ty) => {
+                        ty.visit_definition_ids(&mut |_| Ok(()), cancel)?;
+                    }
+                    TypeExport::OpenAlias { arity }
+                        if *arity == 0 || *arity as usize > MAX_NESTED_RECORDS =>
+                    {
+                        return Err(DefinitionMappingError::InvalidContract);
+                    }
+                    _ => {}
+                }
             }
         }
         Ok(())

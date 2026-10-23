@@ -6,6 +6,8 @@ mod native;
 mod proofs;
 pub mod records;
 mod shared;
+#[cfg(test)]
+mod type_exports;
 
 use crate::{
     ids::InstanceId,
@@ -26,7 +28,10 @@ use kagari_common::{
 };
 use kagari_contract::{
     contracts,
-    exports::{ProgramExports, entry_function_matches, public_function_matches},
+    exports::{
+        ProgramExports, entry_function_matches, public_function_matches,
+        type_validation::{TypeExportModule, TypeExportValidator},
+    },
     host::external::bindings_match as external_bindings_match,
     layout::LayoutValidationError,
     representation::semantic_representation,
@@ -368,6 +373,14 @@ pub fn verify_program(
             |id| {
                 closure.iter().find_map(|owner| {
                     abi::type_contract(&owner.identity, &owner.abi.public_items, id, &definitions)
+                        .or_else(|| {
+                            owner
+                                .abi
+                                .private_types
+                                .iter()
+                                .find(|record| &record.declaration == id)
+                                .map(|record| &record.definition)
+                        })
                         .map(|record| (record.kind, record.generic_params.len()))
                         .or_else(|| {
                             owner
@@ -640,6 +653,17 @@ pub fn verify_program(
     cancel
         .check()
         .map_err(|_| error(&root, ProgramErrorKind::Cancelled))?;
+    let export_catalog = proofs
+        .scope((0..modules.len()).collect(), cancel)
+        .map_err(|cause| {
+            error(
+                &root,
+                match cause {
+                    TypeTransformError::Cancelled => ProgramErrorKind::Cancelled,
+                    _ => ProgramErrorKind::InvalidExports,
+                },
+            )
+        })?;
     drop(proofs);
     construction::verify_closed_interfaces(
         &modules
@@ -658,36 +682,61 @@ pub fn verify_program(
             },
         )
     })?;
+    let types = TypeExportValidator::new(
+        modules.iter().map(|module| TypeExportModule {
+            identity: &module.identity,
+            public_items: &module.abi.public_items,
+            private_types: &module.abi.private_types,
+            structures: &module.structures,
+        }),
+        &export_catalog,
+        cancel,
+    )
+    .map_err(|cause| {
+        error(
+            &root,
+            match cause {
+                TypeTransformError::Cancelled => ProgramErrorKind::Cancelled,
+                _ => ProgramErrorKind::InvalidExports,
+            },
+        )
+    })?;
     exports
-        .validate(&root, &definitions, cancel, |id, entry| {
-            let instance = ConcreteFunctionIdentity {
-                declaration: id,
-                arguments: vec![],
-            };
-            let Some(binding) = bindings.get(&instance) else {
-                return false;
-            };
-            let owner = &modules[binding.module];
-            let function = &owner.functions[binding.function.index()];
-            if entry {
-                function.params.is_empty()
-                    && entry_function_matches(
+        .validate(
+            &root,
+            &definitions,
+            cancel,
+            |id, entry| {
+                let instance = ConcreteFunctionIdentity {
+                    declaration: id,
+                    arguments: vec![],
+                };
+                let Some(binding) = bindings.get(&instance) else {
+                    return false;
+                };
+                let owner = &modules[binding.module];
+                let function = &owner.functions[binding.function.index()];
+                if entry {
+                    function.params.is_empty()
+                        && entry_function_matches(
+                            id,
+                            &owner.abi.public_items,
+                            &owner.abi.native_declarations,
+                            &function.semantic,
+                            &definitions,
+                        )
+                } else {
+                    public_function_matches(
                         id,
+                        &owner.identity,
                         &owner.abi.public_items,
-                        &owner.abi.native_declarations,
                         &function.semantic,
                         &definitions,
                     )
-            } else {
-                public_function_matches(
-                    id,
-                    &owner.identity,
-                    &owner.abi.public_items,
-                    &function.semantic,
-                    &definitions,
-                )
-            }
-        })
+                }
+            },
+            |export| types.validate(export).is_ok(),
+        )
         .map_err(|_| {
             error(
                 &root,
@@ -698,6 +747,8 @@ pub fn verify_program(
                 },
             )
         })?;
+    drop(types);
+    drop(export_catalog);
     let modules = modules.into_iter().map(ValidatedMirModule::seal).collect();
     Ok(VerifiedMirProgram {
         root,

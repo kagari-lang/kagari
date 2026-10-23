@@ -384,7 +384,8 @@ fn verify_graph_inner(
         return Err(invalid());
     }
     construction::verify(program, definitions, cancel)?;
-    let exports = exports::verify(program, definitions, cancel)?;
+    let scope = resources.scope(&(0..program.modules.len()).collect::<Vec<_>>(), cancel)?;
+    let exports = exports::verify(program, definitions, &scope.catalog, cancel)?;
     Ok(ProgramVerification {
         suspensions,
         exports,
@@ -414,3 +415,5 @@ mod mapping;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod type_exports;

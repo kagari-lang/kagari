@@ -1,7 +1,8 @@
 //! Compare public path languages without flattening cyclic namespace aliases.
 
+use super::types::TypeDeclarations;
 use crate::{module::VerifiedProgram, reload::ReloadValidationError};
-use kagari_bytecode::program::verified::VerifiedBytecodeProgram;
+use kagari_bytecode::{module::BytecodeModule, program::verified::VerifiedBytecodeProgram};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -11,7 +12,7 @@ use kagari_common::{
         table::{DefinitionId, DefinitionTable},
     },
 };
-use kagari_contract::exports::ProgramExports;
+use kagari_contract::exports::{ProgramExports, TypeExport};
 use kagari_types::callable::Signature;
 use std::{
     collections::{BTreeMap, HashMap},
@@ -21,6 +22,7 @@ use std::{
 #[derive(Default)]
 struct Namespace<'a> {
     functions: BTreeMap<&'a str, usize>,
+    types: BTreeMap<&'a str, TypeExport>,
     modules: BTreeMap<&'a str, usize>,
 }
 
@@ -44,11 +46,12 @@ impl<'a> Comparison<'a> {
         })
     }
 
-    fn capture(
+    fn capture<'module>(
         &mut self,
         root: &ModuleIdentity,
         exports: &'a ProgramExports,
         definitions: &DefinitionTable,
+        modules: impl Iterator<Item = &'module BytecodeModule>,
         signature: impl Fn(DefinitionId) -> Option<Signature>,
     ) -> Result<Contract, ReloadValidationError> {
         let offset = self.namespaces.len();
@@ -84,8 +87,28 @@ impl<'a> Comparison<'a> {
             let slot = *self.signatures.entry(signature).or_insert(next);
             signatures.insert(id, slot);
         }
+        let declarations = TypeDeclarations::new(modules);
         for namespace in exports.namespaces.values() {
+            let types = namespace
+                .types
+                .iter()
+                .map(|(name, export)| {
+                    let target = declarations.normalize(export, definitions)?;
+                    let target = DefinitionMetadata::checked(
+                        definitions.clone(),
+                        target,
+                        &CancellationToken::default(),
+                    )
+                    .and_then(|value| {
+                        value.import_into(&self.context, &CancellationToken::default())
+                    })
+                    .map_err(|_| invalid())?
+                    .into_records();
+                    Ok((name.as_str(), target))
+                })
+                .collect::<Result<_, ReloadValidationError>>()?;
             self.namespaces.push(Namespace {
+                types,
                 functions: namespace
                     .functions
                     .iter()
@@ -132,7 +155,10 @@ impl<'a> Comparison<'a> {
             }
             let a = &self.namespaces[left];
             let b = &self.namespaces[right];
-            if a.functions != b.functions || !a.modules.keys().eq(b.modules.keys()) {
+            if a.functions != b.functions
+                || a.types != b.types
+                || !a.modules.keys().eq(b.modules.keys())
+            {
                 return Err(invalid());
             }
             sets.join(left, right);
@@ -184,12 +210,14 @@ pub(super) fn runtime(
         &active.modules()[active.root().index()].identity,
         active.export_graph(),
         active.definitions(),
+        active.modules().iter().map(|module| module.as_ref()),
         |id| active.export_signature(id),
     )?;
     let right = comparison.capture(
         &candidate.modules()[candidate.root().index()].identity,
         candidate.export_graph(),
         candidate.definitions(),
+        candidate.modules().iter().map(|module| module.as_ref()),
         |id| candidate.export_signature(id),
     )?;
     comparison.compare(left, right)
@@ -204,6 +232,7 @@ pub(super) fn bytecode(
         &active.modules()[active.root().index()].identity,
         active.export_graph(),
         active.definitions(),
+        active.modules().iter().map(|module| module.as_ref()),
         |id| active.export_signature(id),
     )?;
     let program = candidate.program();
@@ -211,6 +240,7 @@ pub(super) fn bytecode(
         &program.modules[program.root.index()].identity,
         &program.exports,
         candidate.definitions(),
+        program.modules.iter(),
         |id| {
             let target = candidate.export_targets().get(&id)?;
             let function =

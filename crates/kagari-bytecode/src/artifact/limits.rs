@@ -23,7 +23,7 @@ use kagari_contract::{
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{
-        AssociatedTypeDef, FnDecl, path::HostPathSegmentDeclaration,
+        AssociatedTypeDef, FnDecl, TypeDef, path::HostPathSegmentDeclaration,
         requirement::NativeCallableRequirement,
     },
     ty::{GenericBound, Ty},
@@ -196,6 +196,11 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
             return false;
         }
     }
+    for declaration in &module.private_types {
+        if !add_type_definition(&declaration.definition, &mut add) {
+            return false;
+        }
+    }
     for item in &module.public_items {
         let valid = match item {
             PublicItem::Function(item) => {
@@ -206,17 +211,7 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
                     && add_function_contract(item, &mut add)
             }
             PublicItem::Const(_) | PublicItem::Static(_) => true,
-            PublicItem::Type(item) => {
-                add(item.generic_params.len())
-                    && add(item.bounds.len())
-                    && add_abi_bounds(&item.bounds, &mut add)
-                    && add(item.fields.len())
-                    && add(item.variants.len())
-                    && item
-                        .variants
-                        .iter()
-                        .all(|variant| add(variant.payload.len()))
-            }
+            PublicItem::Type(item) => add_type_definition(item, &mut add),
             PublicItem::Trait(item) => {
                 if !add(item.associated_consts.len()) {
                     return false;
@@ -367,6 +362,24 @@ pub(super) fn function_abi_type_limit(function: &FnDecl) -> bool {
     bounds_type_limit(&function.bounds)
 }
 
+fn add_type_definition(ty: &TypeDef, add: &mut impl FnMut(usize) -> bool) -> bool {
+    add(ty.generic_params.len())
+        && add(ty.bounds.len())
+        && add_abi_bounds(&ty.bounds, add)
+        && add(ty.fields.len())
+        && add(ty.variants.len())
+        && ty.variants.iter().all(|variant| add(variant.payload.len()))
+}
+
+fn type_definition_limit(ty: &TypeDef) -> bool {
+    bounds_type_limit(&ty.bounds)
+        && ty.fields.iter().all(|field| field.ty.within_wire_limits())
+        && ty
+            .variants
+            .iter()
+            .all(|variant| variant.payload.iter().all(Ty::within_wire_limits))
+}
+
 pub(super) fn module_abi_type_limit(
     module: &BytecodeModule,
     definitions: &DefinitionTable,
@@ -467,6 +480,10 @@ pub(super) fn module_abi_type_limit(
             .module_slots
             .iter()
             .all(|slot| valid(&slot.contract.ty))
+        && module
+            .private_types
+            .iter()
+            .all(|declaration| type_definition_limit(&declaration.definition))
         && module.public_items.iter().all(|item| match item {
             PublicItem::Function(item) => {
                 function_abi_type_limit(item)
@@ -475,14 +492,7 @@ pub(super) fn module_abi_type_limit(
             }
             PublicItem::Const(item) => valid(&item.ty),
             PublicItem::Static(item) => valid(&item.ty),
-            PublicItem::Type(item) => {
-                bounds_type_limit(&item.bounds)
-                    && item.fields.iter().all(|field| valid(&field.ty))
-                    && item
-                        .variants
-                        .iter()
-                        .all(|variant| variant.payload.iter().all(&valid))
-            }
+            PublicItem::Type(item) => type_definition_limit(item),
             PublicItem::Trait(item) => {
                 associated_type_limit(&item.associated_types)
                     && bounds_type_limit(&item.bounds)
@@ -560,6 +570,7 @@ pub(super) fn program_count_limit(
                 module.paths.len(),
                 module.function_table.len(),
                 module.public_items.len(),
+                module.private_types.len(),
                 module.trait_contracts.len(),
                 module.trait_references.len(),
             ]

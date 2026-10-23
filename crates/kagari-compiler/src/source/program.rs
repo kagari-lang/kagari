@@ -69,6 +69,16 @@ pub fn lower_program_to_mir(
         .find(|module| *module.lowered.source.module_identity() == root)
         .expect("checked root module")
         .aggregates;
+    let exports =
+        exports::lower(program, &options.cancel).map_err(|error| SourceProgramError::Lowering {
+            module: Box::new(root.clone()),
+            error: error.into(),
+        })?;
+    let layout_requests = exports::layout_requests(&exports, &context.snapshot(), &options.cancel)
+        .map_err(|error| SourceProgramError::Lowering {
+            module: Box::new(root.clone()),
+            error: error.into(),
+        })?;
     let mut requests: HashMap<ModuleHandle, Vec<ConcreteFunctionIdentity>> = HashMap::new();
     let mut seen = HashSet::new();
     loop {
@@ -80,21 +90,21 @@ pub fn lower_program_to_mir(
         let mut remaining = options.clone();
         for module in &authoring_modules {
             let identity = module.lowered.source.module_identity();
-            let demanded = requests
-                .get(
-                    &module
-                        .names
-                        .catalog
-                        .definitions()
-                        .lookup_module(identity)
-                        .expect("checked source module"),
-                )
-                .map(Vec::as_slice)
-                .unwrap_or_default();
+            let handle = module
+                .names
+                .catalog
+                .definitions()
+                .lookup_module(identity)
+                .expect("checked source module");
+            let demanded = requests.get(&handle).map(Vec::as_slice).unwrap_or_default();
             let lowered = lower::lower_to_mir_with_requests(
                 module,
                 &remaining,
                 demanded,
+                layout_requests
+                    .get(&handle)
+                    .map(Vec::as_slice)
+                    .unwrap_or_default(),
                 &authoring_modules,
                 catalog,
                 &context,
@@ -469,12 +479,6 @@ pub fn lower_program_to_mir(
             module.dependencies = dependencies.into_iter().collect();
         }
         if !changed {
-            let exports = exports::lower(program, &options.cancel).map_err(|error| {
-                SourceProgramError::Lowering {
-                    module: Box::new(root.clone()),
-                    error: error.into(),
-                }
-            })?;
             return verify_program(
                 MirProgram {
                     root,

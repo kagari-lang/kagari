@@ -1,7 +1,9 @@
 #[cfg(test)]
 mod host_tests;
 
-use crate::source::{lower::statics::static_contract, types::lower_native_kind};
+mod type_definitions;
+
+use crate::source::lower::statics::static_contract;
 use kagari_common::identity::{DefinitionKind, table::DefinitionTable};
 use kagari_contract::types::{
     InterfaceTable, ModuleContract, PublicItem, TraitContract, inherent::InherentTable,
@@ -15,7 +17,7 @@ use kagari_hir::{
         behavior::{GenericParam as HirGenericParam, Impl},
         function::{Function, FunctionKind},
     },
-    native::{NativeBinding, NativeTypeKind},
+    native::NativeBinding,
     resolver::resolved::ResolvedName,
     typeck::{FunctionImplementation, GenericBounds, scalar::ScalarValue, table::CallTarget},
     types::{
@@ -26,8 +28,8 @@ use kagari_hir::{
 use kagari_types::{
     callable::{CallableImplementation, NativeDefaultApplication},
     declaration::{
-        AssociatedConstDef, AssociatedTypeDef, AssociatedTypeFamily, ConstDef, FieldDef, FnDecl,
-        NativeDeclaration, Param, TraitDef, TypeDef, TypeDefKind, VariantDef,
+        AssociatedConstDef, AssociatedTypeDef, AssociatedTypeFamily, ConstDef, FnDecl,
+        NativeDeclaration, Param, TraitDef,
     },
     scalar::IntegerType,
     ty::{GenericBound, GenericParam, NominalTy, Ty},
@@ -62,6 +64,7 @@ fn const_abi_value(value: &ScalarValue, definitions: &DefinitionTable) -> String
 pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
     let hir_module = &module.lowered.module;
     let mut public_items = Vec::new();
+    let mut private_types = Vec::new();
     let mut trait_contracts = Vec::new();
 
     for item in &hir_module.items {
@@ -102,101 +105,13 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                     value,
                 }));
             }
-            Item::Struct(id) => {
-                let Some(struct_item) = hir_module.structs.iter().find(|struct_item| {
-                    struct_item.id == id && struct_item.visibility == Visibility::Public
-                }) else {
-                    continue;
-                };
-                public_items.push(PublicItem::Type(TypeDef {
-                    name: struct_item.name.clone(),
-                    kind: TypeDefKind::Struct,
-                    generic_params: generic_param_abi(module, &struct_item.generic_params),
-                    bounds: parameter_bounds(module, &struct_item.generic_params),
-                    fields: struct_item
-                        .fields
-                        .iter()
-                        .map(|field| FieldDef {
-                            host_policy: None,
-                            visibility: field.visibility,
-                            name: field.name.clone(),
-                            ty: abi_type(
-                                module,
-                                &module
-                                    .typed
-                                    .type_table
-                                    .field_type(field.id)
-                                    .expect("checked field type must exist"),
-                            ),
-                            mutable: field.writeability.is_var(),
-                        })
-                        .collect(),
-                    variants: Vec::new(),
-                }));
-            }
-            Item::OpaqueType(id) => {
-                let Some(item) = hir_module
-                    .opaque_types
-                    .iter()
-                    .find(|item| item.id == id && item.visibility == Visibility::Public)
-                else {
-                    continue;
-                };
-                let representation = module
-                    .declarations
-                    .native_type(id)
-                    .expect("checked native type representation");
-                if let NativeTypeKind::Host { definition, .. } = representation {
-                    // Manual external fields are shared declaration facts, not GC
-                    // field syntax or a Rust layout inferred from this source view.
-                    public_items.push(PublicItem::Type(definition.as_ref().clone()));
-                    continue;
+            Item::Struct(_) | Item::Enum(_) | Item::OpaqueType(_) => {
+                let (visibility, declaration) = type_definitions::lower(module, *item);
+                if visibility == Visibility::Public {
+                    public_items.push(PublicItem::Type(declaration.definition));
+                } else {
+                    private_types.push(declaration);
                 }
-                public_items.push(PublicItem::Type(TypeDef {
-                    name: item.name.clone(),
-                    kind: lower_native_kind(representation),
-                    generic_params: generic_param_abi(module, &item.generic_params),
-                    bounds: parameter_bounds(module, &item.generic_params),
-                    fields: Vec::new(),
-                    variants: Vec::new(),
-                }));
-            }
-            Item::Enum(id) => {
-                let Some(enum_item) = hir_module.enums.iter().find(|enum_item| {
-                    enum_item.id == id && enum_item.visibility == Visibility::Public
-                }) else {
-                    continue;
-                };
-                public_items.push(PublicItem::Type(TypeDef {
-                    name: enum_item.name.clone(),
-                    kind: TypeDefKind::Enum,
-                    generic_params: generic_param_abi(module, &enum_item.generic_params),
-                    bounds: parameter_bounds(module, &enum_item.generic_params),
-                    fields: Vec::new(),
-                    variants: enum_item
-                        .variants
-                        .iter()
-                        .map(|variant| VariantDef {
-                            reports_failure: module.lowered.registered_enum_failure(variant.id),
-                            name: variant.name.clone(),
-                            payload: variant
-                                .payload
-                                .iter()
-                                .map(|ty| {
-                                    abi_type(
-                                        module,
-                                        &module
-                                            .typed
-                                            .type_table
-                                            .type_ref(*ty)
-                                            .expect("checked enum payload type must exist")
-                                            .ty,
-                                    )
-                                })
-                                .collect(),
-                        })
-                        .collect(),
-                }));
             }
             Item::Trait(id) => {
                 let Some(trait_item) = hir_module
@@ -615,6 +530,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
         trait_references,
         native_declarations,
         public_items,
+        private_types,
         trait_contracts,
     }
 }

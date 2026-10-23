@@ -1,4 +1,6 @@
 //! Validate serialized semantic types independently of display strings.
+
+pub mod private_types;
 use crate::{
     layout::LayoutValidationError,
     types::{InterfaceTable, PublicItem, TraitContract},

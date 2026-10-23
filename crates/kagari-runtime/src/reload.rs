@@ -8,6 +8,7 @@ use kagari_bytecode::{
     verifier::BytecodeVerificationError,
 };
 mod exports;
+mod types;
 
 use kagari_common::identity::{
     map::DefinitionContext, mapping::DefinitionMappingError, table::DefinitionTable,

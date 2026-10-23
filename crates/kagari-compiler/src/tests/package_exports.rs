@@ -8,16 +8,33 @@ use kagari_bytecode::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, ModuleIdentity, map::DefinitionContext, table::DefinitionId},
+    identity::{
+        DefinitionKind, ModuleIdentity, PackageId,
+        map::DefinitionContext,
+        metadata::DefinitionMetadata,
+        table::{DefinitionId, DefinitionTable},
+    },
 };
-use kagari_contract::{exports::ExportNamespace, types::PublicItem};
+use kagari_contract::{
+    exports::{ExportNamespace, TypeExport},
+    types::PublicItem,
+};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_mir::{
     codec::{decode_program, encode_program},
     program::{ProgramErrorKind, VerifiedMirProgram, records::MirProgram, verify_program},
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_types::{scalar::BuiltinType, ty::Ty};
+use kagari_types::{
+    declaration::{
+        TypeDef, TypeDefKind,
+        host::{HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess},
+        module::ModuleDecl,
+    },
+    scalar::BuiltinType,
+    ty::Ty,
+};
+use std::sync::Arc;
 
 fn compiled() -> VerifiedMirProgram {
     let mut source = SourceDatabase::default();
@@ -29,9 +46,23 @@ fn compiled() -> VerifiedMirProgram {
             pub fn calculate(value: i32) -> i32 { value }
             fn secret() -> i32 { 2 }
             pub fn main() -> i32 { 3 }
+            pub struct User { pub val value: i32 }
+            pub struct Cell<T> { val value: T }
+            pub type IntCell = Cell<i32>;
+            pub enum Packet<T> { Data(T) }
+            pub trait Marker {}
+            pub type Alias = User;
+            pub type Erased<T> = User;
         }
         pub mod api { pub fn tick() -> i32 { 4 } }
         pub use crate::hidden::calculate as damage;
+        pub use crate::hidden::{User as Model, Packet, Marker, Alias, IntCell, Erased};
+        pub use host::api::Token;
+        pub type Count = i32;
+        pub type Pair = (i32, bool);
+        pub type Message = hidden::Packet<i32>;
+        pub type Interface = hidden::Marker;
+        pub type Handle = Token;
         pub use crate as again;
         pub fn api() -> bool { true }
         pub fn generic<T>(value: T) -> T { value }
@@ -42,7 +73,29 @@ fn compiled() -> VerifiedMirProgram {
             SourceLayer::Base,
         )
         .unwrap();
+    let context = DefinitionContext::new().unwrap();
+    let mut native = ModuleDecl::new(ModuleIdentity {
+        package: PackageId("host".into()),
+        path: vec!["api".into()],
+    });
+    native.types.push(TypeDef {
+        name: "Token".into(),
+        kind: TypeDefKind::Host(HostTypePolicy {
+            ownership: HostTypeOwnership::Opaque,
+            reflection: HostReflectionPolicy::Hidden,
+            path_access: PathAccess::None,
+        }),
+        generic_params: vec![],
+        bounds: vec![],
+        fields: vec![],
+        variants: vec![],
+    });
+    native.collect_definitions(&context).unwrap();
+    let native = Arc::new(
+        DefinitionMetadata::checked(context.snapshot(), native, &Default::default()).unwrap(),
+    );
     let mut analysis = AnalysisDatabase::default();
+    analysis.set_native_modules(vec![native]);
     let checked = analysis
         .snapshot(source.snapshot(), &Default::default())
         .unwrap()
@@ -55,7 +108,9 @@ fn function(program: &MirProgram, module: &[&str], name: &str) -> DefinitionId {
     program
         .modules
         .iter()
-        .find(|owner| owner.identity.path == module)
+        .find(|owner| {
+            owner.identity.package == program.root.package && owner.identity.path == module
+        })
         .unwrap()
         .functions
         .iter()
@@ -63,6 +118,65 @@ fn function(program: &MirProgram, module: &[&str], name: &str) -> DefinitionId {
         .unwrap()
         .instance
         .declaration
+}
+
+fn assert_type_exports(namespace: &ExportNamespace, definitions: &DefinitionTable) {
+    let TypeExport::Declaration(model) = &namespace.types["Model"] else {
+        panic!("public struct declaration")
+    };
+    let TypeExport::Closed(Ty::Struct(alias)) = &namespace.types["Alias"] else {
+        panic!("closed struct alias")
+    };
+    assert_eq!(*model, alias.declaration);
+    assert!(alias.arguments.is_empty());
+    let model = definitions.resolve(*model).unwrap();
+    assert_eq!(model.module().path, ["hidden"]);
+    assert_eq!(model.last().unwrap().name, "User");
+    let TypeExport::Closed(Ty::Struct(cell)) = &namespace.types["IntCell"] else {
+        panic!("unused closed generic struct alias")
+    };
+    assert_eq!(cell.arguments, [Ty::Builtin(BuiltinType::I32)]);
+    let declaration = definitions.resolve(cell.declaration).unwrap();
+    assert_eq!(declaration.module().path, ["hidden"]);
+    assert_eq!(declaration.last().unwrap().name, "Cell");
+    let TypeExport::Declaration(packet) = &namespace.types["Packet"] else {
+        panic!("unused public enum")
+    };
+    let TypeExport::Closed(Ty::Enum(message)) = &namespace.types["Message"] else {
+        panic!("closed enum alias")
+    };
+    assert_eq!(*packet, message.declaration);
+    assert_eq!(message.arguments, [Ty::Builtin(BuiltinType::I32)]);
+    let TypeExport::Declaration(marker) = &namespace.types["Marker"] else {
+        panic!("unused public trait")
+    };
+    let TypeExport::Closed(Ty::Trait(interface)) = &namespace.types["Interface"] else {
+        panic!("closed interface alias")
+    };
+    assert_eq!(*marker, interface.declaration);
+    let TypeExport::Declaration(token) = &namespace.types["Token"] else {
+        panic!("unused opaque declaration")
+    };
+    assert_eq!(
+        namespace.types["Handle"],
+        TypeExport::Closed(Ty::Host(*token))
+    );
+    assert_eq!(
+        namespace.types["Count"],
+        TypeExport::Closed(Ty::Builtin(BuiltinType::I32))
+    );
+    assert_eq!(
+        namespace.types["Pair"],
+        TypeExport::Closed(Ty::Tuple(vec![
+            Ty::Builtin(BuiltinType::I32),
+            Ty::Builtin(BuiltinType::Bool)
+        ]))
+    );
+    assert_eq!(
+        namespace.types["Erased"],
+        TypeExport::OpenAlias { arity: 1 }
+    );
+    assert!(!namespace.modules.contains_key("hidden"));
 }
 
 #[test]
@@ -81,6 +195,22 @@ fn source_free_exports_preserve_aliases_cycles_and_separate_entry() {
         .unwrap()
         .into_records();
     let root = &editable.root;
+    assert_type_exports(&editable.exports.namespaces[root], &context.snapshot());
+    let hidden = editable
+        .modules
+        .iter()
+        .find(|module| module.identity.path == ["hidden"])
+        .unwrap();
+    for name in ["User", "Packet", "Marker"] {
+        assert!(
+            hidden
+                .abi
+                .public_items
+                .iter()
+                .any(|item| item.name() == name)
+        );
+    }
+    assert!(!editable.exports.namespaces.contains_key(&hidden.identity));
     let damage = function(&editable, &["hidden"], "calculate");
     assert_eq!(editable.exports.function(root, "damage"), Some(damage));
     assert_eq!(
@@ -141,6 +271,22 @@ fn source_free_exports_preserve_aliases_cycles_and_separate_entry() {
         .into_bytecode();
     let program = verified.program();
     let root = &program.modules[program.root.index()].identity;
+    assert_type_exports(&program.exports.namespaces[root], &fresh.snapshot());
+    let hidden = program
+        .modules
+        .iter()
+        .find(|module| module.identity.path == ["hidden"])
+        .unwrap();
+    for name in ["User", "Packet", "Marker"] {
+        assert!(hidden.public_items.iter().any(|item| item.name() == name));
+    }
+    assert!(!program.exports.namespaces.contains_key(&hidden.identity));
+    let opaque = program
+        .modules
+        .iter()
+        .find(|module| module.identity.package.0 == "host")
+        .unwrap();
+    assert!(opaque.public_items.iter().any(|item| matches!(item, PublicItem::Type(ty) if ty.name == "Token" && matches!(ty.kind, TypeDefKind::Host(_)))));
     for (path, name) in [
         ("damage", "calculate"),
         ("again::damage", "calculate"),

@@ -73,7 +73,7 @@ pub struct CheckedProgram {
 }
 
 impl CheckedProgram {
-    /// Public namespace/function paths and the separate root CLI entry capability.
+    /// Public namespace, function and type bindings, plus the separate root CLI entry.
     pub fn exports(&self) -> &ProgramExports {
         &self.exports
     }

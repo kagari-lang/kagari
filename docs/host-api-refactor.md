@@ -13,9 +13,12 @@ handoff are recorded below. HM00 design acceptance is complete. The user resolve
 UP00's transitive-selection gate by freezing published key Hash/Eq, static
 initializer expressions and their transitive dependencies during compatible update.
 The [UP plan](update-model-design.md#resumed-up00-audit-at-bbe30666) owns that policy
-and its implementation. The roadmap is aligned for the joint HM00+UP00 design
-checkpoint; this document claims design completion only, not implementation.
-HM01-HM04 and UP implementation phases have not started; MS remains unstarted.
+and its implementation. The joint HM00+UP00 design checkpoint was committed as
+`bbfc0af6`. HM01 is locally complete, including the private-type evidence repair
+and post-repair validation; no carried errors remain. Next is UP01. Full CI remains
+pending. HM02-HM04 and UP implementation remain
+unstarted; MS remains unstarted. The public API still uses `LoadedModule` and pinned
+calls until HM02/UP02; HM01 delivers source-free type exports, not live dispatch.
 Originally requested against `67d9e36f`, this document owns HM00-HM04, decisions,
 acceptance and progress for the [Host Program and module lookup finding](review.md#host-program-and-module-lookup).
 
@@ -345,7 +348,8 @@ paths and the explicit HM00 handoff, not a second execution semantic implementat
 
 Decision at `bbe30666`: add `types: BTreeMap<String, TypeExport>` to the existing
 contract `ExportNamespace`. Use the following semantic sum; names belong to the
-map, not to duplicate leaf fields. This is a design sketch, not implemented Rust:
+map, not to duplicate leaf fields. HM01 implements this semantic schema; the
+lasting artifact contract is [public type exports](spec/artifacts.md#public-type-exports):
 
 ```text
 TypeExport = Declaration(DefinitionId)
@@ -396,8 +400,8 @@ source name resolution. Type and module names occupy the same source namespace:
 reject a type/module spelling collision in decoded graphs too. Functions remain
 an independent namespace.
 
-**Source-free authority and binder proof.** HM01 must extend the contract/MIR/
-bytecode export validators, not trust a record because it decoded:
+**Source-free authority and binder proof.** HM01 extends the contract/MIR/bytecode
+export validators; decoding alone grants no authority:
 
 1. Validate graph reachability, duplicate names, total export limits and identity
    scope as today. Count type leaves in `MAX_EXPORT_RECORDS`; bound marker arity
@@ -421,8 +425,8 @@ bytecode export validators, not trust a record because it decoded:
    accepted by `types_in_scope`. Concrete layouts must match canonical declaration
    plus all ordered arguments. Reuse linked proof checks for required bounds and
    field/layout agreement. An unrelated function's generic environment cannot prove
-   a public struct application. HM01 adds this export proof around existing helpers;
-   their availability is not evidence that this check already exists.
+   a public struct application. HM01 adds this export proof around existing helpers
+   with graph-local indexes, bounded work and cancellation.
 4. A `Closed` target has an empty lexical parameter environment and must pass both
    bounded type/declaration validation and concreteness checks. Reject parameters,
    `SelfType`, unresolved projections, wrong nominal kinds/arities and invalid
@@ -464,7 +468,10 @@ no layout or template; UP01's separate frozen inventory remains mandatory.
 seeds unused nongeneric structs; generic layouts come from signatures, native/
 interface requirements and reachable expression roots. HM01 adds each distinct
 closed exported script-struct application as an explicit root before layout
-collection, routed to its supplying source module through Program lowering.
+collection, routed to its supplying source module through Program lowering. Nested
+struct applications and enum payload layouts needed by structural bound proofs
+also contribute roots, including inside non-object aliases; that evidence does
+not grant ObjectType authority to enums or other non-object types.
 Collect these demands before per-module layout queues are finalized, including
 aliases exported by one module whose canonical target is in another; propagate
 transitive field/application demands through the existing bounded work queue.
@@ -483,8 +490,8 @@ its source spelling with another alias of `Cell<i32>` preserves the contract;
 `Cell<bool>` or a structurally identical `OtherCell<i32>` does not. The private
 `hidden` module remains un-navigable and private fields remain inaccessible.
 
-**Reload.** Add type labels to the existing bounded cyclic graph equivalence check
-in HM01. Import identities/types into its comparison context. Compare supported
+**Reload.** HM01 adds type labels to the existing bounded cyclic graph equivalence
+check and imports identities/types into its comparison context. Compare supported
 leaves by normalized semantic target/application, so a nongeneric declaration and
 an equivalent closed alias compare equal; open nominal declarations retain canonical
 owner/binder contract, non-object closed aliases retain their canonical `Ty`, and
@@ -745,10 +752,10 @@ handoff. No speedup is claimed; new persistent caches require concrete justifica
 
 The [transparent generic alias prerequisite](#transparent-generic-alias-prerequisite)
 is locally complete. The newly reauthorized order is joint HM00 + UP00, then HM01,
-UP01, HM02, UP02, HM03, HM04, UP03, UP04 and UP05. HM00 design is complete and the
-user has resolved the transitive-selection policy. Parent records the joint docs
-checkpoint before HM01; no implementation acceptance follows from this design.
-The completed joint design checkpoint has both Plan-Phase trailers;
+UP01, HM02, UP02, HM03, HM04, UP03, UP04 and UP05. The joint design checkpoint is
+committed as `bbfc0af6`; HM01 is locally complete after private-type evidence
+integration and validation. UP01 is next. The joint design commit has both
+Plan-Phase trailers;
 subsequent completed phases have their own coherent commits. MS remains unstarted.
 Record each phase in its existing owning plan, not a third integration ledger.
 Alias completion alone did not complete HM00/UP00; the resumed design audit and
@@ -796,6 +803,10 @@ The required separation is recorded: UP01 precedes HM02, and UP02 precedes HM03;
 no dispatch implementation is hidden in HM.
 
 ### HM01 — Checked type exports through artifacts and reload
+
+Status: locally complete, including private-type evidence and post-repair checks;
+see the [HM01 ledger](#hm01-integration-and-up01-handoff). Full CI remains pending.
+Public handle and dispatch migration remain HM02/UP02 work.
 
 - Extend HIR export collection, compiler lowering, contract records, mapping,
   codecs, MIR/bytecode verification and required closed-layout demand together.
@@ -1024,20 +1035,68 @@ retain their existing review/plan owners.
   transitive-selection gate with unconditional protection of published key Hash/Eq,
   static initializer expressions and transitive dependencies. Function-alias
   retarget semantics are explicit below. Design acceptance only; UP00's own checklist
-  stays in its owning plan. Parent publishes the joint docs commit with both trailers.
-- [ ] HM01 — Type export pipeline, independent validation and reload comparison.
+  stays in its owning plan. Joint HM00+UP00 committed as `bbfc0af6`.
+- [x] HM01 — Type export pipeline, private declaration evidence, layout demand and
+  reload comparison locally complete. Post-repair focused tests and all local
+  checks passed; no carried errors. Next: UP01. Full CI remains pending.
 - [ ] HM02 — Installed Program/module capability separation and consumer migration.
 - [ ] HM03 — Relative module/function/type binding and ordinary examples.
 - [ ] HM04 — Integration, lasting documentation and handoff.
 
-No HM implementation, tests, build or performance acceptance is claimed. No code
-was changed and no implementation failure was introduced by this audit. The HM
-representation/type-export decisions below are resolved, not alternative proposals.
-HM00 design is complete; UP source/state contracts remain owned by the UP plan,
-and the parent owns the joint docs commit. All HM/UP implementation phases remain
-unstarted. The language prerequisite is locally complete. MS remains unstarted.
-The older audit and alias ledger below are historical evidence, not current pauses
-or new authorization gates.
+HM00/UP00 design is committed; HM01 is locally complete as recorded below.
+The public API remains `LoadedModule` with pinned calls: live Program/Module handles,
+relative host type binding and current-call dispatch are not implemented by HM01.
+UP01 owns the next frozen-inventory/protected-dependency/stable-callable checkpoint;
+HM02 follows it, and UP02 owns dispatch. MS remains unstarted. Older audits and the
+alias ledger are historical evidence, not current pauses or authorization gates.
+
+### HM01 integration and UP01 handoff
+
+Implemented: checked HIR type exports; canonical declaration/closed-alias records
+and rejection-only open aliases; identity mapping and bounded wire encoding;
+independent MIR/KBC authority, binder, nested-bound and layout proof; export-only
+cross-module struct/enum proof-layout demand; normalized type-leaf reload comparison.
+The lasting wire/verification contract is in
+[artifacts](spec/artifacts.md#public-type-exports). No public handle or dispatch
+migration, runtime specialization, ABI/version bump or compatibility reader was added.
+
+Local evidence reported by the implementation/validation owner:
+
+- Earlier contract export wire tests: 4 passed; retained as unaffected evidence.
+- Post-repair source-free bytecode `type_exports`: 10 passed; MIR type-export test:
+  1 passed; private-bound artifact test: 1 passed; MIR private-enum codec: 1 passed.
+- Compiler: 9 selected tests passed, including `Cell<Hidden>`, private bounds and
+  portable round-trip coverage. Contract applications: 6 passed.
+- Parent reran runtime `module::tests::package_exports`: 6 passed, and SDK
+  `portable_artifact_executes_without_source_compilation`: 1 passed with source
+  enabled to regenerate the artifact, then 1 with `--no-default-features`.
+- Post-repair `cargo clippy --workspace --all-targets -- -D warnings` passed;
+  structure check: 1522 files, zero violations; formatting and diff checks passed.
+
+Resolved transient failures: a missing helper-module declaration and a test using
+converter identity without the required admission. Review repairs cover nested
+application bounds, private-supertrait proof dependencies without public exposure,
+indexed bounded validation/cancellation and enum payload proof-layout roots.
+
+The final `Cell<Hidden>` failure is resolved: compiler lowering emits
+`private_types: Vec<TypeDeclaration>` separately from `public_items`; contract
+mapping/bounded codecs and MIR/KBC records/verifiers retain and validate full
+canonical declaration/binder/bound evidence for dependencies. Private evidence
+never grants public export authority, and unknown constraints are not skipped.
+Private-bound and source-free round-trip tests cover the repaired boundary;
+affected fixtures were regenerated. No carried HM01 errors remain. This finite
+metadata addition is not UP01's complete frozen inventory.
+
+This selection covers source lowering, portable/source-free authority, bounded
+verification and reload compatibility without a workspace test sweep. HM01 local
+acceptance is complete. Full-workspace tests and the complete feature/backend/
+platform matrix remain CI-only and unrun; local results are not CI acceptance.
+
+Next, UP01 reuses these checked exports but supplies the separate complete frozen
+inventory, protected Hash/Eq/initializer dependency evidence and stable-callable
+application coverage. Export metadata is not that inventory. Existing function
+alias retarget policy and private root-entry behavior are unchanged; HM01 does not
+implement protected-update enforcement or current-call selection.
 
 ### HM00 audit at bbe30666: implementation slices and parent handoff
 
@@ -1049,8 +1108,8 @@ clean at audit start. Only this document is edited. No HM or MS code was impleme
 
 The schema, installation model and HM API/errors above complete HM00's design
 checkpoint. The user-resolved protection rule removes the former semantic blocker;
-UP owns source/state contracts and the parent owns roadmap updates and the joint
-docs commit. The implementation handoff is finite:
+The joint docs checkpoint was committed as `bbfc0af6`; UP owns source/state
+contracts. The implementation handoff remains finite:
 
 - UP01 owns full frozen source/declaration inventory, including open alias bounds/
   targets not represented by HM's rejection marker; it also owns retained namespace
@@ -1072,7 +1131,7 @@ permission to commit a broken cross-crate schema):
 
 | Checkpoint | Ordered implementation work | Selected contract evidence |
 | --- | --- | --- |
-| HM01, after parent joint HM00+UP00 commit | Add contract type leaf/mapping/bounded wire and normalized comparison; collect checked HIR exports; route closed export layout roots before lowering; extend MIR/KBC verification and identity/fingerprint traversal; regenerate affected fixtures once | Extend compiler `tests::package_exports` round-trip/forgery tests, contract `exports::wire::tests`, runtime `module::tests::package_exports`; exercise one decoded artifact without source |
+| HM01 (locally complete) | Add contract type leaf/mapping/bounded wire and normalized comparison; collect checked HIR exports; route closed export layout roots before lowering; extend MIR/KBC verification and identity/fingerprint traversal; regenerate affected fixtures once | Extend compiler `tests::package_exports` round-trip/forgery tests, contract `exports::wire::tests`, runtime `module::tests::package_exports`; exercise one decoded artifact without source |
 | UP01 | Frozen inventory, protected transitive dependencies, stable target/application evidence and the continuity/alias-retarget rules above | UP-owned selections; no dispatch migration yet |
 | HM02 | Separate `ExecutableModule` from live Program/Module; replace name-key authority throughout staging/current roots/collection/epoch allocation; install current cell and close invalidation; carry installation identity through type/static admission; migrate SDK/core/VM/native/CLI entry and handle consumers | Runtime export/staging/retention cases, same-label independent loads and cross-installation rejection, SDK runtime transfer and one real native entry |
 | UP02 | Current dispatch and serialized publication with common protected-dependency rejection; source Update/inspection integration using that installation | UP-owned evidence, including retained work, reentrant rejection and no alternate old-version call domain |

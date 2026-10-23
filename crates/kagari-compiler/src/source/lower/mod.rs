@@ -116,6 +116,7 @@ pub fn lower_to_mir(
         &module,
         options,
         &[],
+        &[],
         slice::from_ref(&module),
         &module.aggregates,
         &context,
@@ -126,6 +127,7 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
     module: &'a AnalyzedModule,
     options: &'a MirLoweringOptions,
     requests: &[ConcreteFunctionIdentity],
+    layout_requests: &[Ty],
     modules: &'a [AnalyzedModule],
     catalog: &'a AggregateCatalog,
     context: &'a DefinitionContext,
@@ -133,6 +135,12 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
     identity::collect_language(context, &options.cancel)?;
     let mut planner = InstancePlanner::new(module, options, modules, catalog, context);
     planner.check()?;
+    for ty in layout_requests {
+        planner.check()?;
+        planner
+            .layout_roots
+            .push((raise_type(ty), Default::default()));
+    }
     planner.enqueue_statics()?;
     for function in &module.typed.functions {
         if matches!(

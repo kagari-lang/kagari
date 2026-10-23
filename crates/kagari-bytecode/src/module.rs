@@ -50,6 +50,8 @@ pub struct BytecodeModule {
     pub paths: PathTable,
     pub function_table: FunctionTable,
     pub public_items: PublicItemTable,
+    /// Module-owned private nominal proof metadata, never public export authority.
+    pub private_types: Vec<TypeDeclaration>,
     /// Exact foreign source requirements; these do not define or export a trait.
     pub trait_references: Vec<TraitContract>,
     pub trait_contracts: Vec<TraitContract>,

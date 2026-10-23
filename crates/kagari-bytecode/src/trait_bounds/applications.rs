@@ -31,6 +31,13 @@ pub(super) fn validate(
         |id| {
             closure.iter().find_map(|owner| {
                 type_contract(&owner.identity, &owner.public_items, id, definitions)
+                    .or_else(|| {
+                        owner
+                            .private_types
+                            .iter()
+                            .find(|record| &record.declaration == id)
+                            .map(|record| &record.definition)
+                    })
                     .map(|record| (record.kind, record.generic_params.len()))
                     .or_else(|| {
                         owner
@@ -53,6 +60,7 @@ pub(super) fn validate(
         &validator,
         &module.public_items,
         &module.trait_contracts,
+        &module.private_types,
         cancel,
         definitions,
     )?;

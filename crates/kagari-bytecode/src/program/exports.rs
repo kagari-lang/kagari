@@ -10,8 +10,12 @@ use kagari_common::identity::{
     table::{DefinitionId, DefinitionTable},
 };
 use kagari_contract::{
-    exports::{entry_function_matches, public_function_matches},
+    exports::{
+        entry_function_matches, public_function_matches,
+        type_validation::{TypeExportModule, TypeExportValidator},
+    },
     ids::FunctionRef,
+    types::proofs::ProofCatalog,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -25,16 +29,28 @@ pub struct ExportTarget {
 pub(crate) fn verify(
     program: &BytecodeProgram,
     definitions: &DefinitionTable,
+    catalog: &ProofCatalog<'_>,
     cancel: &CancellationToken,
 ) -> Result<HashMap<DefinitionId, ExportTarget>, BytecodeVerificationError> {
-    let invalid = || BytecodeVerificationError::InvalidProgramExports;
-    let mut required = HashSet::new();
+    let invalid = || {
+        if cancel.check().is_err() {
+            BytecodeVerificationError::Cancelled
+        } else {
+            BytecodeVerificationError::InvalidProgramExports
+        }
+    };
+    let required = program
+        .exports
+        .namespaces
+        .values()
+        .flat_map(|namespace| namespace.functions.values().copied())
+        .chain(program.exports.entry)
+        .collect::<HashSet<_>>();
     program
         .exports
         .visit_definition_ids(
             &mut |id| {
                 definitions.resolve(*id)?;
-                required.insert(*id);
                 Ok(())
             },
             cancel,
@@ -74,6 +90,17 @@ pub(crate) fn verify(
             }
         }
     }
+    let types = TypeExportValidator::new(
+        program.modules.iter().map(|module| TypeExportModule {
+            identity: &module.identity,
+            public_items: &module.public_items,
+            private_types: &module.private_types,
+            structures: &module.structures,
+        }),
+        catalog,
+        cancel,
+    )
+    .map_err(|_| invalid())?;
     program
         .exports
         .validate(
@@ -104,6 +131,11 @@ pub(crate) fn verify(
                         definitions,
                     )
                 }
+            },
+            |export| {
+                #[cfg(test)]
+                super::type_exports::before_type_validation(cancel);
+                types.validate(export).is_ok()
             },
         )
         .map_err(|_| invalid())?;
