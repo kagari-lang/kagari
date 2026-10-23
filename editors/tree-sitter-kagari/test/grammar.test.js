@@ -359,7 +359,7 @@ test('unsupported Rust syntax and non-ASCII identifiers are not silently accepte
     'fn main() { let x = 1; }', 'fn main() { var mut x = 1; }',
     'fn main(x: dyn Trait) {}', "fn main(x: &'a T) {}",
     "fn main() { 'x' }", 'fn main() { b"bytes" }', 'fn main() { r#"raw"# }',
-    'fn main() { async { 1 } }', 'fn main() { await value; }',
+    'fn main() { async move { 1 } }', 'fn main() { await value; }',
     'fn 文() {}', 'fn async() {}',
   ]) assert.ok(parse(source).rootNode.hasError, source);
 });

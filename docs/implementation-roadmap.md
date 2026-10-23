@@ -722,6 +722,14 @@ checks passed. No known selected local integration failure remains. Full workspa
 and complete feature/backend/platform matrices are **pending CI**, not inferred from
 these focused results; optional editor WASM/WASI-SDK validation was not run locally.
 
+CI run [39883455884](https://github.com/kagari-lang/kagari/actions/runs/39883455884/job/120186018422)
+exposed a stale editor rejection fixture for the now-supported `async {}` form.
+The fixture now rejects unsupported `async move {}` instead; existing positive
+async-block coverage remains. Local Tree-sitter CLI checks pass for the supported
+form and all eleven rejection fixtures, all seventeen corpus cases and generated
+asset consistency. The native Node test rerun is blocked by a missing Windows
+addon for Node 24.15.0; passing CLI checks do not establish that suite or CI passed.
+
 Remaining scope stays separate: native JIT/AOT suspension, Rust async-closure
 registration, dynamic/race/timeout combinators, arbitrary Object-to-trait casts,
 generated host views, and automatic latest-version handles. The queued Host API
