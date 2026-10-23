@@ -112,6 +112,7 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
     let mut seen_vec = false;
     let mut seen_result = false;
     let mut seen_spawn_error = false;
+    let mut seen_char_error = false;
     for declared in snapshot.declaration_snapshot().files() {
         if !matches!(
             declared.source().module_identity().package.0.as_str(),
@@ -195,6 +196,16 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
                     assert!(ty.variants.iter().all(|variant| variant.payload.is_empty()));
                     seen_spawn_error = true;
                 }
+                TypeDefKind::Enum if ty.name == "CharTryFromError" => {
+                    let owner = declared.source().module_identity();
+                    assert_eq!(owner.package.0, "kagari-core");
+                    assert_eq!(owner.path, ["char"]);
+                    assert!(ty.generic_params.is_empty());
+                    assert_eq!(ty.variants.len(), 1);
+                    assert_eq!(ty.variants[0].name, "InvalidScalar");
+                    assert!(ty.variants[0].payload.is_empty());
+                    seen_char_error = true;
+                }
                 _ => {}
             }
             count += 1;
@@ -207,8 +218,8 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
             ("RefMut".into(), ReferenceAccess::Mutable),
         ])
     );
-    assert_eq!(count, 22);
-    assert!(seen_vec && seen_map && seen_result && seen_spawn_error);
+    assert_eq!(count, 23);
+    assert!(seen_vec && seen_map && seen_result && seen_spawn_error && seen_char_error);
 }
 
 #[test]

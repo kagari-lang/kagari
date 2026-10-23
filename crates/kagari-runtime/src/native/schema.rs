@@ -101,7 +101,8 @@ impl ModuleBuilder {
     /// #[derive(KagariValue)]
     /// struct Wide { value: i128 }
     /// ```
-    /// ```compile_fail
+    /// Unicode scalar fields map directly to the script `char` type:
+    /// ```
     /// use kagari_derive::KagariValue;
     /// #[derive(KagariValue)]
     /// struct Character { value: char }

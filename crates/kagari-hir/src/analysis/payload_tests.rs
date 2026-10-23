@@ -274,7 +274,7 @@ fn imported_payload_changes_invalidate_consumers_and_keep_nominal_owners() {
                 .0
                 == "kagari-core")
             .count(),
-        9
+        10
     );
     let authoring_a = old
         .file(left)
