@@ -737,17 +737,35 @@ plan retains preparation/loading and logical entry proposals only.
 
 ## Text literals and String traversal
 
-The [text literals execution plan](text-literals-plan.md) records TL01-TL05:
-a distinct Unicode `char`, identifier-only interpolation in ordinary strings,
-Rust-style raw/multiline strings, byte literals with fresh `[u8]` storage, and
-explicit lazy `chars`/`char_indices`/`bytes` traversal. Implementation and per-phase
-commits are authorized. TL01-TL04 (Char, String cutover, byte literals and lazy
-String traversal) are implemented with focused local acceptance; TL05 integration
-and documentation handoff is next. The plan owns phase order and the progress ledger;
-current specifications describe delivered slices. Full CI and native Node/WASM
-editor acceptance remain pending. Expression interpolation compatibility, a format
-API, broader Unicode APIs,
-native backend expansion and unrelated migrations are outside this scope.
+TL01-TL05 implementation and focused local acceptance are complete; the execution
+plan is retired. Git history retains the phase ledger. Lasting contracts belong to
+[literal syntax](spec/syntax.md#literals), [character values](spec/builtins.md#character-scalar),
+[explicit String traversal](spec/builtins.md#explicit-string-traversal) and
+[architecture](architecture.md). Rust-style raw/multiline and byte literal spellings
+retain Kagari's managed String and fresh mutable array ownership, not Rust borrowing.
+Ordinary strings replace f-prefixed expression interpolation with identifier-only
+holes; migrate effectful expressions using ordered intermediate bindings. Char
+remains distinct from integers through source-free artifacts and typed host access.
+Regenerate development artifacts affected by the changed builtin/operand schemas.
+
+Focused evidence covers scalar/byte domains, source/artifact/JIT-fallback behavior,
+ordered formatting effects/traps, literal freshness, persistent static reload,
+host/Serde admission, lazy cursor GC/publication and native-wait retention. The
+three character/byte/interpolation examples also pass CLI checking. Structure,
+formatting, workspace/all-target Clippy, grammar products and affected local editor
+checks passed. Final documentation review corrected obsolete syntax/tooling claims.
+These checks do not establish full CI acceptance or wider native code generation.
+
+Outstanding acceptance: full-workspace and exhaustive backend/feature/platform
+matrices remain CI-only; native Tree-sitter Node/Zed/shared capture suites need the
+missing Windows Node 24 addon or a working CI environment. Editor WASM requires
+WASI SDK 34 (local SDK 25 was observed). Full browser/site and editor-host acceptance
+were not rerun for this work. Run those checks in their designated environments;
+CLI corpus/query success is not a substitute. No push or publication was performed.
+
+Expression interpolation compatibility, a format API, broader Unicode APIs,
+u8 range-pattern expansion, native backend expansion and unrelated migrations
+remain outside this delivered scope.
 
 ## Other queued designs
 

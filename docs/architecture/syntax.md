@@ -151,8 +151,9 @@ over that CST, not a second independently allocated semantic tree.
 
 Two decisions illustrate why the lexer and parser have separate responsibilities:
 
-- String interpolation needs lexical modes for text and expression holes; the
-  lexer keeps those modes on an explicit stack.
+- The String scanner distinguishes literal text from identifier-only holes using
+  source delimiters, not decoded braces. The parser groups the resulting text,
+  name and optional `:?` tokens; it does not parse arbitrary expressions in holes.
 - Adjacent angle tokens can mean a shift in an expression or generic delimiters
   in a type. Expression parsing joins the relevant adjacent tokens; type parsing
   keeps delimiters separate. Neither requires resolving a type or a name.
@@ -376,8 +377,11 @@ The library rejects parse diagnostics before printing. It then reparses the outp
 compares every non-whitespace token (including comments) and compares normalized CST
 enter/leave structure. For `a >> b` and `Outer<Inner<T>>`, token equality alone is
 insufficient: adjacent angle tokens participate in grammar-sensitive interpretation.
-Interpolation expressions flatten discretionary layout while line comments retain
-required termination. Literals and comment contents remain exact.
+Complete interpolated strings bypass discretionary layout and retain their source
+text verbatim. Literal newlines, continuation whitespace and delimiter spelling
+remain exact, even when surrounding layout uses a different newline style.
+Identifier-only holes admit neither expression layout nor comments. Comment
+contents outside literals also remain exact.
 
 Expected-output tests establish actual layout; idempotence and token/CST equivalence
 establish preservation. The bounded grammar inventory lives in the formatter's

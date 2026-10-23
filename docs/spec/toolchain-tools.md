@@ -158,8 +158,10 @@ chooses line breaks. See [syntax architecture](../architecture/syntax.md#formatt
 Formatting changes whitespace only. It preserves non-whitespace tokens **including
 comments**, literal spelling and interpolation text; it performs no import sorting,
 parenthesis removal or comma insertion. Comments retain their text/order and
-leading/trailing/dangling attachment; prose is not reflowed. Interpolation expression
-layout preserves literal boundaries and mandatory line-comment termination.
+leading/trailing/dangling attachment; prose is not reflowed. Complete interpolated
+strings are preserved verbatim, including physical newlines, continuation whitespace
+and delimiter spelling, even when layout requests a different newline style.
+Holes accept only identifiers with optional `:?`, not expressions or comments.
 Output has a final newline. Reformatting with the same options is idempotent.
 
 Before returning output, the library reparses it and verifies the token sequence

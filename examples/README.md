@@ -44,13 +44,15 @@ The [error-stack example](error-stack.kgr) intentionally returns Err: running
 | Block expressions, independent block statements, and block `match` arms | [blocks.kgr](syntax/blocks.kgr) | `42` |
 | Array initialization, bulk copying, prepared sorting/filtering, lazy chunks and immediate range removal | [array-operations.kgr](syntax/array-operations.kgr) | `42` |
 | Lazy integer ranges, open bounds and range-based copying | [ranges.kgr](syntax/ranges.kgr) | `42` |
-| `for` over Array, Map, Set and String | [for-collections.kgr](syntax/for-collections.kgr) | `42` |
+| `for` over Map entries and Set elements | [for-collections.kgr](syntax/for-collections.kgr) | `42` |
 | Lazy adapters, short-circuit terminals, FromIterator, collect, partition and group_by | [collection-pipelines.kgr](syntax/collection-pipelines.kgr) | `42` |
 | Nested iteration, aggregation, ordered extrema and fallible collection | [iterator-extensions.kgr](syntax/iterator-extensions.kgr) | `42` |
 | Struct fields, shorthand initialization, inherent methods, enum payloads, tuples, arrays and assignment targets | [data-model.kgr](syntax/data-model.kgr) | `42` |
 | Arithmetic (including `%`), comparison, unary and short-circuit logical operators | [expressions.kgr](syntax/expressions.kgr) | `42` |
-| String interpolation, joining, Unicode queries, lazy splitting and typed parsing | [string-interpolation.kgr](syntax/string-interpolation.kgr) | `42` |
-| Numeric bases and separators, exponents, escaped strings, and nested block comments | [literals-and-comments.kgr](syntax/literals-and-comments.kgr) | `42` |
+| Identifier-only String interpolation, Debug, literal braces and ordered intermediate strings | [string-interpolation.kgr](syntax/string-interpolation.kgr) | `42` |
+| Numeric bases and separators, exponents, cooked/raw multiline strings, continuations and nested block comments | [literals-and-comments.kgr](syntax/literals-and-comments.kgr) | `42` |
+| Unicode scalar characters, escapes, constants and character patterns | [char-literals.kgr](syntax/char-literals.kgr) | `()` |
+| Byte characters and cooked/raw multiline byte arrays | [byte-literals.kgr](syntax/byte-literals.kgr) | `1` |
 | Literal, wildcard, binding, nested tuple, struct and enum `match` patterns | [match.kgr](syntax/match.kgr) | `42` |
 | Guarded `match` arms and pattern-bound guard names | [match-guards.kgr](syntax/match-guards.kgr) | `42` |
 | `if val` and `while val` binding conditions | [binding-conditions.kgr](syntax/binding-conditions.kgr) | `42` |

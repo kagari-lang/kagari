@@ -268,7 +268,7 @@ defines conditional implementations, explicit Struct/enum implementations and us
 mutable keys. Default HashMap keys and HashSet elements require the
 checked `Eq + Hash` contracts; Map/Set interfaces do not:
 
-- unit, bool, integers and String use value equality and hashing;
+- unit, bool, char, integers and String use value equality and hashing;
 - Tuple, Option and Result compose the protocols of all members;
 - user Structs and enums require explicit implementations;
 - Array has conditional content PartialEq only, without Eq/Hash;
@@ -516,7 +516,7 @@ Type aliases (`use core::cmp::Ordering as Order`) and variant imports
 `Ord: Eq + PartialOrd` declares `cmp(self, other: Self) -> Ordering`.
 Comparison operators select PartialOrd; None makes each of `<`, `<=`, `>` and `>=`
 false. Implementations must agree with equality and with each other. Primitive
-integers, bool, unit, String and Ordering supply both; floats only PartialOrd.
+integers, bool, char, unit, String and Ordering supply both; floats only PartialOrd.
 There is no automatic Struct, Tuple or user-enum ordering. Custom Struct/enum
 implementations use static calls and the ordinary failure/effect boundary.
 See [ordering.kgr](../../examples/syntax/ordering.kgr).

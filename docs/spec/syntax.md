@@ -246,8 +246,10 @@ val joined = "left\
 
 No-hole cooked/raw strings remain literals in patterns and other existing
 literal-only positions. Interpolation does not enable runtime formatting in
-attributes or constant evaluation. String indexing and
-`chars`/`char_indices`/`bytes` traversal methods are not provided.
+attributes or constant evaluation. Integer String indexing and implicit String
+iteration are not provided. Use [explicit String traversal](builtins.md#explicit-string-traversal):
+`chars` yields `char`, `char_indices` yields `(u64, char)` with UTF-8 byte offsets,
+and `bytes` yields `u8`.
 
 #### Byte Literals
 
@@ -295,6 +297,16 @@ Byte characters follow existing `u8` scalar constant and pattern rules. Byte
 strings retain ordinary array constant/pattern restrictions; literal spelling does
 not make mutable arrays scalar constants or literal patterns. They introduce no
 new buffer type, implicit String conversion or String traversal API.
+
+#### Literal design references
+
+The lexical model follows the [Rust 1.90 Reference: tokens](https://doc.rust-lang.org/1.90.0/reference/tokens.html)
+for character/byte validity, hexadecimal and Unicode escapes, raw delimiters,
+CRLF normalization and cooked continuations. Kagari adopts those lexical rules,
+not Rust borrowing or array-length types: text literals produce managed `String`
+values, and byte strings construct fresh mutable `[u8]` arrays rather than borrowed
+immutable byte slices. Source byte spans remain unchanged when decoding CRLF.
+Cooked text additionally uses Kagari's [identifier-only interpolation](#interpolated-strings).
 
 ### Comments
 
@@ -1491,6 +1503,12 @@ implementations or generic bounds are compile-time diagnostics at each occurrenc
 Inherent methods named `display` or `debug` and local bindings named `std` or
 `Display` do not redirect interpolation. Raw strings never interpolate; the old
 `f"..."` prefix is not supported.
+
+[RFC 2795: implicit identifiers](https://rust-lang.github.io/rfcs/2795-format-args-implicit-identifiers.html)
+informs name capture through ordinary scope lookup. Kagari deliberately differs:
+ordinary strings interpolate without a formatting macro, holes admit no arbitrary
+expressions, and each occurrence reads and formats its name in order as specified
+below. This is not eager capture of all arguments at string entry.
 
 ```kgr
 val name = "Kagari";

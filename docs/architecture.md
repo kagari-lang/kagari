@@ -594,6 +594,18 @@ Runtime uses the existing scalar bank and compact Value with a distinct Char tag
 remain independent of source availability. Character support does not replace
 String decoding, formatting or cursor ownership.
 
+### Text literal ownership
+
+The [literal design references](spec/syntax.md#literal-design-references) define
+which Rust lexical mechanisms Kagari adopts and which ownership assumptions it
+rejects. Shared `kagari-source::literal` decoding preserves original source spans;
+HIR stores decoded String text and interpolation chunks exactly once, without
+re-quoting or downstream decoding. Byte strings lower to checked array construction:
+immutable payload sharing must not cache mutable array results. Each evaluation,
+including an empty literal, creates fresh storage under ordinary array rules.
+[Identifier-only interpolation](spec/syntax.md#interpolated-strings) uses ordinary
+name resolution and the existing formatting path, not a second expression evaluator.
+
 ### String traversal ownership
 
 The installed String declarations own the explicit chars, char_indices and bytes
@@ -608,8 +620,9 @@ for scalar versus byte positions and the public surface.
 Runtime's `gc::string_iter` owns UTF-8 traversal state; `gc::iter` owns the shared
 cursor payload, tracing and publication/commit kernel. A cursor retains the
 managed source String as a traced Value. Copies share its progress, whereas each
-new traversal call creates independent state. A cursor reachable from an active
-or suspended frame keeps its source alive through collection. No Rust string or
+new traversal call creates independent state. Unlike Rust's borrowed string iterators,
+these cursors trace managed source objects: a cursor reachable from an active or
+suspended frame keeps its source alive through collection. No Rust string or
 storage borrow survives allocation, callback/reentry or suspension.
 
 A next step previews owned item data and candidate progress under scoped views,
@@ -2159,23 +2172,27 @@ editor grammars do not perform type checking, resolve symbols or feed compilatio
 
 Tree-sitter's generated ABI15 C/JSON/header assets are built from the same
 repository. Its stateless external scanner handles atomic nested comments and
-string-text boundaries; grammar productions own expressions, nested interpolation
-and structural recovery. Zed owns theme classifications and editing overrides.
-For `f"score={score + 2}"`, only delimiters/text receive string captures; the hole
-retains code classifications. Editing overrides use whole-string ranges and
-smaller interpolation ranges so empty strings and cursor positions beside quotes
-remain covered without suppressing code pairing inside holes. Zed also explicitly
+literal boundaries; grammar productions own identifier-only interpolation and
+structural recovery. Zed owns theme classifications and editing overrides.
+For `val total = score + 2; "score={total}"`, only delimiters/text receive string
+captures; the hole's identifier retains code classification. The old `f` prefix
+and expressions inside holes are rejected. Editing overrides use whole-string
+ranges and smaller identifier-hole ranges so empty strings and cursor positions
+beside quotes remain covered without suppressing code pairing inside holes.
+Zed also explicitly
 allows autoclosing before `)]}`: scope eligibility alone does not permit insertion
 before an existing interpolation `}` when the host's `autoclose_before` is empty.
 Local development stages current grammar assets into a disposable, deterministic Git snapshot and
 uses a resolved `file://` revision plus the monorepo subpath; no second maintained
 grammar repository or machine-specific committed manifest is required.
 
-VS Code independently uses recursive TextMate/Oniguruma contexts and standard
-scopes, resetting embedded expression token categories inside interpolated strings.
+VS Code independently uses TextMate/Oniguruma contexts and standard scopes,
+classifying identifiers inside interpolation holes as code rather than String text.
 Its VSIX is declarative and contains no activation code, language client or Node
-dependencies. Both adapters obey single-line string-text boundaries while permitting
-multiline expression holes; a genuinely unterminated block comment extends to EOF.
+dependencies. Both adapters support multiline cooked/raw text; holes accept only
+`{name}` or `{name:?}` without whitespace or comments. Raw text never interpolates.
+An unmatched String delimiter or block comment extends to EOF; a newline cannot
+establish an unterminated String or promise recovery to the next declaration.
 A small shared oracle asserts explicit code/string/comment regions independently
 in both adapters. Detailed scopes/tree captures and incremental-state checks stay
 with each adapter. Native/engine tests, actual editor-host checks and manual visual

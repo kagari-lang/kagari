@@ -223,7 +223,7 @@ PartialEq and remains stable through mutation and GC relocation.
 | Core Option / Result / Ordering / Bound / ControlFlow | Conditional variant/member comparison | Conditional variant/member hashes | Core library |
 | Array | Conditional ordered contents, PartialEq only | None | Standard library |
 | Vec / HashMap / HashSet | Conditional contents | Conditional contents | Standard library |
-| Unit / bool / integers / String | Value | Value | Builtin |
+| Unit / bool / char / integers / String | Value | Value | Builtin |
 | Float | IEEE comparison, PartialEq only | None | Builtin |
 
 The six collection interfaces provide bounded Debug, without PartialEq/Eq/Hash.

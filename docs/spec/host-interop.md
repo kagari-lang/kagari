@@ -312,7 +312,10 @@ call errors. Host calls require installed bindings and are excluded
 from scalar constant evaluation.
 
 The source call boundary supports scalar and nested Tuple, Array, Map, Set, Option
-and Result signatures. Map keys and Set elements must be bool, i32, i64 or String.
+and Result signatures. Key/element eligibility follows the declared
+[collection protocols](builtins.md#collection-types), not a fixed scalar whitelist:
+HashMap keys and HashSet elements require checked `Eq + Hash` (including `char`);
+Map/Set interfaces do not impose those bounds themselves.
 Composite arguments use `Owned` passing: shared mutable objects retain their
 identity, and tuples retain value semantics. This does not provide a Rust borrow
 lease or make a naked Value an owning GC root. Owned arguments reject frame-scoped
