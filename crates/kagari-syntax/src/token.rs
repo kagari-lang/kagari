@@ -195,6 +195,10 @@ pub enum TokenKind {
     Unknown,
     /// A single-quoted Unicode scalar literal, retaining delimiters and escapes.
     Char,
+    /// A fixed-u8 byte character, retaining its `b` prefix and delimiters.
+    ByteChar,
+    /// A cooked/raw byte string without interpolation, retaining its source spelling.
+    ByteString,
 }
 
 /// One lexical item, retaining its category and range in the original input.
@@ -258,6 +262,8 @@ impl TokenKind {
             Self::Float => SyntaxKind::Float,
             Self::String => SyntaxKind::String,
             Self::Char => SyntaxKind::Char,
+            Self::ByteChar => SyntaxKind::ByteChar,
+            Self::ByteString => SyntaxKind::ByteString,
             Self::FormatStart => SyntaxKind::FormatStart,
             Self::FormatText => SyntaxKind::FormatText,
             Self::FormatOpen => SyntaxKind::FormatOpen,

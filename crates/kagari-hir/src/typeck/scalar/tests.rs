@@ -21,6 +21,29 @@ fn character_literals_do_not_enter_numeric_inference_or_casts() {
 }
 
 #[test]
+fn byte_literals_keep_fixed_u8_facts_in_every_expected_numeric_context() {
+    for byte in [0, 65, 127, 128, 255] {
+        let literal = Literal {
+            kind: LiteralKind::Byte(byte),
+            text: String::new(),
+        };
+        for expected in [
+            None,
+            Some(BuiltinType::I32),
+            Some(BuiltinType::U64),
+            Some(BuiltinType::U8),
+        ] {
+            let value = ScalarValue::parse_expected(&literal, expected, false).unwrap();
+            assert_eq!(
+                value,
+                ScalarValue::integer(i128::from(byte), IntegerType::U8).unwrap()
+            );
+            assert_eq!(value.ty(), TypeId::Builtin(BuiltinType::U8));
+        }
+    }
+}
+
+#[test]
 fn integer_literals_keep_their_type_and_full_range_in_one_representation() {
     for (ty, min, max) in [
         (IntegerType::I8, i128::from(i8::MIN), i128::from(i8::MAX)),

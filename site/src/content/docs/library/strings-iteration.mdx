@@ -92,6 +92,52 @@ a `\n` escape in a cooked string inserts a newline rather than continuing a line
 See the <a href={source('docs/spec/syntax.md#string-literals')}>literal contract</a>
 for delimiter, escape and literal-only-context rules.
 
+## Construct mutable byte arrays
+
+Use `b'A'` for a single `u8` rather than a Unicode `char`. Cooked `b"..."` and raw
+`br"..."` / `br#"..."#` literals produce fixed-length `[u8]` arrays, not strings:
+
+```kgr
+fn packet() -> [u8] { b"AB\0\xFF" }
+val first = packet();
+val alias = first;
+val second = packet();
+alias[0] = b'Z';
+```
+
+`first` and `alias` now contain Z, B, NUL and FF; `second` still contains A, B,
+NUL and FF. Each evaluation of a byte-string literal creates fresh storage, even
+for `b""` or `br""`. Copying or returning an existing array shares that array
+instead. Compare contents with `==` and storage identity with `===`: separately
+evaluated empty byte arrays have equal contents but different identities.
+Elements can be replaced, but the array cannot grow; use `Vec::from(first)` for
+an independent growable collection. Ordinary array iteration yields `u8` values.
+
+Direct byte-literal text must be ASCII. Cooked forms accept quote/backslash
+escapes, `\n`, `\r`, `\t`, `\0` and `\x00` through `\xFF`, but no `\u{...}`
+escapes. `b"中文"` is rejected instead of silently UTF-8-encoding the text. A
+payload such as `b"\0\xFF"` needs no UTF-8 validity check.
+
+```kgr
+val escaped = b"\xFF";
+val literal = br"\xFF";
+val template = br#"{"name":"{name}"}"#;
+val braces = b"{name}{{}}";
+```
+
+`escaped` contains one byte, FF; `literal` contains four ASCII bytes: backslash,
+x, F, F. Neither cooked nor raw byte strings interpolate or collapse doubled
+braces, so `template` and `braces` need no `name` binding. Raw delimiters use the
+same zero-to-255 matching hashes as raw text strings; the prefix is `br`, not `rb`.
+Both forms retain multiline indentation and normalize source CRLF to LF. Cooked
+backslash-line-break continuations remove the break and following ASCII whitespace;
+raw forms retain the backslash and line break. Standalone CR is rejected outside
+continuation whitespace.
+
+These literals do not add String indexing, traversal or implicit text conversion.
+See the <a href={source('docs/spec/syntax.md#byte-literals')}>byte literal contract</a>
+for the exact lexical and typing rules.
+
 ## Work with UTF-8 bytes deliberately
 
 `len()` returns a `u64` count of **UTF-8 bytes**, not displayed characters or Unicode scalar values.

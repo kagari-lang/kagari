@@ -105,4 +105,21 @@ normalizes only in decoded values: retained source text and physical byte/UTF-16
 positions do not change. Formatter tests preserve complete literal spelling and
 idempotence even when layout requests a different newline style. Analyzer tests
 retain malformed edits and old snapshots without claiming semantic diagnostics.
-Byte syntax remains deferred. Editor lexical shape checks are not scalar validation.
+Editor lexical shape checks are not scalar validation.
+
+[byte-literals.kgr](../examples/syntax/byte-literals.kgr) witnesses `b'A'` (`u8`),
+`b"..."` and `br#"..."#` (`[u8]`). Direct byte contents are ASCII; cooked byte
+escapes allow `\\x00` through `\\xFF` but reject `\\u{...}`. Braces never open
+interpolation in byte forms. Raw byte strings share the 0..255 hash delimiter
+rule and retain literal backslashes. Multiline/CRLF and cooked continuations
+share the String rules above. These lexical rules add no source-language
+quantifier positions. Formatter tests retain byte spelling across newline options;
+analyzer synchronization retains even invalid non-ASCII byte edits verbatim.
+Tree-sitter/TextMate tests distinguish byte regions, escapes and following code.
+Expression `literal` includes byte strings; `scalar_literal` excludes them in
+patterns and attributes, including nested attribute arrays. Byte characters remain
+scalar literals, witnessed by singleton/or patterns; this does not extend the
+existing i32/char range-pattern domains to u8. Tree-sitter negative cases cover
+cooked/raw byte strings in patterns and direct/nested attribute values.
+Fresh array allocation and fixed `u8` typing require runtime/type tests, not merely
+this parse witness.

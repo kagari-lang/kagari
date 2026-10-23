@@ -560,7 +560,7 @@ impl FunctionLowerer<'_, '_> {
                 });
                 Ok(dst)
             }
-            ExprKind::Array(elements) => self.lower_array(expr_id, elements),
+            ExprKind::Array { elements, .. } => self.lower_array(expr_id, elements),
             ExprKind::Closure { .. } | ExprKind::AsyncBlock { .. } => self.lower_closure(expr_id),
         }
     }

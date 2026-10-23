@@ -18,9 +18,14 @@ pub(super) fn scan(
     tokens: &mut TokenBuffer,
     cancel: &CancellationToken,
 ) -> Result<(), Cancelled> {
-    let Ok(Some((delimiter, opening))) = StringDelimiter::opening(&input[start..]) else {
+    let byte = input[start..].starts_with('b');
+    let prefix = usize::from(byte);
+    let Ok(Some((delimiter, opening))) = StringDelimiter::opening(&input[start + prefix..]) else {
         // Consume only the invalid raw opener, leaving following source available.
         chars.next();
+        if byte {
+            chars.next();
+        }
         while chars.peek().is_some_and(|(_, ch)| *ch == '#') {
             cancel.check()?;
             chars.next();
@@ -29,14 +34,15 @@ pub(super) fn scan(
         tokens.push(token(TokenKind::Unknown, start, end));
         return Ok(());
     };
+    let opening = opening + prefix;
     while chars
         .peek()
         .is_some_and(|(index, _)| *index < start + opening)
     {
         chars.next();
     }
-    if matches!(delimiter, StringDelimiter::Raw(_)) {
-        return scan_raw(input, start, delimiter, chars, tokens, cancel);
+    if byte || matches!(delimiter, StringDelimiter::Raw(_)) {
+        return scan_plain(input, start, delimiter, byte, chars, tokens, cancel);
     }
 
     let first = tokens.len();
@@ -88,16 +94,21 @@ pub(super) fn scan(
     Ok(())
 }
 
-fn scan_raw(
+fn scan_plain(
     input: &str,
     start: usize,
     delimiter: StringDelimiter,
+    byte: bool,
     chars: &mut Peekable<impl Iterator<Item = (usize, char)>>,
     tokens: &mut TokenBuffer,
     cancel: &CancellationToken,
 ) -> Result<(), Cancelled> {
     while let Some((index, ch)) = chars.next() {
         cancel.check()?;
+        if ch == '\\' && delimiter == StringDelimiter::Cooked {
+            skip_escape(chars, cancel)?;
+            continue;
+        }
         if ch != '"' {
             continue;
         }
@@ -106,14 +117,18 @@ fn scan_raw(
             while chars.peek().is_some_and(|(position, _)| *position < end) {
                 chars.next();
             }
-            let kind =
-                if literal::decode_string_literal_with_cancellation(&input[start..end], cancel)?
+            let valid = if byte {
+                literal::decode_byte_string_literal_with_cancellation(&input[start..end], cancel)?
                     .is_ok()
-                {
-                    TokenKind::String
-                } else {
-                    TokenKind::Unknown
-                };
+            } else {
+                literal::decode_string_literal_with_cancellation(&input[start..end], cancel)?
+                    .is_ok()
+            };
+            let kind = match (valid, byte) {
+                (true, true) => TokenKind::ByteString,
+                (true, false) => TokenKind::String,
+                (false, _) => TokenKind::Unknown,
+            };
             tokens.push(token(kind, start, end));
             return Ok(());
         }

@@ -17,6 +17,7 @@ use kagari_contract::{ids::FunctionRef, types::PublicItem};
 use kagari_types::declaration::TypeDefKind;
 
 mod artifacts;
+mod byte_literals;
 mod host_contracts;
 mod identities;
 mod interfaces;

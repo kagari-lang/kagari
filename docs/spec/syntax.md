@@ -144,7 +144,9 @@ The grammar uses the following literal token classes:
 - `INTEGER`
 - `FLOAT`
 - `CHAR`
+- `BYTE_CHAR`
 - `STRING` (cooked or raw text without interpolation holes)
+- `BYTE_STRING` (cooked or raw bytes)
 
 Cooked strings with holes use the `interpolated_string` expression production
 below rather than the literal-only `STRING` token class.
@@ -244,9 +246,55 @@ val joined = "left\
 
 No-hole cooked/raw strings remain literals in patterns and other existing
 literal-only positions. Interpolation does not enable runtime formatting in
-attributes or constant evaluation. Byte characters and byte strings are not
-supported; this String cutover adds no indexing or `chars`/`char_indices`/`bytes`
-traversal methods.
+attributes or constant evaluation. String indexing and
+`chars`/`char_indices`/`bytes` traversal methods are not provided.
+
+#### Byte Literals
+
+A byte character such as `b'A'` has the exact type `u8`, independent of numeric
+inference. It decodes to exactly one byte, not a Unicode `char`. Empty and
+multiple-byte characters are errors. Direct non-ASCII text, LF, CR and TAB are
+forbidden in byte characters; escapes can express the control bytes. Apostrophes
+and backslashes must be escaped.
+
+Cooked byte characters and `b"..."` byte strings support `\'`, `\"`, `\\`, `\n`,
+`\r`, `\t`, `\0` and `\xNN` with exactly two hexadecimal digits covering 00-FF.
+Unicode `\u{...}` escapes and unknown escapes are errors. Unescaped content must
+be ASCII: `b"中文"` is invalid, not an implicit UTF-8 encoding. Escaped arbitrary
+bytes, including NUL and FF, do not undergo UTF-8 validation.
+
+Raw byte strings use `br"..."` or `br#"..."#`, with zero through 255 hashes and
+the same closing-delimiter rules as [raw strings](#string-literals). Their source
+content must also be ASCII. Backslashes remain literal: `br"\xFF"` contains four
+ASCII bytes, not FF. Neither cooked nor raw byte strings interpolate or collapse
+doubled braces; `b"{name}{{}}"` contains those exact ASCII bytes. The `rb` prefix
+is not supported.
+
+Cooked and raw byte strings share the [String multiline rules](#string-literals):
+retain indentation and initial/final newlines, normalize source CRLF to LF and
+reject standalone CR outside continuation whitespace. Cooked backslash-LF/CRLF
+continuations remove the line break
+and following ASCII spaces, tabs, LF and CR; raw byte strings retain backslashes
+and line breaks. There is no automatic dedent.
+
+Each evaluation constructs a fresh mutable fixed-length `[u8]`, including empty
+`b""` and `br""`. Length is not part of the type. Copying, passing or returning
+an existing array retains its ordinary shared identity; evaluating the same literal
+again does not. For example:
+
+```kgr
+fn packet() -> [u8] { b"AB\0\xFF" }
+val first = packet();
+val alias = first;
+val second = packet();
+alias[0] = b'Z';
+// first contains Z, B, NUL, FF; second still contains A, B, NUL, FF.
+```
+
+Byte characters follow existing `u8` scalar constant and pattern rules. Byte
+strings retain ordinary array constant/pattern restrictions; literal spelling does
+not make mutable arrays scalar constants or literal patterns. They introduce no
+new buffer type, implicit String conversion or String traversal API.
 
 ### Comments
 
@@ -1092,7 +1140,10 @@ match_body      ::= expr
 
 literal         ::= INTEGER
                   | FLOAT
+                  | CHAR
+                  | BYTE_CHAR
                   | STRING
+                  | BYTE_STRING
                   | "true"
                   | "false" ;
 
@@ -1125,9 +1176,10 @@ See [String literals](#string-literals) for decoding and delimiter rules.
   per condition check. On a match, names are visible only in the then branch or
   loop body. A failed match selects `else` or exits the loop.
 - `|` pattern alternatives share one binding scope. Each alternative must bind
-  the same names with the same types. Integer range patterns accept `i32`
-  literal or local scalar `const` bounds; `..` excludes the upper bound and
-  `..=` includes it.
+  the same names with the same types. Range patterns accept `i32` or `char`
+  literal or local scalar `const` bounds that exactly match the scrutinee's domain.
+  Byte characters keep their fixed `u8` type and support literal/alternative
+  patterns, not range patterns. `..` excludes the upper bound and `..=` includes it.
 - Range expressions describe bounds without materializing an array. The forms
   `a..b`, `a..=b`, `a..`, `..b`, `..=b` and `..` produce `Range<T>`,
   `RangeInclusive<T>`, `RangeFrom<T>`, `RangeTo<T>`, `RangeToInclusive<T>` and

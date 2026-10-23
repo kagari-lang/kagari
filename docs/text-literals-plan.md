@@ -3,7 +3,7 @@
 ## Status and authority
 
 Planning baseline: `1b5da5df` (2026-10-23). Implementation and per-phase commits
-are authorized. TL01-TL02 are implemented with focused local acceptance; TL03 is next.
+are authorized. TL01-TL03 are implemented with focused local acceptance; TL04 is next.
 Publication and pushes remain outside this task.
 The user has selected identifier-only interpolation, Rust-style raw/multiline
 literal spelling, byte literals and a distinct Unicode `char` type.
@@ -381,7 +381,7 @@ pinned tooling or mark blocked tests passed.
 - [x] Inspect baseline owners and record selected scope, target contracts and phases.
 - [x] TL01: Char vertical slice and focused acceptance.
 - [x] TL02: String syntax/interpolation cutover and consumer/tool migration.
-- [ ] TL03: Byte literals and fresh array semantics.
+- [x] TL03: Byte literals and fresh array semantics.
 - [ ] TL04: Lazy String traversal.
 - [ ] TL05: Focused integration, lasting documentation and plan retirement.
 
@@ -463,3 +463,34 @@ remain blocked by the recorded local toolchain limits. Structure, workspace
 formatting, workspace/all-target Clippy and diff checks passed. IDE scoped build
 requests timed out; Cargo provides build evidence. No selected Rust test failure
 remains; exhaustive CI/platform/browser acceptance is still pending.
+
+### TL03 checkpoint
+
+Byte characters and cooked/raw byte strings use shared ASCII/escape/delimiter
+validation. Byte strings become checked array expressions with an intrinsic u8
+element type, including empty arrays, and use existing MakeArray execution. No
+new opcode, constant cache or runtime allocation semantics were introduced.
+Every evaluation is fresh; ordinary copies retain shared alias behavior.
+
+Review corrected success fixtures that had assumed u8 range patterns: existing
+integer ranges remain i32-only, alongside TL01 character ranges. Explicit u8 range
+rejection remains covered. Byte literal/or patterns exposed a real lowering defect:
+physical I64 constants lacked their checked u8 register fact. Literal-pattern
+lowering now carries the original semantic scalar type; regression coverage also
+checks i8/u32 patterns and existing i32/char ranges. Editor/EBNF literal productions
+were split to exclude byte strings from patterns/attributes, matching the parser.
+
+Focused acceptance passed: source literal tests (10), syntax byte cases (3),
+adjacent character/String cases (9), updated grammar inventories (5), HIR byte and
+character-pattern cases, byte-literal compiler/artifact test, compiler pattern and
+portable-codec regressions (5), all 9 SDK array-operation tests, formatter literal
+cases (4) and analyzer multiline revision/offset case (1). The payload SDK test
+completed LF/CRLF across all three existing execution routes; no route is inferred
+from a compilation-only result. Freshness includes empty literal identity.
+
+Tree-sitter corpus (68), TextMate/manifest (20), TextMate shared-region oracle (19),
+Zed CLI queries (3) and generated consistency (6 hashes) passed. Native Node/WASM
+acceptance remains unavailable as recorded above. Structure (1,505 Rust files),
+workspace formatting, workspace/all-target Clippy and diff checks passed. Scoped
+IDE builds timed out; Cargo tests provide build evidence. No selected failure
+remains. Full-workspace and exhaustive backend/platform tests remain CI-only.

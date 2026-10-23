@@ -69,6 +69,41 @@ test('invalid character shapes are marked and incomplete characters recover at L
   }
 });
 
+test('byte forms distinguish ASCII escapes from raw text and never open holes', async () => {
+  for (const eol of ['\n', '\r\n']) {
+    const source = String.raw`b'A'; b'\xFF'; b'\''; b"\x00\x80\xFF {name:?} {{}}";`
+      + eol + 'b"first\\' + eol + '  continued"; val after = 1;';
+    const spans = await tokenize(source);
+    region(source, spans, "b'A'", 'string', 'string.quoted.single.byte.kagari');
+    region(source, spans, String.raw`\xFF`, 'string', 'constant.character.escape.kagari');
+    region(source, spans, '{name:?}', 'string', 'string.quoted.double.byte.kagari');
+    region(source, spans, '{{}}', 'string', 'string.quoted.double.byte.kagari');
+    region(source, spans, 'continued', 'string');
+    region(source, spans, 'after', 'code');
+    assert.ok(spans.every(span => !span.scopes.some(scope => scope.startsWith('invalid.'))));
+    for (const hashes of [0, 1, 2, 255]) {
+      const h = '#'.repeat(hashes);
+      const raw = 'br' + h + '"first' + eol + '{name} \\xFF' + eol + '"' + h + '; val after = 1;';
+      const found = await tokenize(raw);
+      region(raw, found, '{name}', 'string', 'string.quoted.raw.byte.kagari');
+      const escape = region(raw, found, String.raw`\xFF`, 'string', 'string.quoted.raw.byte.kagari');
+      assert.ok(escape.every(span => !span.scopes.some(scope => scope.startsWith('constant.character.escape'))));
+      region(raw, found, 'after', 'code');
+    }
+    for (const start of ['b"', 'br##"']) {
+      const unfinished = start + 'unfinished' + eol + 'val hidden = 1;';
+      region(unfinished, await tokenize(unfinished), 'val hidden', 'string');
+    }
+  }
+  for (const literal of ["b'é'", 'b"é"', 'br"é"', String.raw`b'\u{41}'`, String.raw`b"\u{41}"`,
+    String.raw`b"\xFG"`, "b'ab'", "b'\t'"]) {
+    const source = literal + '; val after = 1;';
+    const spans = await tokenize(source);
+    assert.ok(spans.some(span => span.scopes.some(scope => scope.startsWith('invalid.illegal.'))), literal);
+    region(source, spans, 'after', 'code');
+  }
+});
+
 test('recursive comments, documentation and Unicode survive LF and CRLF', async () => {
   for (const newline of ['\n', '\r\n']) {
     const text = ['/// 中文😀', '/** doc /* nested /** deeper */ nested */ doc */',
@@ -372,6 +407,12 @@ test('embedded expressions reset both encoded categories and string theme inheri
 test('incremental retokenization from valid preceding stacks agrees with fresh tokenization', async () => {
   const { grammar, registry } = await loadGrammar();
   const documents = [
+    { text: 'val s = b"first\n closed";\nval after = 1;',
+      from: 'closed";', to: 'open', needle: 'val after', type: 'string' },
+    { text: 'val s = br##"first\n close"##;\nval after = 1;',
+      from: 'close"##;', to: 'close"#;', needle: 'val after', type: 'string' },
+    { text: 'val s = b"first\n {name} \\xFF";\nval after = 1;',
+      from: '{name}', to: '{name:?}', needle: 'name', type: 'string' },
     { text: 'val s = "first\n closed";\nval after = 1;',
       from: 'closed";', to: 'open', needle: 'val after', type: 'string' },
     { text: 'val s = r##"first\n close"##;\nval after = 1;',
@@ -411,6 +452,9 @@ test('incremental retokenization from valid preceding stacks agrees with fresh t
 
 test('selected repository examples are read directly and have meaningful capture assertions', async () => {
   const examples = [
+    ['byte-literals.kgr', [ [String.raw`\xFF`, 'string', 'constant.character.escape.kagari'],
+      ['{name:?}', 'string', 'string.quoted.double.byte.kagari'],
+      ['{name}', 'string', 'string.quoted.raw.byte.kagari'] ]],
     ['literals-and-comments.kgr', [ ['still outer', 'comment'], ['0b1010', 'code', 'constant.numeric.integer.kagari'],
       [String.raw`\u{41}`, 'string', 'constant.character.escape.unicode.kagari'] ]],
     ['string-interpolation.kgr', [ ['Hello ', 'string'], ['total}', 'code', 'meta.embedded.expression.kagari'],

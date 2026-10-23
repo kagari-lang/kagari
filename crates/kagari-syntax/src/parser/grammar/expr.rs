@@ -27,6 +27,8 @@ impl<'a> Parser<'a> {
                     | TokenKind::Float
                     | TokenKind::String
                     | TokenKind::Char
+                    | TokenKind::ByteChar
+                    | TokenKind::ByteString
                     | TokenKind::FormatStart
                     | TokenKind::TrueKw
                     | TokenKind::FalseKw
@@ -384,6 +386,8 @@ impl<'a> Parser<'a> {
                 | TokenKind::Float
                 | TokenKind::String
                 | TokenKind::Char
+                | TokenKind::ByteChar
+                | TokenKind::ByteString
                 | TokenKind::TrueKw
                 | TokenKind::FalseKw,
             ) => self.parse_literal(),
@@ -573,6 +577,8 @@ impl<'a> Parser<'a> {
                 | TokenKind::Float
                 | TokenKind::String
                 | TokenKind::Char
+                | TokenKind::ByteChar
+                | TokenKind::ByteString
                 | TokenKind::TrueKw
                 | TokenKind::FalseKw,
             ) => self.bump(),
@@ -788,6 +794,7 @@ impl<'a> Parser<'a> {
                 | TokenKind::Float
                 | TokenKind::String
                 | TokenKind::Char
+                | TokenKind::ByteChar
                 | TokenKind::TrueKw
                 | TokenKind::FalseKw,
             ) => self.parse_literal(),
@@ -804,6 +811,7 @@ impl<'a> Parser<'a> {
                     | TokenKind::Float
                     | TokenKind::String
                     | TokenKind::Char
+                    | TokenKind::ByteChar
                     | TokenKind::TrueKw
                     | TokenKind::FalseKw,
                 ) => self.parse_literal(),

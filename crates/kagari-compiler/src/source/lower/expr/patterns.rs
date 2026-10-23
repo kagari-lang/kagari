@@ -209,8 +209,15 @@ impl FunctionLowerer<'_, '_> {
                     .pattern_scalar_value(pattern)
                     .cloned()
                     .ok_or(MirLoweringError::MissingBinding("checked pattern literal"))?;
-                let ty = semantic_representation(&lower_type(&scalar.ty()));
-                let literal = self.lower_constant(lower_scalar(scalar), ty);
+                let semantic = self.semantic_type(&scalar.ty())?;
+                let literal =
+                    self.lower_constant(lower_scalar(scalar), semantic_representation(&semantic));
+                // Pattern constants bypass expression lowering, but still need the
+                // checked domain: physical I64 alone cannot distinguish u8 from i64.
+                self.function
+                    .semantic
+                    .registers
+                    .insert(literal.temp.index(), semantic);
                 let cond = self.alloc_temp(ValueType::Bool);
                 self.emit(Instruction::Binary {
                     dst: cond,

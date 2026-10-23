@@ -409,7 +409,7 @@ impl<'a> Completion<'a> {
                             ),
                             ExprKind::InterpolatedString(elements)
                             | ExprKind::Tuple(elements)
-                            | ExprKind::Array(elements) => {
+                            | ExprKind::Array { elements, .. } => {
                                 Box::new(elements.iter().copied().map(Node::Expr))
                             }
                             ExprKind::Block(block) => {

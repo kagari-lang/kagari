@@ -9,16 +9,19 @@
 /// | `"hello"` or `r"hello"` | `Literal { kind: String, text: "hello" }` |
 /// | `true` | `Literal { kind: Bool, text: "true" }` |
 /// | `'a'` | `Literal { kind: Char, text: "'a'" }` |
+/// | `b'A'` | `Literal { kind: Byte(65), text: "b'A'" }` |
 ///
 /// For String, `text` is decoded exactly once at the syntax boundary, including
 /// interpolation text chunks. Never decode or re-quote it downstream. Other kinds
-/// retain source delimiters/suffixes for scalar checking. `-1` is a Prefix(Neg)
+/// retain source delimiters/suffixes for scalar checking, except Byte, whose decoded
+/// payload is already fixed u8. Synthesized byte-string items have empty text and
+/// the enclosing literal's source span. `-1` is a Prefix(Neg)
 /// expression around a positive literal, not a separate literal category.
 #[derive(Debug, Clone)]
 pub struct Literal {
     /// Category used to select scalar validation and type inference.
     pub kind: LiteralKind,
-    /// Decoded content for String; original token spelling for every other kind.
+    /// Decoded content for String; source spelling otherwise (empty for synthesized bytes).
     pub text: String,
 }
 
@@ -40,4 +43,6 @@ pub enum LiteralKind {
     Bool,
     /// A single-quoted Unicode scalar, such as `'a'` or `'🙂'`.
     Char,
+    /// An already decoded byte with fixed u8 type, from `b'A'` or a byte-string item.
+    Byte(u8),
 }

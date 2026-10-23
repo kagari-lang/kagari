@@ -254,6 +254,7 @@ impl<'a> Parser<'a> {
                     | TokenKind::Float
                     | TokenKind::String
                     | TokenKind::Char
+                    | TokenKind::ByteChar
                     | TokenKind::TrueKw
                     | TokenKind::FalseKw,
                 ) => {

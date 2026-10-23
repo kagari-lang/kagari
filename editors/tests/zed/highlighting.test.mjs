@@ -81,6 +81,25 @@ test('character quote pairs coexist with identifier interpolation', () => {
   }
 });
 
+test('byte strings and characters keep literal braces inside string pairing overrides', () => {
+  const text = String.raw`fn bytes() { b'A'; b'\xFF'; b""; b"{name:?} \xFF"; br##"\xFF {name}"##; }`;
+  const tree = parse(text);
+  assert.equal(tree.rootNode.hasError, false, tree.rootNode.toString());
+  const overrides = query('overrides.scm').captures(tree.rootNode);
+  for (const type of ['byte_char_literal', 'byte_string_literal', 'raw_byte_string_literal']) {
+    for (const node of tree.rootNode.descendantsOfType(type)) {
+      assert.equal(overrideAt(overrides, node.startIndex + 1), 'string', node.text);
+      assert.equal(overrideAt(overrides, node.endIndex - 1), 'string', node.text);
+      assert.notEqual(overrideAt(overrides, node.endIndex), 'string', node.text);
+    }
+  }
+  assert.equal(tree.rootNode.descendantsOfType('interpolation').length, 0);
+  const pairs = query('brackets.scm').matches(tree.rootNode);
+  for (const type of ['byte_char_literal', 'byte_string_literal']) {
+    assert.equal(pairs.filter(match => match.captures.some(capture => capture.node.parent.type === type)).length, 2);
+  }
+});
+
 test('persistent statics keep variable names and runtime initializer captures distinct from const', () => {
   const text = readFileSync(new URL('../../../examples/syntax/grammar-witnesses.kgr', import.meta.url), 'utf8');
   const tree = parse(text);

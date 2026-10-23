@@ -71,6 +71,119 @@ fn execute(source: &str) {
 }
 
 #[test]
+fn byte_literals_create_fresh_arrays_and_preserve_returned_aliases() {
+    execute(
+        r#"
+    fn cooked() -> [u8] { b"AB" }
+    fn raw() -> [u8] { br"AB" }
+    fn empty() -> [u8] { b"" }
+    fn raw_empty() -> [u8] { br"" }
+    fn identity<T>(value: T) -> T { value }
+    fn main() -> i32 {
+        val first = cooked();
+        val second = cooked();
+        val alias = identity(first);
+        if first === second || alias !== first { return 0; }
+        alias[0] = b'Z';
+        if first != b"ZB" || second != b"AB" { return 0; }
+        val raw_first = raw();
+        val raw_second = raw();
+        val raw_alias = identity(raw_first);
+        if raw_first === raw_second || raw_alias !== raw_first { return 0; }
+        raw_alias[1] = b'Z';
+        if raw_first != b"AZ" || raw_second != b"AB" { return 0; }
+        val nothing = empty();
+        val raw_nothing = raw_empty();
+        val empty_alias = identity(nothing);
+        val raw_empty_alias = identity(raw_nothing);
+        if nothing === empty() || raw_nothing === raw_empty() { return 0; }
+        if empty_alias !== nothing || raw_empty_alias !== raw_nothing { return 0; }
+        if !nothing.is_empty() || !raw_nothing.is_empty() { return 0; }
+        42
+    }
+    "#,
+    );
+}
+
+#[test]
+fn byte_literals_preserve_payloads_fixed_types_and_line_rules() {
+    let source = r##"
+    fn identity<T>(value: T) -> T { value }
+    fn byte(value: u8) -> u8 { value }
+    fn classify(value: u8) -> i32 {
+        match value {
+            b'\0' | b'\x7F' => 1,
+            b'\x80' | b'\xFE' => 2,
+            b'\xFF' => 3,
+            _ => 0,
+        }
+    }
+    fn main() -> i32 {
+        val letter = identity(b'A');
+        val inferred = [b'A', 66];
+        val empty = b"";
+        val raw_empty = br#""#;
+        if byte(letter) != 65u8 || byte(inferred[1]) != 66u8 { return 0; }
+        if empty != raw_empty || !empty.is_empty() { return 0; }
+        val payload = b"\0\x00\x7F\x80\xFF";
+        if payload != [0u8, 0u8, 127u8, 128u8, 255u8] { return 0; }
+        if byte(payload[4]) != b'\xFF' || payload[0] != b'\0' { return 0; }
+        if classify(b'\0') != 1 || classify(b'\x7F') != 1 { return 0; }
+        if classify(b'\x80') != 2 || classify(b'\xFE') != 2 { return 0; }
+        if classify(b'\xFF') != 3 { return 0; }
+        if b"\n\r\t\'\"\\" != [b'\n', b'\r', b'\t', b'\'', b'"', b'\\'] { return 0; }
+        if br"\xFF" != b"\\xFF" { return 0; }
+        if br#""{unknown}{{}}\n""# != b"\"{unknown}{{}}\\n\"" { return 0; }
+        val cooked = b"
+  A
+";
+        val raw = br#"
+  A
+"#;
+        if cooked != b"\n  A\n" || raw != cooked { return 0; }
+        val joined = b"left\
+
+    right";
+        if joined != b"leftright" { return 0; }
+        val raw_joined = br"left\
+    right";
+        if raw_joined != b"left\\\n    right" { return 0; }
+        42
+    }
+    "##;
+    execute(source);
+    execute(&source.replace('\n', "\r\n"));
+}
+
+#[test]
+fn byte_literals_reject_type_coercion_and_array_constant_contexts() {
+    let engine = KagariEngine::default();
+    for source in [
+        "fn main() { val value: u16 = b'A'; }",
+        "fn main() { val value: char = b'A'; }",
+        "fn main() { val value: [u16] = b\"A\"; }",
+        "fn main() { val value: [u16] = b\"\"; }",
+        "fn main() { val value: [u16] = br\"\"; }",
+        "const VALUE: [u8] = b\"A\"; fn main() {}",
+        "fn main() { match b'A' { b'A'..=b'Z' => 1, _ => 0 }; }",
+        "fn main() { match b'A' { b'A'..b'Z' => 1, _ => 0 }; }",
+        "fn main() { match b'A' { 65u8..=90u8 => 1, _ => 0 }; }",
+        "const FIRST: u8 = b'A'; const LAST: u8 = b'Z'; fn main() { match b'A' { FIRST..=LAST => 1, _ => 0 }; }",
+        "fn main() { match b\"A\" { b\"A\" => 1, _ => 0 }; }",
+    ] {
+        assert!(
+            engine
+                .compile_to_artifact(
+                    SourceFile::new("invalid-byte.kgr", source),
+                    Default::default(),
+                )
+                .is_err(),
+            "{source}"
+        );
+    }
+}
+
+#[test]
 fn repeats_evaluate_value_elements_once() {
     execute(
         r#"

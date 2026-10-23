@@ -1181,7 +1181,8 @@ impl Literal {
     }
 
     /// Returns `SyntaxKind::Number` for `42`, `SyntaxKind::TrueKw` for `true`,
-    /// and `SyntaxKind::Char` for `'🙂'`; character text retains quotes and escapes.
+    /// `SyntaxKind::Char` for `'🙂'`, `ByteChar` for `b'A'`, and `ByteString`
+    /// for `b"A"`/`br"A"`; all retain their original delimiters and escapes.
     /// Reads the first token; an empty recovered literal yields `None`.
     pub fn kind(&self) -> Option<SyntaxKind> {
         self.syntax().first_token().map(|token| token.kind())

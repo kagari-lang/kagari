@@ -114,7 +114,12 @@ Ordinary Strings interpolate only `{name}` and `{name:?}`, with no internal
 whitespace/comments. `{{`/`}}` are literal braces; escaped Unicode braces never
 start holes. Raw Strings use 0..255 hashes and no escape/interpolation processing.
 Both forms retain physical multiline contents. Source CRLF normalizes only in the
-decoded value, not in editor ranges. Byte forms remain deferred; `f` is rejected.
+decoded value, not in editor ranges. `b'A'` is `u8`; `b"..."` and `br#"..."#`
+produce fresh `[u8]` arrays. Direct byte contents must be ASCII. Cooked byte
+escapes allow `\\x00` through `\\xFF`, never Unicode escapes; braces never start
+holes. Raw byte backslashes stay literal. Multiline/continuation rules are shared
+with Strings. See the [byte example](../examples/syntax/byte-literals.kgr).
+The old `f` prefix is rejected.
 
 Unterminated text and block comments extend to EOF: a newline no longer proves a
 missing closing quote. String theme captures cover text/escapes/delimiters, never

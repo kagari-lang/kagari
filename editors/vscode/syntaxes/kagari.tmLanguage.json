@@ -7,6 +7,9 @@
     "code": {
       "patterns": [
         { "include": "#comments" },
+        { "include": "#raw-byte-string" },
+        { "include": "#byte-string" },
+        { "include": "#byte-char" },
         { "include": "#raw-string" },
         { "include": "#string" },
         { "include": "#char" },
@@ -54,6 +57,42 @@
       "beginCaptures": { "0": { "name": "punctuation.definition.comment.begin.kagari" } },
       "endCaptures": { "0": { "name": "punctuation.definition.comment.end.kagari" } },
       "patterns": [{ "include": "#doc-comment" }, { "include": "#block-comment" }]
+    },
+    "raw-byte-string": {
+      "begin": "\\bbr(#{0,255})\"",
+      "end": "\"\\1",
+      "name": "string.quoted.raw.byte.kagari",
+      "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.kagari" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.string.end.kagari" } },
+      "patterns": [
+        { "match": "[^\\x00-\\x7F]+", "name": "invalid.illegal.byte.kagari" },
+        { "match": "\\r(?!\\n)", "name": "invalid.illegal.carriage-return.kagari" }
+      ]
+    },
+    "byte-string": {
+      "begin": "\\bb\"",
+      "end": "\"",
+      "name": "string.quoted.double.byte.kagari",
+      "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.kagari" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.string.end.kagari" } },
+      "patterns": [
+        { "match": "\\\\(?:[\"'\\\\nrt0]|x[0-9A-Fa-f]{2}|\\r?$)", "name": "constant.character.escape.kagari" },
+        { "match": "\\\\u\\{[^\"}\\r\\n]*\\}?|\\\\[^\\r\\n]?", "name": "invalid.illegal.escape.kagari" },
+        { "match": "[^\\x00-\\x7F]+", "name": "invalid.illegal.byte.kagari" },
+        { "match": "\\r(?!\\n)", "name": "invalid.illegal.carriage-return.kagari" }
+      ]
+    },
+    "byte-char": {
+      "begin": "\\bb'",
+      "end": "'|(?=\\r?$)",
+      "name": "string.quoted.single.byte.kagari",
+      "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.kagari" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.string.end.kagari" } },
+      "patterns": [
+        { "match": "\\\\(?:[\"'\\\\nrt0]|x[0-9A-Fa-f]{2})(?=')", "name": "constant.character.escape.kagari" },
+        { "match": "[\\x00-\\x08\\x0b\\x0c\\x0e-\\x26\\x28-\\x5b\\x5d-\\x7f](?=')" },
+        { "match": "\\\\u\\{[^'}\\r\\n]*\\}?|\\\\[^\\r\\n]?|[^'\\r\\n]", "name": "invalid.illegal.byte.kagari" }
+      ]
     },
     "raw-string": {
       "begin": "\\br(#{0,255})\"",

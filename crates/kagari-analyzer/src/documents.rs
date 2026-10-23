@@ -236,7 +236,11 @@ mod tests {
                 "🙂 {literal} \\n",
                 "\"#; val cooked = \"",
                 "🙂é {name:?}",
-                "\"; }",
+                "\"; val byte = b'\\xFF'; val bytes = b\"",
+                "{bytes} \\x00\\xFF\\",
+                "  continued\"; val raw_bytes = br#\"",
+                "{raw_bytes} \\xFF",
+                "\"#; }",
             ]
             .join(eol);
             docs.open(open(uri, 1, &original)).unwrap();
@@ -248,6 +252,9 @@ mod tests {
                 original.replace("{name:?}", "{name: ?}"),
                 original.replace("{name:?}", "{name.value}"),
                 original.replace("{name:?}", "{name"),
+                original.replace("b'\\xFF'", "b'\\u{41}'"),
+                original.replace("{bytes}", "🙂 {bytes}"),
+                original.replace("br#\"", "br##\""),
                 original.clone(),
             ] {
                 version += 1;
@@ -261,6 +268,21 @@ mod tests {
                 assert_eq!(position.line, 3);
                 assert_eq!(position.character, 4);
                 assert_eq!(file.offset(position, PositionEncoding::Utf16), Some(offset));
+                let byte_offset = edited.find("{bytes}").unwrap();
+                let byte_position = file.position(byte_offset, PositionEncoding::Utf16).unwrap();
+                assert_eq!(byte_position.line, 5);
+                assert_eq!(
+                    byte_position.character,
+                    if edited.contains("🙂 {bytes}") {
+                        3
+                    } else {
+                        0
+                    }
+                );
+                assert_eq!(
+                    file.offset(byte_position, PositionEncoding::Utf16),
+                    Some(byte_offset)
+                );
                 assert_eq!(retained.file(id).unwrap().text(), original);
             }
         }

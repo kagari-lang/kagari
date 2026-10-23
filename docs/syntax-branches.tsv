@@ -10,7 +10,7 @@ item_decl	8	witnessed	examples/syntax/where-bounds.kgr	-	trait_item
 item_decl	9	witnessed	examples/syntax/where-bounds.kgr	-	impl_block
 attribute_arg	1	witnessed	examples/syntax/attributes.kgr	-	IDENT "=" attribute_value
 attribute_arg	2	witnessed	examples/syntax/attributes.kgr	-	attribute_value
-attribute_value	1	witnessed	examples/syntax/attributes.kgr	-	literal
+attribute_value	1	witnessed	examples/syntax/attributes.kgr	-	scalar_literal
 attribute_value	2	witnessed	examples/syntax/attributes.kgr	-	path
 attribute_value	3	witnessed	examples/syntax/attributes.kgr	-	"[" attribute_arg_list? "]"
 use_tree	1	witnessed	examples/syntax/import-alias.kgr	-	path use_alias?
@@ -92,10 +92,10 @@ match_body	1	witnessed	examples/syntax/match.kgr	-	expr
 match_body	2	witnessed	examples/syntax/blocks.kgr	-	block
 range_pattern_tail	1	witnessed	examples/syntax/pattern-alternatives.kgr	-	".." range_bound
 range_pattern_tail	2	witnessed	examples/syntax/pattern-alternatives.kgr	-	"..=" range_bound
-range_bound	1	witnessed	examples/syntax/pattern-alternatives.kgr	-	literal
+range_bound	1	witnessed	examples/syntax/pattern-alternatives.kgr	-	scalar_literal
 range_bound	2	witnessed	examples/syntax/pattern-alternatives.kgr	-	path
 primary_pattern	1	witnessed	examples/syntax/match.kgr	-	"_"
-primary_pattern	2	witnessed	examples/syntax/match.kgr	-	literal
+primary_pattern	2	witnessed	examples/syntax/match.kgr	-	scalar_literal
 primary_pattern	3	witnessed	examples/syntax/match.kgr	-	path
 primary_pattern	4	witnessed	examples/syntax/match.kgr	-	tuple_struct_pattern
 primary_pattern	5	witnessed	examples/syntax/match.kgr	-	struct_pattern
@@ -112,12 +112,15 @@ place_expr	2	witnessed	examples/syntax/data-model.kgr	-	postfix_expr place_suffi
 place_expr	3	witnessed	examples/syntax/data-model.kgr	-	parenthesized_place_expr
 place_suffix	1	witnessed	examples/syntax/data-model.kgr	-	"." IDENT
 place_suffix	2	witnessed	examples/syntax/data-model.kgr	-	"[" expr "]"
-literal	1	witnessed	examples/syntax/expressions.kgr	-	INTEGER
-literal	2	witnessed	examples/standard-library.kgr	-	FLOAT
-literal	3	witnessed	examples/syntax/literals-and-comments.kgr	-	STRING
-literal	4	witnessed	examples/syntax/expressions.kgr	-	"true"
-literal	5	witnessed	examples/syntax/expressions.kgr	-	"false"
-literal	6	witnessed	examples/syntax/char-literals.kgr	-	CHAR
+literal	1	witnessed	examples/syntax/expressions.kgr	-	scalar_literal
+literal	2	witnessed	examples/syntax/byte-literals.kgr	-	BYTE_STRING
+scalar_literal	1	witnessed	examples/syntax/expressions.kgr	-	INTEGER
+scalar_literal	2	witnessed	examples/standard-library.kgr	-	FLOAT
+scalar_literal	3	witnessed	examples/syntax/literals-and-comments.kgr	-	STRING
+scalar_literal	4	witnessed	examples/syntax/expressions.kgr	-	"true"
+scalar_literal	5	witnessed	examples/syntax/expressions.kgr	-	"false"
+scalar_literal	6	witnessed	examples/syntax/char-literals.kgr	-	CHAR
+scalar_literal	7	witnessed	examples/syntax/byte-literals.kgr	-	BYTE_CHAR
 trait_member	3	witnessed	examples/syntax/associated-constants.kgr	-	attribute* associated_const_decl
 trait_impl_item	3	witnessed	examples/syntax/associated-constants.kgr	-	attribute* associated_const_def
 primary_expr	13	witnessed	examples/syntax/associated-constants.kgr	-	qualified_type

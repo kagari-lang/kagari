@@ -640,9 +640,15 @@ impl<'a> BodyChecker<'a> {
                 }
                 TypeId::Array(Box::new(element))
             }
-            ExprKind::Array(elements) => {
-                let member = expected.and_then(|ty| array_bridge::element_context(ty));
-                let mut element_ty: Option<TypeId> = None;
+            ExprKind::Array {
+                elements,
+                element_type,
+            } => {
+                let intrinsic = element_type.map(TypeId::Builtin);
+                let member = intrinsic
+                    .as_ref()
+                    .or_else(|| expected.and_then(|ty| array_bridge::element_context(ty)));
+                let mut element_ty = intrinsic.clone();
                 let mut reachable = true;
                 for expr in elements {
                     if self.cancel.check().is_err() {

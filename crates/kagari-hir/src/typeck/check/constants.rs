@@ -226,7 +226,7 @@ pub(super) fn validate_const_initializers(
                         );
                     }
                 }
-                ExprKind::Tuple(elements) | ExprKind::Array(elements) => {
+                ExprKind::Tuple(elements) | ExprKind::Array { elements, .. } => {
                     for element in elements {
                         self.validate_const_expr(owner, *element);
                     }

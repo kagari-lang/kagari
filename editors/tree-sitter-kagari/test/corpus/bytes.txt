@@ -1,0 +1,231 @@
+==================
+Byte characters include ASCII and full hexadecimal escapes
+==================
+fn bytes() { b'A'; b'\x00'; b'\xFF'; b'\''; b'}'; }
+
+---
+
+(source_file
+  (function_item
+    (identifier)
+    (parameters)
+    (block
+      (expression_statement (byte_char_literal (byte_char_content)))
+      (expression_statement (byte_char_literal (byte_char_escape_sequence)))
+      (expression_statement (byte_char_literal (byte_char_escape_sequence)))
+      (expression_statement (byte_char_literal (byte_char_escape_sequence)))
+      (expression_statement (byte_char_literal (byte_char_content))))))
+
+==================
+Byte strings have literal braces and no Unicode decoding
+==================
+fn bytes() { b""; b"{name:?} {{}}"; b"\x00\x80\xFF"; br"\xFF {name}"; br##"a "# b"##; }
+
+---
+
+(source_file
+  (function_item
+    (identifier)
+    (parameters)
+    (block
+      (expression_statement (byte_string_literal))
+      (expression_statement (byte_string_literal (byte_string_content)))
+      (expression_statement (byte_string_literal (byte_escape_sequence) (byte_escape_sequence) (byte_escape_sequence)))
+      (expression_statement (raw_byte_string_literal))
+      (expression_statement (raw_byte_string_literal)))))
+
+==================
+Byte strings share multiline and continuation rules
+==================
+fn bytes() { b"first
+  {name}
+"; b"first\
+  continued"; br#"first
+  \n {name}
+"#; }
+
+---
+
+(source_file
+  (function_item
+    (identifier)
+    (parameters)
+    (block
+      (expression_statement (byte_string_literal (byte_string_content)))
+      (expression_statement (byte_string_literal (byte_string_content) (byte_escape_sequence) (byte_string_content)))
+      (expression_statement (raw_byte_string_literal)))))
+
+==================
+Unclosed raw byte strings extend to EOF
+==================
+const BYTES = br##"first
+{name} \n "#
+fn hidden() {}
+
+---
+
+(source_file (const_item (identifier) (unterminated_raw_byte_string) (MISSING ";")))
+
+==================
+Byte characters remain scalar attribute values and singleton or patterns
+==================
+#[tag(b'A')]
+fn bytes() { match value { b'A' => 1, b'B' | b'C' => 2, _ => 0 } }
+
+---
+
+(source_file
+  (function_item
+    (attribute (path (identifier)) (attribute_arguments (attribute_argument (byte_char_literal (byte_char_content)))))
+    (identifier)
+    (parameters)
+    (block
+      (match_expression
+        (path (identifier))
+        (match_arm (byte_char_literal (byte_char_content)) (integer_literal))
+        (match_arm (or_pattern (byte_char_literal (byte_char_content)) (byte_char_literal (byte_char_content))) (integer_literal))
+        (match_arm (wildcard_pattern) (integer_literal))))))
+
+==================
+Cooked byte strings are not patterns
+:error
+==================
+fn bytes() { match value { b"A" => 1, _ => 0 } }
+
+---
+
+(source_file)
+
+==================
+Raw byte strings are not patterns
+:error
+==================
+fn bytes() { match value { br"AB" => 1, _ => 0 } }
+
+---
+
+(source_file)
+
+==================
+Cooked byte strings are not direct attribute values
+:error
+==================
+#[tag = b"A"]
+fn bytes() {}
+
+---
+
+(source_file)
+
+==================
+Raw byte strings are not named attribute arguments
+:error
+==================
+#[tag(value = br"AB")]
+fn bytes() {}
+
+---
+
+(source_file)
+
+==================
+Cooked byte strings are not nested attribute values
+:error
+==================
+#[tag([b"A"])]
+fn bytes() {}
+
+---
+
+(source_file)
+
+==================
+Raw byte strings are not nested attribute values
+:error
+==================
+#[tag([br"AB"])]
+fn bytes() {}
+
+---
+
+(source_file)
+
+==================
+Byte characters reject non ASCII
+:error
+==================
+fn bytes() { b'é'; }
+
+---
+
+(source_file)
+
+==================
+Cooked bytes reject non ASCII
+:error
+==================
+fn bytes() { b"é"; }
+
+---
+
+(source_file)
+
+==================
+Raw bytes reject non ASCII
+:error
+==================
+fn bytes() { br"é"; }
+
+---
+
+(source_file)
+
+==================
+Byte characters reject Unicode escapes
+:error
+==================
+fn bytes() { b'\u{41}'; }
+
+---
+
+(source_file)
+
+==================
+Byte strings reject Unicode escapes
+:error
+==================
+fn bytes() { b"\u{41}"; }
+
+---
+
+(source_file)
+
+==================
+Byte characters require exactly one byte
+:error
+==================
+fn bytes() { b'ab'; }
+
+---
+
+(source_file)
+
+==================
+Empty byte characters are invalid
+:error
+==================
+fn bytes() { b''; }
+
+---
+
+(source_file)
+
+==================
+Byte hexadecimal escapes require two hexadecimal digits
+:error
+==================
+fn bytes() { b"\xFG"; }
+
+---
+
+(source_file)

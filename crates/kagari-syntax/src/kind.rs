@@ -400,6 +400,10 @@ pub enum SyntaxKind {
     Error,
     /// A single-quoted Unicode scalar literal, retaining delimiters and escapes.
     Char,
+    /// A fixed-u8 byte character, retaining its `b` prefix and delimiters.
+    ByteChar,
+    /// A cooked/raw byte string without interpolation, retaining its source spelling.
+    ByteString,
 }
 }
 

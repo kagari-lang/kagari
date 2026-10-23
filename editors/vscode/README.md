@@ -48,7 +48,11 @@ Raw strings use 0..255 hashes and do not interpret escapes or interpolation.
 Cooked holes are exactly `{name}` or `{name:?}`; malformed holes are marked
 invalid instead of entering an arbitrary code context. Unicode/ASCII escapes,
 continuations and doubled braces stay string text. The compiler validates decoded
-Unicode scalars and standalone CR; byte syntax and old `f` prefixes are not added.
+Unicode scalars and standalone CR. Byte characters (`b'A'`), byte strings
+(`b"..."`) and raw byte strings (`br#"..."#`) have dedicated string scopes.
+Direct non-ASCII contents and Unicode escapes in cooked bytes are marked invalid;
+byte hexadecimal escapes accept x00..xFF. Byte braces never start holes and raw
+byte backslashes stay literal. The old `f` prefix is not accepted.
 
 The grammar uses theme scopes, not fixed colors. Cooked text segments, rather
 than their enclosing context, carry string scopes so identifier colors do not

@@ -3,8 +3,8 @@
 This package owns recoverable source syntax, not static legality, name resolution
 or compiler diagnostics. The source contracts are [syntax](../../docs/spec/syntax.md),
 [EBNF](../../docs/kagari.ebnf) and the [source parser](../../crates/kagari-syntax/src/parser/grammar/).
-It does not import Rust binding, lifetime, reference, byte-string, `dyn` or
-prefix-await syntax. Kagari characters, raw Strings and async blocks are supported.
+It does not import Rust binding, lifetime, reference, `dyn` or prefix-await syntax.
+Kagari characters, byte literals, raw Strings and async blocks are supported.
 
 ## Build and test
 
@@ -95,11 +95,23 @@ brace state after edits. The recovery sentinel refuses all-symbols-valid scans.
 - `raw_string_literal` is one token including delimiters. Backslashes and braces
   are inert; a quote followed by fewer hashes stays content. Extra closing hashes
   are subsequent tokens. The token retains physical line endings and byte spans.
+- Byte characters use `byte_char_literal`, with ASCII `byte_char_content` or
+  `byte_char_escape_sequence`. Cooked `byte_string_literal` uses ASCII
+  `byte_string_content` and `byte_escape_sequence`; byte hexadecimal escapes span
+  x00..xFF and Unicode escapes are rejected. Braces never open holes. These nodes
+  reuse character boundary guards and multiline/continuation scanning.
+  `raw_byte_string_literal` reuses raw delimiter scanning with ASCII validation;
+  raw backslashes stay literal. Byte strings construct arrays and occur only in
+  expression literals. Pattern and attribute contexts share scalar literals,
+  retaining byte characters but excluding cooked/raw byte strings (including
+  nested attribute arrays). Range endpoint types remain a compiler check, not
+  an extension to u8 ranges. No new persistent scanner state is introduced.
 - Only EOF ends unclosed cooked/raw text, producing `unterminated_string_end` or
   `unterminated_raw_string`. Following lines may legally be content; no recovery
   to their apparent declarations is promised. Missing delimiters may additionally
   produce Tree-sitter `ERROR`/`MISSING` nodes.
-- Validity consumers reject all three explicit unterminated kinds (including
+- Raw byte strings use `unterminated_raw_byte_string` at EOF. Validity consumers
+  reject all four explicit unterminated kinds (including
   `unterminated_block_comment`) as well as `hasError`. Highlighting still
   classifies their retained text as string/comment content.
 
@@ -140,7 +152,7 @@ restrictions; syntactic recognition is not executable support.
 - Lexical nodes: `integer_literal`, `float_literal`, `boolean_literal`,
   `string_literal`, `string_content`, `escape_sequence`, `interpolated_string`,
   `raw_string_literal`, `interpolation`, `interpolation_format`, character nodes,
-  the comment kinds and the three explicit invalid boundary kinds above.
+  byte nodes, the comment kinds and the four explicit invalid boundary kinds above.
 
 Keywords and operators are anonymous tokens, including `val`/`var`, `.`/`await`,
 `===`/`!==`, bitwise/compound operators, generic angles and closure/pattern bars.
@@ -218,7 +230,7 @@ See the runnable [binding example](../../examples/syntax/binding-patterns.kgr).
 ## Validation scope
 
 The corpus establishes concrete tree shapes at lexical/recovery boundaries. Native
-unit tests load the actual Node addon, compile queries, parse seven
+unit tests load the actual Node addon, compile queries, parse
 selected shared syntax examples and a small representative set, assert ambiguity
 and unsupported-syntax boundaries, and compare complete incremental/fresh trees
 (including anonymous tokens, fields, errors, ranges and positions) through quote,

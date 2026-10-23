@@ -130,15 +130,6 @@ fn text() { f"{name}"; }
 
 (source_file)
 
-==================
-Byte strings remain unsupported
-:error
-==================
-fn text() { b"bytes"; }
-
----
-
-(source_file)
 
 ==================
 Text hexadecimal escapes must be ASCII

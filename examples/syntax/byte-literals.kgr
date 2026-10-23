@@ -1,0 +1,23 @@
+// Byte characters are u8; every byte-string evaluation creates a fresh [u8].
+fn main() -> i32 {
+    val ascii: u8 = b'A';
+    val high: u8 = b'\xFF';
+    val quote = b'\'';
+    val cooked: [u8] = b"\x00\x7F\x80\xFF\n\r\t\0\"\\ {} {name:?}";
+    val empty: [u8] = b"";
+    val raw = br"\xFF {name}";
+    val hashed = br##"a quote "# and {braces}"##;
+    val multiline = b"
+  retained indentation
+";
+    val continued = b"first\
+        second";
+    val raw_multiline = br#"
+  \n is literal
+"#;
+    match ascii {
+        b'A' => 1,
+        b'B' | b'Z' => 2,
+        _ => 0,
+    }
+}

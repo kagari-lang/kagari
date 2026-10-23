@@ -61,7 +61,14 @@ pub fn lex_with_cancellation(
     let mut tokens = SmallVec::new();
 
     while let Some((index, ch)) = chars.peek().copied() {
-        if ch == '"' || (ch == 'r' && input[index + 1..].starts_with(['#', '"'])) {
+        if ch == '"'
+            || (ch == 'r' && input[index + 1..].starts_with(['#', '"']))
+            || (ch == 'b'
+                && (input[index + 1..].starts_with('"')
+                    || input[index + 1..]
+                        .strip_prefix('r')
+                        .is_some_and(|rest| rest.starts_with(['#', '"']))))
+        {
             string::scan(input, index, &mut chars, &mut tokens, cancel)?;
             continue;
         }
@@ -315,9 +322,13 @@ pub fn lex_with_cancellation(
                 let end = chars.peek().map(|(i, _)| *i).unwrap_or(input.len());
                 tokens.push(token(kind, index, end));
             }
-            '\'' => {
+            '\'' | 'b' if ch == '\'' || input[index..].starts_with("b'") => {
+                let byte = ch == 'b';
                 chars.next();
-                let mut end = index + 1;
+                if byte {
+                    chars.next();
+                }
+                let mut end = index + 1 + usize::from(byte);
                 let mut escaped = false;
                 let mut closed = false;
                 while let Some((next_index, next)) = chars.peek().copied() {
@@ -336,10 +347,16 @@ pub fn lex_with_cancellation(
                         break;
                     }
                 }
-                let kind = if closed && literal::decode_char_literal(&input[index..end]).is_ok() {
-                    TokenKind::Char
-                } else {
-                    TokenKind::Unknown
+                let valid = closed
+                    && if byte {
+                        literal::decode_byte_char_literal(&input[index..end]).is_ok()
+                    } else {
+                        literal::decode_char_literal(&input[index..end]).is_ok()
+                    };
+                let kind = match (valid, byte) {
+                    (true, true) => TokenKind::ByteChar,
+                    (true, false) => TokenKind::Char,
+                    (false, _) => TokenKind::Unknown,
                 };
                 tokens.push(token(kind, index, end));
             }

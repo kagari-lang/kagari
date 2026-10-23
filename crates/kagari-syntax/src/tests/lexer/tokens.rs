@@ -44,6 +44,85 @@ fn character_tokens_keep_unicode_spans_and_pattern_boundaries() {
 }
 
 #[test]
+fn byte_tokens_preserve_source_spans_and_never_interpolate() {
+    for (literal, kind) in [
+        ("b'A'", TokenKind::ByteChar),
+        (r"b'\xFF'", TokenKind::ByteChar),
+        (r#"b"{name} {{}} } { \xFF""#, TokenKind::ByteString),
+        ("b\"a\r\n  b\"", TokenKind::ByteString),
+        ("b\"a\\\r\n \tb\"", TokenKind::ByteString),
+        ("br\"a\\\r\n b\"", TokenKind::ByteString),
+    ] {
+        let tokens = lex(literal);
+        assert_eq!(tokens[0].kind, kind, "{literal:?}");
+        assert_eq!(&literal[tokens[0].span.start..tokens[0].span.end], literal);
+        assert_eq!(tokens.len(), 2);
+    }
+    for count in [0, 1, 2, 255] {
+        let hashes = "#".repeat(count);
+        let text = format!("br{hashes}\"{{name}}\\xFF\r\n\"{hashes}# next");
+        let tokens = lex(&text);
+        assert_eq!(tokens[0].kind, TokenKind::ByteString, "{count}");
+        assert_eq!(tokens[0].span.end, text.find("# next").unwrap());
+        assert_eq!(tokens[1].kind, TokenKind::Hash);
+    }
+    for text in [
+        "b'é'",
+        "b'🙂'",
+        "b''",
+        "b'ab'",
+        r"b'\u{41}'",
+        r#"b"\u{41}""#,
+        r#"b"中文""#,
+        r#"br"é""#,
+        "b\"a\rb\"",
+        r#"b"\xGG""#,
+    ] {
+        assert_eq!(lex(text)[0].kind, TokenKind::Unknown, "{text:?}");
+    }
+    let too_many = format!("br{}\"x\"", "#".repeat(256));
+    assert_eq!(lex(&too_many)[0].kind, TokenKind::Unknown);
+    for text in [
+        "b\"unterminated\r\nfn next() {}",
+        "br#\"open\n\" fn next() {}",
+    ] {
+        let tokens = lex(text);
+        assert_eq!(tokens[0].kind, TokenKind::Unknown);
+        assert_eq!(tokens[0].span.end, text.len());
+        assert_eq!(tokens.len(), 2);
+    }
+    let text = "b'unterminated\r\nfn next() {}";
+    let tokens = lex(text);
+    assert_eq!(tokens[0].kind, TokenKind::Unknown);
+    assert_eq!(tokens[0].span.end, text.find('\r').unwrap());
+    assert!(tokens.iter().any(|token| token.kind == TokenKind::FnKw));
+}
+
+#[test]
+fn byte_literal_parser_contexts_distinguish_scalars_from_arrays() {
+    let source = r##"
+        const FIRST: u8 = b'A';
+        fn classify(value: u8) -> u8 {
+            val bytes = br#"{name}\xFF"#;
+            match value { b'A'..=b'Z' => b'\xFF', _ => b'\0' }
+        }
+    "##;
+    let parsed = common::parse(source);
+    assert!(
+        parsed.diagnostics().is_empty(),
+        "{:?}",
+        parsed.diagnostics()
+    );
+    assert_eq!(parsed.syntax().syntax().text().to_string(), source);
+    for source in [
+        r#"fn bad(value: [u8]) { match value { b"A" => (), _ => () } }"#,
+        r#"fn bad(value: [u8]) { match value { br"" => (), _ => () } }"#,
+    ] {
+        assert!(!common::parse(source).diagnostics().is_empty(), "{source}");
+    }
+}
+
+#[test]
 fn string_tokens_preserve_physical_lines_and_raw_delimiter_boundaries() {
     for literal in [
         "\"a\r\n  🙂\n\"",

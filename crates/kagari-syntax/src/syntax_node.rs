@@ -65,14 +65,14 @@ mod tests {
     #[test]
     fn raw_kinds_round_trip_and_invalid_values_are_rejected() {
         for raw in 0..=u16::MAX {
-            if raw <= SyntaxKind::Char as u16 {
+            if raw <= SyntaxKind::ByteString as u16 {
                 let kind = KagariLanguage::kind_from_raw(RawSyntaxKind(raw));
                 assert_eq!(KagariLanguage::kind_to_raw(kind), RawSyntaxKind(raw));
             } else {
                 assert!(SyntaxKind::from_raw(raw).is_none());
             }
         }
-        for raw in [SyntaxKind::Char as u16 + 1, u16::MAX] {
+        for raw in [SyntaxKind::ByteString as u16 + 1, u16::MAX] {
             assert!(catch_unwind(|| KagariLanguage::kind_from_raw(RawSyntaxKind(raw))).is_err());
         }
     }

@@ -331,7 +331,7 @@ impl<'a> BodyResolver<'a> {
             }
             ExprKind::InterpolatedString(elements)
             | ExprKind::Tuple(elements)
-            | ExprKind::Array(elements) => {
+            | ExprKind::Array { elements, .. } => {
                 for expr in elements {
                     self.resolve_expr(*expr);
                 }

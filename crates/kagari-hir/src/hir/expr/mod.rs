@@ -12,6 +12,7 @@ use crate::hir::{
 
 pub mod ops;
 
+use kagari_types::scalar::BuiltinType;
 use smallvec::SmallVec;
 
 /// One expression payload in Body.exprs, addressed by a qualified ExprId.
@@ -78,7 +79,8 @@ pub struct ExprData {
 /// | `1..=end` | `Range { start: Some(e_1), end: Some(e_end), inclusive: true }` |
 /// | `..end` / `start..` | Range with start/end absent respectively, inclusive false |
 /// | `(x, y)` / `()` | `Tuple([e_x, e_y])` / `Tuple([])` |
-/// | `[x, y]` / `[]` | `Array([e_x, e_y])` / `Array([])` |
+/// | `[x, y]` / `[]` | `Array { elements: [e_x, e_y] / [], element_type: None }` |
+/// | `b"A"` / `b""` | `Array { elements: [e_byte_65] / [], element_type: Some(U8) }` |
 /// | `[x; n]` | `ArrayRepeat { value: e_x, count: e_n }` |
 /// | `{ x }` | `Block(b)`, with BlockData { statements: [], tail_expr: Some(e_x) } |
 ///
@@ -279,8 +281,14 @@ pub enum ExprKind {
     },
     /// Tuple elements such as `(x, y)`, each retained as an expression ID.
     Tuple(ExprBuffer),
-    /// Builtin fixed-length array elements such as `[x, y]`, before element typing.
-    Array(ExprBuffer),
+    /// Fresh builtin array construction, including byte strings lowered to byte items.
+    Array {
+        /// Elements in evaluation order; byte items retain the original literal span.
+        elements: ExprBuffer,
+        /// Intrinsic element type for a typed literal, independent of context even
+        /// when empty. Ordinary bracket arrays infer their element type instead.
+        element_type: Option<BuiltinType>,
+    },
     /// Repeated array construction `[value; count]`.
     ArrayRepeat {
         /// Element value expression.

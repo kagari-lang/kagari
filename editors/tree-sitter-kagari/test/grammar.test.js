@@ -24,7 +24,7 @@ function nodes(root, type) {
 function valid(source) {
   const tree = parse(source);
   assert.equal(tree.rootNode.hasError, false, tree.rootNode.toString());
-  for (const type of ['unterminated_string_end', 'unterminated_raw_string', 'unterminated_block_comment']) {
+  for (const type of ['unterminated_string_end', 'unterminated_raw_string', 'unterminated_raw_byte_string', 'unterminated_block_comment']) {
     assert.equal(nodes(tree.rootNode, type).length, 0, tree.rootNode.toString());
   }
   return tree;
@@ -42,7 +42,7 @@ test('native binding supports default ESM imports, parsing and queries', async (
 });
 
 // Shared source fixtures, not copies. The complete inventory is deliberately CI-only.
-const selected = ['literals-and-comments', 'char-literals', 'string-interpolation', 'type-inference',
+const selected = ['literals-and-comments', 'char-literals', 'byte-literals', 'string-interpolation', 'type-inference',
   'generic-associated-types', 'bitwise', 'attributes', 'async'];
 const representative = ['grammar-witnesses', 'pattern-alternatives', 'callables',
   'where-bounds', 'inline-modules', 'data-model', 'control-flow', 'associated-constants', 'ranges'];
@@ -69,6 +69,46 @@ test('character shapes reject multiple scalars and trivia without losing followi
   }
   // Escaped scalar-domain checks belong to kagari-source, not this editing grammar.
   valid(String.raw`fn chars() { '\u{D800}'; '\u{110000}'; }`);
+});
+
+test('byte literals preserve multiline boundaries without interpolation or Unicode escapes', () => {
+  for (const eol of ['\n', '\r\n']) {
+    const source = 'fn bytes() { b\'A\'; b\'\\xFF\'; b"{name:?} \\x00\\xFF\\' + eol
+      + '  continued"; b"first' + eol + 'last"; val after = 42; }';
+    const tree = valid(source);
+    assert.equal(nodes(tree.rootNode, 'byte_char_literal').length, 2);
+    assert.equal(nodes(tree.rootNode, 'byte_string_literal').length, 2);
+    assert.equal(nodes(tree.rootNode, 'interpolation').length, 0);
+    for (const hashes of [0, 1, 2, 255]) {
+      const h = '#'.repeat(hashes);
+      const raw = 'br' + h + '"{name} \\xFF' + eol + '"' + h;
+      const parsed = valid(`fn bytes() { ${raw}; val after = 42; }`);
+      assert.equal(nodes(parsed.rootNode, 'raw_byte_string_literal')[0].text, raw);
+    }
+    const unfinished = parse('const BYTES = br##"first' + eol + 'fn hidden() {}');
+    assert.equal(nodes(unfinished.rootNode, 'unterminated_raw_byte_string').length, 1);
+    assert.equal(nodes(unfinished.rootNode, 'function_item').length, 0);
+  }
+  for (const literal of ["b''", "b'ab'", "b'é'", "b'\t'", "b'/*x*/a'", "b'a/*x*/'",
+    'b"é"', 'br"é"', String.raw`b'\u{41}'`, String.raw`b"\u{41}"`, String.raw`b"\xFG"`,
+    'b"a\rb"', 'br"a\rb"', 'br' + '#'.repeat(256) + '"x"' + '#'.repeat(256)]) {
+    assert.ok(parse(`fn bytes() { ${literal}; }`).rootNode.hasError, literal);
+  }
+});
+
+test('byte strings are expression arrays, not scalar patterns or attribute values', () => {
+  valid(`#[tag(b'A', value = [b'B'])]
+    fn bytes() { match value { b'A' => 1, b'B' | b'C' => 2, _ => 0 } }`);
+  for (const literal of ['b"A"', 'br"AB"']) {
+    valid(`fn bytes() { val value = ${literal}; consume(${literal}); }`);
+    for (const source of [
+      `fn bytes() { match value { ${literal} => 1, _ => 0 } }`,
+      `fn bytes() { val (${literal}, other) = value; }`,
+      `#[tag = ${literal}] fn bytes() {}`,
+      `#[tag(value = ${literal})] fn bytes() {}`,
+      `#[tag([${literal}])] fn bytes() {}`,
+    ]) assert.ok(parse(source).rootNode.hasError, source);
+  }
 });
 
 test('async blocks are distinct cold expressions with ordinary postfix and recovery', () => {
@@ -353,7 +393,7 @@ test('unsupported Rust syntax and non-ASCII identifiers are not silently accepte
   for (const source of [
     'fn main() { let x = 1; }', 'fn main() { var mut x = 1; }',
     'fn main(x: dyn Trait) {}', "fn main(x: &'a T) {}",
-    'fn main() { b"bytes" }', 'fn main() { f"old" }',
+    'fn main() { f"old" }',
     'fn main() { async move { 1 } }', 'fn main() { await value; }',
     'fn 文() {}', 'fn async() {}',
   ]) assert.ok(parse(source).rootNode.hasError, source);
@@ -409,6 +449,15 @@ test('incremental quotes, hole/block braces and nested comment terminators agree
     ]);
     editSequence(`/* outer /* inner */ end */${eol}fn main() { 42 }`, [
       ['inner */', 'inner'], ['inner', 'inner */'], ['end */', 'end'], ['end', 'end */'],
+    ]);
+    editSequence(['fn main() { val bytes = b"first', String.raw`{name} \xFF`, '"; val after = 42; }'].join(eol), [
+      ['b"', 'br"'], ['br"', 'b"'], ['{name}', '{name:?}'],
+      ['\\xFF', '\\u{41}'], ['\\u{41}', '\\xFF'], ['first', 'non-ASCII é'], ['non-ASCII é', 'first'],
+      ['"; val after', '; val after'], ['; val after', '"; val after'],
+    ]);
+    editSequence(['fn main() { val raw = br##"first', String.raw`{name} \n "# last`, '"##; val after = 42; }'].join(eol), [
+      ['br##"', 'br#"'], ['br#"', 'br##"'],
+      ['"##;', '"#;'], ['"#;', '"##;'], ['br##"', 'r##"'], ['r##"', 'br##"'],
     ]);
     editSequence(['fn main() { val raw = r##"first', String.raw`{name} \n "# last`, '"##; val after = 42; }'].join(eol), [
       ['r##"', 'r#"'], ['r#"', 'r##"'],

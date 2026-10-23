@@ -51,6 +51,10 @@ fn portable_program_codec_rebuilds_seals_and_preserves_canonical_lowering() {
         "pub const FACE: char = '🙂'; fn main() -> char { FACE }",
         "fn main(value: char) -> bool { value >= 'a' && value <= 'z' }",
         "fn main(value: char) -> i32 { match value { 'a'..='z' => 1, _ => 0 } }",
+        "fn main(value: i32) -> i32 { match value { 0..=127 => 1, _ => 0 } }",
+        r"fn main(value: u8) -> i32 { match value { b'\0' | b'\xFF' => 1, b'A' => 2, _ => 0 } }",
+        "fn main(value: i8) -> i32 { match value { 0i8 | 127i8 => 1, _ => 0 } }",
+        "fn main(value: u32) -> i32 { match value { 4294967295u32 => 1, _ => 0 } }",
         "fn main() -> i32 { var x = 0; while x < 3 { x += 1; } x }",
         "fn main() -> i32 { val a = [1, 2]; a[0] }",
     ] {

@@ -26,6 +26,28 @@ const interpolation = {
 };
 const casesForEol = (eol, label) => [
   {
+    name: 'multiline byte text without holes (' + label + ')',
+    text: 'fn main() { b"first' + eol + '{byte_name:?} \\xFF\\' + eol
+      + '  continued"; br##"{raw_name} \\xFF "#' + eol + 'last"##; val after = 42; }',
+    expected: [
+      { needle: '{byte_name:?}', category: 'string', capture: 'string' },
+      { needle: String.raw`\xFF`, category: 'string', capture: 'string.escape' },
+      { needle: 'continued', category: 'string', capture: 'string' },
+      { needle: '{raw_name}', category: 'string', capture: 'string' },
+      { needle: String.raw`\xFF`, occurrence: 1, category: 'string', capture: 'string' },
+      { needle: 'last', category: 'string', capture: 'string' },
+      { needle: 'after', category: 'code', capture: 'variable' },
+    ],
+  },
+  {
+    name: 'unclosed raw byte text (' + label + ')',
+    text: 'fn main() { br#"unfinished' + eol + 'val hidden = 42;',
+    expected: [
+      { needle: 'unfinished', category: 'string' },
+      { needle: 'val hidden', category: 'string' },
+    ],
+  },
+  {
     name: 'multiline cooked text (' + label + ')',
     text: 'fn main() { val s = "first' + eol + '  {name} last' + eol + '"; val after = 42; }',
     expected: [
@@ -120,7 +142,21 @@ const characters = {
     { needle: 'after', category: 'code', capture: 'variable' },
   ],
 };
-export const cases = [lexical, interpolation, bindingPatterns, structUpdate, asyncBlock, characters, ...casesForEol('\n', 'LF'), ...casesForEol('\r\n', 'CRLF'), {
+const bytes = {
+  name: 'byte characters and strings keep braces literal and allow high escapes',
+  text: String.raw`fn main() { b'A'; b'\xFF'; b'\''; b"{name:?} {{}} \x00\xFF"; br"\xFF {}"; val after = 42; }`,
+  expected: [
+    { needle: "b'A'", category: 'string', capture: 'string' },
+    { needle: String.raw`\xFF`, category: 'string', capture: 'string.escape' },
+    { needle: String.raw`\'`, category: 'string', capture: 'string.escape' },
+    { needle: '{name:?}', category: 'string', capture: 'string' },
+    { needle: '{{}}', category: 'string', capture: 'string' },
+    { needle: String.raw`\x00`, category: 'string', capture: 'string.escape' },
+    { needle: String.raw`\xFF`, occurrence: 2, category: 'string', capture: 'string' },
+    { needle: 'after', category: 'code', capture: 'variable' },
+  ],
+};
+export const cases = [lexical, interpolation, bindingPatterns, structUpdate, asyncBlock, characters, bytes, ...casesForEol('\n', 'LF'), ...casesForEol('\r\n', 'CRLF'), {
   name: 'unterminated block comment really extends to EOF',
   text: 'fn main() {} /* outer /* inner */ fn hidden() {}',
   expected: [

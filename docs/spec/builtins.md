@@ -225,6 +225,32 @@ Character literal spelling and matching belong to [syntax](syntax.md#character-l
 constant eligibility follows [the scalar const rules](traits.md#associated-constants).
 This surface does not add character-range iteration or new String operations.
 
+## Bytes and byte arrays
+
+A [byte-character literal](syntax.md#byte-literals), such as `b'A'` or `b'\xFF'`,
+is an ordinary `u8`, not a new scalar type or a Unicode `char`. Its type is fixed
+rather than inferred as another integer width. Existing `u8` operations and
+explicit numeric conversions apply.
+
+Cooked `b"..."` and raw `br"..."` / `br#"..."#` byte strings construct ordinary
+mutable fixed-length `[u8]` arrays. Every evaluation allocates fresh array storage,
+even for empty literals or repeated calls evaluating the same source expression.
+Assignment, arguments and returns share an already constructed array's identity:
+mutating an alias updates that array, but not another evaluation's result.
+Content equality (`==`) compares bytes; identity (`===`) distinguishes storage,
+including distinct empty arrays.
+
+These arrays have the normal array `len`, `is_empty`, indexed replacement and
+Iterable surface, with `u64` lengths and `u8` elements. They do not grow or become
+Vec/List values implicitly. `Vec::from(bytes)` explicitly copies the elements into
+independent growable storage. Byte arrays are not String values: NUL and FF are
+valid payload bytes, with no UTF-8 validation or implicit text conversion. Literal
+source content must be ASCII; cooked escapes can express any byte. Neither form
+interpolates.
+See [byte literal syntax](syntax.md#byte-literals) for escapes, delimiters and
+multiline rules, and [collection contracts](collection-access.md) for array access.
+This adds no String indexing, traversal or general UTF-8 conversion API.
+
 ## Collection Types
 
 The complete [collection contracts](collection-access.md) define List/MutableList,

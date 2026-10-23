@@ -129,15 +129,44 @@ pub fn decode_string_literal_with_cancellation(
     cancel: &CancellationToken,
 ) -> Result<Result<String, &'static str>, Cancelled> {
     cancel.check()?;
-    let decoded = decode_string_literal_inner(text, cancel);
+    let mut value = String::new();
+    let decoded = decode_string_literal_inner(text, cancel, false, &mut |ch| value.push(ch));
     cancel.check()?;
-    Ok(decoded)
+    Ok(decoded.map(|()| value))
+}
+
+/// Decode a cooked/raw byte string into bytes, never UTF-8 text.
+///
+/// Direct text must be ASCII; hexadecimal escapes span `00..FF`. Unicode escapes
+/// are forbidden and braces are literal. Delimiters/newlines follow String rules.
+pub fn decode_byte_string_literal(text: &str) -> Result<Vec<u8>, &'static str> {
+    decode_byte_string_literal_with_cancellation(text, &CancellationToken::default())
+        .expect("fresh cancellation token")
+}
+
+/// Decode bytes with the same cancellation/error contract as the String decoder.
+pub fn decode_byte_string_literal_with_cancellation(
+    text: &str,
+    cancel: &CancellationToken,
+) -> Result<Result<Vec<u8>, &'static str>, Cancelled> {
+    cancel.check()?;
+    let mut value = Vec::new();
+    let decoded = text
+        .strip_prefix('b')
+        .ok_or("invalid byte string prefix")
+        .and_then(|text| {
+            decode_string_literal_inner(text, cancel, true, &mut |ch| value.push(ch as u8))
+        });
+    cancel.check()?;
+    Ok(decoded.map(|()| value))
 }
 
 fn decode_string_literal_inner(
     text: &str,
     cancel: &CancellationToken,
-) -> Result<String, &'static str> {
+    byte: bool,
+    push: &mut impl FnMut(char),
+) -> Result<(), &'static str> {
     let (delimiter, opening) =
         StringDelimiter::opening(text)?.ok_or("invalid String opening delimiter")?;
     let closing = match delimiter {
@@ -160,7 +189,7 @@ fn decode_string_literal_inner(
         .get(opening..end)
         .ok_or("invalid String delimiter boundary")?;
     match delimiter {
-        StringDelimiter::Cooked => decode_string_content(content, true, cancel),
+        StringDelimiter::Cooked => decode_string_content(content, true, byte, cancel, push),
         StringDelimiter::Raw(_) => {
             for (index, ch) in content.char_indices() {
                 if cancel.check().is_err() {
@@ -170,7 +199,7 @@ fn decode_string_literal_inner(
                     return Err("unexpected text after raw String delimiter");
                 }
             }
-            decode_string_content(content, false, cancel)
+            decode_string_content(content, false, byte, cancel, push)
         }
     }
 }
@@ -191,28 +220,33 @@ pub fn decode_string_fragment_with_cancellation(
     cancel: &CancellationToken,
 ) -> Result<Result<String, &'static str>, Cancelled> {
     cancel.check()?;
-    let decoded = decode_string_content(content, true, cancel);
+    let mut value = String::with_capacity(content.len());
+    let decoded = decode_string_content(content, true, false, cancel, &mut |ch| value.push(ch));
     cancel.check()?;
-    Ok(decoded)
+    Ok(decoded.map(|()| value))
 }
 
 fn decode_string_content(
     content: &str,
     cooked: bool,
+    byte: bool,
     cancel: &CancellationToken,
-) -> Result<String, &'static str> {
-    let mut decoded = String::with_capacity(content.len());
+    push: &mut impl FnMut(char),
+) -> Result<(), &'static str> {
     let mut chars = content
         .chars()
         .take_while(|_| cancel.check().is_ok())
         .peekable();
     while let Some(ch) = chars.next() {
+        if byte && !ch.is_ascii() {
+            return Err("direct byte literal text must be ASCII");
+        }
         match ch {
             '\r' => {
                 if chars.next() != Some('\n') {
                     return Err("standalone CR in String literal");
                 }
-                decoded.push('\n');
+                push('\n');
             }
             '\\' if cooked => {
                 let next = chars.next().ok_or("incomplete String escape")?;
@@ -227,24 +261,25 @@ fn decode_string_content(
                         chars.next();
                     }
                 } else {
-                    decoded.push(decode_char_escape(
+                    push(decode_escape(
                         &mut iter::once(next).chain(chars.by_ref()),
+                        byte,
                     )?);
                 }
             }
-            '{' | '}' if cooked => {
+            '{' | '}' if cooked && !byte => {
                 if chars.next() != Some(ch) {
                     return Err(
                         "String text requires doubled braces; interpolation requires a name binding",
                     );
                 }
-                decoded.push(ch);
+                push(ch);
             }
             '"' if cooked => return Err("unescaped quote in String text"),
-            _ => decoded.push(ch),
+            _ => push(ch),
         }
     }
-    Ok(decoded)
+    Ok(())
 }
 
 /// Decode a single-quoted character literal to exactly one Unicode scalar.
@@ -253,25 +288,47 @@ fn decode_string_content(
 /// digits in `\u{...}` (underscores only after a digit), and simple escapes.
 /// Direct tabs/newlines and empty or multiple-scalar contents are errors.
 pub fn decode_char_literal(text: &str) -> Result<char, &'static str> {
+    decode_character(text, false)
+}
+
+/// Decode a byte character to exactly one byte, with ASCII direct text only.
+///
+/// Byte escapes include `\x00..\xFF` but never Unicode escapes. Direct tabs and
+/// newlines, empty contents and multiple decoded bytes are errors.
+pub fn decode_byte_char_literal(text: &str) -> Result<u8, &'static str> {
+    let text = text
+        .strip_prefix('b')
+        .ok_or("invalid byte character prefix")?;
+    decode_character(text, true).map(|ch| ch as u8)
+}
+
+fn decode_character(text: &str, byte: bool) -> Result<char, &'static str> {
     let content = text
         .strip_prefix('\'')
         .and_then(|text| text.strip_suffix('\''))
         .ok_or("unterminated char literal")?;
     let mut chars = content.chars();
     let value = match chars.next() {
-        Some('\\') => decode_char_escape(&mut chars)?,
+        Some('\\') => decode_escape(&mut chars, byte)?,
         Some('\t' | '\r' | '\n') => return Err("direct whitespace in char literal"),
         Some('\'') => return Err("unescaped apostrophe in char literal"),
+        Some(value) if byte && !value.is_ascii() => {
+            return Err("direct byte literal text must be ASCII");
+        }
         Some(value) => value,
         None => return Err("empty char literal"),
     };
     if chars.next().is_some() {
-        return Err("char literal must contain exactly one Unicode scalar");
+        return Err(if byte {
+            "byte character literal must contain exactly one byte"
+        } else {
+            "char literal must contain exactly one Unicode scalar"
+        });
     }
     Ok(value)
 }
 
-fn decode_char_escape(chars: &mut impl Iterator<Item = char>) -> Result<char, &'static str> {
+fn decode_escape(chars: &mut impl Iterator<Item = char>, byte: bool) -> Result<char, &'static str> {
     match chars.next() {
         Some('\'') => Ok('\''),
         Some('"') => Ok('"'),
@@ -289,11 +346,12 @@ fn decode_char_escape(chars: &mut impl Iterator<Item = char>) -> Result<char, &'
                     .ok_or("invalid ASCII escape")?;
                 value = value * 16 + digit;
             }
-            if value > 0x7f {
+            if !byte && value > 0x7f {
                 return Err("char hexadecimal escape must be ASCII");
             }
             char::from_u32(value).ok_or("invalid Unicode scalar")
         }
+        Some('u') if byte => Err("Unicode escapes are forbidden in byte literals"),
         Some('u') => {
             if chars.next() != Some('{') {
                 return Err("invalid Unicode escape");
@@ -320,6 +378,108 @@ fn decode_char_escape(chars: &mut impl Iterator<Item = char>) -> Result<char, &'
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn byte_characters_require_exactly_one_ascii_or_escaped_byte() {
+        for (text, expected) in [
+            ("b'A'", b'A'),
+            (r"b'\0'", 0),
+            (r"b'\n'", b'\n'),
+            (r"b'\r'", b'\r'),
+            (r"b'\t'", b'\t'),
+            (r"b'\''", b'\''),
+            (r"b'\\'", b'\\'),
+            (r"b'\x00'", 0),
+            (r"b'\x7F'", 127),
+            (r"b'\x80'", 128),
+            (r"b'\xFF'", 255),
+        ] {
+            assert_eq!(decode_byte_char_literal(text), Ok(expected), "{text}");
+        }
+        for text in [
+            "b''",
+            "b'ab'",
+            "b'é'",
+            "b'🙂'",
+            "b'\t'",
+            "b'\n'",
+            "b'\r'",
+            "b'''",
+            "b'",
+            r"b'\x0'",
+            r"b'\xGG'",
+            r"b'\u{41}'",
+            r"b'\u{FF}'",
+            r"b'\q'",
+            "'A'",
+        ] {
+            assert!(decode_byte_char_literal(text).is_err(), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn byte_strings_share_delimiters_and_lines_without_utf8_or_interpolation() {
+        for (text, expected) in [
+            (r#"b"\0\x00\x7F\x80\xFF""#, &[0, 0, 127, 128, 255][..]),
+            (r#"b"{name} {{}} } {""#, b"{name} {{}} } {".as_slice()),
+            (
+                r##"br#"\xFF\u{41}{name}""#"##,
+                b"\\xFF\\u{41}{name}\"".as_slice(),
+            ),
+            (
+                "b\"\r\n  first\r\nsecond\n\"",
+                b"\n  first\nsecond\n".as_slice(),
+            ),
+            ("b\"a\\\r\n\r \t\nb\"", b"ab".as_slice()),
+            ("b\"a\\\n \tb\"", b"ab".as_slice()),
+            ("br\"a\\\r\n b\"", b"a\\\n b".as_slice()),
+            ("b\"\"", b"".as_slice()),
+            ("br\"\"", b"".as_slice()),
+        ] {
+            assert_eq!(
+                decode_byte_string_literal(text).as_deref(),
+                Ok(expected),
+                "{text:?}"
+            );
+        }
+        for count in [0, 1, 2, 255] {
+            let hashes = "#".repeat(count);
+            let text = format!("br{hashes}\"{{name}}\\n\"{hashes}");
+            assert_eq!(decode_byte_string_literal(&text).unwrap(), b"{name}\\n");
+        }
+        assert!(decode_byte_string_literal(&format!("br{}\"x\"", "#".repeat(256))).is_err());
+    }
+
+    #[test]
+    fn byte_strings_reject_non_ascii_unicode_escapes_and_malformed_text() {
+        for text in [
+            r#"b"é""#,
+            r#"b"中文""#,
+            r#"br"🙂""#,
+            r##"br#"é"#"##,
+            r#"b"\u{41}""#,
+            r#"b"\u{FF}""#,
+            r#"b"\u{110000}""#,
+            r#"b"\x0""#,
+            r#"b"\xGG""#,
+            r#"b"\q""#,
+            r#"b"\{""#,
+            "b\"a\rb\"",
+            "br\"a\rb\"",
+            "b\"a\\\rb\"",
+            "b\"unterminated",
+            "br#\"x\"",
+            "br#\"x\"##",
+            "b\"a\"b\"",
+            "br\"a\"b\"",
+            "\"A\"",
+        ] {
+            assert!(decode_byte_string_literal(text).is_err(), "{text:?}");
+        }
+        let cancel = CancellationToken::default();
+        cancel.cancel();
+        assert!(decode_byte_string_literal_with_cancellation("b\"text\"", &cancel).is_err());
+    }
 
     #[test]
     fn string_literals_decode_escapes_and_source_braces_once() {

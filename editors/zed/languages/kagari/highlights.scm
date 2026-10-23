@@ -35,7 +35,10 @@
 
 ; Do not capture the interpolated_string parent: identifier holes remain code.
 [(string_content) (raw_string_literal) (unterminated_raw_string) (char_content)] @string
-[(escape_sequence) (char_escape_sequence)] @string.escape
+[(byte_char_literal) (byte_string_literal) (raw_byte_string_literal)
+ (unterminated_raw_byte_string)] @string
+[(escape_sequence) (char_escape_sequence) (byte_char_escape_sequence)
+ (byte_escape_sequence)] @string.escape
 (char_literal "'" @string)
 (string_literal "\"" @string)
 

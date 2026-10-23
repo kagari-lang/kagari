@@ -118,6 +118,7 @@ impl ScalarValue {
             },
             LiteralKind::String => Ok(Self::String(literal.text.clone())),
             LiteralKind::Char => literal::decode_char_literal(&literal.text).map(Self::Char),
+            LiteralKind::Byte(value) => Self::integer(i128::from(value), IntegerType::U8),
         }
     }
 

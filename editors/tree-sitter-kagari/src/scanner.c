@@ -18,6 +18,9 @@ enum TokenType {
   UNTERMINATED_RAW_STRING,
   HOLE_BOUNDARY,
   HOLE_NAME,
+  RAW_BYTE_STRING_LITERAL,
+  UNTERMINATED_RAW_BYTE_STRING,
+  BYTE_STRING_CONTENT,
 };
 
 void *tree_sitter_kagari_external_scanner_create(void) { return NULL; }
@@ -114,7 +117,8 @@ static bool hole_name(TSLexer *lexer) {
 }
 
 // Scan one whole raw token: delimiter state never survives an incremental edit.
-static bool raw_string(TSLexer *lexer) {
+static bool raw_string(TSLexer *lexer, bool bytes) {
+  if (bytes) advance(lexer);
   if (lexer->lookahead != 'r') return false;
   advance(lexer);
   unsigned hashes = 0;
@@ -133,7 +137,7 @@ static bool raw_string(TSLexer *lexer) {
         matched++;
       }
       if (matched == hashes) {
-        lexer->result_symbol = RAW_STRING_LITERAL;
+        lexer->result_symbol = bytes ? RAW_BYTE_STRING_LITERAL : RAW_STRING_LITERAL;
         return true;
       }
     } else if (lexer->lookahead == '\r') {
@@ -141,10 +145,11 @@ static bool raw_string(TSLexer *lexer) {
       if (lexer->lookahead != '\n') return false;
       advance(lexer);
     } else {
+      if (bytes && lexer->lookahead > 0x7f) return false;
       advance(lexer);
     }
   }
-  lexer->result_symbol = UNTERMINATED_RAW_STRING;
+  lexer->result_symbol = bytes ? UNTERMINATED_RAW_BYTE_STRING : UNTERMINATED_RAW_STRING;
   return true;
 }
 
@@ -155,8 +160,9 @@ bool tree_sitter_kagari_external_scanner_scan(void *payload, TSLexer *lexer, con
   if (valid[SCANNER_RECOVERY] || valid[CHAR_BOUNDARY]) return false;
   if (valid[HOLE_NAME]) return hole_name(lexer);
   if (valid[HOLE_BOUNDARY]) return false;
-  bool string = valid[STRING_CONTENT];
-  if (string) {
+  bool bytes = valid[BYTE_STRING_CONTENT];
+  if (valid[STRING_CONTENT] || bytes) {
+    enum TokenType content = bytes ? BYTE_STRING_CONTENT : STRING_CONTENT;
     if (lexer->lookahead == '"' && valid[STRING_END]) {
       advance(lexer);
       lexer->result_symbol = STRING_END;
@@ -170,13 +176,14 @@ bool tree_sitter_kagari_external_scanner_scan(void *payload, TSLexer *lexer, con
     }
     bool consumed = false;
     while (!lexer->eof(lexer) && lexer->lookahead != '"' && lexer->lookahead != '\\') {
-      if (lexer->lookahead == '{' || lexer->lookahead == '}') {
+      if (bytes && lexer->lookahead > 0x7f) break;
+      if (!bytes && (lexer->lookahead == '{' || lexer->lookahead == '}')) {
         int32_t brace = lexer->lookahead;
         lexer->mark_end(lexer);
         advance(lexer);
         if (lexer->lookahead != brace) {
           if (!consumed) return false;
-          lexer->result_symbol = STRING_CONTENT;
+          lexer->result_symbol = content;
           return true;
         }
         advance(lexer);
@@ -185,7 +192,7 @@ bool tree_sitter_kagari_external_scanner_scan(void *payload, TSLexer *lexer, con
         advance(lexer);
         if (lexer->lookahead != '\n') {
           if (!consumed) return false;
-          lexer->result_symbol = STRING_CONTENT;
+          lexer->result_symbol = content;
           return true;
         }
         advance(lexer);
@@ -196,7 +203,7 @@ bool tree_sitter_kagari_external_scanner_scan(void *payload, TSLexer *lexer, con
       lexer->mark_end(lexer);
     }
     if (consumed) {
-      lexer->result_symbol = STRING_CONTENT;
+      lexer->result_symbol = content;
       return true;
     }
     return false;
@@ -204,7 +211,8 @@ bool tree_sitter_kagari_external_scanner_scan(void *payload, TSLexer *lexer, con
   while (whitespace(lexer->lookahead)) {
     lexer->advance(lexer, true);
   }
-  if (valid[RAW_STRING_LITERAL] && lexer->lookahead == 'r') return raw_string(lexer);
+  if (valid[RAW_STRING_LITERAL] && lexer->lookahead == 'r') return raw_string(lexer, false);
+  if (valid[RAW_BYTE_STRING_LITERAL] && lexer->lookahead == 'b') return raw_string(lexer, true);
   if (valid[BLOCK_COMMENT] || valid[DOC_BLOCK_COMMENT] || valid[UNTERMINATED_BLOCK_COMMENT]) {
     return comment(lexer);
   }

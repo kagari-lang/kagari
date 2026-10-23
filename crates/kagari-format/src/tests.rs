@@ -150,6 +150,7 @@ fn char_literals_with_invalid_decoded_values_are_not_formatted() {
 
 #[test]
 fn text_literals_preserve_multiline_bytes_and_hole_boundaries() {
+    check_fixture("byte-literals.kgr");
     for eol in ["\n", "\r\n"] {
         for literal in [
             "\"\n  first\n\"",
@@ -158,6 +159,15 @@ fn text_literals_preserve_multiline_bytes_and_hole_boundaries() {
             "r\"\n  {name} \\n\n\"",
             "r##\"\n  quote \"# {name}\n\"##",
             r#""\x00\x7F\u{1_F642_} \u{7B} {{}} {name}""#,
+            "b\"\n  first {name:?}\n\"",
+            "b\"first\\\n  \t\n second\"",
+            "br\"\n  {name} \\n\n\"",
+            "br##\"\n  quote \"# {name}\n\"##",
+            r#"b"\x00\x7F\x80\xFF {} {{}} {name:?}""#,
+            "b\"\"",
+            "b'A'",
+            r"b'\xFF'",
+            r"b'\''",
         ] {
             let literal = literal.replace('\n', eol);
             let input = format!("fn f(name:String){{consume({literal});}}{eol}");
@@ -186,10 +196,12 @@ fn text_literals_preserve_multiline_bytes_and_hole_boundaries() {
     }
     for hashes in [0, 1, 255] {
         let delimiter = "#".repeat(hashes);
-        let literal = format!("r{delimiter}\"raw {{name}} \\n\"{delimiter}");
-        let once = formatted(&format!("fn f(){{{literal}}}"), 20);
-        assert!(once.contains(&literal));
-        assert_eq!(formatted(&once, 20), once);
+        for prefix in ["r", "br"] {
+            let literal = format!("{prefix}{delimiter}\"raw {{name}} \\n\"{delimiter}");
+            let once = formatted(&format!("fn f(){{{literal}}}"), 20);
+            assert!(once.contains(&literal));
+            assert_eq!(formatted(&once, 20), once);
+        }
     }
 }
 
@@ -211,6 +223,18 @@ fn malformed_text_literals_are_not_formatted() {
         "\"standalone\rcarriage\"",
         "r\"standalone\rcarriage\"",
         "r#\"unclosed\"",
+        "b'é'",
+        "b''",
+        "b'ab'",
+        "b'\t'",
+        r"b'\u{41}'",
+        r#"b"\u{41}""#,
+        r#"b"\xFG""#,
+        "b\"é\"",
+        "br\"é\"",
+        "b\"standalone\rcarriage\"",
+        "br\"standalone\rcarriage\"",
+        "br#\"unclosed\"",
     ] {
         let input = format!("fn f(){{{literal}}}");
         assert!(
@@ -313,6 +337,7 @@ fn complete_grammar_fixture_inventory() {
         "binding-patterns.kgr",
         "bitwise.kgr",
         "blocks.kgr",
+        "byte-literals.kgr",
         "callables.kgr",
         "char-literals.kgr",
         "closures.kgr",

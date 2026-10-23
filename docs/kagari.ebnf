@@ -51,7 +51,7 @@ attribute_arg_list  ::= attribute_arg ("," attribute_arg)* (",")? ;
 attribute_arg       ::= IDENT "=" attribute_value
                       | attribute_value ;
 
-attribute_value     ::= literal
+attribute_value     ::= scalar_literal
                       | path
                       | "[" attribute_arg_list? "]" ;
 
@@ -380,11 +380,11 @@ range_pattern       ::= primary_pattern range_pattern_tail? ;
 range_pattern_tail  ::= ".." range_bound
                       | "..=" range_bound ;
 
-range_bound         ::= literal
+range_bound         ::= scalar_literal
                       | path ;
 
 primary_pattern     ::= "_"
-                      | literal
+                      | scalar_literal
                       | path
                       | tuple_struct_pattern
                       | struct_pattern
@@ -418,12 +418,18 @@ parenthesized_place_expr
 place_suffix        ::= "." IDENT
                       | "[" expr "]" ;
 
-literal             ::= INTEGER
+(* Byte strings construct arrays and are expression-only, not pattern or attribute
+   literals. Range-pattern endpoint types remain a static rule: i32 or char, not u8. *)
+literal             ::= scalar_literal
+                      | BYTE_STRING ;
+
+scalar_literal      ::= INTEGER
                       | FLOAT
                       | STRING
                       | "true"
                       | "false"
-                      | CHAR ;
+                      | CHAR
+                      | BYTE_CHAR ;
 
 (* Lexical structure *)
 
@@ -478,7 +484,7 @@ ASCII_HEX_HIGH      ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" ;
 
 (* No-hole cooked/raw forms are literals. Both retain physical multiline contents;
    decoded CRLF becomes LF, without changing source bytes or spans. Standalone CR
-   is invalid except in continuation whitespace. Byte forms are not supported. *)
+   is invalid except in continuation whitespace. *)
 STRING              ::= "\"" STRING_CHAR* "\""
                       | RAW_STRING ;
 
@@ -498,6 +504,24 @@ UNICODE_ESCAPE      ::= "\\u{" HEX_DIGIT "_"* (HEX_DIGIT "_"*)? (HEX_DIGIT "_"*)
                         (HEX_DIGIT "_"*)? (HEX_DIGIT "_"*)? (HEX_DIGIT "_"*)? "}" ;
 
 STRING_CONTINUATION ::= "\\" ("\n" | "\r\n") (" " | "\t" | "\r" | "\n")* ;
+
+(* Byte characters have fixed type u8; cooked/raw byte strings produce fresh [u8]
+   arrays. Direct contents must be ASCII. Byte escapes accept the full x00..xFF
+   range, never Unicode escapes. Braces are literal, not interpolation delimiters.
+   Multiline, CRLF normalization and cooked continuations share String rules. *)
+BYTE_CHAR           ::= "b'" (BYTE_CHAR_TEXT | BYTE_ESCAPE) "'" ;
+
+BYTE_CHAR_TEXT      ::= ? one ASCII scalar except apostrophe, backslash, TAB, LF or CR ? ;
+
+BYTE_ESCAPE         ::= "\\" ("'" | "\"" | "\\" | "n" | "r" | "t" | "0")
+                      | "\\x" HEX_DIGIT HEX_DIGIT ;
+
+BYTE_STRING         ::= "b\"" (BYTE_STRING_TEXT | BYTE_ESCAPE | STRING_CONTINUATION)* "\""
+                      | RAW_BYTE_STRING ;
+
+BYTE_STRING_TEXT    ::= ? one ASCII scalar except quote, backslash and standalone CR; LF and paired CRLF are allowed ? ;
+
+RAW_BYTE_STRING     ::= ? br followed by 0..255 hashes, a quote, ASCII raw text and a quote followed by exactly the opening hash count; further hashes are subsequent tokens; standalone CR is invalid ? ;
 
 OPERATOR_TOKEN      ::= "+"
                       | "-"

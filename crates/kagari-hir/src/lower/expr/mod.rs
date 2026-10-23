@@ -148,7 +148,7 @@ impl Lowerer {
                 }
                 ExprKind::InterpolatedString(parts)
             }
-            Expr::Literal(literal) => ExprKind::Literal(self.lower_literal(literal)),
+            Expr::Literal(literal) => self.lower_literal_expr(literal),
             Expr::ParenExpr(paren) => {
                 return paren
                     .expr()
@@ -401,12 +401,13 @@ impl Lowerer {
                     .unwrap_or_else(|| self.missing_expr());
                 ExprKind::ArrayRepeat { value, count }
             }
-            Expr::ArrayExpr(array) => ExprKind::Array(
-                array
+            Expr::ArrayExpr(array) => ExprKind::Array {
+                elements: array
                     .elements()
                     .map(|expr| self.lower_expr(&expr))
                     .collect::<SmallVec<[_; 4]>>(),
-            ),
+                element_type: None,
+            },
         };
 
         let id = self.alloc_expr(syntax_span(expr), ExprData { kind });
