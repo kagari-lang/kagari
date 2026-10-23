@@ -195,6 +195,7 @@ pub(super) fn append_value_edges(values: &mut Vec<Value>, pending: &mut Vec<Heap
             Value::Interface(id) => pending.push(id.0),
             Value::Unit
             | Value::Bool(_)
+            | Value::Char(_)
             | Value::I32(_)
             | Value::I64(_)
             | Value::U64(_)

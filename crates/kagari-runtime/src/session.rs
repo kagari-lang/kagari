@@ -69,6 +69,7 @@ pub struct ExecutionOptions {
 pub enum TraceValue {
     Unit,
     Bool(bool),
+    Char(char),
     I32(i32),
     I64(i64),
     U64(u64),
@@ -96,6 +97,7 @@ impl TraceValue {
             Value::Range(value) => Self::Opaque(format!("{:?}", heap.range(*value))),
             Value::Unit => Self::Unit,
             Value::Bool(value) => Self::Bool(*value),
+            Value::Char(value) => Self::Char(*value),
             Value::I32(value) => Self::I32(*value),
             Value::I64(value) => Self::I64(*value),
             Value::U64(value) => Self::U64(*value),

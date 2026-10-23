@@ -50,6 +50,15 @@ pub fn binary_kernel(op: ScalarBinaryOp, input: BuiltinType) -> Option<ScalarKer
         BuiltinType::U64 => select_op!(op, integer_binary, 64, false),
         BuiltinType::F32 => select_op!(op, float_binary, true),
         BuiltinType::F64 => select_op!(op, float_binary, false),
+        BuiltinType::Char => match op {
+            ScalarBinaryOp::Eq => character_comparison::<5>,
+            ScalarBinaryOp::NotEq => character_comparison::<6>,
+            ScalarBinaryOp::Lt => character_comparison::<7>,
+            ScalarBinaryOp::Le => character_comparison::<8>,
+            ScalarBinaryOp::Gt => character_comparison::<9>,
+            ScalarBinaryOp::Ge => character_comparison::<10>,
+            _ => return None,
+        },
         BuiltinType::Bool | BuiltinType::Unit
             if matches!(op, ScalarBinaryOp::Eq | ScalarBinaryOp::NotEq) =>
         {
@@ -61,6 +70,23 @@ pub fn binary_kernel(op: ScalarBinaryOp, input: BuiltinType) -> Option<ScalarKer
         }
         _ => return None,
     })
+}
+
+fn character_comparison<const OP: u8>(lhs: u64, rhs: u64) -> Result<u64, &'static str> {
+    for value in [lhs, rhs] {
+        if u32::try_from(value).ok().and_then(char::from_u32).is_none() {
+            return Err("invalid Unicode scalar operand");
+        }
+    }
+    Ok(u64::from(match OP {
+        5 => lhs == rhs,
+        6 => lhs != rhs,
+        7 => lhs < rhs,
+        8 => lhs <= rhs,
+        9 => lhs > rhs,
+        10 => lhs >= rhs,
+        _ => unreachable!(),
+    }))
 }
 
 fn equality<const INVERT: bool>(lhs: u64, rhs: u64) -> Result<u64, &'static str> {

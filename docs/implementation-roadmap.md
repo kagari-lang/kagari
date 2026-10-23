@@ -735,6 +735,19 @@ registration, dynamic/race/timeout combinators, arbitrary Object-to-trait casts,
 generated host views, and automatic latest-version handles. The queued Host API
 plan retains preparation/loading and logical entry proposals only.
 
+## Text literals and String traversal
+
+The [text literals execution plan](text-literals-plan.md) records TL01-TL05:
+a distinct Unicode `char`, identifier-only interpolation in ordinary strings,
+Rust-style raw/multiline strings, byte literals with fresh `[u8]` storage, and
+explicit lazy `chars`/`char_indices`/`bytes` traversal. Implementation and per-phase
+commits are authorized. TL01 Char is implemented with focused local acceptance;
+TL02 String cutover is next. The plan owns phase order and the progress ledger;
+current specifications describe delivered slices. Full CI and native Node/WASM
+editor acceptance remain pending. Expression interpolation compatibility, a format
+API, broader Unicode APIs,
+native backend expansion and unrelated migrations are outside this scope.
+
 ## Other queued designs
 
 These are proposals, not active execution plans. Activation and exact sequencing

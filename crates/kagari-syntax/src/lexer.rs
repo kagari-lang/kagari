@@ -396,6 +396,34 @@ pub fn lex_with_cancellation(
                 let end = chars.peek().map(|(i, _)| *i).unwrap_or(input.len());
                 tokens.push(token(kind, index, end));
             }
+            '\'' => {
+                chars.next();
+                let mut end = index + 1;
+                let mut escaped = false;
+                let mut closed = false;
+                while let Some((next_index, next)) = chars.peek().copied() {
+                    cancel.check()?;
+                    if matches!(next, '\r' | '\n') {
+                        break;
+                    }
+                    chars.next();
+                    end = next_index + next.len_utf8();
+                    if escaped {
+                        escaped = false;
+                    } else if next == '\\' {
+                        escaped = true;
+                    } else if next == '\'' {
+                        closed = true;
+                        break;
+                    }
+                }
+                let kind = if closed && literal::decode_char_literal(&input[index..end]).is_ok() {
+                    TokenKind::Char
+                } else {
+                    TokenKind::Unknown
+                };
+                tokens.push(token(kind, index, end));
+            }
             '"' => {
                 chars.next();
                 let mut end = index + 1;

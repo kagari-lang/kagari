@@ -398,6 +398,8 @@ pub enum SyntaxKind {
     Interpolation,
     /// A recovery node retaining unexpected tokens or a limit-exhausted suffix.
     Error,
+    /// A single-quoted Unicode scalar literal, retaining delimiters and escapes.
+    Char,
 }
 }
 

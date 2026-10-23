@@ -444,6 +444,7 @@ pub enum Constant {
     F32(f32),
     F64(f64),
     Str(String),
+    Char(char),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

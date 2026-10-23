@@ -39,6 +39,7 @@ macro_rules! scalar {
 scalar!(
     (),
     bool,
+    char,
     i8,
     i16,
     i32,

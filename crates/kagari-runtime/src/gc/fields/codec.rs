@@ -4,7 +4,6 @@ use crate::{
     module::layout_storage::ScalarEncoding,
     value::{InterfaceObjectId, Value, scalar},
 };
-use kagari_abi::representation::ValueType;
 
 pub(super) fn read_scalar(bytes: &[u8], offset: usize, encoding: ScalarEncoding) -> Option<u64> {
     let width = encoding.width;
@@ -22,7 +21,7 @@ pub(super) fn read_scalar(bytes: &[u8], offset: usize, encoding: ScalarEncoding)
     } else {
         bits
     };
-    (encoding.representation != ValueType::Bool || bits <= 1).then_some(bits)
+    scalar::admits_payload(encoding.representation, Some(encoding.ty), bits).then_some(bits)
 }
 
 pub(super) fn write_scalar(
@@ -93,4 +92,34 @@ pub(super) fn write_managed(bytes: &mut [u8], offset: usize, value: Value) -> Op
     bytes[5..9].copy_from_slice(&id.slot.to_ne_bytes());
     bytes[9..13].copy_from_slice(&id.generation.to_ne_bytes());
     Some(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kagari_abi::representation::ValueType;
+    use kagari_types::scalar::BuiltinType;
+
+    #[test]
+    fn char_fields_reject_invalid_scalars_before_reading_or_truncating_writes() {
+        let encoding = ScalarEncoding {
+            ty: BuiltinType::Char,
+            representation: ValueType::Char,
+            width: 4,
+            signed: false,
+        };
+        for bits in [0xd800_u32, 0xdfff, 0x110000, u32::MAX] {
+            assert_eq!(read_scalar(&bits.to_ne_bytes(), 0, encoding), None);
+        }
+        let mut bytes = u32::from('é').to_ne_bytes();
+        for bits in [0xd800, 0x110000, 0x1_0000_0061, u64::MAX] {
+            assert_eq!(write_scalar(&mut bytes, 0, encoding, bits), None);
+            assert_eq!(
+                read_scalar(&bytes, 0, encoding),
+                Some(u64::from(u32::from('é')))
+            );
+        }
+        write_scalar(&mut bytes, 0, encoding, 0x10ffff).unwrap();
+        assert_eq!(read_scalar(&bytes, 0, encoding), Some(0x10ffff));
+    }
 }

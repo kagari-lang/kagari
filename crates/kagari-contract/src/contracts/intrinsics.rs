@@ -25,6 +25,7 @@ pub(super) fn verify(
                 | ValueType::I64
                 | ValueType::U64
                 | ValueType::Str
+                | ValueType::Char
                 | ValueType::HeapObject,
             ],
         ) => ValueType::I64,

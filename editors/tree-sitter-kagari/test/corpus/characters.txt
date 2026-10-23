@@ -1,0 +1,69 @@
+==================
+Character scalars and escapes
+==================
+fn chars() { 'a'; 'é'; '🙂'; ' '; '"'; '\''; '\\'; '\0'; '\n'; '\r'; '\t'; '\"'; '\x00'; '\x7F'; '\u{0}'; '\u{D7FF}'; '\u{E000}'; '\u{10_FF_FF_}'; }
+
+---
+
+(source_file
+  (function_item
+    (identifier)
+    (parameters)
+    (block
+      (expression_statement (char_literal (char_content)))
+      (expression_statement (char_literal (char_content)))
+      (expression_statement (char_literal (char_content)))
+      (expression_statement (char_literal (char_content)))
+      (expression_statement (char_literal (char_content)))
+      (expression_statement (char_literal (char_escape_sequence)))
+      (expression_statement (char_literal (char_escape_sequence)))
+      (expression_statement (char_literal (char_escape_sequence)))
+      (expression_statement (char_literal (char_escape_sequence)))
+      (expression_statement (char_literal (char_escape_sequence)))
+      (expression_statement (char_literal (char_escape_sequence)))
+      (expression_statement (char_literal (char_escape_sequence)))
+      (expression_statement (char_literal (char_escape_sequence)))
+      (expression_statement (char_literal (char_escape_sequence)))
+      (expression_statement (char_literal (char_escape_sequence)))
+      (expression_statement (char_literal (char_escape_sequence)))
+      (expression_statement (char_literal (char_escape_sequence)))
+      (expression_statement (char_literal (char_escape_sequence))))))
+
+==================
+Character braces and quotes inside existing interpolation
+==================
+fn chars() { f"{'}'} {'\''} {'\u{7B_}'} tail" }
+
+---
+
+(source_file
+  (function_item
+    (identifier)
+    (parameters)
+    (block
+      (interpolated_string
+        (interpolation (char_literal (char_content)))
+        (format_text)
+        (interpolation (char_literal (char_escape_sequence)))
+        (format_text)
+        (interpolation (char_literal (char_escape_sequence)))
+        (format_text)))))
+
+==================
+Character constants and range patterns
+==================
+const FIRST: char = 'a';
+fn chars(c: char) { match c { 'a'..='z' => '\0', _ => '🙂' } }
+
+---
+
+(source_file
+  (const_item (identifier) (type_annotation (type_path (type_identifier))) (char_literal (char_content)))
+  (function_item
+    (identifier)
+    (parameters (parameter (identifier) (type_path (type_identifier))))
+    (block
+      (match_expression
+        (path (identifier))
+        (match_arm (range_pattern (char_literal (char_content)) (char_literal (char_content))) (char_literal (char_escape_sequence)))
+        (match_arm (wildcard_pattern) (char_literal (char_content)))))))

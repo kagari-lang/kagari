@@ -409,6 +409,7 @@ pub(super) fn verify(
                                 ConstantOperand::F64(_) => B::F64,
                                 ConstantOperand::U64(_) => B::U64,
                                 ConstantOperand::Str(_) => B::String,
+                                ConstantOperand::Char(_) => B::Char,
                             };
                             let number = match constant {
                                 ConstantOperand::I32(value) => Some(i128::from(*value)),

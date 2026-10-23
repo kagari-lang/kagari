@@ -14,6 +14,7 @@ impl Lowerer {
         let kind = match literal.kind() {
             Some(SyntaxKind::Float) => LiteralKind::Float,
             Some(SyntaxKind::String) => LiteralKind::String,
+            Some(SyntaxKind::Char) => LiteralKind::Char,
             Some(SyntaxKind::TrueKw | SyntaxKind::FalseKw) => LiteralKind::Bool,
             _ => LiteralKind::Number,
         };

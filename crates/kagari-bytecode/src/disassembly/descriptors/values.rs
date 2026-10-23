@@ -37,6 +37,9 @@ pub(super) fn constant(
             writeln!(writer, "f64 {value} bits=0x{:016x}", value.to_bits())
         }
         ConstantOperand::Str(value) => writeln!(writer, "str {}", quoted(value)),
+        ConstantOperand::Char(value) => {
+            writeln!(writer, "char '{value}'", value = value.escape_debug())
+        }
     }
 }
 

@@ -10,6 +10,7 @@ pub enum BuiltinTypeFamily {
     UnsignedInteger,
     Float,
     String,
+    Character,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -119,6 +120,13 @@ const BUILTIN_TYPES: &[BuiltinTypeSpec] = &[
         family: BuiltinTypeFamily::String,
         const_safe: false,
         heap_backed: true,
+    },
+    BuiltinTypeSpec {
+        ty: BuiltinType::Char,
+        name: "char",
+        family: BuiltinTypeFamily::Character,
+        const_safe: true,
+        heap_backed: false,
     },
 ];
 

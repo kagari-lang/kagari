@@ -269,6 +269,11 @@ fn sequence_layouts_charge_capacity_not_values_or_zst_capacity_sentinel() {
     let owner = sequence_owner(&mut runtime);
     for (ty, value, width) in [
         (Ty::Builtin(BuiltinType::Unit), Value::Unit, 0),
+        (
+            Ty::Builtin(BuiltinType::Char),
+            Value::Char('🙂'),
+            size_of::<char>(),
+        ),
         (Ty::Builtin(BuiltinType::I8), Value::I32(1), size_of::<i8>()),
         (
             Ty::Builtin(BuiltinType::I64),

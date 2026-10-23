@@ -1,6 +1,49 @@
 use crate::{lexer::lex, parser::parse, tests::common, token::TokenKind};
 
 #[test]
+fn character_tokens_keep_unicode_spans_and_pattern_boundaries() {
+    let source = r"'🙂' 'a'..='z' '\'' '\u{10_FFFF_}'";
+    let tokens = lex(source)
+        .into_iter()
+        .filter(|token| !token.kind.is_trivia())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        tokens
+            .iter()
+            .map(|token| token.kind.clone())
+            .collect::<Vec<_>>(),
+        [
+            TokenKind::Char,
+            TokenKind::Char,
+            TokenKind::DotDotEq,
+            TokenKind::Char,
+            TokenKind::Char,
+            TokenKind::Char,
+            TokenKind::Eof,
+        ]
+    );
+    assert_eq!(&source[tokens[0].span.start..tokens[0].span.end], "'🙂'");
+    let source = "const FIRST: char = 'a'; fn classify(c: char) -> char { match c { 'a'..='z' => '🙂', _ => '\\0' } }";
+    let parsed = common::parse(source);
+    assert!(
+        parsed.diagnostics().is_empty(),
+        "{:?}",
+        parsed.diagnostics()
+    );
+    for malformed in ["''", "'ab'", "'á'", "'\t'", r"'\x80'", r"'\u{D800}'"] {
+        assert_eq!(lex(malformed)[0].kind, TokenKind::Unknown, "{malformed:?}");
+    }
+    let broken = "'unterminated\r\nfn next() {}";
+    let tokens = lex(broken);
+    assert_eq!(tokens[0].kind, TokenKind::Unknown);
+    assert_eq!(
+        &broken[tokens[0].span.start..tokens[0].span.end],
+        "'unterminated"
+    );
+    assert!(tokens.iter().any(|token| token.kind == TokenKind::FnKw));
+}
+
+#[test]
 fn line_comments_keep_unicode_ranges_and_crlf_trivia() {
     let text = "a /= 2; // 中文😀\r\n// end";
     let tokens = lex(text);

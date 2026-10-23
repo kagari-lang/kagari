@@ -34,8 +34,9 @@
 [(doc_line_comment) (doc_block_comment)] @comment.doc
 
 ; Do not capture the interpolated_string parent: expression holes remain code.
-[(string_content) (format_text)] @string
-(escape_sequence) @string.escape
+[(string_content) (format_text) (char_content)] @string
+[(escape_sequence) (char_escape_sequence)] @string.escape
+(char_literal "'" @string)
 (string_literal "\"" @string)
 (interpolated_string "f\"" @string)
 (interpolated_string "\"" @string)

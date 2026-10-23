@@ -299,6 +299,7 @@ impl ExecutionInstruction {
                 let value = match module.constants[constant.index()] {
                     ConstantOperand::Unit => Value::Unit,
                     ConstantOperand::Bool(v) => Value::Bool(v),
+                    ConstantOperand::Char(v) => Value::Char(v),
                     ConstantOperand::I32(v) => Value::I32(v),
                     ConstantOperand::I64(v) => Value::I64(v),
                     ConstantOperand::U64(v) => Value::U64(v),

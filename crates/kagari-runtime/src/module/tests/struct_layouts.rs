@@ -392,6 +392,8 @@ fn mixed_scalar_fields_preserve_full_domains_and_float_bits_at_value_boundaries(
             BuiltinType::F64,
             Value::F64(f64::from_bits(0x7ff8_1234_5678_9abc)),
         ),
+        (BuiltinType::Char, Value::Char('\0')),
+        (BuiltinType::Char, Value::Char(char::MAX)),
     ];
     let names = (0..cases.len())
         .map(|slot| format!("field{slot}"))
@@ -415,6 +417,9 @@ fn mixed_scalar_fields_preserve_full_domains_and_float_bits_at_value_boundaries(
         (8, Value::I64(65_536)),
         (9, Value::I64(-1)),
         (9, Value::I64(4_294_967_296)),
+        (9, Value::Char('a')),
+        (13, Value::I64(0)),
+        (14, Value::I64(0x10ffff)),
     ] {
         let mut initial = cases.iter().map(|(_, value)| *value).collect::<Vec<_>>();
         initial[slot] = invalid;
@@ -474,6 +479,20 @@ fn mixed_scalar_fields_preserve_full_domains_and_float_bits_at_value_boundaries(
     assert_eq!(
         runtime.gc().struct_get_slot(object, &layout, 2),
         Some(Value::I32(-128))
+    );
+    assert!(
+        runtime
+            .gc()
+            .struct_set_slot(object, &layout, 13, Value::I64(97))
+            .is_err()
+    );
+    runtime
+        .gc()
+        .struct_set_slot(object, &layout, 13, Value::Char('🙂'))
+        .unwrap();
+    assert_eq!(
+        runtime.gc().struct_get_slot(object, &layout, 13),
+        Some(Value::Char('🙂'))
     );
     drop(root);
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);

@@ -35,6 +35,7 @@ macro_rules! scalar_schema {
 scalar_schema!(
     (),
     bool,
+    char,
     i8,
     i16,
     i32,

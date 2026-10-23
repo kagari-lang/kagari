@@ -27,6 +27,22 @@ use kagari_types::{
 use std::{collections::BTreeMap, slice};
 
 #[test]
+fn char_constants_preserve_scalar_domain_and_canonical_public_encoding() {
+    let definitions = DefinitionContext::new().unwrap().snapshot();
+    for (value, encoded) in [
+        ('\0', "const-v1:char:00000000"),
+        ('\u{d7ff}', "const-v1:char:0000d7ff"),
+        ('\u{e000}', "const-v1:char:0000e000"),
+        ('🙂', "const-v1:char:0001f642"),
+        ('\u{10ffff}', "const-v1:char:0010ffff"),
+    ] {
+        let scalar = ScalarValue::Char(value);
+        assert_eq!(const_abi_value(&scalar, &definitions), encoded);
+        assert_eq!(lower_scalar(scalar), Constant::Char(value));
+    }
+}
+
+#[test]
 fn unified_integers_preserve_constant_encoding_and_physical_lowering() {
     let definitions = DefinitionContext::new().unwrap().snapshot();
     for (ty, value, encoded, constant) in [

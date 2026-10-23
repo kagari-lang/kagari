@@ -35,6 +35,8 @@ pub enum ScalarValue {
     F64(f64),
     /// Decoded string content without source delimiters.
     String(String),
+    /// One decoded Unicode scalar, without source delimiters.
+    Char(char),
 }
 
 impl ScalarValue {
@@ -47,6 +49,7 @@ impl ScalarValue {
             Self::F32(_) => BuiltinType::F32,
             Self::F64(_) => BuiltinType::F64,
             Self::String(_) => BuiltinType::String,
+            Self::Char(_) => BuiltinType::Char,
         })
     }
 
@@ -114,6 +117,7 @@ impl ScalarValue {
                 _ => Err("invalid bool literal"),
             },
             LiteralKind::String => literal::decode_string_literal(&literal.text).map(Self::String),
+            LiteralKind::Char => literal::decode_char_literal(&literal.text).map(Self::Char),
         }
     }
 

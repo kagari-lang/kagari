@@ -193,6 +193,8 @@ pub enum TokenKind {
     Eof,
     /// Unrecognized or malformed lexical input retained with its source range.
     Unknown,
+    /// A single-quoted Unicode scalar literal, retaining delimiters and escapes.
+    Char,
 }
 
 /// One lexical item, retaining its category and range in the original input.
@@ -255,6 +257,7 @@ impl TokenKind {
             Self::Number => SyntaxKind::Number,
             Self::Float => SyntaxKind::Float,
             Self::String => SyntaxKind::String,
+            Self::Char => SyntaxKind::Char,
             Self::FormatStart => SyntaxKind::FormatStart,
             Self::FormatText => SyntaxKind::FormatText,
             Self::FormatOpen => SyntaxKind::FormatOpen,

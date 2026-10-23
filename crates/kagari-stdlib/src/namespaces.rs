@@ -57,6 +57,7 @@ pub fn type_owner(name: &str) -> ModuleIdentity {
         "Ordering" => module("core", "cmp"),
         "Infallible" => module("core", "convert"),
         "ParseError" | "TryFromIntError" => module("core", "num"),
+        "CharTryFromError" => module("core", "char"),
         "ControlFlow" | "Bound" | "Range" | "RangeInclusive" | "RangeFrom" | "RangeTo"
         | "RangeToInclusive" | "RangeFull" => module("core", "ops"),
         "CollectionCursor" | "MapIterator" | "FilterIterator" | "TakeIterator"
@@ -78,6 +79,7 @@ pub fn receiver_owner(ty: &Ty, definitions: &DefinitionTable) -> Option<ModuleId
             .module()
             .clone(),
         Ty::Builtin(BuiltinType::String) => type_owner("String"),
+        Ty::Builtin(BuiltinType::Char) => module("core", "char"),
         Ty::Builtin(_) => module("core", "num"),
         Ty::Array(..) => module("core", "array"),
         Ty::Map { .. } | Ty::Set(..) => module("std", "collections"),

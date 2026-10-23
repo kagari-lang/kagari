@@ -14,6 +14,7 @@ pub fn builtin_representation(ty: BuiltinType) -> ValueType {
         BuiltinType::F32 => ValueType::F32,
         BuiltinType::F64 => ValueType::F64,
         BuiltinType::String => ValueType::Str,
+        BuiltinType::Char => ValueType::Char,
     }
 }
 

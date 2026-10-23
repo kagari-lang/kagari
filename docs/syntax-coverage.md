@@ -81,6 +81,19 @@ particular branch. The parser's Rowan CST, semantic analysis, artifact loading,
 and runtime execution require their own tests; this audit measures their
 source-grammar inputs only.
 
+Character literals have a source witness in
+[char-literals.kgr](../examples/syntax/char-literals.kgr), including supplementary
+scalars, escaped controls, ASCII hexadecimal escapes, Unicode-escape underscores,
+and character/range patterns. These lexical additions do not add source-language
+quantifier positions; `syntax-quantifiers.tsv` is unchanged. The shared decoder in
+`crates/kagari-source/src/literal.rs` owns exactly-one-scalar and scalar-range
+validation. Tree-sitter/TextMate recognize lexical shape for editing, not the
+complete semantic domain (for example, `\\u{D800}` still needs a compiler error).
+Formatter coverage checks spelling preservation and idempotence; analyzer coverage
+only establishes document synchronization, not semantic highlighting or diagnostics.
+String syntax remains unchanged in TL01: no byte/raw/multiline additions and no
+removal of `f` interpolation.
+
 Interpolated strings and their lexer modes have an executable witness in
 [string-interpolation.kgr](../examples/syntax/string-interpolation.kgr). Focused
 parser tests cover nested interpolation, Unicode escapes, malformed input and

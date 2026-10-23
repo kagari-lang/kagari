@@ -19,6 +19,8 @@ pub enum BuiltinType {
     F32,
     F64,
     String,
+    /// One Unicode scalar, distinct from all numeric types.
+    Char,
 }
 
 /// Integer scalar identity, excluding non-integer builtin types.

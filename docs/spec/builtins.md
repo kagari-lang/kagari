@@ -33,6 +33,7 @@ constructors and tooling navigation.
 | `core::str` | FromStr |
 | `core::default` | Default |
 | `core::num` | ParseError, TryFromIntError, scalar numeric inherent methods and numeric native implementations |
+| `core::char` | CharTryFromError and character default/conversion implementations |
 | `core::option`, `core::result` | Option and Result |
 | `core::future` | Cold single-drive Future |
 | `core::task` | Task, TaskScope, SpawnError and cold two-input join/try_join |
@@ -40,7 +41,7 @@ constructors and tooling navigation.
 | `std::collections` | List/MutableList, Map/MutableMap, Set/MutableSet, HashMap and HashSet |
 
 Corresponding `std::ops`, `std::cmp`, `std::hash`, `std::fmt`, `std::convert`,
-`std::iter`, `std::str`, `std::default`, `std::num`, `std::option`, `std::result`, `std::future`, `std::string`
+`std::iter`, `std::str`, `std::default`, `std::num`, `std::char`, `std::option`, `std::result`, `std::future`, `std::string`
 and `std::vec` expose the canonical declarations through checked re-exports.
 `std::task` exposes the `core::task` declarations, including `join` and `try_join`.
 The package/module spelling does not change Kagari's GC or shared-object semantics.
@@ -131,7 +132,8 @@ fn make<T: Default>() -> T { T::default() }
 
 The trait is static-only, not an interface value type. Standard implementations
 return Unit, false, correctly typed integer/positive floating zero, empty String,
-a fresh empty Vec<T>, or None for Option<T>. Vec and Option do not require
+a fresh empty Vec<T>, or None for Option<T>. The [character implementation](#character-scalar)
+adds the scalar default described below. Vec and Option do not require
 T: Default. Other types need an explicit implementation; no tuple/array/map/set,
 Result, host/view or implicit user-struct implementations are supplied.
 Default does not zero-initialize arbitrary types or enable derive or enum default
@@ -144,6 +146,7 @@ The core type set includes:
 
 - `()`
 - `bool`
+- `char`
 - signed integers: `i8`, `i16`, `i32`, `i64`
 - unsigned integers: `u8`, `u16`, `u32`, `u64`
 - floating-point numbers: `f32`, `f64`
@@ -165,6 +168,62 @@ use `u64`; signed 64-bit numeric contracts use `i64`. This does not change
 user-defined Index parameter types or introduce implicit numeric conversions.
 The semantics do not import Rust ownership or borrowing. Physical storage remains
 subject to [machine and resource boundaries](runtime.md#machine-and-resource-boundaries).
+
+## Character scalar
+
+`char` is exactly one Unicode scalar: U+0000 through U+10FFFF, excluding the
+surrogate range U+D800 through U+DFFF. It is not a byte, UTF-16 code unit,
+grapheme cluster or alias of `u32`. It follows ordinary scalar value-copy/clone
+semantics; assigning or passing a character does not allocate a shared object.
+Its exact type is preserved in fields, generic containers and persistent statics.
+Changing a static from `char` to `u32` is not a compatible reload type change.
+
+The minimal protocols are PartialEq/Eq, PartialOrd/Ord, Hash, Display, Debug and
+Default. Equality compares scalar values, ordering is by scalar value and equal
+characters hash equally. Display emits the scalar's UTF-8 text. Debug emits a
+single-quoted escaped character using Rust's character Debug escape policy (for
+example, NUL is `'\0'`, newline is `'\n'` and an apostrophe is `'\''`). Default
+returns NUL, U+0000. This adds no new Copy/Clone trait declarations.
+
+The exact character conversion declaration is fixed as follows (signatures only;
+trait names refer to their canonical standard declarations):
+
+```text
+// In core::char; std::char re-exports this same enum, not a second type.
+pub enum CharTryFromError {
+    InvalidScalar,
+}
+
+impl Default for char {
+    fn default() -> char;
+}
+
+impl From<char> for u32 {
+    fn from(value: char) -> u32;
+}
+
+impl From<char> for String {
+    fn from(value: char) -> String;
+}
+
+impl TryFrom<u32> for char {
+    type Error = core::char::CharTryFromError;
+    fn try_from(value: u32) -> Result<char, core::char::CharTryFromError>;
+}
+```
+
+`CharTryFromError` has no type parameters and its only variant, `InvalidScalar`,
+has no payload. It is not a prelude name. `u32::from(character)` returns the scalar
+value; `String::from(character)` encodes that scalar as UTF-8. `char::try_from(value)`
+returns `Err(core::char::CharTryFromError::InvalidScalar)` for surrogates or values
+above U+10FFFF, otherwise `Ok(character)`. This is domain validation, not numeric
+truncation. Existing Into/TryInto adapters use these forward implementations.
+
+There is no implicit character/integer conversion or `as` cast in either direction,
+character arithmetic, bitwise operation, increment, FromStr parsing, Sum or Product.
+Character literal spelling and matching belong to [syntax](syntax.md#character-literals);
+constant eligibility follows [the scalar const rules](traits.md#associated-constants).
+This surface does not add character-range iteration or new String operations.
 
 ## Collection Types
 

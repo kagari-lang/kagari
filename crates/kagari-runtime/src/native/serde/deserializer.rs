@@ -71,6 +71,7 @@ impl<'de> SerdeDeserializer<'de> for Deserializer<'_, '_> {
         match self.expected.ty() {
             Ty::Builtin(BuiltinType::Unit) => self.deserialize_unit(visitor),
             Ty::Builtin(BuiltinType::Bool) => self.deserialize_bool(visitor),
+            Ty::Builtin(BuiltinType::Char) => self.deserialize_char(visitor),
             Ty::Builtin(BuiltinType::I8) => self.deserialize_i8(visitor),
             Ty::Builtin(BuiltinType::I16) => self.deserialize_i16(visitor),
             Ty::Builtin(BuiltinType::I32) => self.deserialize_i32(visitor),
@@ -108,8 +109,8 @@ impl<'de> SerdeDeserializer<'de> for Deserializer<'_, '_> {
         Err(unsupported("u128"))
     }
 
-    fn deserialize_char<V: Visitor<'de>>(self, _: V) -> NativeResult<V::Value> {
-        Err(unsupported("char"))
+    fn deserialize_char<V: Visitor<'de>>(mut self, visitor: V) -> NativeResult<V::Value> {
+        visitor.visit_char(self.scalar::<char>()?)
     }
 
     fn deserialize_str<V: Visitor<'de>>(self, visitor: V) -> NativeResult<V::Value> {

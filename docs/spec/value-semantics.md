@@ -87,6 +87,7 @@ explicitly implement PartialEq using `self === other` for an object type.
 | Type | Equality contract |
 | --- | --- |
 | Unit, bool, integers, String | Builtin value comparison. |
+| char | Builtin [Unicode scalar comparison](builtins.md#character-scalar), not integer coercion. |
 | Float | Builtin IEEE comparison, including NaN unequal to itself; no Eq/Hash. |
 | Tuple | Conditional member comparison when every member supports PartialEq. |
 | User Struct or enum | Explicit implementation; neither object identity nor enum member comparison is automatically supplied. |

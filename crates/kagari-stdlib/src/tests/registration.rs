@@ -131,6 +131,7 @@ fn standard_default_inventory_has_owned_bindings_and_unbounded_elements() {
             };
             let expected_owner = match name.as_str() {
                 "String" | "Vec" | "Option" => namespaces::type_owner(&name),
+                "Char" => namespaces::module("core", "char"),
                 _ => namespaces::module("core", "num"),
             };
             assert_eq!(module.identity, expected_owner);
@@ -170,7 +171,7 @@ fn standard_default_inventory_has_owned_bindings_and_unbounded_elements() {
         inventory,
         [
             "Unit", "Bool", "I8", "I16", "I32", "I64", "U8", "U16", "U32", "U64", "F32", "F64",
-            "String", "Vec", "Option",
+            "String", "Char", "Vec", "Option",
         ]
         .into_iter()
         .map(str::to_owned)
@@ -182,7 +183,7 @@ fn standard_default_inventory_has_owned_bindings_and_unbounded_elements() {
 fn canonical_foundation_contracts_survive_scoped_publication_and_installation() {
     let first = catalog::declarations().unwrap();
     let second = catalog::declarations().unwrap();
-    assert_eq!(first.len(), 36);
+    assert_eq!(first.len(), 38);
     let array_facade = first
         .iter()
         .find(|module| module.records().identity == namespaces::module("std", "array"))
@@ -198,7 +199,7 @@ fn canonical_foundation_contracts_survive_scoped_publication_and_installation() 
             .iter()
             .map(|module| module.records().types.len())
             .sum::<usize>(),
-        33
+        34
     );
     assert_eq!(
         first
@@ -212,15 +213,15 @@ fn canonical_foundation_contracts_survive_scoped_publication_and_installation() 
             .iter()
             .map(|module| module.records().implementations.len())
             .sum::<usize>(),
-        // Includes integer policies, float utilities and extended math groups.
-        238
+        // Includes integer/float policies and the four character construction/conversion impls.
+        242
     );
     assert_eq!(
         first
             .iter()
             .map(|module| module.records().exports.len())
             .sum::<usize>(),
-        93
+        94
     );
     assert_eq!(
         first

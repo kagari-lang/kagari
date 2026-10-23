@@ -386,6 +386,21 @@ mod tests {
     }
 
     #[test]
+    fn character_wire_type_is_distinct_from_u32() {
+        let definitions = DefinitionTableBuilder::new().unwrap().freeze();
+        let encoding = definitions.encode([]).unwrap();
+        let decoding = encoding.table.clone().decode().unwrap();
+        let cancel = CancellationToken::default();
+        let character = Ty::Builtin(BuiltinType::Char);
+        let wire = WireType::encode(&character, &encoding, &cancel).unwrap();
+        let bytes = codec().serialize(&wire).unwrap();
+        let decoded: WireType = codec().deserialize(&bytes).unwrap();
+        assert_eq!(decoded.decode(&decoding, &cancel).unwrap(), character);
+        let integer = WireType::encode(&Ty::Builtin(BuiltinType::U32), &encoding, &cancel).unwrap();
+        assert_ne!(bytes, codec().serialize(&integer).unwrap());
+    }
+
+    #[test]
     fn associated_type_wire_preserves_identity_and_rejects_noncanonical_bindings() {
         let trait_id = DefinitionPath {
             module: ModuleIdentity::single_file("associated.kgr"),

@@ -21,6 +21,8 @@ pub enum ValueType {
     /// Tagged runtime Value in a checked shared generic body. Its semantic type
     /// is a scoped parameter or projection, supplied by the call environment.
     Generic,
+    /// A Unicode scalar carried in the scalar bank, never a numeric alias.
+    Char,
 }
 
 impl ValueType {

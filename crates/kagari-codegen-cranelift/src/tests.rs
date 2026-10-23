@@ -184,6 +184,8 @@ fn cranelift_backend_reports_unsupported_instructions_before_native_entry() {
         "fn main() -> i32 { if true { 1 } else { 2 } }",
         "fn main() -> i32 { val x = 1; x }",
         "fn main() -> i32 { 42 / 2 }",
+        "fn main() -> char { '🙂' }",
+        "fn main() -> bool { 'a' == 'z' }",
         "struct Player {} fn main(value: Ref<Player>) -> i32 { 42 }",
         "static val value: i32 = 7; fn main() -> i32 { value }",
         "static var value: i32 = 7; fn main() -> i32 { value = 9; value }",

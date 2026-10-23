@@ -84,12 +84,20 @@ impl Type {
         Self::scalar(BuiltinType::Bool)
     }
 
+    pub fn char() -> Self {
+        Self::scalar(BuiltinType::Char)
+    }
+
     pub fn i32() -> Self {
         Self::scalar(BuiltinType::I32)
     }
 
     pub fn i64() -> Self {
         Self::scalar(BuiltinType::I64)
+    }
+
+    pub fn u32() -> Self {
+        Self::scalar(BuiltinType::U32)
     }
 
     pub fn u64() -> Self {

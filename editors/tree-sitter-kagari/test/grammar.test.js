@@ -42,7 +42,7 @@ test('native binding supports default ESM imports, parsing and queries', async (
 });
 
 // Shared source fixtures, not copies. The complete inventory is deliberately CI-only.
-const selected = ['literals-and-comments', 'string-interpolation', 'type-inference',
+const selected = ['literals-and-comments', 'char-literals', 'string-interpolation', 'type-inference',
   'generic-associated-types', 'bitwise', 'attributes', 'async'];
 const representative = ['grammar-witnesses', 'pattern-alternatives', 'callables',
   'where-bounds', 'inline-modules', 'data-model', 'control-flow', 'associated-constants', 'ranges'];
@@ -57,6 +57,19 @@ for (const name of [...selected, ...representative]) {
     }
   });
 }
+
+test('character shapes reject multiple scalars and trivia without losing following declarations', () => {
+  for (const literal of ["''", "'ab'", "'e\u0301'", "'\t'", "'\n'", "'\r'", "'a '", "'/*x*/a'", "'a/*x*/'",
+    String.raw`'\x80'`, String.raw`'\u{_41}'`, String.raw`'\u{0000000}'`]) {
+    const source = `fn broken() { val c = ${literal}; }\nfn after() { 42 }`;
+    const tree = parse(source);
+    assert.ok(tree.rootNode.hasError, literal);
+    assert.ok(nodes(tree.rootNode, 'function_item').some(node => node.childForFieldName('name')?.text === 'after'),
+      tree.rootNode.toString());
+  }
+  // Escaped scalar-domain checks belong to kagari-source, not this editing grammar.
+  valid(String.raw`fn chars() { '\u{D800}'; '\u{110000}'; }`);
+});
 
 test('async blocks are distinct cold expressions with ordinary postfix and recovery', () => {
   const tree = valid('async fn run() { val make = async || 1; async /* body */ { make().await }.await? }');

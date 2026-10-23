@@ -1103,6 +1103,7 @@ fn constant_type(constant: &ConstantOperand) -> ValueType {
         ConstantOperand::F64(_) => ValueType::F64,
         ConstantOperand::U64(_) => ValueType::U64,
         ConstantOperand::Str(_) => ValueType::Str,
+        ConstantOperand::Char(_) => ValueType::Char,
     }
 }
 

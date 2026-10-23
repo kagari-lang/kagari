@@ -226,6 +226,7 @@ pub(super) fn verify(
                 Constant::F64(_) => ValueType::F64,
                 Constant::U64(_) => ValueType::U64,
                 Constant::Str(_) => ValueType::Str,
+                Constant::Char(_) => ValueType::Char,
             };
             context.expect(dst.ty, ty, "constant destination")?;
         }

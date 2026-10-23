@@ -118,6 +118,7 @@ impl KeyParts {
 enum KeyPart {
     Unit,
     Bool(bool),
+    Char(char),
     I32(i32),
     I64(i64),
     U64(u64),
@@ -164,6 +165,7 @@ impl MapKey {
         let single = match value {
             Value::Unit => Some(KeyPart::Unit),
             Value::Bool(value) => Some(KeyPart::Bool(*value)),
+            Value::Char(value) => Some(KeyPart::Char(*value)),
             Value::I32(value) => Some(KeyPart::I32(*value)),
             Value::I64(value) => Some(KeyPart::I64(*value)),
             Value::U64(value) => Some(KeyPart::U64(*value)),
@@ -187,6 +189,7 @@ impl MapKey {
                 Value::Interface(_) => return None,
                 Value::Unit => parts.push(KeyPart::Unit),
                 Value::Bool(v) => parts.push(KeyPart::Bool(v)),
+                Value::Char(v) => parts.push(KeyPart::Char(v)),
                 Value::I32(v) => parts.push(KeyPart::I32(v)),
                 Value::I64(v) => parts.push(KeyPart::I64(v)),
                 Value::U64(v) => parts.push(KeyPart::U64(v)),
@@ -242,6 +245,7 @@ impl MapKey {
 pub enum Value {
     Unit,
     Bool(bool),
+    Char(char),
     I32(i32),
     I64(i64),
     U64(u64),
@@ -270,6 +274,7 @@ impl Value {
         match self {
             Self::Unit
             | Self::Bool(_)
+            | Self::Char(_)
             | Self::I32(_)
             | Self::I64(_)
             | Self::U64(_)
@@ -302,6 +307,7 @@ impl Value {
             (self, ty),
             (Self::Unit, ValueType::Unit)
                 | (Self::Bool(_), ValueType::Bool)
+                | (Self::Char(_), ValueType::Char)
                 | (Self::I32(_), ValueType::I32)
                 | (Self::I64(_), ValueType::I64)
                 | (Self::U64(_), ValueType::U64)
@@ -333,6 +339,7 @@ impl Value {
         match self {
             Self::Unit => ValueCategory::Unit,
             Self::Bool(_)
+            | Self::Char(_)
             | Self::I32(_)
             | Self::I64(_)
             | Self::U64(_)
@@ -497,6 +504,9 @@ mod tests {
         for value in [
             Value::Unit,
             Value::Bool(true),
+            Value::Char('\0'),
+            Value::Char('🙂'),
+            gc.alloc_tuple(vec![Value::Char('é')]).unwrap(),
             Value::I32(7),
             Value::I64(9),
             gc.alloc_string("hp".into()).unwrap(),
@@ -516,5 +526,9 @@ mod tests {
         assert_eq!(first_key, second_key);
         assert_eq!(first_key.script_hash(), second_key.script_hash());
         assert!(MapKey::from_value(&gc, &Value::F64(1.0)).is_none());
+        assert_ne!(
+            MapKey::from_value(&gc, &Value::Char('a')),
+            MapKey::from_value(&gc, &Value::I64(97))
+        );
     }
 }

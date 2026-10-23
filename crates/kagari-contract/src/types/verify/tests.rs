@@ -3,7 +3,7 @@ use kagari_common::identity::{map::DefinitionContext, table::DefinitionId};
 use kagari_stdlib::{catalog, namespaces};
 use kagari_types::{
     callable::CallableImplementation,
-    declaration::{Param, conversion::ConversionAdapter},
+    declaration::{AssociatedConstDef, ConstDef, Param, conversion::ConversionAdapter},
     scalar::BuiltinType,
     ty::{
         GenericBound,
@@ -19,6 +19,54 @@ fn owner(
 ) -> DefinitionId {
     let root = context.intern_root(module).unwrap();
     context.intern_child(root, kind, name, 0).unwrap()
+}
+
+#[test]
+fn character_public_and_associated_constants_validate_their_domain() {
+    let context = DefinitionContext::new().unwrap();
+    let module = ModuleIdentity::single_file("char-constants.kgr");
+    let trait_id = owner(&context, &module, DefinitionKind::Trait, "Marker");
+    let member = context
+        .intern_child(trait_id, DefinitionKind::Const, "VALUE", 0)
+        .unwrap();
+    let cancel = CancellationToken::default();
+    for (ty, value, valid) in [
+        (BuiltinType::Char, "const-v1:char:00000000", true),
+        (BuiltinType::Char, "const-v1:char:0010ffff", true),
+        (BuiltinType::Char, "const-v1:char:0000d800", false),
+        (BuiltinType::Char, "const-v1:char:00110000", false),
+        (BuiltinType::Char, "const-v1:char:100000061", false),
+        (BuiltinType::Char, "const-v1:char:61", false),
+        (BuiltinType::Char, "const-v1:i32:97", false),
+        (BuiltinType::U32, "const-v1:char:00000061", false),
+    ] {
+        let constant = PublicItem::Const(ConstDef {
+            name: "VALUE".into(),
+            ty: Ty::Builtin(ty),
+            value: value.into(),
+        });
+        let interface = PublicItem::Trait(TraitDef {
+            name: "Marker".into(),
+            generic_params: vec![],
+            bounds: vec![],
+            supertraits: vec![],
+            methods: vec![],
+            associated_types: vec![],
+            conversion_adapter: None,
+            associated_consts: vec![AssociatedConstDef {
+                declaration: member,
+                ty: Ty::Builtin(ty),
+                default_value: Some(value.into()),
+            }],
+        });
+        for item in [constant, interface] {
+            assert_eq!(
+                validate(&[item], &module, &cancel, &context.snapshot()).is_ok(),
+                valid,
+                "{ty:?}: {value}"
+            );
+        }
+    }
 }
 
 #[test]

@@ -46,7 +46,7 @@ Module execution rules are defined separately in [modules.md](modules.md).
 
 The executable subset currently includes field shorthand, remainder, inherent
 method calls, tuple/struct/enum destructuring, `for` over built-in iterable
-collections and strings, and `loop` expressions with `break` values.
+collections, and `loop` expressions with `break` values.
 Structural modification through aliases invalidates existing collection cursors;
 the next source read traps. Closures use lexical capture; `var` captures share a GC-managed
 cell, and `val` captures copy the value under the ordinary value model.
@@ -143,6 +143,7 @@ The grammar uses the following literal token classes:
 
 - `INTEGER`
 - `FLOAT`
+- `CHAR`
 - `STRING`
 
 #### Integer Literals
@@ -184,10 +185,32 @@ The `f32` and `f64` suffixes select precision explicitly, including forms such a
 and otherwise default to `f64`. Parsing rounds the original decimal text directly
 to the selected precision. A literal outside that type's finite range is rejected.
 
+#### Character Literals
+
+Single-quoted literals have the exact type `char`, independent of numeric inference.
+They decode to exactly one [Unicode scalar](builtins.md#character-scalar): `'a'`,
+`'🙂'` and `'\0'` are valid; `''`, `'ab'` and a base letter plus a combining mark
+inside one literal are errors. There is no interpolation or grapheme clustering.
+
+Supported escapes are `\'`, `\"`, `\\`, `\n`, `\r`, `\t`, `\0`, ASCII `\xNN`
+(exactly two hexadecimal digits, value 00-7F), and `\u{...}`. A Unicode escape
+contains one to six hexadecimal digits; underscores may occur only after a digit,
+including after the final digit, and do not count toward the digit limit.
+For example, `'\u{10_FF_FF_}'` is valid. Surrogates, values above U+10FFFF, unknown
+escapes, leading underscores and more than six hex digits are errors. Direct LF,
+CR and TAB are forbidden; use escapes for those values. An apostrophe or backslash
+must be escaped. Character literals do not span physical source lines.
+
 #### String Literals
 
 String literals are double-quoted.
 Strings support the usual single-character escapes and Unicode escapes of the form `\u{...}`.
+Character escape extensions do not change String decoding: `\xNN`, Unicode-escape
+underscores and `\'` are not String escapes. Ordinary strings do not interpolate;
+[expression interpolation](#interpolated-strings) still requires `f"..."`.
+Physical newlines, raw strings, byte characters and byte strings are not supported.
+Character support does not add String indexing or `chars`/`char_indices`/`bytes`
+traversal methods.
 
 ### Comments
 
@@ -1187,6 +1210,23 @@ still apply. An inaccessible field can be omitted with rest, but cannot be liste
 even as `_`. The same rule applies recursively in match, for, binding conditions
 and ordinary declarations.
 The marker is not a range and introduces neither bindings nor field reads.
+
+Character literals are valid patterns for `char` scrutinees. Character range
+patterns use scalar-value ordering: `'a'..'z'` excludes the upper bound and
+`'a'..='z'` includes it. Both bounds must be checked `char` constants (literal
+values or resolved constant paths); integer bounds do not coerce to `char`.
+For example:
+
+```text
+const FIRST: char = 'a';
+const LAST: char = 'z';
+fn classify(value: char) -> i32 {
+    match value { FIRST..=LAST => 1, '🙂' => 2, _ => 0 }
+}
+```
+
+These are matching predicates, not range construction or iteration. They do not
+enable `Range<char>` iteration or character range expressions outside patterns.
 
 Kagari does not accept Rust's reference/slice patterns or tuple/slice rest patterns.
 Ordinary local declarations use these patterns under the irrefutability and scope

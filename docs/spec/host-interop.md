@@ -121,6 +121,23 @@ element views of script 64-bit integer buffers use `&[i64]`/`&[u64]`, never
 `usize`, subject to the operation-owned checks described under
 [machine and resource boundaries](runtime.md#machine-and-resource-boundaries).
 
+## Character host boundary
+
+Rust `char` maps exactly to Kagari `char` through the ordinary typed scalar
+adapters (`KagariType`, `IntoKagari`, `FromKagari` and `NativeScalar`). Typed call
+arguments/results, registered fields and supported generic containers preserve
+that type. Rust `u32` and single-scalar String values are not substitutes for a
+character; crossing those domains requires the explicit
+[character conversions](builtins.md#character-scalar).
+
+With the optional runtime/SDK `serde` feature, `KagariSchema` supports `char` and
+`Serde<T>` uses Serde's character serialization/deserialization operations, including
+inside supported aggregates. It does not serialize a character into a Kagari String
+or admit an integer as a character. Normal schema, value, root and scoped-borrow
+checks still apply; no host reference or unchecked scalar payload is exposed.
+See [typed native registration](embedding-api.md#typed-native-registration) for the
+shared conversion and optional Serde limits.
+
 ## Function Registration
 
 Rust consumers import each API from its owning module. For example,

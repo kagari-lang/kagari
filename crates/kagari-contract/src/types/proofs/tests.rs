@@ -106,6 +106,94 @@ fn bound(ty: Ty, required: NominalTy) -> GenericBound {
 }
 
 #[test]
+fn character_proofs_preserve_non_numeric_domain_and_declared_conversions() {
+    let context = proof_context();
+    let cancel = CancellationToken::default();
+    let character = Ty::Builtin(BuiltinType::Char);
+    let integer = Ty::Builtin(BuiltinType::U32);
+    let from_char =
+        intrinsic::applied(Protocol::From, vec![character.clone()], &context.snapshot()).unwrap();
+    let try_from_integer = nominal(
+        id(&context, DefinitionKind::Trait, "TryFrom"),
+        vec![integer.clone()],
+    );
+    let conversions = [
+        table(&context, "char_to_u32", from_char.clone(), integer.clone()),
+        table(
+            &context,
+            "char_to_string",
+            from_char.clone(),
+            Ty::Builtin(BuiltinType::String),
+        ),
+        table(
+            &context,
+            "u32_to_char",
+            try_from_integer.clone(),
+            character.clone(),
+        ),
+    ];
+    let catalog = ProofCatalog::new(vec![], [], [], [], &context.snapshot(), &cancel).unwrap();
+    for protocol in [
+        Protocol::PartialEq,
+        Protocol::Eq,
+        Protocol::PartialOrd,
+        Protocol::Ord,
+        Protocol::Hash,
+        Protocol::Display,
+        Protocol::Debug,
+    ] {
+        let interface = intrinsic::applied(protocol, vec![], &context.snapshot()).unwrap();
+        assert!(
+            catalog.holds(&interface, &character, &[], &cancel).unwrap(),
+            "{protocol:?}"
+        );
+    }
+    for (protocol, arguments) in [
+        (Protocol::Add, vec![character.clone()]),
+        (Protocol::BitAnd, vec![character.clone()]),
+        (Protocol::Shl, vec![integer.clone()]),
+        (Protocol::Neg, vec![]),
+        (Protocol::Not, vec![]),
+    ] {
+        let interface = intrinsic::applied(protocol, arguments, &context.snapshot()).unwrap();
+        assert!(!catalog.holds(&interface, &character, &[], &cancel).unwrap());
+    }
+    assert!(!catalog.holds(&from_char, &integer, &[], &cancel).unwrap());
+    assert!(
+        !catalog
+            .holds(&try_from_integer, &character, &[], &cancel)
+            .unwrap()
+    );
+    let catalog = ProofCatalog::new(
+        conversions.iter().map(Into::into).collect(),
+        [],
+        [],
+        [],
+        &context.snapshot(),
+        &cancel,
+    )
+    .unwrap();
+    assert!(catalog.holds(&from_char, &integer, &[], &cancel).unwrap());
+    assert!(
+        catalog
+            .holds(&from_char, &Ty::Builtin(BuiltinType::String), &[], &cancel)
+            .unwrap()
+    );
+    assert!(
+        catalog
+            .holds(&try_from_integer, &character, &[], &cancel)
+            .unwrap()
+    );
+    assert_eq!(
+        ReceiverOwners::default()
+            .owner(&character, &context.snapshot())
+            .unwrap()
+            .path,
+        ["char"]
+    );
+}
+
+#[test]
 fn scalar_aggregation_is_not_a_source_free_intrinsic_proof() {
     let context = proof_context();
     let cancel = CancellationToken::default();

@@ -117,6 +117,7 @@ literal	2	witnessed	examples/standard-library.kgr	-	FLOAT
 literal	3	witnessed	examples/syntax/expressions.kgr	-	STRING
 literal	4	witnessed	examples/syntax/expressions.kgr	-	"true"
 literal	5	witnessed	examples/syntax/expressions.kgr	-	"false"
+literal	6	witnessed	examples/syntax/char-literals.kgr	-	CHAR
 trait_member	3	witnessed	examples/syntax/associated-constants.kgr	-	attribute* associated_const_decl
 trait_impl_item	3	witnessed	examples/syntax/associated-constants.kgr	-	attribute* associated_const_def
 primary_expr	13	witnessed	examples/syntax/associated-constants.kgr	-	qualified_type

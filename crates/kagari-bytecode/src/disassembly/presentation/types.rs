@@ -179,6 +179,7 @@ fn builtin(ty: BuiltinType) -> &'static str {
         BuiltinType::F32 => "f32",
         BuiltinType::F64 => "f64",
         BuiltinType::String => "String",
+        BuiltinType::Char => "char",
     }
 }
 

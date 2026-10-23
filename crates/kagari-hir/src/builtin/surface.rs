@@ -33,9 +33,9 @@ pub fn supports_arithmetic(lhs: &TypeId, rhs: &TypeId) -> bool {
     lhs == rhs && is_numeric(lhs)
 }
 
-/// Checks the intrinsic same-numeric-type ordering rule.
+/// Checks intrinsic ordering for equal numeric types or equal character types.
 pub fn supports_ordering(lhs: &TypeId, rhs: &TypeId) -> bool {
-    supports_arithmetic(lhs, rhs)
+    supports_arithmetic(lhs, rhs) || (lhs == rhs && lhs == &TypeId::Builtin(BuiltinType::Char))
 }
 
 /// Requires both operands to have intrinsic Bool type.

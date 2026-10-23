@@ -171,6 +171,29 @@ fn serde_schema_roundtrips_renames_skips_composites_and_all_variant_shapes() {
 }
 
 #[test]
+fn serde_char_roundtrips_scalars_and_containers_without_integer_coercion() {
+    let (runtime, owner) = super::conversion_fixture();
+    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
+    for ch in ['\0', '\'', 'é', '🙂', char::MAX] {
+        let root = cx.encode(Serde(ch)).unwrap();
+        assert_eq!(cx.decode::<Serde<char>>(&root).unwrap().0, ch);
+        assert!(cx.decode::<Serde<u32>>(&root).is_err());
+        assert!(cx.decode::<Serde<String>>(&root).is_err());
+        let integer = cx.encode(Serde(u32::from(ch))).unwrap();
+        assert!(cx.decode::<Serde<char>>(&integer).is_err());
+    }
+    let expected = (vec!['\0', 'é', '🙂'], Some('a'));
+    let root = cx.encode(Serde(expected.clone())).unwrap();
+    runtime.collect_garbage().unwrap();
+    assert_eq!(
+        cx.decode::<Serde<(Vec<char>, Option<char>)>>(&root)
+            .unwrap()
+            .0,
+        expected
+    );
+}
+
+#[test]
 fn serde_uses_conversion_limits_and_reports_nested_error_paths() {
     let module = module();
     let program = program_for_source(

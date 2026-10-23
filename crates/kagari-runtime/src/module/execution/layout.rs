@@ -34,16 +34,8 @@ impl Location {
         if self.operand.managed() {
             return true;
         }
-        let Some((min, max)) = self.semantic.and_then(BuiltinType::integer_bounds) else {
-            return true;
-        };
-        let value = match value {
-            Value::I32(v) => i128::from(*v),
-            Value::I64(v) => i128::from(*v),
-            Value::U64(v) => i128::from(*v),
-            _ => return false,
-        };
-        value >= min && value <= max
+        scalar::encode(value)
+            .is_some_and(|bits| scalar::admits_payload(self.representation, self.semantic, bits))
     }
 }
 
@@ -220,6 +212,7 @@ pub(crate) fn scalar_type(ty: ValueType) -> Option<BuiltinType> {
     Some(match ty {
         ValueType::Unit => BuiltinType::Unit,
         ValueType::Bool => BuiltinType::Bool,
+        ValueType::Char => BuiltinType::Char,
         ValueType::I32 => BuiltinType::I32,
         ValueType::I64 => BuiltinType::I64,
         ValueType::U64 => BuiltinType::U64,
@@ -236,6 +229,29 @@ mod tests {
         instruction::{BytecodeInstruction as I, ConstantId, JumpTarget},
         module::FunctionMetadata,
     };
+
+    #[test]
+    fn char_locations_use_scalar_storage_and_reject_integer_domains() {
+        assert_eq!(scalar_type(ValueType::Char), Some(BuiltinType::Char));
+        let location = Location {
+            operand: OperandSlot::new(0, false),
+            representation: ValueType::Char,
+            semantic: Some(BuiltinType::Char),
+        };
+        assert!(location.admits(&Value::Char('🙂')));
+        assert!(!location.admits(&Value::I64(0x1f642)));
+        assert!(location.admits_payload(ValueType::Char, 0x1f642));
+        assert!(!location.admits_payload(ValueType::I64, 0x1f642));
+        for bits in [0xd800, 0xdfff, 0x110000, 0x1_0000_0061] {
+            assert!(!location.admits_payload(ValueType::Char, bits));
+        }
+        let incompatible = Location {
+            semantic: Some(BuiltinType::U32),
+            ..location
+        };
+        assert!(!incompatible.admits(&Value::Char('a')));
+        assert!(!incompatible.admits_payload(ValueType::Char, 97));
+    }
 
     #[test]
     fn backward_join_inputs_are_live_at_the_interval_start() {

@@ -40,7 +40,8 @@ impl ProofCatalog<'_> {
             | ValueType::I32
             | ValueType::I64
             | ValueType::U64
-            | ValueType::Str => Ok(true),
+            | ValueType::Str
+            | ValueType::Char => Ok(true),
             ValueType::F32 | ValueType::F64 => Ok(protocol == Protocol::PartialEq),
             ValueType::HeapObject => {
                 let Some(receiver) = semantic else {

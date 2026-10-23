@@ -1,6 +1,26 @@
 use super::*;
 
 #[test]
+fn character_literals_do_not_enter_numeric_inference_or_casts() {
+    let literal = Literal {
+        kind: LiteralKind::Char,
+        text: "'🙂'".into(),
+    };
+    let value = ScalarValue::parse_expected(&literal, Some(BuiltinType::U32), false).unwrap();
+    assert_eq!(value, ScalarValue::Char('🙂'));
+    assert_eq!(value.ty(), TypeId::Builtin(BuiltinType::Char));
+    assert!(value.cast_numeric(BuiltinType::U32).is_none());
+    assert!(
+        ScalarValue::integer(65, IntegerType::U32)
+            .unwrap()
+            .cast_numeric(BuiltinType::Char)
+            .is_none()
+    );
+    assert!(BuiltinType::Char.number_type().is_none());
+    assert!(!BuiltinType::Char.can_cast_to(BuiltinType::Char));
+}
+
+#[test]
 fn integer_literals_keep_their_type_and_full_range_in_one_representation() {
     for (ty, min, max) in [
         (IntegerType::I8, i128::from(i8::MIN), i128::from(i8::MAX)),
@@ -43,6 +63,7 @@ fn integer_literals_keep_their_type_and_full_range_in_one_representation() {
         BuiltinType::F32,
         BuiltinType::F64,
         BuiltinType::String,
+        BuiltinType::Char,
     ] {
         assert_eq!(IntegerType::from_builtin(ty), None);
     }

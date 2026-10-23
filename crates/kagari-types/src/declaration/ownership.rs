@@ -74,6 +74,12 @@ impl ReceiverOwners {
                     .ok()
                     .map(|view| view.module().clone());
             }
+            Ty::Builtin(BuiltinType::Char) => {
+                return Some(ModuleIdentity {
+                    package: PackageId("kagari-core".into()),
+                    path: vec!["char".into()],
+                });
+            }
             // Primitive scalar identity is part of language semantics, not a library recipe.
             Ty::Builtin(kind) if *kind != BuiltinType::String => {
                 return Some(ModuleIdentity {

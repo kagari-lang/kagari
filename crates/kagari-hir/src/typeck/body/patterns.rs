@@ -97,12 +97,16 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             PatternKind::Range { start, end, .. } => {
-                let integer = TypeId::Builtin(BuiltinType::I32);
-                if expected.conflicts_with(&integer) {
+                let domain = if *expected == TypeId::Builtin(BuiltinType::Char) {
+                    TypeId::Builtin(BuiltinType::Char)
+                } else {
+                    TypeId::Builtin(BuiltinType::I32)
+                };
+                if expected.conflicts_with(&domain) {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
                             expected: display_type_id(self.declarations.definitions(), expected),
-                            found: "i32 range pattern".into(),
+                            found: "i32 or char range pattern".into(),
                         })
                         .with_span(span),
                     );
@@ -110,11 +114,14 @@ impl<'a> BodyChecker<'a> {
                 let start = self.resolve_pattern_bound(start, span);
                 let end = self.resolve_pattern_bound(end, span);
                 if let (Some(start), Some(end)) = (start, end) {
-                    if start.ty() != integer || end.ty() != integer {
+                    if start.ty() != domain || end.ty() != domain {
                         self.diagnostics.push(
                             Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
-                                expected: "i32 bounds".into(),
-                                found: "non-integer range bound".into(),
+                                expected: format!(
+                                    "{} bounds",
+                                    display_type_id(self.declarations.definitions(), &domain)
+                                ),
+                                found: "range bounds outside the scrutinee's scalar domain".into(),
                             })
                             .with_span(span),
                         );

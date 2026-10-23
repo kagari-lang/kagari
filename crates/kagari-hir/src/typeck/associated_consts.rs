@@ -41,6 +41,7 @@ pub(crate) fn scalar_type(ty: &TypeId) -> bool {
                 | BuiltinType::U64
                 | BuiltinType::F32
                 | BuiltinType::F64
+                | BuiltinType::Char
         )
     )
 }

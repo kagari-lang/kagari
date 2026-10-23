@@ -168,8 +168,10 @@ fn main() -> i32 { <Number as Limit>::VALUE }
 ```
 
 The annotation is mandatory. Supported types and initializers use the same v1
-const-safe rules as module constants: `()`, `bool`, and primitive numeric types,
-scalar operations and references to module constants. Initializers are checked
+const-safe rules as module constants: `()`, `bool`, `char`, and primitive numeric
+types, scalar operations and references to module constants. Character constants
+support equality/order comparisons but no arithmetic or implicit integer conversion;
+registered conversion/default calls do not become const-safe. Initializers are checked
 even when unused, using the existing evaluation budget and overflow traps.
 Generic-dependent values, String/object values, script calls and host calls are excluded.
 Required constants must be defined in the impl; an explicit definition overrides

@@ -217,6 +217,7 @@ fn semantic_builtins_and_physical_representations_use_separate_vocabularies() {
         (BuiltinType::F32, "f32"),
         (BuiltinType::F64, "f64"),
         (BuiltinType::String, "String"),
+        (BuiltinType::Char, "char"),
     ] {
         assert_eq!(display.ty(&Ty::Builtin(builtin)), expected);
     }
@@ -233,6 +234,7 @@ fn semantic_builtins_and_physical_representations_use_separate_vocabularies() {
         (ValueType::HeapObject, "heap_object"),
         (ValueType::HostHandle, "host_handle"),
         (ValueType::Generic, "generic"),
+        (ValueType::Char, "char"),
     ] {
         assert_eq!(physical(ty), expected);
     }

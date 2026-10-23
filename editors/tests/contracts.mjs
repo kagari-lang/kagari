@@ -114,7 +114,20 @@ const asyncBlock = {
     { needle: 'pending', occurrence: 1, category: 'code', capture: 'variable' },
   ],
 };
-export const cases = [lexical, interpolation, bindingPatterns, structUpdate, asyncBlock, ...casesForEol('\n', 'LF'), ...casesForEol('\r\n', 'CRLF'), {
+const characters = {
+  name: 'characters keep braces and escaped quotes out of interpolation code',
+  text: String.raw`fn main() { val c: char = '🙂'; val text = f"{'}'} {'\''} {'\u{1_F642_}'} tail"; val after = 42; }`,
+  expected: [
+    { needle: 'char', category: 'code', capture: 'type' },
+    { needle: "'🙂'", category: 'string', capture: 'string' },
+    { needle: "'}'", category: 'string', capture: 'string' },
+    { needle: String.raw`\'`, category: 'string', capture: 'string.escape' },
+    { needle: String.raw`\u{1_F642_}`, category: 'string', capture: 'string.escape' },
+    { needle: 'tail', category: 'string', capture: 'string' },
+    { needle: 'after', category: 'code', capture: 'variable' },
+  ],
+};
+export const cases = [lexical, interpolation, bindingPatterns, structUpdate, asyncBlock, characters, ...casesForEol('\n', 'LF'), ...casesForEol('\r\n', 'CRLF'), {
   name: 'unterminated block comment really extends to EOF',
   text: 'fn main() {} /* outer /* inner */ fn hidden() {}',
   expected: [

@@ -1,5 +1,6 @@
 //! Explicit standard owner contributors; composition contains no implementation policy.
 mod arrays;
+mod character;
 mod comparison;
 pub(crate) mod enumerations;
 mod future;
@@ -68,6 +69,9 @@ pub(crate) fn contribute(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     }
     if owner == namespaces::module("core", "iter") {
         iteration::declare(module)?;
+    }
+    if owner == namespaces::module("core", "char") {
+        character::declare(module)?;
     }
     if owner == namespaces::module("core", "num") {
         numeric::declare(module)?;
@@ -273,6 +277,7 @@ fn conflict(error: impl ToString) -> RuntimeError {
 /// Canonical module inventory; facades reuse their owner documentation.
 pub(crate) const MODULES: &[(&str, &str, (&str, &str))] = &[
     ("core", "array", arrays::MODULE_DOCS),
+    ("core", "char", character::MODULE_DOCS),
     ("core", "iter", iteration::MODULE_DOCS),
     ("core", "ops", ranges::MODULE_DOCS),
     ("core", "cmp", protocols::CMP_MODULE_DOCS),

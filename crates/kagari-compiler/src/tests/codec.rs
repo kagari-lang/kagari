@@ -48,6 +48,9 @@ fn portable_program_codec_rebuilds_seals_and_preserves_canonical_lowering() {
         "fn main() -> i32 { if 1 + 2 == 3 { 42 } else { 0 } }",
         "fn main() -> u64 { 18446744073709551615u64 }",
         "fn main() -> f64 { -0.0 }",
+        "pub const FACE: char = '🙂'; fn main() -> char { FACE }",
+        "fn main(value: char) -> bool { value >= 'a' && value <= 'z' }",
+        "fn main(value: char) -> i32 { match value { 'a'..='z' => 1, _ => 0 } }",
         "fn main() -> i32 { var x = 0; while x < 3 { x += 1; } x }",
         "fn main() -> i32 { val a = [1, 2]; a[0] }",
     ] {

@@ -1,6 +1,45 @@
 use super::*;
 
 #[test]
+fn character_constants_compare_without_arithmetic_or_integer_coercion() {
+    for (op, expected) in [
+        (BinaryOp::Eq, false),
+        (BinaryOp::NotEq, true),
+        (BinaryOp::Lt, true),
+        (BinaryOp::Le, true),
+        (BinaryOp::Gt, false),
+        (BinaryOp::Ge, false),
+    ] {
+        assert_eq!(
+            binary(op, ScalarValue::Char('\0'), ScalarValue::Char('\u{10ffff}')),
+            Some(Ok(ScalarValue::Bool(expected)))
+        );
+    }
+    for op in [
+        BinaryOp::Add,
+        BinaryOp::Sub,
+        BinaryOp::Mul,
+        BinaryOp::Div,
+        BinaryOp::Rem,
+        BinaryOp::BitAnd,
+        BinaryOp::Shl,
+    ] {
+        assert_eq!(
+            binary(op, ScalarValue::Char('a'), ScalarValue::Char('b')),
+            None
+        );
+    }
+    assert_eq!(
+        binary(
+            BinaryOp::Eq,
+            ScalarValue::Char('a'),
+            ScalarValue::integer(97, IntegerType::U32).unwrap()
+        ),
+        None
+    );
+}
+
+#[test]
 fn checked_constants_share_integer_semantics_at_every_width() {
     for ty in [
         IntegerType::I8,

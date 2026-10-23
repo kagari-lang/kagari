@@ -188,6 +188,7 @@ The implemented categories are:
 Value {
   Unit,
   Bool(bool),
+  Char(char),
   I32(i32),
   I64(i64),
   U64(u64),

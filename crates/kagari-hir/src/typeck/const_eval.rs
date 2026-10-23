@@ -235,6 +235,7 @@ fn binary(
             },
         ) if ty == right => compare!(lhs, rhs),
         (ScalarValue::String(lhs), ScalarValue::String(rhs)) => compare!(lhs, rhs),
+        (ScalarValue::Char(lhs), ScalarValue::Char(rhs)) => compare!(lhs, rhs),
         (ScalarValue::Bool(lhs), ScalarValue::Bool(rhs)) => match op {
             BinaryOp::Eq => lhs == rhs,
             BinaryOp::NotEq => lhs != rhs,

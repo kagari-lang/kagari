@@ -1,6 +1,6 @@
 use super::{ProgramRecord, function::MirModuleRecord};
 use crate::{
-    codec::{Header, MirCodecError, decode_program, options},
+    codec::{Header, MirCodecError, decode_program, encode_program, options},
     debug::{MirFunctionDebugMetadata, MirLexicalScope},
     function::{BasicBlock, MirFunction, MirModule, MirTemp},
     ids::{BlockId, InstanceId, TempId},
@@ -16,6 +16,8 @@ use kagari_common::identity::{
 };
 use kagari_contract::{
     exports::wire::ProgramExportsRecord,
+    numeric::NumericConversion,
+    operations::BinaryOp,
     statics::{StaticContract, StaticDescriptor},
     types::{ConcreteFunctionIdentity, PublicItem},
 };
@@ -98,6 +100,119 @@ fn forged(context: &DefinitionContext, modules: &[MirModule]) -> Vec<u8> {
         definitions: encoding.table,
     };
     options().serialize(&(Header::current(), record)).unwrap()
+}
+
+#[test]
+fn char_codec_roundtrips_scalar_endpoints_and_rejects_invalid_payloads() {
+    let context = DefinitionContext::new().unwrap();
+    let mut module = module(&context, "char");
+    let function = &mut module.functions[0];
+    function.return_type = ValueType::Char;
+    function.semantic.result = Some(Ty::Builtin(BuiltinType::Char));
+    function
+        .semantic
+        .registers
+        .insert(0, Ty::Builtin(BuiltinType::Char));
+    function.temps.push(MirTemp {
+        ty: ValueType::Char,
+    });
+    let value = MirValue {
+        temp: TempId::new(0),
+        ty: ValueType::Char,
+    };
+    let block = &mut function.blocks[0];
+    block.instructions.push(Instruction::LoadConst {
+        dst: value,
+        constant: Constant::Char('\0'),
+    });
+    block.instruction_spans.push(Default::default());
+    block.instruction_scopes.push(0);
+    block.terminator = Some(Terminator::Return(Some(value)));
+    for scalar in ['\0', '\u{d7ff}', '\u{e000}', '🙂', '\u{10ffff}'] {
+        module.functions[0].blocks[0].instructions[0] = Instruction::LoadConst {
+            dst: value,
+            constant: Constant::Char(scalar),
+        };
+        let bytes = forged(&context, &[module.clone()]);
+        let decoded = decode_program(&bytes, &Default::default()).unwrap();
+        assert!(matches!(
+            &decoded.modules()[0].functions[0].blocks[0].instructions[0],
+            Instruction::LoadConst { constant: Constant::Char(found), .. } if *found == scalar
+        ));
+        assert_eq!(
+            bytes,
+            encode_program(&decoded, &Default::default()).unwrap()
+        );
+    }
+    // Serde char uses canonical UTF-8, not an integer with unchecked high bits.
+    let bytes = forged(&context, &[module.clone()]);
+    let needle = options().serialize(&Constant::Char('\u{10ffff}')).unwrap();
+    let positions: Vec<_> = bytes
+        .windows(needle.len())
+        .enumerate()
+        .filter_map(|(index, window)| (window == needle).then_some(index))
+        .collect();
+    assert_eq!(positions.len(), 1);
+    for payload in [
+        &[0xed, 0xa0, 0x80][..],         // U+D800 surrogate
+        &[0xf4, 0x90, 0x80, 0x80],       // U+110000
+        &[0xc0, 0x80],                   // overlong NUL
+        &[0xf8, 0x80, 0x80, 0x80, 0x80], // oversized scalar
+    ] {
+        let mut invalid = bytes.clone();
+        let start = positions[0] + 4; // appended enum tag, followed by UTF-8
+        invalid.splice(start..positions[0] + needle.len(), payload.iter().copied());
+        assert!(matches!(
+            decode_program(&invalid, &Default::default()),
+            Err(MirCodecError::Encoding(_))
+        ));
+    }
+    for invalid_operation in [
+        Instruction::Binary {
+            dst: value,
+            op: BinaryOp::Add,
+            lhs: value,
+            rhs: value,
+        },
+        Instruction::Convert {
+            dst: value,
+            src: value,
+            conversion: NumericConversion {
+                source: BuiltinType::Char,
+                target: BuiltinType::U32,
+            },
+        },
+        Instruction::Convert {
+            dst: value,
+            src: value,
+            conversion: NumericConversion {
+                source: BuiltinType::U32,
+                target: BuiltinType::Char,
+            },
+        },
+    ] {
+        let mut invalid = module.clone();
+        let block = &mut invalid.functions[0].blocks[0];
+        block.instructions.push(invalid_operation);
+        block.instruction_spans.push(Default::default());
+        block.instruction_scopes.push(0);
+        assert!(matches!(
+            decode_program(&forged(&context, &[invalid]), &Default::default()),
+            Err(MirCodecError::Verification(_))
+        ));
+    }
+    // A valid scalar in the wrong physical domain must also reject in memory.
+    module.functions[0].blocks[0].instructions[0] = Instruction::LoadConst {
+        dst: value,
+        constant: Constant::I64(65),
+    };
+    assert!(
+        verify_mir(
+            DefinitionMetadata::checked(context.snapshot(), module, &Default::default()).unwrap(),
+            &Default::default(),
+        )
+        .is_err()
+    );
 }
 
 #[test]

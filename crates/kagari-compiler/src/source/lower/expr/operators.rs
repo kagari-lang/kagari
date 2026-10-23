@@ -23,7 +23,7 @@ use kagari_mir::instruction::{
     CallTarget, Constant, Instruction, MirValue, SourceFunctionContract, Terminator, ValueBuffer,
 };
 use kagari_types::{
-    declaration::conversion::ConversionAdapter, integer::IntegerOp, language::Protocol,
+    conversion, declaration::conversion::ConversionAdapter, integer::IntegerOp, language::Protocol,
     scalar::BuiltinType,
 };
 
@@ -340,13 +340,7 @@ impl FunctionLowerer<'_, '_> {
             (&ty, interface.arguments.as_slice())
             && Protocol::from_definition(&interface.declaration, &self.planner.definitions())
                 == Some(Protocol::From)
-            && traits::intrinsic_applies(
-                &self.planner.definitions(),
-                &interface,
-                &ty,
-                Some(self.planner.catalog),
-                &Default::default(),
-            )
+            && conversion::lossless_from(*source, *target)
         {
             let conversion = NumericConversion {
                 source: *source,
@@ -568,10 +562,15 @@ impl FunctionLowerer<'_, '_> {
         op: HirBinaryOp,
         args: &[MirValue],
     ) -> Result<MirValue, MirLoweringError> {
-        // Primitive numeric comparisons retain their direct instruction path.
+        // Primitive numeric and character comparisons use direct instructions.
         if matches!(
             args[0].ty,
-            ValueType::I32 | ValueType::I64 | ValueType::U64 | ValueType::F32 | ValueType::F64
+            ValueType::I32
+                | ValueType::I64
+                | ValueType::U64
+                | ValueType::F32
+                | ValueType::F64
+                | ValueType::Char
         ) {
             let dst = self.alloc_temp(ValueType::Bool);
             let op = match op {

@@ -255,6 +255,36 @@ fn conversion_fixture() -> (Runtime, kagari_runtime::module::LoadedModule) {
 }
 
 #[test]
+fn char_host_conversions_preserve_domains_in_scalars_and_generic_containers() {
+    let (runtime, owner) = conversion_fixture();
+    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
+    for ch in ['\0', 'é', '🙂', char::MAX] {
+        let root = cx.encode(ch).unwrap();
+        assert_eq!(root.value(runtime.gc()), Some(Value::Char(ch)));
+        assert_eq!(cx.decode::<char>(&root).unwrap(), ch);
+        assert!(cx.decode::<u32>(&root).is_err());
+        let integer = cx.encode(u32::from(ch)).unwrap();
+        assert!(cx.decode::<char>(&integer).is_err());
+    }
+    let expected = (
+        vec!['\0', 'é', '🙂'],
+        Some('a'),
+        Ok::<char, char>(char::MAX),
+    );
+    let root = cx.encode(expected.clone()).unwrap();
+    runtime.collect_garbage().unwrap();
+    assert_eq!(
+        cx.decode::<(Vec<char>, Option<char>, Result<char, char>)>(&root)
+            .unwrap(),
+        expected
+    );
+    assert!(
+        cx.decode::<(Vec<u32>, Option<char>, Result<char, char>)>(&root)
+            .is_err()
+    );
+}
+
+#[test]
 fn nested_dtos_and_enum_payloads_round_trip_with_owned_isolation_and_collection() {
     let (runtime, owner) = conversion_fixture();
     let input = Tree {

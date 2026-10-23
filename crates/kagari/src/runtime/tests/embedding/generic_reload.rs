@@ -42,6 +42,41 @@ fn static_call(runtime: &Runtime, module: &LoadedModule, entry: &str) -> Value {
 }
 
 #[test]
+fn persistent_static_char_preserves_state_and_rejects_integer_retyping() {
+    let source = r#"
+static var STATE: char = 'a';
+pub fn read() -> u32 { u32::from(STATE) }
+pub fn write() { STATE = '🙂'; }
+"#;
+    let retyped = r#"
+static var STATE: u32 = 97u32;
+pub fn read() -> u32 { u32::from(STATE) }
+pub fn write() { STATE = 128578u32; }
+"#;
+    for decoded in [false, true] {
+        let engine = KagariEngine::default();
+        let first = prepare_static_program(&engine, source, decoded);
+        let second = prepare_static_program(&engine, &source.replace("'a'", "'z'"), decoded);
+        let incompatible = prepare_static_program(&engine, retyped, decoded);
+        let mut runtime = engine.runtime(Default::default());
+        let old = runtime.load_program(&first, Default::default()).unwrap();
+        assert_eq!(static_call(&runtime, &old, "read"), Value::I64(97));
+        static_call(&runtime, &old, "write");
+        let current = runtime
+            .reload_program(&old, &second, Default::default())
+            .unwrap();
+        assert!(
+            runtime
+                .reload_program(&current, &incompatible, Default::default())
+                .is_err()
+        );
+        for module in [&old, &current] {
+            assert_eq!(static_call(&runtime, module, "read"), Value::I64(128578));
+        }
+    }
+}
+
+#[test]
 fn persistent_static_objects_and_recursive_nominal_collections_preserve_aliases() {
     let source = r#"
 use std::collections::{HashMap, HashSet};

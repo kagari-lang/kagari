@@ -49,6 +49,33 @@ Optional backend paths include:
 
 Bytecode remains a first-class execution format when those backend paths are present.
 
+## Character representation and validation
+
+Semantic `BuiltinType::Char` lowers to explicit physical `ValueType::Char`, not
+I32 or I64. MIR `Constant::Char`, bytecode `ConstantOperand::Char` and runtime
+`Value::Char` retain the character domain. Constant-pool identity distinguishes
+`'A'` from integer 65 and String `"A"`. Runtime storage reuses the scalar bank;
+sharing storage machinery does not authorize character/integer substitution.
+Slots, fields, arguments, returns and generic values retain exact-type checks.
+
+Both portable MIR and bytecode codecs validate character constants without source
+analysis. Their scalar encoding rejects surrogate values, values above U+10FFFF,
+overlong encodings and oversized malformed payloads. Public/associated constant
+metadata uses canonical `const-v1:char:` followed by exactly eight lowercase hex
+digits for a valid Unicode scalar; declaration validation rejects alternate
+spellings or mismatched declared types. In-memory scalar admission also rejects
+surrogates, out-of-domain values and oversized payloads rather than truncating
+high bits. Artifact loading independently verifies representations, semantic
+contracts and operations; a source-side check or MIR seal cannot replace it.
+Character comparisons do not make Char eligible for numeric conversion or
+arithmetic instructions.
+
+Cranelift does not currently execute Char bodies, including Char comparisons
+whose result is bool. Unsupported JIT/AOT capability is rejected before native
+entry; where the selected execution policy permits interpreter fallback, it must
+be selected before any native effects. Char must not be reinterpreted as an i32
+body to pass backend admission. Interpreter execution is not native support.
+
 ## Persistent static descriptors and transitions
 
 MIR and bytecode carry semantic static descriptors, not synthetic constant

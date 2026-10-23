@@ -72,6 +72,7 @@ pub(crate) fn physical(ty: ValueType) -> &'static str {
         ValueType::HeapObject => "heap_object",
         ValueType::HostHandle => "host_handle",
         ValueType::Generic => "generic",
+        ValueType::Char => "char",
     }
 }
 

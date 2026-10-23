@@ -96,6 +96,60 @@ fn async_blocks_preserve_layout_comments_and_postfix() {
 }
 
 #[test]
+fn char_literals_preserve_spelling_and_structure() {
+    check_fixture("char-literals.kgr");
+    let input =
+        r#"fn f(){val c:char='🙂';val s=f"{'}'} {'\u{7B_}'}";match c{'a'..='z'=>'\x7F',_=>'\''}}"#;
+    for eol in ["\n", "\r\n"] {
+        let source = format!("{input}{eol}");
+        let once = formatted(&source, 30);
+        for literal in [
+            "'🙂'",
+            "'}'",
+            r"'\u{7B_}'",
+            "'a'",
+            "'z'",
+            r"'\x7F'",
+            r"'\''",
+        ] {
+            assert!(once.contains(literal), "{once}");
+        }
+        assert!(once.ends_with(eol));
+        assert_eq!(formatted(&once, 30), once);
+    }
+}
+
+#[test]
+fn char_literals_with_invalid_decoded_values_are_not_formatted() {
+    for literal in [
+        "''",
+        "'ab'",
+        "'e\u{301}'",
+        "'\t'",
+        "'\n'",
+        "'\r'",
+        r"'\x80'",
+        r"'\u{_41}'",
+        r"'\u{0000000}'",
+        r"'\u{D800}'",
+        r"'\u{110000}'",
+    ] {
+        let text = format!("fn f() {{ val c = {literal}; }}");
+        assert!(
+            matches!(
+                format(
+                    &SourceFile::new("bad.kgr", text),
+                    Options::default(),
+                    &Default::default()
+                ),
+                Err(FormatError::Diagnostics(_))
+            ),
+            "{literal:?}"
+        );
+    }
+}
+
+#[test]
 fn adjacency_interpolation_comments_and_boundaries_are_idempotent() {
     for text in [
         "fn f(x:i32)->i32{x>>2<<1}",
@@ -182,6 +236,7 @@ fn complete_grammar_fixture_inventory() {
         "bitwise.kgr",
         "blocks.kgr",
         "callables.kgr",
+        "char-literals.kgr",
         "closures.kgr",
         "collection-access.kgr",
         "collection-pipelines.kgr",

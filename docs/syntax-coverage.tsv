@@ -150,6 +150,10 @@ OCT_INTEGER	covered	examples/syntax/literals-and-comments.kgr	-
 HEX_INTEGER	covered	examples/syntax/literals-and-comments.kgr	-
 FLOAT	covered	examples/syntax/literals-and-comments.kgr	-
 EXPONENT	covered	examples/syntax/literals-and-comments.kgr	-
+CHAR	covered	examples/syntax/char-literals.kgr	-
+CHAR_TEXT_CHAR	covered	examples/syntax/char-literals.kgr	-
+CHAR_ESCAPE	covered	examples/syntax/char-literals.kgr	-
+ASCII_HEX_HIGH	covered	examples/syntax/char-literals.kgr	-
 STRING	covered	examples/syntax/literals-and-comments.kgr	-
 STRING_CHAR	covered	examples/syntax/literals-and-comments.kgr	-
 ESCAPE_SEQUENCE	covered	examples/syntax/literals-and-comments.kgr	-

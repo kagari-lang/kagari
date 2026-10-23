@@ -162,8 +162,10 @@ impl FunctionLowerer<'_, '_> {
                     .pattern_range(pattern)
                     .cloned()
                     .ok_or(MirLoweringError::MissingBinding("checked range pattern"))?;
-                let start = self.lower_constant(lower_scalar(start), ValueType::I32);
-                let end = self.lower_constant(lower_scalar(end), ValueType::I32);
+                let start_ty = semantic_representation(&lower_type(&start.ty()));
+                let end_ty = semantic_representation(&lower_type(&end.ty()));
+                let start = self.lower_constant(lower_scalar(start), start_ty);
+                let end = self.lower_constant(lower_scalar(end), end_ty);
                 for (op, bound) in [
                     (BinaryOp::Ge, start),
                     (

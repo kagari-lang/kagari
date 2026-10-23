@@ -19,6 +19,7 @@ enum ConstantKey {
     U64(u64),
     F32(u32),
     F64(u64),
+    Char(char),
 }
 
 impl ConstantKey {
@@ -32,6 +33,7 @@ impl ConstantKey {
             Constant::F32(v) => Self::F32(v.to_bits()),
             Constant::F64(v) => Self::F64(v.to_bits()),
             Constant::Str(_) => return None,
+            Constant::Char(v) => Self::Char(*v),
         })
     }
 }

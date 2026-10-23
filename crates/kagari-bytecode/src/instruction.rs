@@ -196,6 +196,7 @@ pub enum ConstantOperand {
     F32(f32),
     F64(f64),
     Str(String),
+    Char(char),
 }
 
 impl ConstantOperand {
@@ -233,6 +234,7 @@ impl PartialEq for ConstantOperand {
             (Self::F32(a), Self::F32(b)) => a.to_bits() == b.to_bits(),
             (Self::F64(a), Self::F64(b)) => a.to_bits() == b.to_bits(),
             (Self::Str(a), Self::Str(b)) => a == b,
+            (Self::Char(a), Self::Char(b)) => a == b,
             _ => false,
         }
     }
@@ -252,6 +254,7 @@ impl Hash for ConstantOperand {
             Self::F32(value) => value.to_bits().hash(state),
             Self::F64(value) => value.to_bits().hash(state),
             Self::Str(value) => value.hash(state),
+            Self::Char(value) => value.hash(state),
         }
     }
 }

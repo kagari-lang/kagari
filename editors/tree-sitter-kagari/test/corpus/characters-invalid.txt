@@ -1,0 +1,120 @@
+==================
+Empty character
+:error
+==================
+fn chars() { ''; }
+
+---
+
+(source_file)
+
+==================
+Multiple scalars in a character
+:error
+==================
+fn chars() { 'ab'; }
+
+---
+
+(source_file)
+
+==================
+Combining mark is a second scalar
+:error
+==================
+fn chars() { 'é'; }
+
+---
+
+(source_file)
+
+==================
+Direct tab in a character
+:error
+==================
+fn chars() { '	'; }
+
+---
+
+(source_file)
+
+==================
+Physical line ending in a character
+:error
+==================
+fn chars() { '
+'; }
+
+---
+
+(source_file)
+
+==================
+Trivia is not allowed before the closing quote
+:error
+==================
+fn chars() { 'a '; }
+
+---
+
+(source_file)
+
+==================
+Comments are not character trivia
+:error
+==================
+fn chars() { '/*x*/a'; }
+
+---
+
+(source_file)
+
+==================
+Comments cannot precede the character closing quote
+:error
+==================
+fn chars() { 'a/*x*/'; }
+
+---
+
+(source_file)
+
+==================
+Character hexadecimal escapes are ASCII only
+:error
+==================
+fn chars() { '\x80'; }
+
+---
+
+(source_file)
+
+==================
+Unicode escape cannot start with an underscore
+:error
+==================
+fn chars() { '\u{_41}'; }
+
+---
+
+(source_file)
+
+==================
+Unicode escape requires a hex digit
+:error
+==================
+fn chars() { '\u{}'; }
+
+---
+
+(source_file)
+
+==================
+Unicode escape has at most six hex digits
+:error
+==================
+fn chars() { '\u{0000041}'; }
+
+---
+
+(source_file)

@@ -20,6 +20,7 @@ pub(super) fn compare(op: BinaryOp, lhs: Value, rhs: Value) -> Result<Value, Run
     Ok(Value::Bool(match (lhs, rhs) {
         (Value::Unit, Value::Unit) if equality => op == BinaryOp::Eq,
         (Value::Bool(a), Value::Bool(b)) if equality => (a == b) == (op == BinaryOp::Eq),
+        (Value::Char(a), Value::Char(b)) => compare!(a, b),
         (Value::I32(a), Value::I32(b)) => compare!(a, b),
         (Value::I64(a), Value::I64(b)) => compare!(a, b),
         (Value::U64(a), Value::U64(b)) => compare!(a, b),
@@ -31,4 +32,31 @@ pub(super) fn compare(op: BinaryOp, lhs: Value, rhs: Value) -> Result<Value, Run
             ));
         }
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::numeric::{scalar_binary, unary};
+    use kagari_bytecode::instruction::UnaryOp;
+
+    #[test]
+    fn char_comparison_does_not_enable_numeric_operations() {
+        let a = Value::Char('é');
+        let b = Value::Char('🙂');
+        for (op, expected) in [
+            (BinaryOp::Eq, false),
+            (BinaryOp::NotEq, true),
+            (BinaryOp::Lt, true),
+            (BinaryOp::Le, true),
+            (BinaryOp::Gt, false),
+            (BinaryOp::Ge, false),
+        ] {
+            assert_eq!(scalar_binary(op, a, b).unwrap(), Value::Bool(expected));
+            assert!(scalar_binary(op, a, Value::I64(233)).is_err());
+        }
+        assert!(scalar_binary(BinaryOp::Add, a, b).is_err());
+        assert!(unary(UnaryOp::Neg, a).is_err());
+        assert!(unary(UnaryOp::Not, a).is_err());
+    }
 }

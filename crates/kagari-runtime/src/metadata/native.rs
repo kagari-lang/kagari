@@ -450,6 +450,7 @@ fn scalar_name(kind: BuiltinType) -> &'static str {
         BuiltinType::Never => "never",
         BuiltinType::Unit => "()",
         BuiltinType::Bool => "bool",
+        BuiltinType::Char => "char",
         BuiltinType::I8 => "i8",
         BuiltinType::I16 => "i16",
         BuiltinType::I32 => "i32",

@@ -32,12 +32,12 @@ test('editing configuration pairs only supported delimiters and respects lexical
   assert.deepEqual(configuration.comments, { lineComment: '//', blockComment: ['/*', '*/'] });
   assert.deepEqual(configuration.brackets, [['{', '}'], ['[', ']'], ['(', ')']]);
   assert.deepEqual(configuration.autoClosingPairs.map(({ open, close }) => [open, close]),
-    [['{', '}'], ['[', ']'], ['(', ')'], ['"', '"']]);
+    [['{', '}'], ['[', ']'], ['(', ')'], ['"', '"'], ["'", "'"]]);
   for (const pair of configuration.autoClosingPairs) {
     assert.deepEqual(pair.notIn, ['string', 'comment']);
   }
   assert.deepEqual(configuration.surroundingPairs,
-    [['{', '}'], ['[', ']'], ['(', ')'], ['"', '"']]);
+    [['{', '}'], ['[', ']'], ['(', ')'], ['"', '"'], ["'", "'"]]);
 });
 
 test('packaging uses a payload allowlist and repository-consistent license texts', async () => {

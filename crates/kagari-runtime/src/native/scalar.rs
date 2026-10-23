@@ -13,6 +13,7 @@ mod sealed {
 
 /// Converts a Rust scalar to or from its declared script type.
 ///
+/// Rust `char` uses the distinct script `char` domain, never an integer carrier.
 /// Rust `usize` and `isize` use script `u64` and `i64`, respectively. Decoding
 /// checks the Rust host range before callback entry; hosts needing the complete
 /// script domain must accept `u64`/`i64`. Encoding widens losslessly on supported
@@ -99,6 +100,7 @@ macro_rules! scalar {
 }
 
 scalar!(bool, Bool, Bool);
+scalar!(char, Char, Char);
 scalar!(f32, F32, F32);
 scalar!(f64, F64, F64);
 

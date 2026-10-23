@@ -40,6 +40,7 @@ pub(crate) fn lower_scalar(value: ScalarValue) -> Constant {
         ScalarValue::F32(value) => Constant::F32(value),
         ScalarValue::F64(value) => Constant::F64(value),
         ScalarValue::String(value) => Constant::Str(value),
+        ScalarValue::Char(value) => Constant::Char(value),
     }
 }
 

@@ -8,6 +8,40 @@ use kagari_bytecode::{
 };
 
 #[test]
+fn char_constants_keep_distinct_pool_domains_and_slot_types() {
+    let context = DefinitionContext::new().unwrap();
+    let bytecode = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok("fn main() -> (char, char, u32, String) { ('A', 'A', 65u32, \"A\") }"),
+    );
+    let module = &bytecode.modules[bytecode.root.index()];
+    assert_eq!(
+        module
+            .constants
+            .iter()
+            .filter(|value| matches!(value, ConstantOperand::Char('A')))
+            .count(),
+        1
+    );
+    assert!(module.constants.contains(&ConstantOperand::I64(65)));
+    assert!(module.constants.contains(&ConstantOperand::Str("A".into())));
+    assert!(
+        module
+            .functions
+            .iter()
+            .any(|function| function.metadata.slots.contains(&ValueType::Char))
+    );
+    verify_program(&bytecode, &context.snapshot(), &Default::default()).unwrap();
+    let mut invalid = bytecode.clone();
+    for constant in &mut invalid.modules[bytecode.root.index()].constants {
+        if matches!(constant, ConstantOperand::Char(_)) {
+            *constant = ConstantOperand::I64(65);
+        }
+    }
+    assert!(verify_program(&invalid, &context.snapshot(), &Default::default()).is_err());
+}
+
+#[test]
 fn lowers_function_metadata_into_bytecode() {
     let context = DefinitionContext::new().unwrap();
     let bytecode = common::adopt_bytecode(

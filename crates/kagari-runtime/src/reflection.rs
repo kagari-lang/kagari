@@ -56,6 +56,7 @@ pub fn type_of(gc: &GcHeap, value: &Value) -> Result<Value, ReflectionError> {
             .name(),
         Value::Unit => "()",
         Value::Bool(_) => "bool",
+        Value::Char(_) => "char",
         Value::I32(_) => "i32",
         Value::I64(_) => "i64",
         Value::U64(_) => "u64",

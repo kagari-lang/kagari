@@ -97,8 +97,8 @@ impl<'scope, 'runtime> SerdeSerializer for Serializer<'scope, 'runtime> {
         Err(unsupported("u128"))
     }
 
-    fn serialize_char(self, _: char) -> NativeResult<Value> {
-        Err(unsupported("char"))
+    fn serialize_char(self, value: char) -> NativeResult<Value> {
+        self.scalar(value)
     }
 
     fn serialize_str(self, value: &str) -> NativeResult<Value> {

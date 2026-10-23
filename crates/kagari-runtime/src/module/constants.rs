@@ -51,6 +51,7 @@ impl ConstantPool {
         let value = match source {
             ConstantOperand::Unit => Value::Unit,
             ConstantOperand::Bool(value) => Value::Bool(*value),
+            ConstantOperand::Char(value) => Value::Char(*value),
             ConstantOperand::I32(value) => Value::I32(*value),
             ConstantOperand::I64(value) => Value::I64(*value),
             ConstantOperand::U64(value) => Value::U64(*value),

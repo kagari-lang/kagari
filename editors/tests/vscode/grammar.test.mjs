@@ -38,6 +38,37 @@ function regionsIn(text, spans, context, expected) {
   }
 }
 
+test('character literals retain scalar spelling, escape scopes and interpolation boundaries', async () => {
+  const source = String.raw`fn main() { val chars = ['a', 'é', '🙂', ' ', '\'', '\\', '\"', '\0', '\n', '\r', '\t', '\x00', '\x7F', '\u{10_FF_FF_}']; val text = f"{'}'} {'\''} tail"; }`;
+  const spans = await tokenize(source);
+  for (const literal of ["'a'", "'é'", "'🙂'", "' '", String.raw`'\''`, String.raw`'\\'`, String.raw`'\"'`,
+    String.raw`'\0'`, String.raw`'\n'`, String.raw`'\r'`, String.raw`'\t'`, String.raw`'\x00'`, String.raw`'\x7F'`, String.raw`'\u{10_FF_FF_}'`]) {
+    const found = region(source, spans, literal, 'string', 'string.quoted.single.kagari');
+    assert.ok(found.every(span => !span.scopes.some(scope => scope.startsWith('invalid.'))), literal);
+  }
+  for (const escape of [String.raw`\'`, String.raw`\x7F`, String.raw`\u{10_FF_FF_}`]) {
+    region(source, spans, escape, 'string', 'constant.character.escape.kagari');
+  }
+  region(source, spans, 'tail', 'string');
+  const example = await readFile(new URL('../../../examples/syntax/char-literals.kgr', import.meta.url), 'utf8');
+  region(example, await tokenize(example), "'🙂'", 'string', 'string.quoted.single.kagari');
+});
+
+test('invalid character shapes are marked and incomplete characters recover at LF and CRLF', async () => {
+  for (const content of ['ab', 'e\u0301', '\t', String.raw`\x80`, String.raw`\u{_41}`, String.raw`\u{0000000}`]) {
+    const text = `fn main() { val c = '${content}'; val after = 42; }`;
+    const spans = await tokenize(text);
+    assert.ok(spans.some(span => span.scopes.includes('invalid.illegal.character.kagari')), content);
+    region(text, spans, 'after', 'code');
+  }
+  for (const eol of ['\n', '\r\n']) {
+    const text = `fn main() { val c = 'unfinished${eol}val after = 42; }`;
+    const spans = await tokenize(text);
+    region(text, spans, 'unfinished', 'string');
+    region(text, spans, 'after', 'code');
+  }
+});
+
 test('recursive comments, documentation and Unicode survive LF and CRLF', async () => {
   for (const newline of ['\n', '\r\n']) {
     const text = ['/// 中文😀', '/** doc /* nested /** deeper */ nested */ doc */',
@@ -164,12 +195,15 @@ test('reserved Kagari words, conservative declarations/types, attributes and no 
     assert.ok(spans.some((span) => span.scopes.some((scope) =>
       /^(keyword\.|storage\.|variable\.language\.|constant\.language\.)/.test(scope))), word);
   }
-  const plain = "let mut dyn ref static_value 'life 'x' r b SomeType Constructor Vec String isize usize";
+  const plain = "let mut dyn ref static_value r b SomeType Constructor Vec String isize usize";
   for (const span of await tokenize(plain)) {
     assert.equal(span.type, 'code');
     assert.ok(!span.scopes.some((scope) => /^(keyword|storage|entity\.name\.type|support\.type)\./.test(scope)),
       span.scopes.join(' '));
   }
+  const lifetime = await tokenize("'life");
+  assert.ok(lifetime.every(span => !span.scopes.some(scope => scope.includes('lifetime'))));
+  assert.ok(lifetime.some(span => span.scopes.includes('invalid.illegal.character.kagari')));
   const text = '#[tool::meta(tags = ["text", true])] struct Model<T> {}\n'
     + 'trait Family { type Item<T>; fn make(x: T) -> Item<T>; }\n'
     + 'mod child; val local: Model<i32> = Model {}; var callable: fn(i32) -> i32;';
@@ -369,6 +403,8 @@ test('incremental retokenization from valid preceding stacks agrees with fresh t
       from: '..base', to: '..', needle: ' tail', type: 'string' },
     { text: 'val s = f"{Point {\n label: f"inner {score}",\n ..base }\n} tail";\nval after = 1;',
       from: '..base }', to: '..base', needle: ' tail', type: 'code' },
+    { text: "val s = f\"{\n '\\u{7B_}';\n value\n} tail\";\nval after = 1;",
+      from: "'\\u{7B_}';", to: "'\\u{7B_}", needle: 'value', type: 'code' },
     { text: '/* header\n end */\nval s = "closed";\nval after = 1;',
       from: '"closed";', to: '"open', needle: 'val after', type: 'code' },
   ];

@@ -104,7 +104,7 @@ fn scalar_width(ty: BuiltinType) -> Option<usize> {
     Some(match ty {
         BuiltinType::Unit => 0,
         BuiltinType::Bool => 1,
-        BuiltinType::F32 => 4,
+        BuiltinType::Char | BuiltinType::F32 => 4,
         BuiltinType::F64 => 8,
         _ => (ty.integer_layout()?.0 / 8) as usize,
     })

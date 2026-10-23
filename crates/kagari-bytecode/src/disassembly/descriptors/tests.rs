@@ -137,9 +137,13 @@ fn constants_preserve_bits_and_escape_text_once_in_slot_order() {
         ConstantOperand::F64(-0.0),
         ConstantOperand::F64(f64::from_bits(0x7ff8_0000_0000_0042)),
         ConstantOperand::Str("hello\n\"\\\u{1b}\u{202e}雪".into()),
+        ConstantOperand::Char('🙂'),
+        ConstantOperand::Char('\0'),
+        ConstantOperand::Char('\''),
+        ConstantOperand::Char('\u{202e}'),
         ConstantOperand::Str("unreferenced".into()),
     ];
-    let instructions = (0..10)
+    let instructions = (0..14)
         .rev()
         .chain([9, 0])
         .map(|slot| I::LoadConst {
@@ -164,6 +168,10 @@ fn constants_preserve_bits_and_escape_text_once_in_slot_order() {
             "  @0:const#7 f64 -0 bits=0x8000000000000000\n",
             "  @0:const#8 f64 NaN bits=0x7ff8000000000042\n",
             "  @0:const#9 str \"hello\\n\\\"\\\\\\u{1b}\\u{202e}雪\"\n",
+            "  @0:const#10 char '🙂'\n",
+            "  @0:const#11 char '\\0'\n",
+            "  @0:const#12 char '\\''\n",
+            "  @0:const#13 char '\\u{202e}'\n",
         )
     );
 }

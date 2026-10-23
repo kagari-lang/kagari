@@ -8,6 +8,7 @@
 /// | `1.5` | `Literal { kind: Float, text: "1.5" }` |
 /// | `"hello"` | `Literal { kind: String, text: "\"hello\"" }` |
 /// | `true` | `Literal { kind: Bool, text: "true" }` |
+/// | `'a'` | `Literal { kind: Char, text: "'a'" }` |
 ///
 /// `text` includes source delimiters/suffixes; it is not a parsed Rust scalar or
 /// decoded runtime string. `-1` is a Prefix(Neg) expression around a positive
@@ -38,4 +39,6 @@ pub enum LiteralKind {
     String,
     /// `true` or `false`.
     Bool,
+    /// A single-quoted Unicode scalar, such as `'a'` or `'🙂'`.
+    Char,
 }

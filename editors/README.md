@@ -103,6 +103,15 @@ without development overrides, using a separate disposable test harness. See
    grammar inventory, generation consistency, adapter tests, real Zed-style WASM
    compilation, VSIX packaging and representative Windows analyzer boundaries.
 
+Character literals use single quotes, with string-category highlighting and quote
+pairing. Character escapes are separate from String escapes: ASCII `\\x00` through
+`\\x7F` and one-to-six-digit `\\u{...}` forms allow underscores after Unicode hex
+digits. Direct TAB/LF/CR and empty/multi-scalar character shapes are not valid
+characters. Shared `kagari-source` decoding, not editor tokenization, checks the
+decoded Unicode scalar domain (surrogates and out-of-range escapes). The
+[character example](../examples/syntax/char-literals.kgr) exercises this slice;
+byte/raw/multiline forms remain deferred and `f` interpolation is unchanged.
+
 Unterminated ordinary/interpolated text ends at CR/LF; expression holes may span
 lines. An actually unterminated block comment extends to EOF. String theme
 captures cover text/escapes/delimiters, never the entire interpolated parent.

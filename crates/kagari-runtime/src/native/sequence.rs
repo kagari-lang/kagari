@@ -21,6 +21,7 @@ use std::{any::Any, collections::TryReserveError, sync::Arc};
 pub(crate) enum SequenceStorage {
     Unit(Vec<()>),
     Bool(Vec<bool>),
+    Char(Vec<char>),
     I8(Vec<i8>),
     I16(Vec<i16>),
     I32(Vec<i32>),
@@ -157,7 +158,7 @@ macro_rules! storage {
     };
 }
 
-storage!(Unit:(), Bool:bool, I8:i8, I16:i16, I32:i32, I64:i64,
+storage!(Unit:(), Bool:bool, Char:char, I8:i8, I16:i16, I32:i32, I64:i64,
     U8:u8, U16:u16, U32:u32, U64:u64, F32:f32, F64:f64);
 
 fn copy_values<T: Clone>(values: &[T]) -> NativeResult<Vec<T>> {
@@ -275,5 +276,5 @@ macro_rules! elements {
     )+ };
 }
 
-elements!(Unit:(), Bool:bool, I8:i8, I16:i16, I32:i32, I64:i64,
+elements!(Unit:(), Bool:bool, Char:char, I8:i8, I16:i16, I32:i32, I64:i64,
     U8:u8, U16:u16, U32:u32, U64:u64, F32:f32, F64:f64);

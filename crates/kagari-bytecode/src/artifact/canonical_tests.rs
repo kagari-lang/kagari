@@ -1,6 +1,6 @@
 use crate::{
     artifact::*,
-    instruction::{BytecodeInstruction, PathId, Slot},
+    instruction::{BytecodeInstruction, ConstantOperand, PathId, Slot},
     module::{BytecodeFunction, FunctionRecord},
     program::{BytecodeProgram, ModuleRef},
 };
@@ -26,6 +26,92 @@ use kagari_types::{
     ty::{GenericBound, NominalTy, Ty},
     visibility::Visibility,
 };
+use std::collections::HashSet;
+
+#[test]
+fn char_constants_roundtrip_source_free_and_reject_noncanonical_scalar_encodings() {
+    let context = DefinitionContext::new().unwrap();
+    let constants: Vec<_> = ['\0', '\u{d7ff}', '\u{e000}', '🙂', '\u{10ffff}']
+        .into_iter()
+        .map(ConstantOperand::Char)
+        .collect();
+    let artifact = KbcArtifact::from_program(
+        BytecodeProgram {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule {
+                constants: constants.clone(),
+                ..Default::default()
+            }],
+        },
+        Default::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
+    let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
+    let decoded = KbcArtifact::from_bytes(&bytes).unwrap();
+    let decoded = decoded
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    assert_eq!(decoded.program.modules[0].constants, constants);
+    decoded
+        .validate_for_loader(&Default::default(), &context, &Default::default())
+        .unwrap();
+    assert_eq!(decoded.to_bytes(&context.snapshot()).unwrap(), bytes);
+
+    let needle = codec()
+        .serialize(&ConstantOperand::Char('\u{10ffff}'))
+        .unwrap();
+    let positions: Vec<_> = bytes
+        .windows(needle.len())
+        .enumerate()
+        .filter_map(|(index, window)| (window == needle).then_some(index))
+        .collect();
+    assert_eq!(positions.len(), 1);
+    for payload in [
+        &[0xed, 0xa0, 0x80][..],         // U+D800 surrogate
+        &[0xf4, 0x90, 0x80, 0x80],       // U+110000
+        &[0xc0, 0x80],                   // overlong NUL
+        &[0xf8, 0x80, 0x80, 0x80, 0x80], // oversized scalar
+    ] {
+        let mut invalid = bytes.clone();
+        invalid.splice(
+            positions[0] + 4..positions[0] + needle.len(),
+            payload.iter().copied(),
+        );
+        assert!(KbcArtifact::from_bytes(&invalid).is_err());
+    }
+}
+
+#[test]
+fn char_pool_identity_is_distinct_from_integer_and_string_payloads() {
+    let values = [
+        ConstantOperand::Char('A'),
+        ConstantOperand::I32(65),
+        ConstantOperand::I64(65),
+        ConstantOperand::U64(65),
+        ConstantOperand::Str("A".into()),
+    ];
+    let mut pool = HashSet::new();
+    for value in values {
+        assert!(pool.insert(value));
+    }
+    assert!(!pool.insert(ConstantOperand::Char('A')));
+    assert_eq!(
+        ConstantOperand::Char('A').numeric_payload(BuiltinType::Char),
+        None
+    );
+    assert_eq!(
+        ConstantOperand::Char('A').numeric_payload(BuiltinType::U32),
+        None
+    );
+    assert_eq!(
+        ConstantOperand::I64(65).numeric_payload(BuiltinType::Char),
+        None
+    );
+}
 
 #[test]
 fn typed_path_operands_preflight_before_decoding_registers() {

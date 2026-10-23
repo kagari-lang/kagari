@@ -603,6 +603,7 @@ impl GcHeap {
         let (id, expected) = match value {
             Value::Unit
             | Value::Bool(_)
+            | Value::Char(_)
             | Value::I32(_)
             | Value::I64(_)
             | Value::U64(_)

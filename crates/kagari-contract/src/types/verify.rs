@@ -20,6 +20,7 @@ use kagari_types::{
     declaration::{FnDecl, TraitDef, ownership::ReceiverOwners},
     decode_limits,
     language::Protocol,
+    scalar::BuiltinType,
     ty::{
         GenericParam, NominalTy, Ty,
         matching::{ImplementationPattern, projection_output},
@@ -65,6 +66,13 @@ pub fn validate(
             }
             PublicItem::Const(value) => {
                 type_valid(&value.ty, &Parameters::new(), None, cancel, definitions)
+                    && if value.ty == Ty::Builtin(BuiltinType::Char)
+                        || value.value.starts_with("const-v1:char:")
+                    {
+                        scalar_const_valid(&value.ty, &value.value)
+                    } else {
+                        true
+                    }
             }
             PublicItem::Type(ty) => {
                 let kind = ty.kind.definition_kind();

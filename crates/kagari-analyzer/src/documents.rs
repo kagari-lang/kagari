@@ -211,6 +211,21 @@ mod tests {
     }
 
     #[test]
+    fn character_text_is_retained_verbatim_even_during_incomplete_edits() {
+        let mut docs = documents();
+        let uri = "untitled:characters.kgr";
+        let original = "fn f() { val c = '🙂'; val escaped = '\\u{1F642_}'; }\r\n";
+        docs.open(open(uri, 1, original)).unwrap();
+        let id = docs.source.file_id(uri).unwrap();
+        let before = docs.source.snapshot();
+        assert_eq!(before.file(id).unwrap().text(), original);
+        let incomplete = "fn f() { val c = '\\u{; }\r\n";
+        docs.change(change(uri, 2, vec![full(incomplete)])).unwrap();
+        assert_eq!(docs.source.snapshot().file(id).unwrap().text(), incomplete);
+        assert_eq!(before.file(id).unwrap().text(), original);
+    }
+
+    #[test]
     fn protocol_versions_advance_independently_of_source_revisions() {
         let mut docs = documents();
         let uri = "memory://scratch/main.kgr?view=1#body";

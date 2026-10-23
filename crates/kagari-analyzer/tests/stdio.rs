@@ -280,7 +280,7 @@ fn stdio_initializes_synchronizes_and_exits_with_stdin_open() {
             "uri": uri,
             "languageId": "kagari",
             "version": 1,
-            "text": "val greeting = \"你好😀\";\r\n"
+            "text": "val greeting = \"你好😀\"; val scalar: char = '🙂'; val escaped = '\\u{1F642_}';\r\n"
         }}),
     );
     server.notify(

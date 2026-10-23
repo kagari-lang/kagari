@@ -43,7 +43,7 @@ module.exports = grammar({
     $.doc_block_comment, $.unterminated_block_comment],
   externals: $ => [$.block_comment, $.doc_block_comment, $.unterminated_block_comment,
     $.string_content, $.format_text, $._string_end, $.unterminated_string_end,
-    $._scanner_recovery],
+    $._scanner_recovery, $._char_boundary],
   conflicts: $ => [
     [$.path],
     [$._atom, $.generic_path, $.struct_expression],
@@ -232,7 +232,7 @@ module.exports = grammar({
       seq($.rest_pattern, optional(',')))), '}'),
     field_pattern: $ => seq(field('name', $.identifier), optional(seq(':', field('pattern', $._pattern)))),
     rest_pattern: $ => '..',
-    _literal: $ => choice($.integer_literal, $.float_literal, $.string_literal, $.boolean_literal),
+    _literal: $ => choice($.integer_literal, $.float_literal, $.string_literal, $.boolean_literal, $.char_literal),
     integer_literal: $ => token(seq(choice(/[0-9][0-9_]*/, /0b_*[01][01_]*/,
       /0o_*[0-7][0-7_]*/, /0x_*[0-9a-fA-F][0-9a-fA-F_]*/),
       optional(choice('i8', 'i16', 'i32', 'i64', 'u8', 'u16', 'u32', 'u64')))),
@@ -241,6 +241,14 @@ module.exports = grammar({
       seq(/[0-9][0-9_]*[eE][+-]?[0-9][0-9_]*/, optional(choice('f32', 'f64'))),
       seq(/[0-9][0-9_]*/, choice('f32', 'f64')))),
     boolean_literal: $ => choice('true', 'false'),
+    // Only lexical shape lives here; kagari-source owns decoded scalar validation.
+    // Immediate tokens reject internal trivia; the never-emitted boundary marker
+    // also disables external comment scanning at both positions inside the quotes.
+    char_literal: $ => seq("'", choice($.char_content, $.char_escape_sequence, $._char_boundary),
+      choice(token.immediate("'"), $._char_boundary)),
+    char_content: $ => token.immediate(/[^'\\\t\r\n]/),
+    char_escape_sequence: $ => token.immediate(seq('\\', choice(/["'\\nrt0]/,
+      /x[0-7][0-9a-fA-F]/, /u\{[0-9a-fA-F]_*([0-9a-fA-F]_*){0,5}\}/))),
     string_literal: $ => seq('"', repeat(choice($.string_content, $.escape_sequence)),
       choice(alias($._string_end, '"'), $.unterminated_string_end)),
     escape_sequence: $ => token.immediate(seq('\\', choice(/["\\nrt0]/, /u\{[0-9a-fA-F]+\}/))),

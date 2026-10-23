@@ -18,7 +18,7 @@ test('all shipped queries compile against the shipped grammar', () => {
   assert.deepEqual(config.line_comments, ['// ']);
   assert.deepEqual(config.block_comment, ['/*', '*/']);
   assert.equal(config.autoclose_before, ')]}', 'Allow pairing before existing closers, including an interpolation boundary');
-  assert.deepEqual(config.brackets.map(pair => pair.start), ['(', '[', '{', '"']);
+  assert.deepEqual(config.brackets.map(pair => pair.start), ['(', '[', '{', '"', "'"]);
   for (const pair of config.brackets) assert.deepEqual(pair.not_in, ['string', 'comment']);
 });
 
@@ -62,6 +62,22 @@ test('declaration/type captures and bracket pairs use syntax, not name guesses',
     const close = match.captures.find(capture => capture.name === 'close');
     assert.ok(open && close);
     assert.ok(open.node.startIndex < close.node.startIndex);
+  }
+});
+
+test('character quote pairs and overrides remain inside interpolation code', () => {
+  const text = String.raw`fn main() { f"{'🙂'} {'\u{7B_}'} tail" }`;
+  const tree = parse(text);
+  assert.equal(tree.rootNode.hasError, false, tree.rootNode.toString());
+  const overrides = query('overrides.scm').captures(tree.rootNode);
+  assert.equal(overrideAt(overrides, text.indexOf('🙂')), 'string');
+  assert.equal(overrideAt(overrides, text.indexOf('7B_')), 'string');
+  assert.equal(overrideAt(overrides, text.indexOf("'🙂'")), 'interpolation');
+  const pairs = query('brackets.scm').matches(tree.rootNode).filter(match =>
+    match.captures.some(capture => capture.node.parent.type === 'char_literal'));
+  assert.equal(pairs.length, 2);
+  for (const match of pairs) {
+    assert.deepEqual(match.captures.map(capture => capture.node.text), ["'", "'"]);
   }
 });
 

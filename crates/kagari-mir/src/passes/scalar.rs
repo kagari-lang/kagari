@@ -20,6 +20,7 @@ pub(super) enum Scalar {
     I32(i32),
     I64(i64),
     U64(u64),
+    Char(char),
 }
 
 impl Scalar {
@@ -30,6 +31,7 @@ impl Scalar {
             Constant::I32(value) => Self::I32(*value),
             Constant::I64(value) => Self::I64(*value),
             Constant::U64(value) => Self::U64(*value),
+            Constant::Char(value) => Self::Char(*value),
             _ => return None,
         })
     }
@@ -41,6 +43,7 @@ impl Scalar {
             Self::I32(value) => Constant::I32(value),
             Self::I64(value) => Constant::I64(value),
             Self::U64(value) => Constant::U64(value),
+            Self::Char(value) => Constant::Char(value),
         }
     }
 
@@ -81,6 +84,7 @@ impl Scalar {
             (Self::I32(a), Self::I32(b)) => Some(a.cmp(&b)),
             (Self::I64(a), Self::I64(b)) => Some(a.cmp(&b)),
             (Self::U64(a), Self::U64(b)) => Some(a.cmp(&b)),
+            (Self::Char(a), Self::Char(b)) => Some(a.cmp(&b)),
             _ => None,
         }?;
         let condition = match op {
@@ -163,5 +167,56 @@ impl Scalar {
         let value = self.integer()?;
         let (min, max) = kind.integer_bounds()?;
         (min <= value && value <= max).then_some(value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn char_folds_preserve_scalar_order_without_admitting_numeric_operations() {
+        let a = Scalar::from_constant(&Constant::Char('\u{d7ff}')).unwrap();
+        let b = Scalar::from_constant(&Constant::Char('\u{e000}')).unwrap();
+        assert_eq!(a.constant(), Constant::Char('\u{d7ff}'));
+        for (op, expected) in [
+            (BinaryOp::Eq, false),
+            (BinaryOp::NotEq, true),
+            (BinaryOp::Lt, true),
+            (BinaryOp::Le, true),
+            (BinaryOp::Gt, false),
+            (BinaryOp::Ge, false),
+        ] {
+            assert_eq!(
+                a.binary(op, b).unwrap().constant(),
+                Constant::Bool(expected)
+            );
+        }
+        for op in [
+            BinaryOp::Add,
+            BinaryOp::Sub,
+            BinaryOp::Mul,
+            BinaryOp::Div,
+            BinaryOp::Rem,
+        ] {
+            assert!(a.binary(op, b).is_none());
+        }
+        assert!(a.binary(BinaryOp::Eq, Scalar::I32(0xd7ff)).is_none());
+        assert!(a.binary(BinaryOp::Eq, Scalar::I64(0xd7ff)).is_none());
+        assert!(a.unary(UnaryOp::Neg).is_none());
+        assert!(a.unary(UnaryOp::Not).is_none());
+        for input in [BuiltinType::Char, BuiltinType::U32] {
+            assert!(
+                a.numeric(
+                    NumericOperation {
+                        op: IntegerOp::CheckedAdd,
+                        input,
+                        rhs: Some(input),
+                    },
+                    Some(b)
+                )
+                .is_none()
+            );
+        }
     }
 }

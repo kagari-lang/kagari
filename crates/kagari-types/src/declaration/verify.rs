@@ -32,7 +32,13 @@ pub type Parameters = HashSet<(DefinitionId, usize)>;
 fn scalar_const_type(ty: &Ty) -> bool {
     matches!(
         ty,
-        Ty::Builtin(BuiltinType::Unit | BuiltinType::Bool | BuiltinType::I32 | BuiltinType::F32)
+        Ty::Builtin(
+            BuiltinType::Unit
+                | BuiltinType::Bool
+                | BuiltinType::I32
+                | BuiltinType::F32
+                | BuiltinType::Char
+        )
     )
 }
 
@@ -42,6 +48,14 @@ pub fn scalar_const_valid(ty: &Ty, value: &str) -> bool {
         Ty::Builtin(BuiltinType::Bool) => {
             matches!(value, "const-v1:bool:0" | "const-v1:bool:1")
         }
+        Ty::Builtin(BuiltinType::Char) => value
+            .strip_prefix("const-v1:char:")
+            .and_then(|value| {
+                u32::from_str_radix(value, 16).ok().map(|scalar| {
+                    format!("{scalar:08x}") == value && char::from_u32(scalar).is_some()
+                })
+            })
+            .unwrap_or(false),
         Ty::Builtin(BuiltinType::I32) => value
             .strip_prefix("const-v1:i32:")
             .and_then(|value| value.parse::<i32>().ok().map(|n| n.to_string() == value))

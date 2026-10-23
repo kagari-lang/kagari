@@ -181,7 +181,9 @@ pub fn binary_result(
         BinaryOp::IdentityEq | BinaryOp::IdentityNotEq if lhs == ValueType::HeapObject => {
             Ok(ValueType::Bool)
         }
-        BinaryOp::Lt | BinaryOp::Gt | BinaryOp::Le | BinaryOp::Ge if numeric(lhs) => {
+        BinaryOp::Lt | BinaryOp::Gt | BinaryOp::Le | BinaryOp::Ge
+            if numeric(lhs) || lhs == ValueType::Char =>
+        {
             Ok(ValueType::Bool)
         }
         _ => Err(ContractError::InvalidOperation {

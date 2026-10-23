@@ -84,6 +84,16 @@ pub(crate) const ENUMERATIONS: &[Enumeration] = &[
         export: false,
     },
     Enumeration {
+        name: "CharTryFromError",
+        documentation: (
+            "A Unicode scalar conversion error. InvalidScalar rejects surrogate values U+D800 through U+DFFF and values above U+10FFFF.",
+            "fn scalar(value: u32) -> Result<char, core::char::CharTryFromError> { char::try_from(value) }",
+        ),
+        arity: 0,
+        variants: &[("InvalidScalar", None)],
+        export: false,
+    },
+    Enumeration {
         name: "ControlFlow",
         documentation: (
             "Continue contains a successful value; Break contains an early-exit value. Try uses ControlFlow<B, Infallible> as its distinct residual, preserving the break value without conversion.",

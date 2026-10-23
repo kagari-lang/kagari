@@ -1,0 +1,24 @@
+// Unicode scalar characters; String interpolation keeps its existing f prefix.
+const FIRST: char = 'a';
+const LAST: char = '\u{10_FF_FF_}';
+
+fn classify(value: char) -> i32 {
+    match value {
+        'a'..='z' => 1,
+        '\0' | '\n' | '\r' | '\t' => 2,
+        _ => 0,
+    }
+}
+
+fn main() {
+    val scalar: char = '🙂';
+    val accented = 'é';
+    val space = ' ';
+    val quote = '\'';
+    val double_quote = '\"';
+    val backslash = '\\';
+    val ascii = ['\x00', '\x7F'];
+    val unicode = ['\u{0}', '\u{D7FF}', '\u{E000}', LAST];
+    val label = f"{scalar} {FIRST:?}";
+    classify(FIRST);
+}

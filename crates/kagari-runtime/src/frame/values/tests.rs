@@ -486,6 +486,66 @@ fn scalar_windows_preserve_bits_initialization_and_managed_roots() {
 }
 
 #[test]
+fn char_windows_preserve_the_tag_in_scalar_transfers() {
+    let (_runtime, module) = module();
+    let mut layout = scalar_layout();
+    Arc::get_mut(&mut layout).unwrap().locations[0] = Location {
+        operand: OperandSlot::new(0, false),
+        representation: ValueType::Char,
+        semantic: Some(BuiltinType::Char),
+    };
+    let mut values = ExecutionValues::default();
+    let metadata = || FrameMetadata {
+        program: module.clone(),
+        environment: None,
+        invocation: None,
+    };
+    let source = values
+        .allocate(
+            4,
+            &[0],
+            &FrameArguments::plain(&[Value::Char('🙂')]),
+            metadata(),
+            Some(layout.clone()),
+        )
+        .unwrap();
+    assert_eq!(values.payloads.len(), 3);
+    assert_eq!(
+        values.with_value(source, 0, Value::clone),
+        Some(Value::Char('🙂'))
+    );
+    assert!(values.set(source, 0, Value::I64(0x1f642)).is_none());
+    let transfers = [layout.location(0).unwrap()];
+    assert!(
+        values
+            .allocate(
+                4,
+                &[0],
+                &FrameArguments::frame(source, &transfers),
+                metadata(),
+                Some(scalar_layout())
+            )
+            .is_err()
+    );
+    let target = values
+        .allocate(
+            4,
+            &[0],
+            &FrameArguments::frame(source, &transfers),
+            metadata(),
+            Some(layout),
+        )
+        .unwrap();
+    assert_eq!(
+        values.with_value(target, 0, Value::clone),
+        Some(Value::Char('🙂'))
+    );
+    values.release(target).unwrap();
+    values.release(source).unwrap();
+    assert!(values.payloads.is_empty());
+}
+
+#[test]
 fn invalid_scalar_admission_never_publishes_a_partial_frame() {
     let (_runtime, module) = module();
     let mut values = ExecutionValues::default();

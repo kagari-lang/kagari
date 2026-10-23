@@ -4,8 +4,8 @@ use crate::{
         AssociatedTypeDef, FnDecl, NativeDeclaration, TraitDef, TypeDef, TypeDefKind,
         module::{ImplDecl, ModuleDecl},
         verify::{
-            DeclarationValidationError, Parameters, function_valid, trait_valid, types_in_scope,
-            validate_native_declarations,
+            DeclarationValidationError, Parameters, function_valid, scalar_const_valid,
+            trait_valid, types_in_scope, validate_native_declarations,
         },
     },
     scalar::BuiltinType,
@@ -29,6 +29,28 @@ fn interface() -> DefinitionPath {
             name: "Output".into(),
             occurrence: 0,
         }],
+    }
+}
+
+#[test]
+fn character_constant_contract_requires_canonical_unicode_scalars() {
+    let character = Ty::Builtin(BuiltinType::Char);
+    for scalar in [0, 0x7f, 0xd7ff, 0xe000, 0x1f642, 0x10ffff] {
+        let value = format!("const-v1:char:{scalar:08x}");
+        assert!(scalar_const_valid(&character, &value));
+        assert!(!scalar_const_valid(&Ty::Builtin(BuiltinType::U32), &value));
+    }
+    for value in [
+        "const-v1:char:0000d800",
+        "const-v1:char:0000dfff",
+        "const-v1:char:00110000",
+        "const-v1:char:100000061",
+        "const-v1:char:61",
+        "const-v1:char:0000006A",
+        "const-v1:char:+0000061",
+        "const-v1:i32:97",
+    ] {
+        assert!(!scalar_const_valid(&character, value), "{value}");
     }
 }
 

@@ -422,7 +422,8 @@ literal             ::= INTEGER
                       | FLOAT
                       | STRING
                       | "true"
-                      | "false" ;
+                      | "false"
+                      | CHAR ;
 
 (* Lexical structure *)
 
@@ -457,6 +458,24 @@ FLOAT               ::= (DEC_INTEGER "." DIGIT (DIGIT | "_")* EXPONENT?
                       | DEC_INTEGER ("f32" | "f64") ;
 
 EXPONENT            ::= ("e" | "E") ("+" | "-")? DIGIT (DIGIT | "_")* ;
+
+(* Character literals decode to exactly one Unicode scalar. Shared decoding in
+   crates/kagari-source owns scalar validation, including surrogate/out-of-range
+   rejection; editor grammars are not a second semantic authority. CHAR_TEXT_CHAR
+   excludes apostrophe, backslash and physical TAB/LF/CR. Hexadecimal escapes are
+   ASCII-only. Unicode escapes have one to six digits (underscores do not count),
+   with underscores allowed after any digit, including the final digit.
+   Existing String/interpolation rules remain unchanged in TL01. *)
+CHAR                ::= "'" (CHAR_TEXT_CHAR | CHAR_ESCAPE) "'" ;
+
+CHAR_TEXT_CHAR      ::= ? one Unicode scalar except apostrophe, backslash, TAB, LF or CR ? ;
+
+CHAR_ESCAPE         ::= "\\" ("'" | "\"" | "\\" | "n" | "r" | "t" | "0")
+                      | "\\x" ASCII_HEX_HIGH HEX_DIGIT
+                      | "\\u{" HEX_DIGIT "_"* (HEX_DIGIT "_"*)? (HEX_DIGIT "_"*)?
+                        (HEX_DIGIT "_"*)? (HEX_DIGIT "_"*)? (HEX_DIGIT "_"*)? "}" ;
+
+ASCII_HEX_HIGH      ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" ;
 
 STRING              ::= "\"" STRING_CHAR* "\"" ;
 

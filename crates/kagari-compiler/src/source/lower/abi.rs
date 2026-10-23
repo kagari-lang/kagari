@@ -55,6 +55,7 @@ fn const_abi_value(value: &ScalarValue, definitions: &DefinitionTable) -> String
         ScalarValue::F32(value) => format!("const-v1:f32:{:08x}", value.to_bits()),
         ScalarValue::F64(value) => format!("const-v2:f64:{:016x}", value.to_bits()),
         ScalarValue::String(value) => format!("const-v1:str:{}:{value}", value.len()),
+        ScalarValue::Char(value) => format!("const-v1:char:{:08x}", u32::from(*value)),
     }
 }
 

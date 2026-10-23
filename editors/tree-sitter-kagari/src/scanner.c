@@ -12,6 +12,7 @@ enum TokenType {
   STRING_END,
   UNTERMINATED_STRING_END,
   SCANNER_RECOVERY,
+  CHAR_BOUNDARY,
 };
 
 void *tree_sitter_kagari_external_scanner_create(void) { return NULL; }
@@ -80,7 +81,7 @@ bool tree_sitter_kagari_external_scanner_scan(void *payload, TSLexer *lexer, con
   (void)payload;
   // Never invent a string context when Tree-sitter enables every external token
   // during error recovery. The parse stack, not mutable scanner state, owns it.
-  if (valid[SCANNER_RECOVERY]) return false;
+  if (valid[SCANNER_RECOVERY] || valid[CHAR_BOUNDARY]) return false;
   bool string = valid[STRING_CONTENT] || valid[FORMAT_TEXT];
   if (string) {
     if (lexer->lookahead == '"' && valid[STRING_END]) {

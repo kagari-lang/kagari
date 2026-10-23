@@ -551,6 +551,23 @@ See [native declarations](spec/standard-declarations.md) for registration contra
 and the [native registration guide](native-registration.md) for supported authoring
 paths and a complete fluent example.
 
+### Character pipeline ownership
+
+`kagari-source::literal` owns character decoding; syntax and HIR consume its
+validated scalar rather than defining competing escape policies. HIR owns checked
+constant, pattern and operation facts. `kagari-types` retains semantic Char, and
+`kagari-contract::representation` maps it to ABI's explicit Char representation.
+MIR/bytecode carry those facts through their existing codecs and verifiers;
+executable consumers do not reconstruct source spelling or infer types again.
+Runtime uses the existing scalar bank and compact Value with a distinct Char tag.
+
+`kagari-stdlib`'s `core::char` owner supplies the
+[character declarations](spec/builtins.md#character-scalar), while runtime owns
+[typed host/Serde admission](spec/host-interop.md#character-host-boundary).
+[Executable validation and backend admission](spec/bytecode.md#character-representation-and-validation)
+remain independent of source availability. Character support does not replace
+String decoding, formatting or cursor ownership.
+
 ## Crate responsibility target
 
 Shared semantic models are separate from executable contracts. HIR depends on

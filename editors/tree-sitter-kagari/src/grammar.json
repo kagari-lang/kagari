@@ -6391,6 +6391,10 @@
         {
           "type": "SYMBOL",
           "name": "boolean_literal"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "char_literal"
         }
       ]
     },
@@ -6582,6 +6586,84 @@
           "value": "false"
         }
       ]
+    },
+    "char_literal": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "'"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "char_content"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "char_escape_sequence"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "_char_boundary"
+            }
+          ]
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "IMMEDIATE_TOKEN",
+              "content": {
+                "type": "STRING",
+                "value": "'"
+              }
+            },
+            {
+              "type": "SYMBOL",
+              "name": "_char_boundary"
+            }
+          ]
+        }
+      ]
+    },
+    "char_content": {
+      "type": "IMMEDIATE_TOKEN",
+      "content": {
+        "type": "PATTERN",
+        "value": "[^'\\\\\\t\\r\\n]"
+      }
+    },
+    "char_escape_sequence": {
+      "type": "IMMEDIATE_TOKEN",
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "STRING",
+            "value": "\\"
+          },
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "PATTERN",
+                "value": "[\"'\\\\nrt0]"
+              },
+              {
+                "type": "PATTERN",
+                "value": "x[0-7][0-9a-fA-F]"
+              },
+              {
+                "type": "PATTERN",
+                "value": "u\\{[0-9a-fA-F]_*([0-9a-fA-F]_*){0,5}\\}"
+              }
+            ]
+          }
+        ]
+      }
     },
     "string_literal": {
       "type": "SEQ",
@@ -6905,6 +6987,10 @@
     {
       "type": "SYMBOL",
       "name": "_scanner_recovery"
+    },
+    {
+      "type": "SYMBOL",
+      "name": "_char_boundary"
     }
   ],
   "inline": [

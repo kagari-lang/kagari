@@ -54,6 +54,100 @@ fn main()->i32 {
 }
 
 #[test]
+fn char_standard_traits_preserve_scalar_semantics() {
+    execute(
+        r#"use std::fmt::{Debug, Display};
+use std::hash::Hash;
+use std::collections::HashSet;
+use core::cmp::Ordering;
+
+fn inspect<T: Eq + Ord + Hash + Display + Debug>(a:T, b:T)->bool {
+    a.eq(b) && a == b && a.cmp(b) == Ordering::Equal
+        && a.partial_cmp(b) == Some(Ordering::Equal)
+        && a.hash() == b.hash() && a.display() == b.display() && a.debug() == b.debug()
+}
+fn make<T: Default>()->T { T::default() }
+fn main()->i32 {
+    val nul: char = make();
+    val original = '🙂'; val copied = original;
+    if nul != '\0' || !inspect(original, copied) { return 1; }
+    if !('\0' < 'a' && 'a' < 'é' && 'é' < '🙂' && '🙂' < '\u{10ffff}') { return 2; }
+    if original.display() != "🙂" || original.debug() != "'🙂'" { return 3; }
+    if nul.display() != "\0" || nul.debug() != "'\\0'" { return 4; }
+    if '\n'.debug() != "'\\n'" || '\''.debug() != "'\\''" || '\\'.debug() != "'\\\\'" { return 5; }
+    val keys: HashSet<char> = HashSet::new();
+    keys.insert(original); keys.insert(copied); keys.insert(nul);
+    if keys.len() != 2u64 || !keys.contains('🙂') || keys.contains('a') { return 6; }
+    42
+}
+"#,
+    );
+}
+
+#[test]
+fn char_conversions_validate_scalars_and_use_reverse_adapters() {
+    execute(
+        r#"use core::char::CharTryFromError;
+use std::char::CharTryFromError as FacadeError;
+
+fn convert<T, U: From<T>>(value:T)->U { U::from(value) }
+fn reverse<T: Into<U>, U>(value:T)->U { value.into() }
+fn checked<T: TryInto<char, Error = CharTryFromError>>(value:T)->Result<char, CharTryFromError> {
+    value.try_into()
+}
+fn main()->i32 {
+    for scalar in [0u32, 0x7fu32, 0x80u32, 0xd7ffu32, 0xe000u32, 0xffffu32, 0x10000u32, 0x1f642u32, 0x10ffffu32] {
+        val value = match char::try_from(scalar) { Ok(value) => value, Err(_) => { return 1; } };
+        val code: u32 = convert(value);
+        val reversed: u32 = reverse(value);
+        if code != scalar || reversed != scalar { return 2; }
+        match checked(scalar) { Ok(other) => { if other != value { return 3; } }, Err(_) => { return 4; } }
+    }
+    for scalar in [0xd800u32, 0xdbffu32, 0xdc00u32, 0xdfffu32, 0x110000u32, 0xffffffffu32] {
+        match char::try_from(scalar) { Err(CharTryFromError::InvalidScalar) => {}, Ok(_) => { return 5; } };
+        match checked(scalar) { Err(FacadeError::InvalidScalar) => {}, Ok(_) => { return 6; } }
+    }
+    val text: String = convert('🙂');
+    val reversed: String = reverse('é');
+    if text != "🙂" || reversed != "é" || String::from('\0') != "\0" { return 7; }
+    42
+}
+"#,
+    );
+}
+
+#[test]
+fn char_does_not_acquire_numeric_or_traversal_capabilities() {
+    let engine = KagariEngine::default();
+    for source in [
+        "fn main()->char { 'a' + 'b' }",
+        "fn main()->char { 'a' & 'b' }",
+        "fn main()->u32 { 'a' as u32 }",
+        "fn main()->char { 65u32 as char }",
+        "fn main()->char { char::from(65u32) }",
+        "fn main()->char { val value: char = 65u32; value }",
+        "fn main()->bool { 'a' == 97u32 }",
+        "use core::iter::Sum; fn needs<T: Sum<T>>(value:T) {} fn main() { needs('a'); }",
+        "use core::iter::Product; fn needs<T: Product<T>>(value:T) {} fn main() { needs('a'); }",
+        "use core::str::FromStr; fn needs<T: FromStr>(value:T) {} fn main() { needs('a'); }",
+        "fn main() { for value in 'a'..'z' {} }",
+        "fn main() { for value in 'a'..='z' {} }",
+        "fn main() { for value in 'a'.. {} }",
+    ] {
+        let error = engine
+            .compile_to_artifact(
+                SourceFile::new("char-capabilities.kgr", source),
+                Default::default(),
+            )
+            .unwrap_err();
+        assert!(
+            matches!(error, EmbeddingError::Diagnostics { .. }),
+            "{source}: {error:?}"
+        );
+    }
+}
+
+#[test]
 fn explicit_formatting_uses_normal_static_dispatch() {
     execute(
         r#"use std::fmt::{Debug, Display};

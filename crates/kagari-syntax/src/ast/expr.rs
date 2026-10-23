@@ -1179,7 +1179,8 @@ impl Literal {
             .map(|token| token.text().to_string())
     }
 
-    /// Returns `SyntaxKind::Number` for `42` and `SyntaxKind::TrueKw` for `true`.
+    /// Returns `SyntaxKind::Number` for `42`, `SyntaxKind::TrueKw` for `true`,
+    /// and `SyntaxKind::Char` for `'🙂'`; character text retains quotes and escapes.
     /// Reads the first token; an empty recovered literal yields `None`.
     pub fn kind(&self) -> Option<SyntaxKind> {
         self.syntax().first_token().map(|token| token.kind())

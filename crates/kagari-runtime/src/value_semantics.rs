@@ -87,6 +87,7 @@ pub fn script_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, Runti
         }
         (Value::Unit, Value::Unit) => true,
         (Value::Bool(a), Value::Bool(b)) => a == b,
+        (Value::Char(a), Value::Char(b)) => a == b,
         (Value::I32(a), Value::I32(b)) => a == b,
         (Value::I64(a), Value::I64(b)) => a == b,
         (Value::U64(a), Value::U64(b)) => a == b,
@@ -164,6 +165,8 @@ pub fn format_value(gc: &GcHeap, value: &Value, debug: bool) -> Result<String, R
         match value {
             Value::Unit => out.push_str("()"),
             Value::Bool(v) => write!(out, "{v}").ok()?,
+            Value::Char(v) if debug => write!(out, "{v:?}").ok()?,
+            Value::Char(v) => out.push(*v),
             Value::I32(v) => write!(out, "{v}").ok()?,
             Value::I64(v) => write!(out, "{v}").ok()?,
             Value::U64(v) => write!(out, "{v}").ok()?,
@@ -251,6 +254,7 @@ pub fn builtin_order(gc: &GcHeap, a: &Value, b: &Value) -> Result<Option<Orderin
     Ok(match (a, b) {
         (Value::Unit, Value::Unit) => Some(Ordering::Equal),
         (Value::Bool(a), Value::Bool(b)) => a.partial_cmp(b),
+        (Value::Char(a), Value::Char(b)) => a.partial_cmp(b),
         (Value::I32(a), Value::I32(b)) => a.partial_cmp(b),
         (Value::I64(a), Value::I64(b)) => a.partial_cmp(b),
         (Value::U64(a), Value::U64(b)) => a.partial_cmp(b),
@@ -303,6 +307,31 @@ mod tests {
     };
     use kagari_contract::layout::{EnumLayout, EnumVariantLayout};
     use kagari_types::{scalar::BuiltinType, ty::Ty};
+
+    #[test]
+    fn char_equality_order_and_formatting_preserve_scalar_semantics() {
+        let gc = GcHeap::new(Default::default(), Default::default());
+        for ch in ['\0', '\n', '\t', '\'', '\\', 'é', '🙂', '\u{301}'] {
+            let value = Value::Char(ch);
+            assert!(script_equal(&gc, &value, &value).unwrap());
+            assert!(!script_equal(&gc, &value, &Value::I64(i64::from(u32::from(ch)))).unwrap());
+            assert_eq!(format_value(&gc, &value, false).unwrap(), ch.to_string());
+            assert_eq!(format_value(&gc, &value, true).unwrap(), format!("{ch:?}"));
+        }
+        assert_eq!(
+            format_value(&gc, &Value::Char('\0'), true).unwrap(),
+            "'\\0'"
+        );
+        assert_eq!(
+            format_value(&gc, &Value::Char('\''), true).unwrap(),
+            "'\\''"
+        );
+        assert_eq!(
+            builtin_order(&gc, &Value::Char('é'), &Value::Char('🙂')).unwrap(),
+            Some(Ordering::Less)
+        );
+        assert!(builtin_order(&gc, &Value::Char('a'), &Value::I64(97)).is_err());
+    }
 
     #[test]
     fn declared_enum_equality_keeps_nominal_identity_across_private_layout_edits() {
