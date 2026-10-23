@@ -2,13 +2,13 @@
 
 ## Status and authority
 
-**Planning only; implementation has not started.** Requested on 2026-10-21 against
-`fd34f689` after local R16-R18 completion. This document owns RL01-RL03, their order,
+**Implementation and per-phase commits authorized.** Execution resumed at
+`289bee0b`; RL01 is complete with focused local acceptance and RL02 is next.
+Originally requested on 2026-10-21 against `fd34f689` after local R16-R18 completion. This document owns RL01-RL03, their order,
 finite scope, acceptance and progress. The [roadmap](implementation-roadmap.md#runtime-storage-parking-and-version-identity)
 owns activation; [review](review.md) retains R19, R14 and R13 until their respective
-acceptance. Writing this document authorizes no implementation, commits, push or
-deployment. If implementation and phase commits are authorized, execute buildable
-phases in order, with one coherent commit per phase and a `Plan-Phase: RLxx` trailer.
+acceptance. Execute buildable phases in order, with one coherent commit per phase
+and a `Plan-Phase: RLxx` trailer. Push and deployment remain unauthorized.
 Use Conventional Commits; explain breaking API changes rather than adding bridges.
 
 Follow [project goals](project_goal.md), [architecture](architecture.md),
@@ -369,9 +369,36 @@ explicit decision; no parallel progress queue is needed.
 | Phase | Status | Next action / evidence |
 | --- | --- | --- |
 | Plan | Drafted | Baseline source/test owners inspected; mature ownership references recorded; no implementation or measurement claimed. |
-| RL01 | Not started | Scalar-only coloring with shared physical storage classification. |
+| RL01 | Complete locally | Scalar-only coloring, explicit managed locations and dense scalar layout; focused safety and capacity evidence below. |
 | RL02 | Not started | Freeze all parkability consumers and implement transition-owned graph validation. |
 | RL03 | Not started | Private version token, payload-release assertions, two bounded R13 decisions and final handoff. |
 
-No new build/test failures were established while writing this plan; no code
-validation ran. Existing CI/CS/BO/IP limits remain with their current owners.
+### RL01 checkpoint
+
+Shared physical `scalar_type` classification now selects scalar-only intervals;
+`SlotColor` distinguishes managed locations explicitly. Layout consumes dense scalar
+colors directly, deleting its obsolete remapping tree. Logical ranges, debug/CFG
+liveness, closed endpoints, parameter uses and distinct-slot fallback remain intact.
+
+Frozen before/after work/capacity probes at `289bee0b` and this checkpoint cover
+mixed, all-scalar, all-managed, debug-extended and exhausted-budget controls at
+window depths 1 and 8. Mixed scalar locations decrease 2 -> 1, managed stay 3;
+debug-extended scalar locations decrease 3 -> 2, managed stay 3. All-scalar work
+increases 34 -> 40 for explicit classification; fallback mandatory output work is
+accounted separately from an exhausted optimization budget. No elapsed comparison
+or speed claim was made. For these deterministic count-only probes the workspace
+test profile was used deliberately; the release/warmup/five-sample policy remains
+mandatory for any elapsed comparison. See [measurement methods and complete results](performance-baseline.md#rl01-scalar-storage-class-allocation-2026-10-23).
+
+Selected tests passed: allocation (4), layout (4), public reused-frame access (1),
+scalar/managed root windows (1), and the existing VM
+`frame_roots_preserve_returned_objects_across_calls_and_collection_safepoints` (1).
+The VM case supplies source/decoded mixed-storage execution through collection,
+not merely hand-built layout assertions. Structure, formatting, workspace/all-target
+Clippy and diff checks passed; ownership review found no remaining correctness issue.
+Initial probe/formatting issues and a test build timeout were resolved. Anonymous
+MSVC link failures cleared after cleaning only kagari-runtime and rerunning affected
+tests. IDE scoped builds timed out; Cargo provides successful compilation evidence.
+
+No in-scope failure remains. Full-workspace/backend/feature/platform CI, CS/BO/IP
+performance limits and unrelated review items remain with their existing owners.

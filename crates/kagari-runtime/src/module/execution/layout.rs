@@ -1,13 +1,16 @@
 //! Sealed canonical locations map into disjoint scalar and managed banks.
 use crate::{
-    module::execution::{OperandSlot, allocation::SlotAllocation},
+    module::execution::{
+        OperandSlot,
+        allocation::{SlotAllocation, SlotColor},
+    },
     value::{Value, scalar},
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{instruction::Slot, module::BytecodeFunction};
 use kagari_contract::{native_import::NativeImport, representation::semantic_representation};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
-use std::{collections::BTreeMap, iter};
+use std::iter;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Location {
@@ -86,20 +89,16 @@ impl FrameLayout {
 
     pub(super) fn prepare(function: &BytecodeFunction, work: &mut usize) -> Self {
         let slot_layout = SlotAllocation::prepare(function, work);
-        let mut scalar_count = 0;
+        let mut scalar_count = slot_layout.scalar_count;
         let mut managed_count = 0;
-        let mut physical = BTreeMap::new();
         let mut locations = Vec::new();
         for (logical, &representation) in function.metadata.slots.iter().enumerate() {
-            let managed = scalar_type(representation).is_none();
-            let color = slot_layout.index(logical).expect("verified register");
-            debug_assert!(color < slot_layout.count);
-            let operand = if managed {
-                allocate(true, &mut scalar_count, &mut managed_count)
-            } else {
-                *physical
-                    .entry(color)
-                    .or_insert_with(|| allocate(false, &mut scalar_count, &mut managed_count))
+            let operand = match slot_layout.slots[logical] {
+                SlotColor::Managed => allocate(true, &mut scalar_count, &mut managed_count),
+                SlotColor::Scalar(color) => {
+                    debug_assert!(color < scalar_count);
+                    OperandSlot::new(color, false)
+                }
             };
             locations.push(Location {
                 operand,
@@ -225,10 +224,278 @@ pub(crate) fn scalar_type(ty: ValueType) -> Option<BuiltinType> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        Runtime,
+        frame::{
+            arguments::FrameArguments,
+            values::{ExecutionValues, FrameMetadata},
+        },
+        module::LoadedModule,
+    };
     use kagari_bytecode::{
         instruction::{BytecodeInstruction as I, ConstantId, JumpTarget},
-        module::FunctionMetadata,
+        module::{BytecodeModule, FunctionMetadata, LocalLiveRange},
+        program::{BytecodeProgram, ModuleRef},
     };
+    use kagari_common::identity::metadata::DefinitionMetadata;
+    use std::sync::Arc;
+
+    fn storage_control(types: Vec<ValueType>, debug: bool) -> BytecodeFunction {
+        let mut function = BytecodeFunction {
+            slot_count: 6,
+            metadata: FunctionMetadata {
+                slots: types,
+                ..Default::default()
+            },
+            instructions: vec![
+                I::LoadConst {
+                    dst: Slot::new(0),
+                    constant: ConstantId::new(0),
+                },
+                I::LoadConst {
+                    dst: Slot::new(1),
+                    constant: ConstantId::new(0),
+                },
+                I::LoadConst {
+                    dst: Slot::new(2),
+                    constant: ConstantId::new(0),
+                },
+                I::Move {
+                    dst: Slot::new(1),
+                    src: Slot::new(1),
+                },
+                I::LoadConst {
+                    dst: Slot::new(3),
+                    constant: ConstantId::new(0),
+                },
+                I::LoadConst {
+                    dst: Slot::new(4),
+                    constant: ConstantId::new(0),
+                },
+                I::Move {
+                    dst: Slot::new(3),
+                    src: Slot::new(3),
+                },
+                I::LoadConst {
+                    dst: Slot::new(5),
+                    constant: ConstantId::new(0),
+                },
+                I::Return(None),
+            ],
+            ..Default::default()
+        };
+        if debug {
+            function
+                .metadata
+                .debug
+                .local_live_ranges
+                .push(LocalLiveRange {
+                    slot: Slot::new(0),
+                    binding: 0,
+                    name: String::new(),
+                    span: Default::default(),
+                    start: 1,
+                    end: 6,
+                    ty: function.metadata.slots[0],
+                    is_parameter: false,
+                });
+        }
+        function
+    }
+
+    fn storage_module(runtime: &mut Runtime) -> LoadedModule {
+        runtime
+            .load_program(
+                "rl01",
+                DefinitionMetadata::checked(
+                    runtime.host().definitions(),
+                    BytecodeProgram {
+                        root: ModuleRef::new(0),
+                        modules: vec![BytecodeModule::default()],
+                        exports: Default::default(),
+                    },
+                    &Default::default(),
+                )
+                .unwrap(),
+            )
+            .unwrap()
+    }
+
+    #[test]
+    fn storage_classes_determine_actual_bank_capacity_without_losing_ranges() {
+        let mut runtime = Runtime::default();
+        let module = storage_module(&mut runtime);
+        let mixed = vec![
+            ValueType::I32,
+            ValueType::HeapObject,
+            ValueType::I32,
+            ValueType::HeapObject,
+            ValueType::I32,
+            ValueType::HeapObject,
+        ];
+        for (types, debug, initial_work, expected) in [
+            (mixed.clone(), false, 0, (1, 3)),
+            (vec![ValueType::I32; 6], false, 0, (2, 0)),
+            (vec![ValueType::HeapObject; 6], false, 0, (0, 6)),
+            (mixed.clone(), true, 0, (2, 3)),
+            (mixed, false, usize::MAX, (3, 3)),
+        ] {
+            let function = storage_control(types, debug);
+            let mut allocation_work = initial_work;
+            let allocation = SlotAllocation::prepare(&function, &mut allocation_work);
+            let mut layout_work = initial_work;
+            let layout = FrameLayout::prepare(&function, &mut layout_work);
+            assert_eq!((layout.scalar_count, layout.managed_count), expected);
+            assert_eq!(layout.count, expected.0 + expected.1);
+            assert_eq!(allocation.scalar_count, expected.0);
+            let managed: Vec<_> = layout
+                .locations
+                .iter()
+                .filter(|location| location.operand.managed())
+                .map(|location| location.operand.index())
+                .collect();
+            assert_eq!(managed, (0..expected.1).collect::<Vec<_>>());
+            for (logical, location) in layout.locations.iter().enumerate() {
+                assert_eq!(
+                    allocation.slots[logical] == SlotColor::Managed,
+                    location.operand.managed()
+                );
+            }
+            if initial_work == usize::MAX {
+                assert!(allocation.ranges.is_empty());
+                assert!(layout.reused_slots.is_empty());
+            } else {
+                assert_eq!(
+                    allocation.ranges.as_ref(),
+                    &[
+                        Some((0, if debug { 5 } else { 0 })),
+                        Some((1, 3)),
+                        Some((2, 2)),
+                        Some((4, 6)),
+                        Some((5, 5)),
+                        Some((7, 7)),
+                    ]
+                );
+            }
+            if expected == (1, 3) {
+                for logical in [0, 2, 4] {
+                    assert_eq!(layout.locations[logical].operand.index(), 0);
+                }
+            } else if debug {
+                assert_ne!(
+                    layout.locations[0].operand.index(),
+                    layout.locations[4].operand.index(),
+                    "debug use and definition at PC 5 have closed overlapping endpoints"
+                );
+            }
+            let mut values = ExecutionValues::default();
+            let frame = values
+                .allocate(
+                    6,
+                    &[],
+                    &FrameArguments::plain(&[]),
+                    FrameMetadata {
+                        program: module.clone(),
+                        environment: None,
+                        invocation: None,
+                    },
+                    Some(Arc::new(layout)),
+                )
+                .unwrap();
+            assert_eq!(
+                (
+                    values.payloads.len(),
+                    values.initialized.len(),
+                    values.values.len()
+                ),
+                (expected.0, expected.0, expected.1)
+            );
+            values.release(frame).unwrap();
+        }
+    }
+
+    #[test]
+    fn unused_unit_char_and_managed_capture_slots_keep_their_physical_class() {
+        let runtime = Runtime::default();
+        let cell = Value::Cell(
+            runtime
+                .gc()
+                .alloc_cell(ValueType::Char, Value::Char('🙂'))
+                .unwrap(),
+        );
+        for types in [
+            vec![],
+            vec![ValueType::HeapObject; 2],
+            vec![
+                ValueType::Unit,
+                ValueType::Char,
+                ValueType::HeapObject,
+                ValueType::HeapObject,
+            ],
+        ] {
+            let mut function = BytecodeFunction {
+                slot_count: types.len() as u32,
+                metadata: FunctionMetadata {
+                    slots: types,
+                    ..Default::default()
+                },
+                instructions: vec![I::Return(None)],
+                ..Default::default()
+            };
+            for (slot, &representation) in function.metadata.slots.iter().enumerate() {
+                if representation == ValueType::HeapObject {
+                    // Capture cells keep a scalar content type, not scalar storage.
+                    function
+                        .metadata
+                        .semantic
+                        .slots
+                        .insert(slot, Ty::Builtin(BuiltinType::Char));
+                }
+            }
+            for initial_work in [0, usize::MAX] {
+                let mut work = initial_work;
+                let layout = FrameLayout::prepare(&function, &mut work);
+                let has_scalars = function.slot_count == 4;
+                assert_eq!(
+                    layout.scalar_count,
+                    if has_scalars {
+                        if initial_work == 0 { 1 } else { 2 }
+                    } else {
+                        0
+                    }
+                );
+                assert_eq!(
+                    layout.managed_count,
+                    if function.slot_count == 0 { 0 } else { 2 }
+                );
+                for (logical, location) in layout.locations.iter().enumerate() {
+                    if function.metadata.slots[logical] == ValueType::HeapObject {
+                        assert!(location.operand.managed());
+                        assert_eq!(location.semantic, Some(BuiltinType::Char));
+                        assert!(location.admits(&cell));
+                        assert!(!location.admits(&Value::Char('🙂')));
+                    } else if initial_work == 0 {
+                        assert!(!layout.admits_logical_access(logical, 0, true, false));
+                    }
+                }
+            }
+            if function.slot_count == 4 {
+                function.metadata.parameter_slots = vec![Slot::new(0), Slot::new(1)];
+                let allocation = SlotAllocation::prepare(&function, &mut 0);
+                let layout = FrameLayout::prepare(&function, &mut 0);
+                assert_eq!(
+                    layout.scalar_count, 2,
+                    "unused entry parameters still overlap at PC 0"
+                );
+                assert_eq!(
+                    allocation.ranges.as_ref(),
+                    &[Some((0, 0)), Some((0, 0)), None, None]
+                );
+                assert!(layout.locations[0].admits(&Value::Unit));
+                assert!(layout.locations[1].admits(&Value::Char('🙂')));
+            }
+        }
+    }
 
     #[test]
     fn char_locations_use_scalar_storage_and_reject_integer_domains() {

@@ -1,5 +1,6 @@
 //! Physical slot intervals consume verified control flow and binding availability.
 //! Logical identities remain stable; source names do not require a second bank.
+use crate::module::execution::layout::scalar_type;
 use kagari_bytecode::{
     availability::DebugAvailability,
     instruction::{BytecodeInstruction, Slot},
@@ -10,10 +11,17 @@ use std::collections::BTreeSet;
 const MAX_WORK: usize = 4_000_000;
 const MAX_WORDS: usize = 1_000_000;
 
+/// Managed locations are distinct and never participate in scalar coloring.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SlotColor {
+    Scalar(usize),
+    Managed,
+}
+
 #[derive(Debug)]
-pub(crate) struct SlotAllocation {
-    pub slots: Box<[usize]>,
-    pub count: usize,
+pub(super) struct SlotAllocation {
+    pub slots: Box<[SlotColor]>,
+    pub scalar_count: usize,
     pub ranges: Box<[Option<(usize, usize)>]>,
 }
 
@@ -33,17 +41,30 @@ impl SlotAllocation {
         Self::allocate(function, work).unwrap_or_else(|| {
             // Bounded preparation may decline allocation without changing code
             // semantics or accepting unchecked data. This is not an old format.
-            let count = function.slot_count as usize;
+            // This mandatory output construction remains linear even after the
+            // optimization budget is exhausted; account for its classification.
+            let _ = charge(work, function.slot_count as usize);
+            let mut scalar_count = 0;
+            let slots = function
+                .metadata
+                .slots
+                .iter()
+                .map(|&representation| {
+                    if scalar_type(representation).is_some() {
+                        let color = SlotColor::Scalar(scalar_count);
+                        scalar_count += 1;
+                        color
+                    } else {
+                        SlotColor::Managed
+                    }
+                })
+                .collect();
             Self {
-                slots: (0..count).collect(),
-                count,
+                slots,
+                scalar_count,
                 ranges: Box::default(),
             }
         })
-    }
-
-    pub(crate) fn index(&self, logical: usize) -> Option<usize> {
-        self.slots.get(logical).copied()
     }
 
     fn allocate(function: &BytecodeFunction, work: &mut usize) -> Option<Self> {
@@ -85,6 +106,7 @@ impl SlotAllocation {
                 .saturating_mul(leaders.len())
                 .saturating_mul(4)
                 .saturating_add(debug_bytes.div_ceil(8))
+                .saturating_add(count.saturating_mul(size_of::<SlotColor>().div_ceil(8)))
                 > MAX_WORDS
         {
             return None;
@@ -195,15 +217,30 @@ impl SlotAllocation {
         for slot in &function.metadata.parameter_slots {
             touch(&mut ranges[slot.index()], 0);
         }
+        charge(work, count)?;
+        let mut has_scalar = false;
+        let mut slots: Vec<_> = function
+            .metadata
+            .slots
+            .iter()
+            .map(|&representation| {
+                if scalar_type(representation).is_some() {
+                    has_scalar = true;
+                    SlotColor::Scalar(0)
+                } else {
+                    SlotColor::Managed
+                }
+            })
+            .collect();
         let mut intervals = ranges
             .iter()
             .enumerate()
+            .filter(|&(slot, _)| matches!(slots[slot], SlotColor::Scalar(_)))
             .filter_map(|(slot, &range)| range.map(|(start, end)| (start, end, slot)))
             .collect::<Vec<_>>();
         intervals.sort_unstable();
         let mut active = Vec::<(usize, usize)>::new();
         let mut free = Vec::new();
-        let mut slots = vec![0; count];
         let mut allocated = 0;
         for (start, end, logical) in intervals {
             charge(work, active.len() + 1)?;
@@ -220,17 +257,17 @@ impl SlotAllocation {
                 allocated += 1;
                 slot
             });
-            slots[logical] = physical;
+            slots[logical] = SlotColor::Scalar(physical);
             active.push((end, physical));
         }
-        // A declared but unused register is never executed. Keep a valid slot
-        // for defensive raw frame inspection without adding per-slot storage.
-        if count != 0 {
+        // Unused scalar registers keep a valid color for defensive raw frame
+        // inspection. Managed-only functions need no scalar storage at all.
+        if has_scalar {
             allocated = allocated.max(1);
         }
         Some(Self {
             slots: slots.into(),
-            count: allocated,
+            scalar_count: allocated,
             ranges: ranges.into(),
         })
     }
@@ -301,7 +338,7 @@ mod tests {
         let mut exhausted = MAX_WORK;
         let fallback = SlotAllocation::prepare(&function, &mut exhausted);
         assert!(fallback.ranges.is_empty());
-        assert_eq!(fallback.slots.as_ref(), &[0]);
+        assert_eq!(fallback.slots.as_ref(), &[SlotColor::Scalar(0)]);
     }
 
     #[test]
@@ -335,7 +372,7 @@ mod tests {
         let without_debug = SlotAllocation::prepare(&function, &mut 0);
         assert_eq!(without_debug.ranges.as_ref(), &[Some((0, 1)), Some((3, 4))]);
         assert_eq!(without_debug.slots[0], without_debug.slots[1]);
-        assert_eq!(without_debug.count, 1);
+        assert_eq!(without_debug.scalar_count, 1);
 
         function.metadata.debug.local_live_ranges = [(1, 3), (2, 4)]
             .into_iter()
@@ -354,7 +391,7 @@ mod tests {
         let with_debug = SlotAllocation::prepare(&function, &mut 0);
         assert_eq!(with_debug.ranges.as_ref(), &[Some((0, 3)), Some((3, 4))]);
         assert_ne!(with_debug.slots[0], with_debug.slots[1]);
-        assert_eq!(with_debug.count, 2);
+        assert_eq!(with_debug.scalar_count, 2);
     }
 
     #[test]
@@ -420,7 +457,7 @@ mod tests {
             }
         };
         let allocation = SlotAllocation::prepare(&function, &mut 0);
-        assert_eq!(allocation.count, 4);
+        assert_eq!(allocation.scalar_count, 4);
         for live in 0..2 {
             for temporary in 2..5 {
                 assert_ne!(allocation.slots[live], allocation.slots[temporary]);

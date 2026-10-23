@@ -351,12 +351,12 @@ separate. Do not use these results as evidence that those performance gates pass
 
 ## Runtime storage, parking and version identity
 
-The [execution plan](runtime-lifecycle-plan.md) is drafted against `fd34f689`;
-RL01-RL03 have not started. Current authorization covers documentation, not
-implementation, commits, push or deployment. The order is R19 scalar storage-class
-coloring, R14 one-transition parking proof, then R13 payload-independent exact
-version identity with focused integration. The plan owns decisions, acceptance and
-the progress ledger; [review](review.md) retains unresolved findings.
+The [execution plan](runtime-lifecycle-plan.md) is active with implementation and
+per-phase commits authorized. RL01 scalar storage-class coloring is implemented
+and locally accepted; RL02 one-transition parking proof is next, followed by RL03
+payload-independent exact version identity and focused retention decisions.
+The plan owns acceptance and the progress ledger; [review](review.md) retains
+unresolved findings until final handoff. Push and deployment remain unauthorized.
 
 Preserve managed roots, debugger/reused-frame access, mutable-graph suspension
 checks, ready/waiting publication, runtime authority and generation-pinned native

@@ -16,6 +16,196 @@ Keep workloads, hashes, environment and timing scope together. Allocation reques
 are not RSS; compilation/setup and execution are separate. Small differences are
 not significance claims, and local correctness does not imply GitHub CI or Lua parity.
 
+## RL01 scalar storage-class allocation, 2026-10-23
+
+### Scope, environment and interpretation
+
+Before: `289bee0b82325d85449db30bbd0bb41f9f964dd6`, clean tree before adding
+only the temporary test probe. After: RL01 changes to
+[`allocation.rs`](../crates/kagari-runtime/src/module/execution/allocation.rs) and
+[`layout.rs`](../crates/kagari-runtime/src/module/execution/layout.rs) on that base.
+The frozen probe ran successfully before changing production code, then ran with
+unchanged workloads after implementation. No parking, version-token, solver,
+managed coalescing or BO/IP tuning is included.
+
+Windows 10 Pro 10.0.19045, Intel Core i7-10700F (8 cores / 16 logical CPUs),
+67,017,248 KiB visible memory; native x86_64-pc-windows-msvc, rustc 1.99.1
+(`58cf8f9c3`, 2026-10-13), Cargo 1.99.1, LLVM 23.1.1. Workspace **test** profile
+(optimized + debuginfo), default features, target directory and Cargo parallelism;
+test harness serialized with `--test-threads=1`. These are deterministic work and
+bank-capacity counts, **not elapsed comparisons**. No warmup/sample timing series,
+release-speed claim or compilation/execution throughput measurement was made.
+Build caches were reused; after an interrupted post-change build and subsequent
+MSVC LNK2019/LNK1120 anonymous LLVM-symbol errors, `cargo clean -p kagari-runtime`
+was followed by a successful rebuild/probe. An unrelated Beacon Cargo build was
+observed on the machine; its processes were not changed. This does not alter the
+logical counts and is another reason not to interpret build durations as timings.
+
+The mechanism follows the storage/interference-class separation selected in RL01
+(Cooper and Torczon, *Engineering a Compiler*, second edition, chapter 13): these
+are VM backing slots, not CPU registers or spilling. Layout's existing
+`scalar_type` remains the single physical classification, including Unit and Char.
+A managed capture cell with a scalar content type still occupies managed storage.
+`SlotColor::Managed` consumes no scalar color; dense scalar colors directly index
+the scalar bank, removing layout's obsolete color-to-bank `BTreeMap`. All logical
+ranges and the existing CFG/debug solver remain intact.
+
+### Frozen workloads and measurements
+
+Each function has six logical slots, no parameters, and nine instructions:
+`load 0; load 1; load 2; move 1 <- 1; load 3; load 4; move 3 <- 3; load 5; return`.
+`load` is `LoadConst` with constant ordinal zero; these are owner-local allocation
+fixtures, not executed or presented as independently verified programs. Mixed
+representations are `[I32, HeapObject, I32, HeapObject, I32, HeapObject]`.
+Scalar-only and managed-only replace all six representations with I32 and
+HeapObject respectively. Debug uses mixed storage plus slot 0 availability
+`[1, 6)`; fallback uses mixed storage and initial work `4_000_000`.
+
+Common closed allocation ranges before and after are
+`[(0,0), (1,3), (2,2), (4,6), (5,5), (7,7)]`. Debug extends the first to `(0,5)`;
+fallback has no reuse ranges. Thus slot 0's debug use and slot 4's definition at
+PC 5 still interfere. All managed locations remain distinct.
+
+| Control | Scalar slots before -> after | Managed slots before -> after | Preparation work delta before -> after |
+| --- | ---: | ---: | ---: |
+| Mixed | 2 -> 1 | 3 -> 3 | 34 -> 32 |
+| All scalar | 2 -> 2 | 0 -> 0 | 34 -> 40 |
+| All managed | 0 -> 0 | 6 -> 6 | 34 -> 27 |
+| Debug extended | 3 -> 2 | 3 -> 3 | 55 -> 50 |
+| Budget fallback | 3 -> 3 | 3 -> 3 | 1 -> 7 |
+
+Work is the allocator's charged-unit counter, not CPU instructions or a complete
+count of allocator traffic. Six new classification units are charged per normal
+control; excluding managed intervals reduces active/free processing in mixed and
+managed controls. The all-scalar control therefore has a real six-unit preparation
+increase, not a claimed speedup. Fallback also charges the mandatory linear output
+classification even after optimization exhaustion; the counter saturates safely.
+The explicit color enum carries a discriminant in addition to the old usize
+color; this is temporary preparation storage, not retained frame memory. Its
+full `size_of::<SlotColor>()` per logical slot is included in the bounded scratch
+admission calculation; peak preparation allocator traffic was not measured. No heap-wide scratch or persistent cache was introduced.
+
+For each condition, start with a fresh `ExecutionValues`, allocate either one or
+eight simultaneous windows using the prepared layout and an empty loaded module,
+then release in reverse order. No arguments or values are populated. "Requested"
+below means the logical backing requirement at peak bank length, not cumulative
+allocation requests: scalar bytes = `payloads.len()*8 + initialized.len()`, managed
+bytes = `values.len()*16`. Retained bytes use the corresponding `Vec::capacity()`;
+capacities were checked unchanged after release, with all three lengths zero.
+Measured element widths are u64=8, bool=1, Value=16 bytes. Tuples list
+`(payload capacity, initialization capacity, managed capacity)` in elements.
+
+| Control | Windows | Bank capacities before -> after | Scalar requested / retained bytes before -> after | Managed requested / retained bytes before -> after |
+| --- | ---: | --- | --- | --- |
+| Mixed | 1 | (4,8,4) -> (4,8,4) | 18 / 40 -> 9 / 40 | 48 / 64 -> 48 / 64 |
+| Mixed | 8 | (16,16,32) -> (8,8,32) | 144 / 144 -> 72 / 72 | 384 / 512 -> 384 / 512 |
+| All scalar | 1 | (4,8,0) -> (4,8,0) | 18 / 40 -> 18 / 40 | 0 / 0 -> 0 / 0 |
+| All scalar | 8 | (16,16,0) -> (16,16,0) | 144 / 144 -> 144 / 144 | 0 / 0 -> 0 / 0 |
+| All managed | 1 | (0,0,6) -> (0,0,6) | 0 / 0 -> 0 / 0 | 96 / 96 -> 96 / 96 |
+| All managed | 8 | (0,0,48) -> (0,0,48) | 0 / 0 -> 0 / 0 | 768 / 768 -> 768 / 768 |
+| Debug extended | 1 | (4,8,4) -> (4,8,4) | 27 / 40 -> 18 / 40 | 48 / 64 -> 48 / 64 |
+| Debug extended | 8 | (32,32,32) -> (16,16,32) | 216 / 288 -> 144 / 144 | 384 / 512 -> 384 / 512 |
+| Budget fallback | 1 | (4,8,4) -> (4,8,4) | 27 / 40 -> 27 / 40 | 48 / 64 -> 48 / 64 |
+| Budget fallback | 8 | (32,32,32) -> (32,32,32) | 216 / 288 -> 216 / 288 | 384 / 512 -> 384 / 512 |
+
+One-window minimum capacities mask the scalar slot reduction; eight-window banks
+show a retained reduction. Managed retention is unchanged. This excludes window
+records, layout/guard metadata, module/code ownership, referenced heap objects,
+allocator overhead and RSS. Total frame/process memory, execution speed and all
+function shapes are not established by these numbers. Existing public-frame and
+scalar-window/root tests provide behavioral checks separately from these counts.
+Full feature/backend/platform tests remain CI scope.
+
+### Reproduction source recipe
+
+The temporary probe was removed from production test sources after measurement.
+To replay, add the following ignored test inside `layout.rs::tests`, using that
+file's `storage_control`, `storage_module` and module-scope test imports. On the
+before revision, copy those two fixture helpers and their test imports only from
+the RL01 revision; do not copy the production changes or post-change assertions.
+The helpers preserve the workload above, including the exclusive debug-range end.
+This recipe uses both revisions' existing APIs and does not depend on ignored logs.
+
+```rust
+#[test]
+#[ignore = "manual RL01 bank-capacity and preparation-work probe; no timing"]
+fn rl01_storage_probe() {
+    let mut runtime = Runtime::default();
+    let module = storage_module(&mut runtime);
+    let mixed = || vec![
+        ValueType::I32, ValueType::HeapObject, ValueType::I32,
+        ValueType::HeapObject, ValueType::I32, ValueType::HeapObject,
+    ];
+    for (name, types, debug, initial_work) in [
+        ("mixed", mixed(), false, 0),
+        ("scalar", vec![ValueType::I32; 6], false, 0),
+        ("managed", vec![ValueType::HeapObject; 6], false, 0),
+        ("debug", mixed(), true, 0),
+        ("fallback", mixed(), false, 4_000_000),
+    ] {
+        let function = storage_control(types, debug);
+        let mut work = initial_work;
+        let layout = Arc::new(FrameLayout::prepare(&function, &mut work));
+        let mut allocation_work = initial_work;
+        let allocation = SlotAllocation::prepare(&function, &mut allocation_work);
+        println!("RL01 {name}: scalar={} managed={} work_delta={} ranges={:?}",
+            layout.scalar_count, layout.managed_count,
+            work - initial_work, allocation.ranges);
+        for depth in [1, 8] {
+            let mut values = ExecutionValues::default();
+            let mut frames = Vec::new();
+            for _ in 0..depth {
+                frames.push(values.allocate(
+                    6, &[], &FrameArguments::plain(&[]),
+                    FrameMetadata {
+                        program: module.clone(), environment: None, invocation: None,
+                    },
+                    Some(layout.clone()),
+                ).unwrap());
+            }
+            let requested = (
+                values.payloads.len() * size_of::<u64>() + values.initialized.len(),
+                values.values.len() * size_of::<Value>(),
+            );
+            let capacities = (
+                values.payloads.capacity(), values.initialized.capacity(),
+                values.values.capacity(),
+            );
+            let retained = (
+                capacities.0 * size_of::<u64>() + capacities.1,
+                capacities.2 * size_of::<Value>(),
+            );
+            for frame in frames.into_iter().rev() {
+                values.release(frame).unwrap();
+            }
+            assert!(values.payloads.is_empty() && values.initialized.is_empty()
+                && values.values.is_empty());
+            assert_eq!(capacities, (
+                values.payloads.capacity(), values.initialized.capacity(),
+                values.values.capacity(),
+            ));
+            println!("RL01 {name} depth={depth}: requested={requested:?} \
+                capacity={capacities:?} retained_after_release={retained:?} \
+                value_size={}", size_of::<Value>());
+        }
+    }
+}
+```
+
+Run the same command before and after, serially:
+
+```text
+cargo test -p kagari-runtime --lib rl01_storage_probe -- --ignored --exact module::execution::layout::tests::rl01_storage_probe --nocapture --test-threads=1
+```
+
+Only the probe executes (one passing test per successful invocation). Permanent
+coverage is at `storage_classes_determine_actual_bank_capacity_without_losing_ranges`
+and `unused_unit_char_and_managed_capture_slots_keep_their_physical_class` in the
+same layout test owner. The first checks actual execution-bank lengths, managed
+separation, mixed/all-scalar/all-managed controls, closed debug endpoints and
+fallback. The second covers empty/unused slots, Unit, Char, initialized parameter
+ranges and managed capture-cell physical storage despite scalar content semantics.
+
 ## Bounded analysis and MIR compaction, 2026-10-21
 
 R16-R18 local algorithm acceptance is complete. Current
