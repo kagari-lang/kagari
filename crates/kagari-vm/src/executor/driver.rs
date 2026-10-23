@@ -6,6 +6,7 @@ use crate::{
 use kagari_bytecode::module::CallableTarget;
 use kagari_runtime::{
     frame::{
+        ExecutionStack,
         cursor::kernel::RegionExit,
         driver::{ExecutionAction, ReturnAction},
     },
@@ -20,7 +21,7 @@ impl Executor<'_> {
                 VmError::RuntimeError(error) => error.to_string(),
                 error => format!("{error:?}"),
             };
-            self.stack.fail_static_initializers(&cause);
+            self.stack().fail_static_initializers(&cause);
         })
     }
 
@@ -31,29 +32,31 @@ impl Executor<'_> {
         loop {
             self.runtime.resources().poll_execution()?;
             if action.is_none() {
-                action = Some(self.stack.next_action(self.runtime)?);
+                action = Some(self.stack().next_action(self.runtime)?);
             }
             if action == Some(ExecutionAction::Await) {
                 let resumed = self
-                    .stack
+                    .stack()
                     .poll_await(self.runtime)
                     .map_err(VmError::RuntimeError);
                 match self.report_operation(resumed)? {
                     Poll::Pending => return Ok(DriveOutcome::Waiting),
                     Poll::Ready(Some(value)) => return Ok(DriveOutcome::Complete(value)),
                     Poll::Ready(None) => {
-                        action = Some(self.stack.next_action(self.runtime)?);
+                        action = Some(self.stack().next_action(self.runtime)?);
                     }
                 }
             }
             // A completed native result remains rooted in its frame if slicing parks here.
-            if remaining == Some(0) && self.stack.can_park(self.runtime)? {
+            if remaining == Some(0)
+                && ExecutionStack::try_park_ready(&mut self.stack, self.runtime)?
+            {
                 return Ok(DriveOutcome::Runnable);
             }
             match action.expect("classified activation") {
                 ExecutionAction::NativeReturn => {
                     let result = self
-                        .stack
+                        .stack()
                         .finish_native_return(self.runtime)
                         .map_err(VmError::RuntimeError);
                     match self.report_operation(result)? {
@@ -70,7 +73,7 @@ impl Executor<'_> {
                     self.runtime
                         .observe_execution(ExecutionEvent::BeforeInstruction)?;
                     let result = self
-                        .stack
+                        .stack()
                         .start_native_entry(self.runtime, native::invoke_script)
                         .map_err(VmError::RuntimeError);
                     action = Some(self.report_operation(result)?);
@@ -91,7 +94,7 @@ impl Executor<'_> {
                 .observe_execution(ExecutionEvent::BeforeInstruction)?;
 
             let result = self
-                .stack
+                .stack()
                 .execute_region(self.runtime, &mut remaining, native::invoke_script)
                 .map_err(VmError::from);
             let progress = match self.report_operation(result)? {
@@ -132,7 +135,7 @@ impl Executor<'_> {
                 InstructionProgress::Await => action = None,
                 InstructionProgress::Return(value) => {
                     let result = self
-                        .stack
+                        .stack()
                         .finish_return(self.runtime, value)
                         .map_err(VmError::RuntimeError);
                     match self.report_operation(result)? {

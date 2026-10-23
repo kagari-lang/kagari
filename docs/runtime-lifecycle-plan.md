@@ -3,7 +3,7 @@
 ## Status and authority
 
 **Implementation and per-phase commits authorized.** Execution resumed at
-`289bee0b`; RL01 is complete with focused local acceptance and RL02 is next.
+`289bee0b`; RL01-RL02 are complete with focused local acceptance and RL03 is next.
 Originally requested on 2026-10-21 against `fd34f689` after local R16-R18 completion. This document owns RL01-RL03, their order,
 finite scope, acceptance and progress. The [roadmap](implementation-roadmap.md#runtime-storage-parking-and-version-identity)
 owns activation; [review](review.md) retains R19, R14 and R13 until their respective
@@ -370,7 +370,7 @@ explicit decision; no parallel progress queue is needed.
 | --- | --- | --- |
 | Plan | Drafted | Baseline source/test owners inspected; mature ownership references recorded; no implementation or measurement claimed. |
 | RL01 | Complete locally | Scalar-only coloring, explicit managed locations and dense scalar layout; focused safety and capacity evidence below. |
-| RL02 | Not started | Freeze all parkability consumers and implement transition-owned graph validation. |
+| RL02 | Complete locally | Atomic ready/waiting parking and shared guarded traversal; measured work and focused fault/wake evidence below. |
 | RL03 | Not started | Private version token, payload-release assertions, two bounded R13 decisions and final handoff. |
 
 ### RL01 checkpoint
@@ -402,3 +402,40 @@ tests. IDE scoped builds timed out; Cargo provides successful compilation eviden
 
 No in-scope failure remains. Full-workspace/backend/feature/platform CI, CS/BO/IP
 performance limits and unrelated review items remain with their existing owners.
+
+### RL02 checkpoint
+
+The runtime consumes an Option-owned activation only when `try_park_ready` succeeds;
+a declined attempt preserves execution state and errors preserve trace/cleanup
+ownership. The VM parks at the slice decision, not again at run_slice exit.
+`park_waiting` remains a strict fresh post-poll transition and never writes readiness.
+The old public park entrypoint is removed; can_park is internal admission for the
+future/factory/wait paths that still require independent checks. No safety proof
+crosses a host poll, user conversion or mutable-graph change.
+
+One collection guard and shared Visited state span sequential frame root batches,
+preserving frame-order errors, every root/value admission before identity dedup,
+trace-hook panic/quarantine and notification-after-commit behavior. Scratch is
+operation-local. Production allocation/layout/version policies are unchanged.
+
+Before production changes at `b47f79ed`, actual scoped counters measured shared,
+disjoint, cyclic and scalar frames at depths/aliases (1,1), (4,1), (4,3). Proofs
+fall 2 -> 1; four-frame walks fall 8 -> 1. Four shared/cyclic eight-object graphs
+fall 64 -> 8 expansions; four disjoint graphs fall 64 -> 32. Scalar expansions
+remain zero. Release timing used warmup plus five samples with counting disabled;
+no end-to-end drive timing or speedup claim follows from noisy graph observations.
+[Complete methods, before reconstruction and samples](performance-baseline.md#rl02-transition-owned-parking-2026-10-23)
+are retained independently of ignored logs. Deterministic counts used the workspace
+test profile and were also observed in release.
+
+Twelve focused runtime tests and six exact VM tests passed: graph safety, declined
+activation retry, inter-transition alias mutation, frame-order error precedence,
+trace panic, post-poll mutation, deterministic completion/cancellation before waiting
+commit, initializer/guard cleanup, owned driving, live wait roots and error admission.
+The VM filters include async_owned_drive_contract, async_wait_live_storage_contract,
+async_native_completion_contract and its retirement/admission and cleanup/quarantine
+cases, plus driver_admits_resource_errors_before_frames_unwind. Structure (1,509
+Rust files), formatting, workspace/all-target Clippy and diff checks passed. Scoped
+IDE build timed out; successful Cargo commands provide build evidence. Read-only
+transition/ownership review found no defect; a baseline reproduction documentation
+gap was corrected before commit. No selected failure remains; full CI is pending.

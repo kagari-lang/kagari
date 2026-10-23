@@ -459,7 +459,19 @@ impl Runtime {
             initialization.retire()?;
             return Err(error);
         }
-        if let Err(error) = stack.park(self) {
+        let mut activation = Some(stack);
+        let parked = ExecutionStack::try_park_ready(&mut activation, self).and_then(|parked| {
+            if parked {
+                Ok(())
+            } else {
+                Err(RuntimeError::module_validation(
+                    "execution has non-suspendable resources",
+                ))
+            }
+        });
+        if let Err(error) = parked {
+            let error = self.resources().admit_execution_error(error);
+            drop(activation);
             initialization.retire()?;
             return Err(error);
         }

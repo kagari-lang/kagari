@@ -22,7 +22,7 @@ use crate::error::VmError;
 
 pub(crate) struct Executor<'a> {
     runtime: &'a Runtime,
-    stack: ExecutionStack<'a>,
+    stack: Option<ExecutionStack<'a>>,
 }
 
 pub(crate) enum DriveOutcome {
@@ -46,7 +46,7 @@ impl<'a> Executor<'a> {
 
         let mut executor = Self {
             runtime,
-            stack: runtime.enter_execution_stack(loaded)?,
+            stack: Some(runtime.enter_execution_stack(loaded)?),
         };
         executor
             .push_frame(loaded.slot(), entry, args, None)
@@ -64,7 +64,10 @@ impl<'a> Executor<'a> {
         stack
             .push_interface_method(runtime, method, args, None)
             .map_err(|error| runtime.resources().admit_execution_error(error))?;
-        Ok(Self { runtime, stack })
+        Ok(Self {
+            runtime,
+            stack: Some(stack),
+        })
     }
 
     pub(crate) fn run(&mut self) -> Result<Value, VmError> {
@@ -85,7 +88,7 @@ impl<'a> Executor<'a> {
     pub(crate) fn resume(runtime: &'a Runtime, owner: &OwnedExecution) -> Result<Self, VmError> {
         Ok(Self {
             runtime,
-            stack: runtime.resume_owned_execution(owner)?,
+            stack: Some(runtime.resume_owned_execution(owner)?),
         })
     }
 
@@ -100,14 +103,13 @@ impl<'a> Executor<'a> {
                 .with_trace(self.runtime.capture_error_trace())
         })?;
         match &value {
-            DriveOutcome::Runnable => self
-                .stack
-                .park(self.runtime)
-                .map_err(|error| self.runtime.resources().admit_execution_error(error))?,
-            DriveOutcome::Waiting => self
-                .stack
-                .park_waiting(self.runtime)
-                .map_err(|error| self.runtime.resources().admit_execution_error(error))?,
+            DriveOutcome::Runnable => debug_assert!(self.stack.is_none()),
+            DriveOutcome::Waiting => ExecutionStack::park_waiting(&mut self.stack, self.runtime)
+                .map_err(|error| {
+                    VmError::from(error)
+                        .admit_execution_error(self.runtime.resources())
+                        .with_trace(self.runtime.capture_error_trace())
+                })?,
             DriveOutcome::Complete(value) => complete(self.runtime, *value).map_err(|error| {
                 error
                     .admit_execution_error(self.runtime.resources())
@@ -117,16 +119,20 @@ impl<'a> Executor<'a> {
         Ok(value)
     }
 
+    fn stack(&self) -> &ExecutionStack<'a> {
+        self.stack.as_ref().expect("active executor")
+    }
+
     pub(crate) fn current_loaded(&self) -> Result<LoadedModule, VmError> {
         Ok(self.current_frame()?.loaded().clone())
     }
 
     pub(crate) fn current_frame(&self) -> Result<Ref<'_, ExecutionFrame>, VmError> {
-        Ok(self.stack.current()?)
+        Ok(self.stack().current()?)
     }
 
     pub(crate) fn current_frame_mut(&self) -> Result<RefMut<'_, ExecutionFrame>, VmError> {
-        Ok(self.stack.current_mut()?)
+        Ok(self.stack().current_mut()?)
     }
 
     pub(crate) fn push_frame(
@@ -137,7 +143,7 @@ impl<'a> Executor<'a> {
         return_dst: Option<Slot>,
     ) -> Result<(), VmError> {
         Ok(self
-            .stack
+            .stack()
             .push(self.runtime, module, function, args, return_dst)?)
     }
 }

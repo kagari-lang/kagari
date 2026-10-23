@@ -16,6 +16,334 @@ Keep workloads, hashes, environment and timing scope together. Allocation reques
 are not RSS; compilation/setup and execution are separate. Small differences are
 not significance claims, and local correctness does not imply GitHub CI or Lua parity.
 
+## RL02 transition-owned parking, 2026-10-23
+
+### Scope, baseline and ownership
+
+Before: `b47f79edef87bc976cb9d2743748297c0f9732b7` (RL01), initially clean.
+The before probe was compiled and executed with only `cfg(test)` instrumentation
+and the parking fixture added, **before any production edit**. After: the RL02
+working-tree changes on that revision. Allocation/layout, version identity,
+scheduler policy and RL03 are unchanged. No ABI/schema identifier changes.
+
+[`ExecutionStack::try_park_ready`](../crates/kagari-runtime/src/frame/owned.rs)
+now accepts `&mut Option<ExecutionStack>` and consumes it only after a successful
+runtime-owned proof. Decline retains the runnable activation; errors retain it
+for admission, trace capture and cleanup. The VM attempts this at slice exhaustion
+and returns Runnable only after commit, instead of querying and proving again at
+slice exit. `park_waiting` uses the same ownership slot but is strict and proves
+fresh post-poll state. It never overwrites readiness. Ready commit sets the parked
+flag before invoking the wake route; both paths end the activation and retain the
+runtime-owned frames/roots. `can_park` is now crate-private admission machinery;
+the obsolete public consuming `park` entrypoint is removed.
+
+The ownership discipline follows the already selected
+[Tokio 1.48.0 task harness](https://github.com/tokio-rs/tokio/blob/tokio-1.48.0/tokio/src/runtime/task/harness.rs):
+commit state before notification. This does not import Tokio scheduling or imply
+that a stack borrow freezes Kagari's interior-mutable heap. The actual proof stays
+with Kagari's collection guard and checked value traversal. There is no transferable
+permit, cached object safety, alternate collector or persistent traversal scratch.
+
+[`GcHeap::with_async_values`](../crates/kagari-runtime/src/gc/future.rs) owns one
+visited set and temporary edge/pending buffers inside one collection-guarded
+operation. Sequential frame root batches retain frame-order errors: an earlier
+invalid graph still errors before a later frame can decline. Every root and emitted
+Value is validated before object-identity deduplication, including differently
+tagged aliases. [`collector::Visited`](../crates/kagari-runtime/src/gc/collector.rs)
+is the shared marking loop used by both existing marking and async retention.
+Native trace hooks remain inside the guard; panic and ignored reentry/mutation
+rejection still quarantine rather than becoming a declined slice.
+
+Future capture, queued-factory closure/argument, queued-Future, awaitable and
+post-poll checks remain independent. No proof crosses submission, conversion,
+script execution or host polling. Claimed capture roots and output validation are
+unchanged. A later transition rechecks mutable aliases.
+
+### Environment and frozen probe
+
+Windows x86_64-pc-windows-msvc, Intel Core i7-10700F (8 cores / 16 logical CPUs),
+rustc 1.99.1 (`58cf8f9c3`, 2026-10-13), Cargo 1.99.1, LLVM 23.1.1.
+Default workspace features, target directory and build parallelism. Cargo work was
+serialized; no other Cargo workload was launched during either timing run. A
+process inspection before the baseline build found no running cargo/rustc process.
+No CPU pinning or machine-wide idle guarantee was established.
+
+The durable fixture is
+[`frame/owned/tests.rs`](../crates/kagari-runtime/src/frame/owned/tests.rs),
+`parking_transition_probe`. It builds a checked `hold` function with no parameters,
+one Return instruction and A managed HeapObject slots or A scalar I32 slots. It
+creates D real owned frames and installs roots directly in their managed windows
+for this owner-local retention test; it does not claim these injected values are
+typed script assignments. Other selected tests exercise ordinary source/decoded
+execution and await admission.
+
+Each managed graph contains eight objects: one Unit cell wrapped in seven
+single-element tuples. Shared frames reuse one graph; disjoint frames retain
+separate graphs; cyclic frames reuse a graph whose cell points back to the outer
+tuple. Each frame repeats its graph root A times. Scalar controls assert zero
+managed slots. Cases are `(D,A) = (1,1), (4,1), (4,3)` for each shape. Setup,
+initial admission parking, graph construction and teardown are outside measurement.
+The disjoint fixture's unused seed graph is not a retained frame root and is not
+included in the traversal counts.
+
+[`gc/retention_probe.rs`](../crates/kagari-runtime/src/gc/retention_probe.rs) is
+compiled only for runtime unit tests. Its thread-local scope is filtered by heap
+identity and reset on unwind. It counts proof entries, frame examinations, guarded
+walk scopes, managed-root occurrences, object expansions and outgoing value-edge
+visits. Distinct objects use complete generational HeapObjectIds; distinct edges
+use `(source object ID, trace ordinal)`, not destination identity. The final cell's
+Unit is a traced value edge in acyclic cases; the cycle replaces it with a heap
+edge. Thus these fixtures each have eight outgoing **value** edges, not necessarily
+eight heap-to-heap edges. Repeated work is total minus distinct. Root enumeration
+is separate and is not deduplicated. These are not public or production statistics.
+
+#### Reconstructing the before probe at `b47f79ed`
+
+Use a separate checkout of `b47f79edef87bc976cb9d2743748297c0f9732b7`, leaving
+its production parking and collector implementations unchanged. The following
+recipe uses the retained source files linked above, not ignored logs or patches.
+**Do not copy the entire current `frame/owned/tests.rs`: its other tests use
+RL02-only APIs and will not compile against this baseline.**
+
+1. Copy `gc/retention_probe.rs` in full to the same runtime source path. Create
+   `frame/owned/tests.rs` containing **only** the six functions `module`, `graph`,
+   `set_frame`, `fixture`, `transition`, and `parking_transition_probe` from the
+   current file. Keep the last function's `#[test]` attribute. Do not copy any
+   other test, the `TraceFailure` type or its implementation, or the waiting test
+   module. Use exactly these imports for this subset:
+
+   ```rust,ignore
+   use crate::{
+       Runtime,
+       frame::ExecutionStack,
+       gc::retention_probe::{measure, replace_cell},
+       module::LoadedModule,
+       session::owned::OwnedExecution,
+       value::Value,
+   };
+   use kagari_abi::representation::ValueType;
+   use kagari_bytecode::{
+       instruction::BytecodeInstruction,
+       module::{
+           BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord,
+           InstructionOrigin, RootSlotLayout,
+       },
+       program::{BytecodeProgram, ModuleRef},
+   };
+   use kagari_common::identity::metadata::DefinitionMetadata;
+   use kagari_contract::ids::FunctionRef;
+   use std::{hint::black_box, time::Instant};
+   ```
+
+2. Add the following test-only module declarations. The existing `mod owned;`
+   in `frame.rs` stays unchanged; no other module wiring is needed.
+
+   In `crates/kagari-runtime/src/gc.rs`:
+
+   ```rust,ignore
+   #[cfg(test)]
+   pub(crate) mod retention_probe;
+   ```
+
+   In `crates/kagari-runtime/src/frame/owned.rs`:
+
+   ```rust,ignore
+   #[cfg(test)]
+   mod tests;
+   ```
+
+   In both `frame/owned.rs` and `gc/future.rs`, add this module-scope import:
+
+   ```rust,ignore
+   #[cfg(test)]
+   use crate::gc::retention_probe::{self, Event};
+   ```
+
+   Add only the instrumentation below to the baseline methods. Prefix **each**
+   statement with `#[cfg(test)]`; do not copy the after implementation or its
+   `with_async_values`/`Visited` machinery.
+
+   | Baseline insertion point | Statement |
+   | --- | --- |
+   | `can_park`, before `self.validate_runtime(runtime)?` | `retention_probe::record(runtime.gc(), Event::Proof);` |
+   | First statement in `can_park`'s `for frame in frames.iter()` body | `retention_probe::record(runtime.gc(), Event::Frame);` |
+   | `validate_async_values` entry, before `ensure_no_native_borrow` | `retention_probe::record(self, Event::Walk);` |
+   | Immediately after that Walk statement | `retention_probe::record(self, Event::Roots(values.len()));` |
+   | First statement of its `collector::mark(pending, \|id, pending\| { ... })` callback | `retention_probe::record(self, Event::Object(id));` |
+   | Immediately after `.trace(...)?`, before `valid_edges(&edges)` | `retention_probe::record(self, Event::Edges(id, edges.len()));` |
+
+3. Adapt the two parking call sites in the copied fixture. At the end of `fixture`,
+   replace the `try_park_ready` assertion with `stack.park(runtime).unwrap();`,
+   retaining the following `owner` return. Replace the **whole** `transition`
+   function, including its Option/consumption checks, with:
+
+   ```rust,ignore
+   fn transition(runtime: &Runtime, stack: ExecutionStack<'_>) {
+       assert!(stack.can_park(runtime).unwrap());
+       stack.park(runtime).unwrap();
+   }
+   ```
+
+   Setup still parks only once, outside `measure`; the measured transition executes
+   the baseline driver's successful query followed by slice-exit parking. There
+   must be no `try_park_ready` or new-signature `park_waiting` reference in this
+   baseline test module.
+
+4. In `parking_transition_probe`, replace the **entire count-expectation block**
+   from `let unique = ...` through the final `distinct_edges` assertion with the
+   following before expectations. Keeping the after assertions would fail before
+   entering the optional timing loop, even with `KAGARI_PARK_TIMING=1`.
+
+   ```rust,ignore
+   let scalar = shape == "scalar";
+   let unique = if scalar {
+       0
+   } else if shape == "disjoint" {
+       depth * 8
+   } else {
+       8
+   };
+   let expansions = if scalar { 0 } else { 2 * depth * 8 };
+   assert_eq!(counts.proofs, 2);
+   assert_eq!(counts.frames, 2 * depth);
+   assert_eq!(counts.walks, 2 * depth);
+   assert_eq!(counts.roots, if scalar { 0 } else { 2 * depth * aliases });
+   assert_eq!(counts.objects, expansions);
+   assert_eq!(counts.distinct_objects.len(), unique);
+   assert_eq!(counts.edges, expansions);
+   assert_eq!(counts.distinct_edges.len(), unique);
+   ```
+
+   These formulas cover every Before entry in the Actual work counts table below,
+   including all scalar and alias controls. Each graph has eight traced value
+   edges, including the acyclic cell's Unit, so baseline edge visits equal object
+   expansions. Leave `fixture`'s managed-range assertion and the final zero-call-depth
+   assertion unchanged. Also retain the four shapes, all three `(depth, aliases)`
+   pairs, `measure` boundary, printing, warmup/sample loop and teardown unchanged.
+
+Run the focused count command below first, then build release and run its reported
+executable for timing. The normal current-tree probe retains its **after** assertions
+and single atomic transition; these substitutions apply only to the separate
+baseline reconstruction. No production baseline implementation is retained.
+
+### Actual work counts
+
+Counts used the workspace **test** profile (optimized + debuginfo), deliberately:
+these are deterministic structural measurements, not debug-profile elapsed claims.
+The same counts were also observed in the release timing binaries. Each row is one
+successful measured transition. Objects and edges are `total/distinct`.
+
+| Shape | D | A | Proofs before -> after | Frames before -> after | Walks before -> after | Roots before -> after | Objects before -> after | Value edges before -> after |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Shared | 1 | 1 | 2 -> 1 | 2 -> 1 | 2 -> 1 | 2 -> 1 | 16/8 -> 8/8 | 16/8 -> 8/8 |
+| Shared | 4 | 1 | 2 -> 1 | 8 -> 4 | 8 -> 1 | 8 -> 4 | 64/8 -> 8/8 | 64/8 -> 8/8 |
+| Shared | 4 | 3 | 2 -> 1 | 8 -> 4 | 8 -> 1 | 24 -> 12 | 64/8 -> 8/8 | 64/8 -> 8/8 |
+| Disjoint | 1 | 1 | 2 -> 1 | 2 -> 1 | 2 -> 1 | 2 -> 1 | 16/8 -> 8/8 | 16/8 -> 8/8 |
+| Disjoint | 4 | 1 | 2 -> 1 | 8 -> 4 | 8 -> 1 | 8 -> 4 | 64/32 -> 32/32 | 64/32 -> 32/32 |
+| Disjoint | 4 | 3 | 2 -> 1 | 8 -> 4 | 8 -> 1 | 24 -> 12 | 64/32 -> 32/32 | 64/32 -> 32/32 |
+| Cyclic | 1 | 1 | 2 -> 1 | 2 -> 1 | 2 -> 1 | 2 -> 1 | 16/8 -> 8/8 | 16/8 -> 8/8 |
+| Cyclic | 4 | 1 | 2 -> 1 | 8 -> 4 | 8 -> 1 | 8 -> 4 | 64/8 -> 8/8 | 64/8 -> 8/8 |
+| Cyclic | 4 | 3 | 2 -> 1 | 8 -> 4 | 8 -> 1 | 24 -> 12 | 64/8 -> 8/8 | 64/8 -> 8/8 |
+| Scalar | 1 | 1 | 2 -> 1 | 2 -> 1 | 2 -> 1 | 0 -> 0 | 0/0 -> 0/0 | 0/0 -> 0/0 |
+| Scalar | 4 | 1 | 2 -> 1 | 8 -> 4 | 8 -> 1 | 0 -> 0 | 0/0 -> 0/0 | 0/0 -> 0/0 |
+| Scalar | 4 | 3 | 2 -> 1 | 8 -> 4 | 8 -> 1 | 0 -> 0 | 0/0 -> 0/0 | 0/0 -> 0/0 |
+
+For shared/cyclic D=4, repeated expansions fall from 56 to zero; for disjoint D=4,
+from 32 to zero. Necessary root occurrences and disjoint-object expansion remain.
+Scalar cases still enter the scoped guard but expand no objects and allocate no
+visited entries. No heap-sized scratch survives the operation.
+
+### Isolated elapsed observations
+
+Both binaries were built using workspace **release** before sampling. Each row
+uses one discarded warmup batch and five retained batches, each containing 1,000
+transitions. Each activation is resumed before the timer; timing includes only the
+baseline query-plus-park or the new attempt, including proof, commit, scope drop
+and timer overhead. Counters are disabled during timing, although the test binary
+still contains their disabled-scope checks. No host waker is registered. This is
+not end-to-end `Vm::drive`, compilation, script execution, GC collection or
+reclamation throughput. Those elapsed scopes were not measured.
+
+All values below are milliseconds per 1,000 transitions. Cache state: baseline
+release dependencies were compiled locally; each executable then ran in one process
+with setup and warmup preceding retained samples. The after build reused unchanged
+dependencies. Graph timings in the before run vary substantially; scheduling,
+clock overhead, allocator/cache state and test-only hook overhead are not separated.
+**No speedup ratio or general runtime speed claim is made.** The acceptance evidence
+is the actual reduction in repeated proof/traversal work. The tiny scalar control
+shows no measured regression in this sample, not a universal latency guarantee.
+
+| Shape D/A | Version | Five retained samples | Median | Range |
+| --- | --- | --- | ---: | --- |
+| Shared 1/1 | Before | 4.2273, 8.6450, 9.1274, 7.5203, 14.4836 | 8.6450 | 4.2273-14.4836 |
+| Shared 1/1 | After | 1.9297, 1.1154, 1.2102, 1.0996, 1.0925 | 1.1154 | 1.0925-1.9297 |
+| Shared 4/1 | Before | 70.0007, 56.5872, 28.1886, 21.9994, 29.2790 | 29.2790 | 21.9994-70.0007 |
+| Shared 4/1 | After | 1.2792, 1.2937, 1.2893, 1.4317, 1.3174 | 1.2937 | 1.2792-1.4317 |
+| Shared 4/3 | Before | 29.4734, 20.4260, 21.3739, 20.8992, 16.9249 | 20.8992 | 16.9249-29.4734 |
+| Shared 4/3 | After | 1.6245, 1.6238, 1.5674, 1.5656, 1.5845 | 1.5845 | 1.5656-1.6245 |
+| Disjoint 1/1 | Before | 5.3638, 8.3148, 7.9726, 11.3092, 7.5422 | 7.9726 | 5.3638-11.3092 |
+| Disjoint 1/1 | After | 1.2535, 1.1138, 1.1178, 1.1251, 1.1115 | 1.1178 | 1.1115-1.2535 |
+| Disjoint 4/1 | Before | 15.5136, 27.7406, 31.4386, 40.6192, 38.9026 | 31.4386 | 15.5136-40.6192 |
+| Disjoint 4/1 | After | 4.7334, 3.7112, 3.6949, 3.8413, 5.0454 | 3.8413 | 3.6949-5.0454 |
+| Disjoint 4/3 | Before | 18.8588, 21.0377, 24.7772, 22.5867, 21.1399 | 21.1399 | 18.8588-24.7772 |
+| Disjoint 4/3 | After | 5.3984, 6.4041, 4.0269, 4.2482, 4.0331 | 4.2482 | 4.0269-6.4041 |
+| Cyclic 1/1 | Before | 5.1829, 7.9924, 6.4687, 9.5857, 6.9510 | 6.9510 | 5.1829-9.5857 |
+| Cyclic 1/1 | After | 1.1212, 1.1230, 1.1693, 1.1991, 1.1876 | 1.1693 | 1.1212-1.1991 |
+| Cyclic 4/1 | Before | 19.5601, 23.2380, 26.0052, 25.3708, 22.2098 | 23.2380 | 19.5601-26.0052 |
+| Cyclic 4/1 | After | 2.4030, 1.7020, 1.3311, 1.2859, 1.4039 | 1.4039 | 1.2859-2.4030 |
+| Cyclic 4/3 | Before | 18.4584, 12.8577, 15.7150, 14.0743, 14.4120 | 14.4120 | 12.8577-18.4584 |
+| Cyclic 4/3 | After | 1.5783, 1.6607, 1.6290, 1.6013, 1.5977 | 1.6013 | 1.5783-1.6607 |
+| Scalar 1/1 | Before | 0.3224, 0.2216, 0.2211, 0.2396, 0.3063 | 0.2396 | 0.2211-0.3224 |
+| Scalar 1/1 | After | 0.1254, 0.1441, 0.1234, 0.1246, 0.1227 | 0.1246 | 0.1227-0.1441 |
+| Scalar 4/1 | Before | 0.7722, 0.7825, 0.7721, 0.7652, 0.7767 | 0.7722 | 0.7652-0.7825 |
+| Scalar 4/1 | After | 0.1682, 0.1695, 0.1836, 0.1696, 0.1695 | 0.1695 | 0.1682-0.1836 |
+| Scalar 4/3 | Before | 0.9094, 0.9046, 0.8802, 0.8924, 0.9078 | 0.9046 | 0.8802-0.9094 |
+| Scalar 4/3 | After | 0.1734, 0.1689, 0.1688, 0.1695, 0.1695 | 0.1695 | 0.1688-0.1734 |
+
+Reproduction commands (Git Bash; use the executable reported by the no-run build):
+
+```text
+cargo test -p kagari-runtime --lib frame::owned::tests::parking_transition_probe -- --exact --nocapture --test-threads=1
+cargo test -p kagari-runtime --release --lib frame::owned::tests::parking_transition_probe --no-run
+KAGARI_PARK_TIMING=1 target/release/deps/kagari_runtime-311c7eab2e0fa4bc.exe frame::owned::tests::parking_transition_probe --exact --nocapture --test-threads=1
+```
+
+### Focused correctness and limits
+
+The selected runtime run passed 12 tests: four `frame::owned::tests` cases,
+`waiting_commit_rechecks_graph_after_poll_mutation`, `async_retention_graph_contract`,
+`pending_commit_preserves_completion_and_cancellation_notifications`,
+`initializer_frame_drop_poison_survives_termination_and_releases_recipe_edges`,
+the two `execution_state` collection panic/reentry tests,
+`collection_callbacks_cannot_replace_roots_even_if_they_ignore_rejection`, and
+`owned_retirement_drains_all_parked_roots_after_payload_drop_fault`.
+
+The selected VM run passed these six exact tests: `tests::owned_drive::async_owned_drive_contract`,
+`tests::native_wait::async_wait_live_storage_contract`,
+`tests::native_wait::async_native_completion_contract`,
+`tests::native_wait::async_native_completion_contract_retirement_and_admission`,
+`tests::native_wait::async_native_completion_contract_cleanup_quarantine`, and
+`executor::driver::tests::driver_admits_resource_errors_before_frames_unwind`.
+This selection covers the changed transition plus directly affected cancellation,
+root, trace and cleanup contracts; it is not a whole-crate or workspace sweep.
+
+The new deterministic notification test uses the existing native completion
+fixture, publishing completion/cancellation after a real Pending poll and before
+waiting commit, plus a no-notification control. A separate native-poll fixture
+injects a hidden invalid edge during polling and verifies a fresh commit error,
+retained diagnostic frames and cancellation cleanup. Graph injection is test-only;
+ordinary mutation admission is not weakened. Other cases verify retry after
+decline, error retention, per-frame error order, alias mutation between transitions,
+trace-hook panic/quarantine and differently tagged roots after deduplication.
+
+The scoped IDE build request timed out and was not repeated. Focused Cargo builds
+and tests succeeded. Initial structure/format checks identified one qualified
+import and one formatting issue, both corrected. Final structure (1,509 Rust files,
+zero violations), formatting, workspace/all-target Clippy and diff checks passed.
+Tracked files retain CRLF working-tree line endings. Full workspace tests and
+feature/backend/platform matrices remain CI-only;
+no complete acceptance or BO/IP performance claim follows from these local results.
+
 ## RL01 scalar storage-class allocation, 2026-10-23
 
 ### Scope, environment and interpretation

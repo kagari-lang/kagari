@@ -1,8 +1,10 @@
 //! Claiming removes cold captures without lending a heap borrow to submission.
+#[cfg(test)]
+use crate::gc::retention_probe::{self, Event};
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::types::arguments::TypeArgument,
-    gc::{GcHeap, HeapObjectId, collector, roots::RootSet, storage::append_value_edges},
+    gc::{GcHeap, HeapObjectId, collector::Visited, roots::RootSet, storage::append_value_edges},
     module::LoadedModule,
     native::{
         binding::NativeResult,
@@ -13,42 +15,86 @@ use crate::{
 };
 use kagari_types::ty::Ty;
 
-impl GcHeap {
-    /// Check actual retained edges, including mutable cells and erased receivers.
-    /// Tracing uses the collection guard so native hooks cannot mutate or reenter.
-    pub(crate) fn validate_async_values(&self, values: &[Value]) -> NativeResult<()> {
-        self.ensure_no_native_borrow()?;
-        let valid = self.resources.collect_operation(|| {
-            let valid_edges = |edges: &[Value]| {
-                edges
-                    .iter()
-                    .all(|value| value.is_storable(self) && self.validate_value(value))
-            };
-            let mut edges = values.iter().rev().copied().collect::<Vec<_>>();
-            if !valid_edges(&edges) {
+/// Scratch for one guarded operation, never a reusable proof of object safety.
+pub(crate) struct AsyncValues<'heap> {
+    heap: &'heap GcHeap,
+    visited: Visited<HeapObjectId>,
+    edges: Vec<Value>,
+    pending: Vec<HeapObjectId>,
+}
+
+impl AsyncValues<'_> {
+    pub(crate) fn validate(&mut self, values: &[Value]) -> NativeResult<()> {
+        #[cfg(test)]
+        retention_probe::record(self.heap, Event::Roots(values.len()));
+        let Self {
+            heap,
+            visited,
+            edges,
+            pending,
+        } = self;
+        let valid_edges = |values: &[Value]| {
+            values
+                .iter()
+                .all(|value| value.is_storable(heap) && heap.validate_value(value))
+        };
+        let valid = (|| {
+            edges.extend(values.iter().rev().copied());
+            // Validate each representation, even if its object was already seen
+            // through another root or a differently tagged incoming edge.
+            if !valid_edges(edges) {
                 return None;
             }
-            let objects = self.objects.try_borrow().ok()?;
-            let interfaces = self.interfaces.try_borrow().ok()?;
-            let mut pending = Vec::new();
-            append_value_edges(&mut edges, &mut pending);
-            collector::mark(pending, |id, pending| {
-                self.readable_object(&objects, id)?
+            let objects = heap.objects.try_borrow().ok()?;
+            let interfaces = heap.interfaces.try_borrow().ok()?;
+            append_value_edges(edges, pending);
+            visited.mark(pending, |id, pending| {
+                #[cfg(test)]
+                retention_probe::record(heap, Event::Object(id));
+                heap.readable_object(&objects, id)?
                     .trace(&interfaces, &mut |value| edges.push(value))?;
-                if !valid_edges(&edges) {
+                #[cfg(test)]
+                retention_probe::record(heap, Event::Edges(id, edges.len()));
+                if !valid_edges(edges) {
                     return None;
                 }
-                append_value_edges(&mut edges, pending);
+                append_value_edges(edges, pending);
                 Some(())
             })
-        })?;
-        if valid.is_none() {
-            return Err(RuntimeError::new(
+        })();
+        valid.ok_or_else(|| {
+            RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
                 "async state retains an invalid or scoped value",
-            ));
-        }
-        Ok(())
+            )
+        })
+    }
+}
+
+impl GcHeap {
+    /// Check actual retained edges, including mutable cells and erased receivers.
+    pub(crate) fn validate_async_values(&self, values: &[Value]) -> NativeResult<()> {
+        self.with_async_values(|walk| walk.validate(values))
+    }
+
+    /// Share visited identities only inside this collection-guarded operation.
+    /// The callback is runtime admission code, not a host callback. The guard
+    /// rejects mutation/reentry from native trace hooks, including ignored errors.
+    pub(crate) fn with_async_values<T>(
+        &self,
+        operation: impl FnOnce(&mut AsyncValues<'_>) -> NativeResult<T>,
+    ) -> NativeResult<T> {
+        self.ensure_no_native_borrow()?;
+        #[cfg(test)]
+        retention_probe::record(self, Event::Walk);
+        self.resources.collect_operation(|| {
+            operation(&mut AsyncValues {
+                heap: self,
+                visited: Visited::new(),
+                edges: Vec::new(),
+                pending: Vec::new(),
+            })
+        })?
     }
 
     pub(crate) fn future_contract(
@@ -230,6 +276,14 @@ mod tests {
         // ordinary mutation admission, which already rejects scoped values.
         replace(heap.alloc_tuple(vec![root]).unwrap());
         heap.validate_async_values(slice::from_ref(&root)).unwrap();
+        assert!(
+            heap.with_async_values(|walk| {
+                walk.validate(&[root])?;
+                // The identity was visited, but this new root has an invalid tag.
+                walk.validate(&[Value::Str(cell)])
+            })
+            .is_err()
+        );
         replace(
             heap.alloc_tuple(vec![
                 heap.alloc_ephemeral(EphemeralValue::Runtime(EphemeralValueId(1)))

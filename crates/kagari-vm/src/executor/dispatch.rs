@@ -165,7 +165,7 @@ impl<'a> Executor<'a> {
                     .write_slot(self.runtime, dst, result)?;
             }
             BytecodeInstruction::LoadModule { dst, slot } => {
-                if !self.stack.ensure_static_ready(self.runtime, slot)? {
+                if !self.stack().ensure_static_ready(self.runtime, slot)? {
                     return Ok(InstructionProgress::Continue);
                 }
                 let loaded = self.current_loaded()?;
@@ -174,7 +174,7 @@ impl<'a> Executor<'a> {
                     .write_slot(self.runtime, dst, value)?;
             }
             BytecodeInstruction::StoreModule { slot, src } => {
-                if !self.stack.ensure_static_ready(self.runtime, slot)? {
+                if !self.stack().ensure_static_ready(self.runtime, slot)? {
                     return Ok(InstructionProgress::Continue);
                 }
                 let value = self.current_frame()?.read_slot(self.runtime, src)?;
@@ -259,7 +259,7 @@ impl<'a> Executor<'a> {
             } => {
                 let values = self.read_path_args(arguments)?;
                 let value = self
-                    .stack
+                    .stack()
                     .make_future(self.runtime, function, values, future)?;
                 self.current_frame_mut()?
                     .write_slot(self.runtime, dst, value)?;
@@ -492,7 +492,7 @@ impl<'a> Executor<'a> {
                 ref future,
             } => {
                 let value = self.current_frame()?.read_slot(self.runtime, value)?;
-                self.stack.begin_await(self.runtime, value, dst, future)?;
+                self.stack().begin_await(self.runtime, value, dst, future)?;
                 return Ok(InstructionProgress::Await);
             }
             BytecodeInstruction::ReadAggregateField { .. }

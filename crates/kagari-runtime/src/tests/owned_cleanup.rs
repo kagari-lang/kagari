@@ -2,7 +2,7 @@
 use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
-    frame::types::arguments::TypeArgument,
+    frame::{ExecutionStack, types::arguments::TypeArgument},
     module::LoadedModule,
     native::{
         adapter::Async,
@@ -351,6 +351,14 @@ impl Fixture {
     }
 
     fn park(&self, index: i32) -> (OwnedExecution, Value) {
+        self.park_after_poll(index, |_| {})
+    }
+
+    fn park_after_poll(
+        &self,
+        index: i32,
+        after_poll: impl FnOnce(&OwnedExecution),
+    ) -> (OwnedExecution, Value) {
         let future = invoke(
             &self.runtime,
             &self.module,
@@ -393,7 +401,8 @@ impl Fixture {
             Poll::Pending
         ));
         assert_eq!(self.runtime.resources().counters().current_call_depth, 1);
-        stack.park_waiting(&self.runtime).unwrap();
+        after_poll(&owner);
+        ExecutionStack::park_waiting(&mut Some(stack), &self.runtime).unwrap();
         self.runtime.collect_garbage().unwrap();
         assert!(
             self.runtime.gc().validate_value(&saved),
@@ -441,6 +450,52 @@ impl Fixture {
         assert_eq!(registry.active_count(), 0);
         assert_eq!(self.probe.converted.load(Ordering::SeqCst), 0);
         assert_eq!(self.probe.continued.load(Ordering::SeqCst), 0);
+    }
+}
+
+#[test]
+fn pending_commit_preserves_completion_and_cancellation_notifications() {
+    for mode in 0..3 {
+        let f = Fixture::new(false);
+        let (owner, _) = f.park_after_poll(0, |owner| {
+            assert!(
+                !owner.is_ready(),
+                "the pending poll has no notification yet"
+            );
+            if mode == 1 {
+                let completion = f.take_completions().pop().unwrap();
+                assert_eq!(
+                    completion.complete(Ok(Reply {
+                        probe: f.probe.clone(),
+                        panic_on_drop: false,
+                    })),
+                    CompletionStatus::Accepted
+                );
+            } else if mode == 2 {
+                owner.cancel();
+            }
+            assert_eq!(owner.is_ready(), mode != 0);
+        });
+        assert_eq!(
+            owner.is_ready(),
+            mode != 0,
+            "commit neither loses nor invents readiness"
+        );
+        let stack = f.runtime.resume_owned_execution(&owner).unwrap();
+        let result = stack.poll_await(&f.runtime);
+        match mode {
+            0 => assert!(matches!(result.unwrap(), Poll::Pending)),
+            1 => {
+                assert!(matches!(result.unwrap(), Poll::Ready(None)));
+                assert_eq!(f.probe.converted.load(Ordering::SeqCst), 1);
+            }
+            _ => assert_eq!(result.unwrap_err().kind(), RuntimeErrorKind::Cancelled),
+        }
+        drop(stack);
+        f.runtime.finish_owned_execution(&owner).unwrap();
+        assert!(!owner.is_ready());
+        assert_eq!(f.registry().active_count(), 0);
+        assert_eq!(f.runtime.resources().counters().current_call_depth, 0);
     }
 }
 

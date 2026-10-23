@@ -1,4 +1,6 @@
 //! A pending native or Task wait is an owned session resource, not a call frame.
+#[cfg(test)]
+mod tests;
 #[cfg(feature = "execution-diagnostics")]
 use crate::diagnostics::{self, Event};
 use crate::{
@@ -345,15 +347,23 @@ impl ExecutionStack<'_> {
         }
     }
 
-    /// Park after a pending poll without overwriting readiness published by a
-    /// concurrent completion or cancellation. Slices use `park` and stay ready.
-    pub fn park_waiting(mut self, runtime: &Runtime) -> NativeResult<()> {
-        if !self.can_park(runtime)? || self.session.state().pending.borrow().is_none() {
+    /// Prove and consume a pending activation without changing readiness.
+    ///
+    /// Always validates fresh state after polling; a concurrent completion or
+    /// cancellation notification survives the commit. Errors retain the activation
+    /// for trace capture and cleanup. Missing/non-suspendable waits are errors.
+    pub fn park_waiting(activation: &mut Option<Self>, runtime: &Runtime) -> NativeResult<()> {
+        let stack = activation
+            .as_ref()
+            .ok_or_else(|| RuntimeError::module_validation("missing parking activation"))?;
+        if !stack.can_park(runtime)? || stack.session.state().pending.borrow().is_none() {
             return Err(RuntimeError::module_validation(
                 "no suspendable pending wait",
             ));
         }
-        self.parked = true;
+        let mut stack = activation.take().expect("validated pending activation");
+        stack.parked = true;
+        drop(stack);
         Ok(())
     }
 }

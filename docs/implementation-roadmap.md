@@ -352,9 +352,9 @@ separate. Do not use these results as evidence that those performance gates pass
 ## Runtime storage, parking and version identity
 
 The [execution plan](runtime-lifecycle-plan.md) is active with implementation and
-per-phase commits authorized. RL01 scalar storage-class coloring is implemented
-and locally accepted; RL02 one-transition parking proof is next, followed by RL03
-payload-independent exact version identity and focused retention decisions.
+per-phase commits authorized. RL01 scalar storage-class coloring and RL02
+one-transition parking are implemented and locally accepted. RL03 payload-independent
+exact version identity and focused retention decisions are next.
 The plan owns acceptance and the progress ledger; [review](review.md) retains
 unresolved findings until final handoff. Push and deployment remain unauthorized.
 

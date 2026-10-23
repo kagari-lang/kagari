@@ -36,7 +36,12 @@ pub(crate) fn invoke_script(
             stack
         }
     };
-    Executor { runtime, stack }.run().map_err(native_error)
+    Executor {
+        runtime,
+        stack: Some(stack),
+    }
+    .run()
+    .map_err(native_error)
 }
 
 pub(crate) fn native_error(error: VmError) -> RuntimeError {

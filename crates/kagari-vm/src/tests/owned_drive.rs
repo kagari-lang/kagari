@@ -9,8 +9,8 @@ use crate::{
 
 use kagari_common::cancellation::CancellationToken;
 use kagari_runtime::{
-    RuntimeConfig, error::RuntimeErrorKind, module::entry::ProgramEntry, resource::RuntimeLimits,
-    session::ExecutionOptions, value::Value,
+    RuntimeConfig, error::RuntimeErrorKind, frame::ExecutionStack, module::entry::ProgramEntry,
+    resource::RuntimeLimits, session::ExecutionOptions, value::Value,
 };
 use std::{
     num::NonZeroUsize,
@@ -181,7 +181,7 @@ fn async_owned_drive_contract() {
         wakes.0.load(Ordering::Relaxed) > before,
         "external token must wake the owned execution"
     );
-    activation.park(vm.runtime()).unwrap();
+    assert!(ExecutionStack::try_park_ready(&mut Some(activation), vm.runtime()).unwrap());
     assert!(matches!(
         vm.drive(&queued, slice).unwrap(),
         DriveResult::Complete(Err(_))

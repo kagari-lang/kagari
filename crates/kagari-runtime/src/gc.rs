@@ -43,6 +43,8 @@ mod fields;
 mod future;
 mod maps_sets;
 mod native;
+#[cfg(test)]
+pub(crate) mod retention_probe;
 mod sequences;
 mod task;
 
