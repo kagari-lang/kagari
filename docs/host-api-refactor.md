@@ -7,9 +7,15 @@ subsequently prioritized implementing transparent generic type aliases before HM
 That finite language prerequisite is locally complete. Its sole progress owner is
 the [alias prerequisite ledger](#transparent-generic-alias-prerequisite); exhaustive
 CI acceptance remains pending.
-The joint HM00/UP00 audit started at `3b898e80` and remains paused and incomplete;
-HM01-HM04 and UP implementation phases have not started. Authorization does not
-waive their remaining design gates.
+The user reauthorized the complete phased sequence on 2026-10-24. The HM-side
+read-only implementation audit resumed at `bbe30666`; its resolved design and
+handoff are recorded below. HM00 design acceptance is complete. The user resolved
+UP00's transitive-selection gate by freezing published key Hash/Eq, static
+initializer expressions and their transitive dependencies during compatible update.
+The [UP plan](update-model-design.md#resumed-up00-audit-at-bbe30666) owns that policy
+and its implementation. The roadmap is aligned for the joint HM00+UP00 design
+checkpoint; this document claims design completion only, not implementation.
+HM01-HM04 and UP implementation phases have not started; MS remains unstarted.
 Originally requested against `67d9e36f`, this document owns HM00-HM04, decisions,
 acceptance and progress for the [Host Program and module lookup finding](review.md#host-program-and-module-lookup).
 
@@ -21,8 +27,9 @@ installation. Neither lookup nor ordinary invocation requires reacquiring these
 handles or rebinding functions after update. This supersedes this plan's former
 immutable version-view public model. It is a target design, not current runtime
 behavior. The [update model](update-model-design.md) owns the UP dispatch migration;
-HM00 must settle representation and the identity/lifetime sequencing handoff, not
-reopen these public semantics or expand HM01-HM04 beyond namespace/type-path work.
+HM00 settles representation and the identity/lifetime sequencing handoff below;
+it does not reopen these public semantics or expand HM01-HM04 beyond namespace/
+type-path work.
 
 Remaining preparation/tooling proposals are retained under
 [Deferred work](#deferred-work), not as a second phase queue.
@@ -75,8 +82,9 @@ HM phases.
 
 ## Evidence and ownership inventory
 
-Source inspected at `67d9e36f`; no new behavioral reproduction or performance
-measurement was run for this plan.
+Initial inventory at `67d9e36f`, rechecked for this HM00 audit at `bbe30666`.
+No behavioral reproduction or performance measurement was run for this docs-only
+audit. The decisions below distinguish observed implementation from required work.
 
 | Owner | Current evidence | Required change |
 | --- | --- | --- |
@@ -116,7 +124,7 @@ unchanged until HM02.
 | `Module` | One checked module identity in that installation | Shares the installation owner; queries its latest published contents without reacquisition |
 | Ordinary function/method binding (target) | Checked stable declaration in one installation | Selects the latest implementation on invocation without rebinding; retains runtime/contract authority, not the body present when bound |
 | Internal immutable version | Checked metadata/code for a concrete publication | Supports internal validation and retained execution; not the ordinary public Program/Module model |
-| Selected computation, type/layout and native evidence | Distinct retained execution or validation products | Body/resume/capture lifetime, type authority and native validity are separate from live lookup and ordinary callable identity; representation is gated by HM00 |
+| Selected computation, type/layout and native evidence | Distinct retained execution or validation products | Body/resume/capture lifetime, type authority and native validity are separate from live lookup and ordinary callable identity; representation is frozen by HM00 below |
 | Explicit exact-version inspection (UP/debug) | A deliberately selected historical version or observed computation target | Separate diagnostic authority and retention; an ordinary Program/Module is not an exact-version snapshot |
 
 `load_program` returns `Program`. `reload_program` accepts that stable Program
@@ -159,9 +167,10 @@ let same_profiles_after_update = program.module("users::profiles")?;
 let updated_user = runtime.call(&find, (42,))?; // Latest body; no rebinding.
 ```
 
-HM00 must choose a representation separating stable installation/module/callable
-identities and live public lookup from internal immutable versions, selected
-body/resume/capture lifetime, type/layout authority and native-product validity.
+The [frozen HM00 representation](#hm00-frozen-installation-representation) separates
+stable installation/module/callable identities and live public lookup from internal
+immutable versions, selected body/resume/capture lifetime, type/layout authority
+and native-product validity.
 The current owner model uses explicit version leases for prepared functions, types,
 active calls and native products; descriptor sharing alone is not an execution lease.
 Do not assume these leases already implement the target or preserve their coupling
@@ -176,13 +185,9 @@ ends execution and runtime-object access authority even if handles remain; exact
 metadata retention does not restore that authority. Explicit unload is separate
 work, not an implicit last-handle-drop operation.
 
-Before HM01, record the exact handle/lifetime representation, admission for retained
-live handles and the UP migration owner/checkpoint. The latest-published public
-lookup and no-rebinding call semantics are settled, not HM00 options. If live lookup
-or binding cannot be separated safely from UP, record a sequencing dependency
-rather than silently adding dispatch implementation to HM or shipping immutable
-public views as the target. Use one ordinary public binding surface, not parallel
-legacy-pinned and current-code entrypoints. No new Send/Sync promise is implied.
+The exact representation, admission and UP migration ordering are frozen below. Use one ordinary public binding surface, not
+parallel legacy-pinned and current-code entrypoints. Runtime remains Send and not
+Sync; metadata synchronization must not make the heap concurrently accessible.
 
 ### Relative paths and visibility
 
@@ -236,11 +241,11 @@ the existing advanced explicit-type-argument route. Strings such as
 `Container<Vec<User>>` are not parsed as type expressions. No new host-side
 type-expression parser or specialization engine is included.
 
-HM00 must inspect the actual checked alias representation and freeze the smallest
-portable record that retains the canonical target, applied arguments and any
-necessary binder/visibility evidence. A simple declaration ID is sufficient for a
-renamed declaration, not for an alias applying type arguments. Normalize using
-existing checked type semantics; runtime must not expand syntax or infer types.
+The [frozen type export record](#hm00-frozen-type-export-record) retains the
+canonical target, applied arguments and necessary binder/visibility evidence.
+A declaration ID suffices for a renamed declaration, not an applied alias.
+Normalization uses existing checked type semantics; runtime never expands syntax
+or infers types.
 
 New host binding of open generic aliases is deferred; this does not defer source
 language generic aliases in the authorized prerequisite. HM00 inventories existing
@@ -336,9 +341,358 @@ rooted outputs, runtime/type/borrow checks, cancellation, cleanup and once-only
 evaluation. UP owns the dispatch and publication migration; HM owns namespace/type
 paths and the explicit HM00 handoff, not a second execution semantic implementation.
 
+### HM00 frozen type export record
+
+Decision at `bbe30666`: add `types: BTreeMap<String, TypeExport>` to the existing
+contract `ExportNamespace`. Use the following semantic sum; names belong to the
+map, not to duplicate leaf fields. This is a design sketch, not implemented Rust:
+
+```text
+TypeExport = Declaration(DefinitionId)
+           | Closed(Ty)
+           | OpenAlias { arity: u32 }
+```
+
+- `Declaration` is the canonical public struct/enum/trait/opaque/native type
+  declaration, including a `pub use` rename. Kind, generic parameters, bounds and
+  visibility come from its owning retained `PublicItem::Type`/`Trait` and native
+  contracts. Do not duplicate them in the leaf or infer them from a name alone.
+- `Closed` is an alias with **zero declared alias parameters**, carrying its fully
+  normalized existing `kagari_types::ty::Ty`. `Ty::Struct(NominalTy)` already carries
+  the nominal declaration, ordered applied arguments and associated bindings; no
+  separate target ID/argument vector, alias ID, source spelling or layout slot is
+  needed. A chain of closed aliases erases completely. A closed alias of an open
+  alias, such as `type IntCell = Identity<Cell<i32>>`, follows this branch after
+  HIR checks/substitutes all alias inputs and bounds.
+- `OpenAlias` records only a positive, bounded declared arity. It is an explicit
+  **rejection-only** public name: it grants no type, layout, binder or application
+  authority, even to the advanced binder. Do not serialize an unused alias template,
+  fake nominal identity or source-only bounds just to reject a host operation.
+  `type Erased<T> = User` remains open despite its concrete target. This distinction
+  must use `CanonicalAlias.parameters`, not `target.is_concrete()`.
+
+This is the smallest HM record because supported identity/application information
+already has owners, and an unsupported open alias cannot exercise its template.
+The artifact declares that rejection-only name/arity; source-free validation does
+not authenticate its original source declaration. Changing its erased target or
+bounds is not checked by this marker: UP01's frozen source/declaration inventory
+must own that restriction, not treat the HM export graph as a complete language
+ABI. UP01 must carry that inventory as verified portable metadata for prepared/
+source-free reload too; absence of source is not permission to skip preservation
+checks. Open host alias application remains deferred. All closed non-object aliases
+retain `Closed(Ty)`, so their nominal target/application can still participate in
+reload comparison without becoming a reflection API.
+
+**Checked source and lowering.**
+[CanonicalAlias](../crates/kagari-hir/src/imports/types/aliases.rs) already retains
+`parameters`, expanded `target`, checked `bounds` and a recovery `error`. HIR export
+collection selects only checked public bindings with the existing `public_target`
+visibility/ambiguity rules. Direct declarations/re-exports retain canonical source
+targets; zero-parameter aliases lower their checked target through the existing
+semantic type encoder; parameterized aliases emit the rejection marker. Recovery
+errors never reach codegen. The source checker continues enforcing every alias
+bound, including erased arguments; neither runtime nor the contract codec repeats
+source name resolution. Type and module names occupy the same source namespace:
+reject a type/module spelling collision in decoded graphs too. Functions remain
+an independent namespace.
+
+**Source-free authority and binder proof.** HM01 must extend the contract/MIR/
+bytecode export validators, not trust a record because it decoded:
+
+1. Validate graph reachability, duplicate names, total export limits and identity
+   scope as today. Count type leaves in `MAX_EXPORT_RECORDS`; bound marker arity
+   with `kagari_types::decode_limits::MAX_NESTED_RECORDS` (4096).
+   `OpenAlias { arity: 0 }` is invalid.
+   Include every ID inside `Closed(Ty)` in reference visitation, remapping and
+   canonical encoding, using the existing bounded type wire owner. Reject unknown
+   tags, dangling/foreign IDs and type/module collisions before runtime adoption.
+2. A `Declaration` ID must be a top-level occurrence-zero type/trait of the exact
+   kind recorded in its defining executable module's public contract. A table entry
+   alone is not a declaration/publicity proof. A private containing module is fine;
+   an absent/private nominal declaration is not. Native/opaque declarations stay
+   their existing kind and never masquerade as script structs. A nongeneric script
+   struct declaration also requires the matching verified zero-argument layout,
+   with the same field/authority checks as a closed struct alias in step 4.
+3. For an open nominal declaration, derive binders from that **exact** public
+   declaration: contiguous ordered positions `0..N`, all owned by its declaration
+   ID. Validate the declaration/bounds with existing declaration/application owners.
+   Any candidate layout template must use those exact owner/position binders and
+   checked substitution, not merely the same count or a set of arbitrary parameters
+   accepted by `types_in_scope`. Concrete layouts must match canonical declaration
+   plus all ordered arguments. Reuse linked proof checks for required bounds and
+   field/layout agreement. An unrelated function's generic environment cannot prove
+   a public struct application. HM01 adds this export proof around existing helpers;
+   their availability is not evidence that this check already exists.
+4. A `Closed` target has an empty lexical parameter environment and must pass both
+   bounded type/declaration validation and concreteness checks. Reject parameters,
+   `SelfType`, unresolved projections, wrong nominal kinds/arities and invalid
+   associated bindings anywhere in the tree. Verify each nominal target/argument
+   against retained public declaration authority and linked application rules.
+   A closed struct requires matching verified executable layout evidence; a forged
+   missing-layout or mismatched-layout claim fails artifact verification, not a
+   later allocation. Validate required nominal bounds after substitution against
+   linked proof evidence; well-shaped types and matching arity alone are insufficient.
+   Field/method access still uses its existing public contracts. Private field types
+   may occur inside a verified layout; retaining them does not export those types
+   or grant private-field access.
+5. `OpenAlias` has no binder scope to prove and can never be upgraded to an object
+   application by passing host arguments. Substituting `Closed` for a marker cannot
+   bypass validation: the new target must independently pass all closed public and
+   layout checks. As with current export edges, verification checks declared
+   artifact authority, not authenticity against unavailable source.
+
+Classification is **derived after verification**, not a serialized trusted flag:
+
+| Verified leaf | SDK `object_type` / core `bind_type` |
+| --- | --- |
+| Nongeneric public script struct declaration | Bind with no arguments; require executable layout |
+| Generic public script struct declaration | SDK rejects missing arguments; core accepts exact explicit `TypeArgument` arity only when existing checked layout/template evidence admits it |
+| Closed alias to a script struct | Bind its canonical application with no host arguments, including supported generic applications; reject extra arguments |
+| Enum, trait, scalar, tuple/collection/function/reference, native object or opaque/host target | Report non-script-object type; never produce `ObjectType` |
+| Open alias, including erased generic aliases | Report unsupported open generic alias, irrespective of supplied arguments |
+
+All `Declaration` and `Closed` leaves are metadata-reachability roots, including
+unsupported non-object types. Retain their defining public contracts and transitive
+application/proof dependencies even when no body references them and the containing
+module has no public navigation edge. This is contract retention, not permission to
+add a private namespace to the export graph. Decoding/verification cannot consult
+HIR or reconstruct a missing declaration from a type name. Open-alias markers need
+no layout or template; UP01's separate frozen inventory remains mandatory.
+
+**Layout demand is compiler-owned.**
+[Layout collection](../crates/kagari-compiler/src/source/lower/layouts.rs) already
+seeds unused nongeneric structs; generic layouts come from signatures, native/
+interface requirements and reachable expression roots. HM01 adds each distinct
+closed exported script-struct application as an explicit root before layout
+collection, routed to its supplying source module through Program lowering.
+Collect these demands before per-module layout queues are finalized, including
+aliases exported by one module whose canonical target is in another; propagate
+transitive field/application demands through the existing bounded work queue.
+Deduplicate by canonical type and order roots by portable definition/type order,
+not process-local IDs or alias spelling. Reuse the existing transitive field/layout
+queue, cancellation and instantiation budgets. A supported alias must work even
+when no script expression constructs it. Do not demand every specialization of an
+open declaration, generate executable bodies merely for lookup, or turn unsupported
+non-object/open aliases into compilation errors. Existing advanced generic binding
+remains conditional on carried executable evidence, not a promise to synthesize it.
+
+For example, `pub type IntCell = hidden::Cell<i32>` emits `Closed(Struct(Cell,[i32]))`,
+not a nominal `IntCell`. The compiler requests that application once, MIR and KBC
+prove it, and binding uses the supplying installation's verified layout. Replacing
+its source spelling with another alias of `Cell<i32>` preserves the contract;
+`Cell<bool>` or a structurally identical `OtherCell<i32>` does not. The private
+`hidden` module remains un-navigable and private fields remain inaccessible.
+
+**Reload.** Add type labels to the existing bounded cyclic graph equivalence check
+in HM01. Import identities/types into its comparison context. Compare supported
+leaves by normalized semantic target/application, so a nongeneric declaration and
+an equivalent closed alias compare equal; open nominal declarations retain canonical
+owner/binder contract, non-object closed aliases retain their canonical `Ty`, and
+open-alias markers compare rejection class plus arity. Preserve separate entry and
+existing function-signature comparison. Do not compare serialized tags, raw numeric
+IDs, source alias spelling or field shape as nominal identity. Existing member/
+static checks still apply; UP01 owns additions and the broader frozen inventory.
+
+### HM00 frozen installation representation
+
+Decision: retain the current immutable `ProgramDescriptor` as a **publication**,
+not as a public handle. Rename the existing descriptor-plus-`ModuleRef` role to
+`ExecutableModule` and migrate its actual execution/layout/native consumers; do
+not mechanically turn those consumers into live `Module` lookups. Where cross-crate
+backend APIs need this exact-version type, keep that narrow advanced surface and
+review its re-export entries; it is not an ordinary module navigation capability.
+
+Use one Runtime-owned installation record and one shared metadata cell:
+
+```text
+ModuleStore.installations[InstallationId] -> Arc<Installation>
+Installation = immutable { registry_owner, id, root_identity }
+             + Mutex<Option<Arc<ProgramDescriptor>>> current
+Program = Arc<Installation>
+Module  = { installation: Arc<Installation>, namespace: ModuleIdentity }
+ExecutableModule = { publication: Arc<ProgramDescriptor>, slot: ModuleRef }
+```
+
+`None` means closed/retired, never an invitation to find another installation.
+Use a checked monotonic Runtime-local `InstallationId`, paired with `HostRegistryId`
+for cross-Runtime authority; do not recycle IDs. Every load allocates a fresh ID,
+including equal prepared products and equal display labels. Key member allocation
+by `(InstallationId, ModuleIdentity)` and current versions by installation, replacing
+`ids_by_member`'s name key and `latest_by_name` authority. Epoch allocation and staged
+expected-base checks likewise belong to that installation, not its label. Keep
+compiled module identity, installation display label and publication epoch distinct.
+Each namespace identity is logical: a public prefix namespace need not have a
+physical executable slot. Do not store `ModuleRef` in a public `Module`.
+
+The store is the installation's lifecycle owner. Handles share the cell, not heap,
+statics, host callbacks or store ownership. A query locks only long enough to clone
+one current descriptor, releases the lock, then traverses that one verified graph.
+The cell is not a namespace cache and does not duplicate metadata. Publication
+prepares all fallible work first and swaps that pointer only after store records,
+static bindings and UP current-target evidence are ready; the commit has no fallible
+suffix or script/host callbacks. UP02 integrates source associations in the same
+publication boundary. Never hold the cell lock during execution, user callbacks,
+store retention registration or destruction of the previous descriptor. Acquire/
+check the cell lock before the non-failing commit section. Treat lock poison as
+`EngineFault`, not as permission to use stale contents.
+
+A plain `Arc<RefCell<_>>` would make the Runtime non-Send; `Rc` would do so too.
+A short standard `Mutex` over immutable metadata preserves safe ownership transfer
+and independent clone/drop of handles without synchronizing the Runtime/GC itself.
+Keep `ModuleStore`'s exclusive-driver `RefCell` storage and Runtime's not-Sync contract;
+no unsafe auto-trait implementations, concurrent publication, lock-free dispatch,
+new synchronization dependency or MS product-sharing work is needed. Public
+Program/Module metadata handles can be Send + Sync; all runtime operations still
+require the supplying Runtime and its existing execution/borrow admission.
+
+On close/drop, clear every installation cell before releasing Runtime state;
+recover a poisoned guard only to replace its contents with `None`, never to admit
+execution. Drop removed descriptors outside the guard. An external handle then
+retains only identity, not an executable publication or a live
+Runtime. `root()` remains an infallible identity-handle constructor; all subsequent
+lookup/binding rejects a closed cell. A metadata query already holding a cloned
+immutable descriptor may finish, but cannot grant execution after close. Dropping
+Program/Module handles has no unloading, cancellation or static-reset effect.
+
+**Admission and retained bodies.** Runtime binding checks registry owner, exact
+installation registration/cell identity and liveness, then captures current metadata
+once. Execution additionally validates the selected executable records and required
+leases. Existing `ProgramLease` registrations remain the owners for active calls,
+runtime values/type layouts and native artifacts until UP explicitly replaces the
+affected selection policy. Sharing a descriptor or installation cell is not such a
+lease. Keep old publication records only for actual retention owners; ordinary live
+Program/Module handles do not pin old publications. Type-only payload separation
+(R13) remains deferred: an ObjectType may still retain more code than logically
+needed, but must remain safe. Native products keep exact version/dependency validity;
+metadata publication does not make stale machine code admissible.
+
+Installation identity must also reach layout/type admission and static ownership.
+In particular, the current fallback comparisons using only registry owner plus
+nominal declaration/arguments must not equate independent installations in one
+Runtime. HM02 reviews `StructLayoutRef`, `EnumVariantRef`, lexical TypeArgument
+scopes, admission/cache keys and static binding together. Equal declaration paths
+in two fresh installations are not automatic object/state interchange authority;
+compatible publications within one installation retain existing checked admission.
+No cross-installation linking is introduced.
+
+**UP handoff and sequencing.** UP01 supplies checked stable callable/application
+identity and frozen-contract evidence before HM02; HM02 supplies the unique
+installation and live metadata cell before UP02. A callable's lookup result is
+installation + canonical declaration + checked application/signature, never the
+original path or a display name. UP02 replaces its body pin with current selection,
+while a selected frame/Future/closure retains its body and lease. Ordinary calls
+inside old work select through the same installation. HM03 comes after UP02, so
+module-relative bindings use that one current-call surface. HM02 may retain existing
+pinned-call regressions until then, but must already implement genuinely live
+metadata, not a temporary public snapshot facade.
+
+UP01 must preserve every previously public canonical namespace identity as a query
+start in compatible candidates, including a namespace held through an earlier
+alias. A path alias is not the identity of the returned Module. Comparing only the
+root path language, as today, is insufficient for this new handle contract: dropping
+a canonical namespace must not make an old handle stale merely because another
+namespace exposes equivalent paths. Require its namespace contract to remain in
+the candidate's reachable public graph and validate continuity; reject its removal.
+Do not admit unreachable graph records or retain an old public snapshot to answer
+it. This is the necessary live-handle addition to compatibility, not permission to
+rewrite unrelated function-path rules.
+
+**Function-alias retarget policy:** compatible publication may retarget an existing
+public function alias to a different public declaration with the same checked
+signature. A retained binding keeps its original declaration/application and calls
+that declaration's current implementation; only fresh path lookup selects the new
+target. UP01 preserves both existing declarations and path signature compatibility,
+not unconditional equality of function-export target IDs. This does not permit
+nominal type-export retargeting, signature changes or changing the meaning of a
+protected Hash/Eq/initializer dependency. UP01's directional graph comparison must
+apply these distinct leaf rules rather than freeze every public path target.
+
+**Resolved transitive-selection handoff:** compatible updates prohibit changes to
+published key Hash/Eq implementations, static initializer expressions and their
+transitive dependencies, regardless of live containers or initialized static cells.
+UP01 owns the protected-dependency inventory and conservative rejection when unknown
+dependencies prevent proving a change safe, including resolution changes through
+aliases. UP02 enforces it for both source updates and prepared/source-free reload
+before publication. There is no special old-version call domain, eager static
+initialization or automatic rehash. Ordinary calls retain the one current-selection
+rule; the protected code cannot change through a compatible publication. The UP plan
+owns detailed dependency evidence and tests, not a second HM validation mechanism.
+
+Example: loading the same prepared `game` twice under label `player` creates A and
+B with separate statics. Publishing A2 changes an A1-era `users` handle's query
+result to A2; B's handles still query B1. A suspended A1 body retains its executable
+lease, not public lookup authority for A1. After UP02 its next ordinary call selects
+A2. Closing A's Runtime makes A handles stale; neither label `player` nor a retained
+A1 descriptor can redirect them to B or revive A.
+
+### HM00 exact HM API and errors
+
+HM02 changes the SDK declarations below, directly migrating consumers (design
+signatures; existing `PreparedProgram`, options and result aliases keep their owners):
+
+```text
+Runtime::load_program(&mut self, &PreparedProgram, LoadOptions) -> LoadResult<Program>
+Runtime::reload_program(&self, &Program, &PreparedProgram, ReloadOptions) -> ReloadResult<()>
+Program::root(&self) -> Module
+Program::module(&self, path: &str) -> Result<Module, RuntimeError>
+Module::module(&self, path: &str) -> Result<Module, RuntimeError>
+Runtime::object_type(&self, &Module, path: &str) -> RunResult<ObjectType>
+core Runtime::bind_type(&self, &Module, path: &str, &[TypeArgument]) -> NativeResult<ObjectType>
+```
+
+Keep reload's existing `&self`; runtime execution-phase admission, not Rust receiver
+mutability, enforces the host-top-level boundary in UP02. Rename `module_name` to
+`program_name` in both options; it is an optional diagnostic display label only.
+`ReloadOptions.program_name` changes that label on success, never installation or
+compiled identity. Pure module navigation returns core `RuntimeError`, allowing the
+existing SDK `From` conversion rather than adding SDK wrapper handles.
+
+Sync/async `Runtime::function`/`async_function` keep existing generic bounds and
+result/error families and replace only `&LoadedModule` with `&Module` in HM02;
+UP02 owns the ordinary callable type/dispatch migration. `bind_type_declaration`
+remains the distinct advanced declaration/application route, scoped to a `Module`'s
+installation with the same public/type/layout checks; it grants no private namespace
+navigation. `execute` and `execute_prepared` replace their first handle parameter
+with `&Program`, keeping other arguments/results, and select the current root once.
+Native entry preparation uses the same explicit Program root plus selected-version
+evidence; it cannot infer root intent from a child slot. No Program-to-Module Deref,
+implicit conversion, overloaded owner trait or legacy `LoadedModule` alias.
+
+HM03 uses one contract-owned bounded traversal for module/function/type lookup.
+Validate the whole path syntax before graph traversal: 1..64 nonempty identifier
+segments, `::` separators, no `crate`/`self`/`super` navigation or type-expression
+syntax. Reuse the language identifier rules without a runtime frontend dependency.
+At each step use the requested namespace; a same-spelling function does not shadow
+a type/module. Private and absent names are indistinguishable. Error mapping is
+fixed without introducing a new workspace-wide error hierarchy:
+
+| Condition | Core error kind and diagnostic detail |
+| --- | --- |
+| Empty/malformed/overlong path | `TypedPathValidation`: `invalid public path` |
+| Missing/private intermediate or leaf | `TypedPathValidation`: `public path not found` |
+| Existing public leaf of another requested kind | `TypedPathValidation`: `public path has wrong target kind` |
+| Valid non-object type leaf | `TypedPathValidation`: `type is not a script object` |
+| Open alias | `TypedPathValidation`: `open generic alias is not supported for host binding` |
+| Wrong argument count / arguments on a closed alias | `TypedPathValidation`: `type argument count mismatch` |
+| Valid advanced generic application lacks executable evidence | `ModuleValidation`: `missing executable struct application` |
+| Foreign-runtime, unknown installation or closed handle | `StaleHandle`, with owner/liveness detail, never name fallback |
+| Reentrant/active-stack publication | `ExecutionPhaseViolation` (UP02), before candidate effects |
+| Poisoned metadata cell / impossible verified target | `EngineFault`, not a missing-path fallback |
+| Forged export/layout/binder during artifact verification | Existing `InvalidProgramExports` / contract validation error family |
+
+Runtime binding checks authority before path resolution, then syntax, visibility/
+kind, argument contract and layout admission. SDK keeps existing mapping:
+`TypedPathValidation` to its matching failure kind, `StaleHandle` to
+`StaleModuleOrHostRoot`, and module verification failures to `BytecodeVerification`;
+reload wraps validation/phase failures in the existing reload error family. Include
+the path/expected kind in messages without exposing private candidates. No lookup
+failure allocates a script object, runs initialization or invokes script/host code.
+
 ## Mature references and deliberate adaptations
 
-Reviewed on 2026-10-23:
+Initial review on 2026-10-23; Rust type-alias and JVMS references fetched and
+rechecked on 2026-10-24 for this audit. The Mutex reference below was also consulted
+on that date. These are design precedents, not measurements or dependency additions:
 
 - [Rust Reference, use declarations](https://doc.rust-lang.org/reference/items/use-declarations.html),
   living reference, sections `use` Visibility and `as` renames: a public alias names
@@ -363,6 +717,22 @@ Reviewed on 2026-10-23:
   supplying installation and checked identity. Do not copy class-loader delegation,
   class initialization, mutable module access or JVM concurrency into Kagari.
 
+- [Rust standard library, Mutex](https://doc.rust-lang.org/std/sync/struct.Mutex.html),
+  living stable API documentation, trait implementations and poisoning sections:
+  `Mutex<T>` requires `T: Send` for Send/Sync and provides scoped RAII access. Use
+  stable `lock` plus clone/replace for the metadata pointer only; poisoning is an
+  error signal, not a safety proof. Existing descriptor Send/Sync assertions in
+  [runtime type identity tests](../crates/kagari-runtime/src/frame/types/arguments/identity_tests.rs)
+  support this narrow choice. Do not use nightly pointer/value APIs, wrap the heap
+  in a lock or infer Runtime Sync from a synchronized descriptor cell.
+
+The concrete adaptation is loader-qualified installation identity (JVMS 25),
+canonical alias targets (Rust Reference) and a short metadata publication cell
+(Rust std), while retaining Kagari's explicit leases and exclusive Runtime driver.
+Neither reference supplies Kagari's reload semantics: UP owns current-call target
+selection and selected-body retention. No custom lock-free or concurrent runtime
+mechanism is justified by this task.
+
 The existing ProgramDescriptor and verified namespace graph supply the namespace
 foundation; current descriptors and prepared bindings are implementation evidence,
 not ready-made live Program/Module handles or a stable-callable dispatch mechanism.
@@ -374,14 +744,15 @@ handoff. No speedup is claimed; new persistent caches require concrete justifica
 ## Phase order and acceptance
 
 The [transparent generic alias prerequisite](#transparent-generic-alias-prerequisite)
-is locally complete. On resumption, the authorized order remains joint HM00 + UP00,
-then HM01, UP01, HM02, UP02, HM03, HM04, UP03, UP04 and UP05. HM/UP remain paused
-and incomplete; prerequisite acceptance does not automatically resume them.
+is locally complete. The newly reauthorized order is joint HM00 + UP00, then HM01,
+UP01, HM02, UP02, HM03, HM04, UP03, UP04 and UP05. HM00 design is complete and the
+user has resolved the transitive-selection policy. Parent records the joint docs
+checkpoint before HM01; no implementation acceptance follows from this design.
 The completed joint design checkpoint has both Plan-Phase trailers;
 subsequent completed phases have their own coherent commits. MS remains unstarted.
 Record each phase in its existing owning plan, not a third integration ledger.
-Alias completion does not itself complete HM00/UP00 or authorize skipping their
-representation, type-export and lifetime handoff decisions.
+Alias completion alone did not complete HM00/UP00; the resumed design audit and
+explicit policy decision resolve the representation/type-export/lifetime handoff.
 
 Default checkpoint policy: each implementation phase is buildable, with affected
 consumers migrated in that phase. HM00 is a contract checkpoint, not permission to
@@ -391,6 +762,10 @@ production stubs are allowed. Record any unexpected intermediate failure here an
 repair it before proceeding; do not repeatedly rerun an unchanged known failure.
 
 ### HM00 — Freeze contracts and test owners
+
+Status: design complete at `bbe30666` with the subsequent user-resolved protection
+policy. The following scope is covered by the frozen decisions and handoff; this
+status does not claim production code or behavioral validation.
 
 - Audit current load/reload, entry/native consumers, retained handles, alias facts
   and executable layout availability against the current HEAD.
@@ -417,7 +792,8 @@ retention, live installation/module/callable identity versus internal versions, 
 closed-alias support; an explicit UP handoff, finite consumer/validation inventory
 and no implementation claim from documentation alone. Latest-published public
 lookup and invocation without reacquisition/rebinding remain confirmed requirements.
-If separation requires UP first, record that gate, not a hidden expansion of HM.
+The required separation is recorded: UP01 precedes HM02, and UP02 precedes HM03;
+no dispatch implementation is hidden in HM.
 
 ### HM01 — Checked type exports through artifacts and reload
 
@@ -541,8 +917,8 @@ cargo test -p kagari-compiler --lib tests::package_exports --no-fail-fast
 cargo test -p kagari-runtime --lib module::tests::package_exports --no-fail-fast
 ```
 
-HM00 records the remaining selected SDK/source-free/codec/native targets after
-checking their actual feature gates. Use default Cargo profiles, target and
+The HM00 handoff below records selected SDK/source-free/codec/native targets after
+checking their feature gates. Use default Cargo profiles, target and
 parallelism. Run Cargo jobs serially when sharing the target directory. Do not
 run full-workspace tests locally or approximate them with an all-package sweep.
 A small actual native test is needed only where its consumer changes; interpreter
@@ -567,8 +943,8 @@ need content/link/diff checks, not Rust builds or Clippy.
 
 Work beyond HM remains with its existing owners, not additional HM phases.
 Confirmed live-handle and UP call requirements below are deferred implementation,
-not undecided policy; HM00 must resolve representation, the handoff and any ordering
-dependency, not reopen public semantics.
+not undecided policy; HM00 has resolved representation, the handoff and ordering
+without reopening public semantics.
 
 - Cohesive text/file/artifact preparation and explicit tooling snapshots; avoid
   accidentally compiling editor overlays or mandatory encode/decode round trips.
@@ -640,29 +1016,132 @@ retain their existing review/plan owners.
   installations and dropping Program/Module handles does not unload/cancel/reset;
   callable binding resolves a stable declaration once; public object lookup has a
   finite struct/closed-alias scope without string type parsing or specialization.
-- [ ] HM00 — Live-handle/callable representation, internal version/lifetime/native/type
-  distinctions, UP sequencing and linked-design alignment, alias decisions, exact
-  API signatures and selected test inventory; confirmed public semantics stay fixed.
-  Paused and incomplete: source audit recorded namespace/ownership boundaries;
-  the user authorized the alias prerequisite below before further HM/UP work.
+- [x] HM-side design audit at `bbe30666`: concrete type-export schema and binder
+  proof, layout demand, live installation representation, HM API/error mapping and
+  phase/test handoff frozen below. Implementation was read-only; only this plan edited.
+- [x] HM00 — Representation, type exports/source-free proof/layout demand, exact HM
+  API/errors, test owners and UP01/UP02 handoff resolved. The user closed the
+  transitive-selection gate with unconditional protection of published key Hash/Eq,
+  static initializer expressions and transitive dependencies. Function-alias
+  retarget semantics are explicit below. Design acceptance only; UP00's own checklist
+  stays in its owning plan. Parent publishes the joint docs commit with both trailers.
 - [ ] HM01 — Type export pipeline, independent validation and reload comparison.
 - [ ] HM02 — Installed Program/module capability separation and consumer migration.
 - [ ] HM03 — Relative module/function/type binding and ordinary examples.
 - [ ] HM04 — Integration, lasting documentation and handoff.
 
-No implementation, tests, build or performance acceptance is claimed at plan
-creation. No known implementation failure has been introduced. HM00 must resolve
-the explicit representation/lifetime/UP sequencing gates before implementation
-advances. The representation and admission of retained live handles, internal
-version retention, native dependency validity and UP ordering remain design choices.
-Latest-published lookup, latest ordinary calls without reacquisition/rebinding,
-unit-success update/reload, non-unloading handle Drop and the finite public object
-lookup scope are confirmed. Neither a handle rename nor this docs update
-establishes runtime support. The UP design, roadmap and review record the same
-confirmed public model. The authorized sequence is recorded above; the joint
-contract checkpoint is paused and incomplete, and HM/UP implementation phases
-remain unstarted. The separate language prerequisite below is locally complete;
-HM/UP have not resumed.
+No HM implementation, tests, build or performance acceptance is claimed. No code
+was changed and no implementation failure was introduced by this audit. The HM
+representation/type-export decisions below are resolved, not alternative proposals.
+HM00 design is complete; UP source/state contracts remain owned by the UP plan,
+and the parent owns the joint docs commit. All HM/UP implementation phases remain
+unstarted. The language prerequisite is locally complete. MS remains unstarted.
+The older audit and alias ledger below are historical evidence, not current pauses
+or new authorization gates.
+
+### HM00 audit at bbe30666: implementation slices and parent handoff
+
+Audit scope: read-only implementation inspection of `LoadedModule`, `ModuleStore`,
+staging, retention, layout/admission and object-binding owners; checked HIR aliases,
+compiler layout demand, contract/wire/type proof, bytecode verification, reload
+comparison, SDK signatures/errors and existing test feature gates. Working tree was
+clean at audit start. Only this document is edited. No HM or MS code was implemented.
+
+The schema, installation model and HM API/errors above complete HM00's design
+checkpoint. The user-resolved protection rule removes the former semantic blocker;
+UP owns source/state contracts and the parent owns roadmap updates and the joint
+docs commit. The implementation handoff is finite:
+
+- UP01 owns full frozen source/declaration inventory, including open alias bounds/
+  targets not represented by HM's rejection marker; it also owns retained namespace
+  and stable callable continuity. Preserve function-path signatures while allowing
+  same-signature alias retargets for fresh lookup; retained bindings never retarget.
+  Carry the inventory and protected Hash/Eq/initializer dependency evidence through
+  source-free artifacts. HM type exports are not that whole inventory.
+- UP01 supplies stable callable/application evidence without changing dispatch.
+  HM02 establishes unique installations/current descriptors. UP02 owns the sole
+  top-level publication gate and current-call migration, atomically coordinating
+  its source associations with the installation pointer. No second publication
+  owner or source frontend in core runtime.
+- HM03 is deliberately after UP02: its final relative bindings must use the same
+  ordinary current-call surface. Source inspection/state replacement are not HM
+  implementation work. MS and R13 remain unstarted/separate respectively.
+
+Concrete next implementation slicing (substeps are one coherent phase commit, not
+permission to commit a broken cross-crate schema):
+
+| Checkpoint | Ordered implementation work | Selected contract evidence |
+| --- | --- | --- |
+| HM01, after parent joint HM00+UP00 commit | Add contract type leaf/mapping/bounded wire and normalized comparison; collect checked HIR exports; route closed export layout roots before lowering; extend MIR/KBC verification and identity/fingerprint traversal; regenerate affected fixtures once | Extend compiler `tests::package_exports` round-trip/forgery tests, contract `exports::wire::tests`, runtime `module::tests::package_exports`; exercise one decoded artifact without source |
+| UP01 | Frozen inventory, protected transitive dependencies, stable target/application evidence and the continuity/alias-retarget rules above | UP-owned selections; no dispatch migration yet |
+| HM02 | Separate `ExecutableModule` from live Program/Module; replace name-key authority throughout staging/current roots/collection/epoch allocation; install current cell and close invalidation; carry installation identity through type/static admission; migrate SDK/core/VM/native/CLI entry and handle consumers | Runtime export/staging/retention cases, same-label independent loads and cross-installation rejection, SDK runtime transfer and one real native entry |
+| UP02 | Current dispatch and serialized publication with common protected-dependency rejection; source Update/inspection integration using that installation | UP-owned evidence, including retained work, reentrant rejection and no alternate old-version call domain |
+| HM03 | One bounded relative graph traversal; public module navigation, relative sync/async functions and type classification/application binding; migrate host examples without root-reset adapters | Extend SDK typed-member workflow and async binding cases; reuse artifact-only case for closed object aliases; runtime export privacy/cycle cases |
+| HM04 | Integrated host/reload scenario, lasting contracts and handoff publication | Selected shared scenario plus local checks; exhaustive matrix remains CI-only |
+
+Distinct cases to add at these owners, not duplicate smoke tests:
+
+- **HM01:** unused `pub struct`; renamed public type in private module; otherwise
+  unused closed generic struct alias; alias-of-alias equivalence; closed enum/scalar
+  and open/erased alias classification without compilation rejection. Round-trip
+  MIR/KBC and import to another definition context. Corrupt public kind/ID, nominal
+  arity, lexical parameter owner/position, missing layout, associated bindings,
+  type/module collision, duplicate/bounded wire records and zero/oversized open
+  alias arity. Include an export-only cross-module application and a non-object
+  export whose declaration/proof metadata has no body reference. Same canonical
+  type via different alias spelling reloads; changed
+  nominal target/argument rejects before publication. Existing separate private
+  main and cycle comparisons remain covered.
+- **HM02:** two loads with the same prepared product and label keep distinct
+  installation/statics/layout authority; update one only. Reuse pre-update Program/
+  Module handles to query current metadata after success and unchanged metadata
+  after rejection, including canonical module-alias identity. Dropping handles
+  neither unloads nor resets; closing Runtime invalidates retained handles. Selected
+  executable/type/native leases still delay collection and release after last
+  actual owner; descriptor-only retention cannot regain admission. Test Runtime
+  Send/not-Sync and handle Send/Sync without unsafe implementations. Keep old
+  pinned-call expectations only until UP02 replaces them.
+- **HM03:** root versus child relative binding with deliberately colliding function
+  names; nested/cyclic module aliases; item-only re-export that never yields its
+  private owner Module; zero-argument closed aliases and advanced direct generic
+  applications; every error row above before effects, including rejected open alias
+  with supplied arguments. Exercise both sync and async binding. After UP02 reuse
+  a bound function following update; retargeting a path affects only fresh binding.
+
+Selected command inventory, to use **per affected phase**, not as a full sweep:
+
+```text
+cargo test -p kagari-contract --lib exports::wire::tests --no-fail-fast
+cargo test -p kagari-compiler --lib tests::package_exports --no-fail-fast
+cargo test -p kagari-runtime --lib module::tests::package_exports --no-fail-fast
+cargo test -p kagari-runtime --lib module::retention::tests --no-fail-fast
+cargo test -p kagari --lib runtime::tests::embedding::runtime_transfer --no-fail-fast
+cargo test -p kagari --lib native_overflow_reports_the_same_instruction_as_the_interpreter
+cargo test -p kagari --test async_facade typed_members
+cargo test -p kagari --test async_facade typed_direct_await_drives_tasks_without_a_pump_and_preserves_context
+cargo test -p kagari --test artifact_features portable_artifact_executes_without_source_compilation
+cargo test -p kagari --no-default-features --test artifact_features portable_artifact_executes_without_source_compilation
+```
+
+SDK defaults enable source/native; `runtime_transfer` and `async_facade` require
+source, the native-overflow entry test requires both and asserts actual native
+selection. The source-enabled artifact test regenerates the ignored fixture before
+the source-free command consumes it. Extend those existing fixtures/assertions for
+HM behavior; their present names do not prove coverage of new cases. Run the small
+new staging/installation/lookup test filters added within these owners when they
+land, plus affected auto-trait/doctest coverage; do not run whole subsystem trees
+merely because they are listed. HM02's consumer inventory also includes CLI and
+native preparation signatures, covered structurally by workspace Clippy and by the
+selected actual native-entry test, not an exhaustive backend matrix.
+
+Final HM00 documentation validation: `git diff --check` passed; a `uv run python`
+content check resolved all 39 local links to tracked files and all 6 same-document
+anchors. This audit/finalization edits only this document; concurrent parent/UP
+changes to the roadmap and UP plan are left untouched. Working-tree CRLF and index
+LF match the repository's `core.autocrlf=true` configuration. No Rust
+build/test/Clippy was run or claimed for this documentation-only change; no
+performance conclusion. Required implementation checks remain the four local
+commands above, with focused behavior tests and full CI reported separately.
 
 ### HM00 audit at 3b898e80: scope gate and implementation handoff
 
@@ -676,10 +1155,9 @@ renames did not supply transparent type application. The assumption that
 aliases first, rather than narrowing HM to declaration renames. The prerequisite
 below supersedes the former awaiting-scope-decision gate. It supplies source alias
 semantics, not HM type-export records, layout-demand roots or host lookup. HM00/UP00
-remain paused and incomplete; this is not a completed joint design checkpoint.
+were paused and incomplete at that audit; the resumed checkpoint is recorded above.
 
-Other source-derived handoff findings (representation details still need final
-review when HM/UP resume):
+Historical source-derived handoff findings (resolved by the resumed design above):
 
 - Current LoadedModule is an immutable exact executable member, used by frames,
   layouts, candidates and native products. Preserve that responsibility under an
@@ -762,7 +1240,7 @@ constructs a `Cell<i32>` and keeps that fixed receiver application for
   below; transient integration and review failures are resolved.
 - [x] Final local acceptance: parent confirmed post-repair compiler/artifact checks
   and `cargo clippy --workspace --all-targets -- -D warnings` passed. The alias
-  prerequisite is locally complete; HM00/UP00 remain paused and incomplete.
+  prerequisite is locally complete; HM00/UP00 were not completed by this work.
 
 Concise validation evidence reported by the implementation owners:
 

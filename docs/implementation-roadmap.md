@@ -756,8 +756,10 @@ their installation; existing function bindings call current implementations with
 reacquisition/rebinding. HM00 must settle representation, internal version retention
 and the UP handoff. The user-prioritized
 [alias prerequisite](host-api-refactor.md#transparent-generic-alias-prerequisite)
-is locally complete. Joint HM00/UP00 remains authorized but paused and incomplete;
-HM/UP implementation phases have not started.
+is locally complete. The user reauthorized the full phased sequence on 2026-10-24;
+HM00/UP00 design closure is complete. The user confirmed protected Hash/Eq and
+static initializer dependency contracts rather than a pinned-call exception.
+HM01 is the next implementation phase; no dispatch behavior is claimed yet.
 Broader preparation/tooling remains deferred.
 
 ## Text literals and String traversal
@@ -796,9 +798,14 @@ remain outside this delivered scope.
 
 HM/UP implementation and phased commits are authorized on 2026-10-23. The user
 subsequently prioritized transparent generic type aliases first; that prerequisite
-is now locally complete. HM/UP remain paused. On resumption, the order remains the
-incomplete joint HM00 + UP00 checkpoint, followed by HM01, UP01, HM02, UP02, HM03,
-HM04, UP03, UP04 and UP05.
+is now locally complete. The user reauthorized the full sequence on 2026-10-24.
+The order remains joint HM00 + UP00, followed by HM01, UP01, HM02, UP02, HM03,
+HM04, UP03, UP04 and UP05. The joint design checkpoint is complete; HM01 begins
+implementation. The [resolved transitive-selection policy](update-model-design.md#resumed-up00-audit-at-bbe30666)
+rejects changes to published Hash/Eq, static initializers and their transitive
+dependencies, independently of container liveness or initialization state. It adds
+no alternate pinned-call domain or eager initialization. Runtime behavior remains
+unchanged until its owning implementation phase.
 The [Host API plan](host-api-refactor.md) and
 [update plan](update-model-design.md) retain their own ledgers and acceptance.
 HM owns live Program/Module lookup and verified type exports; UP owns stable
@@ -811,7 +818,8 @@ resolved that scope question by explicitly authorizing generic aliases before HM
 The [finite prerequisite ledger](host-api-refactor.md#transparent-generic-alias-prerequisite)
 is the single owner of scope, implementation progress, validation and compiler
 resource limits. Alias implementation, review repairs and local acceptance are
-complete. HM/UP remain paused and incomplete, not resumed or completed by alias work.
+complete. The later user instruction resumed HM00/UP00; alias work itself did not
+complete either phase.
 This prerequisite does not implement HM host export schemas, export-driven layout
 roots or UP dispatch. The linked ledger retains concise focused evidence; full CI
 remains unrun.

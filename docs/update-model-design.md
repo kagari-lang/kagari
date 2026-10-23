@@ -1,8 +1,12 @@
 # Compatible Hot Reload and State Replacement Design
 
 Status: implementation and phased commits authorized on 2026-10-23. Joint
-HM00/UP00 audit started at `3b898e80`; the joint checkpoint is paused and incomplete,
-and no HM/UP implementation phase has started. The user explicitly prioritized
+HM00/UP00 audit started at `3b898e80` and resumed at `bbe30666` after the user
+reauthorized the complete phased sequence on 2026-10-24. UP00's design is frozen:
+the user resolved transitive selection by protecting published key protocols,
+initializer expressions and their dependencies, with no pinned-call exception.
+The joint HM00/UP00 design checkpoint is complete and the roadmap is aligned;
+no implementation phase or behavioral acceptance is claimed. The user explicitly prioritized
 transparent generic type aliases first; the authorized prerequisite and its sole
 progress ledger are in the [host API plan](host-api-refactor.md#transparent-generic-alias-prerequisite).
 This design defines two deliberately
@@ -14,9 +18,10 @@ is the continuity boundary.
 
 The user confirmed this split and excluded adding a new trait implementation to an
 existing concrete type during compatible reload. Arbitrary in-place object, stack
-or closure migration is out of scope. Exact APIs and snapshot codec remain proposals;
-the compatible-update scheduling boundary below is confirmed. Authorization follows
-the recorded phase order and does not waive unresolved design or scope gates.
+or closure migration is out of scope. Compatible-update APIs are frozen below;
+the snapshot codec retains its UP03 gate. The compatible-update scheduling boundary
+below is confirmed. Authorization follows the recorded phase order and does not
+waive unresolved design or scope gates.
 Existing specifications remain authoritative until implementation updates them.
 
 The user also confirmed that ordinary Program and Module handles represent stable
@@ -29,8 +34,8 @@ handles; this target is not implemented by the current pinned runtime.
 On 2026-10-23 the user confirmed the update submission shape: construct an `Update`
 containing function/file changes and submit it once to Runtime. There is no required
 `begin_update`, caller-supplied version number or old-body hash. One Update is one
-atomic publication batch for one installation. Exact method signatures and compiler
-service wiring remain proposals; this records the direction, not implemented support.
+atomic publication batch for one installation. The exact UP02 API and compiler
+ownership are frozen below; this is a design contract, not implemented support.
 The user also confirmed that compatible updates replace function/method bodies or
 add declarations, never change existing signatures or type definitions. Adding a
 trait implementation to an existing type remains excluded even when the trait is
@@ -120,7 +125,7 @@ with the body and are not stable declarations to freeze.
 
 | Change | Compatible mode |
 | --- | --- |
-| Existing function/method body | Allowed after full checking and affected-code rebuild |
+| Existing function/method body | Allowed after full checking and affected-code rebuild, except protected code below |
 | New free function, inherent method, module, struct, enum or trait | Allowed if it preserves old contracts and introduces no resolution conflicts |
 | New concrete type implementing an existing or same-batch new trait | Allowed after normal coherence and interface checks |
 | New trait implementation for an existing concrete type, including a same-batch new trait | Rejected; no cross-version implementation extension in compatible mode |
@@ -129,7 +134,9 @@ with the body and are not stable declarations to freeze.
 | Existing struct fields/types/writeability or enum variants/payloads | Frozen, including additions to existing layouts/variant sets |
 | Existing trait methods, parent requirements or associated-type contract | Frozen |
 | Existing impl receiver/trait/associated outputs or dispatch relationship | Frozen; method bodies may change |
-| Existing named constant value/type | Frozen under the body-replacement/addition scope; body-local expressions may change |
+| Existing named constant value/type | Frozen under the body-replacement/addition scope; unprotected body-local expressions may change |
+| Published key Hash/Eq implementation or static initializer expression | Frozen, including transitive dependencies, independently of live values/cell state |
+| Existing public function alias | May select another public declaration with the same checked callable contract; retained bindings never retarget |
 
 "Existing" means published before the selected batch, not merely present in the
 initial deployment. A type/function/trait added by batch 1 becomes an existing
@@ -170,6 +177,194 @@ contracts. Exact build hashes change normally; compatibility descriptors are not
 the same as exact artifact integrity/cache fingerprints. Update wire schemas and
 verifiers where a complete compatibility inventory is currently unavailable.
 
+### Protected code and dependency closure
+
+The user resolved this boundary on 2026-10-24: **there is one ordinary current-call
+rule and no special pinned execution domain**. Reject compatible updates changing
+published key Hash/Eq protocols, static initializer expressions or their transitive
+dependencies. Protection starts at publication, including unused declarations and
+uninstantiated generic templates; it never depends on live container counts, empty
+containers, whether a static has initialized, or whether its initializer failed.
+Later-added roots become protected at their introducing publication.
+
+Protect every published implementation supplying key Hash/Eq, including inherited
+Eq/PartialEq methods, defaults, generated adapters, selected native requirements and
+their argument/associated-output evidence. Protect every published static's checked
+initializer expression and executable recipe. Keep lazy initialization: no eager
+execution, reset, automatic rehash, value migration or user callback during update.
+The recipe's exact generated entry remains retained, but ordinary calls it makes
+select current implementations; compatibility proves those dependencies unchanged.
+Stored membership selections retain their relationship/type authority, not a second
+old-code dispatch policy. Content comparison remains an ordinary current call.
+
+UP01 emits a contract-owned protected-dependency graph alongside complete declaration
+contracts. Each root records its declaration/application, root kind, canonical
+initializer expression when applicable, and executable body/selection evidence.
+Edges cover direct/recursive calls, named-function values, closure creation/invocation,
+interface/witness dispatch, default/adaptor code, native callback requirements,
+constant/type inputs and resolved declaration targets. Compare canonical records,
+not source positions, executable slot numbers or hashes alone. A source initializer's
+non-trivia token sequence and checked resolutions are frozen even when optimization
+would fold two different expressions to identical instructions. Comments/formatting
+may change. Literal payloads and meaningful expression tokens may not.
+
+For executable equality, use bounded canonical instruction/constant/semantic-contract
+records with local operand numbering and stable declaration references; omit debug
+locations. Preserve protected code before optional body simplification, so an
+optimizer cannot erase a dependency and make an unsafe edit look independent.
+Compiler lowering emits both the protected declaration/template dependencies and
+executable evidence; MIR/bytecode verification checks every surviving executable
+edge and its target/contract against that evidence. The compiler owns completeness
+for unused source templates and source-expression correspondence; a source-free
+artifact declares those contracts, not authenticated original source. Reload compares
+all prior protected records, and never accepts a missing certificate as an empty set.
+Matching supplied source additionally validates its expression records and associations.
+
+Close the graph conservatively. A dynamic call with a finite proved target set
+protects every member and that set's selection contract; additions that enlarge its
+possible targets require revalidation and reject if they change protected behavior.
+A native callback is closed only when installed, trusted declaration evidence gives
+its complete callable dependencies (or a sealed primitive proves no script call).
+Do not interpret existing effect flags or an empty callback list as that proof.
+Unresolved function values, dynamic dispatch or native reentry use `Unknown`, never
+an empty edge set. Initially `Unknown` protects the entire installation's executable
+inventory and selection relationships: reject body/initializer/native-selection
+changes and executable additions unless complete evidence proves independence.
+This deliberate conservative limitation may block otherwise useful patches; report
+the protected root and unknown edge rather than silently pinning or guessing.
+
+A helper shared by a handler and Hash/Eq is protected even when edited through the
+handler's file or a public alias. Compare resolved dependencies too: unchanged text
+with changed imports/alias resolution is not unchanged protected code. Native Rust
+code/registration cannot be replaced through this API. Mutable key contents and
+external state stability remain the author's duty; frozen code is not a purity
+proof and cannot roll back host effects.
+
+### Stable identity and executable ownership
+
+Use HM00's single installation owner and metadata cell, not a second UP registry:
+
+```text
+Installation = { HostRegistryId, non-reused InstallationId, root identity,
+                 Mutex<Option<Arc<ProgramDescriptor>>> current }
+ProgramDescriptor = one immutable publication, exact VersionToken,
+                    checked namespaces/contracts/current targets/source association
+ExecutableModule = { publication, generation-local ModuleRef }
+CallableKey = { installation, StableDeclarationId, canonical applied arguments }
+SelectedComputation = { exact ExecutableModule, CallableTarget,
+                        checked type/witness environment, executable retention }
+```
+
+The ModuleStore owns installation lifetime, stable declaration/application indexing,
+persistent cells and the retained-demand envelope. Program/Module handles share only
+the installation access cell; `None` is retired, never lookup-by-name fallback.
+Runtime shutdown clears the cells. Copy current metadata under a short lock, release
+it before execution/conversion/callbacks, and retain selected executable owners through
+result rooting. Ordinary callables retain stable contract/type authority, not a
+binding-time executable lease. Frames, closures, cold Futures and native producers
+retain their exact body/capture/resume owners. Ordinary subsequent calls, including
+recursive and unqualified calls, select current code in that same installation.
+R13's physical type/code retention split remains separate; metadata alone never
+revives admission. Runtime remains Send/not Sync; HM owns the exact handle auto traits.
+
+`StableDeclarationId` is a non-reused installation-local index, not a wire ID.
+Portable `DeclarationKey` records identify package/module/kind/authored owner/name;
+impl owners use a canonical checked receiver/trait header with alpha-normalized
+binder positions and constraints, not anonymous source-order occurrences. Inherent
+members use that semantic owner plus member name; equivalent impl-header groups are
+merged for correspondence, with duplicate members rejected. Method signature/access
+and associated outputs remain frozen contracts. Publication-local DefinitionIds and
+generic binder owners map explicitly to these keys; executable placement IDs never
+stand in for authored declarations. Preserve this correspondence across explicit
+identity import and apply it to witness/cache/type comparisons, not just reload errors.
+
+Named block-local functions are named declarations too, not automatically generated
+closures. Key them under their authored callable owner; same-name local declarations
+that cannot be uniquely matched without mutable block/occurrence order have no safe
+cross-publication correspondence. Conservatively reject a candidate changing their
+containing body unless exact unchanged-body evidence preserves the old mapping;
+never pair ambiguous locals by signature or position. This finite rejection is not
+a ban on compiling/executing such source. UP01 separates authored local identity from
+imported default-body placement. Named-function values carry an explicit checked
+live-callable classification; zero captures do not establish it. Actual closures,
+async blocks and resume entries are body-owned targets with checked origin/capture
+contracts, never independently rebound merely because signatures match.
+
+Inventory every old named contract, including private, unused and generic declarations,
+normalized aliases and constants. Compare preservation by stable identity, allowing
+new modules/declarations without freezing local slots or generated body shapes.
+A new trait impl is allowed only for a newly introduced outer nominal receiver
+(such as `New<T>`), with normal coherence; reject old nominal, primitive, tuple and
+blanket extensions. New inherent methods may extend old types without changing old
+members. Old type definitions and trait relationships remain fixed.
+
+Public path compatibility is deliberately different from bound identity. Preserve
+old function-path callable contracts, but allow same-contract retargeting to another
+public declaration as HM00 specifies. Both old declarations remain present; an old
+binding calls its original declaration's current body, while fresh lookup follows
+the new alias. Protected dependency resolution may still reject that retarget.
+Type exports preserve normalized nominal target/application, not merely structural
+layout. Preserve every prior public canonical namespace as a live query start.
+Use bounded directional graph-pair traversal, including cycles; do not change the
+old equivalence union-find into an unproved subset algorithm.
+
+### Bounded retained-demand evidence
+
+Use one contract-owned record family, composed from existing `Ty`, `GenericBody`,
+`OperationWitness`, construction evidence and canonical declaration references:
+
+```text
+DemandEnvelope = deduplicated { concrete applications, body requirements,
+                               implementation/construction/layout requirements }
+BodyRequirement = { exact origin key, binder parameters, checked call/creation edges }
+CallRequirement = Direct(application)
+                | Shared(declaration, argument expressions, operations, constructions)
+                | Interface(relationship/member, argument expressions, witnesses)
+                | RetainedBody(origin, argument expressions)
+                | Native(declared application and callback/result-adapter evidence)
+CurrentTarget = { stable callable application, exact executable slot,
+                  instantiated callable contract or shared-body binder contract }
+```
+
+At publication retain the union of all previously published demand summaries and the
+candidate's requirements, deduplicated; no executable lease is held solely by this
+monotonic summary. This conservatively covers old retained bodies without a new GC
+liveness pass. Historical generated bodies contribute their own old edges; ordinary
+callee edges demand **candidate** implementations. New current bodies contribute new
+edges. A generic application removed from new source reachability must still be
+compiled if an old body could call it. Shared bodies keep their existing checked
+witness/environment route; do not convert every generic to shared execution or infer
+new types/specialize source in Runtime.
+
+Close these demands under substitution, selected interface methods, callbacks and
+construction/layout requirements, with one visited set per exact body application.
+Dynamic receiver coverage includes every admissible checked implementation in the
+candidate inventory, including new types used by old interface callers. Preserve
+selected relationships and complete associated-output evidence; never search for a
+replacement impl at runtime. Source update seeds InstancePlanner from the envelope;
+prepared/source-free reload rejects missing current coverage with the absent
+application identified. It never substitutes an old specialization or silently
+recompiles an artifact with unrelated source.
+
+Hard admission limits for the combined envelope and protected evidence: 64 MiB of
+canonical encoded records, 1,000,000 total records/edges and fixed-point work visits,
+65,536 distinct body applications, 4,096 entries per nested list, type depth 64 and
+8,192 nodes per type transformation. These reuse existing artifact/type scales;
+compiler request limits may be stricter. Charge before allocation/enqueue, check
+cancellation during traversal, and fail publication on overflow/exhaustion. Never
+truncate history/evidence to pass a limit. Installation retirement releases it;
+precise pruning is deferred and no unlimited update-count claim is made.
+
+Compiler, MIR and bytecode share the contract algorithms, not duplicate semantic
+solvers. Derive executable demands from actual call/creation/interface/native records
+as the existing construction verifier does. Validate declared body classification,
+identity correspondence, signature/binder application, all operation/construction
+witnesses and target/layout coverage; serialized completeness flags grant no authority.
+Compare candidate coverage with the runtime's own envelope, not a candidate-supplied
+replacement baseline. Protect ordinary call boundaries from cross-function inlining,
+folding or removal based on a replaceable callee's current body/effects. Existing
+local optimizations may continue when they preserve those boundaries.
+
 ## Update scope and publication
 
 The host may edit any part of the loaded source dependency graph, including an
@@ -182,7 +377,7 @@ immutable code where safe; it need not produce a minimal machine-code patch.
 
 Separate four granularities:
 
-| Boundary | Proposed contract |
+| Boundary | Frozen UP02 contract |
 | --- | --- |
 | Submitted changes | One function/method, one file or several related replacements |
 | Recompilation | Changed code and actual compilation dependents; conservative rebuilding is allowed |
@@ -195,7 +390,7 @@ chooses which edits belong together; compilation cannot infer business-level ato
 relationships merely from the dependency graph. A one-function fix is a batch with
 one entry, not a separate in-place function-patching mechanism.
 
-Illustrative API only; these methods do not exist yet:
+Frozen UP02 API, not currently implemented:
 
 ```rust,ignore
 let mut update = Update::new();
@@ -214,6 +409,50 @@ appropriate existing `Result<(), E>` error family, with no mandatory update repo
 There is no required public begin/prepare/commit ceremony, version number or
 `expected old body hash`. Internal staging remains mandatory; an advanced prepared-product workflow
 may reuse it without becoming prerequisite boilerplate for ordinary callers.
+
+Exact SDK declarations (new update/source records belong to the SDK; executable
+contracts remain in kagari-contract):
+
+```text
+Update::new() -> Update
+Update::replace_function(&mut self, target: impl Into<FunctionUpdateTarget>,
+                        definition: impl Into<String>) -> &mut Self
+Update::replace_file(&mut self, name: impl Into<String>, text: impl Into<String>) -> &mut Self
+Update::add_file(&mut self, module: ModuleIdentity, name: impl Into<String>,
+                 text: impl Into<String>) -> &mut Self
+Update::with_cancellation(self, CancellationToken) -> Self
+FunctionUpdateTarget = Path(String) | Declaration(SourceDeclaration)
+Runtime::update(&self, &Program, Update) -> ReloadResult<()>
+Runtime::reload_program(&self, &Program, &PreparedProgram, ReloadOptions) -> ReloadResult<()>
+```
+
+`&str`/`String` targets convert to `Path`. Paths resolve once in the captured root's
+current public function graph; no ad-hoc method/type-expression grammar is added.
+`SourceDeclaration` is an opaque installation-scoped stable authored declaration
+locator obtained through source inspection below. It selects private functions,
+methods and named locals without granting callable/private-member access. Retained
+locators survive compatible publications; foreign, ambiguous or non-function targets
+reject. A replacement supplies one complete function definition, not a body fragment;
+parse in its original owner/import/binder context and preserve its frozen contract.
+Methods that cannot be uniquely named through a public path use the locator.
+
+File names are normalized captured document names, not filesystem read instructions.
+`replace_file` requires an existing captured document; `add_file` requires a new
+physical document and explicit module mapping in an already captured package. It
+may add modules, not acquire a new package/dependency from disk/network. Changes to
+inline modules use their containing file. No delete-file convenience is needed:
+deleting old declarations rejects, while unused input cleanup can be a later input
+maintenance operation. Empty batches reject. Builders only own data; submission
+validates at most 1,024 edits and 64 MiB replacement UTF-8 bytes, plus existing source,
+parser and executable limits. Cancellation defaults to a fresh token, never a stale
+cancelled preparation token; `with_cancellation` selects the request's token.
+
+Use existing `EmbeddingError` families: `Source` for missing compilation context,
+unknown/overlapping targets or malformed input; `Diagnostics`/`Compilation` for
+checking/lowering; `Cancelled` for cancellation; `ReloadValidation` with specific
+core codes for frozen/protected-contract, coverage and stale-base failures. Runtime
+phase/resource/stale-handle failures retain their existing runtime categories.
+No new global error hierarchy or mandatory update report is introduced.
 
 The first batch contract rejects duplicate targets and overlapping whole-file and
 contained-function replacements rather than applying an implicit last-write-wins
@@ -262,8 +501,34 @@ observe intermediate installation steps. Perform fallible checks/allocation/link
 before commit, or provide an equally explicit rollback discipline; sequential
 execution alone does not prevent half-installed state after an error.
 
-The initial design needs neither concurrent-reader synchronization nor lock-free
-call-target swaps, concurrent update merging or a background compilation protocol.
+**Core admission and commit.** Track active synchronous entry/driver scopes separately
+from parked session/frame retention and the replaceable active-session pointer.
+The count includes native/script entry, observers, script-invoked host callbacks,
+synchronous reentry and candidate scopes, even while a nested scope hides another
+session. One RAII publication guard rejects when that count is nonzero, another
+publication is in progress, or runtime borrow/liveness admission fails. All public
+reload/update publication paths use it; no name/candidate-root-only shortcut remains.
+Reject before source compilation for ordinary update, and recheck immediately before
+commit. Suspended work does not itself increment the synchronous count. Script
+entry/resumption rejects while the guard is held; completion notices may enqueue but
+are not consumed. Existing cancellation/depth/candidate restrictions still apply.
+
+Prepare candidate records, complete current target tables, static binding plans,
+protected/retained evidence, native decisions, source associations and cache invalidation
+plans before visibility changes. Acquire the installation cell/store guards and reserve
+all needed storage before commit; recheck installation identity and expected baseline.
+Commit updates only preallocated store state and replaces the single current descriptor
+pointer. There is no fallible suffix, callback, initializer, allocation-dependent map
+insertion, hash recomputation or old-descriptor destruction under the commit lock.
+Release guards before dropping old owners. Lock poison fails admission as EngineFault;
+shutdown may recover only to clear authority. Do not turn a postcommit cleanup problem
+into a claimed rollback. Candidate leases own abandoned storage cleanup; unused epoch
+IDs and interned identities may remain, but no failed candidate becomes active or the
+next source baseline. SDK association failure happens before core commit.
+
+Beyond HM's short metadata-cell mutex, the initial design needs neither concurrent
+execution-reader coordination nor lock-free call-target swaps, concurrent update
+merging or a background compilation protocol.
 The internal preparation basis still prevents applying a prepared candidate to the
 wrong installation/version. Do not silently replay or merge requests. Off-thread or
 interleaved preparation would require a separately reviewed stale-base check before
@@ -276,12 +541,43 @@ SDK facade orchestrates the in-process compiler and matching source context; the
 low-level runtime must remain independent of HIR and source analysis. Source batches
 compile to checked executable products before runtime publication; JIT consumes
 verified MIR, not source text. Existing prepared-candidate loading remains a separate
-entrypoint, not a requirement to build a second patch delivery system. Exact facade
-ownership and source-context commit coordination must be resolved before implementation;
-do not implicitly attach an arbitrary editor
-overlay or require Runtime to discover files/network dependencies during publication.
+entrypoint, not a requirement to build a second patch delivery system. The capsule
+and commit owners below are the UP00 decision. Do not implicitly attach an arbitrary
+editor overlay or require Runtime to discover files/network dependencies during
+publication.
 An artifact-only deployment without sufficient source/compiler metadata must reject
 source updates clearly, not pretend public signatures contain private/generic bodies.
+
+**Compilation capsule owner.** Extend SDK source preparation to retain an immutable
+`CompilationInputs` capsule through `CheckedModule`/`Compilation` into PreparedProgram.
+Capture exact physical document bytes/names and module mappings, root/package selections
+and dependency aliases, installed native/offline Host declaration snapshots and their
+identity scopes, parser/constant/diagnostic limits, compiler contract identity and
+lowering options. Preserve package acquisition provenance where present; direct source
+and explicit snapshots remain valid without inventing a package lock. Do not store
+runtime callback captures, mutable analysis databases, filesystem discovery or the
+PreparedProgram Rc/cache. Separate semantic settings from per-request cancellation.
+The capsule's owned data must be Send + Sync; reconstruction creates a temporary
+source database/analysis session using declaration-only inputs, not a new Runtime
+or native registration execution. Capture declaration inputs at checking time, not
+later from a possibly changed engine.
+
+The existing `PackageBuildInput` retains ProgramInputs and an environment fingerprint,
+not the environment needed to reconstruct compilation. Extend that preparation owner
+rather than treating the fingerprint as reconstruction evidence. Existing
+`analyze_source` and `analyze_package` mutate the engine's source database before
+semantic success; never use the host engine itself as the update transaction.
+Apply the full batch to detached capsule data, rebuild conservatively with retained
+demand roots, and publish the new capsule only with the matching executable.
+
+SDK Runtime stores capsule associations by installation and exact publication token;
+core Runtime remains independent of HIR/compiler/package acquisition. Stage the
+association before the core visibility switch, with rollback/removal on rejection;
+current source context is looked up through the core's current publication token,
+not a separately advanced SDK 'latest' pointer. This also handles low-level prepared
+reload: a publication without a matching capsule yields MissingCompilationContext,
+never the previous capsule. Discard superseded compilation capsules once no pending
+update needs them; exact-source history has its separate bounded owner below.
 
 Submitting a small patch does not guarantee equally small compilation or installation
 cost. Measure input transfer, analysis/lowering, verification, linking/preparation and
@@ -342,9 +638,32 @@ Do not inline replaceable callees or retain raw direct calls across publication
 without a proven equivalent selection mechanism. Version-specific products and
 conservative preparation are acceptable; cross-version machine-code reuse and
 invalidation/deoptimization machinery are not prerequisites. Native preparation timing
-remains an implementation gate, not a promise of eager compilation or automatic lazy
-JIT. Existing exact-version preparation tests remain evidence of product safety, not
-proof that current-call dispatch is implemented.
+is frozen as explicit pre-entry preparation, not automatic lazy JIT. Existing
+exact-version preparation tests remain evidence of product safety, not proof that
+current-call dispatch is implemented.
+
+`update()` conservatively publishes verified interpreter-capable code and retains
+matching MIR only when the captured PreparationOptions requested native input.
+It does not retain a CodegenBackend or invoke a hidden compiler callback. Reuse the
+existing `Runtime::prepare_native` workflow after publication: it must capture the
+Program's current target and validate exact PreparedProgram correspondence before
+installation. For source-updated Programs, add the native-feature SDK accessor
+`Runtime::prepared_program(&self, &Program) -> RunResult<PreparedProgram>`: construct
+a fresh preparation-side Rc/cache wrapper over the current immutable verified
+bytecode/optional MIR, without retaining Rc in Runtime. This is explicit advanced
+preparation access, not an ordinary version-view handle or a requirement for calls.
+
+Ordinary dispatch selects the current script body first and consults only native
+products indexed by that exact selected body/version/configuration. An old native
+product is never reused by stable callable ID alone. No installed current product
+means interpreter execution; existing policy/unsupported-code fallback remains
+pre-entry only. Explicit `execute_prepared` with a mismatched old product rejects;
+it must not silently reinterpret that handle as current. Native preparation failure
+publishes no product and changes no code/static/source state; it does not roll back
+an already successful source update. If an explicitly supplied candidate workflow
+prepares native code before reload, all product checks/install planning occur before
+commit and failure leaves the old publication unchanged. This separation makes the
+ordinary Update API usable without a new backend service or eager native matrix.
 
 Use the existing pre-entry fallback rules: unsupported valid code or explicit policy
 may select interpretation. Compilation/link errors, invalid products and failures
@@ -452,7 +771,7 @@ migration of live captures/continuations.
 
 The host needs to inspect the effective source after repeated updates, without
 reconstructing a chain of patches or assuming disk files match running code. This
-is a confirmed requirement with proposed API details; it belongs to the update
+is a confirmed requirement with frozen UP02 API details below; it belongs to the update
 owner, not an expansion of HM00-HM04 or a second debugger implementation.
 
 ### Query targets and results
@@ -487,7 +806,64 @@ source origin and indicate their concrete/generated target where available. Sour
 is the input definition, not a claim that optimized bytecode or native instructions
 have a one-to-one textual form. For a native Rust target, report host/native origin
 and available binding identity; do not fabricate Kagari or Rust implementation text.
-Exact public method names and result types are decided before implementation.
+The exact UP02 query surface is frozen below; it does not replace live HM lookup.
+
+### Frozen source inspection API
+
+Reuse existing scoped identity, rooted-value and frame-observation boundaries, not
+HIR queries from Runtime. The current `SourceOrigin`/error frames carry positions,
+not full text; the SDK's AnalysisSnapshot is a preparation/tooling object, not an
+execution-source owner. New diagnostic records live at the source-free contract/
+runtime boundary, with SDK forwarding and no source feature needed to read an
+attached source package. Design signatures:
+
+```text
+Runtime::source_snapshot(&self, &Program) -> RunResult<ProgramSourceSnapshot>
+ProgramSourceSnapshot::declarations(&self) -> &[SourceDeclaration]
+ProgramSourceSnapshot::function(&self, &SourceDeclaration) -> SourceQuery
+Runtime::function_source(&self, &FunctionSourceTarget) -> RunResult<SourceQuery>
+Runtime::value_source_target(&self, &RootedValue) -> RunResult<FunctionSourceTarget>
+Runtime::frame_source_target(&self, &ExecutionFrame) -> RunResult<FunctionSourceTarget>
+Function<A,R>::source_target(&self) -> FunctionSourceTarget
+AsyncFunction<A,R>::source_target(&self) -> FunctionSourceTarget
+Method/AsyncMethod/InterfaceMethod/AsyncInterfaceMethod::source_target(&self)
+    -> FunctionSourceTarget
+SourceQuery = Available(FunctionSource) | Unavailable(SourceUnavailable)
+```
+
+`Function` is the UP02 replacement for the ordinary PinnedFunction name, without an
+alias. FunctionSourceTarget is opaque: handle constructors produce a stable current
+callable/application target (including receiver-specific impl evidence for bound
+interface methods); value/frame constructors produce an exact observed target.
+Value inspection accepts a rooted closure or script/native Future, never polls or
+claims it, and reports unavailable position when a consumed/composed Future has no
+single inspectable body. Frame conversion is allowed only inside the existing safe
+observer/suspended-frame view, validates its Runtime/installation, and copies exact
+identity, not borrowed frame storage. It does not create a new stack inspector.
+A multi-frame task is queried through its available observed frames, not flattened
+to a fictitious single function. Historical snapshot lookup uses authored declaration
+identity and never resolves against current code. Locator mismatch yields Unavailable;
+foreign/expired execution handles remain ordinary admission errors.
+
+ProgramSourceSnapshot is an immutable diagnostic owner for the selected publication,
+not an execution lease. SourceDeclaration exposes read-only authored kind/name/module/
+owner information, plus an opaque installation/declaration locator used for edits;
+no raw numeric ID or source offset is accepted as update authority. The list includes
+private authored declarations for host diagnostics without granting private calls.
+SourceQuery's Available record contains complete definition text, URI, checked byte
+range, authored and actual executable/application origin, installation/publication
+identity and last-source-change provenance. Generated closure/resume queries name
+the generated target and return its authored enclosing function (or initializer)
+with a generated-origin marker; generic instances return their authored definition
+and checked application. Interface queries identify the implementation, not just the
+trait declaration. Host-native targets report binding/origin without fabricated text.
+
+Unavailable reasons are `NotRetained`, `MissingPackage`, `Mismatch`, `NoObservedBody`,
+`UnknownDeclaration` and `NativeOrigin`; retain known target/version/native identity
+in the response. Invalid runtime access is an error, not an unavailable-source result.
+An exact target token retains source records or an unavailable marker, never executable
+admission. Current-source queries capture current selection when queried; querying
+one does not prove a later call used it.
 
 ### Source ownership and publication
 
@@ -504,12 +880,26 @@ name alone, guess a span from another version or present decompiled text as orig
 source. Resolving an external source record must verify its match to the compiled
 snapshot; a content hash is a consistency check, not proof of trusted authorship.
 
+Frozen retention policy: source preparation retains immutable exact source packages
+by default; artifact export includes them only with a new explicit
+`ArtifactOptions.retain_source: bool` (default false). Execution from stripped input
+remains valid with explicit unavailable results. Attached packages contain bounded
+bytes and compiler associations keyed to the canonical executable product; verify
+identity/content, UTF-8 range and generated origins at preparation. This package is
+independent of optional stepping metadata and portable MIR. No implicit external
+source fetch or filesystem fallback is implemented. An artifact's matching embedded
+source supports inspection, not reconstruction of missing compiler/declaration inputs.
+The optional package is limited to 64 MiB and existing bounded table counts; source
+preparation fails rather than silently dropping required associations when its
+retention limit is exceeded.
+
 Retained live old code must remain queryable under the chosen source-retention mode.
 Share immutable source ownership with the corresponding code versions or retain it
 in a host-managed versioned source store. Source text/history must not own Runtime,
 GC roots or executable leases solely to keep diagnostics available. Historical source
 may outlive code without keeping old code executable; once no live target requires a
-snapshot, additional history retention is a separate bounded host policy. Do not
+snapshot, Runtime retains no automatic history. Hosts retain explicit
+ProgramSourceSnapshot values when history is required and own the count/byte budget. Do not
 create a process-global unbounded source cache or claim to solve R13 here.
 
 A source-free artifact can carry a matching source package or use an explicitly
@@ -685,7 +1075,7 @@ extraction also requires its own admission and alias-invalidation checks.
 
 ## Host API integration
 
-Keep compatible publication and state replacement visibly distinct. The proposed
+Keep compatible publication and state replacement visibly distinct. The frozen UP02
 `runtime.update(&program, update)` prepares and publishes one source-change batch;
 `reload_program` accepts an already prepared compatible candidate. Both should
 converge on one validation/publication owner, not separate update semantics. The
@@ -697,8 +1087,9 @@ public version views. Each lookup reads the latest coherently published namespac
 previously obtained modules can discover newly added public declarations. Ordinary
 function handles select current implementations in that same installation without
 host rebinding. Explicit historical source/debug snapshots and selected computation
-lifetimes remain separate. HM00 must settle current-publication access, stable
-installation/module/declaration identities and retention before UP integration;
+lifetimes remain separate. HM00's frozen representation supplies current-publication
+access, stable installation/module/declaration identities and retention for UP
+integration;
 the live-lookup policy is confirmed, not an open alternative. No parallel legacy
 pinned-call or version-bound ordinary module API is required. Binding resolves the
 public path once to a stable declaration/application; each call selects its current
@@ -720,9 +1111,9 @@ gate; use the host API's outer-tuple argument rule when calling them.
 ## Review choices and implementation sequence
 
 Confirmed boundaries: two explicit modes; existing signatures and named type/trait
-contracts are frozen for compatible updates; function bodies may change and legal
-new declarations may be added. New types may implement existing or same-batch new
-traits; no new trait relationship is allowed for a previously published type.
+contracts are frozen for compatible updates; unprotected function bodies may change
+and legal new declarations may be added. New types may implement existing or
+same-batch new traits; no new trait relationship is allowed for a previously published type.
 Later batches treat earlier additions as existing declarations. Arbitrary in-place
 migration is excluded; state continuity uses data. Exact-version function-source
 inspection distinguishes current call selection, historical snapshots and retained
@@ -733,7 +1124,9 @@ implementations. This supersedes the earlier whole-dependency pinning direction.
 Source delivery with in-process compilation and interpreter/optional JIT execution
 is confirmed; AOT patch delivery and broader native coverage are separate work.
 
-Confirm these recommendations before implementation:
+UP00 freezes the compatible-update decisions in this document. State-replacement
+implementation gates remain explicit at UP03/UP04 entry; the following boundaries
+are the selected direction, not a claim that their codec/cutover APIs already exist:
 
 1. Audit complete descriptors for the confirmed frozen contracts, including private
    named declarations, without freezing ordinary locals or generated body shapes.
@@ -756,16 +1149,17 @@ UP00-UP02 own compatible-update migration; state snapshot/cutover in UP03-UP04 i
 separate work and not a prerequisite for publishing ordinary body patches.
 
 The [alias prerequisite](host-api-refactor.md#transparent-generic-alias-prerequisite)
-is locally complete. On resumption, the authorized order remains joint HM00 + UP00,
-followed by HM01, UP01, HM02, UP02, HM03, HM04, UP03, UP04 and UP05. HM/UP remain
-paused and incomplete; prerequisite acceptance does not automatically resume them.
+is locally complete. The authorized order remains joint HM00 + UP00,
+followed by HM01, UP01, HM02, UP02, HM03, HM04, UP03, UP04 and UP05. The user has
+authorized completion and staged commits. UP00 design closure is recorded below;
+the joint checkpoint records design closure, not implementation.
 Commit the completed joint design checkpoint with both Plan-Phase trailers, then
 each completed phase separately. The user resolved the former alias scope gate by
 authorizing the prerequisite, not by waiving HM00/UP00 design gates or reopening
 confirmed live-handle/current-call semantics. MS and cross-installation repair
 linking remain separate.
 
-- [ ] UP00: Re-audit compatibility descriptors and all pinned selection owners:
+- [x] UP00 (design only): Re-audit compatibility descriptors and all pinned selection owners:
   direct/recursive/generic calls, host and named-function handles, trait methods,
   collection protocol callbacks, initializer recipes, Future/closure creation,
   suspended caller frames and native products. Specify stable identity/current
@@ -778,8 +1172,10 @@ linking remain separate.
   query/retention contracts. No new scheduling tiers or AOT patch delivery.
 - [ ] UP01: Implement frozen-contract/addition validation and checked stable-callable
   target evidence, including impl-domain restrictions, generic application coverage,
-  compiler/verifier/artifact changes and legal dependency invalidation. Keep existing
-  dispatch until UP02 coherently migrates it; no ignored validation or execution stubs.
+  compiler/verifier/artifact changes, protected-dependency rejection and legal
+  dependency invalidation. Migrate validation expectations affected by the new
+  rejection policy in UP01. Keep existing dispatch until UP02 coherently migrates
+  it; no ignored validation or execution stubs.
 - [ ] UP02: Replace whole-dependency-pinned ordinary dispatch with current-call
   selection across runtime/VM/host/interface/native owners; retain selected
   Future/closure/frame bodies and cleanup. Integrate one-shot Update and prepared
@@ -791,10 +1187,15 @@ linking remain separate.
   examples, repository invariants and tests in this checkpoint; do not leave two
   public semantic modes or assert that the old pinned suite is final acceptance.
   No new trait relationships for old types.
-- [ ] UP03: Implement bounded script-state export/restore, schema checks and explicit
-  migration. Reject runtime resources and unsupported alias/cycle forms precisely.
-- [ ] UP04: Implement host cutover integration, candidate restrictions, admission
-  gates and failure handling. Include synchronous examples and existing async task tests.
+- [ ] UP03: At phase entry freeze the codec/envelope format, exact export/restore and
+  migration-hook signatures, schema evolution rules, numeric/size/work limits and
+  alias/cycle diagnostics against existing conversion APIs; record that gate here
+  before implementation. Then implement bounded export/restore and migration.
+  UP00 settles the separate-mode boundary, not these codec implementation contracts.
+- [ ] UP04: Before implementation freeze the non-cancelling drain/admission state
+  machine, candidate resource restrictions, mailbox/routing commit API and abort/
+  timeout ownership, using UP03's codec. Implement cutover and failure handling with
+  synchronous examples and existing async task tests. These gates are not UP00-complete.
 - [ ] UP05: Finish remaining state-replacement specifications/examples, run selected
   final verification and record carried limitations. Async is already implemented;
   use its existing task/Future contracts, not placeholders or conditional acceptance.
@@ -805,7 +1206,8 @@ Test positive body/addition updates and rejection of removed definitions, change
 fields/variants/signatures, named constant changes and added impls for old types,
 including blanket impls and implementations of a newly added trait. Cover a new type
 implementing an existing or same-batch new trait, then a later batch replacing its
-method body successfully while rejecting definition/signature/relationship changes.
+unprotected method body successfully while rejecting definition/signature/relationship
+changes and edits to protected methods/dependencies.
 Test order-independent compatibility, checked generic current targets, frozen constants,
 rejection/prevention of stale inlined replaceable calls, stale-base rejection and new
 modules without weakening artifact validation.
@@ -841,14 +1243,15 @@ until the backend supports them; later native expansion must enforce the same ca
 selection contract. Failed native preparation must not install an invalid product
 or retry effects after native entry.
 Reuse existing backend contract tests; wider JIT coverage and AOT patch delivery are
-not acceptance prerequisites. These are proposed acceptance cases, not executed
-results or authorization to implement the batch API.
+not acceptance prerequisites. These are required future acceptance cases, not
+executed results; phased implementation is authorized but has not started.
 
 Exercise a rooted mutable trait collection containing old implementations, insert
 a new-type implementation after publication, remove the buggy element explicitly,
 and verify receiver-specific dispatch, shared root protection and eventual version
-reclamation. Also replace an existing implementation's method body and verify an old
-interface object calls the new body without changing its concrete type/trait identity.
+reclamation. Also replace an existing implementation's unprotected method body and
+verify an old interface object calls the new body without changing its concrete
+type/trait identity.
 Wrong trait identities, foreign runtimes and forged tables must fail.
 
 For source inspection, use several successful batches and a failed candidate. Check
@@ -894,7 +1297,8 @@ or success result is invented by this proposal.
 
 ### Joint HM00/UP00 audit at 3b898e80
 
-Status: paused and incomplete. The user resolved the audit's alias scope question
+Historical status at the pause (superseded by the UP00 freeze below): incomplete.
+The user resolved the audit's alias scope question
 by explicitly prioritizing the transparent generic alias prerequisite before HM/UP.
 Its completed semantics, review repairs and focused validation have one owner: the
 [host API prerequisite ledger](host-api-refactor.md#transparent-generic-alias-prerequisite).
@@ -970,5 +1374,99 @@ Historical audit validation is source/document inspection and the narrow existin
 syntax test recorded in HM00 (1 passed); it is not alias prerequisite acceptance.
 Completed prerequisite local acceptance and its evidence belong to the linked
 ledger. No dispatch, source update or state replacement behavior has been implemented
-or validated. UP00 remains paused and unchecked pending complete identity,
-compatibility and source-contract closure when HM/UP resume. Full CI is unrun.
+or validated by that historical audit. Identity, compatibility and source-contract
+closure on resumption is recorded in the UP00 freeze below. Full CI is unrun.
+
+### Resumed UP00 audit at bbe30666
+
+**UP00 design freeze: complete; joint design commit pending.**
+
+On 2026-10-24 the user reauthorized the full phased sequence and resolved the last
+semantic blocker: no pinned-call domain; reject changes to published key Hash/Eq,
+static initializer expressions and their transitive dependencies regardless of live
+containers or initialized cells. Unknown dependencies conservatively prevent unproved
+changes. Keep lazy initialization and author responsibility for mutable/external state.
+The preceding frozen representation, evidence limits, source/batch/query APIs, native
+timing and publication protocol close UP00. Implementation and local/CI behavioral
+acceptance remain pending. The next commit is the joint HM00/UP00 design checkpoint,
+with both Plan-Phase trailers; this document does not claim that commit already exists.
+
+**Audit and ownership evidence:**
+
+| Inspected owner | Finding and migration responsibility |
+| --- | --- |
+| [ABI collection](../crates/kagari-compiler/src/source/lower/abi.rs), [reload](../crates/kagari-runtime/src/reload.rs), [exports](../crates/kagari-runtime/src/reload/exports.rs) | Private/unused inventory is incomplete; exact module/list equality blocks additions. UP01 adds preservation checks, protected records and distinct function/type alias rules. |
+| [HIR declarations](../crates/kagari-hir/src/declarations.rs), [instance planning](../crates/kagari-compiler/src/source/lower/instances.rs), [local function values](../crates/kagari-compiler/src/source/lower/expr/local_functions.rs) | Impl/local occurrences and generated placement are not stable identity; empty-capture MakeClosure conflates named values with closures. UP01 supplies correspondence/classification and bounded retained demands. |
+| [Construction evidence](../crates/kagari-contract/src/callable/construction.rs), [source-free verification](../crates/kagari-bytecode/src/program/construction.rs) | Existing bounded substitution/witness traversal is the shared foundation, not proof of retained-old-body coverage. Extend it in UP01. |
+| [Prepared calls](../crates/kagari-runtime/src/module/execution/calls.rs), [frame calls](../crates/kagari-runtime/src/frame/calls.rs), [method views](../crates/kagari-runtime/src/objects/method_view.rs) | Local slots and receiver witnesses select retained bodies today. UP02 selects current implementations without replacing relationship/layout authority. |
+| [Host handles](../crates/kagari-runtime/src/native/function_handle/mod.rs), [closures](../crates/kagari-runtime/src/closure.rs), [Futures](../crates/kagari-runtime/src/native/future.rs) | Split ordinary binding from exact selected body; preserve captures, cold producers, resume state and cleanup in UP02. |
+| [Stored selections](../crates/kagari-runtime/src/native/stored_selection.rs), [Hash/Eq callbacks](../crates/kagari-runtime/src/native/collections/hash.rs), [static frames](../crates/kagari-runtime/src/frame/statics.rs) | Preserve storage/relationship and initializer authority; protected dependencies make current ordinary calls safe without an execution exception. |
+| [Publication](../crates/kagari-runtime/src/loading.rs), [staging](../crates/kagari-runtime/src/module/staging.rs), [session admission](../crates/kagari-runtime/src/lib.rs) | Candidate-root-only rejection is insufficient; UP02 counts synchronous scopes, including hidden nested sessions, and commits one prepared publication. |
+| [Source APIs](../crates/kagari/src/engine/source.rs), [package capture](../crates/kagari/src/engine/packages.rs), [preparation](../crates/kagari/src/program/mod.rs) | Captured bytes/fingerprints do not reconstruct the environment, and PreparedProgram drops source ownership. UP02 captures immutable declaration/settings inputs without Rc/RefCell in Runtime. |
+| [Native preparation](../crates/kagari/src/program/native.rs), [VM native entry](../crates/kagari-vm/src/vm/native.rs) | Existing explicit preparation/exact correspondence remains; UP02 indexes products after current target selection, with no hidden lazy backend. |
+
+**Finite checkpoints:**
+
+- UP01 owns contract records/wire/reference mapping; HIR authored correspondence;
+  compiler ABI/instance/closure/future evidence; MIR/bytecode codecs and verification;
+  runtime reload/export/cache compatibility and protected/retained coverage. Include
+  alias evidence from HM01 and existing static schema checks. Update tests expecting
+  protected-body/initializer edits to succeed in this checkpoint; preserve their
+  storage/cleanup coverage using unchanged protected definitions and add rejection
+  assertions. Dispatch stays pinned and buildable until UP02; no compatibility
+  reader, routine ABI bump or stubs.
+- HM02 supplies the one installation cell after UP01; UP02 integrates its current
+  target table with frame/host/interface/witness/native calls, retained GC metadata,
+  session/driver admission and static/native collection owners. SDK Runtime and
+  engine/source/preparation own Update, capsule and exact source orchestration.
+  Migrate affected VM/native/SDK/CLI consumers, specifications and pinned expectations
+  together; no second public semantic mode. HM03 follows this migration.
+- UP03 starts with its explicitly recorded codec/schema/hook/limit gate. UP04 starts
+  with the drain/cutover/resource/commit API gate. Neither is claimed frozen or
+  implemented by UP00, and neither blocks compatible body-update implementation.
+
+**Selected behavioral owners and cases:**
+
+- Compiler ABI/instance and MIR/bytecode program/artifact tests: private/unused
+  declaration changes, impl reorder, bounded/ambiguous identity correspondence,
+  legal additions and forbidden old-type impls; forged/missing target, witness,
+  protected-edge and historical demand records. Exercise source-free decoding.
+- SDK `runtime/tests/embedding/generic_reload.rs`: old named handles and interfaces
+  call current methods; old captures keep layout; generic applications needed only
+  by old bodies remain present; same-signature alias retarget affects fresh lookup
+  only. Migrate Hash/Eq-body-success cases to rejection with UP01 validation; migrate
+  remaining ordinary pinned-call expectations only with UP02 dispatch.
+- VM `tests/execution/statics.rs` plus SDK generic/static tests: unchanged lazy
+  initialization succeeds; edits to initializer expressions, key methods, direct/
+  transitive/generic helpers or resolved aliases reject with no state changes,
+  including never-created/empty containers and cold/Ready/Failed statics. Unknown
+  dynamic/native callback evidence rejects unproved changes. Add a non-protected
+  helper control case; no eager initialization or automatic rehash is observed.
+- SDK async lifecycle/group/static tests: old unpolled Futures and suspended nested
+  frames retain bodies while subsequent direct/recursive/generic/method calls use
+  current code; publication neither polls nor cancels them. Preserve all cleanup.
+- Runtime execution-session tests: callback/native/candidate-hidden reentry rejects;
+  parked work allows publication; stale bases and foreign installations reject.
+  Inject each fallible precommit failure and check code/statics/source isolation.
+- SDK source_preparation/source_snapshots/package_inputs: detached multi-edit batches,
+  method/alias duplicate targets, overlap and CRLF/Unicode ranges, failed baseline
+  isolation, missing capsule and exact generated/native/historical source queries.
+- SDK native_artifacts/native_preparation and VM native tests: actual native execution
+  for supported current targets, stale product rejection, honest pre-entry fallback,
+  failed preparation isolation and eventual executable reclamation. General calls/
+  suspension remain interpreter coverage; no native expansion or AOT patch delivery.
+
+Primary references rechecked during this audit: [Java SE 25 redefinition](https://docs.oracle.com/en/java/javase/25/docs/api/java.instrument/java/lang/instrument/Instrumentation.html#redefineClasses(java.lang.instrument.ClassDefinition...))
+(retained active frames/new invokes/preserved statics/atomic batches),
+[Erlang/OTP code replacement](https://www.erlang.org/doc/system/code_loading.html#code-replacement)
+(retained bodies versus current targets; living documentation reviewed 2026-10-24),
+and [Rust monomorphization collection](https://rustc-dev-guide.rust-lang.org/backend/monomorph.html)
+(explicit concrete-instance roots; living documentation reviewed 2026-10-24).
+Kagari additionally roots retained-body demands, retains checked shared evidence,
+protects storage-sensitive code and publishes at an exclusive host boundary. No
+JVM concurrency, BEAM local-call exception/two-version purge or speedup is inferred.
+
+Validation for this documentation checkpoint: source/API inspection and document
+content/link/diff checks only; no Rust builds/tests or complete CI acceptance claimed.
+Implementation phases run affected contract tests and required local lightweight/
+workspace Clippy checks; full workspace/backend/platform testing remains CI-only.
