@@ -41,7 +41,7 @@ const supportedCaptures = new Set(['variable', 'variable.parameter', 'type', 'fu
   'punctuation.delimiter', 'punctuation.special']);
 
 test('declaration/type captures and bracket pairs use syntax, not name guesses', () => {
-  const text = '#[meta(tag = "demo")] struct Point { pub var x: i32 } impl Point { pub async fn run(self, n: i32) { f"x={n}" } }';
+  const text = '#[meta(tag = "demo")] struct Point { pub var x: i32 } impl Point { pub async fn run(self, n: i32) { "x={n}" } }';
   const tree = parse(text);
   assert.equal(tree.rootNode.hasError, false, tree.rootNode.toString());
   const found = captures(text);
@@ -65,14 +65,14 @@ test('declaration/type captures and bracket pairs use syntax, not name guesses',
   }
 });
 
-test('character quote pairs and overrides remain inside interpolation code', () => {
-  const text = String.raw`fn main() { f"{'🙂'} {'\u{7B_}'} tail" }`;
+test('character quote pairs coexist with identifier interpolation', () => {
+  const text = String.raw`fn main() { val smile = '🙂'; val open = '\u{7B_}'; "{smile} {open} tail" }`;
   const tree = parse(text);
   assert.equal(tree.rootNode.hasError, false, tree.rootNode.toString());
   const overrides = query('overrides.scm').captures(tree.rootNode);
   assert.equal(overrideAt(overrides, text.indexOf('🙂')), 'string');
   assert.equal(overrideAt(overrides, text.indexOf('7B_')), 'string');
-  assert.equal(overrideAt(overrides, text.indexOf("'🙂'")), 'interpolation');
+  assert.equal(overrideAt(overrides, text.indexOf('{smile}') + 1), 'interpolation');
   const pairs = query('brackets.scm').matches(tree.rootNode).filter(match =>
     match.captures.some(capture => capture.node.parent.type === 'char_literal'));
   assert.equal(pairs.length, 2);
@@ -99,40 +99,42 @@ test('persistent statics keep variable names and runtime initializer captures di
 });
 
 test('string/comment override ranges do not disable pairing inside interpolation code', () => {
-  const text = 'fn main() { val s = f"outer {call(1)} tail"; /* comment */ }';
+  const text = 'fn main() { val s = "outer {value} tail"; /* comment */ }';
   const overrides = query('overrides.scm').captures(parse(text).rootNode);
   const inScope = (needle, scope) => overrideAt(overrides, text.indexOf(needle)) === scope;
   assert.ok(inScope('outer', 'string'));
   assert.ok(inScope('tail', 'string'));
   assert.ok(inScope('comment', 'comment'));
-  assert.equal(inScope('call', 'string'), false);
-  assert.equal(overrideAt(overrides, text.indexOf('call')), 'interpolation');
+  assert.equal(inScope('value', 'string'), false);
+  assert.equal(overrideAt(overrides, text.indexOf('value')), 'interpolation');
 });
 
 test('empty strings, one-character text and hole boundaries follow actual Zed cursor rules', () => {
-  for (const source of ['f""', 'f"x"', 'f"{x}"', 'f"a{x}b"', 'f"{f""}"']) {
+  for (const source of ['""', '"x"', '"{x}"', '"a{x}b"', 'r"{x}"', 'r##""##']) {
     const text = `fn main() { ${source} }`;
     const tree = parse(text);
     const found = query('overrides.scm').captures(tree.rootNode);
-    const strings = tree.rootNode.descendantsOfType('interpolated_string');
+    const strings = tree.rootNode.descendantsOfType(['string_literal', 'interpolated_string', 'raw_string_literal']);
     for (const node of strings) {
-      assert.equal(overrideAt(found, node.startIndex + 2), 'string', source);
+      assert.equal(overrideAt(found, node.startIndex + 1), 'string', source);
+      if (node.type === 'raw_string_literal') {
+        assert.equal(overrideAt(found, node.startIndex + node.text.indexOf('"') + 1), 'string', source);
+      }
       assert.equal(overrideAt(found, node.endIndex - 1), 'string', source);
       assert.notEqual(overrideAt(found, node.endIndex), 'string', 'Do not extend the closed string scope outside its quote');
     }
     for (const hole of tree.rootNode.descendantsOfType('interpolation')) {
       const at = hole.startIndex + 1;
-      // A nested string may start at this position, but its exclusive start does
-      // not shadow the enclosing code hole until the cursor moves inside it.
+      // The opening brace stays in the enclosing string until the cursor enters the hole.
       assert.equal(overrideAt(found, at), 'interpolation', source);
     }
   }
 });
 
-test('update bases retain ordinary captures and code pairing through incomplete interpolation edits', () => {
+test('update bases retain ordinary captures before identifier interpolation', () => {
   for (const eol of ['\n', '\r\n']) {
     for (const operand of ['base', 'Default::default()', '', 'base,', '=base']) {
-      const text = `fn main() { val s = f"before {Point { x: 1, ..${operand} }} tail";${eol}val after = 42; }`;
+      const text = `fn main() { val point = Point { x: 1, ..${operand} }; val s = "before {point} tail";${eol}val after = 42; }`;
       const tree = parse(text);
       assert.equal(tree.rootNode.hasError, ['', 'base,', '=base'].includes(operand), tree.rootNode.toString());
       const found = captures(text);
@@ -144,21 +146,21 @@ test('update bases retain ordinary captures and code pairing through incomplete 
       if (operand === 'base' || operand === 'Default::default()') {
         const start = text.indexOf(operand);
         assert.equal(effectiveCapture(found, start), 'variable', 'An update operand is not a field name or resolved type');
-        assert.equal(overrideAt(overrides, start), 'interpolation');
+        assert.equal(overrideAt(overrides, start), undefined);
       }
       const brackets = query('brackets.scm').matches(tree.rootNode);
       const struct = tree.rootNode.descendantsOfType('struct_expression')[0];
       assert.ok(brackets.some(({ captures }) => captures.some(({ name, node }) => name === 'close'
-        && node.endIndex === struct.endIndex)), 'The struct closer must not be mistaken for the hole closer');
+        && node.endIndex === struct.endIndex)), 'The struct closer remains outside the subsequent string');
     }
   }
 });
 
 test('attribute paths and interpolation delimiters win over generic names and punctuation', () => {
-  const text = '#[tool::meta] fn main() { f"{x: /* debug */ ?}" }';
+  const text = '#[tool::meta] fn main() { "{x:?}" }';
   const found = captures(text);
   for (const name of ['tool', 'meta']) assert.equal(effectiveCapture(found, text.indexOf(name)), 'attribute');
-  for (const needle of ['{x', ': /*', '?}', '}"']) {
+  for (const needle of ['{x', ':?', '?}', '}"']) {
     assert.equal(effectiveCapture(found, text.indexOf(needle)), 'punctuation.special', needle);
   }
 });

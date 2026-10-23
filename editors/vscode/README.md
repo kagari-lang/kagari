@@ -35,21 +35,23 @@ GUI acceptance). In the host and installed VSIX, verify the Kagari language mode
 comment toggling, bracket and quote pairing in code versus strings/comments, and
 the selected examples in light
 and dark themes. **Developer: Inspect Editor Tokens and Scopes** should show code
-inside `meta.embedded.expression.kagari`, string text around it, and comments or
-nested strings inside holes with their own categories. Verify this without `kg`
+inside `meta.embedded.expression.kagari` for identifier holes, string text around
+it, and inert braces/backslashes in raw Strings. Verify this without `kg`
 or an analyzer running. Automated tokenization is not a substitute for this GUI
 acceptance; see the parent editor tooling documentation for recorded results.
 
 ## Scope and maintenance
 
-Nested block/doc comments and f-string holes use recursive contexts. Text cannot
-cross physical LF/CRLF boundaries, but holes can contain multiline code, nested
-blocks, comments, strings and f-strings. Unicode escapes and doubled braces stay
-string text. `:` and `?` remain separate code tokens, allowing suffix trivia without
-misclassifying closure type annotations or propagation.
+Nested block/doc comments use recursive contexts. Cooked and raw Strings retain
+physical LF/CRLF across lines; only the matching quote/hash delimiter ends them.
+Raw strings use 0..255 hashes and do not interpret escapes or interpolation.
+Cooked holes are exactly `{name}` or `{name:?}`; malformed holes are marked
+invalid instead of entering an arbitrary code context. Unicode/ASCII escapes,
+continuations and doubled braces stay string text. The compiler validates decoded
+Unicode scalars and standalone CR; byte syntax and old `f` prefixes are not added.
 
-The grammar uses theme scopes, not fixed colors. F-string text segments, rather
-than their enclosing context, carry string scopes so expression colors do not
+The grammar uses theme scopes, not fixed colors. Cooked text segments, rather
+than their enclosing context, carry string scopes so identifier colors do not
 inherit the outer string. Declaration names and simple explicit type positions
 are contextual captures; comments/newlines between declaration tokens may prevent
 those captures. Arbitrary capitalized identifiers, constructors, generic arguments,

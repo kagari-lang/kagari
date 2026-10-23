@@ -42,6 +42,49 @@ fn char_constants_keep_distinct_pool_domains_and_slot_types() {
 }
 
 #[test]
+fn string_literals_decode_once_into_bytecode_constants() {
+    for (literal, expected) in [
+        (
+            r#""{{name}} \u{7B} \u{7D} \x41 \u{1F_642}""#,
+            "{name} { } A 🙂",
+        ),
+        (
+            r##"r#"{name} \u{41} "quoted""#"##,
+            r#"{name} \u{41} "quoted""#,
+        ),
+        ("\"first\r\n  second\"", "first\n  second"),
+        ("r\"first\r\n  second\"", "first\n  second"),
+        ("\"first\\\r\n  \tsecond\"", "firstsecond"),
+    ] {
+        let source = format!("fn main() -> String {{ {literal} }}");
+        let bytecode = common::bytecode_ok(&source);
+        let program = bytecode.records();
+        let root = &program.modules[program.root.index()];
+        assert!(
+            root.constants
+                .contains(&ConstantOperand::Str(expected.into())),
+            "{literal:?} must decode to {expected:?}"
+        );
+    }
+}
+
+#[test]
+fn interpolated_text_escapes_reach_bytecode_without_redecoding() {
+    let bytecode = common::bytecode_ok(
+        r#"fn main(value: i32) -> String { "\u{7B}{value}\u{7D} {{literal}} \\n" }"#,
+    );
+    let program = bytecode.records();
+    let root = &program.modules[program.root.index()];
+    for expected in ["{", "} {literal} \\n"] {
+        assert!(
+            root.constants
+                .contains(&ConstantOperand::Str(expected.into())),
+            "missing decoded interpolation text {expected:?}"
+        );
+    }
+}
+
+#[test]
 fn lowers_function_metadata_into_bytecode() {
     let context = DefinitionContext::new().unwrap();
     let bytecode = common::adopt_bytecode(

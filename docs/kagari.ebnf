@@ -315,9 +315,9 @@ primary_expr        ::= literal
 
 explicit_callable_path ::= path "::" generic_args ;
 
-interpolated_string ::= FORMAT_START interpolation_part* FORMAT_END ;
+interpolated_string ::= FORMAT_START FORMAT_TEXT* interpolation interpolation_part* FORMAT_END ;
 interpolation_part  ::= FORMAT_TEXT | interpolation ;
-interpolation       ::= FORMAT_OPEN expr interpolation_format? FORMAT_CLOSE ;
+interpolation       ::= FORMAT_OPEN IDENT interpolation_format? FORMAT_CLOSE ;
 interpolation_format ::= ":" "?" ;
 
 parenthesized_expr  ::= "(" expr ")" ;
@@ -464,8 +464,7 @@ EXPONENT            ::= ("e" | "E") ("+" | "-")? DIGIT (DIGIT | "_")* ;
    rejection; editor grammars are not a second semantic authority. CHAR_TEXT_CHAR
    excludes apostrophe, backslash and physical TAB/LF/CR. Hexadecimal escapes are
    ASCII-only. Unicode escapes have one to six digits (underscores do not count),
-   with underscores allowed after any digit, including the final digit.
-   Existing String/interpolation rules remain unchanged in TL01. *)
+   with underscores allowed after any digit, including the final digit. *)
 CHAR                ::= "'" (CHAR_TEXT_CHAR | CHAR_ESCAPE) "'" ;
 
 CHAR_TEXT_CHAR      ::= ? one Unicode scalar except apostrophe, backslash, TAB, LF or CR ? ;
@@ -477,15 +476,28 @@ CHAR_ESCAPE         ::= "\\" ("'" | "\"" | "\\" | "n" | "r" | "t" | "0")
 
 ASCII_HEX_HIGH      ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" ;
 
-STRING              ::= "\"" STRING_CHAR* "\"" ;
+(* No-hole cooked/raw forms are literals. Both retain physical multiline contents;
+   decoded CRLF becomes LF, without changing source bytes or spans. Standalone CR
+   is invalid except in continuation whitespace. Byte forms are not supported. *)
+STRING              ::= "\"" STRING_CHAR* "\""
+                      | RAW_STRING ;
+
+RAW_STRING          ::= ? r followed by 0..255 hashes, a quote, raw text and a quote followed by exactly the opening hash count; further hashes are subsequent tokens ? ;
 
 STRING_CHAR         ::= ESCAPE_SEQUENCE
-                      | STRING_TEXT_CHAR ;
+                      | STRING_TEXT_CHAR
+                      | "{{"
+                      | "}}" ;
 
-ESCAPE_SEQUENCE     ::= "\\" ("\"" | "\\" | "n" | "r" | "t" | "0")
-                      | UNICODE_ESCAPE ;
+ESCAPE_SEQUENCE     ::= "\\" ("'" | "\"" | "\\" | "n" | "r" | "t" | "0")
+                      | "\\x" ASCII_HEX_HIGH HEX_DIGIT
+                      | UNICODE_ESCAPE
+                      | STRING_CONTINUATION ;
 
-UNICODE_ESCAPE      ::= "\\u{" HEX_DIGIT+ "}" ;
+UNICODE_ESCAPE      ::= "\\u{" HEX_DIGIT "_"* (HEX_DIGIT "_"*)? (HEX_DIGIT "_"*)?
+                        (HEX_DIGIT "_"*)? (HEX_DIGIT "_"*)? (HEX_DIGIT "_"*)? "}" ;
+
+STRING_CONTINUATION ::= "\\" ("\n" | "\r\n") (" " | "\t" | "\r" | "\n")* ;
 
 OPERATOR_TOKEN      ::= "+"
                       | "-"
@@ -550,18 +562,19 @@ LINE_TEXT           ::= ? any scalar value except line terminators ? ;
 
 BLOCK_COMMENT_CHAR  ::= ? any scalar not starting "/*" or "*/" ? ;
 
-STRING_TEXT_CHAR    ::= ? any scalar value except `"` `\` and line terminators ? ;
+STRING_TEXT_CHAR    ::= ? any scalar value except quote, backslash, braces and standalone CR; LF and paired CRLF are allowed ? ;
 
 LINE_END            ::= "\n"
                       | "\r\n"
                       | EOF ;
 
-(* Interpolation tokens are context-sensitive. FORMAT_TEXT follows ordinary string
-   escapes; doubled braces are text. Within a hole ordinary expression tokens,
-   comments, strings and nested interpolations are recognized. Format delimiters
-   do not consume the braces belonging to a nested block or struct expression. *)
-FORMAT_START        ::= "f" "\"" ;
+(* Ordinary strings containing holes use these context-sensitive tokens. Holes
+   are exactly {name} or {name:?}: no whitespace, comments, keywords, expressions
+   or other format options. FORMAT_TEXT follows STRING_CHAR; escaped Unicode
+   braces do not open holes. Raw strings do not interpolate or process escapes.
+   No f/fr prefix is accepted. Each occurrence reads/formats its name in order. *)
+FORMAT_START        ::= "\"" ;
 FORMAT_END          ::= "\"" ;
 FORMAT_OPEN         ::= "{" ;
 FORMAT_CLOSE        ::= "}" ;
-FORMAT_TEXT         ::= ? string text or doubled braces within an interpolated string ? ;
+FORMAT_TEXT         ::= ? one or more STRING_CHAR within an ordinary string containing holes ? ;

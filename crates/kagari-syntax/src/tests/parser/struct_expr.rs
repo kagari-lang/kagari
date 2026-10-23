@@ -256,7 +256,6 @@ fn struct_update_recovery_leaves_enclosing_delimiters_and_following_source() {
         "consume(Point { ..)",
         "[Point { .. }]",
         "[Point { ..]",
-        "f\"{Point { .. }}\"",
         "Point { ..;",
         "Point { .. val after_base = 1;",
         "Point { ..base, ;",

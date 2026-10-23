@@ -1,7 +1,9 @@
 use crate::{
     ast::traits::AstNode,
     kind::SyntaxKind,
+    lexer::lex,
     parser::{ParseLimits, parse, parse_with_limits},
+    token::TokenKind,
 };
 
 use {
@@ -10,9 +12,10 @@ use {
 };
 
 #[test]
-fn interpolation_is_lossless_with_nested_expressions_comments_and_escapes() {
+fn interpolation_is_lossless_with_names_multiline_text_and_escapes() {
     let text = r##"fn main() {
-        f"你好 \u{1f600} {{}} {f"{if true { "a}" } else { "b" }}"} { /* } */ 7:?}";
+        "你好 \u{1f600} {{}} \u{7B}literal\u{7D}
+  {value} {other:?} {value}";
     }"##;
     let source = SourceFile::new("interpolation.kgr", text.replace('\n', "\r\n"));
     let parsed = parse(&source);
@@ -22,38 +25,85 @@ fn interpolation_is_lossless_with_nested_expressions_comments_and_escapes() {
         parsed.diagnostics()
     );
     assert_eq!(parsed.syntax().syntax().text().to_string(), source.text());
+    let syntax = parsed.syntax();
     assert_eq!(
-        parsed
-            .syntax()
+        syntax
             .syntax()
             .descendants()
             .filter(|n| n.kind() == SyntaxKind::InterpolatedString)
             .count(),
-        2
+        1
     );
     assert_eq!(
-        parsed
-            .syntax()
+        syntax
             .syntax()
             .descendants()
             .filter(|n| n.kind() == SyntaxKind::Interpolation)
             .count(),
         3
     );
+    let tokens = lex(source.text());
+    let value = tokens
+        .iter()
+        .find(|token| {
+            token.kind == TokenKind::Ident
+                && token.span.start == source.text().find("{value}").unwrap() + 1
+        })
+        .unwrap();
+    assert_eq!(&source.text()[value.span.start..value.span.end], "value");
 }
 
 #[test]
-fn incomplete_interpolation_and_unsupported_formats_are_diagnostics() {
+fn interpolation_rejects_expressions_whitespace_keywords_and_old_prefixes() {
+    for hole in [
+        "",
+        " value",
+        "value ",
+        "value :?",
+        "value: ?",
+        "value:? ",
+        "value\n",
+        "value\r\n",
+        "value.field",
+        "values[0]",
+        "get()",
+        "module::VALUE",
+        "value+1",
+        "if true { value }",
+        "/*x*/value",
+        "true",
+        "if",
+        "1",
+        "value:04",
+        "value:",
+        "value:?x",
+        "Point { .. }",
+    ] {
+        let source = SourceFile::new(
+            "invalid.kgr",
+            format!("fn main() {{ \"{{{hole}}}\"; }} fn next() {{}}"),
+        );
+        let parsed = parse(&source);
+        assert!(parsed.diagnostics().iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::InvalidLiteral { reason } if reason.contains("bind expressions outside"))), "{hole:?}: {:?}", parsed.diagnostics());
+        assert_eq!(parsed.syntax().syntax().text().to_string(), source.text());
+        assert_eq!(parsed.syntax().items().count(), 2, "{hole:?}");
+    }
+    for literal in [r#"f"old""#, r#"f"{name}""#, r#"fr"raw""#, r#"rb"raw""#] {
+        let source = SourceFile::new("prefix.kgr", format!("fn main() {{ {literal}; }}"));
+        assert!(!parse(&source).diagnostics().is_empty(), "{literal}");
+    }
+}
+
+#[test]
+fn incomplete_interpolation_and_invalid_text_report_diagnostics() {
     for literal in [
-        r#"f"{""#,
-        r#"f"}""#,
-        r#"f"{}""#,
-        r#"f"{1:04}""#,
-        r#"f"{1:}""#,
-        r#"f"{1""#,
-        r#"f"unterminated"#,
-        r#"f"\q""#,
-        r#"f"\u{zz}""#,
+        r#""{""#,
+        r#""}""#,
+        r#""{name""#,
+        r#""unterminated"#,
+        r#""\q""#,
+        r#""\u{zz}""#,
+        r#""\{""#,
     ] {
         let source = SourceFile::new("invalid.kgr", format!("fn main() {{ {literal}; }}"));
         let parsed = parse(&source);
@@ -63,19 +113,54 @@ fn incomplete_interpolation_and_unsupported_formats_are_diagnostics() {
 }
 
 #[test]
-fn interpolation_nesting_is_bounded_and_cancellable() {
+fn string_literal_only_contexts_admit_raw_and_no_hole_cooked_text() {
+    for literal in [
+        r#""{{name}}""#,
+        r#""\u{7B}name\u{7D}""#,
+        r##"r#"{name}"#"##,
+        "\"a\r\nb\"",
+    ] {
+        let source = SourceFile::new(
+            "literal.kgr",
+            format!(
+                "#[meta(name = {literal})] const TEXT: String = {literal}; fn main(s: String) {{ match s {{ {literal} => 1, _ => 0 }} }}"
+            ),
+        );
+        let parsed = parse(&source);
+        assert!(
+            parsed.diagnostics().is_empty(),
+            "{literal}: {:?}",
+            parsed.diagnostics()
+        );
+        assert!(
+            !lex(literal)
+                .iter()
+                .any(|t| t.kind == TokenKind::FormatStart)
+        );
+    }
+    for text in [
+        r#"#[meta(name = "{name}")] fn main() {}"#,
+        r#"fn main(s: String) { match s { "{name}" => 1, _ => 0 } }"#,
+    ] {
+        assert!(
+            !parse(&SourceFile::new("hole.kgr", text))
+                .diagnostics()
+                .is_empty(),
+            "{text}"
+        );
+    }
+}
+
+#[test]
+fn interpolation_recovery_is_bounded_and_cancellable() {
     let source = SourceFile::new(
-        "deep.kgr",
-        format!(
-            "fn main() {{ {}1{} }}",
-            "f\"{".repeat(2000),
-            "}\"".repeat(2000)
-        ),
+        "many.kgr",
+        format!("fn main() {{ \"{}\" }}", "{x + y}".repeat(2000)),
     );
     let parsed = parse_with_limits(
         &source,
         ParseLimits {
-            max_nesting: 16,
+            max_diagnostics: 16,
             ..Default::default()
         },
         &CancellationToken::default(),

@@ -3,8 +3,8 @@
 This package owns recoverable source syntax, not static legality, name resolution
 or compiler diagnostics. The source contracts are [syntax](../../docs/spec/syntax.md),
 [EBNF](../../docs/kagari.ebnf) and the [source parser](../../crates/kagari-syntax/src/parser/grammar/).
-It does not import Rust binding, lifetime, reference, character, byte-string,
-raw-string, `dyn`, async-block or prefix-await syntax.
+It does not import Rust binding, lifetime, reference, byte-string, `dyn` or
+prefix-await syntax. Kagari characters, raw Strings and async blocks are supported.
 
 ## Build and test
 
@@ -73,47 +73,35 @@ const query = new Parser.Query(Kagari, '(identifier) @variable');
 
 ## Scanner ownership and recovery
 
-`src/scanner.c` handles only recursive block comments and string text boundaries.
-It has **no persistent state**: create returns `NULL`, serialization writes zero
-bytes, and deserialization is a no-op. The LR parse stack selects ordinary text
-versus interpolated text via valid external symbols. Grammar productions own
-interpolation expression holes, nested blocks/struct literals, ordinary strings,
-nested f-strings, escapes and debug formatting; no scanner searches for the first
-closing brace. This also means incremental reuse cannot retain a stale scanner
-brace stack after a quote or brace edit. An unused external sentinel rejects
-Tree-sitter's all-symbols-valid recovery invocation rather than inventing a text
-mode during general error recovery.
+`src/scanner.c` handles recursive block comments, cooked text boundaries,
+identifier holes and whole raw tokens. It has **no persistent state**: create
+returns `NULL`, serialization writes zero bytes, and deserialization is a no-op.
+The LR parse stack selects the lexical context. Raw delimiters are counted only
+within one scan (0..255 hashes), so incremental reuse cannot retain stale hash or
+brace state after edits. The recovery sentinel refuses all-symbols-valid scans.
 
-- A whole nested comment is scanned atomically. `block_comment` and
-  `doc_block_comment` classify regular versus `/**`/`/*!` documentation openers
-  (`/**/` is an ordinary empty comment). `///`/`//!` line docs have separate
-  `doc_line_comment` nodes; `////` remains an ordinary `line_comment`.
-- Ordinary `string_content` and interpolated `format_text` never consume CR or LF.
-  Whitespace and comments *inside* text are text, not extras. A valid quote produces
-  the closing anonymous `"` delimiter. Escapes have `escape_sequence` nodes;
-  doubled braces remain `format_text`, and `\u{...}` braces belong to the escape.
-- Missing text quotes at CR, LF or EOF produce a zero-width, named
-  **`unterminated_string_end`**. This is an explicit invalid lexical boundary,
-  not a valid quote and not a wildcard recovery rule. The grammar exits text mode
-  before ordinary code resumes. Subsequent missing statement delimiters can still
+- Whole nested comments distinguish ordinary/documentation/unterminated forms.
+  A missing closing delimiter extends through EOF, not just the next newline.
+- Cooked `string_content` includes LF/CRLF, indentation and doubled braces;
+  comments within text stay text. Escapes are `escape_sequence` nodes, including
+  ASCII hexadecimal, Unicode underscores and physical line continuations.
+  Scalar values still belong to the shared compiler decoder.
+- `string_literal` has no holes. `interpolated_string` starts with the same quote
+  and has at least one `interpolation`. Each hole has field `name` (an
+  `identifier`), optional adjacent `interpolation_format` (`:` and `?`), and
+  a closing brace. The scanner rejects reserved words; immediate delimiters and
+  the boundary sentinel reject whitespace/comments. Expressions and old `f`
+  prefixes are not accepted. Literal-only contexts exclude interpolated strings.
+- `raw_string_literal` is one token including delimiters. Backslashes and braces
+  are inert; a quote followed by fewer hashes stays content. Extra closing hashes
+  are subsequent tokens. The token retains physical line endings and byte spans.
+- Only EOF ends unclosed cooked/raw text, producing `unterminated_string_end` or
+  `unterminated_raw_string`. Following lines may legally be content; no recovery
+  to their apparent declarations is promised. Missing delimiters may additionally
   produce Tree-sitter `ERROR`/`MISSING` nodes.
-- A block comment missing its closing delimiter produces
-  **`unterminated_block_comment`**, extending through EOF. A newline does not end
-  it. This extra is deliberately visible to highlighting and validity tests.
-- Consumers checking validity must reject both explicit unterminated node kinds
-  in addition to `rootNode.hasError`/`ERROR`/`MISSING`. Tree-sitter highlighting
-  should classify an unfinished comment as a comment and unfinished string text
-  as string text, without treating following lines as string text.
-- Expression holes may contain multiline code with LF or CRLF. `interpolation`
-  owns `{`, field `expression`, optional `interpolation_format` and `}`. The debug
-  format owns separate `:` and `?` tokens, so ordinary trivia may intervene.
-  Type annotations inside closures and postfix propagation remain code.
-- Ending the text of a nested f-string does not invent a missing outer hole brace.
-  With `f"{f"nested` followed by a new code line, the inner text ends at the newline,
-  but the outer hole remains structurally incomplete. The following identifiers
-  are code nodes, potentially inside `ERROR`, not `format_text`. Separate binding
-  nodes are not promised across unmatched outer delimiters. Incomplete escapes
-  likewise use ordinary `ERROR` recovery without continuing text across a newline.
+- Validity consumers reject all three explicit unterminated kinds (including
+  `unterminated_block_comment`) as well as `hasError`. Highlighting still
+  classifies their retained text as string/comment content.
 
 No catch-all item/expression/token production conceals unsupported syntax.
 Ordinary incomplete declarations, holes and delimiters use Tree-sitter's error
@@ -151,8 +139,8 @@ restrictions; syntactic recognition is not executable support.
   `rest_pattern`.
 - Lexical nodes: `integer_literal`, `float_literal`, `boolean_literal`,
   `string_literal`, `string_content`, `escape_sequence`, `interpolated_string`,
-  `format_text`, `interpolation`, `interpolation_format`, the four comment kinds,
-  and the two explicit invalid boundary kinds above.
+  `raw_string_literal`, `interpolation`, `interpolation_format`, character nodes,
+  the comment kinds and the three explicit invalid boundary kinds above.
 
 Keywords and operators are anonymous tokens, including `val`/`var`, `.`/`await`,
 `===`/`!==`, bitwise/compound operators, generic angles and closure/pattern bars.
@@ -193,8 +181,8 @@ still has no operand and may have a trailing comma.
 Missing operands, repeated/nonterminal bases, trailing base commas and `..=`
 markers recover through ordinary `ERROR`/`MISSING` nodes, not a permissive valid
 production. Recovery may omit the `base` child; clients must not assume a complete
-update node in malformed source. Nested interpolation keeps its own braces and
-string/comment boundaries. Existing Zed operator/name captures and lexical
+update node in malformed source. Bind a constructed value outside a string before
+interpolating its name; update expressions are not permitted inside holes. Existing Zed operator/name captures and lexical
 TextMate rules cover this syntax without semantic guesses about `Default` or
 other referenced names.
 

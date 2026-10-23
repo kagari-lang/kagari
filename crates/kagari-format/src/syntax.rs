@@ -31,6 +31,16 @@ fn node(
     cancel: &CancellationToken,
 ) -> Result<Option<Piece>, Cancelled> {
     cancel.check()?;
+    // Literal contents are source, not layout: even a newline at a text/hole
+    // boundary must not acquire indentation or disappear in a flat group.
+    if root.kind() == SyntaxKind::InterpolatedString {
+        return Ok(Some(Piece {
+            doc: Doc::text(root.text().to_string()),
+            first: root.first_token().expect("string opening delimiter"),
+            last: root.last_token().expect("string closing delimiter"),
+            kind: root.kind(),
+        }));
+    }
     let mut pieces = Vec::new();
     for element in root.children_with_tokens() {
         cancel.check()?;
@@ -55,10 +65,7 @@ fn node(
     }
     let first = pieces.first().unwrap().first.clone();
     let last = pieces.last().unwrap().last.clone();
-    let mut doc = sequence(&pieces, root.kind(), comments);
-    if root.kind() == SyntaxKind::InterpolatedString {
-        doc = doc.flat();
-    }
+    let doc = sequence(&pieces, root.kind(), comments);
     Ok(Some(Piece {
         first,
         last,
@@ -169,12 +176,7 @@ fn separator(left: &Piece, right: &Piece, owner: SyntaxKind, comments: &Comments
             Doc::hard()
         };
     }
-    if owner == SyntaxKind::InterpolatedString
-        || matches!(a, SyntaxKind::FormatOpen)
-        || matches!(b, SyntaxKind::FormatClose)
-    {
-        return Doc::text("");
-    }
+
     if right.kind == SyntaxKind::AttributeArgs {
         return Doc::text("");
     }

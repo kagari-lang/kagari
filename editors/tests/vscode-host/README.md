@@ -52,7 +52,7 @@ the loaded Kagari manifest's lack of activation/runtime/server entrypoints and
 dependencies, and that Kagari stays inactive. In both Default Light Modern and
 Default Dark Modern, it observes line/block comment toggling, delimiter/quote
 insertion, no unsupported angle/single-quote pairing, no bracket autoclose in
-string/comment text, code pairing inside an f-string hole, and a nested bracket
+string/comment text, code pairing inside an identifier interpolation hole, and a nested bracket
 jump. No `kg` or Kagari analyzer is launched by this harness.
 
 This is automated host acceptance, **not visual acceptance**. Public VS Code APIs

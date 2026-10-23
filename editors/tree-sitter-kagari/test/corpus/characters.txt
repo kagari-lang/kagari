@@ -30,9 +30,9 @@ fn chars() { 'a'; 'é'; '🙂'; ' '; '"'; '\''; '\\'; '\0'; '\n'; '\r'; '\t'; '\
       (expression_statement (char_literal (char_escape_sequence))))))
 
 ==================
-Character braces and quotes inside existing interpolation
+Character bindings beside ordinary interpolation
 ==================
-fn chars() { f"{'}'} {'\''} {'\u{7B_}'} tail" }
+fn chars() { val close = '}'; val quote = '\''; val open = '\u{7B_}'; "{close} {quote} {open} tail" }
 
 ---
 
@@ -41,13 +41,31 @@ fn chars() { f"{'}'} {'\''} {'\u{7B_}'} tail" }
     (identifier)
     (parameters)
     (block
+      (binding_statement
+        (path
+          (identifier))
+        (char_literal
+          (char_content)))
+      (binding_statement
+        (path
+          (identifier))
+        (char_literal
+          (char_escape_sequence)))
+      (binding_statement
+        (path
+          (identifier))
+        (char_literal
+          (char_escape_sequence)))
       (interpolated_string
-        (interpolation (char_literal (char_content)))
-        (format_text)
-        (interpolation (char_literal (char_escape_sequence)))
-        (format_text)
-        (interpolation (char_literal (char_escape_sequence)))
-        (format_text)))))
+        (interpolation
+          (identifier))
+        (string_content)
+        (interpolation
+          (identifier))
+        (string_content)
+        (interpolation
+          (identifier))
+        (string_content)))))
 
 ==================
 Character constants and range patterns

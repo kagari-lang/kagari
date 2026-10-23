@@ -281,6 +281,8 @@ id_newtype!(
 /// separately. The enclosed FunctionId belongs to the matching module lowering.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum BodySelection {
+    /// Prepare constant prerequisites without checking runtime initializers or functions.
+    Constants,
     /// Check all function bodies in the prepared module.
     All,
     /// Check the selected function slot after preparing its analysis prerequisites.

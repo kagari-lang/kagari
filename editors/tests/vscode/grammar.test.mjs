@@ -39,7 +39,7 @@ function regionsIn(text, spans, context, expected) {
 }
 
 test('character literals retain scalar spelling, escape scopes and interpolation boundaries', async () => {
-  const source = String.raw`fn main() { val chars = ['a', 'é', '🙂', ' ', '\'', '\\', '\"', '\0', '\n', '\r', '\t', '\x00', '\x7F', '\u{10_FF_FF_}']; val text = f"{'}'} {'\''} tail"; }`;
+  const source = String.raw`fn main() { val chars = ['a', 'é', '🙂', ' ', '\'', '\\', '\"', '\0', '\n', '\r', '\t', '\x00', '\x7F', '\u{10_FF_FF_}']; val close = '}'; val text = "{close} tail"; }`;
   const spans = await tokenize(source);
   for (const literal of ["'a'", "'é'", "'🙂'", "' '", String.raw`'\''`, String.raw`'\\'`, String.raw`'\"'`,
     String.raw`'\0'`, String.raw`'\n'`, String.raw`'\r'`, String.raw`'\t'`, String.raw`'\x00'`, String.raw`'\x7F'`, String.raw`'\u{10_FF_FF_}'`]) {
@@ -87,71 +87,50 @@ test('recursive comments, documentation and Unicode survive LF and CRLF', async 
   region(text, spans, 'outer', 'comment', 'comment.block.kagari');
 });
 
-test('nested interpolation balances blocks, strings, comments and nested f-strings', async () => {
-  const text = String.raw`val s = f"text {{literal}} \u{7b} { { val x = "}"; /* } /* { */ } */ f"inner {value}" } } tail";`;
+test('ordinary strings restrict holes to adjacent names and optional debug suffix', async () => {
+  const text = String.raw`val s = "text {{literal}} \u{7b} {value} {other:?} tail";`;
   const spans = await tokenize(text);
   region(text, spans, 'text ', 'string');
   region(text, spans, '{{literal}}', 'string');
   region(text, spans, String.raw`\u{7b}`, 'string', 'constant.character.escape.unicode.kagari');
-  region(text, spans, 'val x', 'code', 'meta.embedded.expression.kagari');
-  region(text, spans, '"}"', 'string', 'string.quoted.double.kagari');
-  region(text, spans, '/* } /* { */ } */', 'comment');
-  region(text, spans, 'inner ', 'string');
-  region(text, spans, 'value', 'code', 'meta.embedded.expression.kagari');
+  for (const name of ['value', 'other']) region(text, spans, name, 'code', 'meta.embedded.expression.kagari');
+  region(text, spans, ':?', 'code', 'punctuation.section.interpolation.format.kagari');
   region(text, spans, ' tail', 'string');
-  for (const span of spans.filter((span) => span.type === 'code')) {
-    assert.ok(!span.scopes.some((scope) => scope.startsWith('string.')), span.scopes.join(' '));
+  for (const content of ['value + 1', 'value.field', 'read()', 'module::VALUE', ' value', 'value ', 'value: ?', 'value:/*c*/?', 'value:x', 'true']) {
+    const invalid = '"{' + content + '} tail"';
+    const found = await tokenize(invalid);
+    region(invalid, found, content, 'string', 'invalid.illegal.interpolation.kagari');
+    region(invalid, found, 'tail', 'string');
   }
 });
 
-test('debug colon/trivia/question and closure annotations/propagation remain code', async () => {
-  const text = 'f"{value: /* debug /* nested */ end */ ?} {(|x: i32| x)(value)?} done"';
-  const spans = await tokenize(text);
-  region(text, spans, ':', 'code', 'punctuation.separator.kagari');
-  region(text, spans, 'debug', 'comment');
-  region(text, spans, '?', 'code', 'keyword.operator.kagari');
-  region(text, spans, 'x: i32', 'code', 'meta.embedded.expression.kagari');
-  region(text, spans, '?', 'code', 'keyword.operator.kagari', 2);
-  region(text, spans, ' done', 'string');
-});
-
-test('ordinary and interpolated text recover at physical LF/CRLF, holes may span lines', async () => {
+test('raw delimiters and physical multiline text retain string scopes until their real closer', async () => {
   for (const newline of ['\n', '\r\n']) {
-    for (const opening of ['"', 'f"']) {
-      for (const trailing of ['', '\\']) {
-        const text = `val s = ${opening}unfinished${trailing}${newline}val after = 1;`;
-        const spans = await tokenize(text);
-        region(text, spans, 'unfinished', 'string');
-        region(text, spans, 'val after', 'code');
-      }
+    for (const hashes of [0, 1, 2, 255]) {
+      const h = '#'.repeat(hashes);
+      const text = 'val s = r' + h + '"first' + newline + '  {name} \\n' + newline + '"' + h + '; val after = 1;';
+      const spans = await tokenize(text);
+      region(text, spans, '{name}', 'string', 'string.quoted.raw.kagari');
+      region(text, spans, String.raw`\n`, 'string', 'string.quoted.raw.kagari');
+      region(text, spans, 'after', 'code');
     }
-    const text = ['val s = f"before {', '  /* multiline', '     } */',
-      '  f"inner {', '    "}"', '  } text"', '} after";', 'val next = 2;'].join(newline);
-    const spans = await tokenize(text);
-    region(text, spans, 'before ', 'string');
-    region(text, spans, 'multiline', 'comment');
-    region(text, spans, '"}"', 'string');
-    region(text, spans, ' text', 'string');
-    region(text, spans, ' after', 'string');
-    region(text, spans, 'val next', 'code');
-    const debug = ['f"{value:', '  // a } and a " do not end the hole',
-      '  /* suffix trivia */ ?', '} tail"'].join(newline);
-    const debugSpans = await tokenize(debug);
-    region(debug, debugSpans, 'a } and a "', 'comment');
-    region(debug, debugSpans, 'suffix trivia', 'comment');
-    region(debug, debugSpans, '?', 'code', 'meta.embedded.expression.kagari');
-    region(debug, debugSpans, ' tail', 'string');
-    const recovery = ['f"{', 'f"broken', 'value', '} tail"', 'val end = 1;'].join(newline);
-    const recovered = await tokenize(recovery);
-    region(recovery, recovered, 'broken', 'string');
-    region(recovery, recovered, 'value', 'code', 'meta.embedded.expression.kagari');
-    region(recovery, recovered, ' tail', 'string');
-    region(recovery, recovered, 'val end', 'code');
+    const cooked = 'val s = "first' + newline + '  {name} tail' + newline + '"; val after = 1;';
+    const spans = await tokenize(cooked);
+    region(cooked, spans, 'name', 'code');
+    region(cooked, spans, 'tail', 'string');
+    region(cooked, spans, 'after', 'code');
+    for (const start of ['"', 'r##"']) {
+      const unfinished = 'val s = ' + start + 'unfinished' + newline + 'val after = 1;';
+      region(unfinished, await tokenize(unfinished), 'val after', 'string');
+    }
   }
+  const mismatch = 'r##"inner "# still \" {name}"##; val after = 1;';
+  region(mismatch, await tokenize(mismatch), 'still', 'string');
+  region(mismatch, await tokenize(mismatch), 'after', 'code');
 });
 
 test('Unicode escapes never open holes, including malformed escapes', async () => {
-  const text = String.raw`f"\u{41} \u{not{a}hole} \q {{}} {value} end"`;
+  const text = String.raw`"\u{41} \u{not{a}hole} \q {{}} {value} end"`;
   const spans = await tokenize(text);
   region(text, spans, String.raw`\u{41}`, 'string', 'constant.character.escape.unicode.kagari');
   region(text, spans, String.raw`\u{not{a}`, 'string', 'invalid.illegal.escape.kagari');
@@ -270,16 +249,16 @@ test('runnable binding patterns retain lexical scopes without guessing types or 
   for (const [binding, expected] of bindings) regionsIn(text, spans, binding, expected);
 });
 
-test('grouped/unit/singleton and struct rest patterns balance inside nested interpolation', async () => {
+test('grouped/unit/singleton and struct rest patterns precede identifier interpolation', async () => {
   const source = [
-    'val s = f"before { {',
+    'val s = {',
     '  val (grouped) = source;',
     '  var (single,) = (grouped,);',
     '  val () = ();',
     '  val Point { x, nested: Pair { first: renamed, .., }, .. } = source;',
     '  var Point { /* } | /* { */ .. */ .., } = source;',
-    '  f"inner {renamed}"',
-    '} } after";',
+    '  "inner {renamed}"',
+    '}; val rendered = "before {s} after";',
     'val after = 1;',
   ];
   for (const newline of ['\n', '\r\n']) {
@@ -312,12 +291,12 @@ test('grouped/unit/singleton and struct rest patterns balance inside nested inte
   }
 });
 
-test('struct updates stay lexical in valid and incomplete nested interpolation', async () => {
+test('struct updates stay lexical before identifier interpolation', async () => {
   for (const newline of ['\n', '\r\n']) {
     for (const operand of ['base', 'Default::default()', '', 'base,', '=base']) {
-      const text = `fn main() { val s = f"before {Point {
-        label: f"inner {score}", ..${operand}
-      }} tail"; val after = 42; }`.replaceAll('\n', newline);
+      const text = `fn main() { val point = Point {
+        label: "inner {score}", ..${operand}
+      }; val s = "before {point} tail"; val after = 42; }`.replaceAll('\n', newline);
       const spans = await tokenize(text);
       region(text, spans, 'before ', 'string');
       region(text, spans, 'inner ', 'string');
@@ -364,7 +343,7 @@ test('embedded expressions reset both encoded categories and string theme inheri
     { scope: 'comment', settings: { foreground: '#008800' } },
   ] });
   try {
-    const text = 'f"text {unresolved + "inner" /* note */ + f"nested {other}"} tail"';
+    const text = '"text {unresolved} inner nested {other} tail"; /* note */';
     const { spans, rows } = await tokenizeDocument(text, grammar);
     const metadataAt = (needle) => {
       const offset = text.indexOf(needle);
@@ -374,7 +353,7 @@ test('embedded expressions reset both encoded categories and string theme inheri
       return encoded[index + 1];
     };
     const foreground = (needle) => registry.getColorMap()[(metadataAt(needle) >>> 15) & 511];
-    for (const needle of ['unresolved', 'other', '+']) {
+    for (const needle of ['unresolved', 'other']) {
       region(text, spans, needle, 'code', 'meta.embedded.expression.kagari');
       assert.equal(tokenType(metadataAt(needle)), 'code');
       assert.equal(foreground(needle), '#101010', needle);
@@ -393,20 +372,14 @@ test('embedded expressions reset both encoded categories and string theme inheri
 test('incremental retokenization from valid preceding stacks agrees with fresh tokenization', async () => {
   const { grammar, registry } = await loadGrammar();
   const documents = [
-    { text: 'val s = f"{\n "closed";\n value\n} tail";\nval after = 1;',
-      from: '"closed";', to: '"open', needle: 'value', type: 'code' },
-    { text: 'val s = f"{\n val Point { x, .. } = point;\n} tail";\nval after = 1;',
-      from: '.. }', to: '..', needle: 'tail', type: 'code' },
-    { text: 'val s = f"{\n /* outer\n /* inner */\n end */ value\n} tail";\nval after = 1;',
-      from: 'end */ value', to: 'end value', needle: 'val after', type: 'comment' },
-    { text: 'val s = f"{Point {\n label: f"inner {score}",\n ..base\n}} tail";\nval after = 1;',
-      from: '..base', to: '..', needle: ' tail', type: 'string' },
-    { text: 'val s = f"{Point {\n label: f"inner {score}",\n ..base }\n} tail";\nval after = 1;',
-      from: '..base }', to: '..base', needle: ' tail', type: 'code' },
-    { text: "val s = f\"{\n '\\u{7B_}';\n value\n} tail\";\nval after = 1;",
-      from: "'\\u{7B_}';", to: "'\\u{7B_}", needle: 'value', type: 'code' },
+    { text: 'val s = "first\n closed";\nval after = 1;',
+      from: 'closed";', to: 'open', needle: 'val after', type: 'string' },
+    { text: 'val s = r##"first\n close"##;\nval after = 1;',
+      from: 'close"##;', to: 'close"#;', needle: 'val after', type: 'string' },
+    { text: 'val s = "first\n {name:?} tail";\nval after = 1;',
+      from: '{name:?}', to: '{name: ?}', needle: 'name', type: 'string' },
     { text: '/* header\n end */\nval s = "closed";\nval after = 1;',
-      from: '"closed";', to: '"open', needle: 'val after', type: 'code' },
+      from: 'end */', to: 'end', needle: 'val after', type: 'comment' },
   ];
   try {
     for (const newline of ['\n', '\r\n']) {
@@ -440,7 +413,7 @@ test('selected repository examples are read directly and have meaningful capture
   const examples = [
     ['literals-and-comments.kgr', [ ['still outer', 'comment'], ['0b1010', 'code', 'constant.numeric.integer.kagari'],
       [String.raw`\u{41}`, 'string', 'constant.character.escape.unicode.kagari'] ]],
-    ['string-interpolation.kgr', [ ['Hello ', 'string'], ['score + 2', 'code', 'meta.embedded.expression.kagari'],
+    ['string-interpolation.kgr', [ ['Hello ', 'string'], ['total}', 'code', 'meta.embedded.expression.kagari'],
       ['name', 'code', 'meta.embedded.expression.kagari', 2] ]],
     ['type-inference.kgr', [ ['Marker', 'code', 'entity.name.type.kagari'],
       ['0xff_u8', 'code', 'constant.numeric.integer.kagari'], ['1.25f32', 'code', 'constant.numeric.float.kagari'] ]],

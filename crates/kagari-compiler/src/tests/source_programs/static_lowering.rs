@@ -3,12 +3,13 @@ use crate::{
     bytecode::lower_program_to_bytecode,
     source::{lower::module_contract, program::lower_program_to_mir},
 };
+use kagari_abi::representation::ValueType;
 use kagari_common::identity::DefinitionKind;
-use kagari_contract::types::PublicItem;
+use kagari_contract::{standard::RuntimePrimitive, types::PublicItem};
 use kagari_mir::{
     codec::{decode_program, encode_program},
     function::MirModule,
-    instruction::{Instruction, Terminator},
+    instruction::{CallTarget, Instruction, Terminator},
     program::VerifiedMirProgram,
 };
 use kagari_source::source_database::SourceDatabase;
@@ -54,6 +55,121 @@ fn module<'a>(program: &'a VerifiedMirProgram, path: &[&str]) -> &'a MirModule {
         .iter()
         .find(|module| module.identity.path == path)
         .unwrap()
+}
+
+fn interpolation_steps(program: &VerifiedMirProgram) -> Vec<String> {
+    let root = module(program, &["root"]);
+    let function = root.functions.iter().find(|f| f.name == "run").unwrap();
+    let mut steps = Vec::new();
+    let mut pending_read = None;
+    for instruction in function.blocks.iter().flat_map(|block| &block.instructions) {
+        match instruction {
+            Instruction::LoadModule { dst, slot } => {
+                assert!(
+                    pending_read.is_none(),
+                    "previous hole must be formatted first"
+                );
+                let name = &root.module_slots[slot.index()].contract.name;
+                steps.push(format!("read {name}"));
+                pending_read = Some((name, *dst));
+            }
+            Instruction::Call {
+                callee: CallTarget::RuntimePrimitive(RuntimePrimitive::StringPartsJoin),
+                ..
+            } => {
+                assert!(pending_read.is_none());
+                steps.push("join".into());
+            }
+            Instruction::Call { args, dst, .. } => {
+                let (name, value) = pending_read.take().expect("one read per formatting call");
+                assert_eq!(args.as_slice(), &[value]);
+                assert_eq!(dst.expect("formatted String result").ty, ValueType::Str);
+                steps.push(format!("format {name}"));
+            }
+            _ => {}
+        }
+    }
+    assert!(pending_read.is_none());
+    lower_program_to_bytecode(program, &Default::default()).unwrap();
+    steps
+}
+
+#[test]
+fn interpolation_reads_and_formats_each_static_occurrence_in_order() {
+    let mir = lower(&[(
+        "root",
+        r#"
+        use std::fmt::{Display, Debug};
+        struct Item {}
+        impl Item { fn display(self) -> String { "wrong inherent method" } }
+        impl Display for Item {
+            fn display(self) -> String { STATE += 1; "display" }
+        }
+        impl Debug for Item {
+            fn debug(self) -> String { STATE += 10; "debug" }
+        }
+        static var STATE: i32 = 0;
+        static val ITEM: Item = Item {};
+        static val LATER: i32 = { STATE += 100; STATE };
+        fn run() -> String { "{STATE}{ITEM}{STATE:?}{ITEM:?}{LATER}" }
+    "#,
+    )]);
+    assert_eq!(
+        interpolation_steps(&mir),
+        [
+            "read STATE",
+            "format STATE",
+            "read ITEM",
+            "format ITEM",
+            "read STATE",
+            "format STATE",
+            "read ITEM",
+            "format ITEM",
+            "read LATER",
+            "format LATER",
+            "join",
+        ]
+    );
+}
+
+#[test]
+fn interpolation_keeps_formatter_traps_before_later_static_initialization() {
+    let mir = lower(&[(
+        "root",
+        r#"
+        use std::fmt::{Display, Debug};
+        struct Item {}
+        impl Display for Item {
+            fn display(self) -> String { STATE += 1; "done" }
+        }
+        impl Debug for Item {
+            fn debug(self) -> String {
+                STATE += 10;
+                val zero = 0;
+                1 / zero;
+                "unreachable"
+            }
+        }
+        static var STATE: i32 = 0;
+        static val ITEM: Item = Item {};
+        static val LATER: i32 = { STATE += 100; STATE };
+        fn run() -> String { "{ITEM}{ITEM:?}{LATER}" }
+    "#,
+    )]);
+    // The potentially trapping formatter precedes even the load that activates LATER.
+    // Runtime state-after-trap assertions belong to the SDK execution harness.
+    assert_eq!(
+        interpolation_steps(&mir),
+        [
+            "read ITEM",
+            "format ITEM",
+            "read ITEM",
+            "format ITEM",
+            "read LATER",
+            "format LATER",
+            "join",
+        ]
+    );
 }
 
 #[test]

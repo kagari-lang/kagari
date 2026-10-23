@@ -87,11 +87,11 @@ pub struct ExprData {
 /// their checked control-flow semantics. Range absence is legal open-bound syntax.
 ///
 /// ```text
-/// f"count={n}, value={v:?}"
+/// "count={n}, value={v:?}"
 /// -> InterpolatedString([text0, part0, text1, part1])
-/// text0 -> Literal(Literal { kind: String, text: "\"count=\"" })
+/// text0 -> Literal(Literal { kind: String, text: "count=" })
 /// part0 -> FormatPart { expr: e_n, debug: false }
-/// text1 -> Literal(Literal { kind: String, text: "\", value=\"" })
+/// text1 -> Literal(Literal { kind: String, text: ", value=" })
 /// part1 -> FormatPart { expr: e_v, debug: true }
 /// ```
 ///

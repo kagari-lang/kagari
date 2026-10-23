@@ -156,6 +156,8 @@ CHAR_ESCAPE	covered	examples/syntax/char-literals.kgr	-
 ASCII_HEX_HIGH	covered	examples/syntax/char-literals.kgr	-
 STRING	covered	examples/syntax/literals-and-comments.kgr	-
 STRING_CHAR	covered	examples/syntax/literals-and-comments.kgr	-
+RAW_STRING	covered	examples/syntax/literals-and-comments.kgr	-
+STRING_CONTINUATION	covered	examples/syntax/literals-and-comments.kgr	-
 ESCAPE_SEQUENCE	covered	examples/syntax/literals-and-comments.kgr	-
 UNICODE_ESCAPE	covered	examples/syntax/literals-and-comments.kgr	-
 OPERATOR_TOKEN	covered	examples/syntax/ranges.kgr	-

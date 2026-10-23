@@ -3,7 +3,7 @@
 ## Status and authority
 
 Planning baseline: `1b5da5df` (2026-10-23). Implementation and per-phase commits
-are authorized. TL01 is implemented with focused local acceptance; TL02 is next.
+are authorized. TL01-TL02 are implemented with focused local acceptance; TL03 is next.
 Publication and pushes remain outside this task.
 The user has selected identifier-only interpolation, Rust-style raw/multiline
 literal spelling, byte literals and a distinct Unicode `char` type.
@@ -380,7 +380,7 @@ pinned tooling or mark blocked tests passed.
 
 - [x] Inspect baseline owners and record selected scope, target contracts and phases.
 - [x] TL01: Char vertical slice and focused acceptance.
-- [ ] TL02: String syntax/interpolation cutover and consumer/tool migration.
+- [x] TL02: String syntax/interpolation cutover and consumer/tool migration.
 - [ ] TL03: Byte literals and fresh array semantics.
 - [ ] TL04: Lazy String traversal.
 - [ ] TL05: Focused integration, lasting documentation and plan retirement.
@@ -428,3 +428,38 @@ An anonymous-symbol LNK2019 in bytecode was resolved by cleaning only that packa
 and rerunning the affected tests. No linker source workaround or broad clean was
 used. No selected Rust integration failure remains. Exhaustive feature/backend/
 platform/workspace tests remain CI-only. No measured performance claim is made.
+
+### TL02 checkpoint
+
+Ordinary strings now support identifier-only interpolation; old f-prefixed strings
+reject. Shared decoding implements raw delimiters, multiline/CRLF/continuations,
+text escapes and doubled braces. HIR String literals carry decoded text exactly
+once. Formatter/editor/grammar/site consumers and effectful examples are migrated.
+The existing complete-FormatPart lowering already preserved read/format ordering;
+retain its shared lower_values path with explanatory documentation and behavioral
+coverage, not a second equivalent loop.
+
+The required imported-name case exposed an existing gap: resolution found an
+imported constant but value checking accepted only imported statics. The bounded
+TL02 repair prepares constants through the existing evaluator, reuses those facts
+for body analysis and carries source-owned scalar facts through aliases, identity
+remapping, navigation and cache invalidation. No interpolation-specific resolver,
+second evaluator or new cross-module const-initializer dependency model was added.
+
+Focused acceptance: all 64 selected decoder/syntax/HIR/compiler/SDK/CLI/formatter/
+analyzer cases passed after fixture repairs and the imported-constant fix. The
+SDK interpolation suite passed all 9 tests, including serialized artifacts and
+JIT-enabled fallback, ordered formatter effects/traps and raw/multiline values.
+Imported-constant tests (3), selected-body invalidation (1), and the affected HIR
+`const` filter (79) passed. This broader but subsystem-scoped filter is justified
+by extracting reusable constant prerequisites; it is not a workspace sweep.
+Compiler checks cover decoding once, repeated static reads and lazy initialization;
+syntax checks include original byte spans and inventory audits.
+
+Tree-sitter corpus (50), generated consistency (6 hashes), TextMate/manifest tests
+(19), focused site grammar tests (3), MDX parsing, CLI Zed queries and incremental
+raw-delimiter checks passed. Native Node capture/shared suites and editor WASM
+remain blocked by the recorded local toolchain limits. Structure, workspace
+formatting, workspace/all-target Clippy and diff checks passed. IDE scoped build
+requests timed out; Cargo provides build evidence. No selected Rust test failure
+remains; exhaustive CI/platform/browser acceptance is still pending.

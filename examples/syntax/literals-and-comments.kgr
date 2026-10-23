@@ -15,5 +15,17 @@ fn main() -> i32 {
     { val passed = "\"" == "\u{22}"; if !passed {val zero=0;1/zero;} };
     { val passed = "\\" == "\u{5c}"; if !passed {val zero=0;1/zero;} };
     { val passed = "\n" == "\u{A}"; if !passed {val zero=0;1/zero;} };
+    { val passed = "\x41\u{4_2_}" == "AB"; if !passed {val zero=0;1/zero;} };
+    { val passed = "{{name}}" == r"{name}"; if !passed {val zero=0;1/zero;} };
+    { val passed = r##"literal \n {name} "#"## == "literal \\n {{name}} \"#"; if !passed {val zero=0;1/zero;} };
+    val multiline = "
+  retained
+";
+    val raw_multiline = r#"
+  retained
+"#;
+    { val passed = multiline == raw_multiline && multiline == "\n  retained\n"; if !passed {val zero=0;1/zero;} };
+    { val passed = "joined\
+        text" == "joinedtext"; if !passed {val zero=0;1/zero;} };
     TEN + octal + hex + separated + 2
 }

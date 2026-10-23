@@ -922,7 +922,7 @@ ast_node!(
 );
 
 ast_node!(
-    /// An `f"..."` string containing text tokens and expression holes.
+    /// An ordinary `"..."` string containing text tokens and name-only holes.
     ///
     /// See [AST conventions](crate::ast) for storage and diagram notation.
     ///
@@ -930,17 +930,17 @@ ast_node!(
     ///
     /// Trivia is omitted; child-node descendants are collapsed.
     ///
-    /// `f"value={x}"`:
+    /// `"value={x}"`:
     ///
     /// ```text
     /// InterpolatedString
-    /// +-- FormatStart "f\"" [token]
+    /// +-- FormatStart "\"" [token]
     /// +-- FormatText "value=" [token]
     /// +-- Interpolation ({x}) [node]
     /// `-- FormatEnd "\"" [token]
     /// ```
     ///
-    /// Text is retained in `FormatText` tokens; expression holes are `Interpolation`
+    /// Text is retained in `FormatText` tokens; name holes are `Interpolation`
     /// nodes. Inspect the underlying syntax elements to preserve their interleaving.
     /// Escaped or doubled braces inside text are not expression-hole delimiters.
     InterpolatedString,
@@ -948,7 +948,8 @@ ast_node!(
 );
 
 ast_node!(
-    /// One expression hole, optionally requesting debug formatting with `:?`.
+    /// One name hole, optionally requesting debug formatting with `:?`.
+    /// Whitespace, paths and arbitrary expressions are rejected, not normalized.
     ///
     /// See [AST conventions](crate::ast) for storage and diagram notation.
     ///
@@ -1018,7 +1019,7 @@ pub enum Expr {
     TupleExpr(TupleExpr),
     /// An array list `[a, b]` or repeated array `[value; count]`.
     ArrayExpr(ArrayExpr),
-    /// A formatted string, such as `f"value={x}"` or `f"{x:?}"`.
+    /// A formatted string, such as `"value={x}"` or `"{x:?}"`.
     InterpolatedString(InterpolatedString),
 }
 
@@ -1721,12 +1722,12 @@ impl ArrayExpr {
 }
 
 impl Interpolation {
-    /// Returns `value` in both `f"{value}"` and `f"{value:?}"`.
+    /// Returns the name expression `value` in both `"{value}"` and `"{value:?}"`.
     pub fn expr(&self) -> Option<Expr> {
         support::child(self.syntax())
     }
 
-    /// Whether interpolation requests debug formatting: true in `f"{value:?}"`, false in `f"{value}"`.
+    /// Whether interpolation requests debug formatting: true in `"{value:?}"`, false in `"{value}"`.
     /// Checks only the direct `:` marker; does not revalidate a recovered `:?` suffix.
     pub fn debug(&self) -> bool {
         self.syntax()

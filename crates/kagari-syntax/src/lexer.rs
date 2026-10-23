@@ -6,6 +6,8 @@
 //! parser is responsible for reporting syntax diagnostics.
 
 use smallvec::SmallVec;
+
+mod string;
 use {
     kagari_common::{
         cancellation::{CancellationToken, Cancelled},
@@ -57,99 +59,16 @@ pub fn lex_with_cancellation(
         .take_while(|_| cancel.check().is_ok())
         .peekable();
     let mut tokens = SmallVec::new();
-    // None means string text; Some(depth) means an expression hole with that many
-    // nested ordinary braces. Closing depth zero emits FormatClose; deeper braces
-    // remain block tokens. Nested f-strings push their own modes onto this stack.
-    let mut formats: Vec<Option<usize>> = Vec::new();
 
     while let Some((index, ch)) = chars.peek().copied() {
-        if formats.last() == Some(&None) {
-            let start = index;
-            let mut end = index;
-            let mut escaped = false;
-            while let Some((position, character)) = chars.peek().copied() {
-                if matches!(character, '\r' | '\n')
-                    || (!escaped && matches!(character, '"' | '{' | '}'))
-                {
-                    break;
-                }
-                chars.next();
-                end = position + character.len_utf8();
-                if escaped && character == 'u' && chars.peek().is_some_and(|(_, next)| *next == '{')
-                {
-                    // Unicode escape braces belong to the text, not to an expression hole.
-                    let (open, _) = chars.next().expect("peeked escape brace");
-                    end = open + 1;
-                    while let Some((position, character)) = chars.peek().copied() {
-                        if matches!(character, '"' | '\r' | '\n') {
-                            break;
-                        }
-                        chars.next();
-                        end = position + character.len_utf8();
-                        if character == '}' {
-                            break;
-                        }
-                    }
-                }
-                if escaped {
-                    escaped = false;
-                } else {
-                    escaped = character == '\\';
-                }
-            }
-            if end > start {
-                let text = format!("\"{}\"", &input[start..end]);
-                let kind = if literal::decode_string_literal(&text).is_ok() {
-                    TokenKind::FormatText
-                } else {
-                    TokenKind::Unknown
-                };
-                tokens.push(token(kind, start, end));
-                continue;
-            }
-            chars.next();
-            match ch {
-                '"' => {
-                    formats.pop();
-                    tokens.push(token(TokenKind::FormatEnd, index, index + 1));
-                }
-                '{' | '}' if chars.peek().is_some_and(|(_, next)| *next == ch) => {
-                    chars.next();
-                    tokens.push(token(TokenKind::FormatText, index, index + 2));
-                }
-                '{' => {
-                    formats.push(Some(0));
-                    tokens.push(token(TokenKind::FormatOpen, index, index + 1));
-                }
-                _ => {
-                    tokens.push(token(TokenKind::Unknown, index, index + ch.len_utf8()));
-                    if matches!(ch, '\r' | '\n') {
-                        formats.pop();
-                    }
-                }
-            }
+        if ch == '"' || (ch == 'r' && input[index + 1..].starts_with(['#', '"'])) {
+            string::scan(input, index, &mut chars, &mut tokens, cancel)?;
             continue;
         }
         if ch == 'f' && input[index..].starts_with("f\"") {
             chars.next();
-            chars.next();
-            tokens.push(token(TokenKind::FormatStart, index, index + 2));
-            formats.push(None);
+            tokens.push(token(TokenKind::Unknown, index, index + 1));
             continue;
-        }
-        if let Some(Some(depth)) = formats.last_mut() {
-            if ch == '{' {
-                *depth += 1;
-            }
-            if ch == '}' {
-                if *depth == 0 {
-                    chars.next();
-                    formats.pop();
-                    tokens.push(token(TokenKind::FormatClose, index, index + 1));
-                    continue;
-                }
-                *depth -= 1;
-            }
         }
         if ch.is_whitespace() {
             let mut end = index;
@@ -424,37 +343,7 @@ pub fn lex_with_cancellation(
                 };
                 tokens.push(token(kind, index, end));
             }
-            '"' => {
-                chars.next();
-                let mut end = index + 1;
-                let mut escaped = false;
-                let mut closed = false;
-                while let Some((next_index, next)) = chars.peek().copied() {
-                    if matches!(next, '\r' | '\n') {
-                        break;
-                    }
-                    chars.next();
-                    end = next_index + next.len_utf8();
-                    if escaped {
-                        escaped = false;
-                        continue;
-                    }
-                    if next == '\\' {
-                        escaped = true;
-                        continue;
-                    }
-                    if next == '"' {
-                        closed = true;
-                        break;
-                    }
-                }
-                let kind = if closed && literal::decode_string_literal(&input[index..end]).is_ok() {
-                    TokenKind::String
-                } else {
-                    TokenKind::Unknown
-                };
-                tokens.push(token(kind, index, end));
-            }
+
             '0'..='9' => {
                 chars.next();
                 let mut end = index + 1;
@@ -553,41 +442,7 @@ pub fn lex_with_cancellation(
                     chars.next();
                 }
 
-                let kind = match ident.as_str() {
-                    "as" => TokenKind::AsKw,
-                    "crate" => TokenKind::CrateKw,
-                    "for" => TokenKind::ForKw,
-                    "in" => TokenKind::InKw,
-                    "async" => TokenKind::AsyncKw,
-                    "await" => TokenKind::AwaitKw,
-                    "fn" => TokenKind::FnKw,
-                    "impl" => TokenKind::ImplKw,
-                    "mod" => TokenKind::ModKw,
-                    "pub" => TokenKind::PubKw,
-                    "self" => TokenKind::SelfKw,
-                    "super" => TokenKind::SuperKw,
-                    "trait" => TokenKind::TraitKw,
-                    "type" => TokenKind::TypeKw,
-                    "use" => TokenKind::UseKw,
-                    "where" => TokenKind::WhereKw,
-                    "const" => TokenKind::ConstKw,
-                    "static" => TokenKind::StaticKw,
-                    "val" => TokenKind::ValKw,
-                    "var" => TokenKind::VarKw,
-                    "struct" => TokenKind::StructKw,
-                    "enum" => TokenKind::EnumKw,
-                    "return" => TokenKind::ReturnKw,
-                    "if" => TokenKind::IfKw,
-                    "else" => TokenKind::ElseKw,
-                    "match" => TokenKind::MatchKw,
-                    "while" => TokenKind::WhileKw,
-                    "loop" => TokenKind::LoopKw,
-                    "break" => TokenKind::BreakKw,
-                    "continue" => TokenKind::ContinueKw,
-                    "true" => TokenKind::TrueKw,
-                    "false" => TokenKind::FalseKw,
-                    _ => TokenKind::Ident,
-                };
+                let kind = identifier_kind(&ident);
                 tokens.push(token(kind, index, end + 1));
             }
             _ => {
@@ -601,6 +456,44 @@ pub fn lex_with_cancellation(
     tokens.push(token(TokenKind::Eof, eof, eof));
     cancel.check()?;
     Ok(tokens)
+}
+
+fn identifier_kind(ident: &str) -> TokenKind {
+    match ident {
+        "as" => TokenKind::AsKw,
+        "crate" => TokenKind::CrateKw,
+        "for" => TokenKind::ForKw,
+        "in" => TokenKind::InKw,
+        "async" => TokenKind::AsyncKw,
+        "await" => TokenKind::AwaitKw,
+        "fn" => TokenKind::FnKw,
+        "impl" => TokenKind::ImplKw,
+        "mod" => TokenKind::ModKw,
+        "pub" => TokenKind::PubKw,
+        "self" => TokenKind::SelfKw,
+        "super" => TokenKind::SuperKw,
+        "trait" => TokenKind::TraitKw,
+        "type" => TokenKind::TypeKw,
+        "use" => TokenKind::UseKw,
+        "where" => TokenKind::WhereKw,
+        "const" => TokenKind::ConstKw,
+        "static" => TokenKind::StaticKw,
+        "val" => TokenKind::ValKw,
+        "var" => TokenKind::VarKw,
+        "struct" => TokenKind::StructKw,
+        "enum" => TokenKind::EnumKw,
+        "return" => TokenKind::ReturnKw,
+        "if" => TokenKind::IfKw,
+        "else" => TokenKind::ElseKw,
+        "match" => TokenKind::MatchKw,
+        "while" => TokenKind::WhileKw,
+        "loop" => TokenKind::LoopKw,
+        "break" => TokenKind::BreakKw,
+        "continue" => TokenKind::ContinueKw,
+        "true" => TokenKind::TrueKw,
+        "false" => TokenKind::FalseKw,
+        _ => TokenKind::Ident,
+    }
 }
 
 /// Constructs a token range in the original input; no spelling is copied.

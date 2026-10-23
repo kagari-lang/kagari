@@ -24,7 +24,7 @@ function nodes(root, type) {
 function valid(source) {
   const tree = parse(source);
   assert.equal(tree.rootNode.hasError, false, tree.rootNode.toString());
-  for (const type of ['unterminated_string_end', 'unterminated_block_comment']) {
+  for (const type of ['unterminated_string_end', 'unterminated_raw_string', 'unterminated_block_comment']) {
     assert.equal(nodes(tree.rootNode, type).length, 0, tree.rootNode.toString());
   }
   return tree;
@@ -208,22 +208,15 @@ test('malformed update placement and missing operands preserve following source'
   }
 });
 
-test('nested interpolation updates recover without consuming later text or code', () => {
+test('struct update bindings precede identifier interpolation', () => {
   for (const eol of ['\n', '\r\n']) {
-    const source = `fn main() { val rendered = f"before {Point {
-      label: f"inner {score}", ..{ /* } .. */ Point { ..make("}")? } }
-    }:?} tail"; val after = 42; }`.replaceAll('\n', eol);
+    const source = ['fn main() { val point = Point {',
+      'label: "inner {score}", ..{ /* } .. */ Point { ..make(r"}")? } }',
+      '}; val rendered = "before {point:?} tail"; val after = 42; }'].join(eol);
     const tree = valid(source);
     assert.equal(nodes(tree.rootNode, 'struct_update_base').length, 2);
     assert.equal(nodes(tree.rootNode, 'range_expression').length, 0);
     assert.equal(nodes(tree.rootNode, 'interpolation').length, 2);
-    for (const operand of ['', 'base,', '=base']) {
-      const broken = parse(`fn main() { val s = f"before {Point { ..${operand} }} tail";${eol}val after = 42; }`);
-      assert.ok(broken.rootNode.hasError, operand);
-      assert.ok(nodes(broken.rootNode, 'format_text').some(n => n.text === ' tail'), broken.rootNode.toString());
-      assert.ok(nodes(broken.rootNode, 'binding_statement').some(n => n.childForFieldName('pattern')?.text === 'after'),
-        broken.rootNode.toString());
-    }
   }
 });
 
@@ -283,59 +276,48 @@ test('source whitespace remains trivia before nested comments', () => {
   valid('\u0085\u00a0/* nested /* inner */ end */\u2003fn main() {\u3000val x = 42;\u202f/* c */ x }');
 });
 
-test('interpolation is code, with nested braces, Unicode escapes, strings and trivia', () => {
-  const source = String.raw`fn main() {
-    val formatted = f"text\u{41} {{}} { {
-      val s = "}";
-      /* } /* nested */ */
-      f"inner={Point { x: 1 }.x}"
-    }: /* debug */ ?} tail";
-    val closure = f"{|x: i32| x}";
-    val propagated = f"{read()?.value:?}";
-  }`;
+test('ordinary interpolation contains names, not expressions or trivia', () => {
+  const source = String.raw`fn main() { "text\u{41} {{}} {name} {name:?}"; }`;
   const tree = valid(source);
-  assert.equal(nodes(tree.rootNode, 'interpolated_string').length, 4);
-  assert.equal(nodes(tree.rootNode, 'interpolation_format').length, 2);
-  assert.ok(nodes(tree.rootNode, 'escape_sequence').some(n => n.text === String.raw`\u{41}`));
-  assert.equal(nodes(tree.rootNode, 'propagation_expression').length, 1);
-  valid(source.replaceAll('\n', '\r\n'));
+  assert.deepEqual(nodes(tree.rootNode, 'interpolation').map(n => n.childForFieldName('name').text), ['name', 'name']);
+  assert.equal(nodes(tree.rootNode, 'interpolation_format').length, 1);
+  for (const hole of ['name + 1', 'name.field', 'read()', 'module::VALUE', ' name', 'name ', 'name: ?', 'name:/*c*/?', 'name:x', 'true']) {
+    assert.ok(parse('fn main() { "{' + hole + '}"; }').rootNode.hasError, hole);
+  }
+  for (const literal of ['f"old"', 'fr"old"', '"}"', String.raw`"\x80"`, String.raw`"\u{_41}"`, String.raw`"\u{0000000}"`]) {
+    assert.ok(parse('fn main() { ' + literal + '; }').rootNode.hasError, literal);
+  }
 });
 
-for (const eol of ['\n', '\r\n']) {
-  for (const start of ['"unterminated', 'f"unterminated']) {
-    test(`string text recovers at physical line boundary: ${JSON.stringify(start)}, ${JSON.stringify(eol)}`, () => {
-      const tree = parse(`fn main() {${eol}val broken = ${start}${eol}val after = 42;${eol}}`);
-      assert.ok(nodes(tree.rootNode, 'unterminated_string_end').length > 0, tree.rootNode.toString());
-      assert.ok(nodes(tree.rootNode, 'binding_statement').some(n => n.childForFieldName('pattern')?.text === 'after'),
-        tree.rootNode.toString());
-      for (const node of [...nodes(tree.rootNode, 'string_content'), ...nodes(tree.rootNode, 'format_text')]) {
-        assert.doesNotMatch(node.text, /[\r\n]/);
-      }
-    });
+test('raw delimiter bounds and multiline ranges retain physical source spelling', () => {
+  for (const eol of ['\n', '\r\n']) {
+    for (const count of [0, 1, 2, 255]) {
+      const h = '#'.repeat(count);
+      const literal = 'r' + h + '"first' + eol + '  {name} \\n' + eol + '"' + h;
+      const source = 'fn main() { ' + literal + '; val after = 42; }';
+      const raw = nodes(valid(source).rootNode, 'raw_string_literal')[0];
+      assert.equal(raw.text, literal);
+      assert.equal(raw.startIndex, source.indexOf(literal));
+      assert.equal(raw.endIndex, raw.startIndex + literal.length);
+    }
+    const cooked = '"first' + eol + '{name}' + eol + ' tail"';
+    const tree = valid('fn main() { ' + cooked + '; }');
+    assert.equal(nodes(tree.rootNode, 'interpolated_string')[0].text, cooked);
+    const continued = 'fn main() { "first\\' + eol + ' \t' + eol + ' second"; }';
+    valid(continued);
+    const unclosed = parse('fn main() { r#"first' + eol + 'val hidden = 1;');
+    assert.equal(nodes(unclosed.rootNode, 'unterminated_raw_string').length, 1);
+    assert.equal(nodes(unclosed.rootNode, 'binding_statement').length, 0);
   }
-  test(`incomplete escapes cannot continue string text across lines: ${JSON.stringify(eol)}`, () => {
-    for (const start of ['"text\\', 'f"text\\', '"text\\u{', 'f"text\\u{']) {
-      const tree = parse(`fn main() {${eol}val broken = ${start}${eol}val after = 42;${eol}}`);
-      assert.ok(tree.rootNode.hasError, tree.rootNode.toString());
-      assert.ok(nodes(tree.rootNode, 'binding_statement').some(n => n.childForFieldName('pattern')?.text === 'after'),
-        tree.rootNode.toString());
-      for (const node of [...nodes(tree.rootNode, 'string_content'), ...nodes(tree.rootNode, 'format_text')]) {
-        assert.doesNotMatch(node.text, /[\r\n]/);
-        assert.ok(!node.text.includes('after'));
-      }
-    }
-  });
-  test(`unclosed outer hole retains code lexing after nested text ends: ${JSON.stringify(eol)}`, () => {
-    const tree = parse(`fn main() {${eol}val broken = f"{f"nested${eol}val after = 42;${eol}}`);
-    assert.ok(tree.rootNode.hasError, 'the outer hole is still unclosed');
-    assert.equal(nodes(tree.rootNode, 'unterminated_string_end').length, 1);
-    assert.ok(nodes(tree.rootNode, 'identifier').some(n => n.text === 'after'), tree.rootNode.toString());
-    for (const node of [...nodes(tree.rootNode, 'string_content'), ...nodes(tree.rootNode, 'format_text')]) {
-      assert.doesNotMatch(node.text, /[\r\n]/);
-      assert.ok(!node.text.includes('after'), 'following code must not become text');
-    }
-  });
-}
+  const h = '#'.repeat(256);
+  assert.ok(parse('fn main() { r' + h + '"text"' + h + '; }').rootNode.hasError);
+  const extra = parse('fn main() { r#"text"##; }');
+  assert.equal(nodes(extra.rootNode, 'raw_string_literal')[0].text, 'r#"text"#');
+  assert.ok(extra.rootNode.hasError);
+  for (const literal of ['"bare\rCR"', 'r"bare\rCR"']) {
+    assert.ok(parse('fn main() { ' + literal + '; }').rootNode.hasError);
+  }
+});
 
 test('block-like tails and range endpoints preserve their source structure', () => {
   for (const tail of ['if true { 1 } else { 2 }', '{ 42 }', 'loop { break 42; }']) {
@@ -371,7 +353,7 @@ test('unsupported Rust syntax and non-ASCII identifiers are not silently accepte
   for (const source of [
     'fn main() { let x = 1; }', 'fn main() { var mut x = 1; }',
     'fn main(x: dyn Trait) {}', "fn main(x: &'a T) {}",
-    "fn main() { 'x' }", 'fn main() { b"bytes" }', 'fn main() { r#"raw"# }',
+    'fn main() { b"bytes" }', 'fn main() { f"old" }',
     'fn main() { async move { 1 } }', 'fn main() { await value; }',
     'fn 文() {}', 'fn async() {}',
   ]) assert.ok(parse(source).rootNode.hasError, source);
@@ -411,28 +393,27 @@ test('incremental quotes, hole/block braces and nested comment terminators agree
       ['static val', 'val'], ['val count', 'static val count'],
     ]);
     editSequence(['fn main() {', 'val s = "文🙂";', 'val after = 42;', '}'].join(eol), [
-      ['文🙂"', '文🙂'], ['文🙂', '文🙂"'], ['"文🙂"', 'f"文🙂 {after}"'],
+      ['文🙂"', '文🙂'], ['文🙂', '文🙂"'], ['"文🙂"', '"文🙂 {after}"'],
       ['{after}', '{{after}'], ['{{after}', '{after}'],
-      ['{after}', '{ { val x = 1; x } }'], ['x } }', 'x }'], ['x }"', 'x } }"'],
+      ['{after}', '{after:?}'], ['{after:?}', '{after: ?}'], ['{after: ?}', '{after:?}'],
     ]);
     editSequence(`fn main() {${eol}val (left, Point { x: renamed, .. }) = input;${eol}val after = 42; }`, [
       ['.. }', '. }'], ['. }', '.. }'], ['.. })', '.. )'], ['.. )', '.. })'],
       ['(left, Point', '((left, _) | (_, left), Point'],
     ]);
-    editSequence(`fn main() { val s = f"outer {Point { label: f"inner {score}", ..base }} tail";${eol}val after = 42; }`, [
-      ['..base', '..'], ['.. }}', '..base }}'],
+    editSequence(['fn main() { val point = Point { label: "inner {score}", ..base };',
+      '"outer {point} tail"; val after = 42; }'].join(eol), [
+      ['..base', '..'], ['.. };', '..base };'],
       ['..base', '..base,'], ['..base,', '..base'],
-      ['..base', '..=base'], ['..=base', '..base'],
-      ['..base }}', '..base }'], ['..base } tail', '..base }} tail'],
       ['inner {score}"', 'inner {score}'], ['inner {score}', 'inner {score}"'],
-      ['..base', '..{ Point { ..base } }'],
     ]);
     editSequence(`/* outer /* inner */ end */${eol}fn main() { 42 }`, [
       ['inner */', 'inner'], ['inner', 'inner */'], ['end */', 'end'], ['end', 'end */'],
     ]);
-    editSequence(`fn main() { val s = f"outer {f"nested {1}"}";${eol}val after = 42; }`, [
-      ['nested {1}"', 'nested {1}'], ['nested {1}', 'nested {1}"'],
-      ['{1}', '{1'], ['{1', '{1}'],
+    editSequence(['fn main() { val raw = r##"first', String.raw`{name} \n "# last`, '"##; val after = 42; }'].join(eol), [
+      ['r##"', 'r#"'], ['r#"', 'r##"'],
+      ['"##;', '"#;'], ['"#;', '"##;'],
+      ['{name}', '{name:?}'], ['{name:?}', '{name}'],
     ]);
   }
 });

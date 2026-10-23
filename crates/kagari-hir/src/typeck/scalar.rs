@@ -116,7 +116,7 @@ impl ScalarValue {
                 "false" => Ok(Self::Bool(false)),
                 _ => Err("invalid bool literal"),
             },
-            LiteralKind::String => literal::decode_string_literal(&literal.text).map(Self::String),
+            LiteralKind::String => Ok(Self::String(literal.text.clone())),
             LiteralKind::Char => literal::decode_char_literal(&literal.text).map(Self::Char),
         }
     }

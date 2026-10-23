@@ -62,7 +62,7 @@ async function checkPairs(editor) {
     ['val value = "text ";', 'val value = "text '.length],
     ['// comment ', '// comment '.length],
     ['/* comment  */', '/* comment '.length],
-    ['val text = f"text ";', 'val text = f"text '.length],
+    ['val text = r"text ";', 'val text = r"text '.length],
   ]) {
     await replace(editor, text, cursor);
     await vscode.commands.executeCommand('type', { text: '(' });
@@ -70,11 +70,11 @@ async function checkPairs(editor) {
       `No bracket autoclose inside string/comment: ${text}`);
   }
 
-  const embedded = 'val text = f"{ }";';
-  await replace(editor, embedded, embedded.indexOf('{') + 1);
+  const embedded = 'val text = "{name}";';
+  await replace(editor, embedded, embedded.indexOf('}'));
   await vscode.commands.executeCommand('type', { text: '(' });
-  assert.equal(editor.document.getText(), 'val text = f"{() }";',
-    'An embedded expression must support code bracket pairing, not inherit string category');
+  assert.equal(editor.document.getText(), 'val text = "{name()}";',
+    'An identifier hole must initially support code bracket pairing, not inherit string category');
 
   const brackets = 'val value = (1 + (2 * 3));';
   const open = brackets.indexOf('(');

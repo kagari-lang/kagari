@@ -300,14 +300,20 @@ impl<'a> BodyChecker<'a> {
                     ResolvedName::Local(id) => env.locals.get(&id).cloned(),
                     ResolvedName::Const(id) => self.top_level_index.consts.get(&id).cloned(),
                     ResolvedName::Static(id) => self.top_level_index.statics.get(&id).cloned(),
-                    ResolvedName::Source(source) => self
-                        .top_level_index
-                        .imported_statics
-                        .get(&source)
-                        .map(|item| {
-                            self.aggregates
-                                .normalize_type(self.declarations.definitions(), &item.ty)
-                        }),
+                    ResolvedName::Source(source) => {
+                        if let Some(item) = self.top_level_index.imported_constants.get(&source) {
+                            self.type_table.insert_scalar(expr_id, item.value.clone());
+                            Some(item.value.ty())
+                        } else {
+                            self.top_level_index
+                                .imported_statics
+                                .get(&source)
+                                .map(|item| {
+                                    self.aggregates
+                                        .normalize_type(self.declarations.definitions(), &item.ty)
+                                })
+                        }
+                    }
                     ResolvedName::Function(_)
                     | ResolvedName::RuntimeHelper(_)
                     | ResolvedName::Namespace(_)

@@ -10,7 +10,6 @@ pub(crate) enum Doc {
     Concat(Vec<Doc>),
     Indent(Box<Doc>),
     Group(Box<Doc>),
-    Flat(Box<Doc>),
 }
 
 impl Doc {
@@ -36,10 +35,6 @@ impl Doc {
     pub fn indent(self) -> Self {
         Self::Indent(Box::new(self))
     }
-
-    pub fn flat(self) -> Self {
-        Self::Flat(Box::new(self))
-    }
 }
 
 pub(crate) fn print(
@@ -58,7 +53,7 @@ pub(crate) fn print(
         newline,
         cancel,
     };
-    printer.write(doc, 0, false, false)?;
+    printer.write(doc, 0, false)?;
     while printer.output.ends_with(['\r', '\n']) {
         printer.output.pop();
     }
@@ -78,13 +73,7 @@ struct Printer<'a> {
 }
 
 impl Printer<'_> {
-    fn write(
-        &mut self,
-        doc: &Doc,
-        depth: usize,
-        flat: bool,
-        forced: bool,
-    ) -> Result<(), Cancelled> {
+    fn write(&mut self, doc: &Doc, depth: usize, flat: bool) -> Result<(), Cancelled> {
         self.cancel.check()?;
         match doc {
             Doc::Text(text) => {
@@ -111,8 +100,8 @@ impl Printer<'_> {
                 flat: replacement,
                 hard,
             } => {
-                if forced || (flat && !hard) {
-                    self.write(&Doc::text(*replacement), depth, flat, forced)?;
+                if flat && !hard {
+                    self.write(&Doc::text(*replacement), depth, flat)?;
                 } else {
                     self.output.push_str(self.newline);
                     self.column = 0;
@@ -121,17 +110,16 @@ impl Printer<'_> {
             }
             Doc::Concat(parts) => {
                 for part in parts {
-                    self.write(part, depth, flat, forced)?;
+                    self.write(part, depth, flat)?;
                 }
             }
-            Doc::Indent(inner) => self.write(inner, depth + 1, flat, forced)?,
-            Doc::Flat(inner) => self.write(inner, depth, true, true)?,
+            Doc::Indent(inner) => self.write(inner, depth + 1, flat)?,
             Doc::Group(inner) => {
                 let remaining = self
                     .width
                     .saturating_sub(self.column.max(self.pending_indent));
                 let fits = flat || flat_width(inner, remaining, self.cancel)?.is_some();
-                self.write(inner, depth, fits, forced)?;
+                self.write(inner, depth, fits)?;
             }
         }
         Ok(())
@@ -148,9 +136,7 @@ fn flat_width(
         Doc::Text(text) if !text.contains(['\r', '\n']) => Some(text.chars().count()),
         Doc::Text(_) | Doc::RequiredLine | Doc::Line { hard: true, .. } => None,
         Doc::Line { flat, .. } => Some(flat.len()),
-        Doc::Indent(inner) | Doc::Group(inner) | Doc::Flat(inner) => {
-            flat_width(inner, budget, cancel)?
-        }
+        Doc::Indent(inner) | Doc::Group(inner) => flat_width(inner, budget, cancel)?,
         Doc::Concat(parts) => {
             let mut used = 0;
             for part in parts {
@@ -195,9 +181,10 @@ mod tests {
             print(&list, 12, 2, "\r\n", &Default::default()).unwrap(),
             "call(\r\n  first,\r\n  second\r\n)\r\n"
         );
+        let literal = Doc::Concat(vec![Doc::hard(), Doc::text("\"first\n  second\n\"")]).indent();
         assert_eq!(
-            print(&list.flat(), 1, 4, "\n", &Default::default()).unwrap(),
-            "call(first, second)\n"
+            print(&literal, 1, 4, "\r\n", &Default::default()).unwrap(),
+            "\r\n    \"first\n  second\n\"\r\n"
         );
     }
 }

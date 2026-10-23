@@ -161,7 +161,7 @@ fn numeric_suffixes_context_and_full_unsigned_range_execute() {
             { val passed = DOUBLE == 2f64; if !passed {val zero=0;1/zero;} };
             { val passed = maximum > 9223372036854775808u64; if !passed {val zero=0;1/zero;} };
             { val passed = maximum / 3u64 == 6148914691236517205u64; if !passed {val zero=0;1/zero;} };
-            { val passed = f"{maximum}" == "18446744073709551615"; if !passed {val zero=0;1/zero;} };
+            { val passed = "{maximum}" == "18446744073709551615"; if !passed {val zero=0;1/zero;} };
             val keys = HashSet::new();
             keys.insert(maximum);
             { val passed = keys.contains(maximum); if !passed {val zero=0;1/zero;} };

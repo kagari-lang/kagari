@@ -208,7 +208,7 @@ impl AnalysisDatabase {
             return Ok(None);
         };
         let environment = signatures
-            .body_environments(cancel)?
+            .body_environments(self.const_limits, cancel)?
             .remove(&file.source().id())
             .expect("function environment");
         let previous = self.body_cache.get_id(owner_id);
@@ -268,6 +268,7 @@ impl AnalysisDatabase {
                             .imported_functions
                             == environment.imported_functions
                         && old.environment.imported_statics == environment.imported_statics
+                        && old.environment.imported_constants == environment.imported_constants
                         && previous_environment
                             .as_ref()
                             .expect("previous body environment")
@@ -296,6 +297,8 @@ impl AnalysisDatabase {
                     signatures: &prepared.signatures,
                     imported_functions: &environment.imported_functions,
                     imported_statics: &environment.imported_statics,
+                    imported_constants: &environment.imported_constants,
+                    constants: environment.constants.as_deref(),
                     aggregates: &environment.aggregates,
                 },
                 reuse.as_ref(),

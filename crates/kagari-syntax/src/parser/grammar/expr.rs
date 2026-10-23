@@ -425,20 +425,42 @@ impl<'a> Parser<'a> {
             } else if self.at(TokenKind::FormatOpen) {
                 self.start_node(SyntaxKind::Interpolation);
                 self.bump();
-                self.parse_expr();
-                self.bump_trivia();
+                if self.at(TokenKind::Ident) {
+                    self.parse_path_expr();
+                } else {
+                    self.error_here(DiagnosticKind::InvalidLiteral {
+                        reason: "interpolation requires {name} or {name:?} without whitespace; bind expressions outside the String".into(),
+                    });
+                    while !self.at_any(&[
+                        TokenKind::FormatClose,
+                        TokenKind::FormatEnd,
+                        TokenKind::Eof,
+                    ]) {
+                        self.bump_as_error();
+                    }
+                }
                 if self.at(TokenKind::Colon) {
                     self.bump();
                     self.expect(TokenKind::Question, DiagnosticKind::UnexpectedToken);
                 }
-                self.expect(TokenKind::FormatClose, DiagnosticKind::ExpectedBlockEnd);
+                self.expect(
+                    TokenKind::FormatClose,
+                    DiagnosticKind::InvalidLiteral {
+                        reason: "unterminated interpolation; expected `}`".into(),
+                    },
+                );
                 self.finish_node();
             } else {
                 self.error_here(DiagnosticKind::UnexpectedToken);
                 self.bump_as_error();
             }
         }
-        self.expect(TokenKind::FormatEnd, DiagnosticKind::UnexpectedToken);
+        self.expect(
+            TokenKind::FormatEnd,
+            DiagnosticKind::InvalidLiteral {
+                reason: "unterminated String literal; expected closing quote".into(),
+            },
+        );
         self.finish_node();
     }
 

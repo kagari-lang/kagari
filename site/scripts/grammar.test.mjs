@@ -26,7 +26,7 @@ test('registration adapts only the maintained grammar name and aliases', () => {
 });
 
 test('shared grammar captures comments, strings and interpolation holes lexically', () => {
-  const all = tokens('// line comment\n/* outer /* inner */ end */\nval text = "hello";\nval message = f"sum {value + 1} {{literal}}";');
+  const all = tokens('// line comment\n/* outer /* inner */ end */\nval text = "hello";\nval value = 1 + 2;\nval message = "sum {value} {{literal}}";');
   assert(all.some((token) => token.content.includes('line comment') && hasScope(token, 'comment.line.double-slash.kagari')));
   assert(all.some((token) => token.content.includes('inner') && hasScope(token, 'comment.block.kagari')));
   scoped(all, 'hello', 'string.quoted.double.kagari');

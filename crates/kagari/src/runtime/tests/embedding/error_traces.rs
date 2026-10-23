@@ -217,7 +217,7 @@ fn from_conversion_keeps_the_original_error_stack_across_gc() {
 }
 struct SourceError { val message: String }
 impl From<SourceError> for String {
-    fn from(error: SourceError) -> String { f"converted {error.message}" }
+    fn from(error: SourceError) -> String { val message = error.message; "converted {message}" }
 }
 fn middle<T, E, F: From<E>>(value: Result<T, E>)->Result<T, F> { Ok(value?) }
 fn main()->Result<i32, String> { middle(origin()) }

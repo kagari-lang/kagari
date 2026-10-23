@@ -73,7 +73,7 @@ async function main() {
   }, null, 2) + '\n');
   const sample = path.join(directory, 'standalone-雪.kgr');
   await writeFile(sample, '// Standalone isolated Zed probe; no analyzer.\r\n'
-    + 'fn main() {\r\n    val answer = 42;\r\n    val text = f"value={answer}";\r\n'
+    + 'fn main() {\r\n    val answer = 42;\r\n    val text = "value={answer}";\r\n'
     + '    /* outer /* nested */ end */\r\n}\r\n');
   const launchArgs = [...(process.platform === 'win32' ? ['--foreground'] : []), '--user-data-dir', userData, sample];
   const launch = { executable, version: version.trim(), launchArgs, directory, userData, installed,

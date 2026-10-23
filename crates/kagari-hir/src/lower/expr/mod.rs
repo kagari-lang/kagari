@@ -22,6 +22,7 @@ use kagari_syntax::{
 };
 
 use kagari_common::span::Span;
+use kagari_source::literal::decode_string_fragment_with_cancellation;
 
 mod literal;
 mod pattern;
@@ -108,7 +109,14 @@ impl Lowerer {
                 for element in string.syntax().children_with_tokens() {
                     if let Some(token) = element.as_token() {
                         if token.kind() == SyntaxKind::FormatText {
-                            let text = token.text().replace("{{", "{").replace("}}", "}");
+                            let Ok(text) = decode_string_fragment_with_cancellation(
+                                token.text(),
+                                &self.cancel,
+                            ) else {
+                                return self.missing_expr();
+                            };
+                            let text =
+                                text.expect("FormatText tokens have validated literal syntax");
                             parts.push(self.alloc_expr(
                                 Span::new(
                                     usize::from(token.text_range().start()),
@@ -117,7 +125,7 @@ impl Lowerer {
                                 ExprData {
                                     kind: ExprKind::Literal(Literal {
                                         kind: LiteralKind::String,
-                                        text: format!("\"{text}\""),
+                                        text,
                                     }),
                                 },
                             ));

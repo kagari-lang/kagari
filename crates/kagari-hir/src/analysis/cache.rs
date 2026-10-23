@@ -26,6 +26,7 @@ impl FileAnalysis {
                 .unwrap_or(false)
             && previous.imported_functions == environment.imported_functions
             && previous.imported_statics == environment.imported_statics
+            && previous.imported_constants == environment.imported_constants
             && previous.aggregates == environment.aggregates
             && previous.declarations.imported_types == prepared.declarations.imported_types
     }
@@ -54,6 +55,7 @@ impl FileAnalysis {
                 .unwrap_or(false)
             && previous.imported_functions == environment.imported_functions
             && previous.imported_statics == environment.imported_statics
+            && previous.imported_constants == environment.imported_constants
             && previous.aggregates.same_contracts(&environment.aggregates)
             && previous.declarations.imported_types == prepared.declarations.imported_types
             && self.source.module_identity() == prepared.lowered.source.module_identity()

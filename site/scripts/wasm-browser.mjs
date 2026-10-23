@@ -68,7 +68,7 @@ const cases = [
   { name: 'source-wide-collections-parsing-take', mode: 'source', kind: 'execute', source: `use std::collections::HashSet;
 fn main() -> u64 {
     val maximum = match u64::from_str("18446744073709551615") { Ok(value) => value, Err(_) => { return 0u64; } };
-    if f"{maximum}" != "18446744073709551615" { return 0u64; }
+    if "{maximum}" != "18446744073709551615" { return 0u64; }
     val keys = HashSet::new(); keys.insert(maximum);
     if !keys.contains(maximum) || keys.len() != 1u64 { return 0u64; }
     val values = Vec::from([maximum]); values.sort();
@@ -78,7 +78,7 @@ fn main() -> u64 {
 }`, result: { tag: 'u64', value: '18446744073709551615' }, output: [] },
   { name: 'source-wide-read-no-wrap-effects', mode: 'source', kind: 'trap', source: 'use web::print; fn index() -> u64 { print("index"); 4294967296u64 } fn main() -> i32 { val values = [7]; print("before"); val result = values[index()]; print("after"); result }', output: ['before', 'index'], indexDiagnostic: 'array index 4294967296 is out of bounds' },
   { name: 'source-wide-write-no-wrap-effects', mode: 'source', kind: 'trap', source: 'use web::print; fn base(values: [i32]) -> [i32] { print("base"); values } fn index() -> u64 { print("index"); 18446744073709551615u64 } fn replacement() -> i32 { print("replacement"); 9 } fn main() { val values = [7]; base(values)[index()] = replacement(); print("after"); }', output: ['base', 'index', 'replacement'], indexDiagnostic: 'InvalidIndex(18446744073709551615)' },
-  { name: 'source-gc-repeated-rooted-results', mode: 'source', kind: 'gc', source: 'fn main() -> String { val retained = ["rooted 😀"]; for i in 0..4096 { val garbage = [f"{i}😀"]; } retained[0] }' },
+  { name: 'source-gc-repeated-rooted-results', mode: 'source', kind: 'gc', source: 'fn main() -> String { val retained = ["rooted 😀"]; for i in 0..4096 { val garbage = ["{i}😀"]; } retained[0] }' },
   { name: 'source-unicode-crlf-diagnostics', mode: 'source', kind: 'diagnostics' },
   { name: 'source-removed-names-and-suffixes', mode: 'source', kind: 'removed' },
   { name: 'source-sliced-cancel-reset', mode: 'source', kind: 'cancel' },

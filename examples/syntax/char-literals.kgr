@@ -1,4 +1,4 @@
-// Unicode scalar characters; String interpolation keeps its existing f prefix.
+// Unicode scalar characters and identifier-only String interpolation.
 const FIRST: char = 'a';
 const LAST: char = '\u{10_FF_FF_}';
 
@@ -19,6 +19,6 @@ fn main() {
     val backslash = '\\';
     val ascii = ['\x00', '\x7F'];
     val unicode = ['\u{0}', '\u{D7FF}', '\u{E000}', LAST];
-    val label = f"{scalar} {FIRST:?}";
+    val label = "{scalar} {FIRST:?}";
     classify(FIRST);
 }

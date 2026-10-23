@@ -279,6 +279,11 @@ impl FileAnalysis {
             {
                 return Some(&item.site);
             }
+            if let ResolvedName::Source(source) = &target
+                && let Some(item) = facts.imported_constants.get(source)
+            {
+                return Some(&item.site);
+            }
             facts.declarations.target(target)
         };
         let expressions = facts
@@ -839,7 +844,7 @@ impl AnalysisDatabase {
                 )
             })
             .collect::<BTreeMap<_, _>>();
-        let mut environments = signature_snapshot.body_environments(cancel)?;
+        let mut environments = signature_snapshot.body_environments(self.const_limits, cancel)?;
         let mut files = HashMap::new();
         for (id, (file, parsed, scoped_prepared)) in signatures {
             cancel.check()?;

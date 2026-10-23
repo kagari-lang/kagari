@@ -7,7 +7,7 @@ import Kagari from 'tree-sitter-kagari';
 // The complete example inventory belongs to CI; local tests select contract cases.
 const repository = fileURLToPath(new URL('../../', import.meta.url));
 const examples = join(repository, 'examples', 'syntax');
-const invalidTerminals = new Set(['unterminated_string_end', 'unterminated_block_comment']);
+const invalidTerminals = new Set(['unterminated_string_end', 'unterminated_raw_string', 'unterminated_block_comment']);
 
 async function collect(directory) {
   const files = [];

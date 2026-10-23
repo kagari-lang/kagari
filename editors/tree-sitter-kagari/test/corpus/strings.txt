@@ -1,0 +1,210 @@
+==================
+Raw strings preserve escapes braces and partial closing delimiters
+==================
+fn text() { r"{name} \n"; r#"a " b"#; r##"a "# b"##; r""; }
+
+---
+
+(source_file
+  (function_item
+    (identifier)
+    (parameters)
+    (block
+      (expression_statement (raw_string_literal))
+      (expression_statement (raw_string_literal))
+      (expression_statement (raw_string_literal))
+      (expression_statement (raw_string_literal)))))
+
+==================
+Text escapes and continuations do not open interpolation holes
+==================
+fn text() { "\x00\x7F\u{7_B_}\'\
+  	
+  continued {name:?}"; }
+
+---
+
+(source_file
+  (function_item
+    (identifier)
+    (parameters)
+    (block
+      (expression_statement
+        (interpolated_string
+          (escape_sequence)
+          (escape_sequence)
+          (escape_sequence)
+          (escape_sequence)
+          (escape_sequence)
+          (string_content)
+          (interpolation (identifier) (interpolation_format)))))))
+
+==================
+Unclosed raw string extends to EOF
+==================
+const TEXT = r##"first
+{name} \n "#
+fn hidden() {}
+
+---
+
+(source_file (const_item (identifier) (unterminated_raw_string) (MISSING ";")))
+
+==================
+Expression holes are not accepted
+:error
+==================
+fn text() { "{name + 1}"; }
+
+---
+
+(source_file)
+
+==================
+Field holes are not accepted
+:error
+==================
+fn text() { "{name.field}"; }
+
+---
+
+(source_file)
+
+==================
+Leading hole whitespace is not accepted
+:error
+==================
+fn text() { "{ name}"; }
+
+---
+
+(source_file)
+
+==================
+Trailing hole whitespace is not accepted
+:error
+==================
+fn text() { "{name }"; }
+
+---
+
+(source_file)
+
+==================
+Debug suffix whitespace is not accepted
+:error
+==================
+fn text() { "{name: ?}"; }
+
+---
+
+(source_file)
+
+==================
+Debug suffix comments are not accepted
+:error
+==================
+fn text() { "{name:/* trivia */?}"; }
+
+---
+
+(source_file)
+
+==================
+Keyword holes are not identifiers
+:error
+==================
+fn text() { "{true}"; }
+
+---
+
+(source_file)
+
+==================
+Legacy f prefix is not accepted
+:error
+==================
+fn text() { f"{name}"; }
+
+---
+
+(source_file)
+
+==================
+Byte strings remain unsupported
+:error
+==================
+fn text() { b"bytes"; }
+
+---
+
+(source_file)
+
+==================
+Text hexadecimal escapes must be ASCII
+:error
+==================
+fn text() { "\x80"; }
+
+---
+
+(source_file)
+
+==================
+Unicode escapes cannot begin with underscores
+:error
+==================
+fn text() { "\u{_41}"; }
+
+---
+
+(source_file)
+
+==================
+Unicode escapes have at most six digits
+:error
+==================
+fn text() { "\u{0000000}"; }
+
+---
+
+(source_file)
+
+==================
+A lone closing brace is not literal text
+:error
+==================
+fn text() { "}"; }
+
+---
+
+(source_file)
+
+==================
+Extra raw closing hashes belong to following tokens
+:error
+==================
+fn text() { r#"text"##; }
+
+---
+
+(source_file)
+
+==================
+Raw delimiter hash bound 255
+==================
+fn text() { r###############################################################################################################################################################################################################################################################"{name} \n"###############################################################################################################################################################################################################################################################; }
+
+---
+
+(source_file (function_item (identifier) (parameters) (block (expression_statement (raw_string_literal)))))
+
+==================
+Raw delimiter hash bound 256
+:error
+==================
+fn text() { r################################################################################################################################################################################################################################################################"{name} \n"################################################################################################################################################################################################################################################################; }
+
+---
+
+(source_file)

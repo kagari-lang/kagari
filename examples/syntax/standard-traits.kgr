@@ -6,7 +6,7 @@ use core::fmt::Display as Show;
 
 struct Label { val value: i32 }
 impl Debug for Label {
-    fn debug(self) -> String { f"Label({self.value})" }
+    fn debug(self) -> String { val value = self.value; "Label({value})" }
 }
 impl Show for Label {
     fn display(self) -> String { self.value.display() }

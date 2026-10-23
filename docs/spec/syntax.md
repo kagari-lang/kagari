@@ -144,7 +144,10 @@ The grammar uses the following literal token classes:
 - `INTEGER`
 - `FLOAT`
 - `CHAR`
-- `STRING`
+- `STRING` (cooked or raw text without interpolation holes)
+
+Cooked strings with holes use the `interpolated_string` expression production
+below rather than the literal-only `STRING` token class.
 
 #### Integer Literals
 
@@ -203,13 +206,46 @@ must be escaped. Character literals do not span physical source lines.
 
 #### String Literals
 
-String literals are double-quoted.
-Strings support the usual single-character escapes and Unicode escapes of the form `\u{...}`.
-Character escape extensions do not change String decoding: `\xNN`, Unicode-escape
-underscores and `\'` are not String escapes. Ordinary strings do not interpolate;
-[expression interpolation](#interpolated-strings) still requires `f"..."`.
-Physical newlines, raw strings, byte characters and byte strings are not supported.
-Character support does not add String indexing or `chars`/`char_indices`/`bytes`
+Cooked `"..."` and raw `r"..."` / `r#"..."#` literals produce `String` values.
+Cooked strings support `\'`, `\"`, `\\`, `\n`, `\r`, `\t`, `\0`, ASCII `\xNN`
+(exactly two hexadecimal digits, value 00-7F) and `\u{...}` with the same scalar,
+digit and underscore rules as [character literals](#character-literals).
+Unknown escapes are errors. Ordinary cooked strings also support
+[identifier-only interpolation](#interpolated-strings); literal braces must be
+written `{{` and `}}` or produced by an escape such as `\u{7B}`.
+
+Raw strings allow zero through 255 hashes between `r` and the opening quote.
+They close at a quote followed by the matching number of hashes; additional
+hashes belong to subsequent source tokens. Raw content has no escapes,
+interpolation or brace doubling: `r"\n {name}"` contains a backslash, `n`, a
+space and the literal text `{name}`. Use hashes to include quotes:
+
+```kgr
+val json = r#"{"name":"Kagari","template":"{name}"}"#;
+val braces = "Literal {{ and }}";
+```
+
+Both cooked and raw strings may span physical source lines. Initial/final
+newlines and indentation are retained, with no automatic dedent. Source CRLF is
+normalized to LF in the decoded value without rewriting source text or spans;
+standalone CR in literal text is rejected. In cooked strings, backslash directly
+followed by LF or CRLF removes that line break and all following ASCII spaces,
+tabs, LF and CR up to the next non-whitespace character. Raw strings do not
+process continuations. A `\n` escape produces a newline without removing
+following whitespace.
+
+```kgr
+val message = "first
+  second";
+val joined = "left\
+    right";
+// message is "first\n  second"; joined is "leftright".
+```
+
+No-hole cooked/raw strings remain literals in patterns and other existing
+literal-only positions. Interpolation does not enable runtime formatting in
+attributes or constant evaluation. Byte characters and byte strings are not
+supported; this String cutover adds no indexing or `chars`/`char_indices`/`bytes`
 traversal methods.
 
 ### Comments
@@ -988,6 +1024,7 @@ propagation_suffix ::= "?" ;
 await_suffix    ::= "." "await" ;
 
 primary_expr    ::= literal
+                  | interpolated_string
                   | path
                   | explicit_enum_path
                   | explicit_callable_path
@@ -1058,7 +1095,18 @@ literal         ::= INTEGER
                   | STRING
                   | "true"
                   | "false" ;
+
+interpolated_string ::= '"' STRING_TEXT? interpolation_hole
+                        (STRING_TEXT | interpolation_hole)* '"' ;
+
+interpolation_hole ::= "{" IDENT (":?")? "}" ;
 ```
+
+`STRING_TEXT` contains cooked text/escapes and doubled literal braces; physical
+newlines are permitted. Hole delimiters are recognized before decoding escapes.
+Unlike ordinary expression grammar, `interpolation_hole` permits no whitespace or
+comments between its parts. Raw text and cooked strings without holes use `STRING`.
+See [String literals](#string-literals) for decoding and delimiter rules.
 
 ### Expression Notes
 
@@ -1382,33 +1430,55 @@ for associated output/residual types and error conversion rules. There is no exc
 
 ## Interpolated strings
 
-`f"..."` constructs a String from literal text and expression holes. Ordinary
-`"..."` strings do not interpolate. `{expr}` uses the canonical standard Display
-protocol; `{expr:?}` uses Debug. Missing implementations or generic bounds are
-compile-time diagnostics. Inherent methods named `display` or `debug` and local
-bindings named `std` or `Display` do not redirect interpolation.
+Ordinary `"..."` strings interpolate names. A hole is exactly `{name}` or
+`{name:?}`, with no internal whitespace. `name` is an ordinary value identifier:
+normal name resolution admits locals, parameters, constants, accessible statics
+and imported aliases, not arbitrary expressions or qualified paths. `{name}`
+uses the canonical standard Display protocol; `{name:?}` uses Debug. Missing
+implementations or generic bounds are compile-time diagnostics at each occurrence.
+Inherent methods named `display` or `debug` and local bindings named `std` or
+`Display` do not redirect interpolation. Raw strings never interpolate; the old
+`f"..."` prefix is not supported.
 
 ```kgr
 val name = "Kagari";
-val score = 40;
-val message = f"Hello {name}, score={score + 2}";
-val diagnostic = f"name={name:?}";
-val braces = f"{{{name}}}";
+val score = 40 + 2;
+val message = "Hello {name}, score={score}";
+val diagnostic = "name={name:?}";
+val braces = "{{{name}}}";
 ```
 
-Literal `{{` and `}}` produce single braces. Text uses ordinary string escape
-rules, including `\u{...}`; those escape braces do not open holes. Unescaped
-single braces, empty holes, invalid escapes and unsupported format suffixes are
+Literal `{{` and `}}` produce single braces. Text uses the cooked escape and
+multiline rules above. Delimiters are recognized in source, not decoded text:
+`\u{7B}` produces a literal opening brace and cannot open a hole. Unmatched single
+braces, empty holes, invalid escapes and unsupported format suffixes are
 diagnostics. Width, precision and alternate numeric formats are not supported.
-Physical line breaks are not allowed in text segments, matching ordinary string
-literals. Expression holes follow ordinary expression whitespace/comment rules
-and may contain blocks, closures, strings or nested interpolated strings.
+Reject fields, indexing, calls, qualified paths, operators, blocks, comments and
+whitespace inside holes: bind the expression outside the string instead. There
+is no `\{` escape, `fr` prefix or separate `${...}` interpolation form.
 
-Each expression is evaluated once and immediately formatted, from left to right.
-The next expression runs only after the previous formatting call returns. `?`,
-return, trap, cancellation and call-depth failure keep their ordinary behavior;
-when evaluation exits, later holes do not run. Completed effects are not rolled
-back. Display/Debug implementations may themselves contain interpolation.
+Each occurrence reads its name once and immediately formats it, from left to
+right. The next name is read only after the previous formatting call returns.
+Reading a static can initialize it; repeated names are read again, not captured
+once on entry to the string. For example, `"{first}{STATE}"` observes an update to
+STATE made by `first`'s Display implementation. Traps, cancellation and call-depth
+failure skip later reads and formatting; completed effects are not rolled back.
+Display/Debug implementations may themselves contain interpolation.
+
+When migrating expression holes, preserve this order rather than hoisting every
+expression ahead of formatting. If creating `second` must happen after formatting
+`first`, use an intermediate rendered string:
+
+```kgr
+val first = make_first();
+val rendered = "{first}";
+val second = make_second();
+val message = "{rendered}: {second:?}";
+```
+
+Keep bindings inside their original branch or argument-evaluation position.
+Propagation and early return belong in those explicit expressions/statements;
+they still skip subsequent work and preserve completed effects.
 
 Interpolation is a runtime expression and is outside the scalar const-safe subset.
 Standard formatting traits remain static protocols; this feature adds no dynamic

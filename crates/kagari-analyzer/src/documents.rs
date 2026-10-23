@@ -101,6 +101,7 @@ impl Documents {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kagari_source::line_index::PositionEncoding;
     use lsp_types::{
         Position, Range, TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem,
         VersionedTextDocumentIdentifier,
@@ -223,6 +224,46 @@ mod tests {
         docs.change(change(uri, 2, vec![full(incomplete)])).unwrap();
         assert_eq!(docs.source.snapshot().file(id).unwrap().text(), incomplete);
         assert_eq!(before.file(id).unwrap().text(), original);
+    }
+
+    #[test]
+    fn multiline_text_edits_preserve_physical_offsets_and_retained_revisions() {
+        for eol in ["\n", "\r\n"] {
+            let mut docs = documents();
+            let uri = "untitled:strings.kgr";
+            let original = [
+                "fn f() { val text = r#\"",
+                "🙂 {literal} \\n",
+                "\"#; val cooked = \"",
+                "🙂é {name:?}",
+                "\"; }",
+            ]
+            .join(eol);
+            docs.open(open(uri, 1, &original)).unwrap();
+            let id = docs.source.file_id(uri).unwrap();
+            let retained = docs.source.snapshot();
+            let mut version = 1;
+            for edited in [
+                original.replace("\"#;", "\";"),
+                original.replace("{name:?}", "{name: ?}"),
+                original.replace("{name:?}", "{name.value}"),
+                original.replace("{name:?}", "{name"),
+                original.clone(),
+            ] {
+                version += 1;
+                docs.change(change(uri, version, vec![full(&edited)]))
+                    .unwrap();
+                let snapshot = docs.source.snapshot();
+                let file = snapshot.file(id).unwrap();
+                assert_eq!(file.text(), edited);
+                let offset = edited.find("{name").unwrap();
+                let position = file.position(offset, PositionEncoding::Utf16).unwrap();
+                assert_eq!(position.line, 3);
+                assert_eq!(position.character, 4);
+                assert_eq!(file.offset(position, PositionEncoding::Utf16), Some(offset));
+                assert_eq!(retained.file(id).unwrap().text(), original);
+            }
+        }
     }
 
     #[test]

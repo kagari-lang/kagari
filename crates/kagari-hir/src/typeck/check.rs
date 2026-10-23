@@ -449,6 +449,8 @@ pub(crate) fn check_bodies_controlled(
         signatures,
         imported_functions,
         imported_statics,
+        imported_constants,
+        constants,
         aggregates,
     } = inputs;
     let reuse = reuse.filter(|reuse| reuse.environment_matches(lowered));
@@ -484,138 +486,165 @@ pub(crate) fn check_bodies_controlled(
             })
             .collect(),
         imported_statics: imported_statics.clone(),
+        imported_constants: imported_constants.clone(),
         ..Default::default()
     };
     let mut type_table = signatures.facts.type_table.clone();
     {
-        // Explicit constant declarations are visible throughout the module,
-        // independently of initializer evaluation order.
-        for const_item in &lowered.module.consts {
-            if cancel.check().is_err() {
-                break;
-            }
-            let Some(ty_ref) = const_item.ty else {
-                continue;
-            };
-            let ty = match resolve_type(
-                &lowered.module,
-                ty_ref,
-                declarations,
-                &mut type_table,
-                cancel,
-            ) {
-                ty if !ty.is_unresolved() => {
-                    validate_reference_position(
-                        &ty,
-                        lowered.source_map.type_span(ty_ref),
-                        &mut diagnostics,
-                    );
-                    ty
+        let const_values = if let Some(constants) = constants {
+            top_level_index.consts = constants.types.clone();
+            type_table = constants.table.clone();
+            diagnostics.extend(constants.diagnostics.iter().cloned());
+            constants.values.clone()
+        } else {
+            // Explicit constant declarations are visible throughout the module,
+            // independently of initializer evaluation order.
+            for const_item in &lowered.module.consts {
+                if cancel.check().is_err() {
+                    break;
                 }
-                ty => {
-                    validate_reference_position(
-                        &ty,
-                        lowered.source_map.type_span(ty_ref),
-                        &mut diagnostics,
-                    );
-                    diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::UnknownConstType {
-                            const_name: const_item.name.clone(),
-                            type_name: display_type(&lowered.module, ty_ref),
-                        })
-                        .with_span(lowered.source_map.const_span(const_item.id)),
-                    );
-                    ty
+                let Some(ty_ref) = const_item.ty else {
+                    continue;
+                };
+                let ty = match resolve_type(
+                    &lowered.module,
+                    ty_ref,
+                    declarations,
+                    &mut type_table,
+                    cancel,
+                ) {
+                    ty if !ty.is_unresolved() => {
+                        validate_reference_position(
+                            &ty,
+                            lowered.source_map.type_span(ty_ref),
+                            &mut diagnostics,
+                        );
+                        ty
+                    }
+                    ty => {
+                        validate_reference_position(
+                            &ty,
+                            lowered.source_map.type_span(ty_ref),
+                            &mut diagnostics,
+                        );
+                        diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::UnknownConstType {
+                                const_name: const_item.name.clone(),
+                                type_name: display_type(&lowered.module, ty_ref),
+                            })
+                            .with_span(lowered.source_map.const_span(const_item.id)),
+                        );
+                        ty
+                    }
+                };
+                applications::validate(
+                    applications::ApplicationContext {
+                        definitions: declarations.definitions(),
+                        catalog: aggregates,
+                        receiver: None,
+                    },
+                    &ty,
+                    &HashMap::new(),
+                    lowered.source_map.type_span(ty_ref),
+                    &mut diagnostics,
+                    cancel,
+                );
+                top_level_index.consts.insert(const_item.id, ty);
+            }
+            for const_item in &lowered.module.consts {
+                if cancel.check().is_err() {
+                    break;
                 }
-            };
-            applications::validate(
-                applications::ApplicationContext {
-                    definitions: declarations.definitions(),
-                    catalog: aggregates,
-                    receiver: None,
-                },
-                &ty,
-                &HashMap::new(),
-                lowered.source_map.type_span(ty_ref),
-                &mut diagnostics,
-                cancel,
-            );
-            top_level_index.consts.insert(const_item.id, ty);
-        }
-        for const_item in &lowered.module.consts {
-            if cancel.check().is_err() {
-                break;
+                let ty = if let Some(ty) = top_level_index.consts.get(&const_item.id) {
+                    ty.clone()
+                } else {
+                    let mut env = BodyTypeEnv::default();
+                    let mut checker = BodyChecker::new(
+                        lowered,
+                        names,
+                        TypeIndexes {
+                            aggregates,
+                            imported_functions,
+                            declarations,
+                            cancel,
+                            function_index: &function_index,
+                            top_level_index: &top_level_index,
+                            const_values: None,
+                        },
+                        &mut diagnostics,
+                        &mut type_table,
+                        "<const>",
+                        TypeId::Builtin(BuiltinType::Unit),
+                    );
+                    checker.infer_expr_type(const_item.initializer, &mut env)
+                };
+                if const_item.ty.is_some() {
+                    let mut env = BodyTypeEnv::default();
+                    let mut checker = BodyChecker::new(
+                        lowered,
+                        names,
+                        TypeIndexes {
+                            aggregates,
+                            imported_functions,
+                            declarations,
+                            cancel,
+                            function_index: &function_index,
+                            top_level_index: &top_level_index,
+                            const_values: None,
+                        },
+                        &mut diagnostics,
+                        &mut type_table,
+                        "<const>",
+                        TypeId::Builtin(BuiltinType::Unit),
+                    );
+                    let _ = checker.infer_expr_type_expected(
+                        const_item.initializer,
+                        &mut env,
+                        Some(&ty),
+                    );
+                }
+                top_level_index.consts.insert(const_item.id, ty.clone());
             }
-            let ty = if let Some(ty) = top_level_index.consts.get(&const_item.id) {
-                ty.clone()
-            } else {
-                let mut env = BodyTypeEnv::default();
-                let mut checker = BodyChecker::new(
-                    lowered,
-                    names,
-                    TypeIndexes {
-                        aggregates,
-                        imported_functions,
-                        declarations,
-                        cancel,
-                        function_index: &function_index,
-                        top_level_index: &top_level_index,
-                        const_values: None,
-                    },
-                    &mut diagnostics,
-                    &mut type_table,
-                    "<const>",
-                    TypeId::Builtin(BuiltinType::Unit),
-                );
-                checker.infer_expr_type(const_item.initializer, &mut env)
-            };
-            if const_item.ty.is_some() {
-                let mut env = BodyTypeEnv::default();
-                let mut checker = BodyChecker::new(
-                    lowered,
-                    names,
-                    TypeIndexes {
-                        aggregates,
-                        imported_functions,
-                        declarations,
-                        cancel,
-                        function_index: &function_index,
-                        top_level_index: &top_level_index,
-                        const_values: None,
-                    },
-                    &mut diagnostics,
-                    &mut type_table,
-                    "<const>",
-                    TypeId::Builtin(BuiltinType::Unit),
-                );
-                let _ =
-                    checker.infer_expr_type_expected(const_item.initializer, &mut env, Some(&ty));
-            }
-            top_level_index.consts.insert(const_item.id, ty.clone());
-        }
 
-        let mut const_budget = ConstBudget::new(const_limits);
-        validate_const_initializers(
-            ConstValidationInputs {
-                definitions: declarations.definitions(),
+            let mut const_budget = ConstBudget::new(const_limits);
+            validate_const_initializers(
+                ConstValidationInputs {
+                    definitions: declarations.definitions(),
+                    lowered,
+                    names,
+                    top_level_index: &top_level_index,
+                    type_table: &type_table,
+                    cancel,
+                },
+                &mut diagnostics,
+                &mut const_budget,
+            );
+
+            const_eval::evaluate_constants(
                 lowered,
                 names,
-                top_level_index: &top_level_index,
-                type_table: &type_table,
+                &type_table,
                 cancel,
-            },
-            &mut diagnostics,
-            &mut const_budget,
-        );
-
-        let const_values = const_eval::evaluate_constants(
-            lowered,
-            names,
-            &type_table,
-            cancel,
-            &mut diagnostics,
-            &mut const_budget,
-        );
+                &mut diagnostics,
+                &mut const_budget,
+            )
+        };
+        if matches!(selection, BodySelection::Constants) {
+            return AnalysisResult {
+                facts: TypedModule {
+                    valid_bodies: Default::default(),
+                    valid_static_initializers: Default::default(),
+                    checked_bodies: 0,
+                    reused_bodies: 0,
+                    functions,
+                    consts: top_level_index.consts,
+                    statics: top_level_index.statics,
+                    const_values,
+                    type_table,
+                },
+                diagnostics,
+            };
+        }
 
         let mut valid_static_initializers = statics::initializers(
             lowered,

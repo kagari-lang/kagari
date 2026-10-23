@@ -1,7 +1,7 @@
 // A small independent oracle for lexical regions. Adapters keep their own scopes/trees.
 const lexical = {
   name: 'nested comments versus ordinary string text',
-  text: 'fn main() { val text = "comment // { not code }"; /* outer /* nested */ still */ val after = 0xff32; }',
+  text: 'fn main() { val text = r"comment // { not code }"; /* outer /* nested */ still */ val after = 0xff32; }',
   expected: [
     { needle: 'fn', category: 'code', capture: 'keyword' },
     { needle: 'comment // { not code }', category: 'string' },
@@ -12,61 +12,54 @@ const lexical = {
   ],
 };
 const interpolation = {
-  name: 'recursive interpolation and debug suffix trivia',
-  text: String.raw`fn main() { val result = f"你好 \u{41} {{}} { {
-    val s = "}"; /* } /* inner */ */ f"inner {score + 2}"
-  }: /* debug */ ?} tail"; val end = true; }`,
+  name: 'identifier interpolation, doubled braces and escaped Unicode braces',
+  text: String.raw`fn main() { val result = "你好 \u{41} {{}} {score} {score:?} tail"; val end = true; }`,
   expected: [
     { needle: '你好', category: 'string' },
     { needle: String.raw`\u{41}`, category: 'string', capture: 'string.escape' },
     { needle: '{{}}', category: 'string' },
-    { needle: 'val s', category: 'code' },
-    { needle: '"}"', category: 'string' },
-    { needle: '/* inner */', category: 'comment' },
-    { needle: 'inner ', occurrence: 1, category: 'string' },
     { needle: 'score', category: 'code', capture: 'variable' },
-    { needle: '2', category: 'code', capture: 'number' },
-    { needle: '/* debug */', category: 'comment' },
+    { needle: 'score', occurrence: 1, category: 'code', capture: 'variable' },
     { needle: 'tail', category: 'string' },
     { needle: 'true', category: 'code', capture: 'boolean' },
   ],
 };
 const casesForEol = (eol, label) => [
   {
-    name: `unterminated ordinary text recovers (${label})`,
-    text: `fn main() {${eol}val broken = "unfinished${eol}val after = 42;${eol}}`,
+    name: 'multiline cooked text (' + label + ')',
+    text: 'fn main() { val s = "first' + eol + '  {name} last' + eol + '"; val after = 42; }',
     expected: [
-      { needle: 'unfinished', category: 'string' },
-      { needle: 'val after', category: 'code' },
-      { needle: '42', category: 'code', capture: 'number' },
+      { needle: 'first', category: 'string' },
+      { needle: 'name', category: 'code', capture: 'variable' },
+      { needle: 'last', category: 'string' },
+      { needle: 'after', category: 'code', capture: 'variable' },
     ],
   },
   {
-    name: `unterminated interpolated text recovers (${label})`,
-    text: `fn main() {${eol}val broken = f"unfinished${eol}val after = 42;${eol}}`,
+    name: 'multiline raw text (' + label + ')',
+    text: 'fn main() { val s = r##"first' + eol + '  {name} \\n "# last' + eol + '"##; val after = 42; }',
     expected: [
-      { needle: 'unfinished', category: 'string' },
-      { needle: 'val after', category: 'code' },
-      { needle: '42', category: 'code', capture: 'number' },
+      { needle: '{name}', category: 'string', capture: 'string' },
+      { needle: String.raw`\n`, category: 'string', capture: 'string' },
+      { needle: 'last', category: 'string' },
+      { needle: 'after', category: 'code', capture: 'variable' },
     ],
   },
   {
-    name: `multiline expression hole stays code (${label})`,
-    text: `fn main() { val s = f"before { {${eol} val code = 1;${eol} code${eol}} } after"; }`,
+    name: 'unclosed multiline raw text (' + label + ')',
+    text: 'fn main() { val s = r#"unfinished' + eol + 'val after = 42;',
     expected: [
-      { needle: 'before', category: 'string' },
-      { needle: 'val code', category: 'code' },
-      { needle: 'code', occurrence: 1, category: 'code' },
-      { needle: 'after', category: 'string' },
+      { needle: 'unfinished', category: 'string' },
+      { needle: 'val after', category: 'string' },
     ],
   },
 ];
 const bindingPatterns = {
-  name: 'destructuring and struct rest inside an interpolation block',
-  text: `fn main() { val rendered = f"before { {
+  name: 'destructuring and struct rest before identifier interpolation',
+  text: `fn main() { val rendered = {
     val ((0, left) | (left, _), model::Point { x: renamed, .., }) = pair;
-    /* rest .. and braces { } stay comments */ f"inner {renamed}"
-  } } after"; val next = 42; }`,
+    /* rest .. and braces { } stay comments */ "inner {renamed}"
+  }; "before {rendered} after"; val next = 42; }`,
   expected: [
     { needle: 'before', category: 'string' },
     { needle: 'val ((0', category: 'code' },
@@ -85,10 +78,10 @@ const bindingPatterns = {
   ],
 };
 const structUpdate = {
-  name: 'struct update base blocks balance strings and comments inside interpolation',
-  text: `fn main() { val rendered = f"before {Point {
-    label: f"inner {score}", ..{ /* } .. /* nested */ */ Point { ..make("}")? } }
-  }:?} tail"; val after = 42; }`,
+  name: 'struct update base blocks precede identifier interpolation',
+  text: `fn main() { val point = Point {
+    label: "inner {score}", ..{ /* } .. /* nested */ */ Point { ..make(r"}")? } }
+  }; val rendered = "before {point:?} tail"; val after = 42; }`,
   expected: [
     { needle: 'before', category: 'string' },
     { needle: 'label', category: 'code', capture: 'property' },
@@ -97,7 +90,7 @@ const structUpdate = {
     { needle: '..', category: 'code', capture: 'operator' },
     { needle: '/* nested */', category: 'comment' },
     { needle: 'make', category: 'code', capture: 'variable' },
-    { needle: '"}"', category: 'string' },
+    { needle: 'r"}"', category: 'string' },
     { needle: '?', category: 'code', capture: 'operator' },
     { needle: 'tail', category: 'string' },
     { needle: 'after', category: 'code', capture: 'variable' },
@@ -105,18 +98,18 @@ const structUpdate = {
 };
 const asyncBlock = {
   name: 'async blocks retain keyword and nested lexical regions',
-  text: 'async fn run() { val pending = async /* body */ { val label = "}"; read().await }; pending.await }',
+  text: 'async fn run() { val pending = async /* body */ { val label = r"}"; read().await }; pending.await }',
   expected: [
     { needle: 'async', occurrence: 1, category: 'code', capture: 'keyword' },
     { needle: '/* body */', category: 'comment' },
-    { needle: '"}"', category: 'string' },
+    { needle: 'r"}"', category: 'string' },
     { needle: 'await', category: 'code', capture: 'keyword' },
     { needle: 'pending', occurrence: 1, category: 'code', capture: 'variable' },
   ],
 };
 const characters = {
-  name: 'characters keep braces and escaped quotes out of interpolation code',
-  text: String.raw`fn main() { val c: char = '🙂'; val text = f"{'}'} {'\''} {'\u{1_F642_}'} tail"; val after = 42; }`,
+  name: 'character bindings keep braces and escaped quotes out of interpolation code',
+  text: String.raw`fn main() { val c: char = '🙂'; val close = '}'; val quote = '\''; val smile = '\u{1_F642_}'; val text = "{close} {quote} {smile} tail"; val after = 42; }`,
   expected: [
     { needle: 'char', category: 'code', capture: 'type' },
     { needle: "'🙂'", category: 'string', capture: 'string' },

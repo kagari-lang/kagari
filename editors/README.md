@@ -104,30 +104,33 @@ without development overrides, using a separate disposable test harness. See
    compilation, VSIX packaging and representative Windows analyzer boundaries.
 
 Character literals use single quotes, with string-category highlighting and quote
-pairing. Character escapes are separate from String escapes: ASCII `\\x00` through
+pairing. Cooked character and String escapes support ASCII `\\x00` through
 `\\x7F` and one-to-six-digit `\\u{...}` forms allow underscores after Unicode hex
 digits. Direct TAB/LF/CR and empty/multi-scalar character shapes are not valid
 characters. Shared `kagari-source` decoding, not editor tokenization, checks the
 decoded Unicode scalar domain (surrogates and out-of-range escapes). The
-[character example](../examples/syntax/char-literals.kgr) exercises this slice;
-byte/raw/multiline forms remain deferred and `f` interpolation is unchanged.
+[character example](../examples/syntax/char-literals.kgr) exercises this slice.
+Ordinary Strings interpolate only `{name}` and `{name:?}`, with no internal
+whitespace/comments. `{{`/`}}` are literal braces; escaped Unicode braces never
+start holes. Raw Strings use 0..255 hashes and no escape/interpolation processing.
+Both forms retain physical multiline contents. Source CRLF normalizes only in the
+decoded value, not in editor ranges. Byte forms remain deferred; `f` is rejected.
 
-Unterminated ordinary/interpolated text ends at CR/LF; expression holes may span
-lines. An actually unterminated block comment extends to EOF. String theme
-captures cover text/escapes/delimiters, never the entire interpolated parent.
-Zed editing overrides instead use whole-string ranges with smaller expression-
-hole overrides: empty strings and delimiter-edge cursor positions remain safe.
+Unterminated text and block comments extend to EOF: a newline no longer proves a
+missing closing quote. String theme captures cover text/escapes/delimiters, never
+the entire interpolated parent. Zed editing overrides use whole-string ranges
+with smaller identifier-hole overrides, including empty strings and edge cursors.
 
 ## Validation scope
 
 Automated tokenization/capture and editor-host assertions are not screenshots or
 proof of all theme behavior. Inspect representative `.kgr` inputs with light and
 dark themes, incomplete source, comment toggling and bracket/quote pairing in each
-actual editor. VS Code's token inspector must show code tokens inside f-string
+actual editor. VS Code's token inspector must show code tokens inside identifier
 holes and strings/comments only in their own regions. Zed must load the actual
 WASM grammar, not merely index extension metadata.
 
-Selected local acceptance on Windows x64 used Node 22.21.1/npm 10.9.4, VS 2022
+Historical pre-TL02 acceptance (not evidence for the new literal grammar) on Windows x64 used Node 22.21.1/npm 10.9.4, VS 2022
 17.14, Zed 1.24.2 (`fb69067729cb16a7f6135e2c1600c26a28c59659`) and VS Code
 1.142.0. WASI SDK 34.0 (`clang 23.1.0-wasi-sdk`) ran through Ubuntu WSL; no native
 Windows SDK build or Linux editor acceptance is inferred from that compilation.

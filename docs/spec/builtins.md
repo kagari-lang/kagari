@@ -367,10 +367,15 @@ casts follow [value semantics](value-semantics.md). No implicit numeric conversi
 is introduced. Repetition evaluates its element and count once, from left to right,
 and requires a repeatable value type even for an empty result.
 
-String is an immutable value. String interpolation selects Display or Debug through
-ordinary checked formatting contracts; formatting callbacks preserve normal
-left-to-right evaluation, effects and failure behavior. The optional predecessor
-query, parse and string-iterator helpers are not implicitly restored.
+String is an immutable value. Ordinary cooked strings support
+[identifier-only interpolation](syntax.md#interpolated-strings): `{name}` selects
+Display and `{name:?}` selects Debug through checked formatting contracts. Each
+occurrence reads then formats its value before the next name is read, including
+repeated names and statics with lazy initialization. Callbacks preserve normal
+effects and failure behavior. Raw strings never interpolate; both cooked and raw
+strings support the [multiline literal rules](syntax.md#string-literals).
+The optional predecessor query, parse and string-iterator helpers are not
+implicitly restored.
 
 The inherent String surface is len/is_empty (UTF-8 bytes), literal
 contains/starts_with/ends_with/find, checked slice(start, end), Unicode whitespace

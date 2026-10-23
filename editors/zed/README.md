@@ -146,7 +146,8 @@ instance and selected shared examples manually:
    code, strings, nested comments and interpolation holes. No global `<`/`>` or
    single-quote string pairing is configured.
 4. Delete/restore quotes, interpolation braces and comment delimiters; later lines
-   recover without stale string/comment classification.
+   recover without stale string/comment classification. Unclosed multiline strings
+   legitimately retain subsequent lines as text until their real delimiter or EOF.
 5. Check actual loader logs for query, ABI, scanner or WASM failures. Screenshots
    alone do not prove capture boundaries; native query tests check those separately.
 
@@ -157,8 +158,9 @@ claim of successful grammar loading or editor acceptance.
 
 Pairing has two independent gates in the pinned host: the smallest matching editing
 scope must allow a pair, and the following character must allow insertion. Kagari
-sets `autoclose_before = ")]}"` explicitly so `f"{value|}"` can become
-`f"{value(|)}"` after typing `(` (`|` denotes the caret). Strings/comments still
+sets `autoclose_before = ")]}"` explicitly so `"{value|}"` initially permits
+code pairing (`|` denotes the caret). Typing an expression makes the hole invalid;
+only a name and optional adjacent `:?` are accepted. Strings/comments still
 suppress pairing, including before whitespace. An empty interpolation override
 restores code pairing; it does not inherit the surrounding string's disabled pairs.
 

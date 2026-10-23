@@ -73,9 +73,12 @@ success alone does not establish that the editor loaded the grammar.
 ## Try an interpolation example
 
 Open <a href={source('examples/syntax/string-interpolation.kgr')}>the canonical string interpolation example</a>.
-In `f"Hello {name}, score={score + 2}"`, the text should be highlighted as string
-text and the expressions inside braces as code. Try comment toggling and pairing
-in code versus string text. These are editing behaviors, not semantic diagnostics.
+In `"Hello {name}, score={score}"`, the text should be highlighted as string
+text and the names inside braces as identifiers. Bind computed values before the
+string; holes accept only `{name}` or `{name:?}`, without internal whitespace.
+Raw strings such as `r"Literal {name}"` have no interpolation. Try comment toggling
+and pairing in code versus string text. These are editing behaviors, not semantic
+diagnostics.
 
 To check and execute the file, return to the repository root:
 

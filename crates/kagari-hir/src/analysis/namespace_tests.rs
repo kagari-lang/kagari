@@ -1,13 +1,18 @@
 use super::*;
 use crate::{
     hir::expr::ExprKind,
-    imports::{DirectiveResolution, bindings::LookupOutcome},
+    imports::{DirectiveResolution, SourceItem, bindings::LookupOutcome},
     resolver::{resolved::ResolvedName, table::NameResolution},
     tests::native,
+    typeck::scalar::ScalarValue,
 };
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_types::{declaration::names::NameNamespace, scalar::BuiltinType, ty::Ty};
+use kagari_types::{
+    declaration::names::NameNamespace,
+    scalar::{BuiltinType, IntegerType},
+    ty::Ty,
+};
 
 fn setup(text: &str) -> (SourceDatabase, AnalysisDatabase, FileId) {
     let mut sources = SourceDatabase::default();
@@ -58,6 +63,175 @@ fn setup(text: &str) -> (SourceDatabase, AnalysisDatabase, FileId) {
 fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
     db.snapshot(sources.snapshot(), &Default::default())
         .unwrap()
+}
+
+#[test]
+fn imported_constant_aliases_publish_checked_values_and_original_identity() {
+    for text in [
+        "use self::labels::CODE as code; mod labels { pub const CODE: i32 = 7; } fn main() -> i32 { code }",
+        "use self::labels::CODE as code; mod labels { const BASE: i32 = 6; pub const CODE = BASE + 1; } fn main() -> i32 { code }",
+        "mod labels { pub const CODE: i32 = 7; } mod relay { pub use super::labels::CODE as EXPORTED; } use self::relay::EXPORTED as code; fn main() -> i32 { code }",
+    ] {
+        let (sources, mut db, file) = setup(text);
+        let snapshot = snapshot(&mut db, &sources);
+        let analysis = snapshot.file(file).unwrap();
+        assert!(
+            analysis.result().diagnostics().is_empty(),
+            "{:?}",
+            analysis.result().diagnostics()
+        );
+        let facts = analysis.result().facts();
+        let (id, _) = facts
+            .lowered
+            .module
+            .body
+            .expressions()
+            .find(|(_, expr)| matches!(&expr.kind, ExprKind::Name { name, .. } if name == "code"))
+            .unwrap();
+        let Some(ResolvedName::Source(source)) = facts.names.expr_resolution(id) else {
+            panic!("qualified imported identity");
+        };
+        let SourceItem::Const(constant) = source.item else {
+            panic!("constant owner");
+        };
+        let owner = snapshot.file(source.unit.file).unwrap().result().facts();
+        assert_eq!(owner.lowered.module.constant(constant).name, "CODE");
+        assert_eq!(
+            facts.typed.type_table.scalar_value(id),
+            owner.typed.const_values.get(&constant)
+        );
+        assert_eq!(
+            facts.typed.type_table.scalar_value(id),
+            Some(&ScalarValue::integer(7, IntegerType::I32).unwrap())
+        );
+        let declaration = analysis.definition_at(text.rfind("code").unwrap()).unwrap();
+        assert_eq!(declaration.name, "CODE");
+        assert_eq!(
+            declaration.id,
+            owner
+                .declarations
+                .target(ResolvedName::Const(constant))
+                .unwrap()
+                .id
+        );
+    }
+}
+
+#[test]
+fn imported_constant_edits_invalidate_value_facts_without_retargeting_aliases() {
+    let text = "use pkg::library::CODE as code; fn main() -> i32 { code }";
+    let (mut sources, mut db, file) = setup(text);
+    sources
+        .set(
+            "library.kgr",
+            "pub const CODE: i32 = 7;".into(),
+            SourceLayer::Overlay,
+        )
+        .unwrap();
+    let before = snapshot(&mut db, &sources);
+    let old = before.file(file).unwrap();
+    assert!(
+        old.result().diagnostics().is_empty(),
+        "{:?}",
+        old.result().diagnostics()
+    );
+    let old_facts = old.result().facts();
+    let (id, _) = old_facts
+        .lowered
+        .module
+        .body
+        .expressions()
+        .find(|(_, expr)| matches!(&expr.kind, ExprKind::Name { name, .. } if name == "code"))
+        .unwrap();
+    let original = old
+        .definition_at(text.rfind("code").unwrap())
+        .unwrap()
+        .id
+        .clone();
+    let owner = *old_facts
+        .declarations
+        .definition(ResolvedName::Function(
+            old_facts.lowered.module.functions[0].id,
+        ))
+        .unwrap();
+    let selected_old = db
+        .body(sources.snapshot(), &owner, &Default::default())
+        .unwrap()
+        .unwrap();
+    assert!(
+        selected_old.diagnostics().is_empty(),
+        "{:?}",
+        selected_old.diagnostics()
+    );
+    assert_eq!(
+        selected_old.type_table().scalar_value(id),
+        Some(&ScalarValue::integer(7, IntegerType::I32).unwrap())
+    );
+    sources
+        .set(
+            "library.kgr",
+            "pub const CODE: i32 = 9;".into(),
+            SourceLayer::Overlay,
+        )
+        .unwrap();
+    let after = snapshot(&mut db, &sources);
+    let new = after.file(file).unwrap();
+    assert!(
+        new.result().diagnostics().is_empty(),
+        "{:?}",
+        new.result().diagnostics()
+    );
+    assert_eq!(
+        old_facts.typed.type_table.scalar_value(id),
+        Some(&ScalarValue::integer(7, IntegerType::I32).unwrap())
+    );
+    assert_eq!(
+        new.result().facts().typed.type_table.scalar_value(id),
+        Some(&ScalarValue::integer(9, IntegerType::I32).unwrap())
+    );
+    assert_eq!(
+        new.definition_at(text.rfind("code").unwrap()).unwrap().id,
+        original
+    );
+    let selected_new = db
+        .body(sources.snapshot(), &owner, &Default::default())
+        .unwrap()
+        .unwrap();
+    assert!(
+        selected_new.diagnostics().is_empty(),
+        "{:?}",
+        selected_new.diagnostics()
+    );
+    assert_eq!(
+        selected_new.type_table().scalar_value(id),
+        Some(&ScalarValue::integer(9, IntegerType::I32).unwrap())
+    );
+    assert_eq!(
+        selected_old.type_table().scalar_value(id),
+        Some(&ScalarValue::integer(7, IntegerType::I32).unwrap())
+    );
+}
+
+#[test]
+fn imported_constants_preserve_visibility_immutability_and_invalid_owner_rejection() {
+    for (provider, body) in [
+        ("const CODE: i32 = 7;", "fn main() -> i32 { code }"),
+        ("pub const CODE: i32 = 7;", "fn main() { code = 8; }"),
+        ("pub const CODE: i32 = 1 / 0;", "fn main() -> i32 { code }"),
+        ("pub const CODE: i32 = true;", "fn main() -> i32 { code }"),
+    ] {
+        let text = format!("use pkg::library::CODE as code; {body}");
+        let (mut sources, mut db, file) = setup(&text);
+        sources
+            .set("library.kgr", provider.into(), SourceLayer::Overlay)
+            .unwrap();
+        let result = snapshot(&mut db, &sources);
+        let analysis = result.file(file).unwrap();
+        assert!(
+            analysis.result().clone().into_codegen().is_err(),
+            "{provider}: {body}"
+        );
+    }
 }
 
 #[test]

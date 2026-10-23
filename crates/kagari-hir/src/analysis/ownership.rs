@@ -89,6 +89,8 @@ pub(crate) fn recover_invalid_identity(
         BodyEnvironment {
             imported_functions: Default::default(),
             imported_statics: Default::default(),
+            imported_constants: Default::default(),
+            constants: None,
             aggregates,
         },
         None,

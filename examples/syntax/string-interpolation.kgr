@@ -3,11 +3,15 @@
 fn main() -> i32 {
     val name = "Kagari";
     val score = 40;
-    val message = f"Hello {name}, score={score + 2}";
+    // Complete the earlier formatting before evaluating the former expression hole.
+    val greeting = "Hello {name}, score=";
+    val total = score + 2;
+    val message = "{greeting}{total}";
     { val passed = message == "Hello Kagari, score=42"; if !passed {val zero=0;1/zero;} };
-    { val passed = f"{name:?}" == "\"Kagari\""; if !passed {val zero=0;1/zero;} };
-    { val passed = f"{{{name}}}" == "{Kagari}"; if !passed {val zero=0;1/zero;} };
-    { val passed = f"{f"score={score}"}" == "score=40"; if !passed {val zero=0;1/zero;} };
-    { val passed = f"" == ""; if !passed {val zero=0;1/zero;} };
+    { val passed = "{name:?}" == "\"Kagari\""; if !passed {val zero=0;1/zero;} };
+    { val passed = "{{{name}}}" == r"{Kagari}"; if !passed {val zero=0;1/zero;} };
+    val inner = "score={score}";
+    { val passed = "{inner}" == "score=40"; if !passed {val zero=0;1/zero;} };
+    { val passed = "" == r""; if !passed {val zero=0;1/zero;} };
     42
 }

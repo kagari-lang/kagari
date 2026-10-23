@@ -1,4 +1,4 @@
-use crate::{FormatError, Options, format};
+use crate::{FormatError, Newline, Options, format};
 use kagari_common::cancellation::CancellationToken;
 use kagari_source::source::SourceFile;
 use std::{fs, path::Path};
@@ -88,7 +88,7 @@ fn async_blocks_preserve_layout_comments_and_postfix() {
     for input in [
         "fn f(){async{async{42}}}",
         "async fn f(){async // body\n{request().await?}.await;}",
-        "fn f(){val text=f\"before {async{42}} after\";}",
+        "fn f(){val pending=async{42};val text=\"before {pending} after\";}",
     ] {
         let once = formatted(input, 30);
         assert_eq!(formatted(&once, 30), once);
@@ -98,8 +98,7 @@ fn async_blocks_preserve_layout_comments_and_postfix() {
 #[test]
 fn char_literals_preserve_spelling_and_structure() {
     check_fixture("char-literals.kgr");
-    let input =
-        r#"fn f(){val c:char='🙂';val s=f"{'}'} {'\u{7B_}'}";match c{'a'..='z'=>'\x7F',_=>'\''}}"#;
+    let input = r#"fn f(){val c:char='🙂';val close='}';val open='\u{7B_}';val s="{close} {open}";match c{'a'..='z'=>'\x7F',_=>'\''}}"#;
     for eol in ["\n", "\r\n"] {
         let source = format!("{input}{eol}");
         let once = formatted(&source, 30);
@@ -150,14 +149,93 @@ fn char_literals_with_invalid_decoded_values_are_not_formatted() {
 }
 
 #[test]
+fn text_literals_preserve_multiline_bytes_and_hole_boundaries() {
+    for eol in ["\n", "\r\n"] {
+        for literal in [
+            "\"\n  first\n\"",
+            "\"\n{name}\n  {name:?}\n\"",
+            "\"first\\\n  \t\n second\"",
+            "r\"\n  {name} \\n\n\"",
+            "r##\"\n  quote \"# {name}\n\"##",
+            r#""\x00\x7F\u{1_F642_} \u{7B} {{}} {name}""#,
+        ] {
+            let literal = literal.replace('\n', eol);
+            let input = format!("fn f(name:String){{consume({literal});}}{eol}");
+            for newline in [Newline::Preserve, Newline::Lf, Newline::Crlf] {
+                let options = Options {
+                    max_width: 20,
+                    newline,
+                    ..Default::default()
+                };
+                let once = format(
+                    &SourceFile::new("text.kgr", &input),
+                    options,
+                    &Default::default(),
+                )
+                .unwrap();
+                assert!(once.contains(&literal), "literal changed: {once:?}");
+                let twice = format(
+                    &SourceFile::new("text.kgr", &once),
+                    options,
+                    &Default::default(),
+                )
+                .unwrap();
+                assert_eq!(twice, once);
+            }
+        }
+    }
+    for hashes in [0, 1, 255] {
+        let delimiter = "#".repeat(hashes);
+        let literal = format!("r{delimiter}\"raw {{name}} \\n\"{delimiter}");
+        let once = formatted(&format!("fn f(){{{literal}}}"), 20);
+        assert!(once.contains(&literal));
+        assert_eq!(formatted(&once, 20), once);
+    }
+}
+
+#[test]
+fn malformed_text_literals_are_not_formatted() {
+    for literal in [
+        r#"f"old""#,
+        r#""{name + 1}""#,
+        r#""{name.value}""#,
+        r#""{name }""#,
+        r#""{ name}""#,
+        r#""{name: ?}""#,
+        r#""{name:/* comment */?}""#,
+        r#""{name:x}""#,
+        r#""}""#,
+        r#""\x80""#,
+        r#""\u{_41}""#,
+        r#""\u{D800}""#,
+        "\"standalone\rcarriage\"",
+        "r\"standalone\rcarriage\"",
+        "r#\"unclosed\"",
+    ] {
+        let input = format!("fn f(){{{literal}}}");
+        assert!(
+            matches!(
+                format(
+                    &SourceFile::new("bad.kgr", input),
+                    Options::default(),
+                    &Default::default()
+                ),
+                Err(FormatError::Diagnostics(_))
+            ),
+            "{literal}"
+        );
+    }
+}
+
+#[test]
 fn adjacency_interpolation_comments_and_boundaries_are_idempotent() {
     for text in [
         "fn f(x:i32)->i32{x>>2<<1}",
         "fn f(){val copy=Point{x:1,/* base */..make()};val all=Point{..base};}",
         "fn f(){val x=Point{x:1,.. // base\nmake()};}",
         "fn f(x:Outer<Inner<i32>>){val y=x;}",
-        "fn f(){val s=f\"π {1+2} literal {{brace}}\";}",
-        "fn f(){val s=f\"{1 // comment\n + 2}\";}",
+        "fn f(){val sum=1+2;val s=\"π {sum} literal {{brace}}\";}",
+        "fn f(){val sum=1 // comment\n + 2;val s=\"{sum}\";}",
         "// heading\nfn f(){/* dangling /* nested */ */}// trailing  ",
         "fn f(){val x=1;// trailing\nconsume(x);}",
         "fn f(){/* before */ val x=1; /* after */}",

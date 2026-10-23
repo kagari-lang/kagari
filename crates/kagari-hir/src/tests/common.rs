@@ -102,6 +102,8 @@ pub fn check_module(
             signatures: &signatures,
             imported_functions: &Default::default(),
             imported_statics: &Default::default(),
+            imported_constants: &Default::default(),
+            constants: None,
             aggregates: &aggregates,
         },
         reuse,

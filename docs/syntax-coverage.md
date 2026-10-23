@@ -91,10 +91,18 @@ validation. Tree-sitter/TextMate recognize lexical shape for editing, not the
 complete semantic domain (for example, `\\u{D800}` still needs a compiler error).
 Formatter coverage checks spelling preservation and idempotence; analyzer coverage
 only establishes document synchronization, not semantic highlighting or diagnostics.
-String syntax remains unchanged in TL01: no byte/raw/multiline additions and no
-removal of `f` interpolation.
+Ordinary String interpolation has an executable witness in
+[string-interpolation.kgr](../examples/syntax/string-interpolation.kgr). A hole is
+exactly `{name}` or `{name:?}`; expressions, whitespace, comments, other format
+options and the old `f` prefix are rejected. Doubled braces are literal text;
+Unicode-escaped braces never become holes. The source-language quantifier ledger
+requires at least one hole for `interpolated_string`; no-hole forms remain literals.
 
-Interpolated strings and their lexer modes have an executable witness in
-[string-interpolation.kgr](../examples/syntax/string-interpolation.kgr). Focused
-parser tests cover nested interpolation, Unicode escapes, malformed input and
-nesting/cancellation limits. Expression holes retain their original source spans.
+[literals-and-comments.kgr](../examples/syntax/literals-and-comments.kgr) witnesses
+raw Strings, multiline contents, continuations and extended text escapes. Raw
+strings use 0..255 hashes and do not interpret escapes or holes. Literal CRLF
+normalizes only in decoded values: retained source text and physical byte/UTF-16
+positions do not change. Formatter tests preserve complete literal spelling and
+idempotence even when layout requests a different newline style. Analyzer tests
+retain malformed edits and old snapshots without claiming semantic diagnostics.
+Byte syntax remains deferred. Editor lexical shape checks are not scalar validation.

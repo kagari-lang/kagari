@@ -494,7 +494,7 @@ mod interpolation_queries {
     #[test]
     fn hole_bindings_retain_original_locations_and_survive_snapshot_rebasing() {
         let text =
-            "fn render(value:i32)->String { f\"中文 😀 {value}\" }\r\nfn broken() { missing; }";
+            "fn render(value:i32)->String { \"中文 😀\r\n{value}\" }\r\nfn broken() { missing; }";
         let mut sources = SourceDatabase::default();
         let file = sources
             .set("queries.kgr", text.into(), SourceLayer::Base)

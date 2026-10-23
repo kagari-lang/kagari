@@ -52,15 +52,15 @@ pub enum SyntaxKind {
     Number,
     /// A floating-point literal spelling, such as `1.5`.
     Float,
-    /// A quoted string literal, such as `"hello"`, retaining quotes and escapes.
+    /// A no-hole cooked/raw String, retaining physical delimiters, escapes and newlines.
     String,
-    /// The `f"` prefix opening an interpolated string.
+    /// The `"` opening an ordinary String with name interpolation.
     FormatStart,
     /// Text within an interpolated string, including escaped or doubled braces.
     FormatText,
-    /// The `{` opening an expression hole in an interpolated string.
+    /// The `{` opening a name hole in an interpolated string.
     FormatOpen,
-    /// The `}` closing an expression hole, distinct from a nested block brace.
+    /// The `}` closing a name hole; nested expressions are not supported.
     FormatClose,
     /// The `"` closing an interpolated string.
     FormatEnd,
@@ -392,7 +392,7 @@ pub enum SyntaxKind {
     TupleExpr,
     /// An array list or repeated-element array expression. See [`ArrayExpr`](crate::ast::expr::ArrayExpr).
     ArrayExpr,
-    /// An `f"..."` string containing text tokens and expression holes. See [`InterpolatedString`](crate::ast::expr::InterpolatedString).
+    /// An ordinary String with text tokens and name holes. See [`InterpolatedString`](crate::ast::expr::InterpolatedString).
     InterpolatedString,
     /// One expression hole, optionally requesting debug formatting with `:?`. See [`Interpolation`](crate::ast::expr::Interpolation).
     Interpolation,

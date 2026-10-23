@@ -1,4 +1,5 @@
-//! Signature queries consume declarations without running any body analysis.
+//! Signature queries stop before body analysis; body environments additionally
+//! prepare checked constant prerequisites before projecting imported values.
 
 use crate::{
     AnalysisResult, DiagnosticBuffer, PreparedAnalysis,
@@ -10,13 +11,19 @@ use crate::{
         ownership, type_at_in, type_reference_at,
     },
     declarations::{Declaration, Declarations},
+    hir::ids::BodySelection,
     imports::{
         ModuleGraph,
+        constants::ImportedConstants,
         functions::{FunctionCatalog, ImportedFunctions},
         statics::ImportedStatics,
         types::TypeCatalog,
     },
-    typeck::ModuleSignatures,
+    resolver::collect::resolve_bodies,
+    typeck::{
+        BodyInputs, ModuleSignatures, check::check_bodies_controlled, const_budget::ConstLimits,
+        constant_facts::CheckedConstants,
+    },
     types::TypeId,
 };
 
@@ -118,9 +125,11 @@ pub struct SignatureSnapshot {
 }
 
 impl SignatureSnapshot {
-    /// Projects signatures into per-file imported callable and visible aggregate inputs.
+    /// Prepares constant prerequisites once, then projects checked imports and aggregates.
+    /// Signature-only queries do not call this body-stage preparation.
     pub(super) fn body_environments(
         &self,
+        const_limits: ConstLimits,
         cancel: &CancellationToken,
     ) -> Result<HashMap<FileId, BodyEnvironment>, AnalysisError> {
         cancel.check()?;
@@ -151,9 +160,63 @@ impl SignatureSnapshot {
                         cancel,
                     )?,
                     imported_functions,
+                    imported_constants: Default::default(),
+                    constants: None,
                     aggregates,
                 },
             );
+        }
+        let mut checked = HashMap::new();
+        for (id, file) in self.files.iter() {
+            cancel.check()?;
+            let prepared = &file.prepared;
+            let environment = &result[id];
+            let names = resolve_bodies(
+                &prepared.lowered,
+                &prepared.names.facts,
+                BodySelection::Constants,
+                cancel,
+            );
+            let declarations =
+                prepared
+                    .declarations
+                    .clone()
+                    .with_bindings(&prepared.lowered, &names, cancel);
+            let constants = check_bodies_controlled(
+                &prepared.lowered,
+                &names,
+                &declarations,
+                BodyInputs {
+                    const_limits,
+                    selection: BodySelection::Constants,
+                    signatures: &prepared.signatures,
+                    imported_functions: &environment.imported_functions,
+                    imported_statics: &environment.imported_statics,
+                    imported_constants: &environment.imported_constants,
+                    constants: None,
+                    aggregates: &environment.aggregates,
+                },
+                None,
+                cancel,
+            );
+            checked.insert(
+                *id,
+                Arc::new(CheckedConstants {
+                    types: constants.facts.consts,
+                    values: constants.facts.const_values,
+                    table: constants.facts.type_table,
+                    diagnostics: constants.diagnostics,
+                }),
+            );
+        }
+        for (id, environment) in &mut result {
+            environment.imported_constants = ImportedConstants::bindings(
+                &modules,
+                &checked,
+                &self.files[id].prepared.names.facts,
+                cancel,
+            )?;
+            environment.constants = Some(checked[id].clone());
         }
         Ok(result)
     }
@@ -186,6 +249,10 @@ pub(crate) struct BodyEnvironment {
     pub imported_functions: ImportedFunctions,
     /// Runtime static types and rebinding permissions selected by imports.
     pub imported_statics: ImportedStatics,
+    /// Validated scalar values selected by source imports.
+    pub imported_constants: ImportedConstants,
+    /// Source-matched prerequisites reused rather than rechecking constant initializers.
+    pub constants: Option<Arc<CheckedConstants>>,
     /// Aggregate and implementation contracts visible to this file.
     pub aggregates: AggregateCatalog,
 }
@@ -333,6 +400,12 @@ impl RemapDefinitions for BodyEnvironment {
         Ok(BodyEnvironment {
             imported_functions: self.imported_functions.remap_definitions(mapper)?,
             imported_statics: self.imported_statics.remap_definitions(mapper)?,
+            imported_constants: self.imported_constants.remap_definitions(mapper)?,
+            constants: self
+                .constants
+                .as_ref()
+                .map(|facts| facts.remap_definitions(mapper).map(Arc::new))
+                .transpose()?,
             aggregates: self.aggregates.remap_definitions(mapper)?,
         })
     }
@@ -347,6 +420,11 @@ impl DefinitionReferences for BodyEnvironment {
         self.imported_functions
             .visit_definition_ids(visit, cancel)?;
         self.imported_statics.visit_definition_ids(visit, cancel)?;
+        self.imported_constants
+            .visit_definition_ids(visit, cancel)?;
+        if let Some(facts) = &self.constants {
+            facts.visit_definition_ids(visit, cancel)?;
+        }
         self.aggregates.visit_definition_ids(visit, cancel)
     }
 }

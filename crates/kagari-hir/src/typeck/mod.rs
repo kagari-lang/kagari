@@ -25,9 +25,14 @@ use crate::{
         item::behavior::GenericParam,
         writeability::Writeability,
     },
-    imports::{functions::ImportedFunctions, statics::ImportedStatics},
+    imports::{
+        constants::ImportedConstants, functions::ImportedFunctions, statics::ImportedStatics,
+    },
     native::NativeBinding,
-    typeck::{const_budget::ConstLimits, scalar::ScalarValue, table::TypeTable},
+    typeck::{
+        const_budget::ConstLimits, constant_facts::CheckedConstants, scalar::ScalarValue,
+        table::TypeTable,
+    },
     types::{GenericParameterType, NominalType, TypeId},
 };
 #[cfg(test)]
@@ -46,6 +51,7 @@ pub(crate) mod check;
 mod completion;
 pub mod const_budget;
 mod const_eval;
+pub(crate) mod constant_facts;
 pub(crate) mod definition_registration;
 mod families;
 mod interfaces;
@@ -216,6 +222,7 @@ pub(crate) struct TopLevelTypeIndex {
     pub(crate) consts: HashMap<ConstId, TypeId>,
     pub(crate) statics: HashMap<StaticId, TypeId>,
     pub(crate) imported_statics: ImportedStatics,
+    pub(crate) imported_constants: ImportedConstants,
 }
 
 /// Borrowed semantic catalogs and lookup indexes shared by a body checker.
@@ -241,6 +248,10 @@ pub(crate) struct BodyInputs<'a> {
     pub imported_functions: &'a ImportedFunctions,
     /// Canonical runtime static declarations available to this module.
     pub imported_statics: &'a ImportedStatics,
+    /// Checked scalar constants selected through normal source imports.
+    pub imported_constants: &'a ImportedConstants,
+    /// Source-matched constant prerequisites, prepared once for the body environment.
+    pub constants: Option<&'a CheckedConstants>,
     /// Visible nominal, trait and implementation contracts.
     pub aggregates: &'a AggregateCatalog,
 }

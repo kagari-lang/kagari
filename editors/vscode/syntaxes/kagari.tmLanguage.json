@@ -7,7 +7,7 @@
     "code": {
       "patterns": [
         { "include": "#comments" },
-        { "include": "#interpolated-string" },
+        { "include": "#raw-string" },
         { "include": "#string" },
         { "include": "#char" },
         { "include": "#attribute" },
@@ -55,16 +55,16 @@
       "endCaptures": { "0": { "name": "punctuation.definition.comment.end.kagari" } },
       "patterns": [{ "include": "#doc-comment" }, { "include": "#block-comment" }]
     },
-    "string": {
-      "begin": "\"",
-      "end": "\"|(?=\\r?$)",
-      "name": "string.quoted.double.kagari",
+    "raw-string": {
+      "begin": "\\br(#{0,255})\"",
+      "end": "\"\\1",
+      "name": "string.quoted.raw.kagari",
       "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.kagari" } },
       "endCaptures": { "0": { "name": "punctuation.definition.string.end.kagari" } },
-      "patterns": [{ "include": "#escapes" }]
+      "patterns": [{ "match": "\\r(?!\\n)", "name": "invalid.illegal.carriage-return.kagari" }]
     },
     "char": {
-      "comment": "Character shape only; shared kagari-source decoding validates Unicode scalar values. Keep String escapes unchanged until their own cutover.",
+      "comment": "Character shape only; shared kagari-source decoding validates Unicode scalar values.",
       "begin": "'",
       "end": "'|(?=\\r?$)",
       "name": "string.quoted.single.kagari",
@@ -85,11 +85,11 @@
     "escapes": {
       "patterns": [
         {
-          "match": "\\\\u\\{[0-9A-Fa-f]+\\}",
+          "match": "\\\\u\\{[0-9A-Fa-f]_*(?:[0-9A-Fa-f]_*){0,5}\\}",
           "name": "string.quoted.double.kagari constant.character.escape.unicode.kagari"
         },
         {
-          "match": "\\\\[\"\\\\nrt0]",
+          "match": "\\\\(?:[\"'\\\\nrt0]|x[0-7][0-9A-Fa-f]|\\r?$)",
           "name": "string.quoted.double.kagari constant.character.escape.kagari"
         },
         {
@@ -98,10 +98,10 @@
         }
       ]
     },
-    "interpolated-string": {
-      "comment": "Do not put a string scope on this context: it would theme embedded expressions as strings even after their encoded token category resets.",
-      "begin": "f\"",
-      "end": "\"|(?=\\r?$)",
+    "string": {
+      "comment": "Do not put a string scope on this context: identifier holes must not inherit the string theme.",
+      "begin": "\"",
+      "end": "\"",
       "name": "meta.interpolated.kagari",
       "beginCaptures": { "0": { "name": "string.quoted.double.kagari punctuation.definition.string.begin.kagari" } },
       "endCaptures": { "0": { "name": "string.quoted.double.kagari punctuation.definition.string.end.kagari" } },
@@ -110,17 +110,19 @@
         { "match": "\\{\\{|\\}\\}", "name": "string.quoted.double.kagari constant.character.escape.brace.kagari" },
         { "include": "#interpolation" },
         { "match": "[^\"\\\\{}\\r\\n]+", "name": "string.quoted.double.kagari" },
-        { "match": "\\}", "name": "string.quoted.double.kagari invalid.illegal.brace.kagari" }
+        { "match": "\\{[^\"}\\r\\n]*\\}?|\\}", "name": "string.quoted.double.kagari invalid.illegal.interpolation.kagari" },
+        { "match": "\\r(?!\\n)", "name": "invalid.illegal.carriage-return.kagari" }
       ]
     },
     "interpolation": {
-      "begin": "\\{",
-      "end": "\\}",
+      "match": "(\\{)((?!(?:as|async|await|break|const|continue|crate|else|enum|false|fn|for|trait|if|impl|in|loop|match|mod|pub|return|self|static|struct|super|true|use|val|var|type|where|while)\\b)[A-Za-z_][A-Za-z0-9_]*)(:\\?)?(\\})",
       "name": "meta.embedded.expression.kagari",
-      "beginCaptures": { "0": { "name": "punctuation.section.interpolation.begin.kagari" } },
-      "endCaptures": { "0": { "name": "punctuation.section.interpolation.end.kagari" } },
-      "comment": "Colon and question mark stay separate code tokens; trivia, closure annotations and propagation need no speculative format-suffix parser.",
-      "patterns": [{ "include": "#code" }]
+      "captures": {
+        "1": { "name": "punctuation.section.interpolation.begin.kagari" },
+        "2": { "name": "variable.other.kagari" },
+        "3": { "name": "punctuation.section.interpolation.format.kagari" },
+        "4": { "name": "punctuation.section.interpolation.end.kagari" }
+      }
     },
     "braces": {
       "begin": "\\{",

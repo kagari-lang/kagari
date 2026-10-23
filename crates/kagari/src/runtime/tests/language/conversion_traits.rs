@@ -323,7 +323,7 @@ fn main()->i32 {
     val factors = Vec::from([2,6]).map(|item| item + 1);
     if i32::product(factors) != 21 { return 0; }
     val source = Vec::from(["a", "b"]);
-    val strings = source.map(|item| f"{item}!");
+    val strings = source.map(|item| "{item}!");
     val copied = Vec<String>::from_iter(strings);
     if copied.len() != 2u64 || copied[0] != "a!" || copied[1] != "b!" { return 0; }
     copied[0] = "changed";

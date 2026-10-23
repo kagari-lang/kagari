@@ -114,7 +114,7 @@ place_suffix	1	witnessed	examples/syntax/data-model.kgr	-	"." IDENT
 place_suffix	2	witnessed	examples/syntax/data-model.kgr	-	"[" expr "]"
 literal	1	witnessed	examples/syntax/expressions.kgr	-	INTEGER
 literal	2	witnessed	examples/standard-library.kgr	-	FLOAT
-literal	3	witnessed	examples/syntax/expressions.kgr	-	STRING
+literal	3	witnessed	examples/syntax/literals-and-comments.kgr	-	STRING
 literal	4	witnessed	examples/syntax/expressions.kgr	-	"true"
 literal	5	witnessed	examples/syntax/expressions.kgr	-	"false"
 literal	6	witnessed	examples/syntax/char-literals.kgr	-	CHAR

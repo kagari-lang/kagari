@@ -3,4 +3,4 @@
 ("{" @open "}" @close)
 ((string_literal "\"" @open "\"" @close) (#set! rainbow.exclude))
 ((char_literal "'" @open "'" @close) (#set! rainbow.exclude))
-((interpolated_string "f\"" @open "\"" @close) (#set! rainbow.exclude))
+((interpolated_string "\"" @open "\"" @close) (#set! rainbow.exclude))

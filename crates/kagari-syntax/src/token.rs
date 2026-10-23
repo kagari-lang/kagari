@@ -87,15 +87,15 @@ pub enum TokenKind {
     Number,
     /// A floating-point literal spelling, such as `1.5`.
     Float,
-    /// A quoted string literal, such as `"hello"`, retaining quotes and escapes.
+    /// A no-hole cooked/raw String, retaining physical delimiters, escapes and newlines.
     String,
-    /// The `f"` prefix opening an interpolated string.
+    /// The `"` opening an ordinary String with name interpolation.
     FormatStart,
     /// Text within an interpolated string, including escaped or doubled braces.
     FormatText,
-    /// The `{` opening an expression hole in an interpolated string.
+    /// The `{` opening a name hole in an interpolated string.
     FormatOpen,
-    /// The `}` closing an expression hole, distinct from a nested block brace.
+    /// The `}` closing a name hole; nested expressions are not supported.
     FormatClose,
     /// The `"` closing an interpolated string.
     FormatEnd,

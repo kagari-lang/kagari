@@ -6390,6 +6390,14 @@
         },
         {
           "type": "SYMBOL",
+          "name": "raw_string_literal"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "unterminated_raw_string"
+        },
+        {
+          "type": "SYMBOL",
           "name": "boolean_literal"
         },
         {
@@ -6708,37 +6716,12 @@
         }
       ]
     },
-    "escape_sequence": {
-      "type": "IMMEDIATE_TOKEN",
-      "content": {
-        "type": "SEQ",
-        "members": [
-          {
-            "type": "STRING",
-            "value": "\\"
-          },
-          {
-            "type": "CHOICE",
-            "members": [
-              {
-                "type": "PATTERN",
-                "value": "[\"\\\\nrt0]"
-              },
-              {
-                "type": "PATTERN",
-                "value": "u\\{[0-9a-fA-F]+\\}"
-              }
-            ]
-          }
-        ]
-      }
-    },
     "interpolated_string": {
       "type": "SEQ",
       "members": [
         {
           "type": "STRING",
-          "value": "f\""
+          "value": "\""
         },
         {
           "type": "REPEAT",
@@ -6747,7 +6730,27 @@
             "members": [
               {
                 "type": "SYMBOL",
-                "name": "format_text"
+                "name": "string_content"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "escape_sequence"
+              }
+            ]
+          }
+        },
+        {
+          "type": "SYMBOL",
+          "name": "interpolation"
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "string_content"
               },
               {
                 "type": "SYMBOL",
@@ -6780,19 +6783,69 @@
         }
       ]
     },
+    "escape_sequence": {
+      "type": "IMMEDIATE_TOKEN",
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "STRING",
+            "value": "\\"
+          },
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "PATTERN",
+                "value": "[\"'\\\\nrt0]"
+              },
+              {
+                "type": "PATTERN",
+                "value": "x[0-7][0-9a-fA-F]"
+              },
+              {
+                "type": "PATTERN",
+                "value": "u\\{[0-9a-fA-F]_*([0-9a-fA-F]_*){0,5}\\}"
+              },
+              {
+                "type": "PATTERN",
+                "value": "\\r?\\n[ \\t\\r\\n]*"
+              }
+            ]
+          }
+        ]
+      }
+    },
     "interpolation": {
       "type": "SEQ",
       "members": [
         {
-          "type": "STRING",
-          "value": "{"
+          "type": "IMMEDIATE_TOKEN",
+          "content": {
+            "type": "STRING",
+            "value": "{"
+          }
         },
         {
           "type": "FIELD",
-          "name": "expression",
+          "name": "name",
           "content": {
-            "type": "SYMBOL",
-            "name": "_expression"
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "ALIAS",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "_hole_name"
+                },
+                "named": true,
+                "value": "identifier"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "_hole_boundary"
+              }
+            ]
           }
         },
         {
@@ -6808,8 +6861,20 @@
           ]
         },
         {
-          "type": "STRING",
-          "value": "}"
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "IMMEDIATE_TOKEN",
+              "content": {
+                "type": "STRING",
+                "value": "}"
+              }
+            },
+            {
+              "type": "SYMBOL",
+              "name": "_hole_boundary"
+            }
+          ]
         }
       ]
     },
@@ -6817,12 +6882,27 @@
       "type": "SEQ",
       "members": [
         {
-          "type": "STRING",
-          "value": ":"
+          "type": "IMMEDIATE_TOKEN",
+          "content": {
+            "type": "STRING",
+            "value": ":"
+          }
         },
         {
-          "type": "STRING",
-          "value": "?"
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "IMMEDIATE_TOKEN",
+              "content": {
+                "type": "STRING",
+                "value": "?"
+              }
+            },
+            {
+              "type": "SYMBOL",
+              "name": "_hole_boundary"
+            }
+          ]
         }
       ]
     },
@@ -6974,10 +7054,6 @@
     },
     {
       "type": "SYMBOL",
-      "name": "format_text"
-    },
-    {
-      "type": "SYMBOL",
       "name": "_string_end"
     },
     {
@@ -6991,6 +7067,22 @@
     {
       "type": "SYMBOL",
       "name": "_char_boundary"
+    },
+    {
+      "type": "SYMBOL",
+      "name": "raw_string_literal"
+    },
+    {
+      "type": "SYMBOL",
+      "name": "unterminated_raw_string"
+    },
+    {
+      "type": "SYMBOL",
+      "name": "_hole_boundary"
+    },
+    {
+      "type": "SYMBOL",
+      "name": "_hole_name"
     }
   ],
   "inline": [

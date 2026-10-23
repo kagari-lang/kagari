@@ -42,9 +42,9 @@ fn main() { 1..2; 1f64; 0xff_u8; 0xff32; }
       (expression_statement (integer_literal)))))
 
 ==================
-Nested interpolation, doubled braces and debug trivia
+Ordinary interpolation, doubled braces and adjacent debug suffix
 ==================
-fn main() { f"{{text}} {f"{value}": /* debug */ ?}" }
+fn main() { "{{text}} {value:?}" }
 
 ---
 
@@ -54,20 +54,15 @@ fn main() { f"{{text}} {f"{value}": /* debug */ ?}" }
     (parameters)
     (block
       (interpolated_string
-        (format_text)
-        (interpolation
-          (interpolated_string
-            (interpolation (path (identifier))))
-          (interpolation_format (block_comment)))))))
+        (string_content)
+        (interpolation (identifier) (interpolation_format))))))
 
 ==================
-Multiline expression hole preserves ordinary code nesting
+Multiline contents preserve whitespace around identifier holes
 ==================
-fn main() { f"before { {
-  val value = "}";
-  /* } /* nested */ */
-  value
-} } after" }
+fn main() { "before
+  {value}
+ after" }
 
 ---
 
@@ -77,20 +72,17 @@ fn main() { f"before { {
     (parameters)
     (block
       (interpolated_string
-        (format_text)
-        (interpolation
-          (block
-            (binding_statement (path (identifier)) (string_literal (string_content)))
-            (block_comment)
-            (path (identifier))))
-        (format_text)))))
+        (string_content)
+        (interpolation (identifier))
+        (string_content)))))
 
 ==================
-Physical line boundary exits ordinary string text
+Physical line boundary stays ordinary string text
 ==================
 fn main() {
   "broken
   ;
+  still text";
   val after = 42;
 }
 
@@ -101,15 +93,16 @@ fn main() {
     (identifier)
     (parameters)
     (block
-      (expression_statement (string_literal (string_content) (unterminated_string_end)))
+      (expression_statement (string_literal (string_content)))
       (binding_statement (path (identifier)) (integer_literal)))))
 
 ==================
-Physical line boundary exits interpolated text
+Physical line boundary stays interpolated text
 ==================
 fn main() {
-  f"broken
+  "{name}
   ;
+  still text";
   val after = 42;
 }
 
@@ -120,7 +113,7 @@ fn main() {
     (identifier)
     (parameters)
     (block
-      (expression_statement (interpolated_string (format_text) (unterminated_string_end)))
+      (expression_statement (interpolated_string (interpolation (identifier)) (string_content)))
       (binding_statement (path (identifier)) (integer_literal)))))
 
 ==================

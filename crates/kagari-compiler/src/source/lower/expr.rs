@@ -347,6 +347,8 @@ impl FunctionLowerer<'_, '_> {
             ExprKind::Await { expr } => self.lower_await(expr_id, expr),
             ExprKind::Propagate { expr } => self.lower_propagation(expr_id, expr),
             ExprKind::InterpolatedString(parts) => {
+                // Each part includes formatting, so a later name is read only after
+                // the preceding formatter's effects and possible trap.
                 let elements = match self.lower_values(&parts)? {
                     ControlFlow::Continue(values) => values,
                     ControlFlow::Break(value) => return Ok(value),

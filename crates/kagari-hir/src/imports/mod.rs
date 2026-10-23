@@ -30,6 +30,7 @@ mod cache;
 #[cfg(test)]
 mod cache_tests;
 pub mod catalog;
+pub mod constants;
 pub mod functions;
 mod mapping;
 #[cfg(test)]

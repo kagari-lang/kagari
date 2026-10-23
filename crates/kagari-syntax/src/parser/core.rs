@@ -12,7 +12,10 @@ use rowan::{Checkpoint as GreenCheckpoint, GreenNode, GreenNodeBuilder, Language
 use smallvec::SmallVec;
 use {
     kagari_common::cancellation::CancellationToken,
-    kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
+    kagari_source::{
+        diagnostic::{Diagnostic, DiagnosticKind},
+        literal::decode_string_literal_with_cancellation,
+    },
 };
 
 use crate::{
@@ -238,8 +241,27 @@ impl<'a> Parser<'a> {
     }
 
     /// Reports a diagnostic at the current token range, or the default span if unavailable.
-    pub(crate) fn error_here(&mut self, kind: DiagnosticKind) {
+    pub(crate) fn error_here(&mut self, mut kind: DiagnosticKind) {
         let span = self.peek().map(|token| token.span).unwrap_or_default();
+        if self.at(TokenKind::Unknown) && !matches!(kind, DiagnosticKind::InvalidLiteral { .. }) {
+            let text = &self.text[span.start..span.end];
+            let reason = if text == "f" && self.text[span.end..].starts_with('"') {
+                Some(
+                    "the f String prefix is not supported; use ordinary quotes and name-only interpolation",
+                )
+            } else if text.starts_with('"') || text.starts_with("r\"") || text.starts_with("r#") {
+                decode_string_literal_with_cancellation(text, &self.cancel)
+                    .ok()
+                    .and_then(Result::err)
+            } else {
+                None
+            };
+            if let Some(reason) = reason {
+                kind = DiagnosticKind::InvalidLiteral {
+                    reason: reason.into(),
+                };
+            }
+        }
         self.push_diagnostic(Diagnostic::error(kind).with_span(span));
     }
 

@@ -5,6 +5,7 @@ mod lower;
 mod patterns;
 mod recovery;
 mod resolver;
+mod text_literals;
 mod typeck;
 
 pub(crate) mod native;

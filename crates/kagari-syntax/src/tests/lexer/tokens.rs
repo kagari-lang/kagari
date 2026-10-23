@@ -1,4 +1,4 @@
-use crate::{lexer::lex, parser::parse, tests::common, token::TokenKind};
+use crate::{ast::traits::AstNode, lexer::lex, parser::parse, tests::common, token::TokenKind};
 
 #[test]
 fn character_tokens_keep_unicode_spans_and_pattern_boundaries() {
@@ -41,6 +41,71 @@ fn character_tokens_keep_unicode_spans_and_pattern_boundaries() {
         "'unterminated"
     );
     assert!(tokens.iter().any(|token| token.kind == TokenKind::FnKw));
+}
+
+#[test]
+fn string_tokens_preserve_physical_lines_and_raw_delimiter_boundaries() {
+    for literal in [
+        "\"a\r\n  🙂\n\"",
+        "\"a\\\r\n \tb\"",
+        r#""\u{7B}name\u{7D}""#,
+        r#""{{name}}""#,
+    ] {
+        let tokens = lex(literal);
+        assert_eq!(tokens[0].kind, TokenKind::String, "{literal:?}");
+        assert_eq!(&literal[tokens[0].span.start..tokens[0].span.end], literal);
+        assert_eq!(tokens.len(), 2);
+    }
+    for count in [0, 1, 2, 255] {
+        let hashes = "#".repeat(count);
+        let text = format!("r{hashes}\"{{name}}\\\r\n🙂\"{hashes}# next");
+        let tokens = lex(&text);
+        assert_eq!(tokens[0].kind, TokenKind::String, "{count}");
+        assert_eq!(tokens[0].span.end, text.find("# next").unwrap());
+        assert_eq!(tokens[1].kind, TokenKind::Hash);
+    }
+    let text = "r##\"a\"#b\"##";
+    assert_eq!(lex(text)[0].span.end, text.len());
+    for text in ["\"a\rb\"", "r\"a\rb\"", "\"a\\\rb\""] {
+        assert_eq!(lex(text)[0].kind, TokenKind::Unknown, "{text:?}");
+    }
+    let too_many = format!("r{}\"x\"", "#".repeat(256));
+    assert_eq!(lex(&too_many)[0].kind, TokenKind::Unknown);
+}
+
+#[test]
+fn unterminated_multiline_strings_end_at_eof_not_the_next_declaration() {
+    for text in [
+        "\"unterminated\r\nfn next() {{}}",
+        "r#\"unterminated\n\"\nfn next() {}",
+    ] {
+        let tokens = lex(text);
+        assert_eq!(tokens[0].kind, TokenKind::Unknown);
+        assert_eq!(tokens[0].span.end, text.len());
+        assert_eq!(tokens.len(), 2);
+    }
+
+    // Undoubled braces still form hole tokens inside an unclosed cooked string.
+    let text = "\"unterminated\r\nfn next() {}";
+    let tokens = lex(text);
+    assert_eq!(
+        tokens.iter().map(|token| &token.kind).collect::<Vec<_>>(),
+        [
+            &TokenKind::FormatStart,
+            &TokenKind::FormatText,
+            &TokenKind::FormatOpen,
+            &TokenKind::FormatClose,
+            &TokenKind::Eof,
+        ]
+    );
+    assert_eq!(tokens[0].span.start, 0);
+    assert_eq!(tokens.last().unwrap().span.end, text.len());
+    for pair in tokens.windows(2) {
+        assert_eq!(pair[0].span.end, pair[1].span.start);
+    }
+    let parsed = common::parse(text);
+    assert!(!parsed.diagnostics().is_empty());
+    assert_eq!(parsed.syntax().syntax().text().to_string(), text);
 }
 
 #[test]

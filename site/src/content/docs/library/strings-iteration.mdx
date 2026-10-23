@@ -18,16 +18,79 @@ chapter builds on <a href={page('library/collections')}>collections</a> and
   result="The program checks its formatted strings and main returns 42; the default runner exits successfully without printing the message or return value."
 />
 
-`f"Hello {name}, score={score + 2}"` evaluates the expressions and produces
-`"Hello Kagari, score=42"`. The expression can do arithmetic; it is not a textual
-name substitution. Ordinary holes use `Display`, while `:?` selects `Debug`:
-the debug representation of `name` includes quotes. Doubled braces, `{{` and
-`}}`, produce literal braces. Formatting evaluates expressions left to right,
-with ordinary effects and failures.
+Ordinary strings interpolate names without an `f` prefix. Bind computed values
+before using them in a hole:
+
+```kgr
+val name = "Kagari";
+val score = 40 + 2;
+val message = "Hello {name}, score={score}";
+val diagnostic = "name={name:?}";
+```
+
+`message` is `"Hello Kagari, score=42"`. A hole must be exactly `{name}` or
+`{name:?}`, with no internal whitespace. Fields, calls, arithmetic and paths such
+as `{player.name}`, `{compute()}` and `{module::VALUE}` are rejected; bind their
+results first. Names use normal resolution, including parameters, constants,
+accessible statics and imported aliases. Ordinary holes require `Display`, while
+`:?` requires `Debug`: the debug representation of `name` includes quotes.
+Doubled braces, `{{` and `}}`, produce literal braces.
+
+Each occurrence reads its name and formats it before reading the next name.
+Repeated names are not captured once at string entry. For example, in
+`"{first}{STATE}"`, `first`'s formatter may update STATE, and the next hole observes
+that update. Reading a static may initialize it. A trap skips later holes without
+undoing completed effects.
+
+When replacing an old expression hole, do not eagerly compute every argument if
+formatting has effects. Keep the original ordering with an intermediate string:
+
+```kgr
+val first = make_first();
+val rendered = "{first}";
+val second = make_second();
+val message = "{rendered}: {second:?}";
+```
+
+This formats `first` before calling `make_second()`. Keep such bindings inside
+their original branch or argument-evaluation position.
 
 A `String` is an immutable value. Trimming, replacement and slicing produce
 strings rather than exposing a writable character buffer or a borrowed Rust
 `&str`. Assigning a string does not grant mutation of its contents.
+
+## Write literal text and multiple lines
+
+Raw strings do not interpret escapes or interpolation. Use `r"..."` when the text
+has no quotes, or add matching hashes around the quotes for JSON and templates:
+
+```kgr
+val path = r"C:\games\Kagari";
+val template = r#"{"message":"Hello {name}","newline":"\n"}"#;
+val braces = "Literal {{name}}";
+```
+
+Here `{name}` and `\n` remain literal text inside `template`. Raw delimiters allow
+zero through 255 hashes. Cooked strings support `\n`, `\r`, `\t`, `\0`, quote and
+backslash escapes, ASCII `\xNN` and Unicode `\u{...}` escapes; for example,
+`"\u{1F_600_}"` produces 😀. A brace produced by `\u{7B}` does not start a hole.
+
+Both cooked and raw strings can span source lines. They retain indentation and
+initial/final newlines, with CRLF normalized to LF and no automatic dedent:
+
+```kgr
+val text = "first
+  second";
+val joined = "left\
+    right";
+```
+
+`text` contains `"first\n  second"`. In a cooked string, a backslash immediately
+before a physical line break removes that break and following ASCII whitespace,
+so `joined` is `"leftright"`. Raw strings retain the backslash and line break;
+a `\n` escape in a cooked string inserts a newline rather than continuing a line.
+See the <a href={source('docs/spec/syntax.md#string-literals')}>literal contract</a>
+for delimiter, escape and literal-only-context rules.
 
 ## Work with UTF-8 bytes deliberately
 

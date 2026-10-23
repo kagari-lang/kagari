@@ -33,7 +33,8 @@ use crate::{
     hir::ids::BodySelection,
     imports::{
         ModuleGraph, ModuleImportFacts, SourceUnit, catalog::NamespaceCatalog,
-        functions::ImportedFunctions, statics::ImportedStatics, types::ImportedTypes,
+        constants::ImportedConstants, functions::ImportedFunctions, statics::ImportedStatics,
+        types::ImportedTypes,
     },
     language::items as language_items,
     resolver::{
@@ -133,6 +134,8 @@ pub struct AnalyzedModule {
     pub imported_functions: ImportedFunctions,
     /// Canonical runtime static contracts reached through imports.
     pub imported_statics: ImportedStatics,
+    /// Checked source constants, retaining their original declaration identity.
+    pub imported_constants: ImportedConstants,
 }
 
 /// Useful analysis facts together with diagnostics, including recoverable errors.
@@ -466,6 +469,8 @@ fn analyze_prepared(
     let BodyEnvironment {
         imported_functions,
         imported_statics,
+        imported_constants,
+        constants,
         aggregates,
     } = environment;
     let PreparedAnalysis {
@@ -491,6 +496,8 @@ fn analyze_prepared(
             signatures: &signatures,
             imported_functions: &imported_functions,
             imported_statics: &imported_statics,
+            imported_constants: &imported_constants,
+            constants: constants.as_deref(),
             aggregates: &aggregates,
         },
         reuse,
@@ -508,6 +515,7 @@ fn analyze_prepared(
             signatures,
             imported_functions,
             imported_statics,
+            imported_constants,
             typed: typed.facts,
         },
         diagnostics,
