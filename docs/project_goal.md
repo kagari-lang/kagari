@@ -14,7 +14,8 @@ resembling Rust does not require its ownership/lifetime model.
 
 1. Correct static typing and explicit observable execution/failure semantics.
 2. Safe, practical embedding and clear host/script ownership.
-3. Hot reload that preserves active state and generation-pinned calls on failure.
+3. Hot reload that preserves live state and selected computation bodies, isolates
+   failed publication and makes new ordinary calls use current implementations.
 4. Recoverable analysis, diagnostics, navigation and interpreter-first debugging.
 5. Maintainable boundaries and measured performance across actual workloads.
 
@@ -49,13 +50,19 @@ borrow scope while retaining once-only evaluation and completed effects.
 
 ## Reload and executable boundaries
 
-Compile and validate candidates before atomic publication. Retain old code,
-metadata and dependencies while values/calls still require them. Public contracts,
-declared access and host schemas constrain compatibility. Durable state is explicit;
-hidden mutable module globals and implicit state migration are not assumed.
+Compile and validate candidates before atomic publication. The confirmed target is
+publication at the host/Actor top-level scheduling boundary, with no active script
+synchronous stack; suspended tasks may remain. Ordinary calls select the current
+implementation, including calls from old resumed bodies. Retain matching code and
+metadata for existing Future/closure/frame state, not an immutable old dependency
+selection for every subsequent call. Frozen contracts and checked installation/type
+identity remain mandatory; business-state coordination belongs to the host.
+
+This is a planned migration, not the current dependency-pinned implementation.
 [Loading/activation](spec/module-activation.md) defines current behavior; the
-[update proposal](update-model-design.md) covers later compatible updates and
-explicit state replacement.
+[update design](update-model-design.md) owns the replacement semantics and separate
+explicit state replacement. Persistent statics follow their existing contract;
+publication does not reset state or implicitly migrate it.
 
 Verified MIR supplies interpreter/native lowering facts. Serialized programs are
 bounded and validated before execution, without a source frontend. Backends share
@@ -86,8 +93,9 @@ Borrowed `Call` drives its invocation without a separate pump; submitted `Pendin
 receives results while the host drives Runtime separately. Managed Tasks can continue
 under that external driver after a handler returns. See the
 [embedding contract](spec/embedding-api.md#typed-async-calls-scheduling-and-native-waits).
-Package distribution, logical latest-version handles, state replacement and broader
-async composition remain separate work; they are not prerequisites for these APIs.
+Package distribution, the confirmed current-call update migration, state replacement
+and broader async composition remain separate work; they are not implemented by
+these APIs.
 
 ## Document authority
 

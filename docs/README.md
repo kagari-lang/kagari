@@ -110,7 +110,9 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   separately scoped. Current source/source-free adapter and Worker contracts belong in
   the [browser guide](../crates/kagari-web/README.md); measured Playground costs and
   exact-product builds belong in the [site guide](../site/README.md).
-- [Host API unification](host-api-refactor.md).
+- [Host Program/Module and public-path execution plan](host-api-refactor.md):
+  versioned metadata views, relative lookup and type exports; HM00 coordinates
+  stable callable identity with the update migration. Implementation is not started.
 - [Editor follow-ups](implementation-roadmap.md#toolchain-distribution-and-modes):
   complete CI/platform acceptance, semantic IDE features, server-launch integration,
   marketplace publication and separately authorized old-repository administration.
@@ -125,7 +127,10 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 - [Toolchain distribution and remaining modes](implementation-roadmap.md#toolchain-distribution-and-modes):
   SDK/CLI distribution and the separate REPL proposal; source packages are
   specified above.
-- [Compatible reload and state replacement](update-model-design.md).
+- [Compatible reload and state replacement](update-model-design.md): confirmed target
+  is host-top-level serialized publication and current implementation selection on
+  ordinary calls, retaining existing Future/closure/resume bodies. The current
+  dependency-pinned runtime has not yet migrated; state replacement is separate.
 - [Interactive debugger](debugger-design.md): synchronous waiting on the executing
   host thread, followed by SDK control and IDE/DAP integration; not implemented.
 

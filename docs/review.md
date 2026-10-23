@@ -10,6 +10,15 @@ architecture review numbering. Neither series is renumbered when resolved entrie
 are removed. Current contracts live in the specifications and architecture; CI
 status and activation belong to the [roadmap](implementation-roadmap.md).
 
+Update direction changed after the historical reviews below: the
+[confirmed update design](update-model-design.md#calls-retained-objects-and-new-trait-implementations)
+uses host-top-level serialized publication, retained computation bodies and current
+implementation selection on subsequent ordinary calls. Historical pinned-dependency
+observations remain evidence of the current implementation, not a requirement to
+preserve that dispatch policy in UP. Reconcile affected optimization/native findings
+with the migration before implementation; type, root and executable lifetime safety
+remain required.
+
 - [Engineering a Compiler review](#engineering-a-compiler-chapter-review): chapter-led
   assessment at `5b57c9a8`, reconciled with current storage/optimization boundaries.
 - [Runtime architecture review](#runtime-architecture-review): system map and
@@ -975,9 +984,15 @@ reproduction; it does not activate a semantic change as part of static support.
 
 Recorded after AR06 at `26678b13`. This is a source-inspected API consistency
 finding and proposed direction, not authorization to implement or a finalized API.
-The queued [Host API design](host-api-refactor.md) owns preparation/loading and
-logical-entry changes; reuse the completed typed-call/object facade rather than
-creating a parallel invocation surface or execution plan.
+The [Host Program/Module execution plan](host-api-refactor.md) owns HM00-HM04:
+installed Program/module separation, relative public lookup, checked type exports
+and reload compatibility. Implementation is unstarted; reuse the completed
+typed-call/object facade and its safety boundaries. The current implementation is
+version-pinned. On 2026-10-23 the user confirmed a different target: stable ordinary
+callable identities selecting current implementations. The [update model](update-model-design.md)
+owns that UP migration; HM00 must resolve the identity/lifetime handoff, without
+adding full dispatch migration to HM01-HM04. Cross-installation repair linking
+below remains separate. Existing specifications stay truthful until migration.
 
 ### Current behavior and ownership mismatch
 
@@ -1009,14 +1024,19 @@ The binding rules also differ:
 
 ### Proposed lookup contract
 
-Distinguish an installed Program handle (provisionally `LoadedProgram`) from a
-module handle, while retaining `PreparedProgram` for the preparation product.
-Exact names, signatures and error types remain to be reviewed. Proposed usage:
+The user confirmed the target names on 2026-10-23: `PreparedProgram` for the
+preparation product, `Program` for one installed program version and `Module` for
+one module in that version. Program and Module may remain shared immutable
+version-specific metadata views. This does not pin ordinary call bindings to a
+body: in the confirmed target they identify a stable declaration in one installation
+and invoke its current implementation, without host rebinding. HM00 gates exact
+handles, old-view binding/admission, signatures, lifetimes and the UP handoff;
+the current runtime does not already implement that distinction. Proposed usage:
 
 ```rust,ignore
-let program = runtime.load_program(&prepared, Default::default())?;
-let root = program.root();
-let users = program.module("users")?;
+let program: Program = runtime.load_program(&prepared, Default::default())?;
+let root: Module = program.root();
+let users: Module = program.module("users")?;
 let profiles = users.module("profiles")?;
 // Equivalent module lookup from the program root:
 let same_profiles = program.module("users::profiles")?;
@@ -1025,6 +1045,10 @@ let find_user = runtime.function::<(i32,), Object>(&users, "find_user")?;
 let user_type = runtime.object_type(&users, "User")?;
 // Equivalent type lookup from the root:
 let same_user_type = runtime.object_type(&root, "users::User")?;
+
+let next = runtime.reload_program(&program, &replacement, Default::default())?;
+// Confirmed UP target, not current pinned behavior: no rebind required.
+let user = runtime.call(&find_user, (42,))?; // Current implementation.
 ```
 
 Program lookup starts at its root; module lookup and function/type binding start
@@ -1039,15 +1063,34 @@ rather than scanning all modules on each lookup or adding a second name resolver
 Paths describe public namespaces, not physical files or concatenated canonical
 module identities: aliases and re-exports can lead to the same declaration through
 different paths. Lookup must preserve visibility and cannot expose a private
-module merely because one public item is re-exported. Handles remain pinned to
-the installation/generation; lookup does not load code, execute script, introduce
-latest-version dispatch or perform new generic specialization. Repeated calls
-reuse checked bindings without repeating string lookup; no speedup is claimed.
+module merely because one public item is re-exported. Lookup reads version-specific
+metadata and preserves installation/type authority; it does not load code, execute
+script or perform new generic specialization. Callable identity is distinct from
+selected body/resume lifetime, native-product validity and type/layout retention.
+Repeated ordinary calls reuse checked declaration bindings; implementing their
+current-code selection belongs to UP, not the namespace resolver. Do not create
+parallel public legacy-pinned/current-code entrypoints. No speedup is claimed.
+
+The confirmed target permits publication only at a single-threaded Actor-style
+Runtime host top-level boundary: no synchronous script stack is executing and a
+reentrant host callback cannot publish; async tasks may be suspended. No concurrent
+publication mechanism is required. Failure leaves the old published state intact;
+publication runs no script/code initialization or host handlers. Active/suspended
+computations retain their selected bodies/resume state, precreated Futures retain
+their selected computations, and closures retain capture-layout-compatible bodies.
+Ordinary function/method calls inside them use current implementations after
+publication, including calls from old resumed bodies. Existing type identity and
+trait relationships remain fixed, but method bodies are selected from current code.
+Roots, runtime/type/borrow checks, cancellation and cleanup remain mandatory.
+These are UP requirements, not claims about the current pinned runtime.
 
 When activated, validate direct versus nested relative lookup, module aliases and
 function/type re-exports, missing/private paths, foreign-runtime rejection and
-pinned handles across reload. Reuse source and source-free artifact contract owners;
-any export-schema change must preserve independent verification. Review existing
+metadata/type authority across reload. HM00 must identify which pinned tests cover
+the pre-UP implementation and hand current-call acceptance to UP; retaining an old
+computation must not become a permanent requirement to pin its callees. Reuse source
+and source-free artifact contract owners; any export-schema change must preserve
+independent verification. Review existing
 path-binding callers and specifications together, without compatibility aliases.
 This entry changes no implementation; focused behavior tests and performance
 measurements have not been run for the proposal.
@@ -1078,11 +1121,14 @@ explicit reference from new code to an existing installation:
   when original source is unavailable, including trait evidence and generic bodies
   or installed specialization limits; signatures alone do not establish arbitrary
   new generic specialization support.
-- Loading validates and binds the dependency to the selected runtime installation
-  and generation. It must not silently resolve another same-named program, copy
-  its objects or initialize another set of its statics. The new program still owns
-  its own declarations and state. Compilation references and installation bindings
-  must agree before publication or execution.
+- Loading validates the versioned compilation contract against the selected runtime
+  installation and fixed declaration/type relationships. An ordinary callable
+  reference targets that installation's stable identity/current implementation;
+  required computation/type/native evidence has its own retention contract. Loading
+  must not silently select another same-named program, copy its objects or initialize
+  another set of its statics. The new program still owns its own declarations and
+  state. Compilation references and installation bindings must agree before
+  publication or execution; exact cross-installation linker details remain open.
 - Reuse ordinary function/object bindings and call/call_async after loading. Access
   remains public and checked. Execution is serialized by the existing runtime
   driver; suspension does not freeze shared game state. Completed mutations survive
@@ -1093,8 +1139,9 @@ As a comparative mechanism, [.NET AssemblyLoadContext shared dependencies](https
 (.NET 5+/Core conceptual documentation, reviewed 2026-10-23) shares a loaded
 assembly instance rather than treating equal type names as equal instances.
 Kagari can reuse that ownership principle, not its one-version-per-name resolution
-or equal-or-higher version policy: Kagari must retain explicit generation pinning,
-checked identities, GC roots and host-boundary guarantees. Exact API and linker
+or equal-or-higher version policy: Kagari must retain checked installation/type
+identities, selected-computation lifetimes, GC roots and host-boundary guarantees,
+without confusing those with pinning ordinary method bodies. Exact API and linker
 representation remain undecided; this capability is not implemented by the
 current source compilation and load_program entrypoints alone.
 
@@ -1106,31 +1153,39 @@ compares the selected active Program with its candidate, not all code loaded in
 the Runtime. Preserve that boundary when adding installation references:
 
 ```text
-Before: repair -> game v1
+Target before: repair computation -> game declaration in installation A (v1 body)
 Update: compare game v1 with game v2, not (game v1 + repair) with game v2
-After:  new game bindings -> game v2; retained repair bindings -> game v1
+Target after: retained repair computation -> same game declaration (v2 body)
+Retained repair body/resume state is unchanged; its next ordinary call uses v2
 ```
 
 A later game update must not need the repair source or its function definitions.
 Injecting repair declarations into the game's own Program would instead make their
 absence relevant to its compatibility checks; that is not the proposed model.
 An ordinary Program is not automatically in the same update unit as every program
-that it references. Retaining game v1 does not waive game v2's existing signature,
-layout, export or static compatibility requirements.
+that it references. Retaining selected old computations does not waive game v2's
+existing signature, layout, export or static compatibility requirements. This is
+the target behavior after UP plus explicit installation linking, not evidence that
+the current pinned implementation already updates retained repair calls.
 
 When repair has finished and no code-bearing references remain, its code may be
-reclaimed according to ordinary ownership. Player mutations remain. If a retained
-function, closure, Future or task still needs repair code, retain that code and its
-pinned dependencies rather than requiring the next game artifact to reproduce it
-or unloading reachable code. A callback stored in game state can therefore keep
-repair and old game code alive. Explicitly preparing/binding against game v2 is
-needed to select its updated implementations; automatic retargeting is not implied.
+reclaimed according to ordinary ownership. Player mutations remain. A selected
+repair computation, closure, precreated Future or task retains the body/resume/
+capture state it needs, plus required type/native evidence; do not require the next
+game artifact to reproduce repair code or unload reachable code. A captured callback
+stored in game state may therefore keep its repair body alive. Ordinary calls from
+that body into the game select the current implementation through stable identity,
+without preparing/binding again merely to observe game v2. This does not migrate
+the callback's capture layout or substitute a new body into a precreated Future.
+Exact cross-installation lifetime/linker representation remains deferred.
 
 On activation, cover shared object identity and static state, rejected dependency
 identity/version mismatches, source-free metadata limits, game reload without any
-repair declarations, suspended/retained repair across reload, escaped callbacks,
-and cleanup after final references end. Keep whole-program replacement/state
-migration and persistent REPL environments separate. This is a recorded requirement
+repair declarations, suspended/retained repair across reload calling current game
+methods, escaped callbacks retaining capture-compatible bodies, fixed trait/type
+relationships with current method bodies, and cleanup after final owners end.
+Keep whole-program replacement/state migration and persistent REPL environments
+separate. This is a recorded requirement
 and proposed contract only, with no implementation authorization or executed
 behavioral acceptance for cross-installation linking.
 

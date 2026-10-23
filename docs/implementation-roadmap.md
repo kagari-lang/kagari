@@ -746,8 +746,13 @@ addon for Node 24.15.0; passing CLI checks do not establish that suite or CI pas
 
 Remaining scope stays separate: native JIT/AOT suspension, Rust async-closure
 registration, dynamic/race/timeout combinators, arbitrary Object-to-trait casts,
-generated host views, and automatic latest-version handles. The queued Host API
-plan retains preparation/loading and logical entry proposals only.
+generated host views, and the [confirmed current-call update migration](update-model-design.md#calls-retained-objects-and-new-trait-implementations).
+That migration retains existing Future/closure/resume bodies, but selects current
+implementations for subsequent ordinary calls; it is not implemented by the completed
+async work. The [Host Program/Module plan](host-api-refactor.md) scopes HM00-HM04 to
+metadata handles, relative public lookup, checked type exports and reload compatibility.
+HM00 must settle stable callable identity versus versioned metadata and the UP handoff;
+implementation is not started. Broader preparation/tooling remains deferred.
 
 ## Text literals and String traversal
 
@@ -788,8 +793,8 @@ require a concrete task; implemented foundations are not prerequisites to replay
 
 | Track | Scope and dependencies |
 | --- | --- |
-| [Host API](host-api-refactor.md) | Preparation/load/reload facade and logical entry policy; reuse typed calls/roots. Reuse the implemented [invocation/object facade](spec/embedding-api.md); do not replay it. Freeze affected package/update contracts before dependent phases. |
-| [Update model](update-model-design.md) | Compatible publication versus explicit state replacement; depends on the affected identity, value and host facade contracts. |
+| [Host Program/Module](host-api-refactor.md) | HM00-HM04 planned, unstarted: separate Program/module metadata views, unify relative public paths, carry checked type exports through artifacts and reload. HM00 gates stable ordinary callable identity versus version-specific views/retention and the UP migration handoff; HM does not silently acquire full dispatch migration. Reuse [invocation/object safety](spec/embedding-api.md). Broader preparation cleanup and cross-installation repair linking remain deferred. |
+| [Update model](update-model-design.md) | Compatible publication versus explicit state replacement. Confirmed submission direction: collect function/file edits in one Update and submit once to Runtime, without begin or caller-supplied versions/hashes. Publication is serialized at the host/Actor top-level boundary with no active synchronous script stack; suspended tasks may remain. Ordinary calls and existing host function handles select current implementations, while existing Future/closure/frame bodies retain their matching state. UP00-UP02 own the migration from currently pinned dependencies; no concurrent publication framework or host rebinding is required. Existing signatures/type definitions and old-type trait relationships stay frozen; new types may implement old or same-batch new traits. Exact-version function-source inspection is required. Source patches use in-process compilation with interpreter/optional JIT execution; AOT patch delivery is excluded and wider native coverage remains independent. Dispatch/batch/source-query implementation and compiler-context wiring remain queued, outside HM00-HM04; incremental reuse is not a prerequisite. State replacement remains separate from ordinary code publication. |
 | [Interactive debugger](debugger-design.md) | Confirmed synchronous waiting at safe debug points, preserving the executing host thread's Rust call chain. Pause control, inspection lifecycle and SDK/DAP integration are queued and unstarted; no whole-execution continuation migration or automatic process-wide freeze. Lifecycle defaults and CLI spellings remain proposals. |
 
 ## Open review and documentation work

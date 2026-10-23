@@ -1,450 +1,538 @@
-# Host API Unification Refactor Plan
+# Host Program, Module and public-path execution plan
 
-Status: queued, documentation only. This plan gives embedding applications one
-consistent path for registering interfaces, preparing code, loading scripts,
-calling functions and publishing reloads. It composes existing execution boundaries
-and the queued interoperability work rather than replacing them with another VM.
-API names and examples are proposals, not currently callable interfaces.
+## Status and authority
 
-The outer-tuple argument convention below is explicitly confirmed by the user.
-The object model and latest-version function handles are the proposed design to
-review at activation. This document authorizes neither implementation nor commits.
-Existing specifications remain authoritative until implementation updates them.
+Status: planned, implementation not started. Requested on 2026-10-23 against
+`67d9e36f`. This document owns the finite HM00-HM04 sequence, decisions, acceptance
+and progress ledger for the [Host Program and module lookup finding](review.md#host-program-and-module-lookup).
+Writing this plan does not authorize implementation, commits or publication.
 
-The synchronous/async invocation and object-interaction facade is implemented in
-SDK Runtime. The [embedding contract](spec/embedding-api.md#typed-async-calls-scheduling-and-native-waits)
-owns driving Call, submitted PendingCall, runtime wake/poll integration and managed
-scope scheduling. Reusable function/member bindings and retained object access use
-pinned generations, not the logical latest-version Function model below. This plan
-retains preparation/loading and logical latest-version entry proposals only; do not
-reimplement the completed invocation/object facade when activating those proposals.
+This replaces the former broad HA00-HA05 proposal in this file. On 2026-10-23 the
+user confirmed ordinary calls through stable callable identities to current code,
+replacing the former pinned-dependency target. This is a target design, not current
+runtime behavior. The [update model](update-model-design.md) owns the UP dispatch
+migration; HM00 must settle its identity/lifetime handoff without expanding
+HM01-HM04 beyond namespace/type-path work. Remaining preparation/tooling proposals
+are retained under [Deferred work](#deferred-work), not as a second phase queue.
+Existing specifications describe the pinned implementation and remain authoritative
+until migration updates the affected contracts.
 
-The later [runtime ownership and host object design](runtime-ownership-and-host-api-design.md)
-owns automatic roots, common typed calls/conversion, object access and the Send
-runtime contract. HA consumes that foundation. Its Function below remains a
-proposed logical latest-version entry; GO PinnedFunction handles retain one checked
-version and do not activate HA's update policy.
+Reuse the implemented [typed invocation/object facade](spec/embedding-api.md),
+[loading and activation](spec/module-activation.md), [package contracts](spec/packages.md),
+[persistent state](spec/modules.md#persistent-module-statics) and
+[identity ownership](architecture.md#definition-identity-ownership).
+The [roadmap](implementation-roadmap.md) owns activation. No new VM, call API,
+registration system or independently maintained progress document is required.
 
-The confirmed [Rust distribution naming](implementation-roadmap.md#toolchain-distribution-and-modes)
-uses `kagari` for the embedding SDK and `kg` for the CLI executable. The package
-rename is implemented independently of this plan. That document owns package/CLI
-names; this plan owns SDK API evolution.
+## Outcome and finite scope
 
-The [package specification](spec/packages.md) defines current package identity and inputs.
-The [update model](update-model-design.md) owns the compatible-update versus state-
-replacement boundary and refines the compatibility gates below. These are contract
-handoffs, not circular requirements to finish both implementations first.
+A host loads a complete Program, obtains module handles through public paths,
+and binds functions and object types relative to the supplied module. Program and
+Module may remain immutable version-specific metadata views. An ordinary callable
+binding instead represents a stable declaration in one installation and, in the
+confirmed target, selects its current implementation without host rebinding.
+Returning a new Program view after publication does not require replacing ordinary
+function handles. HM00 gates the exact representation and transition to UP; the
+current runtime does not yet provide this dispatch contract.
 
-## Dependencies and scope
+Required outcomes:
 
-Build on current [native registration](spec/standard-declarations.md) and
-[execution control](spec/execution.md). The implemented
-[runtime ownership design](runtime-ownership-and-host-api-design.md) supplies
-conversion/root/call contracts; [Rust interoperability](spec/embedding-api.md#typed-native-registration) supplies
-DTO derives, Serde and runtime-owned opaque access/extraction.
-The [roadmap](implementation-roadmap.md) owns activation and scheduling.
+- Separate prepared code, an installed Program version and an individual module.
+- Unify public module/function/object-type paths, including aliases and re-exports.
+- Carry checked type export facts through source-free artifacts and verification.
+- Include type paths in staged reload compatibility before publishing candidates.
+- Migrate affected consumers without compatibility aliases or root-reset fallback.
+- Preserve typed invocation, roots, static state, cancellation and runtime/type
+  safety; distinguish these invariants from the dispatch policy UP will replace.
 
-This track retains preparation/loading workflows and proposed reload-aware logical
-entry handles. Its argument convention is implemented by the current invocation/
-object facade; do not implement a parallel call surface here. The ownership contract
-owns common conversion/retention and
-object APIs; Rust interop owns DTO/Serde/opaque extensions; execution policy owns
-resource semantics; native providers own linked invocation. Reuse those
-implementations and contracts.
+Non-goals for HM01-HM04: the full current-implementation dispatch migration,
+cross-installation repair-program linking, new generic specialization at runtime,
+arbitrary type reflection, R13 code/type retention separation, SA21 call optimization,
+artifact pruning, new unload semantics, compiler preparation redesign and native
+coverage expansion. HM00's UP handoff is required design work, not authorization
+to implement these mechanisms or a concurrent publication system in HM phases.
 
-The implemented [async execution](async-execution-design.md) and
-[host task scope](host-task-scope-design.md) contracts own current task lifetimes,
-suspension and scheduling boundaries, including async blocks and structured pair
-composition. The implemented invocation surface reuses current loading, type and
-version guarantees. Keep this plan's remaining facade scope separate from those
-existing execution contracts.
+## Evidence and ownership inventory
 
-## Current API inventory
+Source inspected at `67d9e36f`; no new behavioral reproduction or performance
+measurement was run for this plan.
 
-This inventory describes the existing SDK concepts. Re-audit concrete names and
-behavior at activation; it is not a current build report or the proposed facade.
-
-| Area | Current surface and limitation |
-| --- | --- |
-| Source preparation | [Engine source APIs](../crates/kagari/src/engine/source.rs) expose source mutation, overlays, analysis queries, `CheckedModule`, artifact emission and `compile_to_artifact` |
-| Program preparation | [PreparedProgram](../crates/kagari/src/program/mod.rs) validates artifacts/native input before loading; it uses `Rc` and an interior-mutable native cache, not a thread-transferable public program |
-| Runtime facade | [Runtime](../crates/kagari/src/runtime.rs) exposes typed bindings/calls, retained object/member operations, driving/submitted async calls, managed scopes and poll/close; low-level `execute`/`execute_prepared` remain zero-argument backend entry wrappers |
-| Call configuration | [ExecutionContext](../crates/kagari/src/context.rs) combines cancellation, JIT policy, tracing, deterministic inputs and panic policy; some JIT modes are declared but rejected by ordinary execution |
-| Native preparation | [Native APIs](../crates/kagari/src/program/native.rs) expose backend preparation and runtime installation separately from ordinary execution |
-| Errors | [Embedding errors](../crates/kagari/src/error.rs) classify several stages, while preparation and registration also return other error types |
-| Reload | [Runtime loading](../crates/kagari-runtime/src/loading.rs) stages, validates and publishes candidates; the SDK returns a new version-bound `LoadedModule`, not a stable latest-version logical entry |
-
-Preparation/loading still expose `CheckedModule`, `PreparedProgram` and
-`LoadedModule`. Direct source preparation already combines common steps; ordinary
-typed invocation no longer requires raw `Value` or `ExecutionReport`. Review the
-remaining preparation/loading workflow independently of completed call ergonomics.
-An in-memory artifact object is not necessarily a serialized byte round trip.
-
-The [module activation contract](spec/module-activation.md) already guarantees
-validation before publication, no implicit execution on load, candidate isolation
-and root-pinned dependency versions. Preserve these foundations.
-
-## Public object model
-
-| Object | Host meaning | Ownership boundary |
+| Owner | Current evidence | Required change |
 | --- | --- | --- |
-| `Engine` | Prepare code from source or an artifact | Compilation/preparation settings, declarations and relevant caches; not Actor business state |
-| `Program` | Prepared executable code and its dependency closure | Independent of a specific runtime's heap, installed callbacks and object handles |
-| `Runtime` | One independent execution environment | Heap, host bindings, installations, execution protection and runtime-local native links |
-| `Script` | A stable logical installation in one runtime | Selects the active program generation for new root calls |
-| `Function` | A checked exported callable identity within a Script | Retains runtime/installation identity and expected contract, not an unchecked slot number |
+| [SDK runtime](../crates/kagari/src/runtime.rs) | `load_program` and `reload_program` return `LoadedModule`; reload accepts a module although it replaces a Program | Return/accept a dedicated installed Program handle |
+| [Runtime module ownership](../crates/kagari-runtime/src/module.rs) | `LoadedModule` holds shared `ProgramDescriptor` plus `ModuleRef` | Reuse that owner; distinguish Program and member capabilities |
+| [Runtime exports](../crates/kagari-runtime/src/module/exports.rs) | Function paths always start at Program root, even on a child handle | Make module binding relative; retain explicit Program-root entry execution |
+| [Object binding](../crates/kagari-runtime/src/native/objects/cache.rs) | `bind_type` constructs a struct declaration path from the supplied module plus one name | Consume checked exported type targets, then reuse layout admission/cache |
+| [HIR exports](../crates/kagari-hir/src/program/exports.rs) | Only public module edges and concrete script-function leaves are collected | Collect the selected public type/alias facts from existing checked resolution |
+| [Compiler exports](../crates/kagari-compiler/src/source/program/exports.rs) | Source references lower to scoped definition identities | Lower type facts once; retain no HIR references downstream |
+| [Contract exports](../crates/kagari-contract/src/exports.rs) | Graph shape, bounds, reachability and function authority are checked | Extend type contracts, mapping and bounded codecs coherently |
+| [Bytecode exports](../crates/kagari-bytecode/src/program/exports.rs) | Verified function declarations bind to executable slots | Validate exported type evidence independently of source |
+| [Reload exports](../crates/kagari-runtime/src/reload/exports.rs) | Compares module/function path languages and the separate entry, including cycles | Compare normalized type contracts without flattening paths |
 
-The first four objects describe the workflow; `Function` is an entry handle, not
-another execution environment. A Script represents an installed program closure,
-not necessarily one source file. Source/module identity, an installation label and
-a program generation are separate concepts. Labels must not rewrite compiled
-module identities or make incompatible code look reload-compatible.
+The existing source-to-contract boundary is sound. The defects are incomplete
+public type metadata and inconsistent handle/path responsibilities, not a reason
+to move source resolution into runtime or introduce another namespace cache.
 
-Runtime mutation and execution stay explicit at the call site. Function handles
-must not require a long-lived mutable borrow that prevents later calls or reloads.
-No hidden global runtime, mandatory mutex, or implicit multi-threaded VM is added.
-Raw runtime escape hatches are advanced facilities, not prerequisites for ordinary
-registration, calls, cancellation or reload. They cannot bypass handle validation.
+## Proposed host contract
 
-## Ordinary host workflow
+### Program and module responsibilities
 
-The binding definitions and `DamageRequest`/`DamageResult` below come from the
-Rust interop plan. All snippets are target API sketches; builder names may change.
+The user confirmed `PreparedProgram` -> `Program` -> `Module` naming on 2026-10-23.
+`Program` and `Module` are shared handles, not copies of executable code or business
+state. They may select a definite installation/version for immutable metadata
+lookup without forcing callable bindings to retain that version's implementation.
+Renaming alone does not implement stable callable dispatch. Current implementation
+names in the evidence inventory remain unchanged until HM02.
 
-```rust
-let engine = Engine::builder()
-    .api(host_bindings.declarations())
-    .build()?;
+| Object | Meaning | Lifetime and authority |
+| --- | --- | --- |
+| `PreparedProgram` | Verified preparation product | Keep its name and current preparation/thread-transfer rules |
+| `Program` | One installed Program version in a Runtime | Immutable metadata view sharing the installation owner; not itself a mutable code selector |
+| `Module` | One module in that version | Shares the same metadata view plus a verified member identity |
+| Ordinary function/method binding (target) | Checked stable declaration in one installation | Selects current implementation on invocation; retains runtime/contract authority, not an old body merely because lookup used an old view |
+| Selected computation, type/layout and native evidence | Distinct retained execution or validation products | Body/resume/capture lifetime, type authority and native validity are separate from ordinary callable identity; exact handles are gated by HM00 |
 
-let program = engine.compile(Source::file("scripts/battle.kgr"))?;
+`load_program` returns `Program`. `reload_program` accepts the previous
+`Program` and returns a new one after ordinary staged validation/publication.
+A child module must not be accepted accidentally as a whole-program reload target.
+Keep compiled identities distinct from optional installation display labels;
+rename misleading option fields only where their Program responsibility requires
+it, with direct consumer migration rather than compatibility fields.
 
-let mut runtime = engine.runtime()
-    .bindings(host_bindings)
-    .build()?;
+Program exposes `root()` and `module(path)`; Module exposes `module(path)`.
+`root()` is the explicit zero-segment operation; empty strings are not alternate
+root syntax. `module(path)` is fallible public lookup, not code acquisition.
+Function/type binding continues through Runtime with a `Module`, not a new
+polymorphic owner trait or duplicate Program-specific binding methods.
 
-let script = runtime.load(&program)?;
-let calculate = runtime.function(&script, "calculate")?;
-let result: DamageResult = runtime.call(&calculate, (request,))?;
+Target usage sketch, not currently callable code:
+
+```rust,ignore
+let program: Program = runtime.load_program(&prepared, Default::default())?;
+let root: Module = program.root();
+let users: Module = program.module("users")?;
+let profiles = users.module("profiles")?;
+let same_profiles = program.module("users::profiles")?;
+
+let find = runtime.function::<(i32,), Object>(&users, "find_user")?;
+let user_type = runtime.object_type(&users, "User")?;
+let same_type = runtime.object_type(&root, "users::User")?;
+let user = runtime.call(&find, (42,))?;
+
+let next = runtime.reload_program(&program, &replacement, Default::default())?;
+let new_users = next.module("users")?; // Metadata for the published version.
+// Confirmed UP target, not implemented by the current pinned runtime:
+let updated_user = runtime.call(&find, (42,))?; // Current body; no rebinding.
 ```
 
-Host API definitions are authored once. Offline declarations are a projection of
-the same binding descriptor, not a second signature catalog. Separate Actors can
-install different callback captures and objects satisfying the same interface.
-Do not store every Actor's host state inside a shared Engine for convenience.
+HM00 must distinguish stable callable identity, version-specific metadata, selected
+body/resume lifetime, type/layout authority and native-product validity. The current
+owner model uses explicit version leases for prepared functions, types, active
+calls and native products; descriptor sharing alone is not an execution lease.
+Do not assume these leases already implement the target or preserve their coupling
+as a final requirement. Pure lookup reads checked metadata; binding/execution must
+still validate runtime/installation identity, generations where applicable, type
+contracts and admission. An old view must not resurrect a retired installation or
+admit stale native code. Dropping a Program does not cancel work.
 
-Registration follows the Rust interop module naming rules. Runtime construction or
-installation validates the declared interface against supplied implementations.
-Linking a Program validates its actual requirements before publication. Script code
-cannot add trusted bindings by spelling a declaration or attribute.
+Before HM01, record the exact handle/lifetime choices, treatment of binding through
+old views and the UP migration owner/checkpoint. If the namespace work cannot be
+separated safely, record a sequencing dependency on UP rather than silently adding
+dispatch implementation to HM. Use one ordinary public binding surface, not parallel
+legacy-pinned and current-code entrypoints. No new Send/Sync promise is implied.
 
-## Source and artifact preparation
+### Relative paths and visibility
 
-Source text, files and prebuilt artifacts converge on Program:
+- Program lookup starts at its root; Module lookup starts at the supplied module.
+  Sync and async function binding use that same start, with no fallback to root.
+- Paths are nonempty public name segments separated by `::`, bounded by the
+  existing path limit. Reject empty components, leading/trailing separators and
+  unsupported syntax. Do not introduce `crate`/`self`/`super` navigation, filesystem
+  paths, generic-expression parsing or implicit package search through this API.
+- Resolve through the checked public graph, not canonical path concatenation.
+  Module and function namespaces retain existing language collision rules; type
+  entries must respect the source type/module namespace rather than permit new
+  ambiguities merely because storage uses separate maps.
+- Preserve alias cycles as bounded graph edges. Do not flatten all possible paths.
+- A public item re-export from a private module grants only the item path. For
+  `pub use internal::User as Player`, `Player` may bind while `internal` remains
+  inaccessible through public module lookup.
+- Function paths identify checked declarations in the supplying installation;
+  metadata version and callable limits remain explicit. Target ordinary invocation
+  uses the current implementation, not the lookup view's body. Associated methods
+  and explicit declaration/application binding remain distinct checked capabilities,
+  not fallback searches or alternate legacy dispatch surfaces.
+- `members()`/slot access remain internal or explicitly advanced facilities where
+  concrete consumers need them. Ordinary examples must not scan internal IDs.
+  A function/type binding must not expose its private owner as a new public module
+  navigation capability. Audit existing diagnostic handles separately; do not
+  widen their authority as an accidental part of relative lookup.
 
-```rust
-let from_text = engine.compile(Source::text("battle.kgr", text))?;
-let from_file = engine.compile(Source::file("scripts/battle.kgr"))?;
-let from_artifact = engine.prepare(&artifact_bytes)?;
-```
+Reuse one contract-owned path traversal for executable consumers. Source checking
+still owns source visibility/name resolution. Missing/private paths can share a
+not-public-path diagnostic; invalid paths, wrong target kind, unsupported object
+applications and foreign handles should retain useful existing error categories.
+Do not add a workspace-wide error redesign.
 
-All use the same subsequent load/call/reload workflow. Artifact-only builds retain
-preparation and execution without linking source analysis. Source builds can export
-deployment artifacts through an explicit build API. In-process compilation should
-not require encoding and decoding bytes just to obtain a Program, but must retain
-equivalent verification and native-input correspondence checks.
+### Type export scope and alias evidence
 
-Preserve explicit source names for diagnostics and logical module identities for
-imports. Multi-file compilation uses a coherent source snapshot and a declared
-resolver/source set; it must not hide arbitrary filesystem/network discovery.
-Compilation checks the complete reachable dependency closure, including failures
-outside the root file. User-supplied paths and artifact lengths remain validated.
+Required public object paths include directly exported script structs, renamed
+`pub use` exports and closed transparent aliases resolving to a script struct,
+including closed generic applications when existing executable layout evidence
+supports them. Keep the SDK `object_type` zero-explicit-argument interface; preserve
+the core binder's existing explicit `TypeArgument` route for generic declarations.
+No new host-side type-expression parser or specialization engine is included.
 
-Source overlays and semantic queries belong to an explicit tooling/workspace
-surface. Normal file/text compilation must not unexpectedly compile an unrelated
-editor overlay. An advanced snapshot-based compile entry can deliberately select
-that overlay. This is a behavior change from the current shared source database
-shortcut and requires tests and specification updates, not merely a rename.
+HM00 must inspect the actual checked alias representation and freeze the smallest
+portable record that retains the canonical target, applied arguments and any
+necessary binder/visibility evidence. A simple declaration ID is sufficient for a
+renamed declaration, not for an alias applying type arguments. Normalize using
+existing checked type semantics; runtime must not expand syntax or infer types.
 
-Compilation/preparation does not execute script functions or Native handlers.
-Load only links and publishes validated code; it does not call `main` or infer an
-initializer. Optional `load_source` convenience, if justified, composes the same
-compile/load path and must document that it performs synchronous preparation.
+Open generic alias application is deferred unless already representable through
+the existing checked application path without new semantics; HM00 must state its
+exact support/rejection boundary. Do not silently omit a required closed alias.
+Non-object aliases and enum/trait/scalar/opaque exports must not become ObjectType
+handles. Their valid source declarations must still compile; this plan does not
+require a general host type-reflection API. Record enough classification to reject
+unsupported object lookup consistently, without creating a second type model.
 
-Compilation can be separated from the Actor's message processing, but this does
-not make today's Engine or PreparedProgram `Send`/`Sync`. A cross-thread workflow
-must use an explicitly transferable artifact or a separately proven shareable code
-representation. Do not add unsafe thread traits to the existing `Rc`/`RefCell`
-model. Keep verification of transferred input and account for preparation latency.
+An exported type identity alone does not prove a usable executable layout. Check
+existing layout preparation/materialization rules, including an otherwise-unused
+public struct and a closed alias of a generic struct. Preserve current generic
+layout capability; if a supported exported closed application needs preparation,
+make it an explicit compiler-owned demand root, not a runtime compilation fallback.
+Unsupported applications fail before allocation or script execution.
 
-## Confirmed argument and return rules
+Extend all affected identity traversals, MIR/bytecode codecs, bounds checks and
+verification owners together. Source-free validation must reject wrong declaration
+kinds, dangling/out-of-scope IDs, malformed arguments/binders, incompatible layout
+claims and non-public targets using retained public contracts. Alias metadata may
+not grant unchecked private-field/member access. A graph is verified against the
+artifact's declared authority, not authenticated against unavailable original source.
 
-The outermost Rust tuple always denotes the argument list. Every element is exactly
-one script argument and uses the interop plan's ordinary value conversion.
+Keep executable runtime dependencies source-free. Batch affected development
+fixture regeneration at coherent checkpoints; retain meaningful decoded-artifact
+coverage. No routine format/runtime ABI bump or legacy reader is required for this
+unpublished schema change.
 
-| Rust expression passed as args | Script arguments |
+### Reload, entry execution and observable behavior
+
+Extend the existing graph comparison to type leaves in the same change that starts
+emitting them. Normalize identities into the existing common comparison context;
+never compare unrelated numeric IDs or accept two nominal types merely because
+their fields match. Preserve current module/function compatibility rules rather
+than using this work to loosen or tighten all reload policy.
+
+The same public object path must preserve its normalized nominal target and applied
+type contract. An equivalent alias spelling may change without changing that
+contract; redirecting the path to a different nominal type is incompatible. Keep
+existing layout/member/static compatibility validation and bounded cycle handling.
+Failed or incompatible publication leaves the old published state intact; retain
+applicable stale-candidate validation without requiring concurrent publication.
+Neither lookup nor publication executes script/code initialization or host handlers.
+
+`ProgramEntry::Main` stays the separate root-only capability, including a private
+zero-argument root main. Program-level `execute`/`execute_prepared` and native/CLI
+entry preparation must use an explicit Program/root context. Module-relative host
+binding must not silently change their root-entry behavior. Migrate affected
+signatures and callers coherently; do not add overloads that guess intent from the
+supplied member slot.
+
+Current implementation: ordinary bindings, calls and retained executable values
+use pinned versions/dependencies. HM namespace changes must not claim to have
+migrated this behavior. Until UP changes the relevant paths and specifications,
+existing pinned tests remain regression evidence, not the final dispatch target.
+
+Confirmed target, owned by UP:
+
+- Runtime publication is serialized at a single-threaded Actor-style host top-level
+  boundary, with no synchronous script stack executing and no publication from a
+  reentrant host callback. Async tasks may be suspended; no concurrent publication
+  mechanism is required.
+- Every ordinary function/method call selects the current implementation through
+  stable installation/declaration identity, including calls made by an old resumed
+  body. Ordinary host function handles do not require rebinding after publication.
+- An active or suspended computation keeps its selected body/resume state. A
+  precreated Future keeps its selected computation. A closure retains the body
+  matching its captured layout. Ordinary calls inside each use current code.
+- Existing type identity and trait implementation relationships stay fixed; those
+  facts do not pin method bodies. Ordinary trait method calls select the current
+  implementation within the unchanged checked relationship.
+
+For example, a suspended v1 handler resumes its v1 state machine after publication
+of v2, but its next ordinary `find_user` call uses v2. A previously bound host
+`find_user` handle also uses v2. Keeping the old handler's executable state safe
+is different from keeping every callee at v1.
+
+Preserve persistent static state, outer-tuple arguments, preflight before effects,
+rooted outputs, runtime/type/borrow checks, cancellation, cleanup and once-only
+evaluation. UP owns the dispatch and publication migration; HM owns namespace/type
+paths and the explicit HM00 handoff, not a second execution semantic implementation.
+
+## Mature references and deliberate adaptations
+
+Reviewed on 2026-10-23:
+
+- [Rust Reference, use declarations](https://doc.rust-lang.org/reference/items/use-declarations.html),
+  living reference, sections `use` Visibility and `as` renames: a public alias names
+  a canonical target and may expose an item whose containing path is private.
+  Reuse that distinction and existing Kagari checked namespaces. Do not copy Rust
+  edition-specific root lookup or its complete import/namespace rules into the host
+  string API. Kagari's finite module-alias graph retains its existing cycle rules.
+- [Java Virtual Machine Specification, Java SE 25, section 5.3](https://docs.oracle.com/javase/specs/jvms/se25/html/jvms-5.html#jvms-5.3):
+  a type's defining loader matters in addition to its name; sections 5.4/5.4.3
+  separate verification/preparation from resolved symbolic targets. Apply the
+  ownership principle: spelling or matching structure cannot substitute for the
+  supplying installation and checked identity. Do not copy class-loader delegation,
+  class initialization, mutable module access or JVM concurrency into Kagari.
+
+The existing ProgramDescriptor and verified namespace graph supply the namespace
+foundation; current prepared bindings are pinned implementation evidence, not a
+ready-made stable-callable dispatch mechanism. Extend the namespace owners instead
+of inventing a loader hierarchy, global name cache or parallel reflection subsystem.
+Dispatch mechanism research and migration belong to UP, with HM00 recording the
+handoff. No speedup is claimed; new persistent caches require concrete justification.
+
+## Phase order and acceptance
+
+Default checkpoint policy: each implementation phase is buildable, with affected
+consumers migrated in that phase. HM00 is a contract checkpoint, not permission to
+leave failing tests committed. A cross-layer schema change belongs in one coherent
+checkpoint even when it spans several crates. No disabled checks, fake targets or
+production stubs are allowed. Record any unexpected intermediate failure here and
+repair it before proceeding; do not repeatedly rerun an unchanged known failure.
+
+### HM00 — Freeze contracts and test owners
+
+- Audit current load/reload, entry/native consumers, retained handles, alias facts
+  and executable layout availability against the current HEAD.
+- Freeze the distinction between stable installation/declaration callable identity,
+  immutable version views, selected body/resume/capture lifetime, type/layout
+  identity and native validity. Audit ordinary functions, methods/trait calls,
+  prepared calls/Futures and old-view binding; do not infer support from naming.
+- Resolve installed handle retention/admission, public versus advanced module access,
+  supported alias/application matrix, exact signatures and diagnostic mapping.
+- Record the UP dispatch/publication migration checkpoint and ordering dependency,
+  including which current pinned regressions remain valid before that transition.
+  Do not require host rebinding as the final model or add dual public entrypoints.
+- Select existing semantic test owners and concrete cases. Update this document
+  with resolved representation and handoff decisions before HM01; full dispatch
+  migration stays outside HM01-HM04.
+
+Acceptance: no unresolved design question affecting type authority, runtime
+retention, callable-versus-version identity or closed-alias support; an explicit
+UP handoff, finite consumer/validation inventory and no implementation claim from
+documentation alone. If separation requires UP first, record that gate, not a
+hidden expansion of HM.
+
+### HM01 — Checked type exports through artifacts and reload
+
+- Extend HIR export collection, compiler lowering, contract records, mapping,
+  codecs, MIR/bytecode verification and required closed-layout demand together.
+- Extend staged reload type-path comparison immediately; do not publish type
+  export support while reload ignores its compatibility.
+- Reuse existing public authority and type normalization owners; keep runtime
+  consumers independent of source/HIR and preserve canonical serialization.
+- Regenerate only affected development fixtures, preserving negative validation.
+
+Acceptance: selected direct/re-export/closed-alias cases survive source-to-artifact
+round-trip and identity import; forged metadata is rejected; equivalent type
+exports compare correctly and nominal retargeting rejects before publication.
+Existing function exports/private main behavior remains unchanged in this phase.
+
+### HM02 — Installed Program and module capabilities
+
+- Introduce `Program` over the existing owner and rename the current runtime
+  `LoadedModule` handle to `Module`, without compatibility aliases or implicit
+  conversion/Deref from Program to Module. Make load/reload and Program entry
+  operations explicitly Program-scoped, migrating core/SDK/backend/native/CLI
+  callers as affected.
+- Review public names and import collisions at their actual owners. Use explicit
+  module imports or meaningful aliases; do not rename unrelated HIR/MIR/bytecode
+  models or add forwarding types solely to obtain the shorter host-facing names.
+- Preserve one installation owner, static storage, registry identity and required
+  safety leases under the HM00/UP handoff. Do not turn metadata snapshots into a
+  permanent pinned-dispatch requirement. Add `root()`; keep slot APIs at their
+  reviewed responsibility.
+- Update exact re-export whitelist entries only for justified public facades.
+
+Acceptance: load/reload selects complete Programs, member views share the same
+installation, foreign-runtime operations reject and descriptor-only retention
+cannot revive admission. Selected bodies, types and native products retain their
+required lifetimes. Before UP migration, existing pinned behavior is regression
+coverage only; after migration, use UP's current-call contract without requiring
+rebinding. Program main/native entry behavior remains root-scoped.
+
+### HM03 — Relative public lookup and binding
+
+- Add Program/Module `module(path)` through verified public edges.
+- Replace root-reset function lookup with module-relative lookup for sync and
+  async binding. Resolve object paths through HM01 type evidence and reuse current
+  type/layout preparation. Preserve explicit declaration/application APIs where
+  they represent distinct advanced capabilities, not compatibility spellings.
+- Migrate SDK examples and direct consumers; remove the superseded root-reset rule
+  and any temporary private migration adapter by the end of this checkpoint.
+
+Acceptance: nested/aliased module lookup and root-versus-member function/type paths
+agree on checked installation/declaration identity within the metadata view;
+lookup version is not a promise to pin ordinary call bodies. Private modules do
+not leak through item exports; closed aliases bind only supported layouts;
+malformed/missing/unsupported paths
+fail without script effects. Existing private main access remains separate.
+
+### HM04 — Integration, contract publication and handoff
+
+- Run the selected source/source-free host scenario with object access, sync/async
+  bindings, compatible and rejected reload, persistent static state and retained
+  old work. Exercise cleanup after final actual owners release, without claiming
+  the separately queued R13 split is implemented.
+- Update embedding, module loading/activation, architecture and affected examples
+  with the actually implemented contract. Record the UP handoff and remaining
+  dispatch migration explicitly; do not claim current-code calls from namespace
+  acceptance alone or publish pinned calls as the final target. Remove resolved
+  lookup prose from review while retaining cross-installation repair requirements
+  and unrelated findings.
+- Publish local results, failures and pending CI separately. Move deferred proposals
+  to the roadmap, retire this completed plan and fix inbound links at completion.
+
+Acceptance: all selected tests and local implementation checks pass, consumers use
+one coherent API, no carried errors remain, and exhaustive CI scope is explicitly
+pending until run. HM namespace completion is separate from UP dispatch acceptance;
+the recorded handoff must survive plan retirement. No new performance threshold
+is required.
+
+## Focused verification
+
+Use existing owners before adding tests:
+
+- [Compiler export contracts](../crates/kagari-compiler/src/tests/package_exports.rs):
+  source graph, lowering, corrupted authority and artifact verification.
+- [Contract export codec tests](../crates/kagari-contract/src/exports/wire/tests.rs):
+  bounded encoding, identity remapping and malformed records.
+- [Runtime export/reload tests](../crates/kagari-runtime/src/module/tests/package_exports.rs):
+  cyclic paths, current pinned implementation regressions and compatibility.
+- [SDK binding facade](../crates/kagari/src/runtime/bindings.rs) and existing embedding
+  tests: observable lookup, typed calls, object access, async and static reload.
+  HM00 selects exact existing test filters/targets; new tests cover distinct missing
+  contracts, not every modified helper.
+
+Required coverage matrix:
+
+| Boundary | Selected behavioral evidence |
 | --- | --- |
-| `()` | No arguments |
-| `(request,)` | One struct argument |
-| `(a, b)` | Two arguments |
-| `((a, b),)` | One tuple-valued argument |
-| `((),)` | One unit-valued argument |
-| `((a, b), enabled)` | One tuple argument followed by one boolean argument |
+| Public paths | Nested paths, aliases, source namespace collisions, malformed/overlong paths and private rejection |
+| Type authority | Direct and re-exported struct, closed alias/application, wrong kind, missing layout, forged IDs/arguments |
+| Privacy | Public leaf from private module without a public module handle or private-member access |
+| Source-free | Decoded artifact loaded without frontend dependencies, equivalent binding and corrupt-record rejection |
+| Installation | Same preparation installed independently, foreign handles rejected, no accidental extra state |
+| Reload | Equivalent aliases, incompatible nominal retargeting, failed-candidate isolation, version-specific views and static state; dispatch expectations follow the recorded HM00/UP checkpoint |
+| Lifetimes | Selected bodies/resumes/captures, type evidence and native products retain required owners; descriptor retention does not revive admission; final owner cleanup |
+| UP handoff (not HM dispatch implementation) | Track stable host bindings without rebinding, current calls from old resumes/Futures/closures and fixed trait relationships with current method bodies in UP acceptance |
+| Entries/backends | Private root main remains explicit; representative existing native preparation consumer still uses a Program root |
 
-Conceptually the normal call API is:
+Initial existing filtered commands (not a promise of coverage for newly added tests):
 
-```rust
-fn call<R: FromKagari>(
-    &mut self,
-    function: &Function,
-    args: impl IntoArgs,
-) -> Result<R>;
+```text
+cargo test -p kagari-compiler --lib tests::package_exports --no-fail-fast
+cargo test -p kagari-runtime --lib module::tests::package_exports --no-fail-fast
 ```
 
-`IntoArgs` is a dedicated argument-list adapter for `()` and supported tuple
-arities. Its tuple elements require `IntoKagari`. Do not add a blanket single-value
-implementation for all `T: IntoKagari`, a `single(...)` wrapper, recursive argument
-flattening, or a heuristic based on the target signature. A Rust tuple converted
-through `IntoKagari` remains one script tuple; only the explicit outer argument
-adapter expands a tuple into parameters. Document the supported tuple arity and
-test its maximum boundary when implementing it.
+HM00 records the remaining selected SDK/source-free/codec/native targets after
+checking their actual feature gates. Use default Cargo profiles, target and
+parallelism. Run Cargo jobs serially when sharing the target directory. Do not
+run full-workspace tests locally or approximate them with an all-package sweep.
+A small actual native test is needed only where its consumer changes; interpreter
+fallback alone does not establish that native path passed.
 
-These examples should fail to compile as normal argument lists:
-
-```rust
-runtime.call::<DamageResult>(&calculate, request)?;
-runtime.call::<()>(&takes_array, vec![1_i32, 2])?;
-```
-
-Their accepted forms are `(request,)` and `(vec![1_i32, 2],)`. Dynamic callers can
-use a separately named checked dynamic API, not a vector overload whose meaning
-changes between an array value and a parameter list.
-
-Kagari returns one value. A tuple return is converted as one tuple through
-`FromKagari`; there is no Lua-style multiple-return expansion or `FromKagariMulti`.
-Unit converts to `()`. A script business `Result<T, E>` remains data inside the SDK
-call result; runtime errors remain a distinct outer error channel.
-
-## Function resolution and call validation
-
-Ordinary lookup resolves an exported callable and records its declaration contract:
-
-```rust
-let calculate = runtime.function(&script, "calculate")?;
-let result = runtime.call::<DamageResult>(&calculate, (request,))?;
-```
-
-Rust infers parameter types from the outer tuple and the return type from `R` or
-the receiving variable. It does not prove compatibility with separately loaded
-script code at Rust compilation time. The runtime validates arity, parameter
-representations and expected return type before executing the target function.
-Normal calls must reject private/non-callable declarations and foreign handles.
-
-Select and pin a coherent program generation before boundary conversion. Check the
-host call signature, convert/root inputs, invoke, then convert the rooted result.
-A static return-type mismatch must fail before script effects; a data-dependent
-output conversion failure can occur afterward and cannot undo completed effects.
-Custom host conversion code must obey the same reentry and lifetime contracts.
-
-Signature/entry caches may be reused only with the matching runtime installation,
-program generation, binding revision and Rust-side mapping. Reload must invalidate
-or safely re-resolve cached slots. An optional explicit typed binding may validate
-a declared Rust function signature during startup; it is not mandatory boilerplate
-for every lookup. Its exact API is a review gate.
-
-Direct calls return the business value, not a mandatory `ExecutionReport`. Optional
-observers/reporting provide execution statistics. Advanced dynamic results must
-retain script objects through checked rooted handles; exposing a raw unrooted GC
-value as a safe long-lived result is not acceptable.
-
-## Reload and version selection
-
-The proposed default is a stable Script and a latest-version Function entry for
-new root calls:
-
-```rust
-let next = engine.compile(Source::file("scripts/battle.kgr"))?;
-runtime.reload(&script, &next)?;
-let result: DamageResult = runtime.call(&calculate, (request,))?;
-```
-
-Review and confirm this policy at activation. It is not a claim about the current
-version-bound LoadedModule API. The intended rules are:
-
-1. Compile/prepare the replacement without changing active code.
-2. Validate the target installation, expected base generation, public contracts,
-   dependency closure and required host bindings; stage a candidate privately.
-3. Publish only after all checks succeed, atomically for that runtime installation.
-4. New root calls through existing logical handles select the published generation.
-5. Existing root executions retain their full dependency version set until finished.
-
-Ordinary static calls, Native reentry and future async resumes retain their pinned
-execution context, never resolve a latest-version entry midway through execution.
-Retained trait objects and closures explicitly enter their own pinned implementation
-context as specified by the update model; this does not create fresh root protection.
-A public root-call API must not silently reset budgets/versions on reentry; Native
-callbacks use the dedicated checked call context.
-
-Compatible reload preserves published callable identities and contracts. Removing
-an entry or incompatibly changing its argument/return representation must reject
-ordinary reload, not leave a previously acquired Function silently pointing at a
-different function. The update model proposes freezing all existing named contracts,
-allowing new types/definitions, and rejecting new trait impls for old concrete types.
-Finalize its complete descriptor policy before implementation, including private
-named definitions, opaque/value types and dependent modules.
-
-Any failed preparation, linking, compatibility check or stale-base publication
-leaves the active version usable. Existing candidate isolation, generation and
-reference validation remain mandatory. Ordinary reload runs no candidate code.
-Advanced staged validation is a separate opt-in API. State replacement is a distinct
-host lifecycle: quiesce writers, export explicit data, restore a fresh environment
-and switch routing. It never happens automatically when compatible reload fails and
-cannot promise rollback of arbitrary host effects. Old runtime/function handles do
-not transfer to that new environment.
-
-Explicit old-version snapshots may be exposed for advanced use. They must be named
-as pinned versions rather than hidden behind the ordinary Function handle. Old
-generations remain alive while pinned by executions or retained objects/handles,
-and are reclaimed after those owners release them. Cross-Actor publication is a
-host coordination problem, not a global atomicity promise of `reload`.
-
-Finalize installation lifetime at activation: dropping a handle must not
-accidentally cancel work, while any explicit unload must reject subsequent root
-calls and specify treatment of pinned work. Neither a recycled label nor a slot
-index may revive an invalid handle. Do not add unload/cancellation behavior merely
-as an incidental consequence of this facade refactor.
-
-## Configuration and backend policy
-
-Place options at the lifetime where they belong:
-
-| Configuration | Responsibility |
-| --- | --- |
-| Engine/build | Source resolution, compiler limits, artifact preparation and backend configuration |
-| Runtime | Host implementations, call-depth limits, installed backend policy and diagnostics |
-| Call | Root cancellation and genuinely call-specific deterministic inputs |
-
-Normal calls use runtime defaults. A `call_with` variant may take focused
-`CallOptions`; it must distinguish an absent override from an explicit setting.
-Reuse current ExecutionContext overrides unless a narrower replacement is explicitly
-approved. Do not add per-call permission/host-exposure matrices or reset nested
-call-depth/cancellation state. Preserve installation-based access;
-host services own admission and deadlines, without generic runtime work quotas.
-
-Interpreter and native execution use one call surface and identical boundary
-validation. Backend preparation, helper linking, cache ownership and optional
-prewarming remain explicit internally or through advanced APIs. Do not expose
-strategy variants that silently do nothing. Define fallback behavior for unsupported
-functions separately from genuine native compilation/validation errors. Hot-path
-compilation latency must be controlled by the selected, actually implemented policy.
-
-## Errors and diagnostics
-
-Use one SDK error family for normal prepare/load/call/reload operations while
-preserving structured causes and useful stage distinctions. Cover source diagnostics,
-artifact validation, host binding mismatch, reload conflict, boundary conversion,
-script traps, cancellation and protection exhaustion. Preserve file/module origin,
-revision-aware spans, error codes and script/Native traces as applicable.
-
-Do not flatten everything into a string or report a script business `Err` as a trap.
-Document the distinction between a pre-execution failure and a failure after
-completed script/host effects. A host panic policy must have implemented behavior;
-it cannot promise recovery from aborts or leave a corrupted runtime executable.
-Reporting/statistics are optional and must not require precise hot-path charging.
-
-## Tooling and existing asynchronous calls
-
-Move source editing, overlays and semantic queries behind a cohesive tooling
-surface rather than making them prerequisites for loading a script. Preserve query
-snapshot ownership and diagnostics; do not delete valuable analysis APIs merely to
-make the ordinary facade small. Backend and tooling APIs retain their feature gates.
-
-Any proposed logical Script/Function identity must integrate with the existing
-`call_async`/`submit_async` facade, outer-tuple arguments, conversion and pinned
-invocation rules. Reuse the shared scheduler, not a second loader or host interface
-catalog. Synchronous `call` does not drive suspendable bodies; external waits use
-async calls. Admission pins the selected generation, so later polls/resumes cannot
-switch generations. Invocation ownership remains distinct from independent
-scope-owned Tasks.
-
-No Tokio dependency is introduced in the core SDK by this facade plan. GO owns the
-Send runtime and callback/payload transfer requirements; it does not require Sync
-for exclusively accessed runtime state. Background workers may deliver owned
-validated completion data; only the owning scheduler drives script execution.
-
-## Implementation phases
-
-All phases are unstarted. Re-audit predecessor APIs before choosing changes and
-reuse implemented typed call/root and async scheduling contracts rather than
-rebuilding them. Only preparation/loading and logical-entry changes are queued here.
-
-- [ ] HA00: Confirm latest-version entry policy, public compatibility rules,
-  handle lifetimes, tuple arity, configuration precedence, error/panic behavior and
-  supported backend strategies. Establish source/artifact and external-consumer tests.
-- [ ] HA01: Introduce the cohesive Engine/Program preparation surface and shared
-  binding descriptors. Separate normal sources from tooling snapshots; retain
-  artifact-only support and verification without mandatory serialization round trips.
-- [ ] HA02: Introduce runtime-owned Script/Function identities and ordinary loading.
-  Adapt logical entries to existing typed calls, nonempty tuple arguments, preflight
-  signature checks, rooted outputs and context overrides; do not add a parallel
-  argument-conversion or invocation surface.
-- [ ] HA03: Integrate UP's compatible publication through stable logical handles and
-  generation-aware entry caching. Preserve staged validation, candidate cleanup,
-  dependency pinning and reentry; keep state replacement a separate lifecycle API.
-- [ ] HA04: Unify normal errors and backend call dispatch, finish the tooling/advanced
-  API boundaries, and migrate SDK examples, CLI and embedding consumers. Remove
-  superseded public wrappers rather than keeping compatibility-only duplicates.
-- [ ] HA05: Update embedding, loading, activation and execution specifications and
-  cross-check implemented async/interop contracts. Run scoped local acceptance;
-    complete feature/backend matrices remain CI-only.
-
-HA does not repeat RI's converter/derive work or EP's permission/budget migration.
-Any new generic execution capability belongs in its actual owning layer, not in an
-SDK workaround. The default checkpoint policy is buildable changes; exceptions need
-explicit activation-time approval and a ledger owner. Record checks and failures
-here. Authorized future commits follow repository Conventional Commit rules and
-breaking-change notes; this documentation task creates no commit.
-
-## Acceptance and validation
-
-Required behavioral coverage:
-
-- Text, file, explicit snapshot and artifact inputs converge on equivalent checked
-  execution, with multi-module errors retaining their own source locations.
-- Artifact-only builds load and execute without source analysis; invalid artifacts
-  fail before linking or effects. Native-enabled builds reject native-input
-  correspondence mismatches; bytecode-only builds retain the specified opaque
-  payload envelope/bounds checks without pretending to verify MIR semantics.
-- One Program can be installed with independent host state in multiple runtimes;
-  foreign Script/Function/value handles are rejected.
-- Zero, one, multiple, tuple-valued, unit-valued and mixed opaque/value arguments
-  obey the outer-tuple rule. Include compile-fail tests for bare structs/vectors,
-  tuple arity limits and unsupported mappings; tuple results never spread.
-- Argument and expected return signature mismatches precede script effects; data
-  conversion failures preserve cleanup and already-completed effects correctly.
-- Existing Function handles call the new generation after compatible publication;
-  pinned roots/reentry remain old. Failed/incompatible/stale reload leaves old
-  calls usable; publication cannot mix dependency generations or cached slots.
-- Load/reload performs no implicit script initialization. Candidate validation
-  retains existing isolation and cleanup tests.
-- Runtime defaults and call overrides are deterministic; nested work cannot reset
-  root protection. Cancellation, traps and GC leave no leaked temporary roots.
-- Interpreter and supported native paths share the public call API and results;
-  unsupported-backend fallback does not conceal invalid code or runtime failures.
-- Main examples require only the embedding facade and application bindings, not
-  raw Value construction, manual sessions, LoadedModule internals or Native entries.
-
-Run relevant predecessor and SDK feature matrices, including source-free and native
-configurations, external-consumer examples and compile-fail cases. Final checks:
+Local implementation checkpoint/final checks:
 
 ```text
 uv run --locked scripts/check_structure.py
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
 git diff --check
 ```
 
-Measure repeated calls and reload cache invalidation separately from compilation.
-Record toolchain, machine, profile, features, default Cargo parallelism, cache state
-and workload. Preserve conclusions here and temporary output under ignored `target/`.
-No performance or working-build claim is made by this design-only document.
+Review changed Rust ownership, imports, visibility, exact re-export whitelist,
+effective LOC and module boundaries in addition to the checker. Do not rerun
+unaffected passing checks solely for a new transcript. Full-workspace tests and
+complete feature/backend/platform matrices are CI-only. Documentation-only edits
+need content/link/diff checks, not Rust builds or Clippy.
+
+## Deferred work
+
+Work beyond HM remains with its existing owners, not additional HM phases.
+Confirmed UP requirements below are deferred implementation, not undecided policy;
+HM00 must resolve the handoff and any ordering dependency.
+
+- Cohesive text/file/artifact preparation and explicit tooling snapshots; avoid
+  accidentally compiling editor overlays or mandatory encode/decode round trips.
+  Preserve multi-module diagnostics and artifact-only consumers. Any shareable
+  preparation product needs proven ownership, not unsafe Send/Sync additions.
+- [One-shot source Update batches](update-model-design.md#change-lists-and-one-shot-submission):
+  the user assembles function/file replacements and submits once to Runtime, without
+  begin, version numbers or body hashes. The update design owns compilation context,
+  validated all-or-nothing publication at the host top-level boundary. HM supplies
+  namespace/version views and the HM00 identity/lifetime handoff, not this batch
+  frontend, dispatch migration or incremental compilation. No concurrent publication
+  mechanism is required; publication must not execute initialization code.
+  Existing signatures/type definitions and trait relationships remain frozen;
+  adding a new trait does not authorize implementing it for an existing type.
+- [Exact-version function-source inspection](update-model-design.md#exact-version-function-source-inspection):
+  inspect a specific Program version or selected body/frame/task position, with
+  explicit unavailable results and independent source retention. An ordinary stable
+  callable is not itself an exact-body snapshot; UP must distinguish a query's
+  selected version from later invocations.
+  This requirement belongs to the update design, not HM's public-path implementation
+  or a new interactive-debugger phase.
+- The confirmed [UP target](update-model-design.md) replaces pinned ordinary dispatch,
+  including calls from old resumed bodies, through stable callable identity.
+  Computations/Futures keep their selected state; closures keep capture-compatible
+  bodies; ordinary calls inside use current implementations. Fixed type/trait
+  relationships are not fixed method bodies. HM00 resolves the boundary and ordering;
+  HM01-HM04 do not implement the full migration or preserve a second legacy surface.
+- Wider configuration/error/tooling cleanup: owner-scoped options, existing call
+  overrides and structured stage-specific causes, without resetting nested
+  protection or adding generic permission matrices. Backend fallback must remain
+  distinct from invalid code/runtime failure; no new Tokio/core scheduler required.
+- Explicit state replacement and unload policy remain separate from compatible
+  reload; do not infer transaction rollback, cross-Actor atomicity or cancellation
+  from dropping a handle.
+- [Repair programs referencing existing installations](review.md#runtime-loaded-programs-referencing-existing-installations)
+  require versioned compilation contracts and explicit installation linking. Public
+  module lookup alone does not share independently installed state. Repairs stay
+  outside the game's replacement inventory. Retained computation/type/native
+  lifetimes remain distinct from ordinary calls into the game's current code;
+  exact cross-installation linking remains deferred, not a pinned-dispatch exception.
+
+Implemented outer-tuple arguments, one-value returns, business Result versus runtime
+errors, typed conversion, host registration and async scheduling remain owned by
+current specifications, not tasks to repeat here. R13, SA21 and native expansion
+retain their existing review/plan owners.
+
+## Resumption and progress ledger
+
+- [x] Plan authored against `67d9e36f`; scope narrowed to Program/Module/public paths.
+- [x] Confirmed current-code target recorded; current pinned implementation labeled.
+  Program/Module metadata views are distinguished from ordinary callable identity;
+  dispatch/publication migration is handed to UP, not added to HM01-HM04.
+- [ ] HM00 — Callable/version/lifetime/native/type distinctions, UP sequencing
+  handoff, alias decisions and selected test inventory.
+- [ ] HM01 — Type export pipeline, independent validation and reload comparison.
+- [ ] HM02 — Installed Program/module capability separation and consumer migration.
+- [ ] HM03 — Relative module/function/type binding and ordinary examples.
+- [ ] HM04 — Integration, lasting documentation and handoff.
+
+No implementation, tests, build or performance acceptance is claimed at plan
+creation. No known implementation failure has been introduced. HM00 must resolve
+the explicit representation/lifetime/UP sequencing gates before implementation
+advances. Stable callable handles, old-view binding/admission and native dependency
+validity remain unresolved design choices; neither a handle rename nor this docs
+update establishes current-implementation dispatch.
+
+For each authorized checkpoint, record changed contracts, selected tests and their
+rationale, actual results, outstanding errors with owning phase, and pending CI.
+Keep temporary logs under ignored `target/`; this ledger retains conclusions needed
+to resume without those files. Commit only when authorized; use Conventional Commits,
+mark breaking public changes with `!` and include a `Plan-Phase: HMxx` trailer.

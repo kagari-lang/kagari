@@ -36,8 +36,13 @@ Synchronous callbacks reached from async execution must preserve the existing
 session contracts; they do not authorize native suspension.
 
 Library-owned collection migration (NC), host-registration unification (HR/SA21)
-and compatible-reload redesign remain separate tasks. Consume their current
-contracts, and refresh affected boundaries if those tasks land first.
+and compatible-reload redesign remain separate tasks. The confirmed
+[update target](update-model-design.md#calls-retained-objects-and-new-trait-implementations)
+replaces dependency-pinned ordinary calls with current implementation selection at
+host-top-level publication boundaries, while retaining selected computation bodies.
+This migration is not implemented yet. J01/J03 must coordinate its ordering with UP
+and consume one shared runtime selection owner, not freeze obsolete dependency
+pinning into a second native dispatch model. Do not add the UP migration to J phases.
 This plan makes no numerical speedup or compilation-latency promise.
 
 ## Baseline and architectural diagnosis
@@ -69,7 +74,9 @@ unsupported MIR is found. Under this plan its loop and arithmetic are generated
 code; checked object/host services perform reads, mutation and notification.
 Arguments remain rooted across notification, a callback observes the committed
 health change, and an error preserves earlier effects without replaying the loop.
-Both routes retain the caller's exact dependency generations.
+Both routes preserve the selected body's ownership and runtime call semantics.
+Current code pins dependency generations; the confirmed UP target selects current
+implementations for subsequent ordinary calls, including from retained old bodies.
 
 ## Required design contracts
 
@@ -121,8 +128,11 @@ J03 extends the checked handoff with program-scoped target/signature evidence or
 sealed call-site descriptors installed by runtime. Codegen cannot recover targets
 by name, trust unchecked module offsets, or infer types from bytecode/source.
 Descriptors bind the caller's concrete function and logical call site, argument
-and result contracts, supplying dependency and generation. Installation rejects
-foreign, stale or mismatched evidence before entry.
+and result contracts, and checked supplying installation/declaration/application.
+Concrete code products still carry exact version evidence. Under the UP target,
+ordinary calls resolve a current implementation through runtime, rather than freezing
+the caller's dependency generation. Installation rejects foreign or mismatched
+evidence; retention of an old body is not itself a stale-call error.
 
 Use a shared runtime call transition/trampoline first. Runtime owns admission,
 frames, arguments, dependency selection, call depth, results and cleanup; the VM
@@ -163,7 +173,9 @@ or a target's merely unprepared state as unsupported decisions.
 
 For example, a new-version entry can receive a host-retained old-version closure.
 Preparing both exact versions lets the driver resolve and execute the old closure's
-body natively while retaining its original dependencies. Preparing only the new
+body natively with its matching capture layout. Under the UP target, ordinary calls
+inside that body select current implementations, not its original dependency set.
+Preparing only the new
 version selects interpretation for that closure before its effects; it must neither
 retarget to the new body nor compile on demand.
 
@@ -222,7 +234,10 @@ semantics, while simple arithmetic and CFGs remain generated code.
 Treat calls as conservative memory/GC barriers unless checked evidence proves
 otherwise. Existing false effect bits do not establish transitive absence of
 allocation, mutation or callbacks. Preserve bounds/type/access checks, readonly
-alias behavior, mutation commits, collection revisions and pinned stored calls.
+alias behavior, mutation commits and collection revisions. Distinguish stored named
+callable identities from retained closure computations under UP; audit specialized
+collection callback invariants rather than mechanically replacing every stored
+version with latest lookup.
 
 ## Coverage contract
 

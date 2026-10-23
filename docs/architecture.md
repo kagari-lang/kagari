@@ -16,7 +16,10 @@ For source-level data structures and ID lookup, start with the
 - Verified MIR is the common backend handoff; bytecode is its interpreter target.
 - Executable loading and verification work without source analysis.
 - Rust host state and the script heap have separate ownership and access rules.
-- Calls retain exact dependency generations across hot reload.
+- Currently, calls retain exact dependency generations across hot reload. The
+  [confirmed update migration](update-model-design.md#calls-retained-objects-and-new-trait-implementations)
+  replaces this with current ordinary call selection and retained computation bodies;
+  it is not implemented yet.
 - Left-to-right once-only evaluation, checked arithmetic, trap order, completed
   effects and cleanup are preserved across interpreter and native execution.
 - Installed interfaces determine available APIs. Cancellation and call-depth
