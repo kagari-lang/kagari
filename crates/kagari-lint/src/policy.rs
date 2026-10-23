@@ -62,6 +62,7 @@ pub(crate) fn scopes(
                 | SyntaxKind::StructDef
                 | SyntaxKind::EnumDef
                 | SyntaxKind::TraitDef
+                | SyntaxKind::TypeAliasDef
                 | SyntaxKind::ImplBlock
                 | SyntaxKind::ConstDef
                 | SyntaxKind::StaticDef

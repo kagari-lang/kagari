@@ -126,6 +126,9 @@ fn naming_rules_cover_declarations_and_preserve_trait_contracts() {
         trait bad_trait { fn BadMethod(self, parameter:i32)->i32; }
         impl bad_trait for bad_type { fn BadMethod(self, parameter:i32)->i32 { parameter } }
         const bad_global:i32=1;
+        type bad_alias<bad_alias_param> = [bad_alias_param];
+        #[tool::allow("non_upper_camel_case")]
+        type quiet_alias<quiet_param> = (quiet_param,);
         fn BadFunction<bad_generic>(BadParameter:bad_generic) { val BadLocal=BadParameter; }
     "#,
         )],
@@ -133,7 +136,8 @@ fn naming_rules_cover_declarations_and_preserve_trait_contracts() {
     );
     snapshot.check_program(root, &Default::default()).unwrap();
     let records = findings(&snapshot, root, &Policy::default());
-    assert_eq!(codes(&records, "non_upper_camel_case"), 5, "{records:?}");
+    assert_eq!(codes(&records, "non_upper_camel_case"), 7, "{records:?}");
+    assert_eq!(codes(&records, "KG_LINT_POLICY"), 0, "{records:?}");
     assert_eq!(codes(&records, "non_upper_case_globals"), 1, "{records:?}");
     assert_eq!(codes(&records, "non_snake_case"), 5, "{records:?}");
     assert_eq!(codes(&records, "unused_parameter"), 0, "{records:?}");

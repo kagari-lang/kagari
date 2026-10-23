@@ -2,6 +2,46 @@ use std::collections::{MutableList};
 use std::num::{TryFromIntError};
 fn main() -> i32 { 42 }
 
+mod alias_model {
+    pub struct Cell<T> { pub var value: T }
+    pub type IntCell = Cell<i32>;
+    pub enum Event<T> { Data(T), Empty }
+    pub type CellEvent = Event<IntCell>;
+}
+mod alias_facade {
+    pub use super::alias_model::{IntCell as SharedCell, CellEvent as SharedEvent};
+}
+use self::alias_facade::{SharedCell, SharedEvent};
+
+fn alias_roundtrip(value: SharedCell) -> alias_model::Cell<i32> { value }
+fn target_roundtrip(value: alias_model::Cell<i32>) -> SharedCell { value }
+
+pub fn transparent_alias_values() -> i32 {
+    val original = SharedCell { value: 19 };
+    val target: alias_model::Cell<i32> = alias_roundtrip(original);
+    val alias: SharedCell = target_roundtrip(target);
+    alias.value += 1;
+    if original.value != 20 || target.value != 20 { return 0; }
+    target.value += 1;
+    if original.value != 21 || alias.value != 21 { return 0; }
+    val event: alias_model::Event<alias_model::Cell<i32>> = SharedEvent::Data(alias);
+    val closed: SharedEvent = event;
+    match closed {
+        alias_model::Event::Data(payload) => {
+            payload.value += 21;
+            if original.value != 42 || target.value != 42 || alias.value != 42 {
+                return 0;
+            }
+        },
+        alias_model::Event::Empty => { return 0; }
+    };
+    val empty: alias_model::Event<alias_model::Cell<i32>> = SharedEvent::Empty;
+    match empty {
+        alias_model::Event::Data(_) => 0,
+        alias_model::Event::Empty => original.value
+    }
+}
+
 struct FeatureBinding<T> { val value: T, val spare: i32 }
 pub fn declaration_patterns() -> i32 {
     val (FeatureBinding { value: (values, offset), .. }, _) = (

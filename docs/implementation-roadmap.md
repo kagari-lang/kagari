@@ -754,8 +754,11 @@ stable Program/Module handles, relative public lookup, checked type exports and
 reload compatibility. Existing handles must query the latest published contents of
 their installation; existing function bindings call current implementations without
 reacquisition/rebinding. HM00 must settle representation, internal version retention
-and the UP handoff; implementation is not started. Broader preparation/tooling
-remains deferred.
+and the UP handoff. The user-prioritized
+[alias prerequisite](host-api-refactor.md#transparent-generic-alias-prerequisite)
+is locally complete. Joint HM00/UP00 remains authorized but paused and incomplete;
+HM/UP implementation phases have not started.
+Broader preparation/tooling remains deferred.
 
 ## Text literals and String traversal
 
@@ -789,6 +792,30 @@ Expression interpolation compatibility, a format API, broader Unicode APIs,
 u8 range-pattern expansion, native backend expansion and unrelated migrations
 remain outside this delivered scope.
 
+## Host API and update execution
+
+HM/UP implementation and phased commits are authorized on 2026-10-23. The user
+subsequently prioritized transparent generic type aliases first; that prerequisite
+is now locally complete. HM/UP remain paused. On resumption, the order remains the
+incomplete joint HM00 + UP00 checkpoint, followed by HM01, UP01, HM02, UP02, HM03,
+HM04, UP03, UP04 and UP05.
+The [Host API plan](host-api-refactor.md) and
+[update plan](update-model-design.md) retain their own ledgers and acceptance.
+HM owns live Program/Module lookup and verified type exports; UP owns stable
+current-call dispatch, source Update batches, exact-source inspection and later
+explicit state replacement. Existing public semantics remain unchanged until the
+owning migration. MS, wider native expansion and repair-program linking are separate.
+
+The first audit found the missing transparent-alias language capability; the user
+resolved that scope question by explicitly authorizing generic aliases before HM/UP.
+The [finite prerequisite ledger](host-api-refactor.md#transparent-generic-alias-prerequisite)
+is the single owner of scope, implementation progress, validation and compiler
+resource limits. Alias implementation, review repairs and local acceptance are
+complete. HM/UP remain paused and incomplete, not resumed or completed by alias work.
+This prerequisite does not implement HM host export schemas, export-driven layout
+roots or UP dispatch. The linked ledger retains concise focused evidence; full CI
+remains unrun.
+
 ## Other queued designs
 
 These are proposals, not active execution plans. Activation and exact sequencing
@@ -797,8 +824,6 @@ require a concrete task; implemented foundations are not prerequisites to replay
 | Track | Scope and dependencies |
 | --- | --- |
 | [Multi-Runtime program sharing](multi-runtime-sharing-plan.md) | MS00-MS05 planned, unstarted: measure current same-product multi-Runtime costs; eliminate whole-code identity remapping copies and duplicated pure link preparation; establish safe cross-thread frozen-product reuse. Keep player heaps/statics/host borrows and installation publication private. MS00 freezes numerical memory/performance gates and the HM/UP identity/dispatch handoff before implementation. R13 type-only retention, cross-installation repair linking, global updates and native expansion remain separate. No capacity or speed claim from source LOC or historical tiny-program data. |
-| [Host Program/Module](host-api-refactor.md) | HM00-HM04 planned, unstarted: separate stable Program/module identities, unify relative public paths, carry checked type exports through artifacts and reload. Existing Program/Module handles query their installation's latest published contents; function handles select current implementations without reacquisition/rebinding. HM00 gates representation/internal retention and the UP migration handoff, not the confirmed live-lookup policy; HM does not silently acquire full dispatch migration. Reuse [invocation/object safety](spec/embedding-api.md). Broader preparation cleanup and cross-installation repair linking remain deferred. |
-| [Update model](update-model-design.md) | Compatible publication versus explicit state replacement. Confirmed submission direction: collect function/file edits in one Update and submit once to Runtime, without begin or caller-supplied versions/hashes. Publication is serialized at the host/Actor top-level boundary with no active synchronous script stack; suspended tasks may remain. Ordinary calls and existing host function handles select current implementations, while existing Future/closure/frame bodies retain their matching state. UP00-UP02 own the migration from currently pinned dependencies; no concurrent publication framework or host rebinding is required. Existing signatures/type definitions and old-type trait relationships stay frozen; new types may implement old or same-batch new traits. Exact-version function-source inspection is required. Source patches use in-process compilation with interpreter/optional JIT execution; AOT patch delivery is excluded and wider native coverage remains independent. Dispatch/batch/source-query implementation and compiler-context wiring remain queued, outside HM00-HM04; incremental reuse is not a prerequisite. State replacement remains separate from ordinary code publication. |
 | [Interactive debugger](debugger-design.md) | Confirmed synchronous waiting at safe debug points, preserving the executing host thread's Rust call chain. Pause control, inspection lifecycle and SDK/DAP integration are queued and unstarted; no whole-execution continuation migration or automatic process-wide freeze. Lifecycle defaults and CLI spellings remain proposals. |
 
 ## Open review and documentation work

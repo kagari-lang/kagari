@@ -28,6 +28,14 @@ The audit maintains three inventories:
   the current audit does not claim that both sides of each optional or every
   repetition count have test witnesses.
 
+Module-level transparent type aliases have parse witnesses in
+[grammar-witnesses.kgr](../examples/syntax/grammar-witnesses.kgr), including
+visibility, attributes, generics, either where-clause position, compound targets
+and inline-module placement. They require `=` and remain distinct from trait/impl
+associated types and native opaque declarations. Formatter and editor tests cover
+layout and lexical structure; parse coverage does not establish alias expansion,
+constraint checking or semantic navigation.
+
 Type-parameterized associated declarations and definitions, including their
 input/output bounds and qualified member arguments, have an executable witness
 in [generic-associated-types.kgr](../examples/syntax/generic-associated-types.kgr).

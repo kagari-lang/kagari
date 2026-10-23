@@ -52,6 +52,50 @@ fn declaration_parsing_observes_cancellation() {
 }
 
 #[test]
+fn declaration_mode_distinguishes_aliases_from_opaque_types() {
+    let text = "#[builtin_type(Array)] pub type List<T>; pub type Items<T> = List<T>; mod nested { type Handle; type Count = i32; }";
+    let source = SourceFile::new("native.kgr", text);
+    let parsed =
+        parse_declarations(&source, Default::default(), &CancellationToken::default()).unwrap();
+    assert!(
+        parsed.diagnostics().is_empty(),
+        "{:?}",
+        parsed.diagnostics()
+    );
+    assert_eq!(parsed.syntax().syntax().text().to_string(), text);
+    let items = parsed.syntax().items().collect::<Vec<_>>();
+    assert!(matches!(items[0], Item::TypeDecl(_)));
+    assert!(matches!(items[1], Item::TypeAliasDef(_)));
+    let Item::ModuleDef(module) = &items[2] else {
+        panic!("expected module")
+    };
+    let nested = module.block().unwrap().items().collect::<Vec<_>>();
+    assert!(matches!(nested[0], Item::TypeDecl(_)));
+    assert!(matches!(nested[1], Item::TypeAliasDef(_)));
+}
+
+#[test]
+fn declaration_mode_retains_native_alias_attributes_for_validation() {
+    let text = "#[builtin_type(Array)] pub type List<T> = Vec<T>;";
+    let source = SourceFile::new("native.kgr", text);
+    let parsed =
+        parse_declarations(&source, Default::default(), &CancellationToken::default()).unwrap();
+    assert!(
+        parsed.diagnostics().is_empty(),
+        "{:?}",
+        parsed.diagnostics()
+    );
+    let item = parsed.syntax().items().next().unwrap();
+    assert!(matches!(item, Item::TypeAliasDef(_)));
+    // Native interface validation must reject this attribute on an alias rather
+    // than accepting it as an opaque declaration with a discarded definition.
+    assert_eq!(
+        item.attributes().next().unwrap().name_text().as_deref(),
+        Some("builtin_type")
+    );
+}
+
+#[test]
 fn opaque_native_types_are_restricted_to_declaration_mode() {
     let source = SourceFile::new(
         "native.kgr",

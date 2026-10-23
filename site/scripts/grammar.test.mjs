@@ -45,4 +45,13 @@ test('rest patterns and struct update use lexical operators, not guessed type na
   assert(all.filter((token) => token.content === 'Pair').every((token) => !hasScope(token, 'entity.name.type.kagari')));
 });
 
+test('module aliases share maintained declaration highlighting with associated types', () => {
+  const all = tokens('pub type Pair<T> where T: Show = (T, T);\ntrait Source { type Item; }');
+  scoped(all, 'Pair', 'entity.name.type.kagari');
+  scoped(all, 'Item', 'entity.name.type.kagari');
+  scoped(all, 'type', 'storage.type.kagari');
+  scoped(all, 'where', 'keyword.control.kagari');
+  scoped(all, '=', 'keyword.operator.kagari');
+});
+
 test.after(() => highlighter.dispose());

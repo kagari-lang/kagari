@@ -8,6 +8,7 @@ item_decl	6	witnessed	examples/syntax/data-model.kgr	-	struct_item
 item_decl	7	witnessed	examples/syntax/data-model.kgr	-	enum_item
 item_decl	8	witnessed	examples/syntax/where-bounds.kgr	-	trait_item
 item_decl	9	witnessed	examples/syntax/where-bounds.kgr	-	impl_block
+item_decl	10	witnessed	examples/syntax/grammar-witnesses.kgr	-	type_alias_item
 attribute_arg	1	witnessed	examples/syntax/attributes.kgr	-	IDENT "=" attribute_value
 attribute_arg	2	witnessed	examples/syntax/attributes.kgr	-	attribute_value
 attribute_value	1	witnessed	examples/syntax/attributes.kgr	-	scalar_literal

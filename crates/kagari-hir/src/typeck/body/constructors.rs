@@ -8,7 +8,7 @@ use crate::{
         expr::{ExprKind, FieldInit},
         ids::{ExprId, TypeRefId},
     },
-    imports::SourceItem,
+    imports::{SourceItem, types::aliases::resolved_alias},
     resolver::resolved::ResolvedName,
     typeck::{
         BodyTypeEnv, applications,
@@ -19,6 +19,7 @@ use crate::{
     },
     types::{NominalType, TypeId, TypeSubstitution},
 };
+use kagari_types::declaration::names::NameNamespace;
 use std::collections::HashSet;
 use {
     kagari_common::identity::table::DefinitionId,
@@ -39,6 +40,12 @@ impl<'a> BodyChecker<'a> {
             return Some((variant.owner, variant.name.clone()));
         }
         let member = self.names.qualified_member(expr)?;
+        if let Some((_, alias)) = resolved_alias(self.declarations, &member.owner) {
+            return match &alias.target {
+                TypeId::Enum(ty) => Some((ty.declaration, member.name.clone())),
+                _ => None,
+            };
+        }
         if let ResolvedName::Enum(id) = member.owner {
             return self
                 .declarations
@@ -133,7 +140,25 @@ impl<'a> BodyChecker<'a> {
             }
             None => return None,
         };
-        let expected = explicit.as_ref().or(expected);
+        let alias = self
+            .names
+            .qualified_member(callee)
+            .and_then(|member| resolved_alias(self.declarations, &member.owner))
+            .map(|(_, alias)| alias);
+        if alias.is_some_and(|alias| !alias.parameters.is_empty()) && explicit.is_none() {
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::InvalidValueTarget {
+                    name: "generic alias constructors require explicit type arguments".into(),
+                })
+                .with_span(self.lowered.source_map.expr_span(callee)),
+            );
+            self.infer_call_args(args, env);
+            return Some(TypeId::Error);
+        }
+        let expected = explicit
+            .as_ref()
+            .or_else(|| alias.map(|alias| &alias.target))
+            .or(expected);
         let signature = self
             .aggregates
             .enumeration(&enumeration)
@@ -171,7 +196,12 @@ impl<'a> BodyChecker<'a> {
                     .zip(arguments.iter().cloned()),
             );
         }
-        self.seed_explicit_arguments(callee, &generic_params, &mut substitution);
+        // Alias arguments belong to the owner application, not the target
+        // enum's binders. A second turbofish must not override fixed/reordered
+        // arguments already supplied by that application.
+        if alias.is_none() {
+            self.seed_explicit_arguments(callee, &generic_params, &mut substitution);
+        }
         let actual = self.infer_generic_args(
             args,
             variant
@@ -277,6 +307,39 @@ impl<'a> BodyChecker<'a> {
             return TypeId::Error;
         };
 
+        let alias = self
+            .declarations
+            .resolve_name(path, NameNamespace::Type)
+            .and_then(|name| resolved_alias(self.declarations, &name))
+            .map(|(_, alias)| alias);
+        let explicit = matches!(
+            &self.lowered.module.expr(expr_id).kind,
+            ExprKind::StructInit {
+                explicit_type: Some(_),
+                ..
+            }
+        );
+        if alias.is_some_and(|alias| !alias.parameters.is_empty()) && !explicit {
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::InvalidStructInitializer {
+                    struct_name: path.to_owned(),
+                    reason: "generic alias constructors require explicit type arguments".into(),
+                })
+                .with_span(self.lowered.source_map.expr_span(expr_id)),
+            );
+            for field in fields {
+                self.infer_expr_type(field.value, env);
+            }
+            if let Some(base) = base {
+                self.infer_expr_type(base, env);
+            }
+            return TypeId::Error;
+        }
+        let expected = if explicit {
+            expected
+        } else {
+            alias.map(|alias| &alias.target).or(expected)
+        };
         let mut substitution = TypeSubstitution::default();
         if let Some(TypeId::Struct(nominal)) = expected
             && nominal.declaration == struct_def.id

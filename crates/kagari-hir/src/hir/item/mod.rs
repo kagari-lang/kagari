@@ -5,11 +5,12 @@ use crate::hir::{
     expr::ExprData,
     ids::{
         BlockId, BodyOwner, ConstId, EnumId, ExprId, FieldId, FunctionId, HirOwner, ImplId,
-        ModuleId, OpaqueTypeId, PatternId, PlaceId, StaticId, StmtId, StructId, TraitId, TypeRefId,
-        VariantId,
+        ModuleId, OpaqueTypeId, PatternId, PlaceId, StaticId, StmtId, StructId, TraitId,
+        TypeAliasId, TypeRefId, VariantId,
     },
     item::{
         adt::{EnumBuffer, Field, OpaqueType, StructBuffer, Variant},
+        alias::TypeAlias,
         behavior::{ImplBuffer, TraitBuffer},
         function::{FunctionBuffer, FunctionKind},
         module::{ImportBuffer, ModuleDeclBuffer},
@@ -21,6 +22,7 @@ use crate::hir::{
     ty::TypeData,
 };
 pub mod adt;
+pub mod alias;
 pub mod behavior;
 pub mod function;
 pub mod module;
@@ -77,6 +79,8 @@ pub struct Module {
     pub structs: StructBuffer,
     /// Native-backed type declarations indexed by `OpaqueTypeId`.
     pub opaque_types: Vec<OpaqueType>,
+    /// Transparent script type declarations indexed by `TypeAliasId`.
+    pub type_aliases: Vec<TypeAlias>,
     /// Enum declarations indexed by `EnumId`; variants are nested within them.
     pub enums: EnumBuffer,
     /// Trait declarations indexed by `TraitId`.
@@ -188,6 +192,8 @@ impl Module {
 /// and name sites; later collection builds semantic declaration identities.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Item {
+    /// An entry in [`Module::type_aliases`], with no nominal/runtime identity.
+    TypeAlias(TypeAliasId),
     /// An entry in [`Module::opaque_types`], indexed by the enclosed ID.
     OpaqueType(OpaqueTypeId),
     /// An entry in [`Module::functions`], indexed by the enclosed ID.

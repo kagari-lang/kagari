@@ -64,6 +64,7 @@ pub(crate) fn collect(
             SyntaxKind::StructDef
             | SyntaxKind::EnumDef
             | SyntaxKind::TraitDef
+            | SyntaxKind::TypeAliasDef
             | SyntaxKind::GenericParam
             | SyntaxKind::Variant
             | SyntaxKind::AssociatedType => LintId::NonUpperCamelCase,

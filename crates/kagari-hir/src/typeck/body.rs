@@ -318,6 +318,7 @@ impl<'a> BodyChecker<'a> {
                     | ResolvedName::RuntimeHelper(_)
                     | ResolvedName::Namespace(_)
                     | ResolvedName::Module(_)
+                    | ResolvedName::TypeAlias(_)
                     | ResolvedName::OpaqueType(_)
                     | ResolvedName::Struct(_)
                     | ResolvedName::Enum(_)

@@ -7,7 +7,7 @@ use crate::{
     aggregates::{AggregateCatalog, traits::MethodSignature},
     declarations::Declarations,
     hir::{
-        ids::BodySelection,
+        ids::{BodyOwner, BodySelection, HirOwner},
         item::{
             Module,
             function::{Function, FunctionKind},
@@ -21,7 +21,7 @@ use crate::{
     typeck::{
         BodyInputs, BodyTypeEnv, FunctionImplementation, FunctionTypeIndex, TopLevelTypeIndex,
         TypeIndexes, TypedFunction, TypedFunctionBuffer, TypedModule, TypedParameter,
-        TypedParameterBuffer, applications, associated, associated_consts, asynchronous,
+        TypedParameterBuffer, aliases, applications, associated, associated_consts, asynchronous,
         body::BodyChecker,
         check::{
             constants::{ConstValidationInputs, validate_const_initializers},
@@ -74,6 +74,13 @@ pub(crate) fn check_signatures(
     let mut diagnostics = SmallVec::<[Diagnostic; 4]>::new();
     let mut functions: TypedFunctionBuffer = SmallVec::new();
     let mut type_table = TypeTable::default();
+    aliases::check_definitions(
+        lowered,
+        declarations,
+        &mut type_table,
+        &mut diagnostics,
+        cancel,
+    );
     constraints::resolve_constraints(
         lowered,
         declarations,
@@ -629,6 +636,18 @@ pub(crate) fn check_bodies_controlled(
                 &mut const_budget,
             )
         };
+        aliases::AliasValidation {
+            lowered,
+            declarations,
+            table: &type_table,
+            catalog: aggregates,
+            cancel,
+        }
+        .uses(
+            |reference| matches!(reference.owner(), HirOwner::Body(BodyOwner::Const(_))),
+            &Default::default(),
+            &mut diagnostics,
+        );
         if matches!(selection, BodySelection::Constants) {
             return AnalysisResult {
                 facts: TypedModule {
@@ -662,6 +681,18 @@ pub(crate) fn check_bodies_controlled(
             &mut diagnostics,
         );
 
+        aliases::AliasValidation {
+            lowered,
+            declarations,
+            table: &type_table,
+            catalog: aggregates,
+            cancel,
+        }
+        .uses(
+            |reference| matches!(reference.owner(), HirOwner::Body(BodyOwner::Static(_))),
+            &Default::default(),
+            &mut diagnostics,
+        );
         let shared_valid = !diagnostics
             .iter()
             .any(|diagnostic| diagnostic.severity == Severity::Error);
@@ -778,6 +809,24 @@ pub(crate) fn check_bodies_controlled(
                 );
                 checker.set_async(function.is_async);
                 let body_ty = checker.solve_body(body, &mut env, Some(&body_output));
+                let body_span = lowered.source_map.block_span(body);
+                aliases::AliasValidation {
+                    lowered,
+                    declarations,
+                    table: &type_table,
+                    catalog: aggregates,
+                    cancel,
+                }
+                .uses(
+                    |reference| {
+                        let span = lowered.source_map.type_span(reference);
+                        body_span.start <= span.start
+                            && span.end <= body_span.end
+                            && reference.owner() == body.owner()
+                    },
+                    &env.generic_bounds,
+                    &mut diagnostics,
+                );
                 let Ok(completes) = completion::block_can_complete(
                     &lowered.module,
                     names,

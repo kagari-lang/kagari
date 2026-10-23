@@ -187,6 +187,7 @@ pub struct TypeTable {
     associated_consts: HashMap<ExprId, ResolvedAssociatedConst>,
     /// Active type-resolution recursion guard; an ID here is being resolved, not a published type fact.
     pub(super) resolving_types: HashSet<TypeRefId>,
+
     /// Associated member identities mapped to declared constraint targets.
     pub(crate) associated_bounds: HashMap<DefinitionId, Vec<NominalType>>,
     /// Associated family identities mapped to their generic parameter/constraint metadata.

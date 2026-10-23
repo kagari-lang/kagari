@@ -1,7 +1,9 @@
 //! Explicit traversal of the owning HIR records.
 
 use crate::identity_mapping::map_hash_entries;
-use crate::imports::types::{ImportedTraitMethod, ImportedType, ImportedTypes};
+use crate::imports::types::{
+    ImportedTraitMethod, ImportedType, ImportedTypes, aliases::CanonicalAlias,
+};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -10,6 +12,50 @@ use kagari_common::{
         table::DefinitionId,
     },
 };
+
+impl RemapDefinitions for CanonicalAlias {
+    fn remap_definitions(
+        &self,
+        mapper: &mut DefinitionMapper<'_>,
+    ) -> Result<Self, DefinitionMappingError> {
+        Ok(Self {
+            parameters: map_sequence(&self.parameters, |parameter| {
+                parameter.remap_definitions(mapper)
+            })?,
+            target: self.target.remap_definitions(mapper)?,
+            bounds: map_hash_entries(
+                self.bounds.len(),
+                self.bounds.iter().map(|(key, value)| {
+                    Ok((
+                        key.remap_definitions(mapper)?,
+                        map_sequence(value, |bound| bound.remap_definitions(mapper))?,
+                    ))
+                }),
+            )?,
+            error: self.error.clone(),
+        })
+    }
+}
+
+impl DefinitionReferences for CanonicalAlias {
+    fn visit_definition_ids(
+        &self,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
+        cancel: &CancellationToken,
+    ) -> Result<(), DefinitionMappingError> {
+        self.target.visit_definition_ids(visit, cancel)?;
+        for parameter in &self.parameters {
+            parameter.visit_definition_ids(visit, cancel)?;
+        }
+        for (key, bounds) in &self.bounds {
+            key.visit_definition_ids(visit, cancel)?;
+            for bound in bounds {
+                bound.visit_definition_ids(visit, cancel)?;
+            }
+        }
+        Ok(())
+    }
+}
 
 impl RemapDefinitions for ImportedType {
     fn remap_definitions(
@@ -93,6 +139,12 @@ impl RemapDefinitions for ImportedTypes {
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(ImportedTypes {
+            aliases: map_hash_entries(
+                self.aliases.len(),
+                self.aliases.iter().map(|(key, value)| {
+                    Ok((mapper.reference(key)?, value.remap_definitions(mapper)?))
+                }),
+            )?,
             resolutions: map_hash_entries(
                 self.resolutions.len(),
                 self.resolutions.iter().map(|(key, value)| {
@@ -128,6 +180,10 @@ impl DefinitionReferences for ImportedTypes {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
+        for (id, alias) in &self.aliases {
+            visit(id)?;
+            alias.visit_definition_ids(visit, cancel)?;
+        }
         for (key0, value0) in &self.resolutions {
             key0.visit_definition_ids(visit, cancel)?;
             (value0).visit_definition_ids(visit, cancel)?;

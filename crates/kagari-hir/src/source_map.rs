@@ -4,7 +4,7 @@ use crate::hir::{
     ids::{
         BlockId, ConstId, EnumId, ExprId, FieldId, FunctionId, GenericParamId, HirArenaId,
         HirOwner, ImplId, LocalId, ModuleId, OpaqueTypeId, ParamId, PatternId, PlaceId, StaticId,
-        StmtId, StructId, TraitId, TraitMethodId, TypeRefId, VariantId,
+        StmtId, StructId, TraitId, TraitMethodId, TypeAliasId, TypeRefId, VariantId,
     },
     item::Item,
 };
@@ -62,6 +62,7 @@ pub struct SourceMap {
     local_owners: Vec<HirOwner>,
     struct_spans: Vec<Span>,
     opaque_type_spans: Vec<Span>,
+    type_alias_spans: Vec<Span>,
     enum_spans: Vec<Span>,
     block_spans: Vec<Span>,
     block_owners: Vec<HirOwner>,
@@ -121,6 +122,17 @@ impl SourceMap {
 
     pub(crate) fn import_path(&self, slot: usize) -> &[(usize, Span)] {
         self.import_paths.get(&slot).map_or(&[], Vec::as_slice)
+    }
+
+    pub(crate) fn push_type_alias(&mut self, span: Span) -> TypeAliasId {
+        let id = TypeAliasId::new(self.type_alias_spans.len());
+        self.type_alias_spans.push(span);
+        id
+    }
+
+    /// Returns the alias declaration range in the matching lowering.
+    pub fn type_alias_span(&self, id: TypeAliasId) -> Span {
+        self.type_alias_spans[id.index()]
     }
 
     pub(crate) fn push_opaque_type(&mut self, span: Span) -> OpaqueTypeId {
@@ -247,6 +259,7 @@ impl SourceMap {
     /// Returns the full declaration range selected by its local item handle.
     pub fn item_span(&self, item: Item) -> Span {
         match item {
+            Item::TypeAlias(id) => self.type_alias_span(id),
             Item::OpaqueType(id) => self.opaque_type_span(id),
             Item::Function(id) => self.function_span(id),
             Item::Const(id) => self.const_span(id),

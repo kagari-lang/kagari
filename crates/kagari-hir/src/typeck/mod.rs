@@ -42,6 +42,7 @@ use kagari_common::identity::{map::DefinitionContext, table::DefinitionTable};
 
 use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
 use smallvec::SmallVec;
+pub(crate) mod aliases;
 pub(crate) mod applications;
 pub(crate) mod associated;
 pub(crate) mod associated_consts;

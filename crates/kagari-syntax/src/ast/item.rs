@@ -599,7 +599,71 @@ ast_node!(
 );
 
 ast_node!(
-    /// A `type` declaration or definition in a trait, impl or declaration-mode file.
+    /// A module-level transparent alias for a type spelling.
+    ///
+    /// The alias introduces no runtime type identity. Resolution and bound checking
+    /// belong to HIR; this wrapper only retains the source spelling.
+    ///
+    /// # Tree shape
+    ///
+    /// `pub type Items<T: Read> = Vec<T> where T: Write;` (trivia omitted):
+    ///
+    /// ```text
+    /// TypeAliasDef
+    /// +-- PubKw "pub" [token] -> visibility()
+    /// +-- TypeKw "type" [token]
+    /// +-- Name (Items) [node] -> name()
+    /// +-- GenericParamList (<T: Read>) [node] -> generic_params()
+    /// +-- Eq "=" [token]
+    /// +-- TypeRef (Vec<T>) [node] -> ty()
+    /// +-- WhereClause (where T: Write) [node] -> where_clause()
+    /// `-- Semi ";" [token]
+    /// ```
+    ///
+    /// Attributes precede visibility as direct children. Visibility, generics and
+    /// the where clause are optional; the where clause may instead precede `=`.
+    /// Required name/target nodes may be missing or incomplete after recovery.
+    /// Module-level aliases have this kind in both ordinary and declaration mode;
+    /// associated types and declaration-mode opaque types use [`AssociatedType`].
+    TypeAliasDef,
+    TypeAliasDef
+);
+
+impl TypeAliasDef {
+    /// Returns the written visibility; without `pub`, the alias is private.
+    pub fn visibility(&self) -> Visibility {
+        visibility_of(self.syntax())
+    }
+
+    /// Returns `Items` in `type Items<T> = Vec<T>;`.
+    pub fn name(&self) -> Option<Name> {
+        support::child(self.syntax())
+    }
+
+    /// Returns the alias name text, or `None` when its name/token is missing.
+    pub fn name_text(&self) -> Option<String> {
+        self.name().and_then(|name| name.text())
+    }
+
+    /// Returns `<T: Read>` in `type Items<T: Read> = Vec<T>;`.
+    pub fn generic_params(&self) -> Option<GenericParamList> {
+        support::child(self.syntax())
+    }
+
+    /// Returns the optional `where T: Read` before `=` or after the target type.
+    pub fn where_clause(&self) -> Option<WhereClause> {
+        support::child(self.syntax())
+    }
+
+    /// Returns the target `Vec<T>` in `type Items<T> = Vec<T>;`.
+    /// An absent target during recovery returns `None`.
+    pub fn ty(&self) -> Option<TypeRef> {
+        support::child(self.syntax())
+    }
+}
+
+ast_node!(
+    /// An associated type declaration/definition or declaration-mode opaque type.
     ///
     /// See [AST conventions](crate::ast) for storage and diagram notation.
     ///
@@ -699,8 +763,10 @@ pub(crate) fn visibility_of(syntax: &SyntaxNode) -> Visibility {
 /// A typed choice of declarations found directly in a file or module.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Item {
-    /// A type declaration or definition, such as declaration-mode `type Handle;` or `type Output = i32;`.
+    /// An opaque declaration-mode type, such as `type Handle;`.
     TypeDecl(AssociatedType),
+    /// A transparent module-level alias, such as `type Items<T> = Vec<T>;`.
+    TypeAliasDef(TypeAliasDef),
     /// An inline module, such as `mod math { fn total() {} }`.
     ModuleDef(ModuleDef),
     /// An import, such as `use math::{Point, sum as total};`.
@@ -726,6 +792,7 @@ impl AstNode for Item {
         matches!(
             kind,
             SyntaxKind::AssociatedType
+                | SyntaxKind::TypeAliasDef
                 | SyntaxKind::ModuleDef
                 | SyntaxKind::UseDecl
                 | SyntaxKind::TraitDef
@@ -741,6 +808,7 @@ impl AstNode for Item {
     fn cast(syntax: SyntaxNode) -> Option<Self> {
         match syntax.kind() {
             SyntaxKind::AssociatedType => AssociatedType::cast(syntax).map(Self::TypeDecl),
+            SyntaxKind::TypeAliasDef => TypeAliasDef::cast(syntax).map(Self::TypeAliasDef),
             SyntaxKind::ModuleDef => ModuleDef::cast(syntax).map(Self::ModuleDef),
             SyntaxKind::UseDecl => UseDecl::cast(syntax).map(Self::UseDecl),
             SyntaxKind::TraitDef => TraitDef::cast(syntax).map(Self::TraitDef),
@@ -757,6 +825,7 @@ impl AstNode for Item {
     fn syntax(&self) -> &SyntaxNode {
         match self {
             Self::TypeDecl(node) => node.syntax(),
+            Self::TypeAliasDef(node) => node.syntax(),
             Self::ModuleDef(node) => node.syntax(),
             Self::UseDecl(node) => node.syntax(),
             Self::TraitDef(node) => node.syntax(),

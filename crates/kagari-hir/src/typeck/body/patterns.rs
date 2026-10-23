@@ -8,6 +8,7 @@ use crate::{
         ids::{LocalId, PatternId},
         pattern::{PatternBound, PatternKind},
     },
+    imports::types::aliases::resolved_alias,
     resolver::resolved::ResolvedName,
     typeck::{BodyTypeEnv, body::BodyChecker, scalar::ScalarValue, ty::display_type_id},
     types::{NominalType, TypeId},
@@ -21,6 +22,20 @@ mod declarations;
 mod enums;
 
 impl<'a> BodyChecker<'a> {
+    pub(super) fn alias_pattern_matches(&self, path: &str, expected: &TypeId) -> bool {
+        let alias = self
+            .declarations
+            .resolve_name(path, NameNamespace::Type)
+            .and_then(|name| resolved_alias(self.declarations, &name));
+        alias.is_none_or(|(_, alias)| {
+            alias.parameters.is_empty()
+                && !self
+                    .aggregates
+                    .normalize_type(self.declarations.definitions(), &alias.target)
+                    .conflicts_with(expected)
+        })
+    }
+
     pub(super) fn infer_match_arm_type(
         &mut self,
         arm: &MatchArm,
@@ -221,7 +236,9 @@ impl<'a> BodyChecker<'a> {
                     );
                     return;
                 };
-                if self.resolve_struct_id(&path).as_ref() != Some(&owner.declaration) {
+                if self.resolve_struct_id(&path).as_ref() != Some(&owner.declaration)
+                    || !self.alias_pattern_matches(&path, expected)
+                {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
                             expected: display_type_id(self.declarations.definitions(), expected),

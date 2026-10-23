@@ -1,9 +1,18 @@
 // Parser witnesses for grammar branches whose module semantics are still separate.
+type Count = i64;
+#[tag]
+pub type Pair<T> = (T, T);
+pub(crate) type Items<T: Show> where T: Copy = [T];
+type Callback<T> = fn(T) -> T;
+type Output<T> = <T as Iterator>::Item where T: Iterator;
+
 const BASELINE: i64 = 0;
 pub(crate) static var requests: i64 = BASELINE;
 pub static val callback: fn(i32) -> i32 = |value: i32| value + 1;
 
 mod nested {
+    pub(super) type Local<T> = Pair<T>;
+
     #[allow(dead_code)]
     pub(super) static val cached: [i64] = [1, 2];
 

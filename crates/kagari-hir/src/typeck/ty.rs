@@ -9,9 +9,11 @@ use crate::{
         item::{Module, behavior::GenericParam},
         ty::TypeKind,
     },
+    imports::types::aliases::CanonicalAlias,
     native::NativeTypeKind,
     resolver::resolved::ResolvedName,
     typeck::{
+        aliases::ExpansionBudget,
         associated,
         table::{ResolvedTypeRef, TypeTable, TypeTarget},
     },
@@ -25,6 +27,7 @@ use kagari_types::{
     collection::CollectionAccess, declaration::names::NameNamespace, language::Protocol,
     scalar::BuiltinType,
 };
+use std::iter;
 
 /// Borrowed declaration environment for resolving one written type.
 #[derive(Debug, Clone, Copy)]
@@ -37,6 +40,16 @@ pub(super) struct TypeContext<'a> {
     pub self_type: Option<TraitId>,
     /// Enclosing implementation identity, when resolving implementation-specific types.
     pub implementation: Option<ImplId>,
+}
+
+fn alias_target<'a>(
+    target: Option<&TypeTarget>,
+    declarations: &'a Declarations,
+) -> Option<&'a CanonicalAlias> {
+    let TypeTarget::Source(id) = target? else {
+        return None;
+    };
+    declarations.imported_types().alias(id)
 }
 
 pub(super) fn native_type(
@@ -55,6 +68,14 @@ pub(super) fn native_type(
 }
 
 pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> ResolvedTypeRef {
+    resolve_named_reference(name, context, true)
+}
+
+fn resolve_named_reference(
+    name: &str,
+    context: TypeContext<'_>,
+    materialize_alias: bool,
+) -> ResolvedTypeRef {
     let mut target = None;
     let ty = (|| {
         if let Some(param) = context
@@ -93,9 +114,28 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
                             DeclarationId::Definition(id) => *id,
                             _ => return None,
                         }));
+                        if !materialize_alias
+                            && alias_target(target.as_ref(), context.declarations).is_some()
+                        {
+                            return Some(TypeId::Error);
+                        }
                         return Some(imported.ty.clone());
                     }
                     let definition = *context.declarations.definition(resolved.clone())?;
+                    if let ResolvedName::TypeAlias(_) = resolved {
+                        target = Some(TypeTarget::Source(definition));
+                        if !materialize_alias {
+                            return Some(TypeId::Error);
+                        }
+                        return Some(
+                            context
+                                .declarations
+                                .imported_types()
+                                .alias(&definition)?
+                                .target
+                                .clone(),
+                        );
+                    }
                     let arguments = context
                         .declarations
                         .parameters_of(&definition)
@@ -171,7 +211,31 @@ pub(super) fn resolve_type_in(
     table: &mut TypeTable,
     cancel: &CancellationToken,
 ) -> TypeId {
-    if let Some(inferred) = table.inference_holes.get(&ty).cloned() {
+    resolve_type_bounded(
+        module,
+        ty,
+        context,
+        table,
+        cancel,
+        &mut ExpansionBudget::new(4096),
+    )
+}
+
+fn resolve_type_bounded(
+    module: &Module,
+    ty: TypeRefId,
+    context: TypeContext<'_>,
+    table: &mut TypeTable,
+    cancel: &CancellationToken,
+    budget: &mut ExpansionBudget,
+) -> TypeId {
+    if let Some(inferred) = table.inference_holes.get(&ty) {
+        let inferred = if let Some(size) = budget.check(inferred, &Default::default(), cancel) {
+            budget.remaining -= size;
+            inferred.clone()
+        } else {
+            TypeId::Error
+        };
         table.insert_type_ref(
             ty,
             ResolvedTypeRef {
@@ -181,6 +245,7 @@ pub(super) fn resolve_type_in(
         );
         return inferred;
     }
+
     if cancel.check().is_err() || !table.resolving_types.insert(ty) {
         return TypeId::Error;
     }
@@ -220,12 +285,15 @@ pub(super) fn resolve_type_in(
             .iter()
             .find(|item| Some(item.id) == context.implementation)
             .and_then(|item| item.for_type)
-            .map(|receiver| resolve_type_in(module, receiver, context, table, cancel))
+            .map(|receiver| resolve_type_argument(module, receiver, context, table, cancel, budget))
             .unwrap_or(TypeId::Error),
         TypeKind::Named(name) => {
-            let reference = resolve_named_type(name, context);
+            let reference = resolve_named_reference(name, context, false);
             target = reference.target;
-            if reference.ty == TypeId::Error && name.contains("::") {
+            if reference.ty == TypeId::Error
+                && name.contains("::")
+                && alias_target(target.as_ref(), context.declarations).is_none()
+            {
                 let resolved = associated::resolve_projection_name(
                     module,
                     name,
@@ -234,31 +302,30 @@ pub(super) fn resolve_type_in(
                     table,
                     cancel,
                 );
-                table.resolving_types.remove(&ty);
-                table.insert_type_ref(
-                    ty,
-                    ResolvedTypeRef {
-                        ty: resolved.ty.clone(),
-                        target: resolved.target,
-                    },
-                );
-                return resolved.ty;
-            }
-            match &reference.ty {
-                _ if native_type(target.clone(), context.declarations)
-                    .is_some_and(|kind| kind.arity() != 0) =>
-                {
-                    TypeId::Error
+                target = resolved.target;
+                resolved.ty
+            } else {
+                match &reference.ty {
+                    _ if alias_target(target.as_ref(), context.declarations).is_some() => {
+                        alias_target(target.as_ref(), context.declarations)
+                            .expect("alias target")
+                            .apply(&[], budget, cancel)
+                    }
+                    _ if native_type(target.clone(), context.declarations)
+                        .is_some_and(|kind| kind.arity() != 0) =>
+                    {
+                        TypeId::Error
+                    }
+                    TypeId::NativeObject(ty)
+                    | TypeId::Struct(ty)
+                    | TypeId::Enum(ty)
+                    | TypeId::Trait(ty)
+                        if !ty.arguments.is_empty() =>
+                    {
+                        TypeId::Error
+                    }
+                    _ => reference.ty,
                 }
-                TypeId::NativeObject(ty)
-                | TypeId::Struct(ty)
-                | TypeId::Enum(ty)
-                | TypeId::Trait(ty)
-                    if !ty.arguments.is_empty() =>
-                {
-                    TypeId::Error
-                }
-                _ => reference.ty,
             }
         }
         TypeKind::Generic {
@@ -268,98 +335,105 @@ pub(super) fn resolve_type_in(
             positional_after_binding,
             callable_syntax,
         } => {
-            let reference = resolve_named_type(name, context);
+            let reference = resolve_named_reference(name, context, false);
             target = reference.target;
             // Visit every argument even if an earlier one cannot resolve.
             let args = args
                 .iter()
-                .map(|arg| resolve_type_in(module, *arg, context, table, cancel))
+                .map(|arg| resolve_type_argument(module, *arg, context, table, cancel, budget))
                 .collect::<Vec<_>>();
             let resolved_bindings = bindings
                 .iter()
                 .map(|(name, ty)| {
                     (
                         name.clone(),
-                        resolve_type_in(module, *ty, context, table, cancel),
+                        resolve_type_argument(module, *ty, context, table, cancel, budget),
                     )
                 })
                 .collect::<Vec<_>>();
-            if reference.ty.is_unresolved() && name.contains("::") && bindings.is_empty() {
+            if reference.ty.is_unresolved()
+                && name.contains("::")
+                && bindings.is_empty()
+                && alias_target(target.as_ref(), context.declarations).is_none()
+            {
                 let resolved =
                     associated::resolve_projection_name(module, name, args, context, table, cancel);
-                table.resolving_types.remove(&ty);
-                table.insert_type_ref(
-                    ty,
-                    ResolvedTypeRef {
-                        ty: resolved.ty.clone(),
-                        target: resolved.target,
-                    },
-                );
-                return resolved.ty;
-            }
-            match native_type(target.clone(), context.declarations) {
-                Some(kind) if kind.arity() != 0 && bindings.is_empty() && !*callable_syntax => {
-                    kind.apply(&args).unwrap_or(TypeId::Error)
+                target = resolved.target;
+                resolved.ty
+            } else if let Some(alias) = alias_target(target.as_ref(), context.declarations) {
+                if bindings.is_empty() && !*callable_syntax && !*positional_after_binding {
+                    alias.apply(&args, budget, cancel)
+                } else {
+                    TypeId::Error
                 }
-                Some(_) => TypeId::Error,
-                None => match reference.ty {
-                    TypeId::Struct(mut nominal)
-                        if !nominal.arguments.is_empty()
-                            && nominal.arguments.len() == args.len()
-                            && bindings.is_empty() =>
-                    {
-                        nominal.arguments = args;
-                        TypeId::Struct(nominal)
+            } else {
+                match native_type(target.clone(), context.declarations) {
+                    Some(kind) if kind.arity() != 0 && bindings.is_empty() && !*callable_syntax => {
+                        kind.apply(&args).unwrap_or(TypeId::Error)
                     }
-                    TypeId::Enum(mut nominal)
-                        if !nominal.arguments.is_empty()
-                            && nominal.arguments.len() == args.len()
-                            && bindings.is_empty() =>
-                    {
-                        nominal.arguments = args;
-                        TypeId::Enum(nominal)
-                    }
-                    TypeId::Trait(mut nominal)
-                        if nominal.arguments.len() == args.len()
-                            && (!nominal.arguments.is_empty() || !bindings.is_empty())
-                            && !*positional_after_binding
-                            && (!*callable_syntax
-                                || Protocol::from_definition(
-                                    &nominal.declaration,
-                                    context.declarations.definitions(),
-                                ) == Some(Protocol::Fn)) =>
-                    {
-                        nominal.arguments = args;
-                        let members =
-                            associated::members(module, context.declarations, &nominal.declaration);
-                        let mut valid = true;
-                        for (name, value) in resolved_bindings {
-                            let Some(id) = context.declarations.definitions().lookup_child(
-                                nominal.declaration,
-                                DefinitionKind::AssociatedType,
-                                &name,
-                                0,
-                            ) else {
-                                valid = false;
-                                continue;
-                            };
-                            valid &= members.contains(&name)
-                                && associated::member_arity(
-                                    module,
-                                    context.declarations,
-                                    &nominal.declaration,
+                    Some(_) => TypeId::Error,
+                    None => match reference.ty {
+                        TypeId::Struct(mut nominal)
+                            if !nominal.arguments.is_empty()
+                                && nominal.arguments.len() == args.len()
+                                && bindings.is_empty() =>
+                        {
+                            nominal.arguments = args;
+                            TypeId::Struct(nominal)
+                        }
+                        TypeId::Enum(mut nominal)
+                            if !nominal.arguments.is_empty()
+                                && nominal.arguments.len() == args.len()
+                                && bindings.is_empty() =>
+                        {
+                            nominal.arguments = args;
+                            TypeId::Enum(nominal)
+                        }
+                        TypeId::Trait(mut nominal)
+                            if nominal.arguments.len() == args.len()
+                                && (!nominal.arguments.is_empty() || !bindings.is_empty())
+                                && !*positional_after_binding
+                                && (!*callable_syntax
+                                    || Protocol::from_definition(
+                                        &nominal.declaration,
+                                        context.declarations.definitions(),
+                                    ) == Some(Protocol::Fn)) =>
+                        {
+                            nominal.arguments = args;
+                            let members = associated::members(
+                                module,
+                                context.declarations,
+                                &nominal.declaration,
+                            );
+                            let mut valid = true;
+                            for (name, value) in resolved_bindings {
+                                let Some(id) = context.declarations.definitions().lookup_child(
+                                    nominal.declaration,
+                                    DefinitionKind::AssociatedType,
                                     &name,
-                                ) == Some(0)
-                                && nominal.associated_types.insert(id, value).is_none();
+                                    0,
+                                ) else {
+                                    valid = false;
+                                    continue;
+                                };
+                                valid &= members.contains(&name)
+                                    && associated::member_arity(
+                                        module,
+                                        context.declarations,
+                                        &nominal.declaration,
+                                        &name,
+                                    ) == Some(0)
+                                    && nominal.associated_types.insert(id, value).is_none();
+                            }
+                            if valid {
+                                TypeId::Trait(nominal)
+                            } else {
+                                TypeId::Error
+                            }
                         }
-                        if valid {
-                            TypeId::Trait(nominal)
-                        } else {
-                            TypeId::Error
-                        }
-                    }
-                    _ => TypeId::Error,
-                },
+                        _ => TypeId::Error,
+                    },
+                }
             }
         }
         TypeKind::Projection {
@@ -368,11 +442,12 @@ pub(super) fn resolve_type_in(
             member,
             arguments,
         } => {
-            let receiver = resolve_type_in(module, *receiver, context, table, cancel);
-            let interface = resolve_type_in(module, *trait_ref, context, table, cancel);
+            let receiver = resolve_type_argument(module, *receiver, context, table, cancel, budget);
+            let interface =
+                resolve_type_argument(module, *trait_ref, context, table, cancel, budget);
             let arguments = arguments
                 .iter()
-                .map(|arg| resolve_type_in(module, *arg, context, table, cancel))
+                .map(|arg| resolve_type_argument(module, *arg, context, table, cancel, budget))
                 .collect();
             let member_id = match &interface {
                 TypeId::Trait(interface) => context.declarations.definitions().lookup_child(
@@ -398,26 +473,41 @@ pub(super) fn resolve_type_in(
             resolved
         }
         TypeKind::Tuple(elements) => {
-            let elements = elements
-                .iter()
-                .map(|element| resolve_type_in(module, *element, context, table, cancel))
-                .collect::<Vec<_>>();
             if elements.is_empty() {
                 TypeId::from_name("()").expect("unit builtin")
             } else {
-                TypeId::Tuple(elements)
+                resolve_composite_members(
+                    module,
+                    elements.iter().copied(),
+                    context,
+                    table,
+                    cancel,
+                    budget,
+                )
+                .map_or(TypeId::Error, TypeId::Tuple)
             }
         }
-        TypeKind::Array(element) => TypeId::Array(Box::new(resolve_type_in(
-            module, *element, context, table, cancel,
-        ))),
-        TypeKind::Function { params, result } => TypeId::Function {
-            params: params
-                .iter()
-                .map(|param| resolve_type_in(module, *param, context, table, cancel))
-                .collect(),
-            result: Box::new(resolve_type_in(module, *result, context, table, cancel)),
-        },
+        TypeKind::Array(element) => {
+            resolve_composite_members(module, iter::once(*element), context, table, cancel, budget)
+                .map_or(TypeId::Error, |mut members| {
+                    TypeId::Array(Box::new(members.pop().expect("array element")))
+                })
+        }
+        TypeKind::Function { params, result } => resolve_composite_members(
+            module,
+            params.iter().copied().chain(iter::once(*result)),
+            context,
+            table,
+            cancel,
+            budget,
+        )
+        .map_or(TypeId::Error, |mut members| {
+            let result = Box::new(members.pop().expect("function result"));
+            TypeId::Function {
+                params: members,
+                result,
+            }
+        }),
     };
     let resolved = if context.declarations.native_readonly_type(ty) {
         match resolved {
@@ -432,6 +522,12 @@ pub(super) fn resolve_type_in(
     } else {
         resolved
     };
+    let resolved = if let Some(size) = budget.check(&resolved, &Default::default(), cancel) {
+        budget.remaining -= size;
+        resolved
+    } else {
+        TypeId::Error
+    };
     table.resolving_types.remove(&ty);
     table.insert_type_ref(
         ty,
@@ -441,6 +537,56 @@ pub(super) fn resolve_type_in(
         },
     );
     resolved
+}
+
+// Alias arguments can disappear from the final type, so they have independent
+// shape limits. Once the enclosing composite is full, only recovery facts remain.
+fn resolve_type_argument(
+    module: &Module,
+    ty: TypeRefId,
+    context: TypeContext<'_>,
+    table: &mut TypeTable,
+    cancel: &CancellationToken,
+    enclosing: &ExpansionBudget,
+) -> TypeId {
+    let limit = if enclosing.exceeded || enclosing.remaining == 0 {
+        0
+    } else {
+        4096
+    };
+    resolve_type_bounded(
+        module,
+        ty,
+        context,
+        table,
+        cancel,
+        &mut ExpansionBudget::new(limit),
+    )
+}
+
+fn resolve_composite_members(
+    module: &Module,
+    members: impl Iterator<Item = TypeRefId>,
+    context: TypeContext<'_>,
+    table: &mut TypeTable,
+    cancel: &CancellationToken,
+    budget: &mut ExpansionBudget,
+) -> Option<Vec<TypeId>> {
+    let mut children = ExpansionBudget::new(budget.remaining.saturating_sub(1));
+    let mut resolved = Vec::new();
+    for member in members {
+        let ty = resolve_type_bounded(module, member, context, table, cancel, &mut children);
+        if !children.exceeded {
+            resolved.push(ty);
+        }
+    }
+    if children.exceeded {
+        budget.exceeded = true;
+        budget.remaining = 0;
+        None
+    } else {
+        Some(resolved)
+    }
 }
 
 pub(super) fn display_type(module: &Module, ty: TypeRefId) -> String {

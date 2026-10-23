@@ -42,9 +42,15 @@ pub(super) fn type_hits(
         let admitted = match (target, &hit.target) {
             (TypeTarget::Source(expected), ResolvedTarget::Source(_)) => facts
                 .declarations
-                .imported_types()
-                .resolved(hit.target.resolved(facts.names.items.unit.as_ref()))
-                .is_some_and(|ty| ty.declaration.id == DeclarationId::Definition(*expected)),
+                .target(hit.target.resolved(facts.names.items.unit.as_ref()))
+                .or_else(|| {
+                    facts
+                        .declarations
+                        .imported_types()
+                        .resolved(hit.target.resolved(facts.names.items.unit.as_ref()))
+                        .map(|ty| &ty.declaration)
+                })
+                .is_some_and(|declaration| declaration.id == DeclarationId::Definition(*expected)),
             (TypeTarget::Struct(expected), ResolvedTarget::Source(source)) => {
                 matches!(source.item, SourceItem::Struct(actual) if actual == *expected)
                     && source

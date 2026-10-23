@@ -133,6 +133,10 @@ pub enum DiagnosticKind {
         trait_name: String,
         reason: &'static str,
     },
+    InvalidTypeAlias {
+        name: String,
+        reason: String,
+    },
     InvalidAssociatedType {
         name: String,
         reason: String,
@@ -409,6 +413,7 @@ impl DiagnosticKind {
             Self::InvalidAwaitOperand { .. } => "KG_TYPE_INVALID_AWAIT_OPERAND",
             Self::InvalidValueTarget { .. } => "KG_TYPE_INVALID_VALUE_TARGET",
             Self::InvalidTraitReference { .. } => "KG_TYPE_INVALID_TRAIT_REFERENCE",
+            Self::InvalidTypeAlias { .. } => "KG_TYPE_INVALID_TYPE_ALIAS",
             Self::InvalidAssociatedType { .. } => "KG_TYPE_INVALID_ASSOCIATED_TYPE",
             Self::InvalidAssociatedConst { .. } => "KG_TYPE_INVALID_ASSOCIATED_CONST",
             Self::InvalidIndexTarget { .. } => "KG_TYPE_INVALID_INDEX_TARGET",
@@ -591,6 +596,9 @@ impl Display for DiagnosticKind {
             Self::InvalidValueTarget { name } => write!(f, "`{name}` is not a value expression"),
             Self::InvalidTraitReference { trait_name, reason } => {
                 write!(f, "invalid trait reference `{trait_name}`: {reason}")
+            }
+            Self::InvalidTypeAlias { name, reason } => {
+                write!(f, "invalid type alias `{name}`: {reason}")
             }
             Self::InvalidAssociatedType { name, reason } => {
                 write!(f, "invalid associated type `{name}`: {reason}")

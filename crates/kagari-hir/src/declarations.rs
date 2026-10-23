@@ -260,6 +260,20 @@ impl Declarations {
                 map.item_name_span(Item::Module(item.id)).is_some(),
             )?;
         }
+        for item in &module.type_aliases {
+            cancel
+                .check()
+                .map_err(|_| DefinitionMappingError::Cancelled)?;
+            let owner = builder.definition(
+                ResolvedName::TypeAlias(item.id),
+                root,
+                DefinitionKind::TypeAlias,
+                &item.name,
+                map.item_declaration_span(Item::TypeAlias(item.id)),
+                map.item_name_span(Item::TypeAlias(item.id)).is_some(),
+            )?;
+            builder.generic_params(&owner, &item.generic_params, map);
+        }
         for item in &module.opaque_types {
             cancel
                 .check()

@@ -234,6 +234,10 @@ id_newtype!(
     OpaqueTypeId
 );
 id_newtype!(
+    /// A lowering-local index identifying `Module.type_aliases`; never a nominal type identity.
+    TypeAliasId
+);
+id_newtype!(
     /// A lowering-local index identifying `Module.enums`.
     /// See the [identity families](crate::hir::ids) for allocation and validity rules.
     EnumId

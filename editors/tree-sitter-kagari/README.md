@@ -125,10 +125,15 @@ restrictions; syntactic recognition is not executable support.
 
 `src/node-types.json` is the generated, exact query API. Important categories:
 
-- Declarations: `function_item`, `method_item`, `const_item`, `struct_item`,
+- Declarations: `function_item`, `method_item`, `const_item`, `type_alias_item`, `struct_item`,
   `enum_item`, `enum_variant`, `trait_item`, `impl_item`, `module_item`, `use_item`,
   `associated_type`, `associated_const`, `field_declaration`, `visibility`,
   `attribute`, `attribute_arguments`, `attribute_argument`.
+  Module `type_alias_item` requires `=` and exposes `name` and target `type` fields;
+  generic parameters and an optional where clause (before `=` or after the target,
+  not both) are retained as children.
+  Trait/impl `associated_type` remains distinct. Native opaque `type Name;`
+  declarations are not ordinary script module items.
 - Names: `identifier`, `type_identifier`, `path`, `type_path`, `generic_path`.
   Declaration/member names have `name` fields; ordinary bindings have a `pattern`
   field, including a `path` for a simple name. `function_item` and

@@ -96,6 +96,7 @@ fn portable_artifact_executes_without_source_compilation() {
         ProgramEntry::Export("declaration_patterns"),
         ProgramEntry::Export("default_update_values"),
         ProgramEntry::Export("bound_interface_values"),
+        ProgramEntry::Export("transparent_alias_values"),
     ] {
         let result = runtime.execute(&loaded, entry, &[], &context).unwrap();
         assert_eq!(

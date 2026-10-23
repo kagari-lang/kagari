@@ -6,6 +6,9 @@ function_item	1	?	visibility
 const_item	1	?	visibility
 const_item	2	?	type_annotation
 static_item	1	?	visibility
+type_alias_item	1	?	visibility
+type_alias_item	2	?	generic_param_clause
+type_alias_item	3	?	where_clause
 struct_item	1	?	visibility
 enum_item	1	?	visibility
 trait_item	1	?	visibility

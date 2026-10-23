@@ -16,7 +16,12 @@ Default calls (including Vec/Option elements without Default), a scripted generi
 Default implementation, and contextual Default in a base-only struct update.
 An overriding update checks independent outer scalar slots, shared inherited Vec
 storage, continued base usability and fresh storage from separate Default calls.
-The portable execution test calls all three entries and requires 42 from each,
+`transparent_alias_values` imports renamed reexports of closed generic struct and
+enum aliases. Construction through the alias and target-typed function calls preserve
+one shared mutable object, including through an enum payload; payload and empty
+variants retain the target enum identity. Aliases need no source frontend at load
+or execution time.
+The portable execution test calls these entries and requires 42 from each,
 including in builds without source support. It forces GC at allocation and checks
 root/call-depth cleanup and non-quarantined runtime state after each entry.
 `library_and_object` exercises trait sorting,

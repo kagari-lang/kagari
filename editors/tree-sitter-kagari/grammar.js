@@ -58,7 +58,7 @@ module.exports = grammar({
   rules: {
     source_file: $ => repeat($._item),
     _item: $ => choice($.function_item, $.const_item, $.static_item, $.struct_item, $.enum_item,
-      $.trait_item, $.impl_item, $.module_item, $.use_item),
+      $.trait_item, $.impl_item, $.module_item, $.use_item, $.type_alias_item),
     visibility: $ => seq('pub', optional(seq('(', choice('super', 'crate'), ')'))),
     attribute: $ => seq('#', '[', field('name', $.path), optional(choice(
       seq('=', $._attribute_value), $.attribute_arguments)), ']'),
@@ -84,6 +84,10 @@ module.exports = grammar({
       field('name', $.identifier), optional($.type_annotation), '=', field('value', $._expression), ';'),
     static_item: $ => seq(repeat($.attribute), optional($.visibility), 'static', choice('val', 'var'),
       field('name', $.identifier), ':', field('type', $._type), '=', field('value', $._expression), ';'),
+    type_alias_item: $ => seq(repeat($.attribute), optional($.visibility), 'type',
+      field('name', $.type_identifier), optional($.generic_parameters),
+      choice(seq($.where_clause, '=', field('type', $._type)),
+        seq('=', field('type', $._type), optional($.where_clause))), ';'),
     struct_item: $ => seq(repeat($.attribute), optional($.visibility), 'struct',
       field('name', $.type_identifier), optional($.generic_parameters),
       field('body', $.field_declarations)),

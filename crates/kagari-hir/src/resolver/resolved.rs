@@ -5,7 +5,7 @@ use crate::{
     hir::{
         ids::{
             BodyOwner, ConstId, EnumId, ExprId, FunctionId, HirOwner, LocalId, ModuleId,
-            OpaqueTypeId, ParamId, PatternId, PlaceId, StaticId, StructId, TraitId,
+            OpaqueTypeId, ParamId, PatternId, PlaceId, StaticId, StructId, TraitId, TypeAliasId,
         },
         item::Module,
         pattern::PatternKind,
@@ -51,6 +51,8 @@ pub struct LexicalScope {
 /// A bound local, qualified declaration, namespace or installed/builtin target.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ResolvedName {
+    /// A local transparent type alias declaration.
+    TypeAlias(TypeAliasId),
     /// A local native-backed type declaration.
     OpaqueType(OpaqueTypeId),
     /// A canonical declaration in a qualified source unit.

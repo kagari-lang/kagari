@@ -262,7 +262,9 @@ pub enum SyntaxKind {
     TraitBoundList,
     /// A trait path with generic arguments or callable input/output syntax. See [`TraitRef`](crate::ast::misc::TraitRef).
     TraitRef,
-    /// A `type` declaration or definition in a trait, impl or declaration-mode file. See [`AssociatedType`](crate::ast::item::AssociatedType).
+    /// A module-level transparent type alias. See [`TypeAliasDef`](crate::ast::item::TypeAliasDef).
+    TypeAliasDef,
+    /// An associated type or declaration-mode opaque type. See [`AssociatedType`](crate::ast::item::AssociatedType).
     AssociatedType,
     /// An associated-type equality inside generic arguments. See [`AssociatedTypeBinding`](crate::ast::misc::AssociatedTypeBinding).
     AssociatedTypeBinding,

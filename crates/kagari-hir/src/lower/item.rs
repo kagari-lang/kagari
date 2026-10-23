@@ -11,6 +11,7 @@ use crate::{
         item::{
             Item,
             adt::{Enum, Field, OpaqueType, Struct, Variant},
+            alias::TypeAlias,
             behavior::{
                 AssociatedConst, AssociatedType, GenericParam, Impl, ImplMethod, TraitBound,
                 TraitDef, TraitMethod, TraitRef,
@@ -27,8 +28,8 @@ use crate::{
 use kagari_syntax::ast::{
     item::{
         AssociatedType as AstAssociatedType, ConstDef, EnumDef, FnDef, ImplBlock, Item as AstItem,
-        MethodDef, ModuleDef, StaticDef, StructDef, TraitDef as AstTraitDef, UseDecl, UseTree,
-        Visibility as AstVisibility,
+        MethodDef, ModuleDef, StaticDef, StructDef, TraitDef as AstTraitDef, TypeAliasDef, UseDecl,
+        UseTree, Visibility as AstVisibility,
     },
     misc::{GenericParamList, ParamList, TraitRef as AstTraitRef, WhereClause},
     module::ModuleSyntax,
@@ -63,6 +64,11 @@ impl Lowerer {
                 break;
             }
             match item {
+                AstItem::TypeAliasDef(declaration) => {
+                    let item = self.lower_type_alias(&declaration);
+                    self.module.items.push(Item::TypeAlias(item.id));
+                    self.module.type_aliases.push(item);
+                }
                 AstItem::TypeDecl(declaration) => {
                     let item = self.lower_opaque_type(&declaration);
                     self.module.items.push(Item::OpaqueType(item.id));
@@ -109,6 +115,28 @@ impl Lowerer {
                     self.module.enums.push(hir_enum);
                 }
             }
+        }
+    }
+
+    fn lower_type_alias(&mut self, declaration: &TypeAliasDef) -> TypeAlias {
+        let id = self.source_map.push_type_alias(syntax_span(declaration));
+        if let Some(name) = declaration.name() {
+            self.source_map
+                .insert_item_name(Item::TypeAlias(id), token_span(&name));
+        }
+        TypeAlias {
+            id,
+            visibility: lower_visibility(declaration.visibility()),
+            name: declaration.name_text().unwrap_or_default(),
+            generic_params: declaration
+                .generic_params()
+                .map(|params| self.lower_generic_params(&params))
+                .unwrap_or_default(),
+            bounds: declaration
+                .where_clause()
+                .map(|clause| self.lower_where_clause(&clause))
+                .unwrap_or_default(),
+            target: declaration.ty().map(|ty| self.lower_type(&ty)),
         }
     }
 

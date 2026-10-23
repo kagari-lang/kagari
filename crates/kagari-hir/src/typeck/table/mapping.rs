@@ -372,6 +372,7 @@ impl RemapDefinitions for TypeTable {
                     .map(|(key, value)| Ok((*(key), (value).remap_definitions(mapper)?))),
             )?,
             resolving_types: self.resolving_types.clone(),
+
             associated_bounds: map_hash_entries(
                 self.associated_bounds.len(),
                 self.associated_bounds.iter().map(|(key, value)| {

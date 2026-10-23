@@ -368,7 +368,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                     public_items.push(PublicItem::Static(static_contract(module, id)));
                 }
             }
-            Item::Module(_) | Item::Impl(_) => {}
+            Item::Module(_) | Item::Impl(_) | Item::TypeAlias(_) => {}
         }
     }
 

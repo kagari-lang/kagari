@@ -20,7 +20,8 @@ item_decl           ::= use_decl
                       | struct_item
                       | enum_item
                       | trait_item
-                      | impl_block ;
+                      | impl_block
+                      | type_alias_item ;
 
 visibility          ::= "pub" ("(" ("super" | "crate") ")")? ;
 
@@ -32,6 +33,10 @@ const_item          ::= visibility? "const" IDENT type_annotation? "=" expr ";" 
    associated items. The explicit type must be closed under static checking;
    initialization is an ordinary runtime expression, not const evaluation. *)
 static_item         ::= visibility? "static" ("val" | "var") IDENT type_annotation "=" expr ";" ;
+
+(* Transparent aliases are module items, not associated types or native opaque
+   declarations. One where clause may precede `=` or follow the target. *)
+type_alias_item     ::= visibility? "type" IDENT generic_param_clause? (where_clause "=" type | "=" type where_clause?) ";" ;
 
 struct_item         ::= visibility? struct_decl ;
 

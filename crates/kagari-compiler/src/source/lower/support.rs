@@ -157,6 +157,7 @@ impl FunctionLowerer<'_, '_> {
             | ResolvedName::Namespace(_)
             | ResolvedName::RuntimeHelper(_)
             | ResolvedName::OpaqueType(_)
+            | ResolvedName::TypeAlias(_)
             | ResolvedName::Struct(_)
             | ResolvedName::Enum(_)
             | ResolvedName::Trait(_) => Err(MirLoweringError::UnsupportedExpr(
@@ -358,6 +359,7 @@ impl FunctionLowerer<'_, '_> {
             )),
             ResolvedName::Module(_)
             | ResolvedName::OpaqueType(_)
+            | ResolvedName::TypeAlias(_)
             | ResolvedName::Struct(_)
             | ResolvedName::Enum(_)
             | ResolvedName::Trait(_) => Err(MirLoweringError::UnsupportedExpr(

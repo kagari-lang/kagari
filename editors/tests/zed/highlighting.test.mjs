@@ -100,6 +100,22 @@ test('byte strings and characters keep literal braces inside string pairing over
   }
 });
 
+test('module type aliases highlight names, targets and bounds as types', () => {
+  const text = readFileSync(new URL('../../../examples/syntax/grammar-witnesses.kgr', import.meta.url), 'utf8');
+  const tree = parse(text);
+  assert.equal(tree.rootNode.hasError, false, tree.rootNode.toString());
+  const found = captures(text);
+  for (const alias of tree.rootNode.descendantsOfType('type_alias_item')) {
+    assert.equal(effectiveCapture(found, alias.childForFieldName('name').startIndex), 'type');
+    for (const type of alias.descendantsOfType('type_identifier')) {
+      assert.equal(effectiveCapture(found, type.startIndex), 'type', type.text);
+    }
+    for (const token of alias.children.filter(node => ['type', 'where', '='].includes(node.type))) {
+      assert.equal(effectiveCapture(found, token.startIndex), token.type === '=' ? 'operator' : 'keyword');
+    }
+  }
+});
+
 test('persistent statics keep variable names and runtime initializer captures distinct from const', () => {
   const text = readFileSync(new URL('../../../examples/syntax/grammar-witnesses.kgr', import.meta.url), 'utf8');
   const tree = parse(text);

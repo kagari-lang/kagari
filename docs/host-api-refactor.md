@@ -2,10 +2,16 @@
 
 ## Status and authority
 
-Status: planned, implementation not started. Requested on 2026-10-23 against
-`67d9e36f`. This document owns the finite HM00-HM04 sequence, decisions, acceptance
-and progress ledger for the [Host Program and module lookup finding](review.md#host-program-and-module-lookup).
-Writing this plan does not authorize implementation, commits or publication.
+Status: implementation and phased commits authorized on 2026-10-23. The user
+subsequently prioritized implementing transparent generic type aliases before HM/UP.
+That finite language prerequisite is locally complete. Its sole progress owner is
+the [alias prerequisite ledger](#transparent-generic-alias-prerequisite); exhaustive
+CI acceptance remains pending.
+The joint HM00/UP00 audit started at `3b898e80` and remains paused and incomplete;
+HM01-HM04 and UP implementation phases have not started. Authorization does not
+waive their remaining design gates.
+Originally requested against `67d9e36f`, this document owns HM00-HM04, decisions,
+acceptance and progress for the [Host Program and module lookup finding](review.md#host-program-and-module-lookup).
 
 This replaces the former broad HA00-HA05 proposal in this file. On 2026-10-23 the
 user confirmed ordinary calls through stable callable identities to current code,
@@ -236,9 +242,10 @@ necessary binder/visibility evidence. A simple declaration ID is sufficient for 
 renamed declaration, not for an alias applying type arguments. Normalize using
 existing checked type semantics; runtime must not expand syntax or infer types.
 
-New open-generic-alias application support is deferred. HM00 inventories existing
+New host binding of open generic aliases is deferred; this does not defer source
+language generic aliases in the authorized prerequisite. HM00 inventories existing
 advanced application support and records precise rejection diagnostics, without
-expanding the confirmed public scope or omitting a required closed alias.
+expanding the confirmed public host scope or omitting a required closed alias.
 Non-object aliases and enum/trait/scalar/opaque exports must not become ObjectType
 handles. Their valid source declarations must still compile; this plan does not
 require a general host type-reflection API. Record enough classification to reject
@@ -339,6 +346,16 @@ Reviewed on 2026-10-23:
   Reuse that distinction and existing Kagari checked namespaces. Do not copy Rust
   edition-specific root lookup or its complete import/namespace rules into the host
   string API. Kagari's finite module-alias graph retains its existing cycle rules.
+- [Rust Reference, type aliases](https://doc.rust-lang.org/reference/items/type-aliases.html),
+  living reference, `items.type.intro`: an alias introduces a synonym in the type
+  namespace, not a new nominal type. Apply this to declaration-context normalization
+  and substitution in HIR; preserve a source declaration for binders/navigation,
+  while executable consumers receive the target's checked type identity. Kagari
+  deliberately enforces alias parameter/`where` bounds at every application,
+  including erased arguments, unlike Rust's unenforced ordinary type-alias bounds.
+  Kagari's struct/enum constructor rules are its own contract, not Rust's
+  tuple/unit-struct constructor restriction. No runtime alias expansion or new
+  nominal identity mechanism is needed.
 - [Java Virtual Machine Specification, Java SE 25, section 5.3](https://docs.oracle.com/javase/specs/jvms/se25/html/jvms-5.html#jvms-5.3):
   a type's defining loader matters in addition to its name; sections 5.4/5.4.3
   separate verification/preparation from resolved symbolic targets. Apply the
@@ -355,6 +372,16 @@ Dispatch mechanism research and migration belong to UP, with HM00 recording the
 handoff. No speedup is claimed; new persistent caches require concrete justification.
 
 ## Phase order and acceptance
+
+The [transparent generic alias prerequisite](#transparent-generic-alias-prerequisite)
+is locally complete. On resumption, the authorized order remains joint HM00 + UP00,
+then HM01, UP01, HM02, UP02, HM03, HM04, UP03, UP04 and UP05. HM/UP remain paused
+and incomplete; prerequisite acceptance does not automatically resume them.
+The completed joint design checkpoint has both Plan-Phase trailers;
+subsequent completed phases have their own coherent commits. MS remains unstarted.
+Record each phase in its existing owning plan, not a third integration ledger.
+Alias completion does not itself complete HM00/UP00 or authorize skipping their
+representation, type-export and lifetime handoff decisions.
 
 Default checkpoint policy: each implementation phase is buildable, with affected
 consumers migrated in that phase. HM00 is a contract checkpoint, not permission to
@@ -607,7 +634,8 @@ retain their existing review/plan owners.
 - [x] Former immutable public version-view model removed from this plan. Internal
   immutable versions and selected body/resume/capture lifetimes remain distinct;
   exact-version inspection belongs to explicit UP/debug APIs. Dispatch/publication
-  migration remains with UP, not added to HM01-HM04; no implementation is authorized.
+  migration remains with UP, not added to HM01-HM04; subsequent implementation
+  authorization is recorded in the status and audit below.
 - [x] Confirmed interface details: update/reload return unit success; Runtime owns
   installations and dropping Program/Module handles does not unload/cancel/reset;
   callable binding resolves a stable declaration once; public object lookup has a
@@ -615,6 +643,8 @@ retain their existing review/plan owners.
 - [ ] HM00 — Live-handle/callable representation, internal version/lifetime/native/type
   distinctions, UP sequencing and linked-design alignment, alias decisions, exact
   API signatures and selected test inventory; confirmed public semantics stay fixed.
+  Paused and incomplete: source audit recorded namespace/ownership boundaries;
+  the user authorized the alias prerequisite below before further HM/UP work.
 - [ ] HM01 — Type export pipeline, independent validation and reload comparison.
 - [ ] HM02 — Installed Program/module capability separation and consumer migration.
 - [ ] HM03 — Relative module/function/type binding and ordinary examples.
@@ -629,7 +659,142 @@ Latest-published lookup, latest ordinary calls without reacquisition/rebinding,
 unit-success update/reload, non-unloading handle Drop and the finite public object
 lookup scope are confirmed. Neither a handle rename nor this docs update
 establishes runtime support. The UP design, roadmap and review record the same
-confirmed public model; implementation and sequencing remain unstarted.
+confirmed public model. The authorized sequence is recorded above; the joint
+contract checkpoint is paused and incomplete, and HM/UP implementation phases
+remain unstarted. The separate language prerequisite below is locally complete;
+HM/UP have not resumed.
+
+### HM00 audit at 3b898e80: scope gate and implementation handoff
+
+**Historical finding at `3b898e80`:** required closed transparent aliases were not
+an existing source capability. Ordinary parser dispatch accepted top-level `type`
+only in declaration mode; native opaque types and `pub use ... as` declaration
+renames did not supply transparent type application. The assumption that
+`pub type IntHolder = Holder<i32>;` could reuse an implemented alias owner was wrong.
+
+**Resolved scope decision:** the user explicitly authorized transparent generic
+aliases first, rather than narrowing HM to declaration renames. The prerequisite
+below supersedes the former awaiting-scope-decision gate. It supplies source alias
+semantics, not HM type-export records, layout-demand roots or host lookup. HM00/UP00
+remain paused and incomplete; this is not a completed joint design checkpoint.
+
+Other source-derived handoff findings (representation details still need final
+review when HM/UP resume):
+
+- Current LoadedModule is an immutable exact executable member, used by frames,
+  layouts, candidates and native products. Preserve that responsibility under an
+  explicit internal executable-reference name; do not mechanically turn every use
+  into a live public Module. Stable Program/Module handles need a Runtime-owned
+  installation record and canonical namespace identity, separate from physical slots.
+- The current ModuleStore uses display-name/member keys and latest_by_name. New
+  loads need distinct installation authority even under the same display name;
+  reload targets that installation. Retained descriptors cannot revive closed state.
+- Existing function-export reload checks allow a same-signature alias retarget.
+  A retained binding must keep its original declaration while a fresh path lookup
+  may resolve another declaration. Do not implement latest calls by redoing names.
+- Unused nongeneric structs already receive compiler layout roots. Generic layouts
+  require existing executable demand/application evidence; exported closed
+  applications need compiler-owned roots in HM01, not runtime compilation. The
+  alias prerequisite does not implement these export-driven roots.
+- Public root/member lookup must not expose a private module through a re-exported
+  callable's executable owner. Function/method authority is not namespace authority.
+
+Selected existing correctness owners for later phases: compiler `tests::package_exports`,
+runtime `module::tests::package_exports` and `module::retention::tests`, contract
+`exports::wire::tests`, VM `method_applications`, SDK `async_facade` and source-free
+`artifact_features`. Select the affected subset per phase; this is not a command
+matrix to run at every checkpoint. Existing root-reset/pinned assertions change
+only with their owning HM/UP transition and equivalent boundary coverage.
+
+Executed narrow baseline evidence:
+
+```text
+cargo test -p kagari-syntax --lib opaque_native_types_are_restricted_to_declaration_mode
+```
+
+Historical result at the audit: 1 passed, 0 failed, 111 filtered out. This test
+established the then-current declaration-mode boundary, not acceptance of the new
+alias implementation. The scope mismatch is now resolved by explicit authorization;
+current prerequisite evidence and completed local acceptance are recorded below.
+
+### Transparent generic alias prerequisite
+
+This is the single prerequisite ledger; the roadmap and UP plan link here rather
+than maintaining parallel checklists. Scope is finite: module-level transparent
+aliases, including generic parameters and enforced bounds, through source parsing,
+HIR checking/imports/navigation, ordinary lowering and affected syntax tooling.
+Lasting semantics belong to [syntax](spec/syntax.md#transparent-type-aliases),
+[modules](spec/modules.md#transparent-alias-names) and
+[traits](spec/traits.md#type-alias-bounds-and-interface-values).
+
+Ownership/model: HIR resolves each target and its bounds in the declaring module
+with alias-owned generic binders, then substitutes checked use-site arguments.
+Source declaration identity supports imports and navigation; it is not a nominal
+runtime type. Compiler/backend consumers receive normalized checked targets, not
+alias syntax to resolve again. A closed `type IntCell = Cell<i32>;` therefore
+constructs a `Cell<i32>` and keeps that fixed receiver application for
+`IntCell::make(42)`; `IntCell::make(true)` must not re-infer it as `Cell<bool>`.
+
+- [x] User authorized and prioritized this prerequisite before HM/UP; the former
+  scope question is closed. Rust synonym precedent and Kagari's enforced-bound
+  difference are recorded under [mature references](#mature-references-and-deliberate-adaptations).
+- [x] Parser/tooling integration: `type A = Target;`, generic parameters, inline
+  bounds and at most one `where` clause before or after the target; ordinary aliases
+  remain distinct from native opaque and associated declarations.
+- [x] HIR normalization and source integration: forward references,
+  import/re-export/navigation, declaration-context lookup, explicit generic
+  constructor arguments, closed-alias associated functions/patterns, invalid-unused
+  definitions, cycles and visibility. Interface-value aliases remain distinct from
+  trait bounds and the trait side of `impl Trait for Type` headers.
+- [x] Bound/refinement review: enforce erased argument and projection predicates;
+  resolve alias `where` projections and member-local generic associated type bounds
+  in their owning contexts; refine imported and local supertraits/alias arguments
+  coherently. Bound substitution is preflighted before materialization.
+- [x] Boundedness/native validation: deterministic 64 alias-declaration levels
+  (64 accepted, 65 rejected regardless of declaration order); at most 4096 expanded
+  type nodes and 64 type-nesting steps. Replaced placeholders are not counted twice,
+  intermediate expansions are not summed as retained nodes, and a composite's
+  retained-node budget is checked before materializing siblings. `Identity<Big>`
+  accepts a 4095-node target. These are compiler resource limits, not nominal type
+  semantics. Cancellation remains enforced. Declaration aliases reject
+  `builtin_type`, `lang` and `native` metadata; `meta`/`tool` metadata remains allowed.
+- [x] Focused semantic, compiler/artifact, tooling and structural evidence recorded
+  below; transient integration and review failures are resolved.
+- [x] Final local acceptance: parent confirmed post-repair compiler/artifact checks
+  and `cargo clippy --workspace --all-targets -- -D warnings` passed. The alias
+  prerequisite is locally complete; HM00/UP00 remain paused and incomplete.
+
+Concise validation evidence reported by the implementation owners:
+
+- Syntax package: 118 passed. HIR alias contracts: 24 passed after review repairs,
+  plus directly affected bound/GAT/supertrait/native regressions. Focused formatter
+  and lint checks passed.
+- Compiler `public_generic_dependency_functions_specialize_through_source_aliases`:
+  1 passed. SDK `portable_artifact_executes_without_source_compilation`: 1 passed
+  each in source-enabled and `--no-default-features` configurations after the last
+  HIR repair. The regenerated fixture exercises shared mutation, enum aliases,
+  re-exports and GC cleanup.
+- Selected editor checks: 8 passed; site checks: 4 passed; coverage audits: 5 passed;
+  generated reproducibility passed. Latest structure check: 1515 files, zero
+  violations; formatting and diff checks passed.
+
+The selection covers declaration recovery, semantic/namespace boundaries,
+source-free execution and tooling without a full-workspace test sweep. Transient
+integration failures from missing alias variants/exhaustive matches were repaired.
+Review failures in erased projection predicates, bound substitution, projection/GAT
+contexts, supertrait refinement, depth/order accounting and composite retention
+were repaired and their affected checks passed; none remain carried errors.
+Full-workspace tests and the complete feature/backend/platform matrix remain
+CI-only and unrun locally; focused
+local evidence is not complete CI acceptance.
+
+Excluded: HM host export schema/codec changes, export-only layout roots, public
+ObjectType binding, reload compatibility/current-call dispatch, trait aliases,
+new nominal runtime identities, generic-alias patterns, synthetic
+`use Alias::Variant` imports and open-generic-alias associated-function inference.
+Generic alias constructors require explicit alias arguments; closed aliases retain
+their fixed arguments in constructors, member paths and patterns. No HM/UP feature
+or completed-phase acceptance follows from this language prerequisite.
 
 For each authorized checkpoint, record changed contracts, selected tests and their
 rationale, actual results, outstanding errors with owning phase, and pending CI.

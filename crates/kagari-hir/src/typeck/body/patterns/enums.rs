@@ -46,6 +46,13 @@ impl BodyChecker<'_> {
             })
             .with_span(span)
         };
+        if path
+            .rsplit_once("::")
+            .is_some_and(|(owner, _)| !self.alias_pattern_matches(owner, expected))
+        {
+            self.diagnostics.push(mismatch());
+            return;
+        }
         let Some(variant) = variant else {
             self.diagnostics.push(mismatch());
             return;

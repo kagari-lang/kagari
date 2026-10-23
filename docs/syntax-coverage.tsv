@@ -6,6 +6,7 @@ visibility	covered	examples/syntax/grammar-witnesses.kgr	Explicit pub, pub(super
 function_item	covered	examples/syntax/expressions.kgr	-
 const_item	covered	examples/standard-library.kgr	-
 static_item	covered	examples/syntax/grammar-witnesses.kgr	Module-only val/var with an explicit closed type and runtime initializer.
+type_alias_item	covered	examples/syntax/grammar-witnesses.kgr	Module-only transparent aliases with generic parameters and either where-clause position.
 struct_item	covered	examples/syntax/data-model.kgr	-
 enum_item	covered	examples/syntax/data-model.kgr	-
 trait_item	covered	examples/syntax/where-bounds.kgr	-

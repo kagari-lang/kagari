@@ -36,7 +36,7 @@ impl<'a> Parser<'a> {
             Some(TokenKind::ModKw) => self.parse_module(),
             Some(TokenKind::UseKw) => self.parse_use(),
             Some(TokenKind::AsyncKw | TokenKind::FnKw) => self.parse_function(),
-            Some(TokenKind::TypeKw) if self.declarations => self.parse_associated_type(),
+            Some(TokenKind::TypeKw) => self.parse_module_type(),
             Some(TokenKind::ConstKw) => self.parse_const(),
             Some(TokenKind::StaticKw) => self.parse_static(SyntaxKind::StaticDef),
             Some(TokenKind::StructKw) => self.parse_struct(),
@@ -65,7 +65,7 @@ impl<'a> Parser<'a> {
         };
         match self.nth_nontrivia_kind(offset) {
             Some(TokenKind::StaticKw) => self.parse_static(SyntaxKind::StaticDef),
-            Some(TokenKind::TypeKw) if self.declarations => self.parse_associated_type(),
+            Some(TokenKind::TypeKw) => self.parse_module_type(),
             Some(TokenKind::ModKw) => self.parse_module(),
             Some(TokenKind::UseKw) => self.parse_use(),
             Some(TokenKind::AsyncKw | TokenKind::FnKw) => self.parse_function(),
@@ -82,6 +82,7 @@ impl<'a> Parser<'a> {
 
     fn parse_module_item(&mut self) {
         match self.current_kind() {
+            Some(TokenKind::TypeKw) => self.parse_module_type(),
             Some(TokenKind::StaticKw) => self.parse_static(SyntaxKind::StaticDef),
             Some(TokenKind::Hash) => self.parse_attributed_item(),
             Some(TokenKind::PubKw) => self.parse_public_item(),
@@ -108,7 +109,7 @@ impl<'a> Parser<'a> {
     fn parse_attributed_item(&mut self) {
         match self.attributed_item_kind() {
             Some(TokenKind::StaticKw) => self.parse_static(SyntaxKind::StaticDef),
-            Some(TokenKind::TypeKw) if self.declarations => self.parse_associated_type(),
+            Some(TokenKind::TypeKw) => self.parse_module_type(),
             Some(TokenKind::ModKw) => self.parse_module(),
             Some(TokenKind::UseKw) => self.parse_use(),
             Some(TokenKind::AsyncKw | TokenKind::FnKw) => self.parse_function(),
@@ -835,6 +836,63 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
+    fn parse_module_type(&mut self) {
+        let checkpoint = self.checkpoint();
+        self.parse_attributes();
+        self.parse_visibility();
+        self.expect(TokenKind::TypeKw, DiagnosticKind::ExpectedType);
+        self.bump_trivia();
+        self.parse_name();
+        self.bump_trivia();
+        if self.at(TokenKind::Lt) {
+            self.parse_generic_param_list();
+        }
+        self.bump_trivia();
+        let has_bounds = self.at(TokenKind::Colon);
+        if has_bounds {
+            if !self.declarations {
+                self.error_here(DiagnosticKind::UnexpectedToken);
+            }
+            self.bump();
+            self.parse_trait_bound_list();
+        }
+        self.bump_trivia();
+        let has_where = self.at(TokenKind::WhereKw);
+        if has_where {
+            self.parse_where_clause();
+        }
+        self.bump_trivia();
+        let is_alias = self.at(TokenKind::Eq) || !self.declarations;
+        let kind = if is_alias {
+            SyntaxKind::TypeAliasDef
+        } else {
+            SyntaxKind::AssociatedType
+        };
+        self.start_node_at(checkpoint, kind);
+        if is_alias {
+            // Bounds on the alias itself are associated/opaque syntax, not
+            // generic parameter bounds. Do not silently reinterpret that suffix.
+            if has_bounds && self.declarations {
+                self.error_here(DiagnosticKind::UnexpectedToken);
+            }
+            if self.expect(TokenKind::Eq, DiagnosticKind::ExpectedAssignmentOperator) {
+                self.bump_trivia();
+                if self.at_any(&[TokenKind::Semi, TokenKind::RBrace, TokenKind::Eof]) {
+                    self.error_here(DiagnosticKind::ExpectedType);
+                } else {
+                    self.parse_type_ref();
+                }
+            }
+            self.bump_trivia();
+            if !has_where && self.at(TokenKind::WhereKw) {
+                self.parse_where_clause();
+            }
+        }
+        self.bump_trivia();
+        self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);
+        self.finish_node();
+    }
+
     fn parse_associated_type(&mut self) {
         self.start_node(SyntaxKind::AssociatedType);
         self.parse_attributes();
@@ -892,7 +950,13 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::WhereKw, DiagnosticKind::UnexpectedToken);
         self.bump_trivia();
 
-        while !self.at_any(&[TokenKind::LBrace, TokenKind::Eof]) {
+        while !self.at_any(&[
+            TokenKind::LBrace,
+            TokenKind::RBrace,
+            TokenKind::Eq,
+            TokenKind::Semi,
+            TokenKind::Eof,
+        ]) {
             self.start_node(SyntaxKind::WherePredicate);
             self.parse_type_ref();
             self.expect(

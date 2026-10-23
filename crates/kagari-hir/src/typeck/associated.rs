@@ -3,7 +3,10 @@
 use crate::{
     aggregates::traits::trait_inheritance_closure,
     declarations::{DeclarationId, Declarations},
-    hir::item::{Module, behavior::AssociatedType},
+    hir::item::{
+        Module,
+        behavior::{AssociatedType, TraitRef},
+    },
     lower::LoweredModule,
     resolver::resolved::ResolvedName,
     typeck::{
@@ -255,7 +258,7 @@ pub(super) fn prepare(
     }
 }
 
-fn family_inputs(
+pub(super) fn family_inputs(
     member: &AssociatedType,
     declarations: &Declarations,
     table: &TypeTable,
@@ -438,18 +441,10 @@ pub(super) fn resolve_projection_name(
                 target: None,
             };
         };
-        let mut references = param.bounds.iter().collect::<Vec<_>>();
-        for function in &module.functions {
-            if function.generic_params == context.generics {
-                references.extend(
-                    function
-                        .bounds
-                        .iter()
-                        .filter(|bound| bound.target == base)
-                        .flat_map(|bound| &bound.traits),
-                );
-            }
-        }
+        let references = param
+            .bounds
+            .iter()
+            .chain(owner_predicates(module, context, base));
         for reference in references {
             let resolved = table.constraint(reference.ty).or_else(|| {
                 match resolve_type_in(module, reference.ty, context, table, cancel) {
@@ -518,6 +513,30 @@ pub(super) fn resolve_projection_name(
     projection_reference(ty, id)
 }
 
+// Generic IDs in the parameter vectors identify the declaration owner; names
+// alone would incorrectly import predicates from unrelated same-spelled binders.
+fn owner_predicates<'a>(
+    module: &'a Module,
+    context: TypeContext<'_>,
+    target: &str,
+) -> Vec<&'a TraitRef> {
+    module
+        .functions
+        .iter()
+        .map(|item| (&item.generic_params, &item.bounds))
+        .chain(
+            module
+                .type_aliases
+                .iter()
+                .map(|item| (&item.generic_params, &item.bounds)),
+        )
+        .filter(|(parameters, _)| parameters.as_slice() == context.generics)
+        .flat_map(|(_, bounds)| bounds)
+        .filter(|bound| bound.target == target)
+        .flat_map(|bound| &bound.traits)
+        .collect()
+}
+
 fn projection_reference(ty: TypeId, member: DefinitionId) -> ResolvedTypeRef {
     let target = (ty != TypeId::Error).then_some(TypeTarget::AssociatedType(member));
     ResolvedTypeRef { ty, target }
@@ -556,15 +575,7 @@ pub(super) fn qualified_projection(
             .iter()
             .filter(|param| context.declarations.generic_type(param.id).as_ref() == Some(parameter))
             .flat_map(|param| &param.bounds)
-            .chain(
-                module
-                    .functions
-                    .iter()
-                    .filter(|function| function.generic_params == context.generics)
-                    .flat_map(|function| &function.bounds)
-                    .filter(|bound| bound.target == parameter.name)
-                    .flat_map(|bound| &bound.traits),
-            )
+            .chain(owner_predicates(module, context, &parameter.name))
             .collect::<Vec<_>>();
         let mut justified = None;
         for reference in references {
@@ -722,6 +733,20 @@ fn inherited_traits(
 ) -> Vec<NominalType> {
     let table = RefCell::new(table);
     trait_inheritance_closure(interface, receiver, cancel, &|owner| {
+        if let Some(surface) = declarations.imported_types().by_declaration(owner)
+            && let TypeId::Trait(ty) = &surface.ty
+        {
+            return Some((
+                ty.arguments
+                    .iter()
+                    .filter_map(|ty| match ty {
+                        TypeId::Generic(param) => Some(param.clone()),
+                        _ => None,
+                    })
+                    .collect(),
+                surface.supertraits.clone(),
+            ));
+        }
         if let Some(item) = module
             .traits
             .iter()
@@ -759,20 +784,7 @@ fn inherited_traits(
                 .collect();
             Some((params, parents))
         } else {
-            let imported = declarations.imported_types().by_declaration(owner)?;
-            let TypeId::Trait(ty) = &imported.ty else {
-                return None;
-            };
-            Some((
-                ty.arguments
-                    .iter()
-                    .filter_map(|ty| match ty {
-                        TypeId::Generic(param) => Some(param.clone()),
-                        _ => None,
-                    })
-                    .collect(),
-                imported.supertraits.clone(),
-            ))
+            None
         }
     })
     .unwrap_or_default()

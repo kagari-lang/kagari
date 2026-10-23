@@ -5764,6 +5764,10 @@
           "named": true
         },
         {
+          "type": "type_alias_item",
+          "named": true
+        },
+        {
           "type": "use_item",
           "named": true
         }
@@ -7047,6 +7051,10 @@
           "named": true
         },
         {
+          "type": "type_alias_item",
+          "named": true
+        },
+        {
           "type": "use_item",
           "named": true
         }
@@ -7968,6 +7976,82 @@
         },
         {
           "type": "type_path",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "type_alias_item",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_identifier",
+            "named": true
+          }
+        ]
+      },
+      "type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "array_type",
+            "named": true
+          },
+          {
+            "type": "function_type",
+            "named": true
+          },
+          {
+            "type": "generic_type",
+            "named": true
+          },
+          {
+            "type": "never_type",
+            "named": true
+          },
+          {
+            "type": "parenthesized_type",
+            "named": true
+          },
+          {
+            "type": "qualified_type",
+            "named": true
+          },
+          {
+            "type": "tuple_type",
+            "named": true
+          },
+          {
+            "type": "type_path",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "attribute",
+          "named": true
+        },
+        {
+          "type": "generic_parameters",
+          "named": true
+        },
+        {
+          "type": "visibility",
+          "named": true
+        },
+        {
+          "type": "where_clause",
           "named": true
         }
       ]

@@ -2,7 +2,7 @@
 use crate::{
     hir::ids::{
         ConstId, EnumId, FunctionId, HirArenaId, ModuleId, OpaqueTypeId, StaticId, StructId,
-        TraitId, VariantId,
+        TraitId, TypeAliasId, VariantId,
     },
     imports::bindings::{LookupOutcome, PerNamespace},
     lower::LoweredModule,
@@ -24,6 +24,8 @@ use std::{
 
 #[cfg(test)]
 mod aggregate_tests;
+#[cfg(test)]
+mod alias_tests;
 pub mod bindings;
 mod builder;
 mod cache;
@@ -91,6 +93,8 @@ impl SourceUnit {
 /// A declaration handle inside a qualified source unit; excludes imports and module headers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SourceItem {
+    /// A local `TypeAliasId` interpreted in the enclosing `SourceDeclRef.unit`.
+    TypeAlias(TypeAliasId),
     /// A local `FunctionId` interpreted in the enclosing `SourceDeclRef.unit`.
     Function(FunctionId),
     /// A local `ConstId` interpreted in the enclosing `SourceDeclRef.unit`.
@@ -115,9 +119,11 @@ impl SourceItem {
             Self::Function(_) | Self::Const(_) | Self::Static(_) | Self::Variant(_) => {
                 NameNamespace::Value
             }
-            Self::Struct(_) | Self::Enum(_) | Self::OpaqueType(_) | Self::Trait(_) => {
-                NameNamespace::Type
-            }
+            Self::TypeAlias(_)
+            | Self::Struct(_)
+            | Self::Enum(_)
+            | Self::OpaqueType(_)
+            | Self::Trait(_) => NameNamespace::Type,
         }
     }
 
@@ -127,6 +133,7 @@ impl SourceItem {
             Self::Function(id) => ResolvedName::Function(id),
             Self::Const(id) => ResolvedName::Const(id),
             Self::Static(id) => ResolvedName::Static(id),
+            Self::TypeAlias(id) => ResolvedName::TypeAlias(id),
             Self::Struct(id) => ResolvedName::Struct(id),
             Self::Enum(id) => ResolvedName::Enum(id),
             Self::OpaqueType(id) => ResolvedName::OpaqueType(id),

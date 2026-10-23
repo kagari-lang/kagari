@@ -59,18 +59,22 @@ pub struct ImportedTypes {
     resolutions: HashMap<SourceDeclRef, ImportedType>,
     nominal_types: HashMap<DefinitionId, ImportedType>,
     variants: HashMap<SourceDeclRef, Declaration>,
+    /// Canonical templates, including this unit's aliases and dependency aliases.
+    pub(crate) aliases: HashMap<DefinitionId, aliases::CanonicalAlias>,
 }
 
 /// Borrowed declaration-stage modules and a lazily prepared shared nominal surface cache.
 pub(crate) struct TypeCatalog<'a> {
     modules: HashMap<FileId, &'a DeclaredAnalysis>,
     surfaces: RefCell<Option<HashMap<DefinitionId, ImportedType>>>,
+    aliases: RefCell<HashMap<DefinitionId, aliases::CanonicalAlias>>,
 }
 
 impl<'a> TypeCatalog<'a> {
     pub(crate) fn new(modules: impl IntoIterator<Item = &'a DeclaredAnalysis>) -> Self {
         Self {
             surfaces: Default::default(),
+            aliases: Default::default(),
             modules: modules
                 .into_iter()
                 .map(|m| (m.lowered.source.id(), m))
@@ -85,7 +89,10 @@ impl<'a> TypeCatalog<'a> {
         cancel: &CancellationToken,
     ) -> Result<ImportedTypes, Cancelled> {
         self.prepare_surfaces(cancel)?;
-        let mut result = ImportedTypes::default();
+        let mut result = ImportedTypes {
+            aliases: self.aliases.borrow().clone(),
+            ..Default::default()
+        };
         for source in names.catalog.reachable_sources(&names.items, cancel)? {
             cancel.check()?;
             if let Some(ty) = self.resolve(&source, cancel)? {
@@ -110,6 +117,18 @@ impl<'a> TypeCatalog<'a> {
                 _ => None,
             })
             .collect::<Vec<_>>();
+        // Local projections must observe the same refined generation as imports,
+        // including during alias preparation when the alias cache is partial.
+        if let Some(unit) = &names.items.unit {
+            pending.extend(
+                cache
+                    .as_ref()
+                    .into_iter()
+                    .flat_map(|cache| cache.iter())
+                    .filter(|(_, surface)| &surface.id.unit == unit)
+                    .map(|(id, _)| *id),
+            );
+        }
         while let Some(id) = pending.pop() {
             cancel.check()?;
             if result.nominal_types.contains_key(&id) {
@@ -141,6 +160,32 @@ impl<'a> TypeCatalog<'a> {
         }
         let item = target.item;
         let source = target.clone();
+        if let SourceItem::TypeAlias(id) = item {
+            let declaration = module
+                .declarations
+                .target(ResolvedName::TypeAlias(id))
+                .cloned();
+            return Ok(declaration.map(|declaration| {
+                let identity = module
+                    .declarations
+                    .definition(ResolvedName::TypeAlias(id))
+                    .expect("alias declaration");
+                ImportedType {
+                    native_type: None,
+                    associated_arities: Default::default(),
+                    id: source,
+                    declaration,
+                    ty: self
+                        .aliases
+                        .borrow()
+                        .get(identity)
+                        .map_or(TypeId::Error, |alias| alias.target.clone()),
+                    trait_methods: Vec::new(),
+                    associated_types: Vec::new(),
+                    supertraits: Vec::new(),
+                }
+            }));
+        }
         let Some(surface) = Self::surface(module, source) else {
             return Ok(None);
         };
@@ -268,9 +313,12 @@ impl<'a> TypeCatalog<'a> {
             }
         }
         *self.surfaces.borrow_mut() = Some(initial);
-        // Parents can use projections justified by another imported parent chain.
-        // Refine declaration surfaces before function signature resolution.
+        self.prepare_aliases(cancel)?;
+        // Alias targets can project inherited members, while parent arguments
+        // can contain aliases. Refine both against the preceding surface rather
+        // than permanently caching failures from an incomplete dependency view.
         for _ in 0..64 {
+            let previous_aliases = self.aliases.borrow().clone();
             let previous = self.surfaces.borrow().as_ref().unwrap().clone();
             let mut next = previous.clone();
             for module in self.modules.values() {
@@ -294,17 +342,33 @@ impl<'a> TypeCatalog<'a> {
             }
             let unchanged = next == previous;
             *self.surfaces.borrow_mut() = Some(next);
-            if unchanged {
-                break;
+            self.aliases.borrow_mut().clear();
+            self.prepare_aliases(cancel)?;
+            if unchanged && *self.aliases.borrow() == previous_aliases {
+                return Ok(());
             }
+        }
+        for alias in self.aliases.borrow_mut().values_mut() {
+            alias.target = TypeId::Error;
+            alias.error = Some(
+                "alias and supertrait dependencies did not converge within 64 refinement rounds"
+                    .into(),
+            );
         }
         Ok(())
     }
 }
 
+pub mod aliases;
 mod mapping;
 
 impl ImportedTypes {
+    /// Canonical transparent alias metadata, keyed by its source declaration identity.
+    /// The identity owns binders/navigation, not a runtime type.
+    pub fn alias(&self, id: &DefinitionId) -> Option<&aliases::CanonicalAlias> {
+        self.aliases.get(id)
+    }
+
     /// Iterates canonical imported native representations, independent of aliases.
     pub(crate) fn native_types(&self) -> impl Iterator<Item = &NativeTypeKind> {
         self.resolutions

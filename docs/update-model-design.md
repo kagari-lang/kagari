@@ -1,6 +1,11 @@
 # Compatible Hot Reload and State Replacement Design
 
-Status: proposal for later implementation. This proposal defines two deliberately
+Status: implementation and phased commits authorized on 2026-10-23. Joint
+HM00/UP00 audit started at `3b898e80`; the joint checkpoint is paused and incomplete,
+and no HM/UP implementation phase has started. The user explicitly prioritized
+transparent generic type aliases first; the authorized prerequisite and its sole
+progress ledger are in the [host API plan](host-api-refactor.md#transparent-generic-alias-prerequisite).
+This design defines two deliberately
 different update paths: compatible code publication preserves existing contracts
 and live values, while state replacement saves an explicit data root and restores
 it into a fresh execution environment. The motivating application has one player
@@ -10,8 +15,8 @@ is the continuity boundary.
 The user confirmed this split and excluded adding a new trait implementation to an
 existing concrete type during compatible reload. Arbitrary in-place object, stack
 or closure migration is out of scope. Exact APIs and snapshot codec remain proposals;
-the compatible-update scheduling boundary below is confirmed. This document
-authorizes no implementation or commit.
+the compatible-update scheduling boundary below is confirmed. Authorization follows
+the recorded phase order and does not waive unresolved design or scope gates.
 Existing specifications remain authoritative until implementation updates them.
 
 The user also confirmed that ordinary Program and Module handles represent stable
@@ -750,6 +755,16 @@ acceptance must cover existing async quiescence/completion boundaries where affe
 UP00-UP02 own compatible-update migration; state snapshot/cutover in UP03-UP04 is
 separate work and not a prerequisite for publishing ordinary body patches.
 
+The [alias prerequisite](host-api-refactor.md#transparent-generic-alias-prerequisite)
+is locally complete. On resumption, the authorized order remains joint HM00 + UP00,
+followed by HM01, UP01, HM02, UP02, HM03, HM04, UP03, UP04 and UP05. HM/UP remain
+paused and incomplete; prerequisite acceptance does not automatically resume them.
+Commit the completed joint design checkpoint with both Plan-Phase trailers, then
+each completed phase separately. The user resolved the former alias scope gate by
+authorizing the prerequisite, not by waiving HM00/UP00 design gates or reopening
+confirmed live-handle/current-call semantics. MS and cross-installation repair
+linking remain separate.
+
 - [ ] UP00: Re-audit compatibility descriptors and all pinned selection owners:
   direct/recursive/generic calls, host and named-function handles, trait methods,
   collection protocol callbacks, initializer recipes, Future/closure creation,
@@ -874,3 +889,86 @@ build; any exception needs activation-time approval. Measure preparation, quiesc
 snapshot, restoration and commit separately, recording machine/toolchain/profile,
 features, default Cargo parallelism, cache state and workload. No latency target
 or success result is invented by this proposal.
+
+## Execution ledger
+
+### Joint HM00/UP00 audit at 3b898e80
+
+Status: paused and incomplete. The user resolved the audit's alias scope question
+by explicitly prioritizing the transparent generic alias prerequisite before HM/UP.
+Its completed semantics, review repairs and focused validation have one owner: the
+[host API prerequisite ledger](host-api-refactor.md#transparent-generic-alias-prerequisite).
+The prerequisite is locally complete; HM/UP remain paused and incomplete. No UP
+implementation or completed joint design checkpoint is claimed; alias implementation
+does not establish host type exports, layout roots or update support.
+
+Audited source-update and publication boundaries:
+
+- SDK Runtime currently owns Vm and execution defaults, not the engine's source
+  context. PreparedProgram drops the source/environment association at lowering.
+  Its Rc/RefCell owner cannot be retained wholesale inside movable Runtime.
+- Capture an immutable, Send-compatible compilation-input capsule for source-prepared
+  products: physical source bytes/module mappings, root/package/dependency aliases,
+  declaration inputs and relevant compiler settings. Keep exact-source inspection
+  separate from the stronger ability to recompile. No implicit editor/disk inputs.
+  A fresh temporary compiler session can reconstruct those inputs for conservative
+  whole-program rebuilding; do not retain a non-Send analysis session in Runtime.
+- Existing analyze_source/analyze_package mutate the engine's source database before
+  semantic success. They are not an atomic update transaction. Apply an Update to
+  detached captured inputs and publish new authoritative inputs only with successful
+  executable publication. A failed batch must not become the next batch's baseline.
+- Function replacements resolve canonical declaration identity and validated syntax
+  spans; reject aliases of the same target and overlapping physical edits, including
+  a file plus its function or a containing/nested function pair. Preserve the original
+  import/generic context and check the complete batch, not each intermediate edit.
+- Stage source association/capsule storage and all fallible bookkeeping before
+  committing code. Publish code and its matching source basis under one no-fail
+  visibility transition; no initializer or user callback runs during commit. A
+  prepared reload without matching source metadata must clear update capability,
+  never reuse obsolete source input as if it matched the new executable.
+- Current publish_staged_reload only rejects an executing candidate root, not all
+  active synchronous script stacks. UP02 must enforce the confirmed host-top-level
+  boundary, including rejection from reentrant callbacks, for all public paths.
+- Ordinary PreparedFunction retains an exact module, target and lease today. Stable
+  declaration/application selection must replace this for ordinary calls, while
+  selected Future/closure/frame/type/native evidence keeps its necessary owners.
+  Do not apply current lookup indiscriminately to initializer recipes, capture layouts
+  or collection protocol relationships. Those need their own audited contracts.
+
+Source query handoff: compiler-emitted associations must map exact executable
+module/target and generated origins to retained document bytes, digest and checked
+ranges, independently of optional stepping metadata. Current SourceOrigin contains
+no text. Current-call queries capture current selection; historical and observed
+frame/Future/closure queries use explicit exact-target evidence. Source records must
+not retain executable leases or Runtime roots solely for history. Missing compiler
+context, missing source and mismatched source must remain distinguishable failures.
+
+State replacement remains UP03/UP04: an explicit root and bounded tree/DTO codec,
+with global alias/cycle detection and precise resource rejection, are the bounded
+starting direction. Exact schema/hook signatures remain to be frozen before those
+phases. Existing DTO/Serde conversion is not a quiescent state snapshot. TaskScope
+close currently cancels; it cannot implement the proposed default non-cancelling
+drain. A later replacement gate must stop new admission, allow existing work to
+drain, establish no script/host writers, then restore a fresh isolated Runtime and
+commit host routing. Shared Rust callback captures are not automatically isolated
+by creating a fresh Runtime. Do not claim rollback of completed host effects.
+
+Primary reference checked: [Java SE 25 Instrumentation.redefineClasses](https://docs.oracle.com/en/java/javase/25/docs/api/java.instrument/java/lang/instrument/Instrumentation.html#redefineClasses(java.lang.instrument.ClassDefinition...))
+retains active old method frames, selects redefined code on new invokes, preserves
+static values and applies a batch atomically. Reuse those semantic boundaries, not
+JVM concurrent redefinition, initialization or class-schema rules. Kagari additionally
+needs suspended state-machine, generic application and exclusive host-driver safety.
+
+Selected later test owners: SDK `source_preparation`, `source_snapshots`,
+`package_inputs`, `native_artifacts`, async lifecycle/debugger tests; source database
+capture/UTF-8 range tests; runtime execution-session candidate isolation; existing
+Serde snapshot tests as codec foundations only. Add distinct batch failure/source
+retention and non-cancelling drain cases at those owners. Current pinned expectations
+are changed only with the UP02 semantic migration, not weakened in advance.
+
+Historical audit validation is source/document inspection and the narrow existing
+syntax test recorded in HM00 (1 passed); it is not alias prerequisite acceptance.
+Completed prerequisite local acceptance and its evidence belong to the linked
+ledger. No dispatch, source update or state replacement behavior has been implemented
+or validated. UP00 remains paused and unchecked pending complete identity,
+compatibility and source-contract closure when HM/UP resume. Full CI is unrun.

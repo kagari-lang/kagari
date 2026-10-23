@@ -8,7 +8,7 @@ use crate::{
     },
     callable::{AppliedCallSignature, CallableSignature},
     hir::{expr::ExprKind, ids::ExprId},
-    imports::functions::ImportedFunction,
+    imports::{functions::ImportedFunction, types::aliases::resolved_alias},
     language::semantics as traits,
     resolver::resolved::ResolvedName,
     typeck::{
@@ -142,7 +142,8 @@ impl<'a> BodyChecker<'a> {
         self.names.qualified_member(callee).is_some_and(|member| {
             !matches!(
                 member.owner.clone(),
-                ResolvedName::OpaqueType(_)
+                ResolvedName::TypeAlias(_)
+                    | ResolvedName::OpaqueType(_)
                     | ResolvedName::Struct(_)
                     | ResolvedName::Enum(_)
                     | ResolvedName::Trait(_)
@@ -164,6 +165,14 @@ impl<'a> BodyChecker<'a> {
             return None;
         };
         let (owner, member) = name.rsplit_once("::")?;
+        if self
+            .names
+            .qualified_member(callee)
+            .and_then(|member| resolved_alias(self.declarations, &member.owner))
+            .is_some_and(|(_, alias)| !alias.parameters.is_empty())
+        {
+            return None;
+        }
         let ty = resolve_named_type(
             owner,
             TypeContext {
@@ -212,11 +221,19 @@ impl<'a> BodyChecker<'a> {
         env: &mut BodyTypeEnv,
         expected: Option<&TypeId>,
     ) -> TypeId {
-        let mut substitution = TypeSubstitution::default();
+        let mut substitution = self
+            .alias_owner_substitution(call_expr, callee)
+            .unwrap_or_default();
+        let explicit_parameters = function
+            .generic_params()
+            .iter()
+            .filter(|parameter| !substitution.contains_key(*parameter))
+            .cloned()
+            .collect::<Vec<_>>();
         let empty_bounds = GenericBounds::new();
         let bounds = function.bounds().unwrap_or(&empty_bounds);
         self.seed_callable_context(callee, function.generic_params(), bounds, &mut substitution);
-        self.seed_explicit_arguments(callee, function.generic_params(), &mut substitution);
+        self.seed_explicit_arguments(callee, &explicit_parameters, &mut substitution);
         if let Some(expected) = expected
             && inference::infer(
                 function.return_type(),
@@ -288,6 +305,32 @@ impl<'a> BodyChecker<'a> {
         );
         self.check_function_arguments(function, &substitution, callee, &arg_tys, implicit);
         self.record_callable_application(call_expr, function, &substitution)
+    }
+
+    fn alias_owner_substitution(&self, call: ExprId, callee: ExprId) -> Option<TypeSubstitution> {
+        let owner = &self.names.qualified_member(callee)?.owner;
+        let (_, alias) = resolved_alias(self.declarations, owner)?;
+        if !alias.parameters.is_empty() {
+            return None;
+        }
+        let declaration = match self.type_table.call_resolution(call)?.target {
+            CallTarget::SourceFunction(id) => id,
+            CallTarget::Function(id) => {
+                *self.declarations.definition(ResolvedName::Function(id))?
+            }
+            _ => return None,
+        };
+        let method = self
+            .aggregates
+            .inherent_methods()
+            .find(|method| method.declaration == declaration)?;
+        members::inherent_substitution(
+            self.declarations.definitions(),
+            self.aggregates,
+            method,
+            &alias.target,
+            self.cancel,
+        )
     }
 
     pub(super) fn record_callable_application(

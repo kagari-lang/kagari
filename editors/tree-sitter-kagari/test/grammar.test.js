@@ -124,6 +124,32 @@ test('async blocks are distinct cold expressions with ordinary postfix and recov
   assert.ok(nodes(broken.rootNode, 'binding_statement').some(n => n.childForFieldName('pattern')?.text === 'after'));
 });
 
+test('module type aliases retain targets and bounds separately from associated types', () => {
+  const file = path.join(__dirname, '../../../examples/syntax/grammar-witnesses.kgr');
+  const tree = valid(fs.readFileSync(file, 'utf8'));
+  const aliases = nodes(tree.rootNode, 'type_alias_item');
+  assert.deepEqual(aliases.map(node => [node.childForFieldName('name').text,
+    node.childForFieldName('type').text, node.parent.type]), [
+    ['Count', 'i64', 'source_file'], ['Pair', '(T, T)', 'source_file'],
+    ['Items', '[T]', 'source_file'], ['Callback', 'fn(T) -> T', 'source_file'],
+    ['Output', '<T as Iterator>::Item', 'source_file'], ['Local', 'Pair<T>', 'module_body'],
+  ]);
+  assert.equal(nodes(aliases[2], 'where_clause')[0].text, 'where T: Copy');
+  assert.equal(nodes(aliases[4], 'where_clause')[0].text, 'where T: Iterator');
+  assert.equal(nodes(aliases[1], 'attribute').length, 1);
+  assert.deepEqual(aliases.flatMap(node => nodes(node, 'visibility').map(n => n.text)),
+    ['pub', 'pub(crate)', 'pub(super)']);
+  const associated = valid('trait Source { type Item; } impl Source for Value { type Item = i32; }');
+  assert.equal(nodes(associated.rootNode, 'associated_type').length, 2);
+  assert.equal(nodes(associated.rootNode, 'type_alias_item').length, 0);
+  for (const source of ['type Missing;', 'type Missing = ;', 'type Missing = i32',
+    'fn local() { type Local = i32; }', 'type Both<T> where T: Read = T where T: Write;']) {
+    assert.ok(parse(source).rootNode.hasError, source);
+  }
+  const broken = parse('type Broken = ; fn after() {}');
+  assert.ok(nodes(broken.rootNode, 'function_item').some(node => node.childForFieldName('name')?.text === 'after'));
+});
+
 test('persistent statics have named typed initializers only at module scope', () => {
   const file = path.join(__dirname, '../../../examples/syntax/grammar-witnesses.kgr');
   const tree = valid(fs.readFileSync(file, 'utf8'));

@@ -345,6 +345,7 @@ item_decl       ::= use_decl
                   | static_item
                   | struct_item
                   | enum_item
+                  | type_alias_item
                   | trait_item
                   | impl_block ;
 
@@ -431,6 +432,94 @@ Notes:
 - parameters are local bindings and cannot be rebound.
 - functions may declare generic parameters and a trailing `where` clause.
 - trait bounds may use parameterized trait references such as `From<String>`
+
+### Transparent Type Aliases
+
+A module-level `type` declaration with a target introduces a transparent synonym,
+not a new nominal type:
+
+```ebnf
+type_alias_item ::= visibility? "type" IDENT generic_param_clause?
+                    (where_clause "=" type | "=" type where_clause?) ";" ;
+```
+
+The target and terminating semicolon are required. Generic parameters support the
+same inline bounds as other generic declarations. At most one `where` clause is
+allowed, either before `=` or after the target; two clauses are rejected. These
+forms express the same bound:
+
+```text
+type Checked<T: Eq> = [T];
+type Before<T> where T: Eq = [T];
+type After<T> = [T] where T: Eq;
+```
+
+Aliases may name valid scalar, aggregate, tuple, array, function and interface
+value types, including generic applications and associated projections under the
+required bounds. They do not introduce a new value conversion, allocation,
+wrapper or runtime type identity. For example, `type Count = i32;` and
+`type Values<T> = [T];` make `Count` interchangeable with `i32` and `Values<i32>`
+with `[i32]` under the ordinary type/value rules.
+
+The target and bounds are resolved in the alias declaration's module and generic
+scope, not re-resolved where an alias is imported or used. Applications substitute
+exactly the declared number of arguments into that checked target. Forward
+references are permitted. Invalid targets, unresolved names, inference placeholders,
+wrong arity and unsatisfied bounds are errors even in unused alias declarations.
+Direct, indirect and argument-growing recursive aliases are rejected rather than
+creating recursive nominal types. Expansion is cancellation-aware and has compiler
+resource limits: at most 64 alias declarations along a dependency chain, 4096 nodes
+in an expanded type and 64 type-nesting steps (root depth zero). A 64-declaration
+chain is accepted and a 65-declaration chain rejected independently of declaration
+order. These limits bound compiler work; they do not introduce nominal identity
+or change which type an alias denotes.
+
+Node accounting counts the substituted result, not both a replaced parameter and
+its replacement, and does not sum intermediate expansions as retained output.
+For `type Identity<T> = T;`, applying `Identity<Big>` to a valid 4095-node `Big`
+remains within the node limit. Composite types share a retained-node budget checked
+before sibling materialization; bound substitutions are also preflighted so an
+erased result cannot conceal unbounded obligations. Exhaustion rejects the
+declaration/application instead of leaving a partially normalized type available
+to code generation.
+
+Aliases to structs support the ordinary named-field constructor syntax. Generic
+alias constructors require explicit alias arguments; arguments are not inferred
+from fields or the expected result. Closed aliases require no arguments and retain
+the target application for construction, enum variants and associated-function
+paths:
+
+```text
+struct Cell<T> { val value: T }
+impl<T> Cell<T> {
+    fn make(value: T) -> Cell<T> { Cell { value: value } }
+}
+type Cells<T> = Cell<T>;
+type IntCell = Cells<i32>;
+fn example() -> Cell<i32> {
+    val first = Cells<i32> { value: 1 };
+    val second = IntCell { value: 2 };
+    IntCell::make(first.value + second.value)
+}
+```
+
+`Cells { value: 1 }` is rejected for missing alias arguments.
+`IntCell::make(true)` is rejected: the closed alias fixes `T` to `i32`; associated
+lookup cannot re-infer `Cell<bool>`. Open generic alias associated-function
+inference is not supported. Aliases do not change field/member visibility or grant
+new constructor capabilities to an opaque native target. Closed struct/enum alias
+patterns likewise preserve their fixed arguments; generic-alias patterns are not
+supported. A closed alias to `Cell<i32>` cannot match a `Cell<bool>` merely because
+both use the same nominal struct declaration.
+
+These are module declarations, not local aliases, associated-type definitions or
+trait aliases. Native declaration-mode `type Name;` remains a distinct opaque
+contract. Transparent aliases reject `builtin_type`, `lang` and `native`
+attributes even in declaration mode; those attributes cannot discard the target
+or grant it a new native identity. Ordinary `meta` and `tool` metadata remains
+allowed under its existing validation rules. Rust-side registration aliases are
+not this source-language feature. See [module alias names and visibility](modules.md#transparent-alias-names)
+and [enforced alias bounds and interface values](traits.md#type-alias-bounds-and-interface-values).
 
 ### Modules and Imports
 

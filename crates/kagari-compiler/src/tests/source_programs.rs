@@ -133,17 +133,30 @@ fn public_generic_dependency_functions_specialize_through_source_aliases() {
     insert(
         &mut db,
         "generic",
-        "pub fn identity<T>(value: T) -> T { value }",
+        "pub struct Cell<T> { pub val value: T } pub fn identity<T>(value: T) -> T { value }",
+    );
+    insert(
+        &mut db,
+        "aliases",
+        "pub type IntCell = pkg::generic::Cell<i32>;",
     );
     insert(
         &mut db,
         "facade",
-        "pub use pkg::generic::identity as forward;",
+        "pub use pkg::generic::identity as forward; pub use pkg::aliases::IntCell as SharedCell;",
     );
     let root = insert(
         &mut db,
         "root",
-        "use pkg::facade::forward; pub fn integer() -> i32 { forward(7) } pub fn boolean() -> bool { forward(true) }",
+        r#"
+        use pkg::facade::{forward, SharedCell};
+        pub fn integer() -> i32 { forward(7) }
+        pub fn boolean() -> bool { forward(true) }
+        pub fn alias(value: SharedCell) -> SharedCell { forward(value) }
+        pub fn target(value: pkg::generic::Cell<i32>) -> pkg::generic::Cell<i32> {
+            forward(value)
+        }
+        "#,
     );
     let checked = checked(&db, root);
     let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
@@ -157,14 +170,34 @@ fn public_generic_dependency_functions_specialize_through_source_aliases() {
         .iter()
         .filter(|function| !function.instance.arguments.is_empty())
         .collect::<Vec<_>>();
-    assert_eq!(instances.len(), 2);
-    assert_eq!(
-        instances[0].instance.declaration,
-        instances[1].instance.declaration
+    assert_eq!(instances.len(), 3);
+    assert!(
+        instances
+            .iter()
+            .all(|instance| { instance.instance.declaration == instances[0].instance.declaration })
     );
-    assert_ne!(
-        instances[0].instance.arguments,
-        instances[1].instance.arguments
+    for builtin in [BuiltinType::I32, BuiltinType::Bool] {
+        assert!(
+            instances
+                .iter()
+                .any(|instance| { instance.instance.arguments == [Ty::Builtin(builtin)] })
+        );
+    }
+    let nominal_instances = instances
+        .iter()
+        .filter_map(|instance| match instance.instance.arguments.as_slice() {
+            [Ty::Struct(nominal)] => Some(nominal),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        nominal_instances.len(),
+        1,
+        "alias and target share an instance"
+    );
+    assert_eq!(
+        nominal_instances[0].arguments,
+        [Ty::Builtin(BuiltinType::I32)]
     );
     let context = DefinitionContext::new().unwrap();
     let program = bytecode(&context, &mir);

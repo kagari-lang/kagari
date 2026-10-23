@@ -46,6 +46,33 @@ fn static_declarations_preserve_layout_comments_and_structure() {
 }
 
 #[test]
+fn type_aliases_preserve_layout_comments_and_where_clauses() {
+    for (input, expected) in [
+        (
+            "#[tag]pub type Pair<T> =(T,T);type Count=i32;",
+            "#[tag]\npub type Pair<T> = (T, T);\n\ntype Count = i32;\n",
+        ),
+        (
+            "mod model{pub(super) type Items<T> where T:Show=[T];}",
+            "mod model {\n    pub (super) type Items<T> where T: Show = [T];\n}\n",
+        ),
+        (
+            "type /* name */ Callback<T> =fn(T)->T;",
+            "type /* name */ Callback<T> = fn(T) -> T;\n",
+        ),
+        (
+            "type Items<T> =[T] where T:Copy;",
+            "type Items<T> = [T] where T: Copy;\n",
+        ),
+    ] {
+        assert_eq!(formatted(input, 100), expected);
+        assert_eq!(formatted(expected, 100), expected);
+        let narrow = formatted(input, 30);
+        assert_eq!(formatted(&narrow, 30), narrow);
+    }
+}
+
+#[test]
 fn static_invalid_declarations_are_not_formatted() {
     for input in [
         "static val count = 0;",

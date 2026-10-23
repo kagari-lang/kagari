@@ -13,6 +13,7 @@ use crate::{
     native::NativeTypeKind,
     typeck::{
         GenericBounds, ModuleSignatures,
+        aliases::{self, AliasValidation},
         check::{self, MethodComparison},
         constraints, families, interfaces,
     },
@@ -56,6 +57,104 @@ pub(super) fn validate(
             .with_span(span),
         );
     }
+}
+
+/// Proves declared generic requirements after a simultaneous substitution.
+/// Shared by nominal applications and transparent aliases, including erased inputs.
+pub(super) fn validate_requirements(
+    context: ApplicationContext<'_>,
+    required: &GenericBounds,
+    substitution: &TypeSubstitution,
+    bounds: &GenericBounds,
+    span: Span,
+    diagnostics: &mut DiagnosticBuffer,
+    cancel: &CancellationToken,
+) -> Result<(), ImplementationSearchError> {
+    let ApplicationContext {
+        definitions,
+        catalog,
+        ..
+    } = context;
+    let expanded = catalog.expanded_bounds(bounds, cancel)?;
+    let bounds = &expanded;
+    let search = ImplementationSearchContext {
+        assumptions: bounds,
+        limits: ImplementationSearchLimits {
+            max_checks: 4096,
+            max_depth: 64,
+        },
+        cancel,
+    };
+    for (parameter, constraints) in required {
+        // Unbound Self predicates belong to implementation validation, not to
+        // constructing an interface value. Projection/input predicates remain
+        // obligations even when an alias erases all of its input parameters.
+        if matches!(parameter, TypeId::SelfType(owner) if substitution.receiver(owner).is_none()) {
+            continue;
+        }
+        if !aliases::within_expansion_limit(parameter, substitution, cancel) {
+            cancel
+                .check()
+                .map_err(|_| ImplementationSearchError::Cancelled)?;
+            return Err(ImplementationSearchError::LimitExceeded);
+        }
+        let actual = catalog.normalize_type(definitions, &parameter.instantiate(substitution));
+        for constraint in constraints {
+            cancel
+                .check()
+                .map_err(|_| ImplementationSearchError::Cancelled)?;
+            // Recovery holes cannot authorize an implementation, but should not
+            // duplicate the unresolved-type diagnostic from their owning position.
+            if matches!(actual, TypeId::Unknown | TypeId::Error)
+                || actual.is_unresolved()
+                    && Protocol::from_definition(&constraint.declaration, definitions).is_none()
+            {
+                continue;
+            }
+            if !aliases::within_expansion_limit(
+                &TypeId::Trait(constraint.clone()),
+                substitution,
+                cancel,
+            ) {
+                cancel
+                    .check()
+                    .map_err(|_| ImplementationSearchError::Cancelled)?;
+                return Err(ImplementationSearchError::LimitExceeded);
+            }
+            let applied = constraint.instantiate(substitution);
+            let satisfied = bounds
+                .get(&actual)
+                .is_some_and(|bounds| bounds.iter().any(|available| available.satisfies(&applied)))
+                || match &actual {
+                    TypeId::Generic(_) => {
+                        catalog.intrinsic_implementation(definitions, &applied, &actual, bounds)
+                    }
+                    _ => {
+                        catalog.implementation_count_bounded(
+                            definitions,
+                            &applied,
+                            &actual,
+                            search,
+                        )? == 1
+                    }
+                };
+            if !satisfied {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::GenericBoundNotSatisfied {
+                        type_name: actual.display_name(definitions),
+                        trait_name: catalog
+                            .trait_(&constraint.declaration)
+                            .expect("checked trait contract")
+                            .declaration
+                            .name
+                            .clone(),
+                    })
+                    .with_span(span),
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 fn validate_inner(
@@ -238,54 +337,19 @@ fn validate_inner(
                     if let Some(receiver) = receiver {
                         substitution.insert_receiver(instance.declaration, receiver.clone());
                     }
-                    for (parameter, actual) in parameters.iter().zip(&instance.arguments) {
-                        for constraint in required
-                            .get(&TypeId::Generic(parameter.clone()))
-                            .into_iter()
-                            .flatten()
-                        {
-                            // Ordinary implementation identity needs complete members;
-                            // intrinsic rules can still reject known outer shapes/siblings.
-                            if matches!(actual, TypeId::Unknown | TypeId::Error)
-                                || actual.is_unresolved()
-                                    && Protocol::from_definition(
-                                        &constraint.declaration,
-                                        definitions,
-                                    )
-                                    .is_none()
-                            {
-                                continue;
-                            }
-
-                            let id = constraint;
-                            let applied = id.instantiate(&substitution);
-                            let satisfied = bounds.get(actual).is_some_and(|bounds| {
-                                bounds.iter().any(|available| available.satisfies(&applied))
-                            }) || match actual {
-                                TypeId::Generic(_) => catalog.intrinsic_implementation(
-                                    definitions,
-                                    &applied,
-                                    actual,
-                                    bounds,
-                                ),
-                                _ => implementation_count(&applied, actual)? == 1,
-                            };
-                            if !satisfied {
-                                diagnostics.push(
-                                    Diagnostic::error(DiagnosticKind::GenericBoundNotSatisfied {
-                                        type_name: actual.display_name(definitions),
-                                        trait_name: catalog
-                                            .trait_(&id.declaration)
-                                            .expect("checked trait contract")
-                                            .declaration
-                                            .name
-                                            .clone(),
-                                    })
-                                    .with_span(span),
-                                );
-                            }
-                        }
-                    }
+                    validate_requirements(
+                        ApplicationContext {
+                            definitions,
+                            catalog,
+                            receiver,
+                        },
+                        required,
+                        &substitution,
+                        bounds,
+                        span,
+                        diagnostics,
+                        cancel,
+                    )?;
                 }
                 if let TypeId::Trait(_) = ty
                     && let Some(contract) = catalog.trait_(&instance.declaration)
@@ -374,6 +438,14 @@ pub(crate) fn validate_signatures(
 ) {
     let definitions = declarations.definitions();
     families::validate(lowered, declarations, catalog, diagnostics, cancel);
+    AliasValidation {
+        lowered,
+        declarations,
+        table: signatures.type_table(),
+        catalog,
+        cancel,
+    }
+    .signatures(signatures, diagnostics);
     for item in &lowered.module.statics {
         if cancel.check().is_err() {
             return;

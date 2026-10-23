@@ -420,6 +420,17 @@ fn add_declarations(
             location(module, module.source_map.opaque_type_span(item.id)),
         );
     }
+    for item in &module.module.type_aliases {
+        cancel.check()?;
+        add_source(
+            &mut names,
+            &unit,
+            &item.name,
+            SourceItem::TypeAlias(item.id),
+            item.visibility,
+            location(module, module.source_map.type_alias_span(item.id)),
+        );
+    }
     for item in &module.module.traits {
         cancel.check()?;
         add_source(

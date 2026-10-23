@@ -262,7 +262,10 @@ pub(super) fn resolve_constraint(
         }
         _ => None,
     };
-    let reason = if applied && !matches!(resolved.ty, TypeId::Trait(_)) {
+    let reason = if matches!(&resolved.target, Some(TypeTarget::Source(id)) if context.declarations.imported_types().alias(id).is_some())
+    {
+        Some("a type alias names a value type, not a trait bound")
+    } else if applied && !matches!(resolved.ty, TypeId::Trait(_)) {
         Some("invalid generic trait application")
     } else if !applied
         && matches!(&resolved.ty, TypeId::Trait(instance) if !instance.arguments.is_empty())

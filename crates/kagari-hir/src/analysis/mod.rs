@@ -529,10 +529,16 @@ fn type_reference_at<'a>(
     type_reference_target_at(lowered, table, offset).map(|target| {
         target.and_then(|target| match target {
             TypeTarget::OpaqueType(id) => declarations.target(ResolvedName::OpaqueType(id)),
-            TypeTarget::Source(id) => declarations
-                .imported_types()
-                .by_declaration(&id)
-                .map(|ty| &ty.declaration),
+            TypeTarget::Source(id) => {
+                declarations
+                    .get(&DeclarationId::Definition(id))
+                    .or_else(|| {
+                        declarations
+                            .imported_types()
+                            .by_declaration(&id)
+                            .map(|ty| &ty.declaration)
+                    })
+            }
             TypeTarget::Struct(id) => declarations.target(ResolvedName::Struct(id)),
             TypeTarget::Enum(id) => declarations.target(ResolvedName::Enum(id)),
             TypeTarget::Trait(id) => declarations.target(ResolvedName::Trait(id)),

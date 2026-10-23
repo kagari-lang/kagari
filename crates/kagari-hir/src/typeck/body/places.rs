@@ -9,6 +9,7 @@ use crate::{
         ids::{ExprId, PlaceId},
         place::PlaceKind,
     },
+    imports::types::aliases::resolved_alias,
     resolver::resolved::ResolvedName,
     typeck::{
         BodyTypeEnv, body::BodyChecker, completion, scalar::ScalarValue, ty::display_type_id,
@@ -224,6 +225,7 @@ impl<'a> BodyChecker<'a> {
                         | ResolvedName::Namespace(_)
                         | ResolvedName::Module(_)
                         | ResolvedName::RuntimeHelper(_)
+                        | ResolvedName::TypeAlias(_)
                         | ResolvedName::OpaqueType(_)
                         | ResolvedName::Struct(_)
                         | ResolvedName::Enum(_)
@@ -323,6 +325,7 @@ impl<'a> BodyChecker<'a> {
                     ResolvedName::RuntimeHelper(_) => {
                         "standard function item is not assignable".to_string()
                     }
+                    ResolvedName::TypeAlias(_) => "type alias is not assignable".to_string(),
                     ResolvedName::OpaqueType(_) => "opaque type is not assignable".to_string(),
                     ResolvedName::Struct(_) => "struct type is not assignable".to_string(),
                     ResolvedName::Enum(_) => "enum type is not assignable".to_string(),
@@ -505,6 +508,12 @@ impl<'a> BodyChecker<'a> {
         if matches!(resolved, ResolvedName::Struct(_)) {
             return self.declarations.definition(resolved).cloned();
         }
+        if let Some((_, alias)) = resolved_alias(self.declarations, &resolved) {
+            return match &alias.target {
+                TypeId::Struct(ty) => Some(ty.declaration),
+                _ => None,
+            };
+        }
         let TypeId::Struct(id) = &self.declarations.imported_types().resolved(resolved)?.ty else {
             return None;
         };
@@ -515,6 +524,12 @@ impl<'a> BodyChecker<'a> {
         let resolved = self.declarations.resolve_name(path, NameNamespace::Type)?;
         if matches!(resolved, ResolvedName::Enum(_)) {
             return self.declarations.definition(resolved).cloned();
+        }
+        if let Some((_, alias)) = resolved_alias(self.declarations, &resolved) {
+            return match &alias.target {
+                TypeId::Enum(ty) => Some(ty.declaration),
+                _ => None,
+            };
         }
         let TypeId::Enum(id) = &self.declarations.imported_types().resolved(resolved)?.ty else {
             return None;

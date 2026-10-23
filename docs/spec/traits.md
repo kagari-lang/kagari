@@ -262,6 +262,59 @@ fn show(value: Display) -> String {
 This is an interface call.
 The runtime may represent it internally with a value handle, concrete type id, and vtable, but script authors do not write or reason about Rust trait objects.
 
+## Type alias bounds and interface values
+
+[Transparent aliases](syntax.md#transparent-type-aliases) preserve the target's
+ordinary type rules. An alias's inline and `where` bounds are enforced at every
+application, including parameters absent from its normalized result. The target
+must also be well formed under the alias's own declared bounds; a caller cannot
+repair an invalid alias declaration by choosing a stronger argument.
+
+```text
+trait Marker {}
+struct Tagged {}
+impl Marker for Tagged {}
+type Erased<T: Marker> = i32;
+fn valid(value: Erased<Tagged>) -> i32 { value }
+```
+
+`Erased<Tagged>` is the same value type as `i32`, but `Erased<bool>` is invalid
+without a `Marker` implementation for `bool`, even though normalization erases
+`T`. An invalid type argument or an unsatisfied bound inside that argument remains
+an error as well. Similarly, if `Box<T>` requires `T: Marker`, then
+`type Wrapped<T> = Box<T>;` is invalid; the alias must declare the needed bound.
+These checks apply in unused declarations, signatures, aggregate fields and body
+type annotations, not only constructor calls. Unlike Rust's ordinary type-alias
+bounds, Kagari's alias bounds are obligations, not documentation-only restrictions.
+
+Projection predicates survive erasure too. For example,
+`type Erased<T: Carrier> where T::Item: Marker = i32;` still requires the selected
+`Carrier::Item` to implement `Marker` at every application. Both `T::Item` and
+`<T as Carrier>::Item` resolve using the alias's inline and `where` bounds.
+Alias uses inside generic associated types retain the associated member's own
+binders and bounds, not just its enclosing trait's context. Imported and local
+supertrait requirements and alias arguments are refined together, so declaration
+order or an import cannot drop a required obligation. These are the ordinary
+projection and bound rules applied to aliases, not a separate trait system.
+Substitution of obligations obeys the [compiler expansion limits](syntax.md#transparent-type-aliases)
+before materialization, even when the resulting value type erases those arguments.
+
+A trait used as an interface value type may be the target of an alias, subject to
+the usual interface-value restrictions:
+
+```text
+trait Read { fn read(self) -> i32; }
+type Reader = Read;
+fn pass(value: Reader) -> Read { value }
+```
+
+This does not make `Reader` a trait declaration or a trait-bound alias.
+`fn bad<T: Reader>() {}` and `impl Reader for SomeType { ... }` are rejected;
+the bound or trait side of an implementation header must name the actual trait
+(or its ordinary `use` rename). Associated types and their definitions retain
+their existing rules; module aliases do not introduce another associated-type
+or trait-implementation mechanism.
+
 ## Static Trait Bounds
 
 Static trait bounds are used by generic functions and generic types during type checking.

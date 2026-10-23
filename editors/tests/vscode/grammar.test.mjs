@@ -38,6 +38,18 @@ function regionsIn(text, spans, context, expected) {
   }
 }
 
+test('type aliases reuse type declaration scopes without guessing target identities', async () => {
+  const source = 'pub type Pair<T> where T: Show = (T, T);\ntrait Source { type Item; }\ntype Native;';
+  const spans = await tokenize(source);
+  for (const name of ['Pair', 'Item', 'Native']) {
+    region(source, spans, name, 'code', 'entity.name.type.kagari');
+  }
+  region(source, spans, 'type', 'code', 'storage.type.kagari');
+  region(source, spans, 'where', 'code', 'keyword.control.kagari');
+  region(source, spans, '=', 'code', 'keyword.operator.kagari');
+  region(source, spans, 'Show', 'code', 'variable.other.kagari');
+});
+
 test('character literals retain scalar spelling, escape scopes and interpolation boundaries', async () => {
   const source = String.raw`fn main() { val chars = ['a', 'é', '🙂', ' ', '\'', '\\', '\"', '\0', '\n', '\r', '\t', '\x00', '\x7F', '\u{10_FF_FF_}']; val close = '}'; val text = "{close} tail"; }`;
   const spans = await tokenize(source);
