@@ -11,17 +11,20 @@ are removed. Current contracts live in the specifications and architecture; CI
 status and activation belong to the [roadmap](implementation-roadmap.md).
 
 - [Engineering a Compiler review](#engineering-a-compiler-chapter-review): chapter-led
-  assessment at `5b57c9a8`, updated optimization boundaries and finding R19.
+  assessment at `5b57c9a8`, reconciled with current storage/optimization boundaries.
 - [Runtime architecture review](#runtime-architecture-review): system map and
-  historical evidence at `88acbdb5`, updated for current R11/R12 remediation.
-- [Repository findings](#sa1-inline-modules-are-parsed-again): unresolved SA entries.
+  historical evidence at `88acbdb5`, reconciled with implemented lifecycle contracts.
+- Repository findings: [SA11](#sa11-hir-declarations-and-adt-members-carry-container-derived-identities),
+  [SA21](#sa21-unify-rust-registration-through-nativemodule-with-scoped-host-access)
+  and [SA23](#sa23-builtin-type-specifications-duplicate-scalar-properties).
 - [Architecture findings](#architecture-findings): retained R findings checked
   against the current implementation; validation limits are recorded below.
 - [Interpreter instruction model](#interpreter-instruction-and-operand-model-follow-up):
   general operand/control-flow simplification before specialized loop instructions.
-- [Runtime storage/parking/identity plan](runtime-lifecycle-plan.md): planned
-  R19 -> R14 -> R13 version-token work, plus bounded decisions on remaining R13
-  retention questions. Implementation has not started; findings remain open.
+- [R13 type/code ownership](#r13--type-and-layout-provenance-retains-retired-code):
+  the remaining lifecycle finding. Scalar storage, transition-owned parking and
+  payload-independent version identity are implemented; bounded retention decisions
+  and evidence are recorded below.
 - [Host Program and module lookup](#host-program-and-module-lookup): distinguish
   installed programs from module handles and unify relative public-path binding.
 - [Native expansion gates](#native-expansion-gates): requirements for future native
@@ -64,12 +67,15 @@ block-local, with no cross-block hoisting. The focused
 and untaken branches, binding state and overflow origins, both directly and after
 retained-debug artifact round-trip. It compares optimized and unoptimized lowering;
 the lasting contract is specified in [safe debug points](spec/debugger.md#safe-debug-points).
-R19 remains a storage-representation finding. Its examples are source-derived,
-**not executed reproductions or new timing measurements**. Existing tests were
-inspected, not rerun. The recorded BO results below remain historical measurements
-of their identified images. No current whole-workspace/backend acceptance or
-whole-runtime audit is claimed. Review does not activate implementation or change
-the outstanding BO04/IP12 performance gates.
+The former R19 storage finding is resolved: physical scalar classification now
+owns scalar-only coloring, while managed locations remain distinct. The
+[RL01 measurements](performance-baseline.md#rl01-scalar-storage-class-allocation-2026-10-23)
+report backing capacity and preparation work, not execution speed. The original
+chapter examples were source-derived, not executed reproductions; the recorded BO
+results below remain historical measurements of their identified images. This
+handoff reconciles reported focused tests without rerunning them. No current
+whole-workspace/backend acceptance or whole-runtime audit is claimed. Review does
+not activate implementation or change the outstanding BO04/IP12 performance gates.
 
 ### Chapter map and architectural implications
 
@@ -80,14 +86,14 @@ the outstanding BO04/IP12 performance gates.
 | **3. Parsers**, §3.2.4, pp. 92-95; §§3.3.1-3.3.2, pp. 108-110 | Recursive descent, precedence handling and a lossless tree are appropriate. Inline-module subtrees now lower under their own contexts, preserving recovery and physical source offsets. The book does not make LR tables a prerequisite for a fast frontend. |
 | **4. Context-Sensitive Analysis**, pp. 161-167, 186-187, 194-201 | Preserve separate declaration/signature/body queries and stored checked answers. R8 should distinguish semantic dependencies from navigation freshness; never weaken revision/arena validation globally. Generic interface construction consumes checked bound evidence; performance work must preserve its proof boundary. |
 | **5. Intermediate Representations**, §§5.1-5.4, selected pp. 221-251; §5.5, selected pp. 253-263 | Typed block MIR plus side metadata is a viable hybrid IR. `TempId` is not an SSA definition. Context-owned module handles separate local identity from portable paths; SA11 is an interface/storage tradeoff, not a required migration. Any SSA proposal must justify its consumers and own merge edges, destruction and origins. |
-| **6. The Procedure Abstraction**, §§6.1-6.2, pp. 269-273; §6.4, pp. 297-298, 300-301; §6.5, pp. 308-311; §§6.6.2-6.7, pp. 317-322 | Keep call admission, parameter/result transfer, roots and retirement under runtime ownership. Optimize stable prepared facts and data movement, not away the call contract (SA21). R13/R14 remain retention/transition issues; the implemented accounting and occupied-discovery contracts do not justify changing GC families. Managed native calls need the existing ABI/root gates. |
+| **6. The Procedure Abstraction**, §§6.1-6.2, pp. 269-273; §6.4, pp. 297-298, 300-301; §6.5, pp. 308-311; §§6.6.2-6.7, pp. 317-322 | Keep call admission, parameter/result transfer, roots and retirement under runtime ownership. Optimize stable prepared facts and data movement, not away the call contract (SA21). R13's remaining type/code retention is distinct from the implemented transition-owned parking proof; neither it nor the accounting/discovery contracts justifies changing GC families. Managed native calls need the existing ABI/root gates. |
 | **7. Code Shape**, §§7.1-7.3.1, pp. 331-345; §7.4, pp. 350-356 | BO02/BO03 already implement direct destinations, control-only predicates and bounded constant operands. Keep checked commit and source observations. Arithmetic reassociation and expression reordering from examples do not override Kagari trap/evaluation order. |
 | **8. Introduction to Optimization**, §§8.1-8.2, selected pp. 405-416; §8.4.1, pp. 420-428; §8.7.1, pp. 458-462 | Legality precedes profitability. Block-local scalar constants preserve executable observations; broader motion still needs an explicit observation/provenance contract. Inlining must additionally preserve pinned dependencies, logical call-depth/cancellation and error origins; ordinary call effects remain conservative. |
 | **9. Data-Flow Analysis**, §§9.1-9.2, selected pp. 475-490; §§9.3.1,9.3.5, pp. 495-497, 510-512; §9.4.1, pp. 519-522; §9.5.2, pp. 530-532 | MIR and bytecode have bounded directional initialization/liveness worklists and immutable analysis ownership. Preserve independent bytecode validation. Add dominance/reaching definitions for concrete consumers; name uniqueness cannot substitute for them. |
 | **10. Scalar Optimizations**, pp. 539-542, 544-560, 565-566, 575-578, 580-582, 591-592 | Stable aligned compaction now applies dead-operation decisions without repeated suffix shifts. Local forwarding/folding can cooperate under a bounded owner; blindly repeating every pass and verifier is not a first choice. LICM/PRE/strength reduction need explicit trap, alias, zero-trip and cancellation legality. |
 | **11. Instruction Selection**, §§11.1-11.4.1, pp. 597-612; §11.5.1, pp. 622-629 | Bytecode selection belongs to the compiler's checked placement stage; machine selection belongs to Cranelift. Existing placement checks uses, snapshots and debug availability. Do not hide unresolved general costs behind growing superinstructions or infer speed from serialized opcode count. |
 | **12. Instruction Scheduling**, §§12.1-12.3.5, selected pp. 639-658 | Machine latency/resource scheduling is backend-owned. The VM's Rust implementation is compiled by Rust's backend. Preserve call, memory, trap and safepoint dependencies; a custom scheduler cannot remove a required helper call. Native polling attribution belongs to the existing expansion gates. |
-| **13. Register Allocation**, §§13.1-13.2.3, pp. 679-684; §13.3.3, pp. 689-692; §§13.4-13.4.3, pp. 693-701 | VM backing slots are not CPU registers. R19 should separate scalar coloring from managed storage classes while keeping shared liveness and distinct managed roots. Cranelift owns native machine allocation; hardware spill heuristics need not be copied into VM storage preparation. |
+| **13. Register Allocation**, §§13.1-13.2.3, pp. 679-684; §13.3.3, pp. 689-692; §§13.4-13.4.3, pp. 693-701 | VM backing slots are not CPU registers. Scalar-only coloring now uses physical storage classes while preserving shared logical liveness and distinct managed roots. Cranelift owns native machine allocation; hardware spill heuristics need not be copied into VM storage preparation. |
 | **Appendix B. Data Structures**, §§B.1-B.3, pp. 737-750; §§B.4.4-B.4.5, pp. 756-758 | Select indexes and set representations for actual operations/density. Debug availability now uses a function-local interval index without stripping debug information. Dense bitsets can remain sensible; replacing every set with a sparse set is not supported. |
 
 The book supplies mechanisms and tradeoffs, not Kagari's embedding contract. Its
@@ -133,7 +139,8 @@ execution. Those differences constrain every proposed transformation.
   stores plus a narrow interface-wrapper index. See the current
   [runtime model](architecture.md#runtime-model) and
   [deterministic work counts](performance-baseline.md#root-release-and-occupied-discovery-work-counts-2026-10-20).
-  R13's ownership and R14's transition proof remain separate from machine-code work.
+  The implemented [parking transition](architecture.md#owned-interpreter-activation)
+  and R13's remaining type/code ownership issue are separate from machine-code work.
 
 Two bounded local opportunities do not require additional architecture projects:
 
@@ -150,46 +157,6 @@ Two bounded local opportunities do not require additional architecture projects:
    owner may combine these facts; prove benefit on the same inputs before adding
    fixed-point whole-pipeline reruns. Existing call/effect barriers remain valid.
 
-### R19 — Managed intervals influence colors used only by scalar storage
-
-**P2 storage-quality follow-up; source-derived example, magnitude unmeasured.**
-Book basis: §§13.2.2-13.2.3, pp. 682-684; §§13.3.3-13.4.3, pp. 689-701.
-
-[Slot allocation](../crates/kagari-runtime/src/module/execution/allocation.rs)
-colors all logical intervals from one active/free pool. [Frame layout](../crates/kagari-runtime/src/module/execution/layout.rs)
-then uses those colors only for scalar locations; each managed location is
-allocated separately. Managed intervals can therefore interfere with scalar color
-choices despite never sharing scalar storage.
-
-For a single block with no extending debug ranges/parameters, consider the
-following illustrative instruction shape and resulting **closed** intervals:
-
-```text
-0: a = scalar constant       a: [0,1], color 0
-1: m = MakeArray([a])        m: [1,2], color 1
-2: call consume(m)           Unit result, no output slot
-3: b = scalar constant      b: [3,4], color 1
-4: return b
-```
-
-At instruction 3, expired colors are pushed as `[0,1]` and the free-list pop
-chooses 1. Layout compacts scalar color numbers, but cannot merge different colors:
-a and b receive two scalar locations although they do not overlap; m receives
-one independent managed location. This does not imply every mixed function wastes
-storage. Debug/CFG liveness may legitimately extend intervals, and budget fallback
-may already have declined reuse. No incorrect alias or missed GC root is alleged.
-
-**Owner/correction:** retain the common liveness facts but color the scalar
-storage class independently. Keep the current distinct managed-location policy;
-this does not authorize managed coalescing, hardware-style spilling or a new
-allocation framework. Coordinate with the existing interpreter placement owner,
-not R13's executable-identity retention or an unapproved BO04 tuning round.
-
-**Focused validation:** mixed-bank interval/layout case; existing loop-carried,
-backedge, backward-join and public reused-frame access contracts; a decoded mixed
-function across collection. Preserve initialization, debug availability, managed
-roots and safe budget fallback. Measure scalar capacity, total retained memory
-and preparation work separately. Fewer backing slots do not prove faster execution.
 
 ### Performance feasibility and bounded next decisions
 
@@ -199,21 +166,22 @@ identified BO01 baseline. They also retain **four failed lifecycle timing gates*
 Those results neither measure the current block-local-constant implementation nor
 establish Lua parity or complete acceptance. Historical hoisted images are not
 current validation; no performance claim follows from the R15 repair or R12 work
-counts. Do not attribute those failures to analysis/representation changes or R14 without measurement.
+counts. Do not attribute those failures to analysis/representation changes or
+parking without measurement.
 
 A finite decision order, not a new implementation plan:
 
 1. **Preserve legality before expanding motion:** keep the block-local constant
    boundary and require an observation/provenance contract for broader motion.
    Checked arithmetic, effects and trap order remain optimization constraints.
-2. **Assess remaining storage quality:** measure R19's mixed-storage frequency and
-   benefit. The completed [bounded analysis and compaction work](architecture.md#bounded-flow-debug-availability-and-mir-deletion)
-   preserves independent verification; its [measurements](performance-baseline.md#bounded-analysis-and-mir-compaction-2026-10-21)
-   do not resolve the outstanding lifecycle gates.
-3. **Continue the remaining runtime work by workload:** R13's bounded version-token
-   change and R14's one-transition proof. Preserve the implemented accounting/root
-   contracts and keep pending lifecycle acceptance visible; this update does not
-   reopen or expand unrelated frontend findings.
+2. **Retain measured storage and analysis boundaries:** scalar-only coloring and
+   [bounded analysis/compaction](architecture.md#bounded-flow-debug-availability-and-mir-deletion)
+   preserve independent verification. Their measurements do not resolve the
+   outstanding lifecycle gates or justify broader reuse eligibility.
+3. **Scope the remaining runtime ownership issue:** R13's measured type/layout
+   retention warrants a separate type/code separation design, not implementation
+   in this handoff. Preserve the completed version-token, parking and accounting/
+   root contracts; do not reopen identity-domain policy or unrelated frontend work.
 4. **Grow optimization only with its evidence:** local value simplification first;
    dominance/reaching definitions plus conservative alias/effect facts before
    global redundancy elimination or code motion. An unknown call is a barrier,
@@ -245,10 +213,11 @@ Publication note: this document was rebased onto `350fa1d6` before opening its P
 That newer main completes Default/struct updates and the object-overhead task,
 including native mutation revisions and direct interface snapshot locations.
 Its removal of SA26 and the completed plans is preserved. The historical review
-and native-test timeout describe `88acbdb5`, not current acceptance. This update
-removes resolved R11/R12 findings and reconciles the system narrative with their
-implemented contracts; R13/R14 remain open. Lasting storage contracts and bounded
-work-count evidence live in [architecture](architecture.md) and
+and native-test timeout describe `88acbdb5`, not current acceptance. Resolved
+R11/R12, R19 and R14 task entries are removed. R13's version marker is resolved;
+its measured identity-domain decision retains the installation-scoped writer, and
+only type/layout holders retaining retired code remain queued. Lasting contracts
+and bounded evidence live in [architecture](architecture.md) and
 [performance measurements](performance-baseline.md).
 
 This is review, not implementation authorization. Remaining findings distinguish
@@ -257,20 +226,18 @@ correctness. Cost classifications are A: architecture, B: local implementation,
 C: required semantics, and D: unmeasured performance hypothesis.
 
 **Overall:** the checked compilation/runtime boundary, generation-pinned ownership
-and explicit roots fit a statically typed embedded language. The main remaining
-runtime problems are code/identity retention and repeated suspension proofs,
-not evidence that the language needs a different GC family or a new universal IR.
+and explicit roots fit a statically typed embedded language. The remaining runtime
+finding is type/layout provenance retaining retired executable payloads, not a
+reason to replace the GC family or introduce a universal IR.
 The repaired pressure and discovery paths do not eliminate root snapshot,
 metadata, marking or retained-capacity costs.
 Future native expansion needs stronger runtime ABI/root/call contracts, but the
 current scalar backend deliberately refuses the unsupported cases.
 
-Highest-value priorities, in order:
-
-1. **R13:** stop using the original executable payload as its version identity;
-   then measure identity-domain and type-only retention separately.
-2. **R14:** perform one suspension proof per transition, sharing traversal across
-   its roots. Do not add a long-lived async-safety cache for mutable graphs.
+**Remaining lifecycle priority:** separately scope R13's type/layout versus code
+ownership split using the bounded retention evidence below. The token alone owns
+no code, and each parking transition already shares one guarded graph traversal.
+Mutable graphs still require a fresh proof at each transition.
 
 Preserve the following foundations:
 
@@ -321,18 +288,18 @@ supplied native-input MIR against the bytecode before installing a product.
 | --- | --- | --- |
 | Source/checking | Parsing, recoverable HIR, name/type/trait checks, source identities and dependency analysis | Analysis sessions retain their caches; no corresponding CST/HIR owner was found through a loaded runtime descriptor. R7 still repeats lowering rounds; inline modules share physical parse storage. |
 | Lowering/verification | Instantiate bounded generic demands, lower checked facts, verify MIR and bytecode, retain executable declarations/layout contracts | Source-free type/witness information is not automatically redundant. Optional preparation MIR may remain with its preparation owner, not automatically the runtime. |
-| Preparation | `VerifiedProgram::from_bytecode` builds reusable execution layouts, scalar/managed locations and call placements | Immutable verified bytecode and prepared execution records coexist. These are an intentional execution representation, not source reanalysis. R13 identifies an additional avoidable bytecode graph. |
+| Preparation | `VerifiedProgram::from_bytecode` builds reusable execution layouts, scalar/managed locations and call placements | Immutable verified bytecode and prepared execution records coexist. These are an intentional execution representation, not source reanalysis. Exact version identity is now payload-independent; R13 concerns type-only holders of current descriptors. |
 | Runtime link/install | Remap definition identities, validate installed native declarations, bind layouts/call targets and exact code ownership | Runtime-specific authority and installed host identity cannot be established only by compile-time verification. Cold dependent layouts may be prepared later. |
 | Call admission | Check current runtime/generation, type/environment, depth and arguments; reserve/populate frame windows transactionally | Only successful admission publishes a frame. Host callbacks and reentry retain the same pinned session and termination state. |
 | Execution | Checked scalar operations, dynamic object identity/access/bounds, field/index kernels, calls and safepoints | Prepared scalar locations avoid repeated type resolution. Identity/bounds checks are semantic costs, not automatically removable work. |
-| Suspension/retirement | Retain live frame windows and code leases; detach transient borrows; consume/cancel completion and release windows | Async safety concerns the actual graph, including mutable aliases. R14 concerns repeated validation at this transition, not a missing async model. |
+| Suspension/retirement | Retain live frame windows and code leases; detach transient borrows; consume/cancel completion and release windows | Async safety concerns the actual graph, including mutable aliases. One guarded traversal serves each transition; post-poll and later transitions require fresh proofs. |
 
 Identity and release boundaries:
 
 - **Definitions and types:** portable identities are imported into scoped
   `DefinitionContext` tables; numeric IDs require their supplying table. Checked
-  type arguments can retain their supplying loaded module. Engine/installation
-  writers and immutable snapshots have different retention lifetimes (R13).
+  type arguments can retain their supplying loaded module (R13). Installation
+  writers and immutable snapshots have deliberate, separately measured lifetimes.
 - **Objects:** `HeapObjectId` identifies heap owner, directory slot and generation.
   `Value` carries typed scalar data or handles, not unrestricted Rust references.
   Directory identity is stable while typed payload records and packed struct bytes
@@ -352,8 +319,8 @@ Identity and release boundaries:
   mutation and release. Completion endpoints transport owned Rust data, not VM borrows.
 - **Reload:** active calls and retained callables keep their old dependency graph.
   Collection traverses object and program edges together before reclaiming retired
-  records. Releasing registry records, original bytecode Arcs and interning writers
-  are three different events; one counter cannot demonstrate all three.
+  records. Registry retirement, bytecode payload destruction and identity backing
+  release are different events; one counter cannot demonstrate all three.
 
 ### Representative execution traces
 
@@ -403,7 +370,8 @@ Identity and release boundaries:
    while the suspended session retains live frame roots. Completion carries owned
    host data until conversion on the driver. Park validation rejects scoped values
    reachable through aliases, not just immediate arguments. Finished task results
-   have another explicit owner. R14 repeats the parking proof. The
+   have another explicit owner. Parking shares one guarded proof across frame roots;
+   polling or later alias mutation requires a fresh transition proof. The
    [completion contract](spec/host-interop.md#completion-transport-foundation)
    owns transport cleanup and fault containment.
 6. **GC, cancellation and old calls.** Safepoints collect only after publication and
@@ -445,7 +413,7 @@ Current memory risks span different owners:
 | Native buffers/collection capacity | Committed `HeapCharge` separates logical occupancy from attributed retained capacity. Its partial byte ledger is not allocator usable size, external host memory or RSS. |
 | Frame/closure/async state | Typed banks and captures are real retained state; parked stacks keep live windows and code. No fresh maximum-frame or suspension-liveness benchmark was run. |
 | Temporary peak | Conversion protection, grow-before-commit and prepare-before-remove deliberately retain old and new values together. Removing this peak without an alternative commit protocol would weaken failure semantics. |
-| Runtime metadata/code | R13 distinguishes remapped/original code, type provenance, append-only identity tables and exact executable leases. No loaded-runtime CST/HIR/MIR retention was found through its descriptor. |
+| Runtime metadata/code | Exact version tokens no longer retain original code/snapshots. Installation-scoped identity retention is measured and retained; R13 remains type-only provenance retaining retired code. No loaded-runtime CST/HIR/MIR retention was found through its descriptor. |
 | Historical capacity | Root registration drains releases and object discovery visits occupied stores. Free indices and generation tombstones can still outlive most objects; root snapshots and metadata scans retain separate costs. |
 
 Do not introduce generations, incremental tracing, concurrent collection or raw
@@ -459,99 +427,64 @@ untracked native machine registers safe. First measure allocation bytes, surviva
 root/directory scan work and pause distribution separately. Keep logical units,
 requested bytes, allocator usable bytes and process working set distinct.
 
-### R13 — Code identity and identity domains retain more than executable liveness
+### R13 — Type and layout provenance retains retired code
 
-**P2 overall, P1 memory candidate; source-confirmed retention, magnitude unmeasured; A.**
-Three related ownership boundaries need distinct decisions, not one global cache
-flush:
+**P2 overall, P1 memory candidate; bounded retention measured; A.** Only type/layout
+holders retaining retired executable payloads remain queued. This finding is not
+closed as a whole, and the separate type/code split is not implemented or activated.
 
-1. **Exact version identity retains original executable payload.**
-   [VerifiedProgram](../crates/kagari-runtime/src/module.rs) stores both `modules`
-   and `version` as module-graph Arcs. Initially they share the same graph. On
-   cross-context normalization with definition references,
-   [normalized](../crates/kagari-runtime/src/module/normalization.rs) builds remapped
-   modules while preserving the original graph and original definition snapshot.
-   `same_version` needs root equality and Arc identity, not the original instructions.
-   Thus `LoadedModule → ProgramDescriptor → VerifiedProgram` can retain both graphs
-   after the preparation owner is dropped. Same-context and no-reference paths do
-   not create this duplication; several runtimes can share the original graph.
-   This does not imply all program memory doubles.
-2. **Engine/installation identity writer outlives individual users.**
-   [DefinitionContext](../crates/kagari-common/src/identity/map.rs) shares an
-   append-only `Arc<Mutex<DefinitionTableBuilder>>`.
-   [Engine sessions](../crates/kagari/src/engine/mod.rs) clone their analysis owner;
-   [NativeInstallation](../crates/kagari-runtime/src/native/installation.rs) clones
-   registry state into runtimes. Loading imports identities into that shared writer.
-   Keep an installation alive, create/drop runtimes with distinct new nominal names,
-   and their identities remain with that installation. Repeating existing identities
-   need not grow the table; independent installations need not share it. No unbounded
-   production process-global definition map was found. Immutable snapshots and
-   `Arc::make_mut` also create potential copy/peak cost while the writer grows.
-3. **Type-only provenance can retain an entire program.** `StructLayoutRef` in
-   [module.rs](../crates/kagari-runtime/src/module.rs) retains a LoadedModule;
-   [TypeArgument](../crates/kagari-runtime/src/frame/types/arguments.rs) scope and
-   [associated bindings](../crates/kagari-runtime/src/frame/types/bindings.rs) likewise
-   retain supplying ownership. Retiring executable records in
-   [module collection](../crates/kagari-runtime/src/module/collection.rs) does not
-   release bytecode held by an external descriptor Arc. Old-layout admission tests
-   establish revoked execution, not necessarily freed immutable instructions.
+**Resolved version marker.** A private `Arc<VersionToken>` replaces payload-backed
+identity; `same_version` retains root equality plus token allocation identity.
+Clones/normalization preserve it; independently prepared equal programs remain
+distinct. No original-only graph or `version_definitions` snapshot remains. Current
+scope remapping, immutable accepted prefixes and actual executable leases are
+unchanged. [RL03 evidence](performance-baseline.md#rl03-exact-version-identity-and-bounded-retention-2026-10-23)
+records source -> A -> B payload release, token-only non-admission, pinned native
+calls and real AOT image execution with the process-local linker override. The
+[architecture](architecture.md#definition-identity-ownership) owns the lasting model.
 
-**Recommendation and bounded sequence:** first replace payload-backed exact-version
-identity with an immutable shared token and only the provenance required by its
-consumers. Delete the superseded original graph/snapshot retention, not exact-version
-checks or normalization. Then measure distinct-name churn and define the intended
-identity-domain lifetime. Consider immutable provider baseline plus runtime/session
-writers with correct remapping; never fork mutable builders under the same table ID.
-Only if old type-only holders materially retain code should type/layout provenance
-be separated from executable payload. Keep actual callables/native products pinned
-to the old executable dependencies. Hash equality must not become exact identity.
+**Measured domain decision: RETAIN the installation-scoped writer for the measured
+lifetime.** The [1/16/128-cycle matrix](performance-baseline.md#identity-domain-observations-and-decision)
+finds repeated-name retention flat after runtime/snapshot release; distinct names
+grow with the deliberately retained installation. Session clones share that writer,
+not a new domain. Independent installations supply independent lifetimes, and all
+measured allocations balance after final owner release. The
+[common-owner probe](performance-baseline.md#common-owner-snapshot-backing-and-capacity-follow-up)
+confirms source/intermediate backing release, immutable prefixes and repeated-name
+backing sharing; retaining every distinct prefix keeps additional COW containers.
+This is not an endorsement of infinite cheap name/snapshot retention, a measured
+append-time peak/RSS result or a source-session compiler-cache study. No new writer
+model or process-global leak is established; domain redesign is not queued by R13.
 
-Rust's context-owned interning and JLS loader-scoped unloading illustrate why the
-identity owner determines retention. Neither dictates Kagari's domain size: Rust's
-borrowed compiler arena cannot own values across Kagari reloads, and Java loader
-reachability is not Kagari executable admission. The version token is a small custom
-fit to Kagari's immutable Arc identity, not a new global registry.
+**Remaining ownership mismatch.** `StructLayoutRef` in
+[module.rs](../crates/kagari-runtime/src/module.rs) retains a `LoadedModule`;
+[TypeArgument](../crates/kagari-runtime/src/frame/types/arguments.rs) and
+[associated bindings](../crates/kagari-runtime/src/frame/types/bindings.rs) retain
+supplying provenance. For example, a host keeps only each old Record layout while
+reloading: registry collection revokes executable admission, but the descriptor
+still owns the old program's instructions and preparation records. The
+[type-only probe](performance-baseline.md#type-only-provenance-observations-and-decision)
+observes zero retired registry entries but 1/16/128 old payloads alive with layout
+or nominal-type holders, versus none without holders. Actual native holders
+intentionally keep executable leases and remain callable. Payloads expire after
+final holder release. Requested-byte deltas include required type facts and other
+metadata, not just code; the fixture does not establish production prevalence or
+larger-program savings.
 
-**Impact/validation:** source-free memory, multi-runtime embedding and reload/JIT code
-lifetime; no executable resurrection or dangling-reference defect demonstrated.
-Token replacement is small-to-medium; identity/type-owner separation is higher risk
-and conditional. Compare equal bytes from distinct preparations, clones, cross-context
-loads, actual native installation and pinned old callbacks. Use Weak-owner probes
-and requested-byte accounting separately from executable registry counters. Reuse
-[test preparation](test-preparation-plan.md) and OM ownership work; do not add a
-parallel migration or silently broaden the current Default plan.
+**Next decision and constraints:** separately scope type/layout provenance versus
+executable-payload ownership. Preserve scoped IDs, immutable layout/associated-type
+facts, accepted-prefix checks and old-object allocation compatibility. Keeping type
+facts must not revive executable admission; actual callables/native products must
+retain their exact dependency leases. Keep root-plus-token exact identity distinct
+from hash/ABI equality. This is not a cache flush, collector migration or identity-
+domain split; never fork mutable identity builders under the same table ID.
 
-### R14 — Parking repeats a whole reachable-graph safety proof
-
-**P2; source-confirmed redundant work, no timing claim; A/B.** At slice exhaustion,
-[driver::run_inner](../crates/kagari-vm/src/executor/driver.rs) calls `can_park`.
-[Executor::run_slice](../crates/kagari-vm/src/executor/mod.rs) then calls `park`,
-which calls [can_park](../crates/kagari-runtime/src/frame/owned.rs) again without an
-intervening script/host action. Each call loops frames; each frame invokes
-[validate_async_values](../crates/kagari-runtime/src/gc/future.rs) with a new tracing
-visited set. If D frames alias one G-object graph, a successful slice can repeat
-roughly 2×D×G graph work, excluding the ordinary execution between slices.
-
-**Root cause:** query and commit split a transition-owned proof, and per-frame graph
-validation loses shared traversal knowledge. Safety itself is necessary: mutable
-aliases and erased receivers can hide a scoped resource inside an otherwise ordinary
-container. Merely checking static types or caching an object's previous safety result
-would be wrong.
-
-**Recommendation:** combine the successful proof and park commit under the runtime
-transition owner; share a visited set across all retained roots for that transition.
-If a query must remain, use only a tightly scoped proof whose validity ends before
-any mutation/reentry; do not add a persistent async-safe cache. Existing tracing
-machinery already supplies graph validation, so this does not justify a new GC
-framework. Tokio's state-transition-before-notification discipline is analogous,
-but it has no Kagari mutable-graph/host-borrow proof to reuse directly.
-
-**Migration/validation:** small-to-medium. Consolidate the duplicate query/commit
-call path, preserve trace-hook guards and validate non-suspendable values reached
-through aliases, resumed mutation and host scopes. Count visits for shared versus
-disjoint graphs at fixed depth; measure park/drive time independently of execution
-and post-retirement collection. This does **not** explain the unresolved IP12
-collection timing by itself. Existing IP08-IP12 remains the performance owner.
+Validation for that future split must distinguish registry retirement, payload Weak
+expiry and required type readability, with actual old-call/native execution controls.
+Reuse the measured owner-local contracts rather than adding a parallel migration.
+The pinned Rust/JLS [reference mechanisms](#primary-implementation-references)
+explain context/loader lifetime ownership, not borrowed arenas across Kagari reloads,
+immediate unloading or a prescribed domain size.
 
 ### Existing compiler and native findings, reconciled
 
@@ -580,7 +513,7 @@ unused-source errors or relax loading validation to make artifacts smaller.
 
 | Class | Current assessment / required work |
 | --- | --- |
-| Already affects execution | R13/R14 affect runtime boundaries independent of LLVM. No miscompile of the currently accepted Cranelift scalar subset was established. Its exact-trap test timed out in this review, so this is not a fresh all-green native validation. |
+| Already affects execution | R13's remaining type/code retention affects runtime ownership independent of LLVM; transition-owned parking is implemented. No miscompile of the currently accepted Cranelift scalar subset was established. Its exact-trap test timed out in the historical review, so this is not a fresh all-green native validation. |
 | Before general managed native/LLVM execution | Runtime-owned call admission, argument/result/root ownership, bounded machine-stack behavior or a driver continuation protocol; registered native root frames before collecting helpers; program-scoped call proofs and pinned target dependencies. An LLVM implementation of only the existing scalar subset does not first need all managed-value machinery. |
 | Before aggressive optimization | Conservative transitive call/memory/GC facts or explicit barriers, exact overflow/trap lowering, shared-alias semantics, origin/PC mapping and dependency/code leases. False individual effect bits are not absence proofs. |
 | Preserve an extension point | Physical PC/location maps if justified instead of registered root frames; code-unit dependency ownership for future direct calls/inlining; logical debug origins and observer fallback. |
@@ -617,7 +550,8 @@ performance evidence for Kagari:
   `cancel_task`, task completion and `drop_future_or_output`: contain user future/
   output destruction and establish task state before notification. Relevant to the
   [completion contract](spec/host-interop.md#completion-transport-foundation)
-  and transition ownership in R14. Its threaded scheduler/JoinError policy does not
+  and implemented [parking ownership](architecture.md#owned-interpreter-activation).
+  Its threaded scheduler/JoinError policy does not
   replace Kagari's isolate, roots, host leases or EngineFault contract.
 - **OpenJDK 25 GA:** [OopStorage](https://github.com/openjdk/jdk/blob/jdk-25-ga/src/hotspot/share/gc/shared/oopStorage.hpp),
   [iteration](https://github.com/openjdk/jdk/blob/jdk-25-ga/src/hotspot/share/gc/shared/oopStorage.inline.hpp),
@@ -657,13 +591,12 @@ activated phases or an implementation ledger.
 
 | Order | Scope / owner | Delete or consolidate when replacing | Acceptance boundary |
 | --- | --- | --- | --- |
-
-| Near-term bounded simplification | R13 exact-version token; R14 one-shot parking, coordinated with IP08-IP12 | Payload-backed version identity and unnecessary original snapshot; duplicate successful park proof and per-frame repeated visits | Cross-context exact identity, pinned dependencies, mutable-graph suspension rejection and cleanup |
-| Measure before expanding | R13 identity-domain/type-only split, R7 worklist, artifact pruning | If justified: shared mutable identity writer across independent lifetimes, whole-module demand rounds; not a cache layered over them | Distinct/reused-name churn, actual bytecode release, compiler scaling, explicit executable roots and unchanged source diagnostics |
+| Separately scope from measured evidence | R13 type/layout versus executable payload | Descriptor ownership that keeps code solely for type/layout provenance; retain required type facts and actual executable leases | Type readability and old-object compatibility without old payload retention or executable resurrection |
+| Measure before expanding | R7 worklist, artifact pruning | If justified: whole-module demand rounds; not a cache layered over them | Compiler scaling, explicit executable roots and unchanged source diagnostics |
 | Existing future gates | Native expansion plan, then appropriate LLVM coverage | Replace scalar-only ABI/consumers coherently as general calls land; no compatibility forwarding ABI or backend-owned duplicate semantics | Assert actual native entry, source-free execution, roots across helpers/reentry, numeric/trap order and old-version calls |
 | Defer | GC family replacement, OSR/deopt, extra universal IR, speculative interface/layout grouping | No new speculative mechanisms | Activate only on measured survival/pause data or concrete backend/optimization requirements |
 
-Do not revive the rejected IP11 map/Vec candidates, attribute IP12 timing to R14
+Do not revive the rejected IP11 map/Vec candidates, attribute IP12 timing to parking
 without measurement, or bypass owner/generation/bounds checks under the label of
 optimization. Prepared field/call facts and closed regions are sound foundations;
 keep their lifetime/admission contracts while removing identified repeated work.
@@ -676,10 +609,11 @@ project.
 
 Implementation, not old prose, determines this baseline:
 
-- [Project goals](project_goal.md) still describe async as queued; host-driven async,
-  cold Future/Task ownership and explicit suspension are already implemented and
-  specified. General async trait methods and native async suspension remain limited;
-  those limits do not make all async unimplemented.
+- At the historical review baseline, project goals still described async as queued.
+  Current [goals](project_goal.md#scope-boundaries) now reflect implemented host-driven
+  async, cold Future/Task ownership and explicit suspension. General async trait
+  methods and native async suspension remain limited; those limits do not make all
+  async unimplemented.
 - At the reviewed baseline, ordinary Default and contextual calls were implemented
   through DF03 while struct updates/integration remained pending. Main subsequently
   completed that work and removed SA26 and its execution plan; publication preserves
@@ -699,18 +633,22 @@ workspace dev/test profiles, default target/parallelism and mixed/warm build cac
 Builds contended for the target lock; elapsed time is not a benchmark. No longer
 rerun was attempted, and this documentation update does not resolve that result.
 
-This update inspects current source and reconciles previously reported focused
-evidence; it runs no tests or performance probes. R11 probe tables and reproduction
-instructions are retired with the resolved finding. R12 retains only durable
-[algorithm work-count evidence](performance-baseline.md#root-release-and-occupied-discovery-work-counts-2026-10-20),
-not a completed-command log or whole-collector timing claim.
+This documentation handoff inspects current source and reconciles reported focused
+evidence; it runs no behavior tests, builds or performance probes. R11 probe tables
+and reproduction instructions are retired with the resolved finding. R12 retains
+only durable [algorithm work counts](performance-baseline.md#root-release-and-occupied-discovery-work-counts-2026-10-20).
+The [RL01](performance-baseline.md#rl01-scalar-storage-class-allocation-2026-10-23),
+[RL02](performance-baseline.md#rl02-transition-owned-parking-2026-10-23) and
+[RL03](performance-baseline.md#rl03-exact-version-identity-and-bounded-retention-2026-10-23)
+sections own measured methods, limits and passing scoped tests, including actual
+AOT execution after a process-local linker override. R13 domain/backing and type-only
+retention are now measured within those finite fixtures, not inferred from registry
+counts alone. No global speed claim follows.
 
 Full-workspace tests and the complete feature/backend/platform matrix remain CI
-scope. Throughput/pause distributions, physical RSS, production-load survival,
-native heap-root execution, exhaustive race/panic injection, R13 retention probes
-and LLVM validation are not established by this review. Source inspection can
-establish retention edges and repeated traversals, not their share of total latency
-or a promised speedup. Historical BO04/IP12 failed gates remain unresolved.
+scope. General throughput/pause distributions, physical RSS, production-load survival,
+native heap-root execution, exhaustive race/panic injection and LLVM validation are
+not established by this handoff. Historical BO04/IP12 failed gates remain unresolved.
 
 ## SA11 HIR declarations and ADT members carry container-derived identities
 

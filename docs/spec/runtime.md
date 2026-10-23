@@ -847,6 +847,22 @@ Static binding -> checked installation cell identity
 Loaded code has versioned identity; mutable static storage belongs to the
 installation, not to a raw slot array copied for each module epoch.
 
+Exact prepared-version identity survives cloning and cross-context normalization,
+but independently prepared equal bytecode or matching fingerprints are not the same
+version. Identity alone owns no original executable graph or definition snapshot
+and cannot authorize execution or resurrect a retired generation. Normalization
+imports from the current immutable scope; destination-local IDs and accepted-prefix
+validation remain mandatory. Runtime ownership, epochs and actual callable/native
+execution leases are separate checks and owners. See
+[definition identity ownership](../architecture.md#definition-identity-ownership)
+for the private token and installation-scoped writer mechanisms.
+
+Type/layout provenance remains readable after executable retirement without granting
+executable admission. Current type-only holders can nevertheless retain immutable
+program payloads through their supplying descriptor; retirement of a registry entry
+is not proof of payload destruction. The measured remaining split is tracked by
+[R13](../review.md#r13--type-and-layout-provenance-retains-retired-code).
+
 ## Persistent static cells
 
 Each installation owns checked cells; each generation has bindings from its local
@@ -927,6 +943,10 @@ This means:
 
 - a frame with live borrowed host handles must not be suspended
 - runtime stack snapshots must reject non-suspendable values
+
+The [parking transition contract](execution.md#owned-interpreter-driving) validates
+actual reachable values under the collection guard, not just their static types.
+Safety is operation-local and must be re-established after mutation or host polling.
 
 ## Runtime Errors vs Engine Bugs
 

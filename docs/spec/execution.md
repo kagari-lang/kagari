@@ -462,6 +462,22 @@ the frames and roots. Host control wakers can be registered on the owner token.
 Independent-root entry/drive during an activation is rejected; ordinary checked
 synchronous reentry remains available and shares the active root.
 
+Ready parking proves safety and consumes the activation in one runtime-owned
+transition. An ordinary declined attempt keeps the activation runnable until a
+safe boundary; an error preserves frames for diagnostics and cleanup, not continued
+execution. No script execution, host callback, conversion or mutation separates a
+successful proof from commit. The parked state is established before readiness
+notification; successful slice exit does not prove the same graph again.
+
+Each transition checks runtime/session identity, scope shape, outstanding mutation,
+host/native borrows and native-entry state, then validates actual retained values
+under the GC collection guard. One operation-local traversal shares visited object
+identities across frames, while retaining frame-order error precedence and checking
+every root and traced Value before deduplication. Aliased tags, foreign/stale handles,
+erased receivers and native traced edges still require validation. Trace-hook faults
+retain their error/quarantine behavior. Neither a safety permit nor traversal
+scratch survives the operation; aliases must be rechecked at the next transition.
+
 Native and script Future waits use this same driver. Source `async`/`.await` is
 implemented through checked cold factories and resume bodies. Host Task scopes
 and shared waits use the same driver. Script `scope.spawn(factory)` and `task.cancel()`
@@ -592,8 +608,11 @@ original host-supplied token wakes the control path as well as cancellation thro
 the owner handle. Registrations do not keep completed execution owners alive.
 
 A bytecode Await stores the continuation destination in the session and advances
-the PC once. A pending poll parks without republishing runnable readiness; an
-already racing completion/cancellation wake remains durable. Subsequent driver
+the PC once. A pending poll requires a fresh safety proof of post-poll state before
+parking: an earlier admission check cannot authorize state changed by polling.
+Waiting commit neither sets nor clears readiness, so an already racing completion/
+cancellation wake remains durable. Missing or non-suspendable pending state is an
+error, with the activation retained for diagnostics and cleanup. Subsequent driver
 activations poll the existing operation, never claim the Future or submit again.
 Successful conversion writes the checked destination and resumes at the saved PC.
 Cancellation is checked before accepting or publishing the result.

@@ -125,7 +125,6 @@ impl VerifiedProgram {
             definition_references,
             execution: self.execution.clone(),
             version: self.version.clone(),
-            version_definitions: self.version_definitions.clone(),
             dependencies: self.dependencies.clone(),
         })
     }

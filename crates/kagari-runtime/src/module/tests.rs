@@ -29,6 +29,62 @@ fn slot_values(store: &ModuleStore) -> Vec<Value> {
 }
 
 #[test]
+fn version_token_preserves_root_identity_without_retaining_execution() {
+    let context = DefinitionContext::new().unwrap();
+    let input = DefinitionMetadata::checked(
+        context.snapshot(),
+        BytecodeProgram {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule::default()],
+        },
+        &Default::default(),
+    )
+    .unwrap();
+    let code = VerifiedProgram::new(input.clone(), &context).unwrap();
+    let token = code.version.clone();
+    let execution = Arc::downgrade(&code.execution);
+    let original = code
+        .modules()
+        .iter()
+        .map(Arc::downgrade)
+        .collect::<Vec<_>>();
+    let same_context = code.normalized(&context).unwrap();
+    assert!(Arc::ptr_eq(&code.modules, &same_context.modules));
+    assert!(code.same_version(&same_context));
+    let mut other_root = code.clone();
+    other_root.root = ModuleRef::new(code.root.index() + 1);
+    assert!(!code.same_version(&other_root));
+    drop((same_context, other_root));
+    let mut runtime = Runtime::default();
+    let old = runtime.load_verified_program("token", code).unwrap();
+    let descriptor = Arc::downgrade(&old.program);
+    let current_graph = old
+        .verified_program()
+        .modules()
+        .iter()
+        .map(Arc::downgrade)
+        .collect::<Vec<_>>();
+    let next = runtime.stage_reload_program(&old, "token", input).unwrap();
+    let current = runtime.publish_staged_reload(next).unwrap();
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.modules().loaded(old.key()).is_none());
+    assert!(runtime.validate_loaded_module(&old).is_err());
+    assert!(
+        runtime
+            .retain_program(&old, ModuleEpochRetention::ActiveCall)
+            .is_none()
+    );
+    assert!(runtime.validate_loaded_module(&current).is_ok());
+    drop(old);
+    assert!(original.iter().all(|weak| weak.upgrade().is_none()));
+    assert!(current_graph.iter().all(|weak| weak.upgrade().is_none()));
+    assert!(descriptor.upgrade().is_none());
+    assert!(execution.upgrade().is_none());
+    assert_eq!(Arc::strong_count(&token), 1);
+}
+
+#[test]
 fn invalid_code_cannot_become_a_shared_verified_program() {
     let context = DefinitionContext::new().unwrap();
     let invalid = BytecodeProgram {

@@ -351,19 +351,33 @@ separate. Do not use these results as evidence that those performance gates pass
 
 ## Runtime storage, parking and version identity
 
-The [execution plan](runtime-lifecycle-plan.md) is active with implementation and
-per-phase commits authorized. RL01 scalar storage-class coloring and RL02
-one-transition parking are implemented and locally accepted. RL03 payload-independent
-exact version identity and focused retention decisions are next.
-The plan owns acceptance and the progress ledger; [review](review.md) retains
-unresolved findings until final handoff. Push and deployment remain unauthorized.
+RL01-RL03 implementation and focused local acceptance are complete. The execution
+plan is retired; Git history retains its phase ledger. Lasting ownership belongs to
+[architecture](architecture.md), [execution transitions](spec/execution.md) and
+[runtime version identity](spec/runtime.md). Scalar-only coloring preserves managed
+locations and logical/debug liveness. Parking proves the actual retained graph once
+per transition, retaining fresh post-poll checks and ready/waiting publication rules.
+Private version tokens preserve exact preparation identity without retaining original
+code merely for comparison; runtime authority and executable leases remain separate.
 
-Preserve managed roots, debugger/reused-frame access, mutable-graph suspension
-checks, ready/waiting publication, runtime authority and generation-pinned native
-calls. R13 also requires bounded identity-domain/type-only retention probes and
-explicit decisions; neither a session identity split nor type/layout-code separation
-is silently activated. Close only resolved R13 subfindings. Completed CS/AE contracts
-remain foundations, and BO04/IP12/CS timing gaps are not acceptance targets here.
+[RL01 capacity/work controls](performance-baseline.md#rl01-scalar-storage-class-allocation-2026-10-23),
+[RL02 graph work and isolated timing](performance-baseline.md#rl02-transition-owned-parking-2026-10-23)
+and [RL03 ownership probes](performance-baseline.md#rl03-exact-version-identity-and-bounded-retention-2026-10-23)
+retain methods, results and limits. Focused contracts cover mixed decoded frames/GC,
+debug/reused-frame access, pending completion/cancellation, source -> A -> B payload
+release, exact-version native rejection and actual pinned native/AOT execution.
+Private snapshot tests also verify backing release and the finite COW/capacity matrix.
+Structure, formatting, workspace/all-target Clippy, diagnostics-feature Clippy and
+diff checks passed. Full-workspace/backend/feature/platform acceptance remains CI-only;
+these results do not close BO04/IP12/CS timing gaps or establish an end-to-end speedup.
+
+R19/R14 and R13's version-marker subfinding are resolved. The measured decision is
+to retain installation-scoped identity writers for the documented lifetime, not
+promise cheap unbounded names/snapshots. Type/layout-only holders still retain retired
+code at 1/16/128 generations; [review](review.md) keeps that R13 follow-up for a
+separately scoped ownership split. No session/domain or type/code migration is
+activated. The Windows AOT check used an existing process-local MSVC linker override;
+no persisted toolchain changes, push or deployment were performed.
 
 ## Persistent module static
 
@@ -826,7 +840,7 @@ Structure, formatting, workspace all-target Clippy and diff checks passed.
 Full-workspace tests and the complete feature/backend/platform matrix were not
 run locally and remain CI-owned. This scoped handoff is not a
 whole-runtime audit or performance acceptance. The
-[runtime review](review.md#runtime-architecture-review) now prioritizes R13/R14;
+[runtime review](review.md#runtime-architecture-review) retains R13 type-only code ownership;
 R7/R8 and unrelated open findings remain unchanged and are not activated here.
 
 [Architecture findings](review.md#architecture-findings)

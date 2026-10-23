@@ -16,6 +16,288 @@ Keep workloads, hashes, environment and timing scope together. Allocation reques
 are not RSS; compilation/setup and execution are separate. Small differences are
 not significance claims, and local correctness does not imply GitHub CI or Lua parity.
 
+## RL03 exact version identity and bounded retention, 2026-10-23
+
+### Scope and before/after evidence
+
+Baseline: `fd661985027dc2fe71b6d094f5e4ae670bd96bd1`, after RL02, initially clean.
+Before changing production, a test-only probe in the existing native execution
+owner prepared one referenced program, loaded source -> A -> B, and recorded
+actual `Weak<BytecodeModule>` liveness. It passed with the original payload-backed
+marker: the source allocation survived source drop and A drop, while A's remapped
+allocation expired after A drop; the source expired only after B drop.
+
+After: RL03 working-tree changes on that baseline. A private `Arc<VersionToken>`
+replaces the original module-array marker, and `version_definitions` is removed.
+`same_version` still compares root plus allocation identity. Normalization still
+imports from the current immutable scope and preserves destination reference IDs,
+exports, execution preparation and dependency facts. Independent equal programs
+remain distinct. Native/AOT production consumers and executable leases are unchanged.
+
+| Observation after dropping the named owners | Before: source alive | After: source alive | Intermediate A alive, before/after |
+| --- | ---: | ---: | --- |
+| Source preparation/context | 1 | 0 | 1 / 1 |
+| A loaded handle/runtime | 1 | 0 | 0 / 0 |
+| B native handle/loaded handle/runtime | 0 | 0 | 0 / 0 |
+
+The maintained [normalization test](../crates/kagari-runtime/src/native/tests/native_execution/lifecycle.rs)
+uses the existing two-instruction `Jump(1); Return(None)` native fixture and adds
+one empty nominal `Record` layout. It observes every module Arc (one module in
+this fixture), checks A/B-local IDs and portable paths, rejects a later ID through
+A's immutable accepted prefix, and executes the installed B native fixture after
+source and A release. The baseline used the same release schedule with source-live
+assertions at the first two checkpoints; the current test requires source-dead.
+No baseline flag or obsolete production implementation remains.
+
+The [private token test](../crates/kagari-runtime/src/module/tests.rs) retains only
+the token after old descriptor drop: original/current bytecode, descriptor and
+execution-preparation Weaks expire. Before dropping that descriptor, its registry
+entry is retired and executable admission/lease registration are rejected. A
+same-token/different-root comparison remains unequal. Existing identity tests
+retain independent-equal, foreign-runtime and intentionally shared reference-free
+current-payload controls; referenced same-context normalization also shares current
+records. These tests do not claim that a token grants execution authority.
+
+### Environment and reproducible probes
+
+Windows `x86_64-pc-windows-msvc`; Intel Core i7-10700F, 8 cores / 16 logical CPUs;
+rustc 1.99.1 (`58cf8f9c3`, 2026-10-13), Cargo 1.99.1, LLVM 23.1.1. Default workspace
+`target` and Cargo build parallelism. The ownership correctness tests used the
+workspace test profile (dev optimization level 1, debug information). Allocation
+probes used the workspace release profile and `execution-diagnostics`, one test
+thread, and a single allocation observation per matrix cell. Existing build caches
+were reused; the changed runtime/test targets were rebuilt. Cargo invocations were
+serialized. There are **no elapsed-time, speedup, peak-memory or RSS claims**.
+
+The maintained [private probe source](../crates/kagari-runtime/src/native/tests/native_execution/lifecycle/probes.rs)
+reuses the [existing allocator counter](../crates/kagari-runtime/src/diagnostics/allocations.rs),
+not a public instrumentation extension. It counts successful allocation/reallocation
+requests, gross requested bytes and signed net requested bytes on the test thread.
+It includes fixture holder/observer containers; it does not count allocator overhead,
+other threads or executable mappings. Weak observers retain Arc allocation shells
+until their own drop, even after payload destruction. Final balanced teardown is
+asserted separately from payload Weak expiry and registry retirement.
+
+```text
+cargo test -p kagari-runtime --release --features execution-diagnostics --lib -- --ignored identity_domain_retention_probe type_only_provenance_retention_probe --nocapture --test-threads=1
+```
+
+This selects two ignored tests, not all diagnostics. The exact finite matrices are
+3 counts (1/16/128) x 2 name policies x 2 installation lifetimes x 2 snapshot policies
+= 24 domain cells, and 3 counts x 4 holder kinds = 12 provenance cells. All passed.
+The existing native fixture supplies instructions, function metadata and ABI; the
+local `scoped_program` helper supplies the nominal record. No source compiler or
+large generated workload is required to construct these probe inputs.
+
+### Identity-domain observations and decision
+
+Inputs are independently verified before allocation accounting. The module identity
+and instruction/layout shape stay fixed. Names are `Record000` repeatedly or the
+fixed-width sequence `Record000` through `Record127`. Each cycle creates a runtime
+from an empty prepared native installation, loads one input, optionally retains its
+post-load table snapshot, and drops the loaded handle/runtime. Every remapped module
+Weak expires at that cycle's end, even when snapshots or installation remain.
+
+The retained arm keeps one `NativeInstallation`; the independent arm prepares and
+drops a fresh installation each cycle. Table IDs are asserted equal across retained
+cycles and unequal across independent cycles. This directly exercises the writer
+shared by installation clones. SDK `new_session()` clones that same installation;
+it is not an independent runtime identity domain. No source-session compiler-cache
+measurement is claimed.
+
+`cycles` below is net bytes after all runtimes are dropped; `snapshots` is net after
+dropping the snapshot holder vector, while a retained installation is still alive.
+The vector reserves 16*N bytes even in the released-snapshot control. All final net
+counts after installation drop are **zero**. Request/gross totals include runtime
+construction, installation preparation, linking and their teardown, but exclude
+pre-verification of the retained input programs.
+
+| N | Installation | Names | Keep snapshots | Requests | Gross bytes | Net after cycles | Net after snapshots |
+| ---: | --- | --- | --- | ---: | ---: | ---: | ---: |
+| 1 | Independent | Either | No | 523 | 49710 | 16 | 0 |
+| 1 | Independent | Either | Yes | 523 | 49710 | 13116 | 0 |
+| 1 | Retained | Either | No | 523 | 49710 | 14212 | 14196 |
+| 1 | Retained | Either | Yes | 523 | 49710 | 14212 | 14196 |
+| 16 | Independent | Repeated | No | 8353 | 795360 | 256 | 0 |
+| 16 | Independent | Repeated | Yes | 8353 | 795360 | 209856 | 0 |
+| 16 | Independent | Distinct | No | 8353 | 795360 | 256 | 0 |
+| 16 | Independent | Distinct | Yes | 8353 | 795360 | 209856 | 0 |
+| 16 | Retained | Repeated | No | 5893 | 394395 | 14452 | 14196 |
+| 16 | Retained | Repeated | Yes | 5893 | 394395 | 14452 | 14196 |
+| 16 | Retained | Distinct | No | 5910 | 399227 | 17108 | 16852 |
+| 16 | Retained | Distinct | Yes | 6103 | 641910 | 219082 | 17600 |
+| 128 | Independent | Repeated | No | 66817 | 6362880 | 2048 | 0 |
+| 128 | Independent | Repeated | Yes | 66817 | 6362880 | 1678848 | 0 |
+| 128 | Independent | Distinct | No | 66817 | 6362880 | 2048 | 0 |
+| 128 | Independent | Distinct | Yes | 66817 | 6362880 | 1678848 | 0 |
+| 128 | Retained | Repeated | No | 45989 | 2968043 | 16244 | 14196 |
+| 128 | Retained | Repeated | Yes | 45989 | 2968043 | 16244 | 14196 |
+| 128 | Retained | Distinct | No | 46123 | 3003003 | 35732 | 33684 |
+| 128 | Retained | Distinct | Yes | 47770 | 6238526 | 2678714 | 38752 |
+
+N=1 "Either" combines two identical observations, not an omitted name-policy cell.
+The final loaded table contains 116 records / 41 symbols in every independent cell
+and every retained/repeated cell. Retained/distinct counts are 116/41, 131/56 and
+243/168 at N=1/16/128. The installation includes runtime builtin registration:
+these are not counts of just the single script struct.
+
+**Decision: retain the present installation-scoped writer for this lifetime.**
+Repeated-name churn is flat after runtime/snapshot release (14196 bytes), distinct
+names grow within the deliberately retained owner, and all measured allocations
+balance after final owner release. There is no demonstrated process-global payload
+leak. Hosts requiring unrelated identity lifetimes can prepare independent
+installations; cloning sessions does not reset the writer. Retaining all distinct
+prefixes is materially more costly (2678714 live requested bytes at 128), so this
+result does not endorse unbounded snapshot/name retention. The
+[common-owner follow-up](#common-owner-snapshot-backing-and-capacity-follow-up)
+separately records private capacities, append-time COW isolation and backing-snapshot
+Weak evidence. Runtime totals are not a substitute for that evidence or a measured peak.
+
+### Type-only provenance observations and decision
+
+One fixed `Record` layout and the two-instruction Unit function are loaded, then
+replaced with independently prepared generations N times. Only the selected old
+holder is retained per generation: none, `StructLayoutRef`, nominal `TypeArgument`,
+or `InstalledNativeFunction`. Source metadata is outside allocation accounting;
+all verified/loaded old owners other than the selected holder are released. The
+final current version stays alive through both collection checkpoints.
+
+After publication/collection, layout facts and nominal paths remain readable.
+Retired layout owners fail executable admission. Native controls retain executable
+leases and are actually invoked, returning Unit. Every old module Weak and every
+native product-owner Weak expires after the final holder drop and collection;
+all old registry entries are then absent. The native fixture controls ownership and
+invocation, not OS executable-page accounting; the separate real AOT test below
+covers library-owner lifetime.
+
+`R/P` is old registered modules / live old bytecode payloads. Request/gross columns
+are sampled at the first retirement checkpoint, before readability/native calls.
+`holders` is net after those checks, holder drop and another collection. It includes
+the current runtime, current code, store capacities and observer containers, not
+just the old payload. Native invocation can warm execution storage, explaining why
+its post-holder net differs from the non-native controls. Full runtime/container
+teardown has zero net bytes in every cell.
+
+| N | Holder | R/P | Requests | Gross bytes | Net after retirement | Net after holders |
+| ---: | --- | --- | ---: | ---: | ---: | ---: |
+| 1 | None | 0/0 | 1547 | 152079 | 22337 | 22281 |
+| 1 | Layout | 0/1 | 1547 | 152079 | 25246 | 22281 |
+| 1 | TypeArgument | 0/1 | 1559 | 152719 | 25702 | 22281 |
+| 1 | Native | 1/1 | 1555 | 151764 | 25755 | 28641 |
+| 16 | None | 0/0 | 13990 | 1172843 | 52689 | 51793 |
+| 16 | Layout | 0/16 | 13990 | 1172843 | 99233 | 51793 |
+| 16 | TypeArgument | 0/16 | 14182 | 1183083 | 106529 | 51793 |
+| 16 | Native | 16/16 | 14173 | 1173483 | 107377 | 58513 |
+| 128 | None | 0/0 | 106847 | 8817163 | 290577 | 283409 |
+| 128 | Layout | 0/128 | 106847 | 8817163 | 662929 | 283409 |
+| 128 | TypeArgument | 0/128 | 108383 | 8899083 | 721297 | 283409 |
+| 128 | Native | 128/128 | 108271 | 8826123 | 728081 | 292817 |
+
+Relative to None, Layout retains 2909 additional requested bytes per old generation
+and TypeArgument 3365 for this small fixture: 372352 and 430720 bytes respectively
+at 128. These differences include required type facts, program descriptors and
+execution preparation, not exclusively instruction buffers. Payload Weak liveness,
+not those byte differences or registry counters, proves the old code remains owned.
+
+**Decision: separately scope a type/layout-provenance versus executable-payload
+split.** A host keeping only nominal descriptors across reload can keep every old
+program alive despite executable retirement; this is a concrete ownership mismatch
+for that lifetime, demonstrated at 1/16/128 rather than inferred from pointer
+identity. A future design must retain scoped IDs, immutable layout/associated-type
+facts, accepted-prefix checks, old-object allocation compatibility and actual
+callable/native dependency leases. This change implements no such split, no new
+identity-domain writer and no cache/collector migration. The measured effect is not
+a claim about production prevalence or larger-program byte savings.
+
+### Focused validation and remaining limits
+
+Seven selected runtime contracts passed: shared verified identity, referenced
+source/A/B release, token/root/non-admission, scoped normalization/epochs, scoped
+input snapshots, nominal origins without execution parents, and shared code with
+private runtime instances. The two SDK tests
+`rejects_equal_but_distinct_versions_before_compiling` and
+`reload_reuses_candidate_code_and_keeps_old_native_entries_version_pinned` passed;
+the latter asserts actual Native status, not fallback.
+
+The exact AOT `installed_images_pin_versions_share_bindings_and_release_after_last_owner`
+test first compiled but failed with `AotError("program not found")`: its default
+`lld-link` was absent, and the PATH `link.exe` was Git's unrelated utility. It then
+passed using the existing environment override, without SDK source changes:
+
+```powershell
+[Environment]::SetEnvironmentVariable('KAGARI_AOT_LINKER', 'C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\bin\Hostx64\x64\link.exe', 'Process')
+cargo test -p kagari --features aot-build --lib installed_images_pin_versions_share_bindings_and_release_after_last_owner -- --nocapture
+```
+
+That test links/loads real images, asserts Native execution of pinned old/new
+results, rejects foreign/mismatched installation, and checks library-owner Weaks.
+The linker override was process-local, not persisted. The scoped IDE build request
+timed out; Cargo supplied successful compilation. An early token-test fixture used
+persistent static initialization, which legitimately retained an old recipe; it
+was replaced by a stateless fixture to isolate token ownership, not by weakening
+retention assertions. A transient test-edit syntax error was corrected before the
+successful selected runs.
+
+Local structure, formatting, workspace all-target Clippy, diagnostics-feature
+runtime all-target Clippy and diff checks passed. Full-workspace tests and complete
+feature/backend/platform matrices were not run and remain CI-only. The common-owner
+snapshot/capacity/COW checks below also passed. R19/R14 and payload-backed version
+identity are resolved; the remaining type-only retention finding stays in
+[review](review.md). No type/layout-code split or broader R13 closure is claimed.
+
+### Common-owner snapshot backing and capacity follow-up
+
+This supplies common-owner evidence independently of runtime
+`Weak<BytecodeModule>` observations. The two owner-local
+[table tests](../crates/kagari-common/src/identity/table/tests.rs) passed serially
+on the same RL03 working tree/environment, using release, default features/target/
+build parallelism and existing caches. No production changes were needed.
+
+```text
+cargo test -p kagari-common --release --lib identity::table::tests::rl03_imported_snapshots_release_source_and_intermediate_backings -- --exact --test-threads=1
+cargo test -p kagari-common --release --lib identity::table::tests::rl03_snapshot_capacity_matrix -- --exact --nocapture --test-threads=1
+```
+
+The first test checks source -> A -> B exact imports with different local indices,
+omitted identities and immutable accepted prefixes. Direct `Weak<TableData>`
+probes expire after source/intermediate writer and snapshot owners drop, while
+B still resolves the imported path. Retained snapshot controls stay alive until
+explicitly dropped. Probes are captured after final mutation or protected by strong
+snapshots during append, avoiding `Arc::make_mut` Weak disassociation as false release.
+
+The second test seeds `probe::nested::Type0`, then repeats Type0 or appends Type1
+through TypeN. Each pre-operation snapshot is retained or dropped before interning.
+All 12 cells passed, including final backing release. `V` lists current capacities
+for modules/symbols/nodes/depths; `I` is the capacity of each symbol/node index map.
+The other three map capacities are always 3. Records and symbols have equal counts.
+`C/S` means COW copies / retained handles sharing current; unique old backings equal
+C. Extra V/M are summed capacity-times-element-size estimates for unique old vector/
+map containers alongside current, not per-handle sums.
+
+| N | Names | Keep snapshots | Records | V | I | C/S | Extra V/M slot bytes |
+| ---: | --- | --- | ---: | --- | ---: | --- | --- |
+| 1 | Repeated | No | 3 | 4/4/4/8 | 3 | 0/0 | 0/0 |
+| 1 | Repeated | Yes | 3 | 4/4/4/8 | 3 | 0/1 | 0/0 |
+| 1 | Distinct | No | 4 | 4/4/4/8 | 7 | 0/0 | 0/0 |
+| 1 | Distinct | Yes | 4 | 2/6/6/8 | 7 | 1/0 | 168/240 |
+| 16 | Repeated | No | 3 | 4/4/4/8 | 3 | 0/0 | 0/0 |
+| 16 | Repeated | Yes | 3 | 4/4/4/8 | 3 | 0/16 | 0/0 |
+| 16 | Distinct | No | 19 | 4/32/32/32 | 28 | 0/0 | 0/0 |
+| 16 | Distinct | Yes | 19 | 2/36/36/36 | 28 | 16/0 | 10310/12332 |
+| 128 | Repeated | No | 3 | 4/4/4/8 | 3 | 0/0 | 0/0 |
+| 128 | Repeated | Yes | 3 | 4/4/4/8 | 3 | 0/128 | 0/0 |
+| 128 | Distinct | No | 131 | 4/256/256/256 | 224 | 0/0 | 0/0 |
+| 128 | Distinct | Yes | 131 | 2/260/260/260 | 224 | 128/0 | 555414/559116 |
+
+Repeated identity retention shares one backing; retaining every distinct prefix
+keeps N extra containers, including 8512 old node records at N=128 versus 131 in
+current. COW still shares existing module/string payload Arcs. These capacity
+estimates exclude nested payloads, Arc headers, map bucket/control overhead and
+probe bookkeeping; they are not allocator-request counts, RSS or append-time peak
+measurements. Weak expiry establishes backing-value destruction, not OS page return
+or runtime executable release. This supports bounded snapshot lifetimes, not a new
+identity-domain model or an elapsed-time/performance claim.
+
 ## RL02 transition-owned parking, 2026-10-23
 
 ### Scope, baseline and ownership

@@ -1445,7 +1445,17 @@ caller's cancellation token, including member and value-node traversal. Referenc
 conversion, record shape checks and executable verification remain separate steps.
 
 Runtime preparation normalizes independent verified inputs into its own context
-while retaining original immutable version identity and dependency versions.
+while retaining exact immutable version identity and dependency versions.
+`VerifiedProgram` owns a private `Arc<VersionToken>` created at verification;
+`same_version` compares the root and token allocation identity. Clones and
+normalization preserve the token; independently prepared equal bytes do not.
+The token owns neither bytecode nor a definition snapshot and grants no execution
+authority. Source -> A -> B normalization imports from each input's current immutable
+scope, preserving destination references, exports, prepared execution facts and
+accepted-prefix checks. There is no original-only graph or `version_definitions`
+owner. Runtime/epoch admission and actual callable/native dependency leases remain
+separate, as specified by the [module store](spec/runtime.md#module-store).
+
 Host registration shares that context with the Native catalog. Function and type
 inputs retain their own checked table until explicit adoption; installed lookup,
 reflection, method binding and path contracts use IDs. A type batch resolves all
@@ -1470,8 +1480,19 @@ Metadata with identity references is copied during contextual normalization;
 reference-free module records can retain their existing Arcs. Implicit public
 names are collected in the destination context by the same bytecode-owned identity
 collector used before verification. Code-image sharing across independent runtimes
-must not be inferred from original version sharing. Definition table snapshots share their prefix storage, but appending
-while a snapshot is retained currently copies the table's index containers.
+must not be inferred from token sharing. Definition table snapshots share their
+prefix storage, but appending while a snapshot is retained copies the table's
+index containers. The installation-scoped writer deliberately outlives individual
+runtimes and is shared by installation/session clones; independent installations
+provide independent identity lifetimes. Repeated names reuse records, whereas new
+names and retained historical prefixes retain storage until their owners release
+it. The [bounded retention measurements](performance-baseline.md#identity-domain-observations-and-decision)
+support retaining this model for the measured lifetime, not unlimited cheap churn.
+[Snapshot backing evidence](performance-baseline.md#common-owner-snapshot-backing-and-capacity-follow-up)
+separates current capacity, retained COW containers and actual backing release.
+Type/layout holders still retain their supplying program's immutable code after
+executable retirement; [R13](review.md#r13--type-and-layout-provenance-retains-retired-code)
+tracks that separate ownership split, not a new identity writer.
 
 ## Persistent module state
 
@@ -1694,7 +1715,22 @@ stores, not concurrent raw oop access. Neither mechanism removes graph tracing o
 establishes an unmeasured timing improvement.
 
 Execution values instead occupy reusable contiguous runtime-owned frame windows
-in separate scalar and managed banks. Scalar slots hold complete 64-bit payloads
+in separate scalar and managed banks. Preparation uses layout's physical
+`scalar_type` classification for both allocation and layout: a managed capture
+cell remains managed even when its content type is scalar. `SlotColor` explicitly
+distinguishes managed locations from scalar colors; only scalar intervals enter
+the interference/free-color pool. `FrameLayout` consumes dense scalar colors
+directly, while every managed location stays distinct and rooted. Common logical
+ranges, parameter entry uses, CFG/debug liveness, closed endpoints and public
+reuse guards remain intact. Bounded preparation accounts for classification and
+scratch and falls back to distinct locations when reuse analysis exhausts its
+budget. For example, two non-overlapping scalar lifetimes can share a location
+even with an intervening managed lifetime; genuine debug/CFG overlap still prevents
+reuse. [RL01 measurements](performance-baseline.md#rl01-scalar-storage-class-allocation-2026-10-23)
+separate backing capacity from preparation work; fewer slots do not imply faster
+execution.
+
+Scalar slots hold complete 64-bit payloads
 and explicit initialization flags; managed slots retain ordinary Values and full
 handle identities. GC traces the managed bank and program/environment edges, including suspended
 callers, independently of host leases. Session frames use indexed storage.
@@ -2663,6 +2699,27 @@ records; `frame::owned` admits only safe slice exits, retaining live cursor
 values while excluding mutation/host/native borrows. Call depth is parked/restored
 per root. Operand windows can be released out of order and compact their backing
 banks without changing live generational identities.
+
+`ExecutionStack::try_park_ready` takes `&mut Option<ExecutionStack>` and proves and
+consumes the activation as one runtime-owned transition. Decline leaves it runnable;
+errors retain it for diagnostic admission and cleanup, not continued execution.
+Commit sets the parked flag before publishing readiness and notifying the host,
+with no script, conversion, mutation or callback between proof and commit.
+`park_waiting` strictly proves fresh post-poll state and consumes only a valid
+pending activation; it never writes readiness, preserving racing completion and
+cancellation notifications. Internal `can_park` remains admission machinery for
+independent future/factory/wait checks, not a transferable permit or public query
+followed by another ready proof.
+
+`GcHeap::with_async_values` holds one collection guard and operation-local
+`collector::Visited` traversal across sequential frame root batches. Frame-local
+checks and graph errors retain their order; every root and emitted Value is checked
+before object-identity deduplication, including differently tagged aliases. Native
+trace hooks remain guarded against mutation/reentry; trace failures and quarantine
+are not ordinary decline. Traversal scratch ends with the operation. Capture,
+submission and post-poll checks remain independent, and later transitions recheck
+mutable aliases rather than cache safety. See the [parking contract](spec/execution.md#owned-interpreter-driving)
+and [RL02 evidence](performance-baseline.md#rl02-transition-owned-parking-2026-10-23).
 
 VM `vm::owned` supplies start/drive orchestration over the existing executor. The
 cursor yields after the requested instruction interval; the executor defers the

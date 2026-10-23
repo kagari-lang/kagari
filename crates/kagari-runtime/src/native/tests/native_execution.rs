@@ -42,6 +42,8 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+mod lifecycle;
+
 #[derive(Debug)]
 struct Owner(Arc<AtomicUsize>);
 
@@ -586,6 +588,7 @@ fn execution_observers_prevent_native_entry_without_debug_callbacks() {
 fn shared_verified_program_identity_survives_independent_runtime_linking() {
     let verified = VerifiedProgram::new(program(), &DefinitionContext::new().unwrap()).unwrap();
     let separate = VerifiedProgram::new(program(), &DefinitionContext::new().unwrap()).unwrap();
+    let original = Arc::downgrade(&verified.modules()[0]);
     let mut first = runtime();
     let mut second = runtime();
     let a = first
@@ -606,6 +609,12 @@ fn shared_verified_program_identity_survives_independent_runtime_linking() {
     assert!(second.validate_loaded_module(&a).is_err());
     drop(verified);
     assert!(a.verified_program().same_version(b.verified_program()));
+    // Reference-free normalization intentionally shares the current payload.
+    assert!(original.upgrade().is_some());
+    drop((a, first));
+    assert!(original.upgrade().is_some());
+    drop((b, c, second));
+    assert!(original.upgrade().is_none());
 }
 
 #[test]

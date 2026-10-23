@@ -142,10 +142,13 @@ pub struct VerifiedProgram {
     definitions: DefinitionTable,
     definition_references: Arc<[DefinitionId]>,
     execution: Arc<[ExecutionModule]>,
-    version: Arc<[Arc<BytecodeModule>]>,
-    version_definitions: DefinitionTable,
+    version: Arc<VersionToken>,
     dependencies: ReloadDependencySnapshot,
 }
+
+/// Exact preparation identity, deliberately independent of payload and execution leases.
+#[derive(Debug)]
+struct VersionToken;
 
 impl VerifiedProgram {
     /// Import scoped editable records, verify once, and retain immutable evidence.
@@ -234,8 +237,7 @@ impl VerifiedProgram {
             root: program.program().root,
             exports: Arc::new(program.program().exports.clone()),
             export_targets: Arc::new(program.export_targets().clone()),
-            version: modules.clone(),
-            version_definitions: definitions.clone(),
+            version: Arc::new(VersionToken),
             definitions,
             definition_references,
             modules,
