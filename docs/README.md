@@ -56,6 +56,11 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   [async execution](async-execution-design.md) and [task scopes](host-task-scope-design.md).
   Complete workspace/feature/backend/platform acceptance remains pending CI.
 
+- [Multi-Runtime program sharing](multi-runtime-sharing-plan.md): MS00-MS05 are
+  planned, not started. Measure per-player installation cost, share immutable code
+  and link preparation, and establish safe worker-thread reuse while keeping player
+  state and publication independent. Numerical gates and HM/UP sequencing must be
+  frozen before implementation; no large-project capacity result is claimed.
 - [Compilation latency follow-up](implementation-roadmap.md#fast-compilation-and-eager-startup):
   the source-preparation implementation is closed with the 500 ms compile/load
   goal explicitly unmet. Further frontend preparation work is deferred; the

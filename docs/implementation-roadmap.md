@@ -750,9 +750,12 @@ generated host views, and the [confirmed current-call update migration](update-m
 That migration retains existing Future/closure/resume bodies, but selects current
 implementations for subsequent ordinary calls; it is not implemented by the completed
 async work. The [Host Program/Module plan](host-api-refactor.md) scopes HM00-HM04 to
-metadata handles, relative public lookup, checked type exports and reload compatibility.
-HM00 must settle stable callable identity versus versioned metadata and the UP handoff;
-implementation is not started. Broader preparation/tooling remains deferred.
+stable Program/Module handles, relative public lookup, checked type exports and
+reload compatibility. Existing handles must query the latest published contents of
+their installation; existing function bindings call current implementations without
+reacquisition/rebinding. HM00 must settle representation, internal version retention
+and the UP handoff; implementation is not started. Broader preparation/tooling
+remains deferred.
 
 ## Text literals and String traversal
 
@@ -793,7 +796,8 @@ require a concrete task; implemented foundations are not prerequisites to replay
 
 | Track | Scope and dependencies |
 | --- | --- |
-| [Host Program/Module](host-api-refactor.md) | HM00-HM04 planned, unstarted: separate Program/module metadata views, unify relative public paths, carry checked type exports through artifacts and reload. HM00 gates stable ordinary callable identity versus version-specific views/retention and the UP migration handoff; HM does not silently acquire full dispatch migration. Reuse [invocation/object safety](spec/embedding-api.md). Broader preparation cleanup and cross-installation repair linking remain deferred. |
+| [Multi-Runtime program sharing](multi-runtime-sharing-plan.md) | MS00-MS05 planned, unstarted: measure current same-product multi-Runtime costs; eliminate whole-code identity remapping copies and duplicated pure link preparation; establish safe cross-thread frozen-product reuse. Keep player heaps/statics/host borrows and installation publication private. MS00 freezes numerical memory/performance gates and the HM/UP identity/dispatch handoff before implementation. R13 type-only retention, cross-installation repair linking, global updates and native expansion remain separate. No capacity or speed claim from source LOC or historical tiny-program data. |
+| [Host Program/Module](host-api-refactor.md) | HM00-HM04 planned, unstarted: separate stable Program/module identities, unify relative public paths, carry checked type exports through artifacts and reload. Existing Program/Module handles query their installation's latest published contents; function handles select current implementations without reacquisition/rebinding. HM00 gates representation/internal retention and the UP migration handoff, not the confirmed live-lookup policy; HM does not silently acquire full dispatch migration. Reuse [invocation/object safety](spec/embedding-api.md). Broader preparation cleanup and cross-installation repair linking remain deferred. |
 | [Update model](update-model-design.md) | Compatible publication versus explicit state replacement. Confirmed submission direction: collect function/file edits in one Update and submit once to Runtime, without begin or caller-supplied versions/hashes. Publication is serialized at the host/Actor top-level boundary with no active synchronous script stack; suspended tasks may remain. Ordinary calls and existing host function handles select current implementations, while existing Future/closure/frame bodies retain their matching state. UP00-UP02 own the migration from currently pinned dependencies; no concurrent publication framework or host rebinding is required. Existing signatures/type definitions and old-type trait relationships stay frozen; new types may implement old or same-batch new traits. Exact-version function-source inspection is required. Source patches use in-process compilation with interpreter/optional JIT execution; AOT patch delivery is excluded and wider native coverage remains independent. Dispatch/batch/source-query implementation and compiler-context wiring remain queued, outside HM00-HM04; incremental reuse is not a prerequisite. State replacement remains separate from ordinary code publication. |
 | [Interactive debugger](debugger-design.md) | Confirmed synchronous waiting at safe debug points, preserving the executing host thread's Rust call chain. Pause control, inspection lifecycle and SDK/DAP integration are queued and unstarted; no whole-execution continuation migration or automatic process-wide freeze. Lifecycle defaults and CLI spellings remain proposals. |
 

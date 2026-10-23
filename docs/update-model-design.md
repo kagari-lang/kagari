@@ -14,6 +14,13 @@ the compatible-update scheduling boundary below is confirmed. This document
 authorizes no implementation or commit.
 Existing specifications remain authoritative until implementation updates them.
 
+The user also confirmed that ordinary Program and Module handles represent stable
+identities within one installation and always query its latest published contents.
+Existing function handles invoke current implementations after publication. No
+Program/Module reacquisition or function rebinding is required. Internal immutable
+versions and explicit source/debug snapshots remain separate from these ordinary
+handles; this target is not implemented by the current pinned runtime.
+
 On 2026-10-23 the user confirmed the update submission shape: construct an `Update`
 containing function/file changes and submit it once to Runtime. There is no required
 `begin_update`, caller-supplied version number or old-body hash. One Update is one
@@ -191,13 +198,16 @@ update.replace_function("combat::damage", damage_source);
 update.replace_function("inventory::consume", consume_source);
 update.replace_file("protocol/claim.kgr", claim_source);
 
-program = runtime.update(&program, update)?;
+runtime.update(&program, update)?;
 ```
 
-The Program/Module names follow the [Host API plan](host-api-refactor.md). The
-returned `Program` selects the newly published installation version. There is no
-required public begin/prepare/commit ceremony, version number or `expected old body
-hash`. Internal staging remains mandatory; an advanced prepared-product workflow
+The Program/Module names follow the [Host API plan](host-api-refactor.md). Existing
+Program/Module handles query the newly published contents, including added public
+paths, and existing callable bindings select current implementations. No replacement
+handle is required. The confirmed update/reload success result is `()` via the
+appropriate existing `Result<(), E>` error family, with no mandatory update report.
+There is no required public begin/prepare/commit ceremony, version number or
+`expected old body hash`. Internal staging remains mandatory; an advanced prepared-product workflow
 may reuse it without becoming prerequisite boilerplate for ordinary callers.
 
 The first batch contract rejects duplicate targets and overlapping whole-file and
@@ -219,9 +229,10 @@ policy; this input convenience does not enable additions rejected by current rel
 ### Host scheduling boundary and serialized publication
 
 On submission the facade validates the target installation and obtains its current
-source/preparation context. The version-bound `Program` supplied by the caller must
-still be an eligible current update target; an obsolete or foreign handle is
-rejected, not silently retargeted. No caller computes or copies a generation value.
+source/preparation context. The stable Program handle remains usable after earlier
+compatible publications; it is not rejected merely because it was obtained before
+them. Foreign or retired-installation handles are rejected and never retargeted to
+a same-named installation. No caller computes or copies a generation value.
 
 The implementation captures its preparation basis internally, constructs an isolated
 candidate, checks/compiles affected code and links dependencies, then publishes the
@@ -444,14 +455,15 @@ owner, not an expansion of HM00-HM04 or a second debugger implementation.
 | Query target | Required result |
 | --- | --- |
 | Current installation plus an ordinary callable identity/path | The implementation currently selected for a new call, captured with its actual version |
-| An explicitly selected Program version plus declaration/path | Historical source in that immutable snapshot, not a promise that an ordinary handle executes it |
+| An explicit historical version/source snapshot plus declaration/path | Source in that immutable snapshot; ordinary Program/Module handles do not select historical versions |
 | A retained closure or already-created Future | The matching selected generated/computation body, not a new body with a coincidentally compatible signature |
 | An observed execution frame or suspended task position | The source matching that captured frame/continuation target and generation, not the current ordinary call target |
 
 A current-source query is a snapshot of selection at query time, not proof that a
 later call ran it. A stable ordinary function/interface-method binding is not itself
 evidence of an old executed body. Actual-execution queries must use observed target
-evidence; historical Program lookup must never be mislabeled as current dispatch.
+evidence; explicit historical snapshot lookup must never be mislabeled as ordinary
+Program/Module lookup or current dispatch.
 A task may contain several frames and is not necessarily one function; expose the
 available frame/continuation positions rather than inventing a single latest target.
 Use existing safe observation/snapshot boundaries; report an unavailable position
@@ -675,13 +687,21 @@ converge on one validation/publication owner, not separate update semantics. The
 host-managed state-replacement operation must not look like an interchangeable
 `ReloadOptions` boolean.
 
-Program/Module metadata views may identify a specific installed version for checked
-namespace lookup, update admission and historical inspection. That version identity
-must not permanently select the body executed by an ordinary callable bound through
-the view. Ordinary function handles select current implementations within their
-installation without host rebinding. HM00 must settle old-view binding authority,
-stable declaration/application identities and metadata versus executable lifetime
-before UP integration; no parallel legacy pinned-call API is required.
+Program/Module handles identify one installation and its modules, not immutable
+public version views. Each lookup reads the latest coherently published namespace;
+previously obtained modules can discover newly added public declarations. Ordinary
+function handles select current implementations in that same installation without
+host rebinding. Explicit historical source/debug snapshots and selected computation
+lifetimes remain separate. HM00 must settle current-publication access, stable
+installation/module/declaration identities and retention before UP integration;
+the live-lookup policy is confirmed, not an open alternative. No parallel legacy
+pinned-call or version-bound ordinary module API is required. Binding resolves the
+public path once to a stable declaration/application; each call selects its current
+implementation without re-resolving that name or switching declarations through an
+alias. Runtime owns installations: dropping Program/Module handles does not unload,
+cancel tasks or reset state, and independently retained callables stay usable while
+the installation is live. Runtime shutdown still ends execution/object-access
+authority. Explicit unloading remains separate.
 
 The replacement dispatch contract is owned by UP, not silently added to HM's
 namespace/type-export implementation. Existing pinned implementations/specifications
@@ -734,8 +754,8 @@ separate work and not a prerequisite for publishing ordinary body patches.
   direct/recursive/generic calls, host and named-function handles, trait methods,
   collection protocol callbacks, initializer recipes, Future/closure creation,
   suspended caller frames and native products. Specify stable identity/current
-  implementation selection versus body/state retention; coordinate HM00 metadata
-  views and admission. Preserve specialized collection/initializer invariants rather
+  implementation selection versus body/state retention; coordinate HM00 live
+  Program/Module lookup and admission. Preserve specialized collection/initializer invariants rather
   than blindly replacing every stored version with latest lookup. Freeze the host
   top-level publication gate, failure-isolation strategy and current-target evidence
   for supported generic applications reachable from retained code. Resolve batch
@@ -780,8 +800,10 @@ all-or-nothing failure, unknown/ambiguous and duplicate/overlapping targets, ori
 module imports/private context and signature mismatch. Verify no public begin or
 caller-supplied hash/version is needed. Failed preparation must leave the authoritative
 source context unchanged; the next successful update must include previously committed
-changes rather than the failed candidate. Reject stale/foreign update targets. Verify
-host-top-level publication, rejection inside script-invoked host callbacks, sequential
+changes rather than the failed candidate. Reject stale internal candidates and
+foreign/retired installations, not live Program handles obtained before an earlier
+compatible publication. Verify retained Module handles discover new public paths
+without reacquisition, and verify host-top-level publication, rejection inside script-invoked host callbacks, sequential
 update ordering and no script polling/resumption while committing. Queue external
 completion notices until publication finishes. Inject pre-commit failures and verify
 current targets, source associations and static state remain unchanged. Concurrent
@@ -816,8 +838,8 @@ Wrong trait identities, foreign runtimes and forged tables must fail.
 
 For source inspection, use several successful batches and a failed candidate. Check
 full function text for current ordinary callable selection, explicit historical
-Program snapshots, retained closure/Future bodies and observed suspended frames,
-including an unchanged function reused in a newer Program. Distinguish
+source/version snapshots, retained closure/Future bodies and observed suspended frames,
+including an unchanged function reused in a newer internal program generation. Distinguish
 program generation from last source-change provenance. Cover closure/generic origins,
 interface implementation versus trait declaration, CRLF/Unicode ranges, stripped debug
 with separately retained source, missing/mismatched source packages and native targets.

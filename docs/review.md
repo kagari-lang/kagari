@@ -13,9 +13,14 @@ status and activation belong to the [roadmap](implementation-roadmap.md).
 Update direction changed after the historical reviews below: the
 [confirmed update design](update-model-design.md#calls-retained-objects-and-new-trait-implementations)
 uses host-top-level serialized publication, retained computation bodies and current
-implementation selection on subsequent ordinary calls. Historical pinned-dependency
-observations remain evidence of the current implementation, not a requirement to
-preserve that dispatch policy in UP. Reconcile affected optimization/native findings
+implementation selection on subsequent ordinary calls. Ordinary Program/Module
+handles query the latest published contents within the same installation; existing
+function handles call the latest implementation without reacquisition or rebinding.
+These confirmed public semantics are not implemented by the current pinned runtime;
+internal computation retention and explicit version-specific source/debug inspection
+are distinct. Historical pinned-dependency observations remain evidence of the
+current implementation, not a requirement to preserve that dispatch policy in UP.
+Reconcile affected optimization/native findings
 with the migration before implementation; type, root and executable lifetime safety
 remain required.
 
@@ -35,7 +40,8 @@ remain required.
   payload-independent version identity are implemented; bounded retention decisions
   and evidence are recorded below.
 - [Host Program and module lookup](#host-program-and-module-lookup): distinguish
-  installed programs from module handles and unify relative public-path binding.
+  installed programs from module handles and unify relative public-path binding
+  against the same installation's latest published contents.
 - [Native expansion gates](#native-expansion-gates): requirements for future native
   coverage, not defects caused by the intentionally limited backend.
 - Historical timings, allocation data and reproduction details are retained under
@@ -988,10 +994,12 @@ The [Host Program/Module execution plan](host-api-refactor.md) owns HM00-HM04:
 installed Program/module separation, relative public lookup, checked type exports
 and reload compatibility. Implementation is unstarted; reuse the completed
 typed-call/object facade and its safety boundaries. The current implementation is
-version-pinned. On 2026-10-23 the user confirmed a different target: stable ordinary
-callable identities selecting current implementations. The [update model](update-model-design.md)
-owns that UP migration; HM00 must resolve the identity/lifetime handoff, without
-adding full dispatch migration to HM01-HM04. Cross-installation repair linking
+version-pinned. On 2026-10-23 the user confirmed a different target: ordinary
+Program/Module handles always query the latest published contents within the same
+installation, and existing function handles call the latest implementation without
+reacquisition or rebinding. The [update model](update-model-design.md) owns that UP
+migration; HM00 must resolve the identity/lifetime handoff, without adding full
+dispatch migration to HM01-HM04. Cross-installation repair linking
 below remains separate. Existing specifications stay truthful until migration.
 
 ### Current behavior and ownership mismatch
@@ -1025,13 +1033,23 @@ The binding rules also differ:
 ### Proposed lookup contract
 
 The user confirmed the target names on 2026-10-23: `PreparedProgram` for the
-preparation product, `Program` for one installed program version and `Module` for
-one module in that version. Program and Module may remain shared immutable
-version-specific metadata views. This does not pin ordinary call bindings to a
-body: in the confirmed target they identify a stable declaration in one installation
-and invoke its current implementation, without host rebinding. HM00 gates exact
-handles, old-view binding/admission, signatures, lifetimes and the UP handoff;
-the current runtime does not already implement that distinction. Proposed usage:
+preparation product, `Program` for one installed program and `Module` for one module
+within that installation. Ordinary Program/Module handles are live lookup handles,
+not immutable public version views: every query reads the installation's latest
+published contents, including queries through handles acquired before an update.
+Ordinary function handles identify stable declarations in that same installation
+and call the latest implementation without reacquisition or rebinding. These public
+semantics are confirmed, not an open HM00 decision. Update/reload return unit
+success through the appropriate existing Result error family, not replacement
+handles. Runtime owns installations; dropping cloneable Program/Module handles
+does not unload programs, cancel tasks or reset state. Runtime shutdown still ends
+execution/object-access authority. Binding resolves a path once to a stable
+declaration, not a string to resolve again on every call. Public object lookup is
+limited to structs, re-exports and supported closed struct aliases; open generics
+retain the existing advanced explicit-argument route, with no type-expression
+parser or new runtime specialization. HM00/UP still own handle representation,
+remaining signatures, internal lifetimes and sequencing, not these public policies.
+The current pinned runtime does not implement this target. Illustrative usage:
 
 ```rust,ignore
 let program: Program = runtime.load_program(&prepared, Default::default())?;
@@ -1046,9 +1064,11 @@ let user_type = runtime.object_type(&users, "User")?;
 // Equivalent type lookup from the root:
 let same_user_type = runtime.object_type(&root, "users::User")?;
 
-let next = runtime.reload_program(&program, &replacement, Default::default())?;
-// Confirmed UP target, not current pinned behavior: no rebind required.
-let user = runtime.call(&find_user, (42,))?; // Current implementation.
+runtime.reload_program(&program, &replacement, Default::default())?;
+// Confirmed target, not current pinned behavior: reuse the existing handles.
+let current_users = program.module("users")?; // Latest published contents.
+let current_profiles = users.module("profiles")?; // Existing Module is live too.
+let user = runtime.call(&find_user, (42,))?; // Latest implementation; no rebind.
 ```
 
 Program lookup starts at its root; module lookup and function/type binding start
@@ -1063,13 +1083,18 @@ rather than scanning all modules on each lookup or adding a second name resolver
 Paths describe public namespaces, not physical files or concatenated canonical
 module identities: aliases and re-exports can lead to the same declaration through
 different paths. Lookup must preserve visibility and cannot expose a private
-module merely because one public item is re-exported. Lookup reads version-specific
-metadata and preserves installation/type authority; it does not load code, execute
-script or perform new generic specialization. Callable identity is distinct from
-selected body/resume lifetime, native-product validity and type/layout retention.
-Repeated ordinary calls reuse checked declaration bindings; implementing their
-current-code selection belongs to UP, not the namespace resolver. Do not create
-parallel public legacy-pinned/current-code entrypoints. No speedup is claimed.
+module merely because one public item is re-exported. Ordinary lookup reads the
+latest published namespace and metadata in the handle's installation and preserves
+installation/type authority; it does not load code, execute script or perform new
+generic specialization. Retaining a Program/Module handle must not freeze lookup
+at an older publication or require reacquisition to observe an update. Explicit
+version-specific source/debug inspection is separate from ordinary live lookup;
+it may identify an older version without making ordinary handles version views.
+Callable identity is likewise distinct from internal selected body/resume/capture
+retention, native-product validity and type/layout retention. Repeated ordinary
+calls reuse checked declaration bindings; implementing their current-code selection
+belongs to UP, not the namespace resolver. Do not create parallel public
+legacy-pinned/current-code lookup or call entrypoints. No speedup is claimed.
 
 The confirmed target permits publication only at a single-threaded Actor-style
 Runtime host top-level boundary: no synchronous script stack is executing and a
@@ -1086,8 +1111,12 @@ These are UP requirements, not claims about the current pinned runtime.
 
 When activated, validate direct versus nested relative lookup, module aliases and
 function/type re-exports, missing/private paths, foreign-runtime rejection and
-metadata/type authority across reload. HM00 must identify which pinned tests cover
-the pre-UP implementation and hand current-call acceptance to UP; retaining an old
+metadata/type authority across reload. Cover pre-update Program/Module handles
+querying the latest published contents in the same installation and pre-update
+function handles calling the latest implementation without reacquisition/rebinding;
+keep explicit version-specific source/debug inspection and retained computation
+bodies distinct. HM00 must identify which pinned tests cover the pre-UP
+implementation and hand live-lookup/current-call acceptance to UP; retaining an old
 computation must not become a permanent requirement to pin its callees. Reuse source
 and source-free artifact contract owners; any export-schema change must preserve
 independent verification. Review existing

@@ -9,11 +9,17 @@ Writing this plan does not authorize implementation, commits or publication.
 
 This replaces the former broad HA00-HA05 proposal in this file. On 2026-10-23 the
 user confirmed ordinary calls through stable callable identities to current code,
-replacing the former pinned-dependency target. This is a target design, not current
-runtime behavior. The [update model](update-model-design.md) owns the UP dispatch
-migration; HM00 must settle its identity/lifetime handoff without expanding
-HM01-HM04 beyond namespace/type-path work. Remaining preparation/tooling proposals
-are retained under [Deferred work](#deferred-work), not as a second phase queue.
+replacing the former pinned-dependency target, and confirmed that ordinary Program
+and Module handles always query the latest published contents of their own
+installation. Neither lookup nor ordinary invocation requires reacquiring these
+handles or rebinding functions after update. This supersedes this plan's former
+immutable version-view public model. It is a target design, not current runtime
+behavior. The [update model](update-model-design.md) owns the UP dispatch migration;
+HM00 must settle representation and the identity/lifetime sequencing handoff, not
+reopen these public semantics or expand HM01-HM04 beyond namespace/type-path work.
+
+Remaining preparation/tooling proposals are retained under
+[Deferred work](#deferred-work), not as a second phase queue.
 Existing specifications describe the pinned implementation and remain authoritative
 until migration updates the affected contracts.
 
@@ -27,17 +33,22 @@ registration system or independently maintained progress document is required.
 ## Outcome and finite scope
 
 A host loads a complete Program, obtains module handles through public paths,
-and binds functions and object types relative to the supplied module. Program and
-Module may remain immutable version-specific metadata views. An ordinary callable
-binding instead represents a stable declaration in one installation and, in the
-confirmed target, selects its current implementation without host rebinding.
-Returning a new Program view after publication does not require replacing ordinary
-function handles. HM00 gates the exact representation and transition to UP; the
-current runtime does not yet provide this dispatch contract.
+and binds functions and object types relative to the supplied module. Ordinary
+Program and Module handles identify a stable installation and a member within it;
+every query uses that installation's latest published contents. An ordinary callable
+binding represents a stable declaration in that installation and selects its latest
+implementation on invocation. Update/reload publishes to the same installation;
+existing Program, Module and function handles remain usable without reacquisition
+or rebinding. Internal immutable versions and retained computation bodies are not
+ordinary public metadata snapshots. HM00 gates representation and the transition to
+UP, not these confirmed semantics; the current runtime does not yet provide this
+complete contract.
 
 Required outcomes:
 
-- Separate prepared code, an installed Program version and an individual module.
+- Separate the prepared product, a stable installed Program and a live module handle.
+- Make ordinary Program/Module queries use their installation's latest published
+  contents; reserve exact-version inspection for explicit UP/debug APIs.
 - Unify public module/function/object-type paths, including aliases and re-exports.
 - Carry checked type export facts through source-free artifacts and verification.
 - Include type paths in staged reload compatibility before publishing candidates.
@@ -49,8 +60,12 @@ Non-goals for HM01-HM04: the full current-implementation dispatch migration,
 cross-installation repair-program linking, new generic specialization at runtime,
 arbitrary type reflection, R13 code/type retention separation, SA21 call optimization,
 artifact pruning, new unload semantics, compiler preparation redesign and native
-coverage expansion. HM00's UP handoff is required design work, not authorization
-to implement these mechanisms or a concurrent publication system in HM phases.
+coverage expansion. The [multi-Runtime sharing plan](multi-runtime-sharing-plan.md)
+separately owns shared frozen products, identity-admission copying and per-player
+installation costs; HM00/MS00 must coordinate overlapping identity owners without
+absorbing that migration into HM. HM00's UP handoff is required design work, not
+authorization to implement these mechanisms or a concurrent publication system in
+HM phases.
 
 ## Evidence and ownership inventory
 
@@ -59,8 +74,8 @@ measurement was run for this plan.
 
 | Owner | Current evidence | Required change |
 | --- | --- | --- |
-| [SDK runtime](../crates/kagari/src/runtime.rs) | `load_program` and `reload_program` return `LoadedModule`; reload accepts a module although it replaces a Program | Return/accept a dedicated installed Program handle |
-| [Runtime module ownership](../crates/kagari-runtime/src/module.rs) | `LoadedModule` holds shared `ProgramDescriptor` plus `ModuleRef` | Reuse that owner; distinguish Program and member capabilities |
+| [SDK runtime](../crates/kagari/src/runtime.rs) | `load_program` and `reload_program` return `LoadedModule`; reload accepts a module although it replaces a Program | Load returns Program; reload targets its stable installation without requiring a replacement handle |
+| [Runtime module ownership](../crates/kagari-runtime/src/module.rs) | `LoadedModule` holds shared `ProgramDescriptor` plus `ModuleRef` | Review owner representation for live Program/Module capabilities; distinguish internal versions from public handles |
 | [Runtime exports](../crates/kagari-runtime/src/module/exports.rs) | Function paths always start at Program root, even on a child handle | Make module binding relative; retain explicit Program-root entry execution |
 | [Object binding](../crates/kagari-runtime/src/native/objects/cache.rs) | `bind_type` constructs a struct declaration path from the supplied module plus one name | Consume checked exported type targets, then reuse layout admission/cache |
 | [HIR exports](../crates/kagari-hir/src/program/exports.rs) | Only public module edges and concrete script-function leaves are collected | Collect the selected public type/alias facts from existing checked resolution |
@@ -78,30 +93,41 @@ to move source resolution into runtime or introduce another namespace cache.
 ### Program and module responsibilities
 
 The user confirmed `PreparedProgram` -> `Program` -> `Module` naming on 2026-10-23.
-`Program` and `Module` are shared handles, not copies of executable code or business
-state. They may select a definite installation/version for immutable metadata
-lookup without forcing callable bindings to retain that version's implementation.
-Renaming alone does not implement stable callable dispatch. Current implementation
-names in the evidence inventory remain unchanged until HM02.
+`Program` and `Module` are shared live handles, not copies of executable code,
+business state or public immutable metadata snapshots. Each query reads the latest
+published contents of the handle's own installation, never a different installation
+with the same name. Existing handles observe successful publication without being
+reacquired. Internal immutable versions may support checked lookup and execution,
+but exact-version inspection requires an explicit UP/debug API, not an ordinary
+Program/Module handle. Renaming alone implements neither live lookup nor stable
+callable dispatch. Current implementation names in the evidence inventory remain
+unchanged until HM02.
 
 | Object | Meaning | Lifetime and authority |
 | --- | --- | --- |
 | `PreparedProgram` | Verified preparation product | Keep its name and current preparation/thread-transfer rules |
-| `Program` | One installed Program version in a Runtime | Immutable metadata view sharing the installation owner; not itself a mutable code selector |
-| `Module` | One module in that version | Shares the same metadata view plus a verified member identity |
-| Ordinary function/method binding (target) | Checked stable declaration in one installation | Selects current implementation on invocation; retains runtime/contract authority, not an old body merely because lookup used an old view |
-| Selected computation, type/layout and native evidence | Distinct retained execution or validation products | Body/resume/capture lifetime, type authority and native validity are separate from ordinary callable identity; exact handles are gated by HM00 |
+| `Program` | One stable installation in a Runtime | Queries that installation's latest published contents; remains usable across compatible update/reload |
+| `Module` | One checked module identity in that installation | Shares the installation owner; queries its latest published contents without reacquisition |
+| Ordinary function/method binding (target) | Checked stable declaration in one installation | Selects the latest implementation on invocation without rebinding; retains runtime/contract authority, not the body present when bound |
+| Internal immutable version | Checked metadata/code for a concrete publication | Supports internal validation and retained execution; not the ordinary public Program/Module model |
+| Selected computation, type/layout and native evidence | Distinct retained execution or validation products | Body/resume/capture lifetime, type authority and native validity are separate from live lookup and ordinary callable identity; representation is gated by HM00 |
+| Explicit exact-version inspection (UP/debug) | A deliberately selected historical version or observed computation target | Separate diagnostic authority and retention; an ordinary Program/Module is not an exact-version snapshot |
 
-`load_program` returns `Program`. `reload_program` accepts the previous
-`Program` and returns a new one after ordinary staged validation/publication.
-A child module must not be accepted accidentally as a whole-program reload target.
+`load_program` returns `Program`. `reload_program` accepts that stable Program
+installation as its target and publishes the validated replacement there; it does
+not require a replacement Program handle. UP's source update targets the same
+stable installation. The confirmed success result for both operations is `()`
+(`Result<(), E>` using the appropriate existing error family), not a replacement
+handle or mandatory update report. A child module must not be accepted
+accidentally as a whole-program reload target.
 Keep compiled identities distinct from optional installation display labels;
 rename misleading option fields only where their Program responsibility requires
 it, with direct consumer migration rather than compatibility fields.
 
 Program exposes `root()` and `module(path)`; Module exposes `module(path)`.
 `root()` is the explicit zero-segment operation; empty strings are not alternate
-root syntax. `module(path)` is fallible public lookup, not code acquisition.
+root syntax. `module(path)` is fallible public lookup in the latest published
+contents of the supplying installation, not code acquisition or version selection.
 Function/type binding continues through Runtime with a `Module`, not a new
 polymorphic owner trait or duplicate Program-specific binding methods.
 
@@ -119,32 +145,45 @@ let user_type = runtime.object_type(&users, "User")?;
 let same_type = runtime.object_type(&root, "users::User")?;
 let user = runtime.call(&find, (42,))?;
 
-let next = runtime.reload_program(&program, &replacement, Default::default())?;
-let new_users = next.module("users")?; // Metadata for the published version.
-// Confirmed UP target, not implemented by the current pinned runtime:
-let updated_user = runtime.call(&find, (42,))?; // Current body; no rebinding.
+runtime.reload_program(&program, &replacement, Default::default())?;
+// Confirmed target, not implemented by the current pinned runtime:
+// Reuse the original handles; both queries read the latest published contents.
+let profiles_after_update = users.module("profiles")?;
+let same_profiles_after_update = program.module("users::profiles")?;
+let updated_user = runtime.call(&find, (42,))?; // Latest body; no rebinding.
 ```
 
-HM00 must distinguish stable callable identity, version-specific metadata, selected
-body/resume lifetime, type/layout authority and native-product validity. The current
-owner model uses explicit version leases for prepared functions, types, active
-calls and native products; descriptor sharing alone is not an execution lease.
+HM00 must choose a representation separating stable installation/module/callable
+identities and live public lookup from internal immutable versions, selected
+body/resume/capture lifetime, type/layout authority and native-product validity.
+The current owner model uses explicit version leases for prepared functions, types,
+active calls and native products; descriptor sharing alone is not an execution lease.
 Do not assume these leases already implement the target or preserve their coupling
 as a final requirement. Pure lookup reads checked metadata; binding/execution must
 still validate runtime/installation identity, generations where applicable, type
-contracts and admission. An old view must not resurrect a retired installation or
-admit stale native code. Dropping a Program does not cancel work.
+contracts and admission. A retained live handle must not resurrect a retired
+installation or admit stale native code. Runtime owns the installation; Program
+and Module are cloneable access handles. Dropping these handles does not unload
+the installation, cancel tasks or clear static state. Independently retained
+callable handles remain usable while the installation is live. Runtime close/drop
+ends execution and runtime-object access authority even if handles remain; exact
+metadata retention does not restore that authority. Explicit unload is separate
+work, not an implicit last-handle-drop operation.
 
-Before HM01, record the exact handle/lifetime choices, treatment of binding through
-old views and the UP migration owner/checkpoint. If the namespace work cannot be
-separated safely, record a sequencing dependency on UP rather than silently adding
-dispatch implementation to HM. Use one ordinary public binding surface, not parallel
+Before HM01, record the exact handle/lifetime representation, admission for retained
+live handles and the UP migration owner/checkpoint. The latest-published public
+lookup and no-rebinding call semantics are settled, not HM00 options. If live lookup
+or binding cannot be separated safely from UP, record a sequencing dependency
+rather than silently adding dispatch implementation to HM or shipping immutable
+public views as the target. Use one ordinary public binding surface, not parallel
 legacy-pinned and current-code entrypoints. No new Send/Sync promise is implied.
 
 ### Relative paths and visibility
 
 - Program lookup starts at its root; Module lookup starts at the supplied module.
-  Sync and async function binding use that same start, with no fallback to root.
+  Both query the latest published contents of their own installation, including
+  through handles acquired before update. Sync and async function binding use that
+  same start, with no fallback to root.
 - Paths are nonempty public name segments separated by `::`, bounded by the
   existing path limit. Reject empty components, leading/trailing separators and
   unsupported syntax. Do not introduce `crate`/`self`/`super` navigation, filesystem
@@ -157,9 +196,13 @@ legacy-pinned and current-code entrypoints. No new Send/Sync promise is implied.
 - A public item re-export from a private module grants only the item path. For
   `pub use internal::User as Player`, `Player` may bind while `internal` remains
   inaccessible through public module lookup.
-- Function paths identify checked declarations in the supplying installation;
-  metadata version and callable limits remain explicit. Target ordinary invocation
-  uses the current implementation, not the lookup view's body. Associated methods
+- Function paths identify checked declarations in the supplying installation's
+  latest published namespace. Target ordinary invocation uses the latest
+  implementation, not the body present at binding time. Binding resolves the path
+  once to a stable declaration/application identity; invocation does not resolve
+  that original string again or silently retarget to another declaration through
+  a changed alias. Existing callable signatures and nominal type identities remain
+  fixed under compatible publication. Associated methods
   and explicit declaration/application binding remain distinct checked capabilities,
   not fallback searches or alternate legacy dispatch surfaces.
 - `members()`/slot access remain internal or explicitly advanced facilities where
@@ -181,7 +224,11 @@ Required public object paths include directly exported script structs, renamed
 including closed generic applications when existing executable layout evidence
 supports them. Keep the SDK `object_type` zero-explicit-argument interface; preserve
 the core binder's existing explicit `TypeArgument` route for generic declarations.
-No new host-side type-expression parser or specialization engine is included.
+This finite scope is confirmed: ordinary public structs, renamed exports and
+supported closed struct aliases use `object_type`; open generic declarations keep
+the existing advanced explicit-type-argument route. Strings such as
+`Container<Vec<User>>` are not parsed as type expressions. No new host-side
+type-expression parser or specialization engine is included.
 
 HM00 must inspect the actual checked alias representation and freeze the smallest
 portable record that retains the canonical target, applied arguments and any
@@ -189,9 +236,9 @@ necessary binder/visibility evidence. A simple declaration ID is sufficient for 
 renamed declaration, not for an alias applying type arguments. Normalize using
 existing checked type semantics; runtime must not expand syntax or infer types.
 
-Open generic alias application is deferred unless already representable through
-the existing checked application path without new semantics; HM00 must state its
-exact support/rejection boundary. Do not silently omit a required closed alias.
+New open-generic-alias application support is deferred. HM00 inventories existing
+advanced application support and records precise rejection diagnostics, without
+expanding the confirmed public scope or omitting a required closed alias.
 Non-object aliases and enum/trait/scalar/opaque exports must not become ObjectType
 handles. Their valid source declarations must still compile; this plan does not
 require a general host type-reflection API. Record enough classification to reject
@@ -228,8 +275,13 @@ The same public object path must preserve its normalized nominal target and appl
 type contract. An equivalent alias spelling may change without changing that
 contract; redirecting the path to a different nominal type is incompatible. Keep
 existing layout/member/static compatibility validation and bounded cycle handling.
-Failed or incompatible publication leaves the old published state intact; retain
-applicable stale-candidate validation without requiring concurrent publication.
+Failed or incompatible publication leaves the previous published state intact,
+so existing Program/Module queries and ordinary calls remain unchanged. Successful
+publication makes the latest contents visible through those same handles and the
+latest implementations callable through existing function bindings. These are
+target semantics, not claims about the current runtime. Retain applicable internal
+stale-candidate validation without making public handles version-specific or
+requiring concurrent publication.
 Neither lookup nor publication executes script/code initialization or host handlers.
 
 `ProgramEntry::Main` stays the separate root-only capability, including a private
@@ -244,8 +296,12 @@ use pinned versions/dependencies. HM namespace changes must not claim to have
 migrated this behavior. Until UP changes the relevant paths and specifications,
 existing pinned tests remain regression evidence, not the final dispatch target.
 
-Confirmed target, owned by UP:
+Confirmed target, coordinated through HM00; UP owns dispatch/publication migration:
 
+- Ordinary Program and Module handles always query the latest published contents
+  of their own installation. Update/reload targets that stable installation, not
+  a public version view. No Program/Module reacquisition is needed; exact-version
+  inspection is a separate explicit UP/debug capability.
 - Runtime publication is serialized at a single-threaded Actor-style host top-level
   boundary, with no synchronous script stack executing and no publication from a
   reentrant host callback. Async tasks may be suspended; no concurrent publication
@@ -260,10 +316,13 @@ Confirmed target, owned by UP:
   facts do not pin method bodies. Ordinary trait method calls select the current
   implementation within the unchanged checked relationship.
 
-For example, a suspended v1 handler resumes its v1 state machine after publication
-of v2, but its next ordinary `find_user` call uses v2. A previously bound host
-`find_user` handle also uses v2. Keeping the old handler's executable state safe
-is different from keeping every callee at v1.
+For example, after publication of v2, the original `program` and `users` handles
+query v2's published contents and a previously bound host `find_user` handle calls
+v2 without reacquisition or rebinding. A suspended v1 handler still resumes its v1
+state machine, but its next ordinary `find_user` call uses v2. Keeping that handler's
+executable state safe is different from freezing public lookup or every callee at
+v1. Inspecting the handler's v1 body requires explicit selected-target evidence in
+UP/debug APIs, not treating `program` or `users` as historical snapshots.
 
 Preserve persistent static state, outer-tuple arguments, preflight before effects,
 rooted outputs, runtime/type/borrow checks, cancellation, cleanup and once-only
@@ -288,9 +347,10 @@ Reviewed on 2026-10-23:
   class initialization, mutable module access or JVM concurrency into Kagari.
 
 The existing ProgramDescriptor and verified namespace graph supply the namespace
-foundation; current prepared bindings are pinned implementation evidence, not a
-ready-made stable-callable dispatch mechanism. Extend the namespace owners instead
-of inventing a loader hierarchy, global name cache or parallel reflection subsystem.
+foundation; current descriptors and prepared bindings are implementation evidence,
+not ready-made live Program/Module handles or a stable-callable dispatch mechanism.
+Extend the namespace owners instead of inventing a loader hierarchy, global name
+cache or parallel reflection subsystem.
 Dispatch mechanism research and migration belong to UP, with HM00 recording the
 handoff. No speedup is claimed; new persistent caches require concrete justification.
 
@@ -307,24 +367,30 @@ repair it before proceeding; do not repeatedly rerun an unchanged known failure.
 
 - Audit current load/reload, entry/native consumers, retained handles, alias facts
   and executable layout availability against the current HEAD.
-- Freeze the distinction between stable installation/declaration callable identity,
-  immutable version views, selected body/resume/capture lifetime, type/layout
-  identity and native validity. Audit ordinary functions, methods/trait calls,
-  prepared calls/Futures and old-view binding; do not infer support from naming.
+- Decide representation for the confirmed live Program/Module and stable callable
+  identities, distinct from internal immutable versions, selected body/resume/capture
+  lifetime, type/layout identity and native validity. Audit ordinary functions,
+  methods/trait calls, prepared calls/Futures and binding through retained live
+  handles; do not infer support from naming or reopen the confirmed public semantics.
 - Resolve installed handle retention/admission, public versus advanced module access,
-  supported alias/application matrix, exact signatures and diagnostic mapping.
+  supported alias/application evidence, exact signatures and diagnostic mapping.
+  Preserve confirmed unit-success update/reload results, Runtime-owned installations
+  and non-unloading Program/Module Drop; these are not open policy decisions.
 - Record the UP dispatch/publication migration checkpoint and ordering dependency,
   including which current pinned regressions remain valid before that transition.
-  Do not require host rebinding as the final model or add dual public entrypoints.
+  Preserve the confirmed live-handle model across the implementation handoff.
+  Do not require Program/Module reacquisition or function
+  rebinding as the final model, or add dual public entrypoints.
 - Select existing semantic test owners and concrete cases. Update this document
   with resolved representation and handoff decisions before HM01; full dispatch
   migration stays outside HM01-HM04.
 
-Acceptance: no unresolved design question affecting type authority, runtime
-retention, callable-versus-version identity or closed-alias support; an explicit
-UP handoff, finite consumer/validation inventory and no implementation claim from
-documentation alone. If separation requires UP first, record that gate, not a
-hidden expansion of HM.
+Acceptance: no unresolved representation question affecting type authority, runtime
+retention, live installation/module/callable identity versus internal versions, or
+closed-alias support; an explicit UP handoff, finite consumer/validation inventory
+and no implementation claim from documentation alone. Latest-published public
+lookup and invocation without reacquisition/rebinding remain confirmed requirements.
+If separation requires UP first, record that gate, not a hidden expansion of HM.
 
 ### HM01 — Checked type exports through artifacts and reload
 
@@ -343,30 +409,36 @@ Existing function exports/private main behavior remains unchanged in this phase.
 
 ### HM02 — Installed Program and module capabilities
 
-- Introduce `Program` over the existing owner and rename the current runtime
-  `LoadedModule` handle to `Module`, without compatibility aliases or implicit
-  conversion/Deref from Program to Module. Make load/reload and Program entry
-  operations explicitly Program-scoped, migrating core/SDK/backend/native/CLI
-  callers as affected.
+- Introduce stable installed `Program` and live `Module` handles using HM00's
+  reviewed ownership representation; replace the current `LoadedModule` public
+  handle without compatibility aliases or implicit conversion/Deref from Program
+  to Module. Load returns Program; update/reload targets its stable installation
+  without requiring a replacement handle. Make Program entry operations explicitly
+  Program-scoped, migrating core/SDK/backend/native/CLI callers as affected.
 - Review public names and import collisions at their actual owners. Use explicit
   module imports or meaningful aliases; do not rename unrelated HIR/MIR/bytecode
   models or add forwarding types solely to obtain the shorter host-facing names.
 - Preserve one installation owner, static storage, registry identity and required
-  safety leases under the HM00/UP handoff. Do not turn metadata snapshots into a
-  permanent pinned-dispatch requirement. Add `root()`; keep slot APIs at their
-  reviewed responsibility.
+  safety leases under the HM00/UP handoff. Ordinary Program/Module queries must
+  read that installation's latest published contents; do not expose internal
+  immutable versions as ordinary handles. Honor any UP prerequisite recorded by
+  HM00 rather than substitute snapshot semantics. Add `root()`; keep slot APIs at
+  their reviewed responsibility.
 - Update exact re-export whitelist entries only for justified public facades.
 
-Acceptance: load/reload selects complete Programs, member views share the same
-installation, foreign-runtime operations reject and descriptor-only retention
-cannot revive admission. Selected bodies, types and native products retain their
-required lifetimes. Before UP migration, existing pinned behavior is regression
-coverage only; after migration, use UP's current-call contract without requiring
-rebinding. Program main/native entry behavior remains root-scoped.
+Acceptance: load returns a complete installed Program; reload publishes to that
+same installation. Existing Program/Module handles query its latest published
+contents without reacquisition. Member handles share that installation; operations
+with foreign-runtime handles reject and descriptor-only retention cannot revive admission.
+Selected bodies, types and native products retain their required lifetimes. Before
+UP dispatch migration, pinned-call behavior is regression coverage only; after
+migration, existing function handles use the latest implementation without rebinding.
+Program main/native entry behavior remains root-scoped.
 
 ### HM03 — Relative public lookup and binding
 
-- Add Program/Module `module(path)` through verified public edges.
+- Add Program/Module `module(path)` through the supplying installation's latest
+  published verified public edges, including when the handle predates publication.
 - Replace root-reset function lookup with module-relative lookup for sync and
   async binding. Resolve object paths through HM01 type evidence and reuse current
   type/layout preparation. Preserve explicit declaration/application APIs where
@@ -375,24 +447,27 @@ rebinding. Program main/native entry behavior remains root-scoped.
   and any temporary private migration adapter by the end of this checkpoint.
 
 Acceptance: nested/aliased module lookup and root-versus-member function/type paths
-agree on checked installation/declaration identity within the metadata view;
-lookup version is not a promise to pin ordinary call bodies. Private modules do
+agree on checked installation/declaration identity in the latest published contents,
+including through retained Program/Module handles after update. Binding does not
+pin ordinary call bodies to the publication present at lookup. Private modules do
 not leak through item exports; closed aliases bind only supported layouts;
-malformed/missing/unsupported paths
-fail without script effects. Existing private main access remains separate.
+malformed/missing/unsupported paths fail without script effects. Existing private
+main access remains separate.
 
 ### HM04 — Integration, contract publication and handoff
 
 - Run the selected source/source-free host scenario with object access, sync/async
   bindings, compatible and rejected reload, persistent static state and retained
-  old work. Exercise cleanup after final actual owners release, without claiming
-  the separately queued R13 split is implemented.
+  old work. Reuse original Program/Module handles for latest-published queries;
+  coordinate existing function-handle latest-call evidence with the UP checkpoint.
+  Exercise cleanup after final actual owners release, without claiming the separately
+  queued R13 split is implemented.
 - Update embedding, module loading/activation, architecture and affected examples
   with the actually implemented contract. Record the UP handoff and remaining
   dispatch migration explicitly; do not claim current-code calls from namespace
-  acceptance alone or publish pinned calls as the final target. Remove resolved
-  lookup prose from review while retaining cross-installation repair requirements
-  and unrelated findings.
+  acceptance alone or publish snapshot handles/pinned calls as the final target.
+  Remove resolved lookup prose from review while retaining cross-installation repair
+  requirements and unrelated findings.
 - Publish local results, failures and pending CI separately. Move deferred proposals
   to the roadmap, retire this completed plan and fix inbound links at completion.
 
@@ -425,10 +500,11 @@ Required coverage matrix:
 | Type authority | Direct and re-exported struct, closed alias/application, wrong kind, missing layout, forged IDs/arguments |
 | Privacy | Public leaf from private module without a public module handle or private-member access |
 | Source-free | Decoded artifact loaded without frontend dependencies, equivalent binding and corrupt-record rejection |
-| Installation | Same preparation installed independently, foreign handles rejected, no accidental extra state |
-| Reload | Equivalent aliases, incompatible nominal retargeting, failed-candidate isolation, version-specific views and static state; dispatch expectations follow the recorded HM00/UP checkpoint |
-| Lifetimes | Selected bodies/resumes/captures, type evidence and native products retain required owners; descriptor retention does not revive admission; final owner cleanup |
-| UP handoff (not HM dispatch implementation) | Track stable host bindings without rebinding, current calls from old resumes/Futures/closures and fixed trait relationships with current method bodies in UP acceptance |
+| Installation | Same preparation installed independently; live handles query only their own installation even after one is updated; foreign handles rejected; no accidental extra state |
+| Reload | Equivalent aliases, incompatible nominal retargeting, failed-candidate isolation and static state; reuse original Program/Module handles to query latest published contents after success and unchanged contents after rejection; no replacement handle required |
+| Lifetimes | Internal immutable versions, selected bodies/resumes/captures, type evidence and native products retain required owners independently of live public lookup; descriptor retention does not revive admission; final owner cleanup |
+| UP handoff (not HM dispatch implementation) | Existing function handles invoke latest code without rebinding or Program/Module reacquisition; current calls from old resumes/Futures/closures and fixed trait relationships with current method bodies; dispatch evidence follows the recorded HM00/UP checkpoint |
+| Exact-version inspection (UP/debug, not HM lookup) | Explicit historical/observed-target selection differs from live Program/Module queries and later ordinary calls; no ordinary handle is a historical snapshot |
 | Entries/backends | Private root main remains explicit; representative existing native preparation consumer still uses a Program root |
 
 Initial existing filtered commands (not a promise of coverage for newly added tests):
@@ -463,8 +539,9 @@ need content/link/diff checks, not Rust builds or Clippy.
 ## Deferred work
 
 Work beyond HM remains with its existing owners, not additional HM phases.
-Confirmed UP requirements below are deferred implementation, not undecided policy;
-HM00 must resolve the handoff and any ordering dependency.
+Confirmed live-handle and UP call requirements below are deferred implementation,
+not undecided policy; HM00 must resolve representation, the handoff and any ordering
+dependency, not reopen public semantics.
 
 - Cohesive text/file/artifact preparation and explicit tooling snapshots; avoid
   accidentally compiling editor overlays or mandatory encode/decode round trips.
@@ -473,25 +550,33 @@ HM00 must resolve the handoff and any ordering dependency.
 - [One-shot source Update batches](update-model-design.md#change-lists-and-one-shot-submission):
   the user assembles function/file replacements and submits once to Runtime, without
   begin, version numbers or body hashes. The update design owns compilation context,
-  validated all-or-nothing publication at the host top-level boundary. HM supplies
-  namespace/version views and the HM00 identity/lifetime handoff, not this batch
-  frontend, dispatch migration or incremental compilation. No concurrent publication
-  mechanism is required; publication must not execute initialization code.
+  validated all-or-nothing publication at the host top-level boundary. Update and
+  prepared reload target a stable installation; neither requires replacing its
+  Program/Module handles. HM supplies live namespace handles and the HM00
+  identity/lifetime handoff, not this batch frontend, dispatch migration or
+  incremental compilation. No concurrent publication mechanism is required;
+  publication must not execute initialization code.
   Existing signatures/type definitions and trait relationships remain frozen;
   adding a new trait does not authorize implementing it for an existing type.
 - [Exact-version function-source inspection](update-model-design.md#exact-version-function-source-inspection):
-  inspect a specific Program version or selected body/frame/task position, with
-  explicit unavailable results and independent source retention. An ordinary stable
-  callable is not itself an exact-body snapshot; UP must distinguish a query's
-  selected version from later invocations.
+  use explicit UP/debug APIs to select a historical internal version or a retained
+  body/frame/task position, with explicit unavailable results and independent source
+  retention. Ordinary Program/Module handles query latest published contents, not
+  historical snapshots, and an ordinary stable callable is not an exact-body snapshot.
+  A current-source query captures selection at query time, distinct from later
+  invocation. Exact query types and retention belong to UP; they must not restore
+  immutable version views as the ordinary public handle model.
   This requirement belongs to the update design, not HM's public-path implementation
   or a new interactive-debugger phase.
 - The confirmed [UP target](update-model-design.md) replaces pinned ordinary dispatch,
   including calls from old resumed bodies, through stable callable identity.
   Computations/Futures keep their selected state; closures keep capture-compatible
   bodies; ordinary calls inside use current implementations. Fixed type/trait
-  relationships are not fixed method bodies. HM00 resolves the boundary and ordering;
-  HM01-HM04 do not implement the full migration or preserve a second legacy surface.
+  relationships are not fixed method bodies. Existing function handles invoke latest
+  code without rebinding, just as existing Program/Module handles query latest
+  published contents without reacquisition. HM00 resolves representation and ordering,
+  not these semantics; HM01-HM04 do not implement the full migration or preserve a
+  second legacy surface.
 - Wider configuration/error/tooling cleanup: owner-scoped options, existing call
   overrides and structured stage-specific causes, without resetting nested
   protection or adding generic permission matrices. Backend fallback must remain
@@ -514,11 +599,22 @@ retain their existing review/plan owners.
 ## Resumption and progress ledger
 
 - [x] Plan authored against `67d9e36f`; scope narrowed to Program/Module/public paths.
-- [x] Confirmed current-code target recorded; current pinned implementation labeled.
-  Program/Module metadata views are distinguished from ordinary callable identity;
-  dispatch/publication migration is handed to UP, not added to HM01-HM04.
-- [ ] HM00 — Callable/version/lifetime/native/type distinctions, UP sequencing
-  handoff, alias decisions and selected test inventory.
+- [x] Confirmed live-handle/current-code target recorded on 2026-10-23; current pinned
+  implementation labeled. Ordinary Program/Module handles always query the latest
+  published contents of their own installation; existing function handles invoke
+  latest implementations without reacquisition or rebinding. Load returns Program;
+  update/reload targets the same stable installation without a replacement handle.
+- [x] Former immutable public version-view model removed from this plan. Internal
+  immutable versions and selected body/resume/capture lifetimes remain distinct;
+  exact-version inspection belongs to explicit UP/debug APIs. Dispatch/publication
+  migration remains with UP, not added to HM01-HM04; no implementation is authorized.
+- [x] Confirmed interface details: update/reload return unit success; Runtime owns
+  installations and dropping Program/Module handles does not unload/cancel/reset;
+  callable binding resolves a stable declaration once; public object lookup has a
+  finite struct/closed-alias scope without string type parsing or specialization.
+- [ ] HM00 — Live-handle/callable representation, internal version/lifetime/native/type
+  distinctions, UP sequencing and linked-design alignment, alias decisions, exact
+  API signatures and selected test inventory; confirmed public semantics stay fixed.
 - [ ] HM01 — Type export pipeline, independent validation and reload comparison.
 - [ ] HM02 — Installed Program/module capability separation and consumer migration.
 - [ ] HM03 — Relative module/function/type binding and ordinary examples.
@@ -527,9 +623,13 @@ retain their existing review/plan owners.
 No implementation, tests, build or performance acceptance is claimed at plan
 creation. No known implementation failure has been introduced. HM00 must resolve
 the explicit representation/lifetime/UP sequencing gates before implementation
-advances. Stable callable handles, old-view binding/admission and native dependency
-validity remain unresolved design choices; neither a handle rename nor this docs
-update establishes current-implementation dispatch.
+advances. The representation and admission of retained live handles, internal
+version retention, native dependency validity and UP ordering remain design choices.
+Latest-published lookup, latest ordinary calls without reacquisition/rebinding,
+unit-success update/reload, non-unloading handle Drop and the finite public object
+lookup scope are confirmed. Neither a handle rename nor this docs update
+establishes runtime support. The UP design, roadmap and review record the same
+confirmed public model; implementation and sequencing remain unstarted.
 
 For each authorized checkpoint, record changed contracts, selected tests and their
 rationale, actual results, outstanding errors with owning phase, and pending CI.
