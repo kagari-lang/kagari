@@ -22,6 +22,8 @@ status and activation belong to the [roadmap](implementation-roadmap.md).
 - [Runtime storage/parking/identity plan](runtime-lifecycle-plan.md): planned
   R19 -> R14 -> R13 version-token work, plus bounded decisions on remaining R13
   retention questions. Implementation has not started; findings remain open.
+- [Host Program and module lookup](#host-program-and-module-lookup): distinguish
+  installed programs from module handles and unify relative public-path binding.
 - [Native expansion gates](#native-expansion-gates): requirements for future native
   coverage, not defects caused by the intentionally limited backend.
 - Historical timings, allocation data and reproduction details are retained under
@@ -1030,6 +1032,169 @@ can change results or completed effects. Reconcile the intended rule with the
 collection contract and add a focused asymmetric/effect-order case before changing
 implementation or specification. This finding is source-derived, not a new executed
 reproduction; it does not activate a semantic change as part of static support.
+
+## Host Program and module lookup
+
+Recorded after AR06 at `26678b13`. This is a source-inspected API consistency
+finding and proposed direction, not authorization to implement or a finalized API.
+The queued [Host API design](host-api-refactor.md) owns preparation/loading and
+logical-entry changes; reuse the completed typed-call/object facade rather than
+creating a parallel invocation surface or execution plan.
+
+### Current behavior and ownership mismatch
+
+A project selects a package root; source acquisition discovers declared modules
+and dependencies, and preparation produces a complete Program. The host loads that
+Program once, not each source module separately. A source file defines a module;
+inline `mod` declarations introduce additional logical modules in the same file.
+See [source discovery](spec/module-loading.md#source-discovery-and-imports).
+
+[SDK load_program](../crates/kagari/src/runtime.rs) installs the whole Program but
+returns a root `LoadedModule`. Internally, [LoadedModule](../crates/kagari-runtime/src/module.rs)
+contains a shared Program descriptor and one member slot. `members()` and
+`member(slot)` produce handles into that same installation, not new installations.
+This mixes a whole-program entry handle with an individual-module handle in the
+ordinary host API.
+
+The binding rules also differ:
+
+- [Function binding](../crates/kagari-runtime/src/native/function_handle/cache.rs)
+  resolves a public path from the Program root, even if passed a dependency/member
+  handle. It supports module paths and public re-exports.
+- [Object type binding](../crates/kagari-runtime/src/native/objects/cache.rs)
+  interprets the name as one struct declaration in the supplied module. It does not
+  resolve `users::User` as a path or follow public type aliases/re-exports.
+- The [public export graph](../crates/kagari-contract/src/exports.rs) currently
+  records module and function entries, not type exports. There is no ordinary
+  public-path module lookup facade; callers should not have to enumerate `members()`
+  and compare internal identities merely to bind a type in another module.
+
+### Proposed lookup contract
+
+Distinguish an installed Program handle (provisionally `LoadedProgram`) from a
+module handle, while retaining `PreparedProgram` for the preparation product.
+Exact names, signatures and error types remain to be reviewed. Proposed usage:
+
+```rust,ignore
+let program = runtime.load_program(&prepared, Default::default())?;
+let root = program.root();
+let users = program.module("users")?;
+let profiles = users.module("profiles")?;
+// Equivalent module lookup from the program root:
+let same_profiles = program.module("users::profiles")?;
+
+let find_user = runtime.function::<(i32,), Object>(&users, "find_user")?;
+let user_type = runtime.object_type(&users, "User")?;
+// Equivalent type lookup from the root:
+let same_user_type = runtime.object_type(&root, "users::User")?;
+```
+
+Program lookup starts at its root; module lookup and function/type binding start
+at the supplied module. A simple name and a multi-segment `::` path use the same
+resolver. This deliberately replaces the current function-binding behavior that
+silently resets a member lookup to the Program root. No separate `child`/`find`/
+`resolve` aliases are needed. Enumeration remains useful for diagnostics, not a
+required business workflow.
+
+Reuse and extend the verified public namespace graph, including type exports,
+rather than scanning all modules on each lookup or adding a second name resolver.
+Paths describe public namespaces, not physical files or concatenated canonical
+module identities: aliases and re-exports can lead to the same declaration through
+different paths. Lookup must preserve visibility and cannot expose a private
+module merely because one public item is re-exported. Handles remain pinned to
+the installation/generation; lookup does not load code, execute script, introduce
+latest-version dispatch or perform new generic specialization. Repeated calls
+reuse checked bindings without repeating string lookup; no speedup is claimed.
+
+When activated, validate direct versus nested relative lookup, module aliases and
+function/type re-exports, missing/private paths, foreign-runtime rejection and
+pinned handles across reload. Reuse source and source-free artifact contract owners;
+any export-schema change must preserve independent verification. Review existing
+path-binding callers and specifications together, without compatibility aliases.
+This entry changes no implementation; focused behavior tests and performance
+measurements have not been run for the proposal.
+
+### Runtime-loaded programs referencing existing installations
+
+Related user requirement: execute newly supplied game-maintenance code against
+current player objects and game services, without reloading the game or creating a
+second copy of its state. For example, a repair function accepts the retained
+Player object, updates its level through public methods and returns. The change
+must affect the original object; calls into game services must use the existing
+installation's static cells.
+
+Temporary use is a host lifetime choice, not another executable kind. The repair
+code should be an ordinary Program with the same verification, typed calls, GC,
+cancellation and async scheduler as long-lived programs. Do not introduce a
+TemporaryProgram, separate evaluator, privileged visibility mode or duplicate
+load/call surface. One-shot repair and persistent administration tools differ in
+how long the host retains and invokes their handles.
+
+Current [loading](../crates/kagari-runtime/src/loading.rs) installs a complete
+verified Program; independently loading another closure containing the game does
+not establish shared game-instance state. The proposed missing capability is an
+explicit reference from new code to an existing installation:
+
+- Compilation consumes a versioned public contract for the referenced program,
+  rather than inferring types from heap contents. Determine the metadata needed
+  when original source is unavailable, including trait evidence and generic bodies
+  or installed specialization limits; signatures alone do not establish arbitrary
+  new generic specialization support.
+- Loading validates and binds the dependency to the selected runtime installation
+  and generation. It must not silently resolve another same-named program, copy
+  its objects or initialize another set of its statics. The new program still owns
+  its own declarations and state. Compilation references and installation bindings
+  must agree before publication or execution.
+- Reuse ordinary function/object bindings and call/call_async after loading. Access
+  remains public and checked. Execution is serialized by the existing runtime
+  driver; suspension does not freeze shared game state. Completed mutations survive
+  later traps and program retirement. Transactional repair requires an explicit
+  business transaction or validation/commit operation, not implicit rollback.
+
+As a comparative mechanism, [.NET AssemblyLoadContext shared dependencies](https://learn.microsoft.com/en-us/dotnet/core/dependency-loading/understanding-assemblyloadcontext#shared-dependencies)
+(.NET 5+/Core conceptual documentation, reviewed 2026-10-23) shares a loaded
+assembly instance rather than treating equal type names as equal instances.
+Kagari can reuse that ownership principle, not its one-version-per-name resolution
+or equal-or-higher version policy: Kagari must retain explicit generation pinning,
+checked identities, GC roots and host-boundary guarantees. Exact API and linker
+representation remain undecided; this capability is not implemented by the
+current source compilation and load_program entrypoints alone.
+
+### Reload boundary for independently loaded repair programs
+
+A repair program references the game; it does not become part of the game's own
+module/export inventory. Current [reload validation](../crates/kagari-runtime/src/reload.rs)
+compares the selected active Program with its candidate, not all code loaded in
+the Runtime. Preserve that boundary when adding installation references:
+
+```text
+Before: repair -> game v1
+Update: compare game v1 with game v2, not (game v1 + repair) with game v2
+After:  new game bindings -> game v2; retained repair bindings -> game v1
+```
+
+A later game update must not need the repair source or its function definitions.
+Injecting repair declarations into the game's own Program would instead make their
+absence relevant to its compatibility checks; that is not the proposed model.
+An ordinary Program is not automatically in the same update unit as every program
+that it references. Retaining game v1 does not waive game v2's existing signature,
+layout, export or static compatibility requirements.
+
+When repair has finished and no code-bearing references remain, its code may be
+reclaimed according to ordinary ownership. Player mutations remain. If a retained
+function, closure, Future or task still needs repair code, retain that code and its
+pinned dependencies rather than requiring the next game artifact to reproduce it
+or unloading reachable code. A callback stored in game state can therefore keep
+repair and old game code alive. Explicitly preparing/binding against game v2 is
+needed to select its updated implementations; automatic retargeting is not implied.
+
+On activation, cover shared object identity and static state, rejected dependency
+identity/version mismatches, source-free metadata limits, game reload without any
+repair declarations, suspended/retained repair across reload, escaped callbacks,
+and cleanup after final references end. Keep whole-program replacement/state
+migration and persistent REPL environments separate. This is a recorded requirement
+and proposed contract only, with no implementation authorization or executed
+behavioral acceptance for cross-installation linking.
 
 ## Artifact reachability follow-up
 
