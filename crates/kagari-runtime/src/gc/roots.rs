@@ -338,11 +338,32 @@ impl GcHeap {
     }
 
     pub fn root_execution_values(&self, values: Vec<Value>) -> Option<RootSet> {
-        self.ensure_execution_allowed().ok()?;
-        if !values.iter().all(|value| self.validate_value(value)) {
-            return None;
+        self.root_execution_values_with_poll(values, &mut || Ok(()))
+            .ok()
+    }
+
+    /// Retain only after every edge passes handle validation and the caller's
+    /// non-reentrant poll. Failure publishes no partial root set.
+    pub(crate) fn root_execution_values_with_poll(
+        &self,
+        values: Vec<Value>,
+        poll: &mut dyn FnMut() -> Result<(), RuntimeError>,
+    ) -> Result<RootSet, RuntimeError> {
+        self.ensure_execution_allowed()?;
+        poll()?;
+        for value in &values {
+            poll()?;
+            if !self.validate_value(value) {
+                return Err(RuntimeError::module_validation(
+                    "invalid execution root value",
+                ));
+            }
         }
-        Some(self.roots.try_borrow_mut().ok()?.insert(values))
+        Ok(self
+            .roots
+            .try_borrow_mut()
+            .map_err(|_| RuntimeError::module_validation("execution roots are borrowed"))?
+            .insert(values))
     }
 
     pub(super) fn root_snapshots(&self) -> Option<Vec<Value>> {

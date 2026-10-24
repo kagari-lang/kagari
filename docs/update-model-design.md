@@ -9,13 +9,16 @@ The joint HM00/UP00 design checkpoint was committed as `bbfc0af6`.
 [UP01](#up01-implementation-and-integration) is locally complete as `cd79fc80`;
 [UP02](#up02-implementation-and-integration) as `4d9f2afa`, with no carried errors.
 HM03 relative binding is locally complete at `044b8e57`; the docs-only
-[HM04 handoff](#hm04-documentation-and-integration-handoff) publishes its durable
-contracts and retires the HM plan. Historical HM/alias ledgers remain in Git;
+[HM04 handoff](#hm04-documentation-and-integration-handoff), committed as `89845df8`,
+publishes its durable contracts and retires the HM plan. Historical HM/alias ledgers
+remain in Git;
 [transparent alias semantics](spec/syntax.md#transparent-type-aliases) and
 [installed host paths](spec/embedding-api.md#installed-programs-and-public-paths)
-are specification-owned. UP03/UP04 and MS remain unstarted, and full CI remains
-unrun. Default-foundation `Unknown` protection is a material delivery limit, not
-a promise of unrestricted body patches.
+are specification-owned. [UP03](#up03-implementation-and-integration) is locally
+complete with no carried errors; its commit is pending. UP04 is next, but its gate
+is not frozen and must wait for the UP03 commit. UP04 implementation and MS remain
+unstarted, and full CI remains unrun. Default-foundation `Unknown` protection is a
+material delivery limit, not a promise of unrestricted body patches.
 This design defines two deliberately
 different update paths: compatible code publication preserves existing contracts
 and live values, while state replacement saves an explicit data root and restores
@@ -26,9 +29,9 @@ is the continuity boundary.
 The user confirmed this split and excluded adding a new trait implementation to an
 existing concrete type during compatible reload. Arbitrary in-place object, stack
 or closure migration is out of scope. Compatible-update APIs are frozen below;
-the snapshot codec retains its UP03 gate. The compatible-update scheduling boundary
-below is confirmed. Authorization follows the recorded phase order and does not
-waive unresolved design or scope gates.
+the snapshot codec now has the approved UP03 entry gate below. The compatible-update
+scheduling boundary below is confirmed. Authorization follows the recorded phase
+order and does not waive unresolved design or scope gates.
 Existing specifications remain authoritative until implementation updates them.
 
 The user also confirmed that ordinary Program and Module handles represent stable
@@ -982,9 +985,9 @@ to bypass static typing, ABI verification or Native safety.
 ## State snapshot and schema
 
 Provide an explicit script-state codec with a host-independent data representation.
-It may use Serde internally or export a Rust DTO, but do not assume `Serialize` on
-a Rust struct automatically describes a script-owned GC graph. The format and API
-are review gates, not an imposed JSON/binary choice.
+The [approved UP03 entry gate](#up03-approved-codec-entry-gate) freezes the bounded
+tree/DTO model, existing Serde/bincode encoding and public API. `Serialize` on an
+arbitrary Rust struct does not describe a script-owned GC graph.
 
 A snapshot envelope should identify the logical state schema, schema version,
 source deployment/build for diagnostics, state owner and bounded payload. Schema
@@ -1007,10 +1010,10 @@ references as stable IDs and rebind through host policy. Persistent resources ar
 host-owned, not serialized object addresses.
 
 For unchanged schemas, restore validates the complete declared data contract. For
-changed schemas, use explicit versioned migrations or explicitly declared decode
-rules such as a default for a new field. Unknown/missing fields, changed variants
-or renamed types must not be silently guessed. A migration consumes old-schema
-data and produces data validated against the new schema; it need not load the old
+changed schemas, UP03 requires an explicit versioned migration; defaults for new
+fields are migration code, not automatic decode rules. Unknown/missing fields,
+changed variants or renamed types must not be silently guessed. A migration consumes
+old-schema data and produces data validated against the new schema; it need not load the old
 runtime ABI into the new VM. Validate business invariants and referenced IDs after
 structural decoding. Decodability alone is not business correctness.
 
@@ -1142,9 +1145,9 @@ implementations. This supersedes the earlier whole-dependency pinning direction.
 Source delivery with in-process compilation and interpreter/optional JIT execution
 is confirmed; AOT patch delivery and broader native coverage are separate work.
 
-UP00 freezes the compatible-update decisions in this document. State-replacement
-implementation gates remain explicit at UP03/UP04 entry; the following boundaries
-are the selected direction, not a claim that their codec/cutover APIs already exist:
+UP00 freezes the compatible-update decisions in this document. UP03's approved
+codec contract is implemented and locally validated; UP04's cutover entry gate
+remains open. Codec completion does not establish lifecycle/cutover acceptance:
 
 1. Audit complete descriptors for the confirmed frozen contracts, including private
    named declarations, without freezing ordinary locals or generated body shapes.
@@ -1170,9 +1173,12 @@ separate work and not a prerequisite for publishing ordinary body patches.
 The completed [alias contract](spec/syntax.md#transparent-type-aliases) and HM
 namespace work are not prerequisites to replay. After the
 [HM04 documentation handoff](#hm04-documentation-and-integration-handoff), the
-remaining authorized sequence is UP03, UP04, then UP05, with the phase-entry gates
-below unchanged. MS and cross-installation repair linking remain separate.
-The HM04 docs-only checkpoint does not authorize a commit or mark UP03/UP04 complete.
+UP03 implementation and selected local acceptance are now complete, with its commit
+pending. UP04 is next, followed by UP05; do not freeze UP04's proposed gate before
+the UP03 commit. UP04 implementation remains unstarted. MS and cross-installation
+repair linking remain separate. This documentation-only status update creates no
+new queue and authorizes no commit. UP05 lasting specification/example integration
+is still pending; retain this active plan.
 
 - [x] UP00 (design only): Re-audit compatibility descriptors and all pinned selection owners:
   direct/recursive/generic calls, host and named-function handles, trait methods,
@@ -1211,18 +1217,381 @@ The HM04 docs-only checkpoint does not authorize a commit or mark UP03/UP04 comp
   [UP02 ledger](#up02-implementation-and-integration) records closed
   reviews, fresh artifacts and final passing checks. No carried errors or pending
   local validation remain. Full CI remains unrun.
-- [ ] UP03: At phase entry freeze the codec/envelope format, exact export/restore and
-  migration-hook signatures, schema evolution rules, numeric/size/work limits and
-  alias/cycle diagnostics against existing conversion APIs; record that gate here
-  before implementation. Then implement bounded export/restore and migration.
-  UP00 settles the separate-mode boundary, not these codec implementation contracts.
-- [ ] UP04: Before implementation freeze the non-cancelling drain/admission state
-  machine, candidate resource restrictions, mailbox/routing commit API and abort/
-  timeout ownership, using UP03's codec. Implement cutover and failure handling with
-  synchronous examples and existing async task tests. These gates are not UP00-complete.
+- [x] UP03: Entry gate approved on 2026-10-24 at `89845df8`; bounded export/restore
+  and explicit host-data migration are implemented and locally complete. The
+  [UP03 ledger](#up03-implementation-and-integration) records integrated results,
+  closed bounds-review findings and final local evidence. No carried errors or
+  pending local checks remain. Commit pending; full CI remains unrun.
+- [ ] UP04: Next after the UP03 commit; its proposed gate is not frozen by this
+  checkpoint. Before implementation freeze the non-cancelling drain/admission
+  state machine, candidate resource restrictions, mailbox/routing commit API and
+  abort/timeout ownership, using UP03's codec. Implement cutover and failure handling
+  with synchronous examples and existing async task tests. These gates are not
+  UP00- or UP03-complete.
 - [ ] UP05: Finish remaining state-replacement specifications/examples, run selected
   final verification and record carried limitations. Async is already implemented;
   use its existing task/Future contracts, not placeholders or conditional acceptance.
+
+### UP03 approved codec entry gate
+
+**Status: user-approved on 2026-10-24, after HM04 commit `89845df8`; subsequently
+implemented and locally complete, commit pending.** The read-only audit used HM03
+`044b8e57`; HM04 retired its completed plan and repaired durable links. This gate
+was recorded before implementation and remains the single codec decision owner in
+the existing active plan. The [UP03 ledger](#up03-implementation-and-integration)
+records implementation/review results separately from that original design approval.
+
+#### Ownership, eligibility and existing conversion
+
+Implement one callback-free, schema-directed tree codec in `kagari-runtime`, behind
+the existing `serde` feature. Reuse locked Serde **1.0.229** and bincode **1.3.3**;
+add no dependency, default feature or ABI/artifact version bump. The SDK already
+forwards its `serde` feature. No SDK forwarding entrypoint is needed initially.
+
+Reuse checked `ConversionContext` admission, scalar conversion, immediate-child
+root snapshots, nominal Vec/enum adapters and `ObjectBuilder` construction. The
+existing conversion defaults are depth 64, 1,000,000 nodes and 16 MiB aggregate
+string bytes. Its active identity set rejects cycles but permits sibling alias
+copies; stricter snapshot rules must not change ordinary conversion semantics.
+Do not serialize `Value`, `ScriptValue`, `Object`, arbitrary Rust `Serialize`
+implementations or GC trace output. GC marking follows native/executable edges and
+deduplicates identities; it is not a serialization/access-policy walker.
+
+The explicit state root is a retained `ScriptValue`. Accept unit, bool, char,
+i8/i16/i32/i64, u8/u16/u32/u64, f32/f64, strings, tuples, installed standard nominal
+Vec, public ordinary named DTO structs and public enums with unit/positional
+payloads. Preserve checked standard Option/Result identities and explicit tags.
+Business IDs use those data types. Validate the entire declared schema, including
+empty collection element types and unselected variants: `None` does not make an
+`Option<Opaque<Resource>>` schema eligible.
+
+Reject callables/closures, interfaces/trait objects, Future/Task values, iterators,
+guards, cells, ephemeral values, host roots/paths, borrows, raw handles, Opaque and
+arbitrary native payloads. Maps/sets and other collections are deferred; applications
+explicitly project them to `Vec<EntryDto>` or another supported DTO. Do not add
+hash/equality callbacks, implicit ordering or identity reconstruction to this codec.
+Private state requires explicit application projection to public DTO fields; reuse
+normal field visibility and construction checks rather than widening access.
+
+#### Envelope, stable schema and numeric encoding
+
+Freeze this v1 framing, with a 20-byte fixed header:
+
+```text
+magic            [u8; 8] = b"KGRSTATE"
+format_version   u16 LE  = 1
+flags            u16 LE  = 0
+body_length      u64 LE
+body             exactly body_length bytes
+```
+
+Encode the body with bincode `DefaultOptions::new().with_fixint_encoding()
+.with_little_endian().reject_trailing_bytes().with_limit(admitted_body_limit)`.
+The complete envelope, including framing, must fit its byte limit. Reject unknown
+versions/flags, inconsistent lengths, truncation and trailing bytes. No compression
+or integrity digest in v1; authentication, durability, encryption and transactions
+remain host responsibilities. The state format identifier is independent of KBC
+and runtime ABI identifiers.
+
+Body fields, in order:
+
+```text
+schema_id          String
+schema_version     nonzero u32
+source_deployment  String
+state_owner        String
+state_revision     u64
+schema             complete portable DTO schema
+payload            StateValue tree
+```
+
+`SchemaVersion` is a logical ID plus `NonZeroU32`, not a runtime type or deployment
+identity. Origin/owner/revision fields are host data, not authorization. A source
+build identifier does not require loading that old executable during restoration.
+Field-type and validated-constructor implementation details belong to envelope
+owner A, subject to these frozen meanings, signatures, wire rules and bounds.
+
+The embedded schema contains a root type expression and bounded named struct/enum
+definitions, including all fields, variants, payload types and closed arguments.
+Use bounded named references for recursive schemas, not recursive expansion of
+nominal definitions. Verify every reference and closed type, argument application
+and member contract against checked declarations; reject duplicate/dangling names,
+unbound type parameters and unsupported types even in unused payload branches.
+A received schema is data to validate, never authority to install runtime types.
+
+Nominal keys use stable package/module/declaration-name components and closed
+arguments, not slots, Rust TypeId, GC identities, digests, executable generations,
+public aliases or diagnostic Display output. Preserve components explicitly. A
+standalone source's identity currently includes its source name; renaming it can
+change a DTO nominal key and requires migration, or DTO declarations can live in a
+stable registered module. Schema references identify types, not shared data objects.
+
+Freeze explicit u32 payload tags; do not derive their meaning from Rust enum order:
+
+| Tag | Payload kind | Tag | Payload kind |
+| --- | --- | --- | --- |
+| 0 | Unit | 9 | U32 |
+| 1 | Bool | 10 | U64 |
+| 2 | Char | 11 | F32Bits |
+| 3 | I8 | 12 | F64Bits |
+| 4 | I16 | 13 | String |
+| 5 | I32 | 14 | Tuple |
+| 6 | I64 | 15 | Sequence |
+| 7 | U8 | 16 | Record |
+| 8 | U16 | 17 | Enum |
+
+Records carry nominal keys and named fields; enums carry nominal keys, variant
+names and positional payloads. Tuples/sequences preserve child order. There is no
+reference/backreference payload kind. Canonicalize named schema entries and record
+fields by UTF-8 byte order; reject duplicate keys and noncanonical order on decode,
+never silently overwrite duplicate map entries. Bincode supplies fixed-width
+primitive encoding and u64 sequence/string lengths; the state reader owns admission
+of those lengths before allocation.
+
+Preserve exact numeric widths/signedness. Reject mismatched numeric tags and
+implicit narrowing, widening, integer/float conversion or string parsing. Char is
+a checked u32 Unicode scalar: reject surrogates and values above `0x10FFFF`. Floats
+use u32/u64 bit patterns, preserving signed zero, infinities and NaN payloads. No
+i128/u128 or machine-width wire types. Existing Rust isize/usize adapters still map
+to script i64/u64 and check host range when converting to Rust. Reuse existing
+scalar/type admission rather than interpreting a Value's physical carrier as its
+semantic type.
+
+#### Frozen public surface
+
+`state` owns actual public `describe`, `export` and `restore` functions delegating
+to private codec implementation. `state::{data,error,limits}` are public owner
+modules; `wire`, `migration` and `codec` are private. Do not expose duplicate
+entrypoints through `state::codec` or add forwarding re-exports.
+
+Types `SchemaVersion`, `SnapshotHeader`, `StateSchema`, `StateValue`, `StateSnapshot`
+and `MigrationContext` are publicly nameable through `state::data`. `SnapshotOptions`
+and `SnapshotLimits` belong to `state::limits`; `SnapshotError` and `SnapshotResult`
+belong to `state::error`. MigrationContext's behavior may be implemented in the
+private migration module; its public type must not depend on a private module path.
+The following frozen signatures are implemented under the existing `serde` feature:
+
+```text
+pub fn describe(
+    cx: &mut ConversionContext<'_>,
+    expected: &TypeArgument,
+    version: SchemaVersion,
+    options: &SnapshotOptions,
+) -> SnapshotResult<StateSchema>;
+
+pub fn export(
+    cx: &mut ConversionContext<'_>,
+    root: &ScriptValue,
+    header: SnapshotHeader,
+    options: &SnapshotOptions,
+) -> SnapshotResult<StateSnapshot>;
+
+pub fn restore(
+    cx: &mut ConversionContext<'_>,
+    expected: &TypeArgument,
+    snapshot: &StateSnapshot,
+    required: &SchemaVersion,
+    options: &SnapshotOptions,
+) -> SnapshotResult<ScriptValue>;
+
+impl StateSnapshot {
+    pub fn from_bytes(
+        bytes: &[u8],
+        options: &SnapshotOptions,
+    ) -> SnapshotResult<Self>;
+
+    pub fn to_bytes(
+        &self,
+        options: &SnapshotOptions,
+    ) -> SnapshotResult<Vec<u8>>;
+
+    pub fn migrate(
+        self,
+        expected_from: &SchemaVersion,
+        target: &StateSchema,
+        options: &SnapshotOptions,
+        hook: impl FnOnce(
+            &mut MigrationContext,
+            StateValue,
+        ) -> SnapshotResult<StateValue>,
+    ) -> SnapshotResult<Self>;
+}
+```
+
+SnapshotOptions carries limits and cancellation. StateSnapshot has private storage
+and read-only accessors. Schema/payload/envelope/bytes are owned Send + Sync data;
+none retains a Runtime, executable lease, GC root, host borrow or callable. A narrow
+crate-private ScriptValue accessor can supply its root/type/owner to the codec;
+no new public root handle or raw GC-storage reference is needed.
+
+Export derives and embeds the source's complete checked schema. Restore derives
+the expected candidate schema, checks the required ID/version and complete schema
+before returning state, and constructs only fresh rooted objects. It never mutates
+an existing destination object. Existing result-root retention must survive polling,
+GC and subsequent calls; failure/cancellation/unwind releases temporary roots and
+never returns a partially restored root.
+
+#### Bounds, cancellation and allocation
+
+Freeze these initial defaults; they are finite policy, not measured pause budgets:
+
+| Limit | Default |
+| --- | ---: |
+| Complete envelope bytes | 32 MiB |
+| Value depth, root counted as 1 | 64 |
+| Payload nodes, including unit values | 1,000,000 |
+| Children in one sequence | 100,000 |
+| One data string | 1 MiB |
+| Aggregate UTF-8 bytes, including names and metadata | 16 MiB |
+| One identifier/header string | 1,024 bytes |
+| Named schema definitions | 4,096 |
+| Aggregate schema items/type-expression nodes | 65,536 |
+| Fields or variants per definition | 256 |
+| Codec work units per operation | 128,000,000 |
+
+Depth 64 is also an initial hard ceiling for recursive Rust traversal; a caller
+cannot raise it into unbounded stack use. Use checked arithmetic and fallible
+reservation. Validate byte length before decode and use budget-carrying seeds/
+visitors to charge depth, counts, nodes and strings before allocation or descent.
+Inspect slice-backed borrowed strings before copying. Count unit elements even
+though they can encode to zero bytes. Apply limits to in-memory inputs, complete
+schemas and migration output, not only wire input. Validate before recursive
+serialization and write through a bounded sink.
+
+Charge codec work for actual schema/payload passes, edges, member lookup, copied/
+compared bytes and encode/decode work. ObjectType::field currently searches linearly:
+charge its conservative search cost before lookup or prepare checked descriptors
+once per operation; do not claim linear traversal while hiding repeated searches.
+Poll cancellation at node/edge boundaries and at most every 4 KiB of long byte work.
+Honor the active conversion session's cancellation as well as SnapshotOptions.
+This is codec accounting, not general script execution charging.
+
+These bounds constrain codec storage/work, not process RSS, all metadata allocation
+or the simultaneous old/new runtime heaps. UP04 owns coexistence and host-selected
+pause budgets. No benchmark speed or latency claim is made by these defaults.
+
+#### Identity diagnostics and explicit evolution/hooks
+
+Track full compound HeapObjectId identities in one export-local table with the
+first path and active/completed state. Repetition while active reports
+`Cycle { path, first_path }`; repetition after completion reports
+`Alias { path, first_path }`. Track Vec, enum and tuple identities as well as structs;
+strings are scalar data. Equal-but-distinct objects are valid. Store bounded path
+components and format only reported paths, rather than copying a full path for each
+visited object. Errors preserve stage/kind/path and underlying runtime errors where
+applicable.
+
+For example, `$.children[0].parent -> $` is a cycle and
+`$.secondary -> $.primary` is an alias. Reject them before ordinary owned/Serde
+conversion can silently duplicate their referents. Only edges inside the selected
+DTO tree participate: an external static pointing at the root is not another export
+edge, but its writers still require quiescence. Explicit projection to business IDs
+can remove edges; the codec does not invent such a mapping.
+
+Unchanged ID/version requires full schema equality and complete payload validation.
+Changed schemas require one explicit migration from the exact expected source
+ID/version to the target StateSchema, not registry lookup or automatic chain search.
+Validate input before invoking the callback and output against the complete target
+schema and limits before returning a new snapshot. Defaults, renamed fields/types,
+variant changes and checked numeric transformations must be explicit migration
+code; no ignored fields, coercion or guessed decode rules. Preserve owner, revision
+and source provenance while replacing schema/version/payload. The host separately
+verifies accepted source schema, owner and expected revision/deployment.
+
+MigrationContext supplies source/target metadata, cancellation and bounded data/work
+helpers, but no Runtime capability. The host callback is trusted and cooperative:
+Rust captures or arbitrary callback code cannot be sandboxed or forcibly preempted.
+Output validation does not bound uncooperative callback execution. The callback-free
+codec's bounds do not imply bounded arbitrary script or Native hooks.
+
+Optional application projection/restoration/validation calls have these explicit
+synchronous signatures; there is no hook autodiscovery or automatic codec callback:
+
+```text
+pub fn export_state(root: LiveState) -> Result<StateDto, String>
+pub fn restore_state(dto: StateDto) -> Result<LiveState, String>
+pub fn validate_state(root: LiveState) -> Result<(), String>
+
+Function<(Object,), Result<ScriptValue, String>>
+Function<(ScriptValue,), Result<Object, String>>
+Function<(Object,), Result<(), String>>
+```
+
+Use the outer argument tuple and ordinary nominal call-time checks. Returning a
+ScriptValue retains the DTO before alias inspection, instead of converting it to
+an owned Rust DTO first. Resource reattachment and business-ID validation are explicit
+candidate policy after structural decoding; serialized handles and arbitrary Rust
+references are never accepted. Migration needs no old-runtime ABI. Only owned
+schema/DTO/envelope/bytes may move off-thread, not a captured live Runtime.
+
+#### State replacement boundary and implementation ownership
+
+Export enumerates no statics, invokes no initializers and transfers no cell state,
+Failed diagnostics, recipes, tasks or executable graphs. A fresh runtime has fresh
+static cells; copying the explicit player DTO must not copy an unrelated counter or
+initialize an unread static. Installing restored data into selected new cells is an
+explicit application call. Compatible reload continues preserving existing cells.
+
+PublicationGuard permits parked work and is not proof of state quiescence. Existing
+CandidateInitialization is not automatically selected by ordinary SDK ExecutionContext.
+UP04 still owns admission/drain, candidate effect/resource restrictions, revision
+recheck, routing/mailbox switch and abort/cleanup policy. Neither a successful codec
+call nor this gate establishes those guarantees or makes arbitrary hooks bounded.
+
+Finite implementation ownership follows the audit: A owns portable data/errors/
+limits, wire decoding/encoding, host-data migration and their unit tests; B owns
+checked runtime schema/export/restore, strict identity diagnostics, the private
+ScriptValue seam and runtime bridge tests; C owns the SDK composition test. Parent
+owns state-module/public-wrapper registration, test-module registration and this
+plan's ledger. Data-field/constructor details are delegated to A within the frozen
+contract, not a new API/design gate. Do not add a parallel plan, new dependencies,
+GC redesign, statics changes, migration registry or UP04 scheduler implementation.
+
+#### Primary references and applicability
+
+The read-only audit consulted these primary sources against the locked versions:
+
+- [Serde data model](https://serde.rs/data-model.html), applied to **Serde 1.0.229**:
+  separate data shape from format encoding. These are unversioned project docs;
+  Kagari's checked schema/access/GC ownership remains its own responsibility.
+- [Serde rc feature](https://serde.rs/feature-flags.html#features--rc): repeated
+  reference-counted pointees are serialized independently without preserving identity.
+  Kagari instead rejects repeated compound GC identities before DTO copying; do not
+  adopt Serde's alias duplication or Java-style identity-graph serialization.
+- [Bincode 1.3.3 configuration](https://docs.rs/bincode/1.3.3/bincode/config/index.html):
+  free functions and DefaultOptions differ. Explicit fixed-int/little-endian/trailing
+  settings belong to the state envelope owner, not ambient library defaults.
+- [Bincode 1.3.3 decoder source](https://docs.rs/bincode/1.3.3/src/bincode/de/mod.rs.html):
+  visitors receive sequence counts; byte limits alone do not bound zero-size elements,
+  semantic nodes, nesting or work. Structs are positional and enum indices numeric,
+  so Kagari owns explicit stable keys/tags and budget-carrying readers.
+
+The custom mechanism is limited to checked script eligibility/identity, named schema
+and bounded data decoding, not a new serialization library or a second runtime.
+
+#### UP03 implementation acceptance selection
+
+New owner tests must cover framing/tag/length failures, duplicate/unknown/missing
+members, complete closed schemas, scalar ranges/Unicode/float bits, each size/depth/
+work boundary (including huge unit sequences), cancellation and migration source/
+target/output failures. Assert Send + Sync and cross-thread owned-data transfer.
+Runtime tests cover independent-runtime tree round trips, equal distinct objects,
+cycle/alias paths including tuple/enum/Vec, forbidden types in empty branches, private
+fields, foreign/expired roots, result retention through GC and cleanup after failure.
+Exercise source-free artifact loading, fresh candidate statics and old-root usability
+after migration/business-ID rejection through a focused SDK composition case.
+
+Reuse the existing native_schema conversion limit/root/unwind tests,
+native_schema_serde schema/path/cycle/visitor tests, SDK
+`bound_calls_use_the_sdk_execution_context_and_return_retained_values`, and VM
+`source_and_decoded_statics_are_lazy_shared_on_reload_and_keep_fixed_recipes` as the
+small directly affected regression selection; do not duplicate their contracts.
+Run the repository's lightweight checks and workspace Clippy at the implementation
+checkpoint. Full workspace/feature/backend/platform validation remains CI-only.
+Drain/late-completion/mailbox/commit/abort cases belong to UP04. The original gate
+recording ran no implementation tests, builds, Clippy or performance measurements.
+Subsequent selected implementation results and final local checks are recorded in
+the [UP03 ledger](#up03-implementation-and-integration); complete CI remains unrun.
 
 ## Acceptance and verification
 
@@ -1318,6 +1687,108 @@ features, default Cargo parallelism, cache state and workload. No latency target
 or success result is invented by this proposal.
 
 ## Execution ledger
+
+### UP03 implementation and integration
+
+**Status: locally complete on 2026-10-24, no carried errors; commit pending.**
+Started from HM04 `89845df8`. The user approved the
+[codec entry gate](#up03-approved-codec-entry-gate) before implementation. Parent
+integration, focused acceptance and final bounds-review follow-ups are complete.
+The results below are reported parent/owner evidence, not fresh test or Clippy runs
+by the documentation task. Full workspace/feature/backend/platform CI remains unrun.
+
+#### Integrated responsibilities
+
+- [Runtime state facade](../crates/kagari-runtime/src/state.rs) supplies the actual
+  public `state::{describe,export,restore}` functions under the existing `serde`
+  feature. Data/error/limits are public owners; codec/wire/migration stay private.
+  StateSnapshot owns its byte conversion and explicit host-data migration methods.
+- Portable data, complete schemas, bounded wire encoding/decoding and migration
+  produce owned Send + Sync products without live Runtime, executable or root
+  retention. Named references and closed type verification include inactive
+  unsupported branches and private fields, not just the selected payload.
+- Encoding preserves canonical keys/tags, exact numeric widths and float bits.
+  Export checks the explicit ScriptValue root and rejects compound alias/cycle
+  identities with paths, including tuples, enums and Vec; strings remain scalar.
+- Restore allocates fresh retained objects, preserves checked construction/value
+  admission, and releases temporary roots on failure. Statics are neither enumerated
+  nor initialized by the codec, and native/host handles do not enter the envelope.
+  Application projection, resource/business-ID validation and migration stay explicit.
+- No new dependencies or changes to existing ABI/artifact format identifiers were
+  introduced. The new snapshot envelope has its own format version 1.
+
+#### Focused behavioral evidence
+
+| Owner/selection | Reported result and contract |
+| --- | --- |
+| A portable data/schema/wire/migration | 10 integrated unit tests passed: bounded owned data, complete schema/wire admission, canonical numeric representation and explicit migration boundaries. |
+| B [runtime bridge](../crates/kagari-runtime/tests/state_snapshot.rs) | 7 tests passed, including independent decoded-runtime round trips, strict identity diagnostics, full schema rejection and fresh-root/cancellation cleanup. |
+| B [deterministic polling helpers](../crates/kagari-runtime/src/state/codec/polling_tests.rs) | All 4 tests passed after the final repair: tuple child admission, struct-builder tuple validation, sequence snapshot/root admission and sequence construction/native-payload admission. These are the four final cases, not four plus a separately counted setter regression. |
+| C [SDK composition](../crates/kagari/src/runtime/tests/embedding/state_snapshot.rs) | 3 tests passed: independent decoded runtime composition, explicit projection/migration, business-ID rejection with old-state usability, and fresh statics without unrelated initialization. |
+| Existing conversion regressions | The selected existing conversion case passed; 5 earlier unaffected conversion passes retain their evidentiary value. The existing Serde alias-mutation/GC/visitor-unwind case passed after the final helper repair. These selections do not claim the entire conversion suite ran. |
+
+Selection targets the new portable contract, runtime ownership/access boundary and
+SDK composition, plus the directly affected conversion/root helpers. It does not
+substitute for complete backend/platform/features CI or UP04 lifecycle tests.
+
+#### Bounds review and final repair
+
+The four initial bounds findings were fixed and re-reviewed without removing or
+weakening complete validation. A's two fixes admit bytes before UTF-8 processing
+and depth before allocation. B's tuple/sequence fixes carry cancellation/work
+polling through child validation, copying, root admission and native payload
+construction, reusing the existing semantic owners.
+
+The final review found a remaining tuple-validation path in the struct-builder
+setter. The root fix adds the private
+`ObjectBuilder::set_value_in_with_poll` seam in
+[checked construction](../crates/kagari-runtime/src/native/objects/construction.rs);
+the existing entrypoint delegates to the same validation owner. Snapshot
+[restore](../crates/kagari-runtime/src/state/codec/restore.rs) calls it through
+`Walk::checked`, preserving complete value checks while charging/polling before
+retention. No validation was deleted and no second construction semantics was added.
+
+The deterministic
+`restore_builder_tuple_validation_polls_and_charges_before_retaining` reproduction
+failed with the old logic and passed with the repair. Parent then reported the new
+regression, the other three polling-helper cases, all seven bridge tests and the
+existing Serde alias/GC/unwind regression passing. A's two findings, sequence review
+and the remaining tuple setter follow-up are closed; no review finding is carried.
+
+#### Final local validation and remaining scope
+
+Parent reported these strict checks passing on the integrated implementation:
+
+```text
+cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --workspace --all-targets --features kagari/serde -- -D warnings
+cargo fmt --all -- --check
+uv run --locked scripts/check_structure.py
+git diff --check
+```
+
+Structure checked 1,648 files. After the final private setter repair, scoped
+kagari-runtime Serde Clippy, formatting, structure (1,648 files) and diff checks
+passed again, together with the affected behavioral selection above. The preceding
+default and Serde workspace Clippy passes remain evidence for unaffected code;
+they were not repeated after that private-helper repair merely to regenerate a
+whole-workspace transcript. No pending local validation remains.
+
+Earlier cache/timeout/link-test artifact failures were resolved by invalidating the
+affected artifacts and rerunning the selected regressions, which passed. Those
+failed attempts are not counted as passes; no build/test error is carried forward.
+No full-workspace test sweep or complete feature/backend/platform matrix was run
+locally, and complete CI remains unrun. No performance result is claimed.
+
+Codec limits, including caller-selected limits, are data/work bounds rather than
+process-memory quotas or hard preemption. Host migration callbacks are cooperative;
+validated output does not bound arbitrary Rust callback execution. UP03 does not
+establish candidate-effect isolation, writer quiescence, drain/admission, routing or
+atomic cutover. UP04 is next, but its proposed gate remains unfrozen until the UP03
+commit and its own review. UP05 lasting documentation/examples are still pending;
+retain this active plan and its single ledger rather than deleting it or adding a
+parallel queue. This status update changes only this plan and the roadmap, and
+creates no commit.
 
 ### HM04 documentation and integration handoff
 

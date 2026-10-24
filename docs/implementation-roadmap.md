@@ -795,17 +795,33 @@ Their lasting owners are the [embedding API](spec/embedding-api.md#installed-pro
 Transparent generic alias semantics belong to [syntax](spec/syntax.md#transparent-type-aliases)
 and [module names](spec/modules.md#transparent-alias-names), not a completed phase ledger.
 
-HM04's docs-only handoff retires the HM plan after HM03 `044b8e57` and UP02
-`4d9f2afa`. [Selected handoff evidence](update-model-design.md#hm04-documentation-and-integration-handoff)
+HM04's docs-only handoff at `89845df8` retires the HM plan after HM03 `044b8e57`
+and UP02 `4d9f2afa`. [Selected handoff evidence](update-model-design.md#hm04-documentation-and-integration-handoff)
 reuses unaffected local passes; historical HM progress remains in Git. No carried
 HM/UP02 implementation errors remain. Full workspace/feature/backend/platform CI
-is unrun, MS is unstarted, and this is not state-replacement acceptance.
+is unrun and MS is unstarted.
+
+[UP03 is locally complete](update-model-design.md#up03-implementation-and-integration),
+with its commit pending and no carried errors or pending local checks. The existing
+Serde feature now supplies the bounded explicit-root tree codec, complete portable
+schemas, owned Send + Sync envelopes and explicit cooperative host-data migration.
+The active plan records A's 10 unit passes, B's 7 bridge and 4 deterministic polling
+passes, C's 3 SDK composition passes, selected existing conversion regressions and
+closed bounds-review findings, including the final checked struct-builder setter
+repair. Parent default and Serde workspace all-target Clippy, formatting, structure
+(1,648 files) and diff checks passed; after the final private helper repair, affected
+tests and scoped runtime Serde Clippy/lightweight checks passed. Unaffected workspace
+evidence is retained without another full rerun. Complete CI remains unrun.
 
 The active [update plan](update-model-design.md#review-choices-and-implementation-sequence)
-owns the next sequence: UP03 codec/envelope and restore/migration gates, UP04
-quiescence/routing/cutover gates, then UP05 final state-replacement integration.
-UP03/UP04 remain unstarted; source Update/current-call dispatch and exact-source
-inspection are already implemented, not prerequisites to repeat.
+owns UP04 next, then UP05 final state-replacement integration. UP04 implementation
+is unstarted and its proposed quiescence/resource/routing/cutover gate is not frozen;
+do not freeze it before the UP03 commit. Codec completion does not establish writer
+quiescence, candidate-effect isolation, drain/admission or atomic cutover. Custom
+codec budgets are not process quotas or hard preemption of host callbacks. UP05
+lasting documentation/examples remain pending; retain the active plan, not a new
+queue. Source Update/current-call dispatch and exact-source inspection are already
+implemented, not prerequisites to repeat.
 **Material delivery limit:** [protected standard-foundation `Unknown` dependencies](spec/module-activation.md#protected-dependencies-and-conservative-rejection)
 can reject even a simple default-Engine body patch. Finite-environment fixtures do
 not prove unrestricted default-Engine patchability or waive those protections.

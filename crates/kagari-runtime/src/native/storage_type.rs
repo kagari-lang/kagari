@@ -5,7 +5,7 @@ use crate::{
     gc::GcHeap,
     module::ExecutableModule,
     value::Value,
-    value_check::matches_view,
+    value_check::{matches_view, matches_view_with_poll},
 };
 use kagari_types::ty::Ty;
 
@@ -63,6 +63,15 @@ impl StorageType {
 
     pub(crate) fn same_type(&self, other: &Self) -> bool {
         self.view().compatible(other.view())
+    }
+
+    pub(crate) fn accepts_value_with_poll(
+        &self,
+        heap: &GcHeap,
+        value: &Value,
+        poll: &mut dyn FnMut() -> Result<(), RuntimeError>,
+    ) -> Result<bool, RuntimeError> {
+        matches_view_with_poll(heap, value, self.view(), poll)
     }
 
     pub(crate) fn accepts_value(&self, heap: &GcHeap, value: &Value) -> bool {

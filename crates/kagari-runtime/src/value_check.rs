@@ -1,6 +1,7 @@
 //! Runtime value/type compatibility consumes checked layouts and lexical type facts.
 //! Heap storage supplies descriptors; the collector does not resolve type policy.
 use crate::{
+    error::RuntimeError,
     frame::types::{bindings::TypeBindings, compatibility::TypeView},
     gc::GcHeap,
     module::ExecutableModule,
@@ -27,6 +28,42 @@ pub(crate) fn matches_type_in(
     environment: Option<&TypeBindings>,
 ) -> bool {
     matches_view(heap, value, TypeView::new(ty, owner, environment))
+}
+
+/// Poll each node of tuple admission while reusing the ordinary nominal/scalar
+/// matcher. Storage callers have already established a closed heap type.
+/// The hook must not mutate/collect the heap or reenter execution.
+pub(crate) fn matches_view_with_poll(
+    heap: &GcHeap,
+    value: &Value,
+    view: TypeView<'_>,
+    poll: &mut dyn FnMut() -> Result<(), RuntimeError>,
+) -> Result<bool, RuntimeError> {
+    poll()?;
+    if !heap.validate_value(value) {
+        return Ok(false);
+    }
+    let Some(view) = view.normalized() else {
+        return Ok(false);
+    };
+    if let (Value::Tuple(id), Ty::Tuple(types)) = (value, view.ty) {
+        let Some(values) = heap.tuple(*id) else {
+            return Ok(false);
+        };
+        if values.len() != types.len() {
+            return Ok(false);
+        }
+        for (index, value) in values.iter().enumerate() {
+            let Some(child) = view.parameter(index) else {
+                return Ok(false);
+            };
+            if !matches_view_with_poll(heap, value, child, poll)? {
+                return Ok(false);
+            }
+        }
+        return Ok(true);
+    }
+    Ok(matches_view(heap, value, view))
 }
 
 /// One matcher for raw lexical expressions and admitted closed type facts. Project
@@ -58,13 +95,9 @@ pub(crate) fn matches_view(heap: &GcHeap, value: &Value, view: TypeView<'_>) -> 
                 snapshot.matches_function(params, result, view.owner, view.environment)
             })
         }
-        (Value::Tuple(id), Ty::Tuple(types)) => heap.tuple(*id).is_some_and(|values| {
-            values.len() == types.len()
-                && values.iter().enumerate().all(|(index, value)| {
-                    view.parameter(index)
-                        .is_some_and(|view| matches_view(heap, value, view))
-                })
-        }),
+        (Value::Tuple(_), Ty::Tuple(_)) => {
+            matches_view_with_poll(heap, value, view, &mut || Ok(())).unwrap_or(false)
+        }
         (Value::Struct(id), Ty::Struct(expected)) => {
             heap.struct_layout(*id).is_some_and(|actual| {
                 if view.environment.is_none() {

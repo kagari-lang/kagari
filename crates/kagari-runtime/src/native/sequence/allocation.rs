@@ -17,6 +17,19 @@ impl Runtime {
         applied: &TypeArgument,
         elements: Vec<Value>,
     ) -> NativeResult<Value> {
+        self.allocate_sequence_with_poll(owner, applied, elements, &mut || {
+            self.resources().poll_execution()
+        })
+    }
+
+    pub(crate) fn allocate_sequence_with_poll(
+        &self,
+        owner: &ExecutableModule,
+        applied: &TypeArgument,
+        elements: Vec<Value>,
+        poll: &mut dyn FnMut() -> NativeResult<()>,
+    ) -> NativeResult<Value> {
+        poll()?;
         self.gc().ensure_no_native_borrow()?;
         self.validate_executable_module(owner)?;
         applied.validate(self)?;
@@ -39,14 +52,17 @@ impl Runtime {
             applied.parameter(self, owner, element)?,
             owner,
         )?);
-        let values = self.gc().prepare_buffer_values(&contract, elements)?;
+        let values = self
+            .gc()
+            .prepare_buffer_values_with_poll(&contract, elements, poll)?;
         let payload = SequencePayload {
             element: contract.ty.clone(),
             contract,
             values,
             detached: false,
         };
-        let mut object = storage.prepare_payload(self.gc(), applied.ty(), payload, owner)?;
+        let mut object =
+            storage.prepare_sequence_payload(self.gc(), applied.ty(), payload, owner, poll)?;
         object.scope = Some(applied.clone());
         self.gc().alloc_native(object).map(Value::GcHandle)
     }
