@@ -150,23 +150,7 @@ fn no_debug_body_preserves_stored_order_unreachable_code_and_execution_facts() {
     let output = render(&prepared);
     assert_eq!(
         output,
-        concat!(
-            "fn @0:0 fixture::body::echo(arg0: physical(i32)) -> physical(i32) ; instructions=6 may_suspend=false recorded_effects=[]\n",
-            "  slots: 3\n",
-            "  entry: arg0 -> s1\n",
-            "  s0: physical=i32 semantic=i32\n",
-            "  s1: physical=i32 semantic=i32\n",
-            "  s2: physical=i32 semantic=unknown\n",
-            "  roots: slots=[]\n",
-            "  debug: absent\n",
-            "  0000  move s0, s1\n",
-            "  0001  move s2, s0\n",
-            "  0002  jump L4\n",
-            "  0003  return s0\n",
-            "L4:\n",
-            "  0004  move s0, s2\n",
-            "  0005  return s0\n",
-        )
+        include_str!("../../../tests/fixtures/disassembly/no-debug-body.txt")
     );
     assert_eq!(output, render(&prepared));
 }
@@ -435,12 +419,8 @@ fn branch_and_jump_targets_define_each_numeric_label_once() {
     // Labels follow actual jump/branch operands, not this optional metadata list.
     body.metadata.control_flow_targets = vec![JumpTarget::new(0)];
     let output = render(&prepare(body));
-    assert!(output.ends_with(concat!(
-        "  0000  move s0, s1\n",
-        "  0001  branch s0, then=L3, else=L2\n",
-        "L2:\n  0002  jump L4\n",
-        "L3:\n  0003  jump L4\n",
-        "L4:\n  0004  return s0\n",
+    assert!(output.ends_with(include_str!(
+        "../../../tests/fixtures/disassembly/branch-label-tail.txt"
     )));
     assert!(!output.contains("L0:"));
     assert_eq!(output.matches("L4:").count(), 1);

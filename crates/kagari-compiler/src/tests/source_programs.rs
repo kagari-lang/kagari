@@ -7,17 +7,15 @@ use crate::{
         lower::{MirLoweringError, instances::MirLoweringOptions},
         program::{SourceProgramError, lower_program_to_mir},
     },
+    tests::common,
 };
 use kagari_bytecode::{
     artifact::{ArtifactFingerprint, KbcArtifact, encode_program_facts},
-    program::{BytecodeProgram, identity, verify_program as verify_bytecode_program},
+    program::{BytecodeProgram, verify_program as verify_bytecode_program},
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{
-        ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
-        scoped::RemapDefinitions,
-    },
+    identity::{ModuleIdentity, PackageId, map::DefinitionContext},
 };
 use kagari_contract::types::{ConcreteFunctionIdentity, PublicItem};
 use kagari_hir::{
@@ -268,7 +266,7 @@ fn imported_generic_methods_have_distinct_program_instances_and_share_the_limit(
         function.instance.arguments == [Ty::Builtin(BuiltinType::I32)]
             && ir.function(&function.instance).is_some()
     }));
-    let mut forged = adopt(&context, ir.clone().into_unverified());
+    let mut forged = common::adopt(&context, ir.clone().into_unverified());
     let contract = forged
         .modules
         .iter_mut()
@@ -352,7 +350,7 @@ fn public_abi_distinguishes_same_named_imported_types_and_constraints() {
         )
         .unwrap();
         let decoded = KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
-            .map(|metadata| adopt(&context, metadata))
+            .map(|metadata| common::adopt(&context, metadata))
             .unwrap();
         decoded
             .validate_for_loader(&Default::default(), &context, &Default::default())
@@ -606,7 +604,7 @@ fn missing_dependencies_and_mismatched_link_signatures_are_rejected() {
     let context = DefinitionContext::new().unwrap();
     let program = lower_program_to_mir(&fixture(), &Default::default()).unwrap();
     let root = program.root().clone();
-    let raw = adopt(&context, program.into_unverified());
+    let raw = common::adopt(&context, program.into_unverified());
     let mut schema = raw.clone();
     schema
         .modules
@@ -943,28 +941,13 @@ fn analysis_database() -> AnalysisDatabase {
     database
 }
 
-/// Keep one explicit writer for independently lowered fixture products.
-fn adopt<T: RemapDefinitions>(context: &DefinitionContext, metadata: DefinitionMetadata<T>) -> T {
-    metadata
-        .import_into(context, &Default::default())
-        .unwrap()
-        .into_records()
-}
-
 fn bytecode(context: &DefinitionContext, program: &VerifiedMirProgram) -> BytecodeProgram {
-    let program = adopt(
+    common::adopt_bytecode(
         context,
         lower_program_to_bytecode(program, &Default::default())
             .map(|program| program.into_unverified())
             .unwrap(),
-    );
-    identity::collect(
-        &program.modules.iter().collect::<Vec<_>>(),
-        context,
-        &Default::default(),
     )
-    .unwrap();
-    program
 }
 
 #[test]

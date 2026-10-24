@@ -156,23 +156,7 @@ fn constants_preserve_bits_and_escape_text_once_in_slot_order() {
     let output = render(&program(vec![owner]), &[(0, 0), (0, 0)], &definitions);
     assert_eq!(
         output,
-        concat!(
-            "descriptors @0: values\n",
-            "  @0:const#0 unit ()\n",
-            "  @0:const#1 bool true\n",
-            "  @0:const#2 i32 -2147483648\n",
-            "  @0:const#3 i64 -9223372036854775808\n",
-            "  @0:const#4 u64 18446744073709551615\n",
-            "  @0:const#5 f32 -0 bits=0x80000000\n",
-            "  @0:const#6 f32 NaN bits=0x7fc00042\n",
-            "  @0:const#7 f64 -0 bits=0x8000000000000000\n",
-            "  @0:const#8 f64 NaN bits=0x7ff8000000000042\n",
-            "  @0:const#9 str \"hello\\n\\\"\\\\\\u{1b}\\u{202e}雪\"\n",
-            "  @0:const#10 char '🙂'\n",
-            "  @0:const#11 char '\\0'\n",
-            "  @0:const#12 char '\\''\n",
-            "  @0:const#13 char '\\u{202e}'\n",
-        )
+        include_str!("../../../tests/fixtures/disassembly/constants.txt")
     );
 }
 

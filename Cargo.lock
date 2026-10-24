@@ -622,6 +622,7 @@ dependencies = [
  "kagari-stdlib",
  "kagari-syntax",
  "kagari-types",
+ "rstest",
  "smallvec",
  "thiserror",
 ]

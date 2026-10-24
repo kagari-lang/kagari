@@ -127,6 +127,13 @@ Use the existing owners as templates, not a new universal runner:
   their explicit assertions in focused modules. Singleton and lifecycle tests need
   not be parameterized. Independent programs remain independent named cases; a common
   final result does not make them duplicate coverage.
+- Compiler compile-success programs use named fixture cases under
+  `kagari-compiler/tests/fixtures/language_foundation`; typed lowering/emission and
+  forged admission remain separate Rust owners. Compiler adoption uses existing
+  test support rather than a second identity-collection implementation.
+- Bytecode disassembly goldens under `kagari-bytecode/tests/fixtures/disassembly`
+  contain stable body/descriptor fragments only. Dynamic header/fingerprint facts,
+  scoped identity, independent decoding and writer-error behavior stay explicit.
 - [Numeric predicate programs](../crates/kagari/src/runtime/tests/language/numeric_checks.rs)
   share bounded source generation and retain the expression for each failure
   marker. Integer/float owners retain their own compilation, routes, result/root,

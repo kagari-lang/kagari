@@ -1,0 +1,8 @@
+  0000  move s0, s1
+  0001  branch s0, then=L3, else=L2
+L2:
+  0002  jump L4
+L3:
+  0003  jump L4
+L4:
+  0004  return s0

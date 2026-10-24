@@ -1,6 +1,13 @@
-use crate::tests::bytecode::{path_fixtures::actor_path_module, *};
+use crate::{
+    source::lower::lower_to_mir,
+    tests::bytecode::{path_fixtures::actor_path_module, *},
+};
 use kagari_bytecode::instruction::Slot;
 use kagari_contract::effects::EffectSet;
+use kagari_mir::{
+    ids::BlockId,
+    instruction::{Constant, Instruction},
+};
 use kagari_types::declaration::host::PathAccess;
 
 use kagari_bytecode::{
@@ -924,4 +931,86 @@ fn main() -> u64 {
             );
         }
     }
+}
+
+#[test]
+fn bytecode_initializers_use_layout_order_after_source_order_evaluation() {
+    let context = DefinitionContext::new().unwrap();
+    for expression in [
+        "P { second: true, first: 42 }",
+        "P { ..base() }",
+        "P { second: true, ..base() }",
+        "P { second: true, first: 42, ..base() }",
+    ] {
+        let input = common::program_ok(&format!(
+            "struct P {{ val first: i32, val second: bool }} fn base() -> P {{ P {{ first: 0, second: false }} }} fn main() -> P {{ {expression} }}",
+        ));
+        let module = lower_to_mir(input.root(), &Default::default()).unwrap();
+        let bytecode =
+            common::adopt_bytecode(&context, common::bytecode_with_edited_root(&input, &module));
+        let main = bytecode.modules[bytecode.root.index()]
+            .functions
+            .iter()
+            .find(|function| function.name == "main")
+            .unwrap();
+        let (structure, fields) = main
+            .instructions
+            .iter()
+            .find_map(|instruction| {
+                if let BytecodeInstruction::MakeStruct {
+                    structure, fields, ..
+                } = instruction
+                {
+                    Some((structure, fields))
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        assert_eq!(
+            bytecode.modules[bytecode.root.index()].structures[structure.index()]
+                .fields
+                .iter()
+                .map(|field| field.name.as_str())
+                .collect::<Vec<_>>(),
+            ["first", "second"]
+        );
+        assert_eq!(
+            fields
+                .iter()
+                .map(|register| main.metadata.slots[register.index()])
+                .collect::<Vec<_>>(),
+            [ValueType::I32, ValueType::Bool]
+        );
+    }
+}
+
+#[test]
+fn emits_the_declared_entry_block_first() {
+    let context = DefinitionContext::new().unwrap();
+    let input = common::program_ok("fn main() -> i32 { 7 }");
+    let mut module = common::adopt(
+        &context,
+        lower_to_mir(input.root(), &Default::default())
+            .unwrap()
+            .into_unverified(),
+    );
+    let mut entry = module.functions[0].blocks[0].clone();
+    if let Instruction::LoadConst { constant, .. } = &mut entry.instructions[0] {
+        *constant = Constant::I32(42);
+    }
+    module.functions[0].blocks.push(entry);
+    module.functions[0].entry = BlockId::new(1);
+    let checked = common::verify_edited(&context, module).unwrap();
+    let bytecode = common::adopt_bytecode(
+        &context,
+        common::bytecode_with_edited_root(&input, &checked),
+    );
+    assert!(matches!(
+        bytecode.modules[bytecode.root.index()].functions[0].instructions[0],
+        BytecodeInstruction::LoadConst {
+            constant,
+            ..
+        } if bytecode.modules[bytecode.root.index()].constants[constant.index()] == ConstantOperand::I32(42)
+    ));
 }

@@ -560,12 +560,12 @@ input mechanics have one suitable owner; lower-layer tests do not acquire an SDK
 
 Separate checkpoints for compiler, MIR/contract, and bytecode/presentation owners.
 
-- [ ] Reconcile compiler `verify` versus lowering/emission tests; reuse existing
+- [x] Reconcile compiler `verify` versus lowering/emission tests; reuse existing
   adoption/identity support and move ordinary compile-success scripts where useful.
-- [ ] Retain constructed MIR, proofs, malformed wire/bytecode and admission scenarios.
+- [x] Retain constructed MIR, proofs, malformed wire/bytecode and admission scenarios.
   Review them for redundant preparation and meaningful local tables, not mandatory
   source-file conversion. Preserve effects, origins, bounds, cancellation and resealing.
-- [ ] Extract stable disassembly expected text where useful, keeping variable header/
+- [x] Extract stable disassembly expected text where useful, keeping variable header/
   fingerprint checks and independent decoding/scoped-identity assertions explicit.
 
 Exit: no forged input is silently repaired by setup, compiler facts remain typed,
@@ -731,8 +731,28 @@ fewer Rust strings, fewer binaries or a different test count is not speed eviden
 | TO02 | Complete locally: SDK language families reconciled; 463 selected cases discovered |
 | TO03 | Complete locally: parser UI pairs, lexer/parser ownership and spec rows |
 | TO04 | Complete locally: HIR UI/recovery split and package input preparation |
-| TO05-TO10 | Planned, not started |
+| TO05 | Complete locally: lowering/admission split, adoption support and disassembly goldens |
+| TO06-TO10 | Planned, not started |
 | TO11 | Pending completion of owner phases |
+
+2026-10-24 TO05: compiler, MIR/contract and bytecode checkpoints completed in
+order. Four compile-success inputs are byte-exact fixtures with named rows. Two
+emission tests move from verify to bytecode/lowering, and struct-update lowering
+moves unchanged to its lower owner. Proven duplicate adoption/identity collection
+now uses existing common::adopt/adopt_bytecode; no forged input is repaired and
+local lowering support still has ten actual call sites. Four disassembly expected
+fragments become exact goldens; variable headers, typed/foreign scopes, independent
+decoding and IO failure assertions remain explicit. No scenario was deleted.
+
+All compiler/MIR/bytecode/contract families (390 original scenarios in 71 groups)
+are accounted for: constructed proofs/wire/ABI, effects/origins, typed tables,
+resource bounds, cancellation/resealing and seal doctests retain their owners;
+137 MIR/contract Rust files are unchanged. No production behavior or new binary.
+Local selection passed 48 distinct unit tests and four seal compile-fail doctests.
+A real golden mutation failed, original bytes were restored and normal comparison
+passed. Workspace Clippy, format, structure (1,595 files, zero violations/exceptions)
+and diff checks passed. No carried error; exhaustive suites/matrices remain
+CI-owned. TO06 is next.
 
 2026-10-24 TO04: HIR and package completed as separate serial owner checkpoints.
 HIR now has 47 exact-input UI pairs (26 bare, five installed-standard, 16 local

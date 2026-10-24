@@ -1,0 +1,15 @@
+fn @0:0 fixture::body::echo(arg0: physical(i32)) -> physical(i32) ; instructions=6 may_suspend=false recorded_effects=[]
+  slots: 3
+  entry: arg0 -> s1
+  s0: physical=i32 semantic=i32
+  s1: physical=i32 semantic=i32
+  s2: physical=i32 semantic=unknown
+  roots: slots=[]
+  debug: absent
+  0000  move s0, s1
+  0001  move s2, s0
+  0002  jump L4
+  0003  return s0
+L4:
+  0004  move s0, s2
+  0005  return s0

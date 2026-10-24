@@ -1,0 +1,9 @@
+
+module @0: fixture::dependency
+fn @0:0 fixture::dependency::echo(arg0: physical(i32)) -> physical(i32) ; instructions=2 may_suspend=false recorded_effects=[]
+
+module @1: fixture::app
+fn @1:0 fixture::app::echo<i32>(arg0: i32) -> i32 ; instructions=2 may_suspend=true recorded_effects=[may_suspend]
+fn @1:1 fixture::app::echo<i64>(arg0: i32) -> i32 ; instructions=2 may_suspend=true recorded_effects=[may_suspend]
+fn @1:2 fixture::app::"generated\n\u{202e}name"(arg0: physical(i32)) -> physical(i32) ; instructions=2 may_suspend=false recorded_effects=[]
+fn @1:3 fixture::app::echo#2(arg0: i32) -> i32 ; instructions=2 may_suspend=false recorded_effects=[]
