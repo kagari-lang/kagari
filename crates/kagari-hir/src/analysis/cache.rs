@@ -57,7 +57,11 @@ impl FileAnalysis {
             && previous.imported_statics == environment.imported_statics
             && previous.imported_constants == environment.imported_constants
             && previous.aggregates.same_contracts(&environment.aggregates)
-            && previous.declarations.imported_types == prepared.declarations.imported_types
+            && previous.declarations.imported_types.same_reuse_inputs(
+                &prepared.declarations.imported_types,
+                old.names.items.unit.as_ref(),
+                names.items.unit.as_ref(),
+            )
             && self.source.module_identity() == prepared.lowered.source.module_identity()
     }
 }

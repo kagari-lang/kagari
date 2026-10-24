@@ -260,8 +260,16 @@ impl AnalysisDatabase {
                                 cancel,
                             )
                             .unwrap_or(false)
-                        && old.file.prepared.declarations.imported_types
-                            == file.prepared.declarations.imported_types
+                        && old
+                            .file
+                            .prepared
+                            .declarations
+                            .imported_types
+                            .same_reuse_inputs(
+                                &prepared.declarations.imported_types,
+                                old.file.prepared.names.facts.items.unit.as_ref(),
+                                prepared.names.facts.items.unit.as_ref(),
+                            )
                         && previous_environment
                             .as_ref()
                             .expect("previous body environment")
