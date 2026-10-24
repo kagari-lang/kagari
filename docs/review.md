@@ -37,6 +37,8 @@ lifetime safety remain required.
   the remaining lifecycle finding. Scalar storage, transition-owned parking and
   payload-independent version identity are implemented; bounded retention decisions
   and evidence are recorded below.
+- [Generated tuple bridges in source updates](#generated-tuple-bridges-in-source-updates):
+  retained-demand identity mapping runs before candidate generated implementations exist.
 - [Runtime-loaded repair programs](#runtime-loaded-programs-referencing-existing-installations):
   compile new maintenance code against versioned public contracts and explicitly
   link existing installations without duplicating game objects or statics.
@@ -985,6 +987,74 @@ can change results or completed effects. Reconcile the intended rule with the
 collection contract and add a focused asymmetric/effect-order case before changing
 implementation or specification. This finding is source-derived, not a new executed
 reproduction; it does not activate a semantic change as part of static support.
+
+## Generated tuple bridges in source updates
+
+**Status:** unresolved compiler preparation defect, observed during the body-update
+policy adjustment committed in `47161be3`. Owner: compiler retained-demand planning
+and implementation correspondence. This entry records follow-up work; it does not
+activate implementation or introduce a language restriction on tuple hot updates.
+
+**Scenario and impact.** Passing a tuple to a generic `T: PartialEq` operation can
+require a compiler-generated protocol implementation that delegates comparison to
+its elements. For example, `same((local1, item1), (local2, item2))` needs tuple
+comparison without a user-authored tuple `impl`. Old execution demands can retain
+references to that generated implementation. Even changing only an element's `eq`
+body can then fail source-update preparation with `Identity(InvalidContract)`.
+
+The [SDK source-update path](../crates/kagari/src/runtime/update.rs) uses
+`Compilation::lower_with_demands`, so this gap affects `runtime.update(...)` when
+its retained demands contain the affected generated identities. Failure occurs
+before publication; the installed program remains unchanged. This is not the
+removed Hash/Eq protection graph or an intentional compatibility rejection.
+
+**Root cause.** The current sequence has an ordering and inventory mismatch:
+
+1. [Tuple bridge lowering](../crates/kagari-compiler/src/source/lower/instances/tuple_bridges.rs)
+   synthesizes implementation owners after authored implementations, using local
+   occurrence numbers. The observed old demand referenced `Impl(4)::eq`.
+2. [Runtime contract inventory](../crates/kagari-runtime/src/reload/contracts.rs)
+   includes generated bridge headers in retained metadata.
+3. [Program preparation](../crates/kagari-compiler/src/source/program.rs) calls
+   `import_retained` with the candidate's authored source declarations **before**
+   lowering creates its generated bridge owners.
+4. [Retained identity import](../crates/kagari-compiler/src/source/program/update_requests.rs)
+   cannot find the candidate implementation corresponding to that old generated
+   owner and rejects it. The missing owner need not have been removed by the user;
+   it may simply not have been generated yet.
+
+**Reproduction and evidence.** Use
+`shared_tuple_adapter_uses_current_operations_for_each_argument` in the existing
+[generic reload tests](../crates/kagari/src/runtime/tests/embedding/generic_reload.rs).
+For the diagnostic reproduction, change that test's preparation mode from
+`ReloadPreparation::BodyOnlyArtifact` to `ReloadPreparation::ExpandRetainedApplications`,
+keeping its source, replacements and assertions unchanged, then run:
+
+```text
+cargo test -p kagari --lib shared_tuple_adapter_uses_current_operations_for_each_argument -- --nocapture
+```
+
+That experiment failed in `update_requests::import_retained` during replacement
+preparation. The checked-in test retains its original independent artifact mode;
+it passes and is **not** a regression test proving demand-aware preparation works.
+Initial compilation/loading and complete-artifact body updates passed for the
+fixture, which combines tuple comparisons, generic trait methods, generic calls
+and collection comparisons. No claim is made that every tuple use fails or that
+independent compilation can omit historically required applications: strict
+runtime demand coverage remains mandatory. This documentation consolidation did
+not rerun the experiment.
+
+**Repair direction and acceptance.** Identify generated bridges by their semantic
+protocol/receiver contract, and reconcile old demands only when the corresponding
+candidate generated owners are available. When current source no longer reaches
+an old required bridge, materialize it through the normal checked planner before
+final coverage validation. Merely delaying lookup covers only the still-generated
+case. Do not copy old occurrence numbers, accept historical headers as candidate
+proof, drop demands or weaken executable/signature checks. Reuse the fixture to
+cover successful demand-aware body updates, changed generation order and bridges
+required only by retained execution; retain rejection of incompatible contracts
+and no-publication-on-failure assertions. Ordinary calls must still select current
+implementations. This is an engine responsibility, not a host-side workaround.
 
 ## Runtime-loaded programs referencing existing installations
 
