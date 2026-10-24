@@ -97,6 +97,25 @@ fn module_path_error(path: &str, error: PublicPathError) -> RuntimeError {
 }
 
 impl ExecutableModule {
+    /// Resolve a public authored function declaration, including unspecialized generics.
+    /// The ID belongs to `definitions()`; it grants neither an executable entry nor
+    /// private access. Traversal uses the same checked Program-root export namespaces
+    /// as ordinary public calls, without requiring an emitted specialization slot.
+    pub fn exported_function_declaration(
+        &self,
+        path: &str,
+    ) -> Result<DefinitionId, PublicPathError> {
+        let code = &self.program.code;
+        let root = &code.modules[code.root.index()].identity;
+        match code
+            .exports
+            .resolve_public_path(root, path, PublicPathKind::Function)?
+        {
+            PublicPathTarget::Function(declaration) => Ok(declaration),
+            _ => Err(PublicPathError::InvalidGraph),
+        }
+    }
+
     /// Resolve a public Program-root path into a handle for the exact target generation.
     /// This remains rooted at the Program even when called on a dependency member.
     /// Handles kept across collection use the ordinary runtime retention APIs.

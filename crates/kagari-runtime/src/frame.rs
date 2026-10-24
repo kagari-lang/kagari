@@ -191,17 +191,18 @@ impl<'runtime> ExecutionStack<'runtime> {
             }
             .ok_or_else(|| self.session.resources.quarantine("invalid frame module"))?
         };
+        let route = loaded.bind_call_route(CallableTarget::Script(function))?;
+        let selected = runtime.select_call_route(&route)?;
         self.push_callable(
             runtime,
-            loaded,
-            CallableTarget::Script(function),
+            selected.owner().clone(),
+            selected.target(),
             args,
             return_dst,
         )
     }
 
-    /// Enters a method selected from a rooted interface value, preserving its
-    /// own linked program even when the caller belongs to a newer version.
+    /// Enters the current method selected by the rooted interface's checked evidence.
     pub fn push_interface_method(
         &self,
         runtime: &Runtime,
@@ -210,6 +211,7 @@ impl<'runtime> ExecutionStack<'runtime> {
         return_dst: Option<Slot>,
     ) -> Result<(), RuntimeError> {
         self.validate_runtime(runtime)?;
+        let method = method.admit(runtime)?;
         let view = method.view(runtime)?;
         runtime.validate_executable_module(view.implementation())?;
         let arguments = FrameArguments::plain(args);
@@ -235,6 +237,8 @@ impl<'runtime> ExecutionStack<'runtime> {
         .map(|_| ())
     }
 
+    /// Enter an already selected exact callable. Retained computations and prepared
+    /// host entries must not resolve current code again at this admission boundary.
     pub fn push_callable(
         &self,
         runtime: &Runtime,

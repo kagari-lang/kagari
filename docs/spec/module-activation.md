@@ -8,7 +8,47 @@ Artifact preparation validates the entire executable closure and any supplied na
 
 An embedding host may explicitly call functions during a restricted candidate session. That session can mutate candidate-owned nonstatic objects, perform pure computation, and read explicitly immutable configuration; external modifications are denied. All static access is denied, including reads of Ready cells, access to newly staged cells, and indirect or host-reentrant access. Switching candidate/session context cannot escape this restriction. Termination and resource errors invalidate the candidate. Publication rechecks the base version and candidate references after the session ends. Publication is per runtime; coordination across actors belongs to the host.
 
-The root call pins a dependency program. Nested calls and synchronous host reentry use that same version set and cancellation state. A later publication does not redirect existing calls. Old versions remain usable while reachable and are reclaimed after their remaining references and calls end.
+## Live installations and call selection
+
+Each load creates an independent installation, even for the same prepared code or
+diagnostic label. `Program` and its `Module` handles are live installation handles;
+`ExecutableModule` is an exact executable-version owner. Reload and source update
+return `ReloadResult<()>` in the SDK, advancing the installation rather than
+returning a replacement handle. Runtime ownership, installation identity and
+retirement checks remain mandatory; labels confer no authority.
+
+Ordinary direct, shared generic, recursive, interface and native-callback calls
+select the current implementation of their already checked declaration/application.
+Typed `Function` replaces `PinnedFunction`. Named function values and live callable
+bindings do not lease obsolete executable code. Public path lookup happens at
+binding: changing an alias does not retarget a retained binding to another declaration.
+Implementation selection does not repeat trait inference or erase lexical type,
+receiver, argument, result or host-borrow checks.
+
+Created closures, cold Futures, admitted frames and admitted queued invocations
+retain their selected body/provider and matching type environment. An old resumed
+body's ordinary inner calls still use current implementations. For example, if a
+parked v1 Future resumes after v2 changes `helper`, it continues its v1 resume body
+but an ordinary `helper()` call enters v2. A named function value saved before the
+publication also enters current code when called; it is not a closure snapshot.
+Old executable payloads remain only while exact computation/explicit executable
+owners need them, not merely because source diagnostics or a named binding survive.
+
+## Publication boundary
+
+Publication is serialized at a host-top-level boundary with no active synchronous
+execution or driver scope anywhere in the runtime. Observers, native callbacks,
+synchronous reentry and their cleanup still count as active scopes even if the
+active-session pointer is temporarily hidden. Parked frames, waiting tasks and
+producer-side completion notifications do not prevent publication.
+
+`Runtime::begin_publication` admits an exclusive guard before SDK source preparation.
+While held, script entry/resumption, driver consumption and another publication
+reject. Staging and commit are metadata-only: no initializers, callbacks or GC-driven
+host destruction run as preparation effects. Commit rechecks installation/base
+identity, bindings and admission. Rejection or cancellation before commit preserves
+both the executable and authoritative source baseline. Explicit candidate execution
+is separate and cannot run under the publication guard.
 
 Native declarations, explicit impls, external schemas and local projector/storage
 capabilities remain part of that checked dependency contract. Reload does not
@@ -27,11 +67,12 @@ publication and diagnostic inspection do not force a cell.
 
 The initializer recipe is fixed to the generation that introduced the cell.
 Its hidden synchronous, zero-argument function returns the declared semantic type
-and retains that generation's dependency context. For example, if generation A
-introduces an unread `COUNT = make_count()` and B changes `make_count`, the first
-read from B still runs A's recipe. Once Ready, old and new generations observe
-and update the same cell; publishing B neither reruns the recipe nor resets it.
-This storage sharing does not redirect ordinary calls to the latest code.
+and retains that generation's recipe body. Its transitive dependencies are
+protected by compatibility validation: if A introduces an unread
+`COUNT = make_count()`, B cannot change `make_count` through compatible publication.
+Once Ready, old and new generations observe and update the same cell; publishing B
+neither reruns the recipe nor resets it. Ordinary call selection remains current;
+protected dependency equality preserves the initializer's behavior.
 
 The first executing access admits an initializer frame in the existing execution
 session. It uses the recipe's loaded module, not the caller's module slot or
@@ -64,7 +105,8 @@ as a way to acquire its installation state.
 | Change | Compatible publication |
 | --- | --- |
 | Add a static in an existing module | Allowed after full checking; initially Uninitialized |
-| Change an initializer expression or declaration order | Allowed under the other contract checks; existing recipe remains fixed |
+| Change an existing initializer expression | Rejected by protected dependency comparison; existing recipe remains fixed |
+| Reorder declarations without changing contracts or protected bodies | Allowed after full checking |
 | Delete, rename or move an existing static | Rejected |
 | Change an existing static's type, mutability or visibility | Rejected, including private statics |
 | Change a relevant applied type/layout, native or interface contract | Rejected |
@@ -73,18 +115,39 @@ as a way to acquire its installation state.
 Compatibility follows the declared applied type's recursive schema closure, not
 just currently stored values or the inventory of every specialization of a nominal
 type. `None` and empty collections do not excuse a changed declared contract.
-Public static additions are a narrow exception to exact public inventory matching;
-ordinary nonstatic module, callable and type checks remain in force. They do not
-authorize general additive reload. Code rollback is another checked publication,
-not state rollback: it cannot remove a static introduced by a later generation.
+Existing declaration, public path, callable, type and implementation contracts
+remain frozen. Additions, including modules, must satisfy complete candidate checking,
+retained application demands and protected dependency rules. Code rollback is another
+checked publication, not state rollback: it cannot remove an introduced static.
+
+## Protected dependencies and conservative rejection
+
+Compatibility compares the transitive dependency closure of existing Hash/Eq and
+static-initializer roots, including source templates without executable applications,
+called bodies and selected operations. This is installation-inventory validation,
+not a scan of live tables or Ready static values. An empty/dropped collection or an
+unread/already initialized static does not remove the obligation.
+
+An `Unknown` interface, native, witness or dynamic-call edge in a protected closure
+conservatively freezes the full installation inventory. Missing callback metadata
+or effect flags are not proof of a sealed native implementation. Consequently,
+standard-foundation protected unknown edges can reject even a simple body patch
+prepared with the normal engine. This deliberate conservative policy lets the host
+choose an appropriate installation/provider closure; the source update API is not
+a guarantee that every standard-library program accepts body changes.
+
+Failure leaves the old publication and statics unchanged. No table reindexing,
+state migration or liveness-dependent relaxation is implicit. See
+[stored key protocols](collection-access.md#stored-key-protocols-across-reload).
 
 ## Async activation
 
 The implemented [async executable contracts](../async-execution-design.md#executable-contracts)
 define the checked handoff.
 
-Cold Futures and waiting executions pin their original body, types, dependencies
-and native provider contracts across compatible publication. Candidate
+Cold Futures and waiting executions retain their original body, types and native
+provider contracts across compatible publication; ordinary calls made by those
+bodies select current implementations. Candidate
 execution rejects Future creation, spawn and await; candidate output graphs
 cannot contain Future, Task or scope capabilities through aggregates or aliases.
 These checks apply to source-free execution and actual mutable graph state.

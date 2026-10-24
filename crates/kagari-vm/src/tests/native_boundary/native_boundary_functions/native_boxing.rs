@@ -15,7 +15,7 @@ use kagari_runtime::{
         conversion::KagariType,
         conversion::context::ConversionContext,
         declarations::FunctionDecl,
-        function_handle::PinnedFunction,
+        function_handle::Function,
         module::NativeModule,
         objects::Object,
         typed::NativeContext,
@@ -33,8 +33,8 @@ use std::{
     },
 };
 
-type Add = PinnedFunction<(i32, i32), i32>;
-type Callback = PinnedFunction<(), i32>;
+type Add = Function<(i32, i32), i32>;
+type Callback = Function<(), i32>;
 
 #[test]
 fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
@@ -244,7 +244,7 @@ fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
 
 #[test]
 fn generic_native_function_values_retain_applied_nominal_scopes() {
-    type Identity = PinnedFunction<(Object,), Object>;
+    type Identity = Function<(Object,), Object>;
     let module = generic_identity_module();
     let declaration = declaration_query(&module, DefinitionKind::Function, "identity");
     let source = r#"

@@ -95,7 +95,7 @@ fn native_application_retains_each_exact_module_owned_adapter_environment() {
         };
         let mut body = f.body("adapter_fixture", vec![]);
         body.requirement.origin = adapter.clone();
-        body.classification = BodyClassification::Adapter(adapter.clone());
+        body.classification = BodyClassification::IntrinsicAdapter(adapter.clone());
         body.signature = signature.clone();
         candidate.bodies.push(body);
         imports.push(NativeImport {
@@ -144,7 +144,7 @@ fn native_application_retains_each_exact_module_owned_adapter_environment() {
                 .unwrap()
         );
     }
-    validate_semantics(&candidate, &catalog, &mut f.budget()).unwrap();
+    validate_semantics(&candidate, &imports, &catalog, &mut f.budget()).unwrap();
     let natives: Vec<_> = imports
         .iter()
         .map(|import| NativeClosure {
@@ -190,6 +190,10 @@ fn native_application_retains_each_exact_module_owned_adapter_environment() {
         check_coverage(&envelope, &available, &catalog, &mut f.budget()),
         Err(UpdateError::InvalidEvidence)
     );
+    assert_eq!(
+        validate_semantics(&candidate, &imports[..1], &catalog, &mut f.budget()),
+        Err(UpdateError::InvalidEvidence)
+    );
     let mut forged = imports[1].clone();
     let OperationWitness::Selected(call) = &mut forged.callables[0] else {
         panic!()
@@ -210,10 +214,19 @@ fn native_application_retains_each_exact_module_owned_adapter_environment() {
         check_coverage(&envelope, &available, &catalog, &mut f.budget()),
         Err(UpdateError::InvalidEvidence)
     );
+    assert_eq!(
+        validate_semantics(
+            &candidate,
+            [&imports[0], &forged],
+            &catalog,
+            &mut f.budget()
+        ),
+        Err(UpdateError::InvalidEvidence)
+    );
     let mut forged_evidence = candidate.clone();
     forged_evidence.selections[1] = CallRequirement::Native(Box::new(forged));
     assert_eq!(
-        validate_semantics(&forged_evidence, &catalog, &mut f.budget()),
+        validate_semantics(&forged_evidence, &imports, &catalog, &mut f.budget()),
         Err(UpdateError::InvalidEvidence)
     );
 }

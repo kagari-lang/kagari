@@ -63,20 +63,25 @@ HashMap and HashSet retain their construction-time builtin/custom key mode and
 selected Hash/Eq implementations. Lookup, insertion and removal use those stored
 selections, including for an empty table, rather than the calling generation's
 selection. A map retained in a [static cell](modules.md#persistent-module-statics)
-therefore remains searchable after a compatible reload changes a key method body.
-Publication neither reindexes the table nor changes its key interpretation.
+therefore remains searchable across compatible publication. Existing Hash/Eq roots
+and their transitive dependencies are protected: changing a key method body or a
+helper in that closure rejects, even with no live tables. An unknown protected edge
+conservatively freezes the full installation inventory. Publication neither reindexes
+the table nor changes its key interpretation; see
+[protected dependencies](module-activation.md#protected-dependencies-and-conservative-rejection).
 
-Stored callbacks enter their retained supplying generation through the ordinary
-checked call path. Runtime ownership, liveness, complete types and execution-phase
-restrictions still apply. The collection and participating values remain rooted
+Stored callbacks use their checked selection through the ordinary current-call path;
+protected dependency equality, not an old dependency lease, preserves behavior.
+Runtime ownership, liveness, complete types and execution-phase restrictions still apply. The collection and participating values remain rooted
 across callbacks; no storage borrow spans arbitrary callback execution. This does
 not relax the author's [key-stability obligations](value-semantics.md#hash-containers-and-user-obligations).
 
 [Content protocols and helpers](#content-protocols-and-helpers) are different:
 whole-collection comparison/hashing and explicit content helpers use the protocols
 selected by their caller, not the table's stored membership relation. An old table
-can keep its lookup behavior while a new caller deliberately compares its contents
-under new method bodies. Neither operation silently rebuilds the other contract.
+keeps its lookup behavior while a caller can deliberately choose a different content
+protocol. This distinction does not permit changing protected Hash/Eq bodies through
+compatible reload. Neither operation silently rebuilds the other contract.
 
 ## Read-only access is shallow and live
 
@@ -281,7 +286,8 @@ The host ABI continues to describe native storage access independently of the
 script interface hierarchy. Native read-only host arrays/maps/sets retain their
 restricted capabilities; they cannot be converted to mutable collection views.
 Trusted hosts remain responsible for their declared effects and roots. GC,
-pinned versions and cleanup apply equally to native and script implementations.
+checked current-call selection, exact computation ownership and cleanup apply equally
+to native and script implementations.
 Storage factories, trace/drop hooks and scoped access form the generic native
 object boundary; they do not introduce a new JIT backend.
 

@@ -8,7 +8,7 @@ use crate::{
         binding::NativeResult,
         collections::{map::ScriptMap, set::ScriptSet},
         conversion::KagariType,
-        function_handle::{PinnedFunction, evidence::EntryEvidence},
+        function_handle::{Function, evidence::EntryEvidence},
     },
 };
 use kagari_common::identity::DefinitionKind;
@@ -27,7 +27,7 @@ impl Runtime {
         owner: &Module,
         key: &TypeArgument,
         value: &TypeArgument,
-    ) -> NativeResult<PinnedFunction<(), ScriptMap<K, V>>> {
+    ) -> NativeResult<Function<(), ScriptMap<K, V>>> {
         self.gc().ensure_no_native_borrow()?;
         let snapshot = self.capture_module(owner)?;
         self.bind_map_constructor_exact(&snapshot.root, key, value)
@@ -42,7 +42,7 @@ impl Runtime {
         owner: &ExecutableModule,
         key: &TypeArgument,
         value: &TypeArgument,
-    ) -> NativeResult<PinnedFunction<(), ScriptMap<K, V>>> {
+    ) -> NativeResult<Function<(), ScriptMap<K, V>>> {
         self.bind_hash_constructor(
             owner,
             Ty::Map {
@@ -59,7 +59,7 @@ impl Runtime {
         &self,
         owner: &Module,
         element: &TypeArgument,
-    ) -> NativeResult<PinnedFunction<(), ScriptSet<T>>> {
+    ) -> NativeResult<Function<(), ScriptSet<T>>> {
         self.gc().ensure_no_native_borrow()?;
         let snapshot = self.capture_module(owner)?;
         self.bind_set_constructor_exact(&snapshot.root, element)
@@ -70,7 +70,7 @@ impl Runtime {
         &self,
         owner: &ExecutableModule,
         element: &TypeArgument,
-    ) -> NativeResult<PinnedFunction<(), ScriptSet<T>>> {
+    ) -> NativeResult<Function<(), ScriptSet<T>>> {
         self.bind_hash_constructor(
             owner,
             Ty::Set(Box::new(element.ty().clone()), CollectionAccess::Mutable),
@@ -83,7 +83,7 @@ impl Runtime {
         owner: &ExecutableModule,
         receiver: Ty,
         arguments: &[TypeArgument],
-    ) -> NativeResult<PinnedFunction<(), R>> {
+    ) -> NativeResult<Function<(), R>> {
         self.gc().ensure_no_native_borrow()?;
         self.resources().ensure_execution_allowed()?;
         self.validate_executable_module(owner)?;

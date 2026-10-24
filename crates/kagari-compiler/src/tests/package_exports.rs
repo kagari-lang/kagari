@@ -67,6 +67,9 @@ fn compiled() -> VerifiedMirProgram {
         pub use crate as again;
         pub fn api() -> bool { true }
         pub fn generic<T>(value: T) -> T { value }
+        pub fn unused<T>(value: T) -> T { value }
+        pub use crate::unused as unused_alias;
+        fn private_generic<T>(value: T) -> T { value }
         pub fn wrapper() -> i32 { generic(5) }
         fn main() -> i32 { 6 }
     "#
@@ -238,7 +241,7 @@ fn source_free_exports_preserve_aliases_cycles_and_separate_entry() {
         "main",
         "hidden::calculate",
         "secret",
-        "generic",
+        "private_generic",
         "::damage",
         "damage::",
     ] {
@@ -302,6 +305,28 @@ fn source_free_exports_preserve_aliases_cycles_and_separate_entry() {
         assert_eq!(body.identity.as_ref().unwrap().declaration, id);
         assert!(body.identity.as_ref().unwrap().arguments.is_empty());
     }
+    for name in ["generic", "unused"] {
+        let declaration = program.exports.function(root, name).unwrap();
+        assert_eq!(
+            fresh
+                .snapshot()
+                .resolve(declaration)
+                .unwrap()
+                .last()
+                .unwrap()
+                .name,
+            name
+        );
+        assert!(
+            !verified.export_targets().contains_key(&declaration),
+            "a declaration export must not fabricate a concrete callable slot"
+        );
+    }
+    assert_eq!(
+        program.exports.function(root, "unused_alias"),
+        program.exports.function(root, "unused")
+    );
+    assert!(program.exports.function(root, "private_generic").is_none());
     assert!(program.exports.function(root, "main").is_none());
     let entry = verified.export_targets()[&program.exports.entry.unwrap()];
     assert_eq!(entry.module, program.root);
@@ -335,7 +360,7 @@ fn executable_export_validation_rejects_forged_authority_and_dangling_graphs() {
         .import_into(&context, &Default::default())
         .unwrap()
         .into_records();
-    for corruption in 0..8 {
+    for corruption in 0..10 {
         let mut forged = raw.clone();
         let hidden = function(&forged, &["hidden"], "secret");
         let foreign_main = function(&forged, &["hidden"], "main");
@@ -419,6 +444,27 @@ fn executable_export_validation_rejects_forged_authority_and_dangling_graphs() {
                     .unwrap()
                     .semantic
                     .result = None;
+            }
+            8 => {
+                let definitions = context.snapshot();
+                let private = definitions
+                    .lookup_child(
+                        definitions.lookup_root(&forged.root).unwrap(),
+                        DefinitionKind::Function,
+                        "private_generic",
+                        0,
+                    )
+                    .unwrap();
+                forged
+                    .exports
+                    .namespaces
+                    .get_mut(&forged.root)
+                    .unwrap()
+                    .functions
+                    .insert("stolen_generic".into(), private);
+            }
+            9 => {
+                forged.exports.entry = forged.exports.function(&forged.root, "unused");
             }
             _ => unreachable!(),
         }

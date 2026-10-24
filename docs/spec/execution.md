@@ -593,8 +593,8 @@ Parent-to-branch edges and Task waits share one bounded cycle check. Runtime
 `AsyncLimits.max_groups` and `max_group_depth` bound group count and ancestry;
 exhaustion terminates execution rather than returning a library Err. Branches
 inherit logical parent call depth, deterministic inputs and one shared RNG/host-call
-recording stream. Their checked executable/type generations stay pinned across
-reload. These contracts also apply to source-free artifacts; composition adds no
+recording stream. Their admitted bodies and lexical type environments stay exact
+across reload; ordinary calls within those bodies select current implementations. These contracts also apply to source-free artifacts; composition adds no
 bytecode instruction or compiler-recognized Result behavior.
 
 ### Owned readiness and cancellation notifications

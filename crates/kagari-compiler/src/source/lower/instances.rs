@@ -45,6 +45,7 @@ use std::{
 mod adapters;
 mod callables;
 mod calls;
+mod coercions;
 mod constructions;
 mod defaults;
 mod locals;
@@ -110,7 +111,8 @@ pub(super) enum InstanceClassification {
     Closure(ConcreteFunctionIdentity),
     Async(ConcreteFunctionIdentity),
     Resume(ConcreteFunctionIdentity),
-    Adapter,
+    Adapter(ConcreteFunctionIdentity),
+    IntrinsicAdapter,
     StaticInitializer(DefinitionId),
 }
 
@@ -121,7 +123,8 @@ impl InstanceClassification {
             Self::Closure(owner) => BodyClassification::Closure(owner.clone()),
             Self::Async(owner) => BodyClassification::Async(owner.clone()),
             Self::Resume(owner) => BodyClassification::Resume(owner.clone()),
-            Self::Adapter => BodyClassification::Adapter(identity.clone()),
+            Self::Adapter(owner) => BodyClassification::Adapter(owner.clone()),
+            Self::IntrinsicAdapter => BodyClassification::IntrinsicAdapter(identity.clone()),
             Self::StaticInitializer(id) => BodyClassification::StaticInitializer(*id),
         }
     }
@@ -300,61 +303,6 @@ impl<'a> InstancePlanner<'a> {
         self.keys.insert(key, resume.id);
         self.instances.push(resume);
         Ok(InstanceId::new(self.instances.len() - 1))
-    }
-
-    pub fn enqueue_callable(
-        &mut self,
-        parent: &Instance,
-        mut body: CallableInstance,
-    ) -> Result<InstanceId, MirLoweringError> {
-        self.check()?;
-        body.receiver = self
-            .arguments(&[body.receiver], &parent.substitution, body.span)?
-            .remove(0);
-        let TypeId::Trait(interface) = self
-            .arguments(
-                &[TypeId::Trait(body.interface)],
-                &parent.substitution,
-                body.span,
-            )?
-            .remove(0)
-        else {
-            unreachable!()
-        };
-        body.interface = interface;
-        let declaration = self
-            .context
-            .intern_child(
-                parent.key.declaration,
-                DefinitionKind::Function,
-                "$callable",
-                body.span.start as u32,
-            )
-            .map_err(DefinitionMappingError::from)?;
-        let key = InstanceKey {
-            declaration,
-            arguments: vec![body.receiver.clone(), TypeId::Trait(body.interface.clone())],
-        };
-        if let Some(id) = self.keys.get(&key) {
-            return Ok(*id);
-        }
-        self.charge_layout_instance(body.span)?;
-        self.record_layout_root(&body.receiver, &Default::default(), body.span)?;
-        let id = InstanceId::new(self.instances.len());
-        self.keys.insert(key.clone(), id);
-        self.instances.push(Instance {
-            classification: InstanceClassification::Adapter,
-            resume: false,
-            callable: Some(body),
-            origin: parent.origin,
-            id,
-            body: parent.body,
-            key,
-            substitution: parent.substitution.clone(),
-            closure: None,
-            protocol: None,
-        });
-        Ok(id)
     }
 
     pub fn new(
@@ -567,7 +515,7 @@ impl<'a> InstancePlanner<'a> {
         let id = InstanceId::new(self.instances.len());
         self.keys.insert(key.clone(), id);
         self.instances.push(Instance {
-            classification: InstanceClassification::Adapter,
+            classification: InstanceClassification::IntrinsicAdapter,
             resume: false,
             callable: None,
             origin,

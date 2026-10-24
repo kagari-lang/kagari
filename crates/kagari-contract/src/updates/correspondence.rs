@@ -34,6 +34,11 @@ use std::collections::HashMap;
 ///
 /// The result is comparison metadata for `compare_protected`, not a replacement
 /// executable certificate. Never use it to bypass original inventory admission.
+/// The physical source manifest is validated in the original publication scope and
+/// omitted from this projection: distinct authored blocks can share a semantic impl
+/// owner, but their source ranges cannot become one source-attachment authority.
+/// The original evidence retains its manifest; canonical source records and their
+/// complete dependencies remain in the comparison projection.
 /// The shared budget charges the full pre-coalescing evidence (including bytes),
 /// validation and normalization work; callers need not charge that evidence again.
 /// Cancellation, exhaustion and identity errors propagate without changing `evidence`.
@@ -88,6 +93,9 @@ pub fn import_verified_evidence(
         }
     }
     imported.sources = sources;
+    // Physical source anchors were validated before semantic owner coalescing.
+    // They belong to the original executable, not this comparison-only ID scope.
+    imported.source_manifest = None;
     // No other collapsed key is excused; dependencies must still have their targets.
     validate_shape(&imported, &definitions, budget)?;
     Ok(DefinitionMetadata::checked(

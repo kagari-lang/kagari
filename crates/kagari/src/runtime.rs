@@ -6,7 +6,12 @@ mod members;
 
 mod scheduler;
 mod scoped;
+mod source;
 mod typed;
+#[cfg(any(feature = "source", feature = "native"))]
+mod update;
+#[cfg(any(feature = "source", feature = "native"))]
+use crate::runtime::update::Publications;
 use crate::{
     LoadResult, ReloadResult, RunResult,
     context::ExecutionContext,
@@ -31,6 +36,8 @@ use kagari_vm::{
 pub struct Runtime {
     vm: Vm,
     default_context: ExecutionContext,
+    #[cfg(any(feature = "source", feature = "native"))]
+    publications: Publications,
 }
 
 impl Runtime {
@@ -38,6 +45,8 @@ impl Runtime {
         Self {
             vm: Vm::new(runtime),
             default_context,
+            #[cfg(any(feature = "source", feature = "native"))]
+            publications: Publications::default(),
         }
     }
 
@@ -69,10 +78,23 @@ impl Runtime {
                 .source_name
                 .clone()
         });
-        self.vm
+        let candidate = self
+            .vm
             .runtime_mut()
-            .load_verified_program(program_name, program.bytecode().clone())
-            .map_err(EmbeddingError::load)
+            .stage_load_verified_program(program_name, program.bytecode().clone())
+            .map_err(EmbeddingError::load)?;
+        #[cfg(any(feature = "source", feature = "native"))]
+        let association = self
+            .publications
+            .stage(candidate.publication_token(), program.retained_inputs())?;
+        let loaded = self
+            .vm
+            .runtime_mut()
+            .publish_staged_load(candidate)
+            .map_err(EmbeddingError::load)?;
+        #[cfg(any(feature = "source", feature = "native"))]
+        association.published();
+        Ok(loaded)
     }
 
     pub fn reload_program(
@@ -81,19 +103,20 @@ impl Runtime {
         program: &PreparedProgram,
         options: ReloadOptions,
     ) -> ReloadResult<()> {
-        let candidate = self
-            .vm
-            .runtime()
-            .stage_reload_verified_program(
-                previous,
-                options.program_name,
-                program.bytecode().clone(),
-            )
+        let guard = self.runtime().begin_publication(previous)?;
+        let candidate = guard
+            .stage_reload_verified_program(options.program_name, program.bytecode().clone())
             .map_err(EmbeddingError::reload_validation)?;
-        self.vm
-            .runtime()
-            .publish_staged_reload(candidate)
-            .map_err(EmbeddingError::reload_validation)
+        #[cfg(any(feature = "source", feature = "native"))]
+        let association = self
+            .publications
+            .stage(candidate.publication_token(), program.retained_inputs())?;
+        guard
+            .publish(candidate)
+            .map_err(EmbeddingError::reload_validation)?;
+        #[cfg(any(feature = "source", feature = "native"))]
+        association.published();
+        Ok(())
     }
 
     pub fn execute<'a>(

@@ -255,7 +255,7 @@ fn recursive_next_is_rejected_and_unreachable_capture_cycles_are_collected() {
 }
 
 #[test]
-fn retained_zip_uses_both_original_custom_sources_and_callbacks_after_reload() {
+fn retained_zip_keeps_sources_and_closures_but_calls_current_methods() {
     let library = foundation::modules()
         .unwrap()
         .into_iter()
@@ -330,7 +330,7 @@ pub fn make()->Iterator<Item=(i32,i32)> {
     };
     assert_eq!(
         &*vm.runtime().gc().tuple(pair).unwrap(),
-        &[Value::I32(11), Value::I32(31)]
+        &[Value::I32(111), Value::I32(131)]
     );
     let fresh = vm
         .execute(&replacement, "make")

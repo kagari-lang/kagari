@@ -5,7 +5,7 @@ use crate::{
     module::ExecutableModule,
     native::{
         conversion::{FromKagari, context::ConversionContext},
-        function_handle::PinnedFunction,
+        function_handle::Function,
         typed::NativeContext,
     },
 };
@@ -108,10 +108,9 @@ fn rooted_callback_retains_captures_but_not_storage_after_runtime_teardown() {
         .id;
     let runtime_owner = runtime.resources().lifetime_probe();
     let mut conversion = ConversionContext::new(&runtime, &loaded).unwrap();
-    let signature = conversion.type_for::<PinnedFunction<(), i32>>().unwrap();
+    let signature = conversion.type_for::<Function<(), i32>>().unwrap();
     let rooted =
-        PinnedFunction::<(), i32>::from_kagari(&mut conversion, &signature, prepared.value())
-            .unwrap();
+        Function::<(), i32>::from_kagari(&mut conversion, &signature, prepared.value()).unwrap();
     assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 0);
     assert!(runtime.gc.environment(environment_id).is_some());
     assert_eq!(

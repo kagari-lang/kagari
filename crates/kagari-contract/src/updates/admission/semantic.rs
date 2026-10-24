@@ -15,8 +15,9 @@ use kagari_types::{
 };
 use std::collections::HashMap;
 
-pub(super) fn validate(
-    evidence: &UpdateEvidence,
+pub(super) fn validate<'a>(
+    evidence: &'a UpdateEvidence,
+    native_imports: impl IntoIterator<Item = &'a NativeImport>,
     catalog: &ProofCatalog<'_>,
     budget: &mut Budget<'_>,
 ) -> Result<(), UpdateError> {
@@ -28,24 +29,19 @@ pub(super) fn validate(
         }
     }
     let mut natives: HashMap<_, Vec<_>> = HashMap::new();
-    for call in evidence
-        .selections
-        .iter()
-        .chain(
-            evidence
-                .bodies
-                .iter()
-                .flat_map(|body| &body.requirement.calls),
-        )
-        .chain(evidence.roots.iter().flat_map(|root| &root.selections))
-    {
+    // A shared-only template need not appear as a direct native call edge. Its
+    // authority comes from the backend's actual inventory, not certificate reachability.
+    for import in native_imports {
         budget.visit()?;
-        if let CallRequirement::Native(import) = call {
-            natives
-                .entry(&import.instance)
-                .or_default()
-                .push(import.as_ref());
+        let declaration = catalog
+            .native_declaration(import.instance.declaration)
+            .ok_or_else(|| UpdateError::MissingNative(import.instance.clone()))?;
+        if !import.matches_declaration(declaration, catalog, budget.cancel)? {
+            budget.check()?;
+            return Err(UpdateError::InvalidEvidence);
         }
+        budget.records(1)?;
+        natives.entry(&import.instance).or_default().push(import);
     }
     let validator = Validator {
         bodies,
@@ -201,11 +197,19 @@ impl Validator<'_, '_> {
                 )?
             }
             CallRequirement::Native(import) => {
-                let declaration = self
-                    .catalog
-                    .native_declaration(import.instance.declaration)
-                    .ok_or(UpdateError::InvalidEvidence)?;
-                import.matches_declaration(declaration, self.catalog, cancel)?
+                let variants = self
+                    .natives
+                    .get(&import.instance)
+                    .ok_or_else(|| UpdateError::MissingNative(import.instance.clone()))?;
+                let mut matched = false;
+                for variant in variants {
+                    budget.visit()?;
+                    if *variant == import.as_ref() {
+                        matched = true;
+                        break;
+                    }
+                }
+                matched
             }
             CallRequirement::Operation(operation) => {
                 operation.valid(self.catalog, scope.parameters, scope.assumptions, cancel)?

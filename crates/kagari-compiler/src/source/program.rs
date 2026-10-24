@@ -2,6 +2,7 @@ use crate::source::{
     logging, lower,
     lower::{MirLoweringError, instances::MirLoweringOptions},
     program::update_requests::RequestQueue,
+    source_package::build_source_manifest,
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -136,6 +137,12 @@ fn lower_program(
         SourceProgramError::Lowering {
             module: Box::new(root.clone()),
             error,
+        }
+    })?;
+    let source_manifest = build_source_manifest(program, &options.cancel).map_err(|error| {
+        SourceProgramError::Lowering {
+            module: Box::new(root.clone()),
+            error: error.into(),
         }
     })?;
     let mut retained = retained
@@ -619,7 +626,7 @@ fn lower_program(
             module.dependencies = dependencies.into_iter().collect();
         }
         if !changed {
-            let evidence = updates::build(
+            let mut evidence = updates::build(
                 &modules,
                 updates::EvidenceInputs {
                     sources: update_records::attach_bodies(
@@ -642,6 +649,7 @@ fn lower_program(
                 stage: "capture preoptimization evidence",
                 error,
             })?;
+            evidence.source_manifest = Some(source_manifest.clone());
             let (modules, evidence) = update_records::optimize(
                 modules, evidence, &context, options,
             )

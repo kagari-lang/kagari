@@ -117,6 +117,7 @@ impl StagedProgram {
         }
         // Everything below is non-failing; no destruction of the old descriptor
         // occurs until both guards have been released.
+        self.module.program.dispatch.scope.mark_published();
         self.lease.published.store(true, Ordering::Relaxed);
         let removed_stage = entry.remove();
         let previous = current.replace(replacement);

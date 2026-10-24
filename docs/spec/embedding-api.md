@@ -382,7 +382,7 @@ IR consumes these facts to emit generic enum operations with nominal layouts;
 linking encodes module-local enum and variant slots. Source, standard and registered
 native enums share checked generic instantiation, ordered tuple fields and pinned
 layouts. Unsupported enum operations use the existing JIT fallback before entry.
-`LoadedModule::enum_variant` returns a verified `EnumVariantRef` retaining its
+`ExecutableModule::enum_variant` returns a verified `EnumVariantRef` retaining its
 generation. Registered native bodies use scoped type arguments and
 `CallContext::allocate_enum`; host construction uses
 `Runtime::make_enum_member(owner, applied_type, member, fields)`. Both validate
@@ -431,8 +431,11 @@ HostRegistry
 ModuleLoader
   resolves source modules, bytecode artifacts, package roots, and imports
 
-LoadedModule
-  identifies a successfully loaded module epoch
+Program / Module
+  identify a live installation and one of its logical modules
+
+ExecutableModule
+  owns one exact executable version for admitted execution or advanced use
 
 ExecutionContext
   carries cancellation, fixed logical time,
@@ -456,9 +459,10 @@ compile_source(source, compile_options) -> CompileResult<CheckedModule>
 emit_artifact(checked_module, artifact_options) -> CompileResult<DefinitionMetadata<BytecodeArtifact>>
 compile_to_artifact(source, artifact_options) -> CompileResult<DefinitionMetadata<BytecodeArtifact>>
 prepare_artifact(artifact, compatibility, cancellation) -> PreparedProgram
-load_program(prepared_program, load_options) -> LoadResult<LoadedModule>
+load_program(prepared_program, load_options) -> LoadResult<Program>
 execute(module, entry, args, execution_context) -> RunResult<Value>
-reload_program(previous, prepared_candidate, reload_options) -> ReloadResult<LoadedModule>
+reload_program(program, prepared_candidate, reload_options) -> ReloadResult<()>
+update(program, update_batch) -> ReloadResult<()>
 ```
 
 Convenience functions may combine these operations for CLI use, but the underlying phases remain separate.
@@ -478,7 +482,10 @@ are not public-path identities. Nominal type identities still must match. Cyclic
 graphs are compared as finite graphs, so equivalent cycles may have different internal
 shapes. Removing/renaming a public path, changing its signature or changing the separate
 `main` entry contract fails with `KG_RELOAD_PUBLIC_EXPORT_MISMATCH` after the existing
-module checks. Previously bound calls retain their supplying generation.
+module checks. Previously bound ordinary calls keep their declaration/application
+identity but select its current implementation. Compatible additions are subject to
+frozen contracts, retained demands and protected dependency checks, not merely ABI
+signature equality.
 
 At the runtime layer, `stage_reload_verified_program` (used by the SDK),
 `stage_reload_program` and `stage_reload_artifact` return an owned
@@ -526,13 +533,14 @@ At the lower-level API, Vm starts a session from core runtime defaults automatic
 Hosts can select explicit ExecutionOptions with
 `kagari_runtime::Runtime::begin_execution` and keep the returned ExecutionSession
 alive while driving the VM. Nested scopes inherit
-the pinned dependency program, cancellation and call-depth limit.
+the installation authority, cancellation and call-depth limit. Exact admitted
+bodies are retained separately from current ordinary-call selection.
 Dropping the final scope releases the session; dropping an outer handle early does
 not reset a still-active nested scope. ExecutionSession::counters reports root-call
 lifecycle peaks and elapsed time; Runtime counters track live occupancy and
 runtime peaks. Synchronous script
-reentry is available through HostCallContext and kagari_vm::reenter, using a
-LoadedModule and FunctionRef from the pinned root program. Its returned
+reentry is available through HostCallContext and kagari_vm::reenter, using
+an exact `ExecutableModule` and checked `FunctionRef` for the admitted entry. Its returned
 RootedValue remains alive across collection; ordinary raw Value copies do not.
 See [host-interop.md](host-interop.md) for scope and error rules. The `host_reentry`
 example demonstrates this boundary: `cargo run -p kagari --example host_reentry`.
@@ -557,7 +565,7 @@ an owning handle. It uses the installed entry's closed semantic signature; missi
 generic execution evidence is rejected without source analysis. Argument and return
 type mismatches fail before entry, while a data-dependent return conversion failure
 preserves completed script effects. Conversion and execution share the active
-session's cancellation and pinned program. The explicit named-entry policy matches
+session's cancellation and exact admitted entry. The explicit named-entry policy matches
 `execute`.
 
 ### Scoped external host entry
@@ -663,7 +671,7 @@ and the [scope contract](host-interop.md).
 ## Retained objects and prepared calls
 
 `Object`, `Opaque<T>`, `ScriptVec<T>`, `ScriptMap<K, V>`, `ScriptSet<T>`,
-`Interface` and `PinnedFunction<A, R>` retain the values needed by the host. Clones
+`Interface` and `Function<A, R>` retain the values needed by the host. Clones
 preserve identity and share retention; dropping the last handle permits collection.
 `ScriptValue` forwards an exact declared generic value without erasing its type.
 Ordinary field/collection reads and callback results need no manual root operation.
@@ -682,22 +690,27 @@ the explicit root entry remains zero-argument.
 
 Core `kagari_runtime::Runtime::bind_function`, exposed by SDK `Runtime::function`,
 resolves verified public paths from the Program root, including re-exports into
-dependencies, and returns a typed `PinnedFunction`.
-Passing a child module handle does not change that lookup root. Private declarations,
-private `main` and public generic templates are absent from ordinary host lookup;
-use a concrete public script wrapper for a generic source application. Explicit
-public declaration/application binding remains available for installed native entries
-and other existing checked executable evidence. Both routes validate the complete
-Rust signature and retain the supplying Program generation before execution.
+dependencies, and returns a typed `Function`.
+Passing a child `Module` handle does not change that lookup root. Private declarations
+and private `main` are absent from ordinary host lookup. Public generic declarations
+are valid public-path leaves for declaration/source-update lookup even without an
+executable application; this does **not** implement typed generic public-path binding
+(HM03 remains pending). Use a concrete public script wrapper for ordinary typed calls.
+Explicit public declaration/application binding remains available for installed
+native entries and other existing checked executable evidence. Both binding routes
+validate the complete Rust signature. Named bindings retain a checked live route,
+not an obsolete executable lease; invocation selects and admits the exact current target.
 
 Prepare `Field<T>` and `Method<A, R>` once from the installed applied type, then
 reuse them. Native and script inherent members share declaration/name binding;
-method tuples exclude the receiver. Associated functions return PinnedFunction.
+method tuples exclude the receiver. Associated functions return `Function`.
 Generic binding consumes installed executable evidence and retains each supplied
 type's lexical scope; it does not infer new implementations at runtime. Interface
-and selected calls retain their checked implementations, including inherited,
-default and static members. Handles reject foreign runtimes and incompatible
-applications or generations; old handles keep their selected version after reload.
+and selected calls retain their checked implementation identity and evidence,
+including inherited, default and static members, while ordinary calls use its current
+body. Handles reject foreign runtimes and incompatible applications or layouts.
+Created closures/Futures and admitted frames/queues retain exact bodies; their ordinary
+inner calls are current. Retaining a named function value does not pin old code.
 
 `Runtime::with_context(owner, execution, |cx| ...)` opens SDK host access
 with cancellation, execution phase and backend policy. Field reads/writes and
@@ -733,7 +746,7 @@ Preauthored native catalogs can use `NativeBinding::declared` and
 `SelectedCall::from_declaration`; ordinary registration uses `bind` and
 FunctionBuilder::requires. Both consume the same validated declaration, scope and
 selected-operation machinery. RootedCallable is removed; independently retained
-host callbacks use PinnedFunction. CallContext, borrowed native views and traced
+host callbacks use `Function`. CallContext, borrowed native views and traced
 StoredCallable remain advanced adapters for concrete storage/iterator operations,
 with explicit rooting obligations. They are not a second ownership model.
 
@@ -822,8 +835,10 @@ Engine invariant violations may panic in debug builds, but production APIs still
 
 Reload is explicit.
 
-The host supplies a validated `PreparedProgram` candidate for an existing module id.
-The SDK retains that exact verified identity during staging and publication.
+The host supplies a validated `PreparedProgram` candidate for an existing live
+`Program`, not a label or raw module id. `reload_program` returns `ReloadResult<()>`;
+the same live handles observe the new publication. The SDK retains the candidate's
+exact verified identity during staging and publication.
 The runtime validates:
 
 - public ABI fingerprints
@@ -834,8 +849,96 @@ The runtime validates:
 - bytecode verifier metadata
 - JIT artifact dependencies, if JIT is enabled
 
-If validation succeeds, the new epoch is published.
-If validation fails, the existing active epoch remains active.
+Publication requires a serialized host-top-level boundary with no active synchronous
+script, driver, callback or reentry scope; parked executions may remain. The
+[activation contract](module-activation.md) also requires frozen declarations,
+retained executable demands and protected Hash/Eq/static dependency equality.
+If validation succeeds, code, dispatch and source association advance atomically.
+If it fails, the existing publication and static state remain unchanged.
+
+## Source updates
+
+With the SDK `source` feature, `kagari::update::Update` builds a detached batch;
+`Runtime::update(&Program, Update) -> ReloadResult<()>` checks and publishes it.
+The builder does not compile or publish. Its operations are:
+
+- `replace_function(target, definition)`: one complete authored definition, not a
+  body fragment. `target` is a checked public path or an opaque `SourceDeclaration`.
+  The replacement stays in its original owner/import context and cannot rename the
+  target or change a frozen callable contract. A locator can address private
+  functions, methods and named locals without granting permission to call them.
+- `replace_file(name, text)`: replace a captured physical document, preserving its
+  module mapping. Names normalize against the captured source root without IO.
+- `add_file(module, name, text)`: add a document with an explicit `ModuleIdentity`
+  in an already captured package, allowing a new module in the candidate closure.
+- `with_cancellation(token)`: choose a submission cancellation token.
+
+For an existing `program` with a replaceable public `answer` declaration:
+
+```rust,ignore
+use kagari::update::Update;
+
+let mut update = Update::new();
+update.replace_function("answer", "pub fn answer() -> i32 { 42 }");
+runtime.update(&program, update)?;
+```
+
+This illustrates submission, not guaranteed admission: protected dependencies can
+reject the patch, including in a normal engine-prepared standard-foundation program.
+There is no liveness-based or standard-library exemption from that conservative rule.
+
+One batch is atomic and limited to 1,024 edits and 64 MiB of replacement UTF-8.
+Empty batches, duplicate targets (including aliases), overlapping edits, invalid
+mappings and incomplete definitions reject. Submission rechecks one complete detached
+candidate with retained demands; it performs no filesystem discovery, dependency
+acquisition, deletion, initializer execution or host callback. Unchanged captured
+inputs retain their identities, and engine/editor source sessions are not mutated.
+
+Source preparation retains an immutable compilation capsule: physical bytes and
+origins, module/package mappings and declaration environment, selected root,
+acquisition provenance, compiler identity and preparation settings. The SDK associates
+it with the **exact publication token**, before core commit, and rolls back the
+association on failure. A later low-level reload without its own capsule makes source
+update fail with `MissingCompilationContext`; it never reuses an older SDK baseline.
+An artifact's retained source package supplies diagnostics, not this compilation
+capsule, even when all visible source text is present.
+
+## Exact source inspection
+
+Runtime inspection works without source analysis. The SDK forwards to the core
+`kagari_runtime::source` owner:
+
+| API | Selection and retention |
+| --- | --- |
+| `source_snapshot(&Program)` | Captures one current `ProgramSourceSnapshot`, including its publication and optional verified source package |
+| `snapshot.declarations()` / `snapshot.function(&declaration)` | Opaque authored locators and definitions from that snapshot; stable locators can resolve in a later publication of the same installation |
+| `function_source(&FunctionSourceTarget)` | Selects a live route now, or reads a copied exact observation without selecting newer code |
+| `value_source_target(&RootedValue)` | Captures the observed callable/Future body without polling or claiming it |
+| `frame_source_target(&ExecutionFrame)` | Captures the exact body from the active session's safe frame view; copied public fields are not frame authority |
+
+Callable/member `source_target` APIs derive checked current routes from ordinary
+named handles, including bound interface implementations; an exact closure handle
+instead supplies its retained observation. These APIs do not repeat public-name
+or trait implementation lookup. An unbound interface member has a declaration but no
+observed implementation body and reports `NoObservedBody`. A value observation is an
+exact snapshot of what was observed, not a new live binding.
+
+`SourceQuery::Available` provides the complete authored definition, display URI,
+UTF-8 byte range, fingerprint, exact `publication`, `last_source_change`, and known
+executable/application provenance. Publication identity and last text change are
+separate: unchanged text can be present in a newer executable publication. Generated
+closure/resume/adaptor bodies associate with their authored owner, not fabricated
+standalone source. Native/intrinsic origins never masquerade as script text;
+`SourceQuery::Unavailable` preserves known identity/provenance and a reason such as
+`NativeOrigin`, `MissingPackage` or `NoObservedBody`.
+
+Snapshots and exact observation tokens retain immutable diagnostic metadata only:
+no executable lease, GC root, private-call authority or filesystem text fallback.
+Hosts can retain old source after the old computation/code is gone. Runtime queries
+still validate runtime identity/liveness. Equal display URIs in distinct logical
+modules do not collapse module/declaration identities. Source retention is independent
+of optional local/debug metadata and retained MIR; see
+[artifact source packages](artifacts.md#retained-source-packages).
 
 ## Artifact API
 
@@ -957,12 +1060,13 @@ chosen default; per-operation overrides do not replace it. Bind once with
 `function::<A, R>(&module, name)` or `async_function::<A, R>(&module, name)`.
 The latter returns `kagari_runtime::native::function_handle::asynchronous::AsyncFunction<A, R>`:
 a checked callable and the retained lexical output scope of exactly one `Future<R>`
-layer. Both handles remain generation-pinned across reload; binding against a newly
-published module is explicit. Callable binding takes `&self` and requires
+layer. Named bindings select current implementations at invocation admission;
+created Futures and admitted queues retain the selected factory/body and output scope.
+Callable binding takes `&self` and requires
 `A: KagariArguments + 'static, R: KagariType + 'static`; binding checks type mappings,
 whereas invocation requires value conversions. All binding operations return `RunResult`.
 
-- `call(&mut self, &PinnedFunction<A, R>, A) -> RunResult<R>` uses the default context.
+- `call(&mut self, &Function<A, R>, A) -> RunResult<R>` uses the default context.
 - `call_async(&mut self, &AsyncFunction<A, R>, A) -> RunResult<Call<'_, R>>`
   admits a cold invocation and returns an exclusive borrowing, driving Future.
 - `submit_async(&mut self, &AsyncFunction<A, R>, A) -> RunResult<PendingCall<R>>`
@@ -1035,10 +1139,11 @@ as free calls. Interface binding requires an existing script-provided `Interface
 not an arbitrary Object. Every access/invocation operation above has a
 `_with_context` variant with final `&ExecutionContext`, preserving cancellation,
 deterministic inputs, recording, observers and backend-policy checks. There is no
-arbitrary Object-to-trait cast, implicit specialization or latest-version handle. Concrete
+arbitrary Object-to-trait cast or implicit specialization. Concrete
 member instantiations must already have checked executable evidence in the program.
 The [host_objects example](../../crates/kagari/examples/host_objects.rs) executes
-binding, object round trips, direct await, submission and pinned reload.
+binding, object round trips, direct await, submission and exact admitted computation
+retention across reload.
 
 Typed interpreter calls/accessors, async admission and scope creation require
 `JitPolicy::Disabled`; native execution retains its explicit preparation and

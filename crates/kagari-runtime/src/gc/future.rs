@@ -2,6 +2,7 @@
 #[cfg(test)]
 use crate::gc::retention_probe::{self, Event};
 use crate::{
+    closure::CallableObservation,
     error::{RuntimeError, RuntimeErrorKind},
     frame::types::arguments::TypeArgument,
     gc::{GcHeap, HeapObjectId, collector::Visited, roots::RootSet, storage::append_value_edges},
@@ -128,6 +129,26 @@ impl GcHeap {
             .ok_or_else(|| RuntimeError::module_validation("invalid Future receiver"))?;
         Ok(match object.payload::<FuturePayload>()?.cold.as_ref() {
             Some(ColdFuture::Script(value)) => Some(*value),
+            _ => None,
+        })
+    }
+
+    /// Copy known producer identity without claiming, polling or rooting its state.
+    pub(crate) fn future_native_origin(
+        &self,
+        id: HeapObjectId,
+    ) -> NativeResult<Option<CallableObservation>> {
+        self.ensure_no_native_borrow()?;
+        self.ensure_execution_allowed()?;
+        let objects = self
+            .objects
+            .try_borrow()
+            .map_err(|_| RuntimeError::module_validation("Future storage borrow"))?;
+        let object = self
+            .native_ref(&objects, id)
+            .ok_or_else(|| RuntimeError::module_validation("invalid Future receiver"))?;
+        Ok(match object.payload::<FuturePayload>()?.cold.as_ref() {
+            Some(ColdFuture::Native(cold)) => cold.origin,
             _ => None,
         })
     }

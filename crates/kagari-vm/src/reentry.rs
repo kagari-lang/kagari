@@ -1,3 +1,4 @@
+use kagari_bytecode::module::CallableTarget;
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
     error::RuntimeError, gc::roots::RootedValue, host::HostCallContext, module::ExecutableModule,
@@ -6,7 +7,7 @@ use kagari_runtime::{
 
 use crate::{error::VmError, executor::Executor};
 
-/// Synchronously call a function in the root call's pinned program.
+/// Synchronously select the current implementation of a checked function.
 /// Host callbacks keep returned heap objects alive through this owned root.
 pub fn reenter(
     context: &HostCallContext<'_>,
@@ -19,6 +20,13 @@ pub fn reenter(
     runtime
         .execution_root()
         .ok_or_else(|| invalid("script reentry requires an active root call"))?;
+    runtime.validate_executable_module(loaded)?;
+    let route = loaded.bind_call_route(CallableTarget::Script(function))?;
+    let selected = runtime.select_call_route(&route)?;
+    let loaded = selected.owner();
+    let CallableTarget::Script(function) = selected.target() else {
+        return Err(invalid("script reentry selected a native import"));
+    };
     let _scope = runtime
         .begin_execution(loaded, runtime.execution_options())
         .map_err(VmError::RuntimeError)?;

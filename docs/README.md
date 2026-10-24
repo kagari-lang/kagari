@@ -116,8 +116,9 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   the [browser guide](../crates/kagari-web/README.md); measured Playground costs and
   exact-product builds belong in the [site guide](../site/README.md).
 - [Host Program/Module and public-path execution plan](host-api-refactor.md):
-  versioned metadata views, relative lookup and type exports; HM00 coordinates
-  stable callable identity with the update migration. Implementation is not started.
+  live installation `Program`/`Module` handles and exact `ExecutableModule` owners
+  are implemented. Typed generic public-path binding remains pending HM03;
+  generic declaration lookup for source updates does not imply executable binding.
 - [Editor follow-ups](implementation-roadmap.md#toolchain-distribution-and-modes):
   complete CI/platform acceptance, semantic IDE features, server-launch integration,
   marketplace publication and separately authorized old-repository administration.
@@ -132,10 +133,13 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 - [Toolchain distribution and remaining modes](implementation-roadmap.md#toolchain-distribution-and-modes):
   SDK/CLI distribution and the separate REPL proposal; source packages are
   specified above.
-- [Compatible reload and state replacement](update-model-design.md): confirmed target
-  is host-top-level serialized publication and current implementation selection on
-  ordinary calls, retaining existing Future/closure/resume bodies. The current
-  dependency-pinned runtime has not yet migrated; state replacement is separate.
+- [Compatible reload and state replacement](update-model-design.md): implemented
+  [publication contracts](spec/module-activation.md) select current implementations
+  on ordinary calls while retaining created Future/closure bodies and admitted
+  frames/queues. Publication is serialized at an idle synchronous host boundary;
+  parked work may remain. The [source update API](spec/embedding-api.md#source-updates)
+  uses exact-publication compilation capsules and conservative protected-dependency
+  checks, including standard-foundation limitations. State replacement is separate.
 - [Interactive debugger](debugger-design.md): synchronous waiting on the executing
   host thread, followed by SDK control and IDE/DAP integration; not implemented.
 

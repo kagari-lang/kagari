@@ -254,6 +254,9 @@ uses the existing reload API. Keep the engine environment unchanged while prepar
 candidates, or compare the resulting checked key. Advance an installed baseline only
 after successful publication. A removed family does not automatically unload an
 installation. Multiple instances and cross-Program updates remain host-coordinated.
-Reload compares public path/entry signatures and existing ABI contracts; failed
-candidates leave old code usable. Retained calls and values keep their original
-generations and dependencies. See [activation](module-activation.md).
+Reload compares frozen contracts, public paths, retained demands and protected
+transitive dependencies; failed candidates leave current code and state usable.
+Created closures/Futures and admitted frames/queues retain exact bodies, while
+ordinary inner calls and existing named bindings select current implementations.
+Publication requires a host-top-level synchronous boundary; parked work may remain.
+See [activation](module-activation.md).

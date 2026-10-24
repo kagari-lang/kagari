@@ -58,8 +58,8 @@ pub(crate) enum PreparedClosureSignature {
 }
 
 impl ExecutionModule {
-    /// Module slots refer to the containing verified program. Activation binds
-    /// them through the caller's pinned descriptor, never the latest publication.
+    /// Physical slots refer to the containing verified program. Runtime linking
+    /// binds ordinary routes once; activation selects their current implementation.
     pub(crate) fn prepare_calls(
         &mut self,
         slot: ModuleRef,
@@ -81,6 +81,10 @@ impl ExecutionModule {
                     CallTarget::ModuleFunction { module, function } => PreparedCallTarget::Static {
                         module,
                         target: CallableTarget::Script(function),
+                    },
+                    CallTarget::Native(import) => PreparedCallTarget::Static {
+                        module: slot,
+                        target: CallableTarget::Native(import),
                     },
                     CallTarget::Shared { module, target, .. } => {
                         prepared.has_call_contracts = true;
@@ -132,6 +136,7 @@ impl ExecutionModule {
                     }
                     _ => continue,
                 };
+                prepared.has_call_contracts |= matches!(target, PreparedCallTarget::Static { .. });
                 let arguments = args
                     .iter()
                     .map(|register| {
@@ -161,6 +166,9 @@ impl ExecutionModule {
                 });
             }
             prepared.calls = calls.into_boxed_slice();
+            // Native imports use the same current-selection/exact-admission path.
+            // Do not retain an old callback in the caller's physical fast path.
+            prepared.native_calls = 0;
         }
     }
 }

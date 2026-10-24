@@ -5,6 +5,7 @@ use crate::{
     execution_metadata::{MetadataEdge, call_contracts::ScopedInterfaceCall},
     module::{
         ExecutableModule,
+        dispatch::CallRoute,
         execution::{
             ExecutionFunction,
             calls::{PreparedCallTarget, PreparedClosureSignature},
@@ -22,7 +23,11 @@ use std::sync::Arc;
 #[derive(Debug)]
 pub(crate) enum LinkedCall {
     Physical,
-    Shared(Box<SharedCall>),
+    Direct(CallRoute),
+    Shared {
+        route: CallRoute,
+        contract: Box<SharedCall>,
+    },
     Interface {
         contract: Box<InterfaceCallContract>,
         prepared: Option<Arc<ScopedInterfaceCall>>,
@@ -57,9 +62,16 @@ impl Runtime {
                     return Err(invalid());
                 };
                 match (&call.target, callee) {
-                    (PreparedCallTarget::Shared { .. }, CallTarget::Shared { contract, .. }) => {
-                        Ok(LinkedCall::Shared(contract.clone()))
-                    }
+                    (
+                        PreparedCallTarget::Shared { module, target },
+                        CallTarget::Shared { contract, .. },
+                    ) => Ok(LinkedCall::Shared {
+                        route: owner
+                            .member(*module)
+                            .ok_or_else(invalid)?
+                            .bind_call_route(*target)?,
+                        contract: contract.clone(),
+                    }),
                     (
                         PreparedCallTarget::Interface { closed, .. },
                         CallTarget::InterfaceMethod { contract, .. },
@@ -99,10 +111,17 @@ impl Runtime {
                         ))
                     }
                     (
-                        PreparedCallTarget::Static { .. },
-                        CallTarget::Function(_) | CallTarget::ModuleFunction { .. },
-                    )
-                    | (PreparedCallTarget::Closure(_), CallTarget::ClosureRegister { .. }) => {
+                        PreparedCallTarget::Static { module, target },
+                        CallTarget::Function(_)
+                        | CallTarget::ModuleFunction { .. }
+                        | CallTarget::Native(_),
+                    ) => Ok(LinkedCall::Direct(
+                        owner
+                            .member(*module)
+                            .ok_or_else(invalid)?
+                            .bind_call_route(*target)?,
+                    )),
+                    (PreparedCallTarget::Closure(_), CallTarget::ClosureRegister { .. }) => {
                         Ok(LinkedCall::Physical)
                     }
                     _ => Err(invalid()),

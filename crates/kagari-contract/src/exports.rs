@@ -5,7 +5,13 @@ pub mod path;
 pub mod type_validation;
 pub mod wire;
 
-use crate::{slots::FunctionTypeFacts, types::PublicItem};
+use crate::{
+    slots::FunctionTypeFacts,
+    types::{
+        PublicItem,
+        named::{NamedContract, NamedDeclaration},
+    },
+};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -20,12 +26,14 @@ use kagari_types::{
     declaration::{NativeDeclaration, verify::concrete_type_valid},
     decode_limits::MAX_NESTED_RECORDS,
     ty::Ty,
+    visibility::Visibility,
 };
 use std::collections::{BTreeMap, HashSet};
 
 pub const MAX_EXPORT_RECORDS: usize = 65_536;
 
-/// Public module aliases, type exports and concrete free-function declarations.
+/// Public module aliases, type exports and script free-function declarations.
+/// Generic function leaves grant declaration lookup, not executable instance authority.
 /// Types and modules share a namespace; functions occupy an independent namespace.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ExportNamespace {
@@ -84,8 +92,9 @@ impl ProgramExports {
     }
 
     /// Check graph bounds, reachability and structural function/type leaf validity.
-    /// The executable callback must prove public script bodies and the separate
-    /// zero-argument entry. The type callback must prove retained public declaration,
+    /// The function callback must prove concrete public script bodies or checked public
+    /// generic declarations, and the separate zero-argument executable entry.
+    /// The type callback must prove retained public declaration,
     /// application/bound and executable layout authority, not merely ID membership.
     /// It receives every structurally valid type leaf, including rejection-only aliases.
     /// Invalid leaves or rejected authority return `InvalidContract`; identity,
@@ -219,6 +228,32 @@ impl ProgramExports {
 
 fn valid_name(name: &str) -> bool {
     !name.is_empty() && !name.contains("::")
+}
+
+/// Validate a generic function export against its owning public and named contracts.
+/// This grants declaration lookup without requiring or fabricating a specialization.
+/// Callers must first validate the module's public/named inventory and still require
+/// executable evidence for calls and the separate root entry capability.
+pub fn public_generic_function_matches(
+    record: &NamedDeclaration,
+    owner: &ModuleIdentity,
+    items: &[PublicItem],
+    definitions: &DefinitionTable,
+) -> bool {
+    let Ok(path) = free_function(record.declaration, definitions) else {
+        return false;
+    };
+    let NamedContract::Function(function) = &record.contract else {
+        return false;
+    };
+    &path.module == owner
+        && record.visibility == Visibility::Public
+        && path.path[0].name == function.name
+        && !function.generic_params.is_empty()
+        && function.implementation == CallableImplementation::Script
+        && items
+            .iter()
+            .any(|item| matches!(item, PublicItem::Function(public) if public == function))
 }
 
 /// Match a public, non-generic script declaration against its semantic signature.

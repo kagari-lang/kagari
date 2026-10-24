@@ -372,7 +372,11 @@ Native callbacks capture immutable symbolic handles from the supplied sealed
 catalog, not global lookup services or runtime-local roots/layouts. Per-runtime
 loading/invocation still validates handles, generations, codecs, declared access,
 selected-call proofs and concrete results. Shared registration is not a shared
-script heap, and does not replace generation-pinned calls during reload.
+script heap. Ordinary script/native callback calls select current implementations
+through checked installation routes; created closures/Futures and admitted
+computations retain exact bodies. Registration does not bypass protected Hash/Eq
+or static dependency checks: unknown native reentry remains conservative, not a
+claim of sealed behavior. See [publication contracts](spec/module-activation.md).
 
 Assembly methods currently take no caller cancellation token. They are synchronous
 collection/preparation operations, not cancellable script sessions; factory Rust

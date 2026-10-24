@@ -487,6 +487,7 @@ impl Runtime {
         self.gc().ensure_no_native_borrow()?;
         self.ensure_scheduler_open()?;
         self.validate_owned_execution(owner)?;
+        let activation = self.resources().begin_synchronous_activation()?;
         let state = self
             .resources()
             .sessions
@@ -512,6 +513,7 @@ impl Runtime {
         let session = ExecutionSession {
             id: owner.id,
             resources: self.resources(),
+            _activation: activation,
         };
         self.resume_execution_observer()?;
         ExecutionStack::resume(session)
@@ -581,6 +583,7 @@ impl Runtime {
     }
 
     pub(crate) fn require_idle_driver(&self) -> Result<(), RuntimeError> {
+        self.resources().ensure_not_publishing()?;
         if self.resources().active_session().is_some() {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
@@ -591,6 +594,7 @@ impl Runtime {
     }
 
     fn retire_execution(&self, id: SessionId) -> Result<(), RuntimeError> {
+        let _activation = self.resources().begin_synchronous_activation()?;
         let group_failure = self.close_owned_groups(id).err();
         let (mut state, frames) = self.resources().sessions.remove(id).ok_or_else(|| {
             RuntimeError::module_validation("foreign, retired or borrowed execution")

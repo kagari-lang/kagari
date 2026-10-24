@@ -665,7 +665,8 @@ val total: i32 = mapped.filter(|item| item > 2).sum();
 once, and repeatedly calls `next`. Some supplies the next item; None ends the
 loop. Continue proceeds to the next call; break and return perform normal resource
 cleanup. The next call is an ordinary script call for custom iterators, with the
-same cancellation, GC roots, trap behavior and pinned code versions as other methods.
+same cancellation, GC roots, trap behavior and current implementation selection as
+other ordinary methods.
 An Iterator automatically implements identity Iterable, including under generic
 bounds. It cannot also declare a conflicting Iterable implementation.
 Custom iterables return an iterator whose Item agrees with their own Item.
@@ -710,14 +711,16 @@ cursor.next();       // Traps: invalid or structurally modified iterator.
 ```
 
 Native payloads trace retained source cursors and callbacks through NativePayload::trace.
-Roots and pinned selected calls preserve GC and reload safety independently of
+Roots, checked call routes and exact retained computation bodies preserve GC and
+reload safety independently of
 iteration validity. Native storage borrows, sorting/mutation commits and hash
 callback guards remain enforced. Custom iterators own their consistency policy;
 the Iterator/Iterable traits do not impose a universal collection lock.
 
 Host retention uses the normal rooted-value API. Cursor handles are runtime-owned,
-generation checked, and trace their source, callbacks and adapter state. They retain their
-execution version; they are not transferable across runtimes. They provide no
+generation checked, and trace their source, callbacks and adapter state. Ordinary
+callback calls follow current routes; created closures retain exact bodies. Cursors
+are not transferable across runtimes. They provide no
 Eq/Hash, serialization of execution state, or script constructor.
 See [iterators.kgr](../../examples/syntax/iterators.kgr).
 

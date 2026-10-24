@@ -7,6 +7,7 @@ mod tasks;
 mod typed;
 use kagari_bytecode::{
     artifact::{ArtifactCompatibility, KbcArtifact},
+    module::CallableTarget,
     program::BytecodeProgram,
 };
 use kagari_common::identity::{metadata::DefinitionMetadata, table::DefinitionId};
@@ -143,7 +144,6 @@ impl Vm {
         entry: impl Into<ProgramEntry<'a>>,
     ) -> Result<ExecutionReport, VmError> {
         let entry = entry.into();
-        let _session = self.begin_execution(module)?;
         self.runtime
             .validate_executable_module(module)
             .map_err(VmError::RuntimeError)?;
@@ -151,7 +151,25 @@ impl Vm {
         let (module, function) = entry
             .resolve(module)
             .ok_or_else(|| VmError::MissingFunction(entry_name.clone()))?;
-        self.execute_selected(&module, function, &entry_name, &_session)
+        let (module, function) = self.select_function(&module, function)?;
+        let session = self.begin_execution(&module)?;
+        self.execute_selected(&module, function, &entry_name, &session)
+    }
+
+    fn select_function(
+        &self,
+        module: &ExecutableModule,
+        function: FunctionRef,
+    ) -> Result<(ExecutableModule, FunctionRef), VmError> {
+        self.runtime.validate_executable_module(module)?;
+        let route = module.bind_call_route(CallableTarget::Script(function))?;
+        let selected = self.runtime.select_call_route(&route)?;
+        let CallableTarget::Script(function) = selected.target() else {
+            return Err(
+                RuntimeError::module_validation("script entry selected a native import").into(),
+            );
+        };
+        Ok((selected.owner().clone(), function))
     }
 
     fn execute_selected(

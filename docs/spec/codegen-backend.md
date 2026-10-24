@@ -36,7 +36,7 @@ checked HIR --compiler source--> verified MIR --compiler core--> verified byteco
 - `kagari` orchestrates preparation, caching, linking and execution. Concrete
   backends are supplied by hosts; they are not SDK production dependencies.
 
-No backend receives source text, a HIR arena, `Runtime`, `LoadedModule`, a Rust
+No backend receives source text, a HIR arena, `Runtime`, `ExecutableModule`, a Rust
 `Value` or a `BytecodeFunction` to recover semantic facts. Cranelift IDs, builders,
 registers and calling-convention objects remain private to its implementation.
 

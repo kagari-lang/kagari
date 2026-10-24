@@ -4,7 +4,7 @@ mod driver;
 pub(crate) mod native;
 mod value_ops;
 
-use kagari_bytecode::{instruction::Slot, program::ModuleRef};
+use kagari_bytecode::module::CallableTarget;
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
     RootedInterfaceMethod, Runtime,
@@ -44,13 +44,20 @@ impl<'a> Executor<'a> {
             .get(entry.index())
             .ok_or(VmError::InvalidFunctionRef(entry))?;
 
-        let mut executor = Self {
+        let executor = Self {
             runtime,
             stack: Some(runtime.enter_execution_stack(loaded)?),
         };
         executor
-            .push_frame(loaded.slot(), entry, args, None)
-            .map_err(|error| error.admit_execution_error(runtime.resources()))?;
+            .stack()
+            .push_callable(
+                runtime,
+                loaded.clone(),
+                CallableTarget::Script(entry),
+                args,
+                None,
+            )
+            .map_err(|error| runtime.resources().admit_execution_error(error))?;
         Ok(executor)
     }
 
@@ -133,17 +140,5 @@ impl<'a> Executor<'a> {
 
     pub(crate) fn current_frame_mut(&self) -> Result<RefMut<'_, ExecutionFrame>, VmError> {
         Ok(self.stack().current_mut()?)
-    }
-
-    pub(crate) fn push_frame(
-        &mut self,
-        module: ModuleRef,
-        function: FunctionRef,
-        args: &[Value],
-        return_dst: Option<Slot>,
-    ) -> Result<(), VmError> {
-        Ok(self
-            .stack()
-            .push(self.runtime, module, function, args, return_dst)?)
     }
 }

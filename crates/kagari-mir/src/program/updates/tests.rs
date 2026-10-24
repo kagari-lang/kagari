@@ -381,7 +381,11 @@ fn bridge_classification_requires_its_local_table_method_and_exact_body() {
         )
     };
     // Extraction recognizes table authority; it does not grant a verifier seal.
-    let evidence = extract(module, BodyClassification::Adapter(instance.clone())).unwrap();
+    let evidence = extract(
+        module,
+        BodyClassification::IntrinsicAdapter(instance.clone()),
+    )
+    .unwrap();
     assert!(evidence.sources.is_empty());
     assert!(evidence.targets.is_empty());
     let mut forged_identity = instance.clone();
@@ -389,7 +393,10 @@ fn bridge_classification_requires_its_local_table_method_and_exact_body() {
         .arguments
         .push(Ty::Builtin(BuiltinType::I32));
     assert_eq!(
-        extract(module, BodyClassification::Adapter(forged_identity)),
+        extract(
+            module,
+            BodyClassification::IntrinsicAdapter(forged_identity)
+        ),
         Err(UpdateError::InvalidEvidence)
     );
     assert_eq!(
@@ -399,7 +406,10 @@ fn bridge_classification_requires_its_local_table_method_and_exact_body() {
     let mut missing = module.clone();
     missing.abi.public_items.clear();
     assert_eq!(
-        extract(&missing, BodyClassification::Adapter(instance.clone())),
+        extract(
+            &missing,
+            BodyClassification::IntrinsicAdapter(instance.clone())
+        ),
         Err(UpdateError::InvalidEvidence)
     );
     let mut wrong_method = module.clone();
@@ -408,7 +418,10 @@ fn bridge_classification_requires_its_local_table_method_and_exact_body() {
     };
     table.methods[0].implementation = CallableImplementation::Required;
     assert_eq!(
-        extract(&wrong_method, BodyClassification::Adapter(instance.clone())),
+        extract(
+            &wrong_method,
+            BodyClassification::IntrinsicAdapter(instance.clone())
+        ),
         Err(UpdateError::InvalidEvidence)
     );
     program.update_evidence = evidence;

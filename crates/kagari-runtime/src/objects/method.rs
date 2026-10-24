@@ -4,7 +4,10 @@ use crate::{
     error::RuntimeError,
     execution_metadata::interfaces::InterfaceSnapshotId,
     gc::roots::RootedValue,
-    module::ExecutableModule,
+    module::{
+        ExecutableModule,
+        dispatch::{CallRoute, SelectedTarget},
+    },
     objects::{invocation::MethodInvocation, method_view::MethodView},
     value::Value,
 };
@@ -59,13 +62,61 @@ impl RootedInterfaceMethod {
         &self.bound_receiver.interface
     }
 
-    pub(crate) fn view<'a>(&self, runtime: &'a Runtime) -> Result<MethodView<'a>, RuntimeError> {
+    /// Freeze the next invocation without changing this live handle or its clones.
+    /// Use an independent root: adding a computation edge to a shared handle root
+    /// would unnecessarily pin admitted code after that invocation is released.
+    pub(crate) fn admit(&self, runtime: &Runtime) -> Result<Self, RuntimeError> {
+        self.validate_root(runtime)?;
+        let invocation = self.invocation.admit(runtime)?;
+        let root = runtime
+            .root_value(*self.receiver())
+            .ok_or_else(|| RuntimeError::module_validation("admitted method receiver root"))?;
+        let admitted = Self {
+            invocation,
+            bound_receiver: self.bound_receiver.clone(),
+            _root: root,
+        };
+        admitted.refresh_roots(runtime)?;
+        Ok(admitted)
+    }
+
+    fn validate_root(&self, runtime: &Runtime) -> Result<(), RuntimeError> {
         if !self._root.is_valid(&runtime.gc) {
             return Err(RuntimeError::module_validation(
                 "method root belongs to another runtime or was released",
             ));
         }
+        Ok(())
+    }
+
+    pub(crate) fn view<'a>(&self, runtime: &'a Runtime) -> Result<MethodView<'a>, RuntimeError> {
+        self.validate_root(runtime)?;
         self.invocation.view(runtime)
+    }
+
+    /// Copy the bound relationship's route without retaining its receiver or code.
+    /// An admitted computation has no live route; its selected target is exact.
+    pub(crate) fn live_call_route(
+        &self,
+        runtime: &Runtime,
+    ) -> Result<Option<CallRoute>, RuntimeError> {
+        self.validate_root(runtime)?;
+        if self.invocation.is_admitted() {
+            return Ok(None);
+        }
+        let view = self.invocation.view(runtime)?;
+        view.proof_implementation()
+            .bind_call_route(view.proof_target())
+            .map(Some)
+    }
+
+    /// Select one exact method code target for source inspection.
+    /// Execution also requires the method's receiver/application evidence.
+    /// The receiver relationship remains unchanged; named methods follow current
+    /// publication while generated adapters retain their original body. An admitted
+    /// invocation instead reports the exact target captured at admission.
+    pub fn selected_target(&self, runtime: &Runtime) -> Result<SelectedTarget, RuntimeError> {
+        Ok(self.view(runtime)?.selected)
     }
 
     pub fn implementation(&self, runtime: &Runtime) -> Result<ExecutableModule, RuntimeError> {

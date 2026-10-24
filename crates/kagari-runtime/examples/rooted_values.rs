@@ -23,6 +23,7 @@ fn main() {
                     BytecodeProgram {
                         // This owner has no declarations or executable bodies.
                         update_evidence: UpdateEvidence {
+                            source_manifest: None,
                             sources: vec![],
                             bodies: vec![],
                             roots: vec![],

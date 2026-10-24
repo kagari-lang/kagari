@@ -41,11 +41,13 @@ The checked closure contains every registered module in the selected package and
 
 `const` is an immutable compile-time value evaluated within the restricted const-safe language. Statics are runtime storage with independent lazy initialization, not constants or a cached module result. Loading verifies and links the complete program before publishing a handle. A call names a function entry explicitly; the CLI invokes `main`. A missing or ambiguous entry fails before executing script instructions.
 
-Hot reload prepares and validates a candidate program, stages generation bindings to compatible existing static cells and private new cells, rechecks the expected base version and bindings, then publishes it. The ordinary reload API does not execute candidate functions. Hosts that explicitly evaluate a candidate before publication must use the restricted candidate session; its effects are limited as described in [module activation](module-activation.md). A failed candidate leaves the active entry intact. Calls already in progress retain their pinned program and dependency versions.
+Hot reload prepares and validates a candidate program, stages generation bindings to compatible existing static cells and private new cells, rechecks the expected base version and bindings, then publishes it. The ordinary reload API does not execute candidate functions. Hosts that explicitly evaluate a candidate before publication must use the restricted candidate session; its effects are limited as described in [module activation](module-activation.md). A failed candidate leaves the active entry intact. Created computations and admitted frames/queues retain exact bodies, while ordinary inner calls select current implementations. Publication requires no active synchronous script/callback/reentry scope; parked work may remain.
 
 Public source functions may be generic templates. Source calls specialize them
-under ordinary type/bound checking; host entry discovery only records non-generic
-script functions. Public re-export aliases retain canonical declarations. Checked
+under ordinary type/bound checking. Public-path declaration discovery also records
+generic declarations without executable applications, including for source updates.
+This does not enable typed generic public-path binding (HM03 remains pending); ordinary
+typed host calls use concrete entries. Public re-export aliases retain canonical declarations. Checked
 Programs keep a finite public namespace graph so cyclic module aliases do not require
 infinite path expansion. Private, package-restricted and implicit prelude names are
 absent from this graph. The root's zero-argument, non-generic `main` is recorded
@@ -119,8 +121,8 @@ durable-storage rules; storing them does not deep-copy or reset them.
 Each installation owns a cell for the logical module/declaration identity.
 Repeated imports in that installation share it. Independently loaded roots and
 separate runtimes do not, even when they share immutable prepared code. Compatible
-generations bind to the same cell, while calls and retained executable values
-keep their selected generations. See [activation and reload](module-activation.md)
+generations bind to the same cell. Created closures/Futures and admitted computations
+keep their selected bodies, while ordinary calls use current implementations. See [activation and reload](module-activation.md)
 for fixed initializer recipes and publication, [assignment ordering](value-semantics.md#evaluation-and-assignment)
 for access effects, and [runtime ownership](runtime.md#persistent-static-cells)
 for retention. Persistent means continuity within an installation, not persistence

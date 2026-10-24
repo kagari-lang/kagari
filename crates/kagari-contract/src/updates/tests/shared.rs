@@ -208,6 +208,7 @@ impl SharedFixture {
         let mut bodies = vec![callee];
         bodies.extend(caller);
         UpdateEvidence {
+            source_manifest: None,
             sources: vec![],
             bodies,
             roots: vec![],
@@ -228,6 +229,174 @@ impl SharedFixture {
 }
 
 #[test]
+fn verified_dynamic_interface_allows_empty_targets_but_preserves_known_history() {
+    let f = SharedFixture::new();
+    let mut candidate = f.f.evidence();
+    candidate
+        .selections
+        .push(CallRequirement::Interface(Box::new(
+            InterfaceCallContract {
+                interface: f.interface.clone(),
+                receiver: None,
+                method_slot: 0,
+                arguments: vec![],
+                operations: vec![],
+                constructions: vec![],
+                normalizations: vec![],
+            },
+        )));
+    let definitions = f.f.context.snapshot();
+    let catalog = ProofCatalog::new(
+        vec![],
+        [],
+        [(f.interface.declaration, &f.contract)],
+        [],
+        &definitions,
+        &f.f.cancel,
+    )
+    .unwrap();
+    validate_semantics(&candidate, [], &catalog, &mut f.f.budget()).unwrap();
+    let envelope = publication_demands(&candidate, &mut f.f.budget()).unwrap();
+    check_coverage(
+        &envelope,
+        &coverage(&candidate),
+        &catalog,
+        &mut f.f.budget(),
+    )
+    .unwrap();
+    assert!(
+        expand_requests(
+            &envelope,
+            &coverage(&candidate),
+            &catalog,
+            &mut f.f.budget()
+        )
+        .unwrap()
+        .is_empty()
+    );
+
+    // Empty dynamic coverage does not erase an independently published target.
+    let historical = f.f.body("retained_read", vec![]);
+    let target = historical.requirement.origin.clone();
+    let mut old = candidate.clone();
+    old.targets.push(CurrentTarget {
+        application: target.clone(),
+        body: target.clone(),
+        module: 0,
+        function: FunctionRef::new(old.bodies.len()),
+    });
+    old.bodies.push(historical);
+    let history = publication_demands(&old, &mut f.f.budget()).unwrap();
+    let catalog = ProofCatalog::new(
+        vec![],
+        [],
+        [(f.interface.declaration, &f.contract)],
+        [],
+        &f.f.context.snapshot(),
+        &f.f.cancel,
+    )
+    .unwrap();
+    assert_eq!(
+        check_coverage(&history, &coverage(&candidate), &catalog, &mut f.f.budget()),
+        Err(UpdateError::MissingTarget(target.clone()))
+    );
+    let requests =
+        expand_requests(&history, &coverage(&candidate), &catalog, &mut f.f.budget()).unwrap();
+    assert_eq!(requests.functions, [target]);
+    assert!(requests.interfaces.is_empty());
+}
+
+#[test]
+fn verified_concrete_interface_still_requires_executable_coverage() {
+    let f = SharedFixture::new();
+    let mut candidate = f.f.evidence();
+    let receiver = Ty::Builtin(BuiltinType::I32);
+    let mut caller = f.f.body("read_selected", vec![]);
+    let parameter = GenericParam {
+        owner: caller.requirement.origin.declaration,
+        position: 0,
+    };
+    caller.requirement.generic = Some(GenericBody {
+        parameters: vec![parameter.clone()],
+        bounds: vec![f.bound(parameter.as_type())],
+    });
+    caller
+        .requirement
+        .calls
+        .push(CallRequirement::Interface(Box::new(
+            InterfaceCallContract {
+                interface: f.interface.clone(),
+                receiver: Some(parameter.as_type()),
+                method_slot: 0,
+                arguments: vec![],
+                operations: vec![],
+                constructions: vec![],
+                normalizations: vec![],
+            },
+        )));
+    let application = BodyApplication {
+        body: caller.requirement.origin.clone(),
+        arguments: vec![receiver.clone()],
+    };
+    candidate.bodies.push(caller);
+    let catalog = f.catalog();
+    validate_semantics(&candidate, [], &catalog, &mut f.f.budget()).unwrap();
+    let mut envelope = publication_demands(&candidate, &mut f.f.budget()).unwrap();
+    envelope.applications.push(application);
+    assert_eq!(
+        check_coverage(
+            &envelope,
+            &coverage(&candidate),
+            &catalog,
+            &mut f.f.budget()
+        ),
+        Err(UpdateError::MissingCoverage)
+    );
+    let requests = expand_requests(
+        &envelope,
+        &coverage(&candidate),
+        &catalog,
+        &mut f.f.budget(),
+    )
+    .unwrap();
+    assert_eq!(
+        requests.interfaces,
+        [InterfaceRequest {
+            interface: f.interface.clone(),
+            receiver: Some(receiver.clone()),
+            method_slot: 0,
+            arguments: vec![],
+        }]
+    );
+
+    let missing = f.f.identity("missing_read_body");
+    let methods = [ConstructionMethod {
+        interface: f.interface.clone(),
+        receiver,
+        slot: 0,
+        body: missing.clone(),
+        parameters: vec![],
+        arguments: vec![],
+    }];
+    let catalog = f.catalog();
+    let mut available = coverage(&candidate);
+    available.methods = &methods;
+    assert_eq!(
+        check_coverage(&envelope, &available, &catalog, &mut f.f.budget()),
+        Err(UpdateError::MissingBody(missing.clone()))
+    );
+    let requests = expand_requests(&envelope, &available, &catalog, &mut f.f.budget()).unwrap();
+    assert!(requests.interfaces.is_empty());
+    assert_eq!(
+        requests.shared,
+        [BodyApplication {
+            body: missing,
+            arguments: vec![]
+        }]
+    );
+}
+
+#[test]
 fn retained_witnessless_shared_call_rejects_stronger_candidate_after_caller_removal() {
     let f = SharedFixture::new();
     let old_callee = f.callee(false);
@@ -235,7 +404,7 @@ fn retained_witnessless_shared_call_rejects_stronger_candidate_after_caller_remo
     let old = f.evidence(old_callee.clone(), Some(caller.clone()));
     let unchanged = f.evidence(old_callee, None);
     let catalog = f.catalog();
-    validate_semantics(&old, &catalog, &mut f.f.budget()).unwrap();
+    validate_semantics(&old, [], &catalog, &mut f.f.budget()).unwrap();
     let envelope = f.envelope(&old, &unchanged);
     check_coverage(
         &envelope,
@@ -254,7 +423,7 @@ fn retained_witnessless_shared_call_rejects_stronger_candidate_after_caller_remo
     );
     // Local verification passes: the candidate body's forwarded operation has its
     // new declared bound. The removed historical caller is absent from this check.
-    validate_semantics(&candidate, &catalog, &mut f.f.budget()).unwrap();
+    validate_semantics(&candidate, [], &catalog, &mut f.f.budget()).unwrap();
     assert!(
         catalog
             .holds(
@@ -295,7 +464,7 @@ fn retained_shared_forwarding_uses_the_historical_caller_scope_and_complete_witn
     let old = f.evidence(callee.clone(), Some(f.caller(&callee, true)));
     let candidate = f.evidence(callee, None);
     let catalog = f.catalog();
-    validate_semantics(&old, &catalog, &mut f.f.budget()).unwrap();
+    validate_semantics(&old, [], &catalog, &mut f.f.budget()).unwrap();
     let envelope = f.envelope(&old, &candidate);
     check_coverage(
         &envelope,
@@ -347,7 +516,7 @@ fn retained_shared_call_checks_the_current_instantiated_signature() {
     let mut candidate = f.evidence(callee, None);
     candidate.bodies[0].signature.result = Ty::Builtin(BuiltinType::Bool);
     let catalog = f.catalog();
-    validate_semantics(&candidate, &catalog, &mut f.f.budget()).unwrap();
+    validate_semantics(&candidate, [], &catalog, &mut f.f.budget()).unwrap();
     let envelope = f.envelope(&old, &candidate);
     assert_eq!(
         check_coverage(

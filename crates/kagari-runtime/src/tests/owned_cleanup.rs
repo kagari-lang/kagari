@@ -3,7 +3,7 @@ use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
     frame::{ExecutionStack, types::arguments::TypeArgument},
-    module::ExecutableModule,
+    module::{ExecutableModule, Program},
     native::{
         adapter::Async,
         binding::{Codec, NativeBinding, NativeResult},
@@ -159,6 +159,7 @@ fn owned_initializer_unwind_releases_session_and_cancellation_owner_immediately(
 
 struct Fixture {
     runtime: Runtime,
+    program: Program,
     module: ExecutableModule,
     request: usize,
     probe: Arc<Probe>,
@@ -345,6 +346,7 @@ impl Fixture {
         let module = runtime.select_program(&module_program).unwrap();
         Self {
             runtime,
+            program: module_program,
             module,
             request,
             probe,
@@ -498,6 +500,50 @@ fn pending_commit_preserves_completion_and_cancellation_notifications() {
         assert_eq!(f.registry().active_count(), 0);
         assert_eq!(f.runtime.resources().counters().current_call_depth, 0);
     }
+}
+
+#[test]
+fn publication_queues_completions_without_polling_a_parked_future() {
+    let f = Fixture::new(false);
+    let (owner, saved) = f.park(0);
+    let completion = f.take_completions().pop().unwrap();
+    let guard = f.runtime.begin_publication(&f.program).unwrap();
+    assert_eq!(
+        completion.complete(Ok(Reply {
+            probe: f.probe.clone(),
+            panic_on_drop: false,
+        })),
+        CompletionStatus::Accepted
+    );
+    assert!(owner.is_ready());
+    assert_eq!(
+        f.runtime
+            .resume_owned_execution(&owner)
+            .err()
+            .unwrap()
+            .kind(),
+        RuntimeErrorKind::ExecutionPhaseViolation
+    );
+    assert_eq!(f.probe.converted.load(Ordering::SeqCst), 0);
+    assert_eq!(f.probe.continued.load(Ordering::SeqCst), 0);
+    assert_eq!(f.probe.cancelled[0].load(Ordering::SeqCst), 0);
+    assert!(f.runtime.gc().validate_value(&saved));
+    let candidate = guard
+        .stage_reload_verified_program(None, f.module.verified_program().clone())
+        .unwrap();
+    guard.publish(candidate).unwrap();
+    assert_eq!(f.probe.converted.load(Ordering::SeqCst), 0);
+    let stack = f.runtime.resume_owned_execution(&owner).unwrap();
+    assert!(matches!(
+        stack.poll_await(&f.runtime).unwrap(),
+        Poll::Ready(None)
+    ));
+    assert_eq!(f.probe.converted.load(Ordering::SeqCst), 1);
+    drop(stack);
+    f.runtime.finish_owned_execution(&owner).unwrap();
+    assert_eq!(f.registry().active_count(), 0);
+    assert_eq!(f.runtime.resources().counters().current_call_depth, 0);
+    assert!(!f.runtime.is_quarantined());
 }
 
 fn assert_stale(completions: &[Completion<Reply>]) {

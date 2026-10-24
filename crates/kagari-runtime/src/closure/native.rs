@@ -31,12 +31,13 @@ impl Runtime {
         {
             return Err(RuntimeError::module_validation("native closure import"));
         }
-        let snapshot = ClosureValueSnapshot {
+        let mut snapshot = ClosureValueSnapshot {
             environment: target.environment.clone(),
             implementation: owner,
             target: ClosureTarget::Native(NativeClosure { import, signature }),
             captures: Vec::new(),
         };
+        snapshot.bind_named(self)?;
         // No LinkedCallable, ProgramLease or RootSet is embedded in the heap.
         // The ordinary closure program/environment edges retain this native entry.
         self.validate_metadata(MetadataEdge::Closure(&snapshot))?;

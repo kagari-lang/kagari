@@ -17,13 +17,14 @@ and its implementation. The joint HM00+UP00 design checkpoint was committed as
 `bbfc0af6`. HM01 is locally complete and committed as `3523c4c8`, including the
 private-type evidence repair and post-repair validation; no HM01 errors remain.
 [UP01 integration](update-model-design.md#up01-implementation-and-integration) is
-locally complete and committed as `cd79fc80`. HM02 is locally complete with no
-carried errors; [integration evidence](#hm02-integration-and-up02hm03-handoff)
-records the final trait-isolation repair and checks. UP02 is next. Live
-Program/Module metadata and module
-navigation are implemented; exact-version `ExecutableModule` directly replaces
-`LoadedModule` without an alias. Calls remain pinned until UP02. HM03-HM04 and
-UP02-UP05 remain unstarted; MS remains unstarted. Full CI remains unrun.
+locally complete and committed as `cd79fc80`. HM02 is committed as `f0e1917d`;
+[integration evidence](#hm02-integration-and-up02hm03-handoff) records its acceptance.
+[UP02 integration](update-model-design.md#up02-implementation-and-integration) is
+locally complete with no carried errors, open reviews or pending local checks;
+HM03 is next. Final validation is recorded in that ledger. Live
+Program/Module metadata and navigation use separate exact `ExecutableModule`
+ownership, without a `LoadedModule` alias. HM03-HM04 and UP03-UP05 remain unstarted;
+MS remains unstarted. Full CI remains unrun.
 Originally requested against `67d9e36f`, this document owns HM00-HM04, decisions,
 acceptance and progress for the [Host Program and module lookup finding](review.md#host-program-and-module-lookup).
 
@@ -33,8 +34,9 @@ replacing the former pinned-dependency target, and confirmed that ordinary Progr
 and Module handles always query the latest published contents of their own
 installation. Neither lookup nor ordinary invocation requires reacquiring these
 handles or rebinding functions after update. This supersedes this plan's former
-immutable version-view public model. It is a target design, not current runtime
-behavior. The [update model](update-model-design.md) owns the UP dispatch migration;
+immutable version-view public model. HM02 implements live metadata; UP02 has
+locally completed current dispatch and final validation, recorded in its ledger. The
+[update model](update-model-design.md) owns that migration;
 HM00 settles representation and the identity/lifetime sequencing handoff below;
 it does not reopen these public semantics or expand HM01-HM04 beyond namespace/
 type-path work.
@@ -155,7 +157,7 @@ contents of the supplying installation, not code acquisition or version selectio
 Function/type binding continues through Runtime with a `Module`, not a new
 polymorphic owner trait or duplicate Program-specific binding methods.
 
-Target usage sketch, not currently callable code:
+Target usage sketch; unified relative function/type binding still requires HM03:
 
 ```rust,ignore
 let program: Program = runtime.load_program(&prepared, Default::default())?;
@@ -170,7 +172,6 @@ let same_type = runtime.object_type(&root, "users::User")?;
 let user = runtime.call(&find, (42,))?;
 
 runtime.reload_program(&program, &replacement, Default::default())?;
-// Confirmed target, not implemented by the current pinned runtime:
 // Reuse the original handles; both queries read the latest published contents.
 let profiles_after_update = users.module("profiles")?;
 let same_profiles_after_update = program.module("users::profiles")?;
@@ -762,8 +763,9 @@ is locally complete. The newly reauthorized order is joint HM00 + UP00, then HM0
 UP01, HM02, UP02, HM03, HM04, UP03, UP04 and UP05. The joint design checkpoint is
 committed as `bbfc0af6`; HM01 is locally complete and committed as `3523c4c8` after
 private-type evidence integration and validation. UP01 is committed as `cd79fc80`;
-HM02 is locally complete; UP02 is next. The
-joint design commit has both Plan-Phase trailers; subsequent phases retain separate
+HM02 is committed as `f0e1917d`; UP02 is locally complete and HM03 is next.
+
+The joint design commit has both Plan-Phase trailers; subsequent phases retain separate
 coherent commit boundaries. MS remains unstarted.
 Record each phase in its existing owning plan, not a third integration ledger.
 Alias completion alone did not complete HM00/UP00; the resumed design audit and
@@ -831,9 +833,10 @@ Existing function exports/private main behavior remains unchanged in this phase.
 
 ### HM02 — Installed Program and module capabilities
 
-Status: locally complete, including trait-isolation repair and final local checks.
-The [HM02 ledger](#hm02-integration-and-up02hm03-handoff) owns acceptance evidence;
-full CI remains unrun. UP02 is next. Module navigation is included here;
+Status: locally complete and committed as `f0e1917d`, including trait-isolation
+repair and final local checks. The [HM02 ledger](#hm02-integration-and-up02hm03-handoff)
+owns acceptance evidence; full CI remains unrun. UP02 is locally complete, with
+HM03 next. Module navigation is included here;
 HM03 retains unified relative function/type leaf binding after UP02.
 
 - Introduce stable installed `Program` and live `Module` handles using HM00's
@@ -1055,8 +1058,9 @@ retain their existing review/plan owners.
   tests and all local checks passed; no HM01 errors remain. UP01 is locally complete
   and committed as `cd79fc80` in its own ledger. Full CI remains unrun.
 - [x] HM02 — Installed Program/module capabilities, module navigation and consumer
-  migration locally complete, including trait isolation and final local checks.
-  No carried errors; UP02 is next. Full CI remains unrun.
+  migration locally complete and committed as `f0e1917d`, including trait isolation
+  and final local checks. No HM02 errors; UP02 locally complete, HM03 next.
+  Full CI remains unrun.
 - [ ] HM03 — Relative module/function/type binding and ordinary examples.
 - [ ] HM04 — Integration, lasting documentation and handoff.
 
@@ -1065,15 +1069,19 @@ UP01 is committed as `cd79fc80`; its
 [integration ledger](update-model-design.md#up01-implementation-and-integration)
 retains acceptance evidence. HM02 now supplies live Program/Module metadata and
 navigation, with exact executable ownership separate; local acceptance is complete
-below. UP02 is next and owns current-call dispatch; HM03 owns unified relative leaf binding.
+below. UP02 current-call dispatch/source Update implementation is locally complete;
+its [single ledger](update-model-design.md#up02-implementation-and-integration) owns
+closed reviews and final passing results, with no carried errors or pending local
+checks. HM03 next owns unified relative leaf binding.
 MS remains unstarted. Older audits and the alias ledger are historical evidence,
 not current pauses or authorization gates.
 
 ### HM02 integration and UP02/HM03 handoff
 
-**Status: locally complete; no carried errors.** Trait-isolation repair, reviewer
-recheck and final local checks are complete. UP01 is committed as `cd79fc80`;
-UP02 is next. Full CI remains unrun.
+**Status: locally complete; committed as `f0e1917d`, no carried HM02 errors.**
+Trait-isolation repair, reviewer recheck and final local checks are complete.
+UP01 is committed as `cd79fc80`; UP02 is locally complete and HM03 is next.
+Full CI remains unrun.
 
 Implemented scope reported by the implementation owners:
 
@@ -1088,7 +1096,8 @@ Implemented scope reported by the implementation owners:
 - Program/Module navigation follows canonical aliases and supports slotless public
   namespaces. This is HM02's live capability work, not HM03 leaf-binding acceptance.
   Function/type binding still uses transitional root lookup; HM03 unifies relative
-  function/type paths with navigation after UP02. Ordinary dispatch remains pinned.
+  function/type paths with navigation after UP02. Dispatch was still pinned at the
+  HM02 checkpoint; the active UP02 ledger records its subsequent replacement.
 
 Review closure: closed-binding error precedence and script `Trait` nominal source
 isolation are repaired. Shared native-trait authority comes from actual native
@@ -1119,8 +1128,13 @@ Reported local evidence:
 - Temporary unit-test `LNK2019` and a 120-second timeout were followed by successful
   completion; no carried linker failure remains.
 
-UP02 is next for current-call dispatch; HM03 then consumes that surface for unified
-relative leaf binding. Full workspace/feature/backend/platform CI remains unrun;
+UP02 has locally completed current-call dispatch and source Update; HM03 next
+consumes that surface for unified relative leaf binding. Final local checks passed;
+no carried UP02 errors remain. The default
+foundation can conservatively reject even simple body patches through protected
+`Unknown` dependencies; finite-environment passing fixtures do not remove this
+[delivery limit](update-model-design.md#up02-implementation-and-integration).
+Full workspace/feature/backend/platform CI remains unrun;
 local acceptance does not establish CI acceptance. MS remains unstarted.
 
 ### HM01 integration and UP01 handoff

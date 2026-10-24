@@ -13,7 +13,7 @@ use crate::{
         types::{TypeEnvironment, arguments::ScopedSignature},
     },
     gc::interfaces::{InterfaceResultBinding, InterfaceValueSnapshot},
-    module::ExecutableModule,
+    module::{ExecutableModule, dispatch::SelectedTarget},
     value::Value,
 };
 use kagari_bytecode::module::CallableTarget;
@@ -34,6 +34,8 @@ pub(super) enum SelectionView<'a> {
 pub(crate) struct MethodView<'a> {
     pub(super) selection: SelectionView<'a>,
     pub(super) application: Option<Ref<'a, MethodApplication>>,
+    pub(super) selected: SelectedTarget,
+    pub(super) selected_environment: Option<TypeEnvironment>,
 }
 
 impl MethodView<'_> {
@@ -42,16 +44,16 @@ impl MethodView<'_> {
         runtime: &Runtime,
         arguments: FrameArguments<'_>,
     ) -> Result<(), RuntimeError> {
-        if !self.implementation().belongs_to(runtime.host.owner())
+        if !self.proof_implementation().belongs_to(runtime.host.owner())
             || arguments.len() != self.parameter_types().len()
             || !arguments.all(runtime, |index, value| match self.scoped_signature() {
                 Some(signature) => {
-                    signature.params[index].matches(runtime, value, self.implementation())
+                    signature.params[index].matches(runtime, value, self.proof_implementation())
                 }
                 None => runtime.matches_type_in(
                     value,
                     &self.parameter_types()[index],
-                    self.implementation(),
+                    self.proof_implementation(),
                     None,
                 ),
             })?
@@ -69,14 +71,19 @@ impl MethodView<'_> {
         runtime: &Runtime,
         result: &Value,
     ) -> Result<(), RuntimeError> {
-        if !self.implementation().belongs_to(runtime.host.owner())
+        if !self.proof_implementation().belongs_to(runtime.host.owner())
             || !match self.scoped_signature() {
-                Some(signature) => signature
-                    .result
-                    .matches(runtime, result, self.implementation()),
-                None => {
-                    runtime.matches_type_in(result, self.return_type(), self.implementation(), None)
+                Some(signature) => {
+                    signature
+                        .result
+                        .matches(runtime, result, self.proof_implementation())
                 }
+                None => runtime.matches_type_in(
+                    result,
+                    self.return_type(),
+                    self.proof_implementation(),
+                    None,
+                ),
             }
         {
             return Err(RuntimeError::new(
@@ -88,19 +95,26 @@ impl MethodView<'_> {
     }
 
     pub(crate) fn environment(&self) -> Option<&TypeEnvironment> {
-        self.application
-            .as_ref()
-            .and_then(|application| application.environment.as_ref())
+        self.selected_environment.as_ref()
     }
 
     pub(crate) fn implementation(&self) -> &ExecutableModule {
+        self.selected.owner()
+    }
+
+    pub(crate) fn target(&self) -> CallableTarget {
+        self.selected.target()
+    }
+
+    /// Relationship and value evidence stays in its supplying publication.
+    pub(super) fn proof_implementation(&self) -> &ExecutableModule {
         match &self.selection {
             SelectionView::Interface { snapshot, .. } => &snapshot.description.implementation,
             SelectionView::Operation { operation, .. } => &operation.owner,
         }
     }
 
-    pub(crate) fn target(&self) -> CallableTarget {
+    pub(super) fn proof_target(&self) -> CallableTarget {
         match &self.selection {
             SelectionView::Interface { snapshot, slot } => {
                 snapshot.description.methods[*slot]

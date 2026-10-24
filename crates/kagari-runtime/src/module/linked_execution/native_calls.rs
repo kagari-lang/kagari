@@ -23,6 +23,9 @@ impl Runtime {
         function: &BytecodeFunction,
         prepared: &ExecutionFunction,
     ) -> Result<Box<[LinkedNativeCall]>, RuntimeError> {
+        if prepared.native_calls == 0 {
+            return Ok(Box::default());
+        }
         let operations: Box<[_]> = function
             .instructions
             .iter()

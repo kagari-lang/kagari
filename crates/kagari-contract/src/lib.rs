@@ -16,6 +16,7 @@ pub mod numeric;
 pub mod operations;
 pub mod representation;
 pub mod slots;
+pub mod source;
 pub mod standard;
 pub mod statics;
 pub mod types;

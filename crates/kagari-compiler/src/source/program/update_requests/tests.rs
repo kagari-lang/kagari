@@ -106,6 +106,7 @@ fn main() {}
         arguments: vec![i32_ty.clone()],
     };
     let evidence = UpdateEvidence {
+        source_manifest: None,
         sources: vec![],
         bodies: vec![],
         roots: vec![],

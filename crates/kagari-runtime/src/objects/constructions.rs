@@ -102,12 +102,14 @@ impl Runtime {
                 );
             }
             let associated = AssociatedInterface {
+                lookup_scope: None,
                 receiver: receiver.ty().clone(),
                 interface: applied.clone(),
                 owner: owner.clone(),
                 outputs,
             };
             scope.insert(ConstructionBinding {
+                lookup_scope: None,
                 key,
                 interface,
                 owner: owner.clone(),

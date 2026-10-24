@@ -1,6 +1,6 @@
 //! Immutable evidence for a resource-bounded, fully checked bytecode graph.
 use crate::{
-    artifact::{ArtifactValidationError, validate_program_resource_limits},
+    artifact::{ArtifactFingerprint, ArtifactValidationError, validate_program_resource_limits},
     program::{
         BytecodeProgram, ModuleRef, construction::UpdateCoverage, exports::ExportTarget, identity,
         verify_graph,
@@ -45,11 +45,31 @@ pub(crate) struct ProgramVerification {
 /// ```
 #[derive(Debug, Clone)]
 pub struct VerifiedBytecodeProgram {
+    product_identity: VerifiedProductIdentity,
     metadata: DefinitionMetadata<BytecodeProgram>,
     verification: ProgramVerification,
 }
 
+/// Canonical product identity issued only after bytecode verification.
+/// This certificate retains neither executable bytes nor execution authority. Its
+/// fingerprint is a consistency check, not authentication of source authorship.
+/// Identity-preserving imports retain it; editable extraction loses the seal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VerifiedProductIdentity {
+    fingerprint: ArtifactFingerprint,
+}
+
+impl VerifiedProductIdentity {
+    pub(crate) fn fingerprint(self) -> ArtifactFingerprint {
+        self.fingerprint
+    }
+}
+
 impl VerifiedBytecodeProgram {
+    pub fn product_identity(&self) -> VerifiedProductIdentity {
+        self.product_identity
+    }
+
     /// Validate already scoped records and retain their exact immutable identities.
     ///
     /// Compiler output has already collected implicit declaration names. This
@@ -68,7 +88,15 @@ impl VerifiedBytecodeProgram {
         cancel
             .check()
             .map_err(|_| ArtifactValidationError::Identity(DefinitionMappingError::Cancelled))?;
+        let product_identity = VerifiedProductIdentity {
+            fingerprint: ArtifactFingerprint::checked_program(
+                metadata.records(),
+                metadata.definitions(),
+                cancel,
+            )?,
+        };
         Ok(Self {
+            product_identity,
             metadata,
             verification,
         })
@@ -97,7 +125,15 @@ impl VerifiedBytecodeProgram {
     ) -> Result<Self, ArtifactValidationError> {
         let metadata = DefinitionMetadata::checked(definitions, program, cancel)
             .map_err(ArtifactValidationError::Identity)?;
+        let product_identity = VerifiedProductIdentity {
+            fingerprint: ArtifactFingerprint::checked_program(
+                metadata.records(),
+                metadata.definitions(),
+                cancel,
+            )?,
+        };
         Ok(Self {
+            product_identity,
             metadata,
             verification,
         })

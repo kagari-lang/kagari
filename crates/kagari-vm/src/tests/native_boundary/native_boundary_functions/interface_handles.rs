@@ -1,5 +1,5 @@
-use super::fixture;
-use crate::tests::native_boundary::compile_program;
+use super::{fixture, fixture_without_foundation};
+use crate::tests::native_boundary::compile_without_foundation;
 use kagari_runtime::native::{
     binding::NativeResult, builder::ModuleBuilder, catalog::DeclarationCatalog,
     conversion::KagariType, declarations::FunctionDecl, interfaces::Interface,
@@ -142,14 +142,17 @@ fn typed_native_interfaces_keep_readonly_views_and_survive_collection() {
 }
 
 #[test]
-fn retained_interfaces_keep_the_original_dispatch_after_reload_and_thread_transfer() {
-    let source = SOURCE
-        .replace(
-            "impl<T> Read<T> for Holder<T> { fn get(self) -> T { self.value } }",
-            "impl Read<i32> for Holder<i32> { fn get(self) -> i32 { self.value + 1 } }",
-        )
-        .replace("Holder { value: 42 }", "Holder { value: 41 }");
-    let (vm, old) = fixture(&source, None);
+fn retained_interfaces_select_current_dispatch_after_reload_and_thread_transfer() {
+    let source = r#"
+        pub trait Read<T> { fn get(self) -> T; }
+        pub struct Holder<T> { pub var value: T }
+        impl Read<i32> for Holder<i32> {
+            fn get(self) -> i32 { self.value + 1 }
+        }
+        pub fn make() -> Read<i32> { Holder { value: 41 } }
+        pub fn read(value: Read<i32>) -> i32 { value.get() }
+    "#;
+    let (vm, old) = fixture_without_foundation(source, None);
     let _old_program = old;
     let old = vm.runtime().select_program(&_old_program).unwrap();
     let value: Interface = vm.execute_typed(&old, "make", ()).unwrap();
@@ -161,7 +164,7 @@ fn retained_interfaces_keep_the_original_dispatch_after_reload_and_thread_transf
     vm.reload_program(
         &_old_program,
         Some("functions".into()),
-        compile_program(&source, None),
+        compile_without_foundation(&source, None),
     )
     .unwrap();
     let _new_program = _old_program.clone();
@@ -170,7 +173,7 @@ fn retained_interfaces_keep_the_original_dispatch_after_reload_and_thread_transf
         vm.runtime().collect_garbage().unwrap();
         assert_eq!(
             vm.execute_typed::<_, i32>(&new, "read", (value,)).unwrap(),
-            42
+            43
         );
         let new_value: Interface = vm.execute_typed(&new, "make", ()).unwrap();
         assert_eq!(

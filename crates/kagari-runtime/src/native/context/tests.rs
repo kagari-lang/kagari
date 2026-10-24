@@ -7,7 +7,10 @@ use crate::{
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
-        context::{CallableOwner, LinkedCallable, LinkedOperation, ScriptCall},
+        context::{
+            ArgumentSlots, ArgumentView, CallContext, CallableOwner, LinkedCallable,
+            LinkedOperation, ScriptCall,
+        },
         declarations::FunctionDecl,
         storage::{NativeStorage, StorageContext},
         types::Type,
@@ -18,7 +21,7 @@ use crate::{
 use kagari_bytecode::{instruction::NativeImportId, module::CallableTarget};
 use kagari_types::{collection::CollectionAccess, scalar::BuiltinType, ty::Ty};
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
 };
 
@@ -28,9 +31,9 @@ fn invoke_stored(
     target: ScriptCall<'_>,
     arguments: &[Value],
 ) -> NativeResult<Value> {
-    // The retained edge must enter the older generation without replacing the
-    // current caller's root session or relaxing ordinary dependency validation.
-    assert_ne!(runtime.execution_root().unwrap().key(), owner.key());
+    // Stored ordinary callbacks select the current publication while keeping the
+    // enclosing root session and its candidate/installation admission intact.
+    assert_eq!(runtime.execution_root().unwrap().key(), owner.key());
     let ScriptCall::Pinned(function) = target else {
         panic!("stored selection requires retained entry authority")
     };
@@ -43,8 +46,32 @@ fn invoke_stored(
     Ok(value)
 }
 
+fn call_scalar_equal(
+    runtime: &Runtime,
+    owner: &ExecutableModule,
+    target: &LinkedCallable,
+) -> NativeResult<bool> {
+    let CallableTarget::Native(import) = target.target else {
+        unreachable!()
+    };
+    let function = runtime.modules.native_binding(owner, import).unwrap();
+    let mut context = CallContext {
+        runtime,
+        owner,
+        function: &function,
+        arguments: ArgumentView {
+            heap: runtime.gc(),
+            frame: None,
+            slots: ArgumentSlots::Scalars(&[]),
+            narrowed: None,
+        },
+        invoke_script: |_, _, _, _| panic!("scalar native callback must use direct entry"),
+    };
+    context.call(target, (7_i32, 7_i32))
+}
+
 #[test]
-fn stored_hash_selections_reenter_their_generation_with_frame_roots_and_checked_calls() {
+fn stored_hash_selections_select_current_with_frame_roots_and_checked_calls() {
     for is_map in [true, false] {
         let mut builder =
             ModuleBuilder::new("test::stored", &DeclarationCatalog::default()).unwrap();
@@ -115,10 +142,16 @@ fn stored_hash_selections_reenter_their_generation_with_frame_roots_and_checked_
                     .returns(Type::bool()),
             )
             .unwrap();
+        let expected_publication = Arc::new(Mutex::new(None));
+        let expected_equal = expected_publication.clone();
         builder
             .bind(
                 equal,
-                NativeBinding::new(vec![Codec::Value, Codec::Value], Codec::Value, |cx| {
+                NativeBinding::new(vec![Codec::Value, Codec::Value], Codec::Value, move |cx| {
+                    assert_eq!(
+                        Some(cx.owner().publication_token()),
+                        *expected_equal.lock().unwrap()
+                    );
                     cx.collect_garbage()?;
                     Ok(Value::Bool(cx.argument(0)? == cx.argument(1)?))
                 }),
@@ -191,6 +224,11 @@ fn stored_hash_selections_reenter_their_generation_with_frame_roots_and_checked_
         runtime.publish_staged_reload(staged).unwrap();
 
         let current = runtime.select_program(&old_program).unwrap();
+        *expected_publication.lock().unwrap() = Some(current.publication_token());
+        {
+            let _stack = runtime.enter_execution_stack(&current).unwrap();
+            assert!(call_scalar_equal(&runtime, &old, selected[1].ready().unwrap()).unwrap());
+        }
         assert!(
             !runtime
                 .collect_garbage()
@@ -205,6 +243,12 @@ fn stored_hash_selections_reenter_their_generation_with_frame_roots_and_checked_
             .unwrap();
         {
             let _session = runtime.begin_candidate_initialization(&candidate).unwrap();
+            assert_eq!(
+                call_scalar_equal(&runtime, &old, selected[1].ready().unwrap())
+                    .unwrap_err()
+                    .kind(),
+                RuntimeErrorKind::ExecutionPhaseViolation
+            );
             let stack = runtime.enter_execution_stack(candidate.module()).unwrap();
             assert_eq!(
                 stack

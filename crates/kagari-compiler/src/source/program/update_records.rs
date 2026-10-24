@@ -513,6 +513,7 @@ static val ROOT: i32 = Key { value: 0 }.first();
         let definitions = program.root().definitions();
         let owner = program.root().lowered.source.module_identity();
         let evidence = UpdateEvidence {
+            source_manifest: None,
             sources: inputs
                 .sources
                 .into_iter()

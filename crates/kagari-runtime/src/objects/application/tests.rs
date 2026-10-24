@@ -1,6 +1,6 @@
 use crate::{
     RootedInterfaceMethod, Runtime,
-    error::RuntimeError,
+    error::{RuntimeError, RuntimeErrorKind},
     execution_metadata::{
         MetadataRoot, application_key::ApplicationArguments, call_contracts::InterfaceCallSite,
     },
@@ -8,8 +8,10 @@ use crate::{
         driver::ReturnAction,
         transfer::ReturnValue,
         types::{
-            EnvironmentRecord, compatibility::TypeView, construction::ConstructionScope,
-            operations::OperationBindings,
+            EnvironmentRecord,
+            compatibility::TypeView,
+            construction::ConstructionScope,
+            operations::{OperationBindings, OperationSegment},
         },
     },
     module::{ExecutableModule, Program, linked_execution::calls::LinkedCall},
@@ -24,8 +26,11 @@ use crate::{
     objects::invocation::MethodInvocation,
     value::Value,
 };
+use kagari_bytecode::module::CallableTarget;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_contract::types::PublicItem;
+use kagari_contract::{
+    callable::construction::evidence::ConstructionRequirement, types::PublicItem,
+};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{
@@ -390,6 +395,256 @@ fn applied_facts_reuse_receiver_independent_identity_and_distinguish_types_and_v
 }
 
 #[test]
+fn retained_method_transports_binders_witnesses_and_constructions_after_impl_reordering() {
+    let first_impl =
+        "impl Forward for i32 { fn forward<T: Read>(self, value: T) -> Read { value } }";
+    let second_impl =
+        "impl Forward for i64 { fn forward<T: Read>(self, value: T) -> Read { value } }";
+    let source = format!(
+        r#"
+        trait Read {{ fn read(self) -> i32; }}
+        impl Read for i32 {{ fn read(self) -> i32 {{ self }} }}
+        trait Forward {{ fn forward<T: Read>(self, value: T) -> Read; }}
+        {first_impl}
+        {second_impl}
+        fn main() -> i32 {{ val receiver: Forward = 0; receiver.forward(7).read() }}
+        fn other() -> Forward {{ 2i64 }}
+    "#
+    );
+    let (mut runtime, program, old) = load_source(&source, None);
+    let table = old
+        .bytecode
+        .interface_tables
+        .iter()
+        .position(|table| {
+            old.bytecode.public_items.iter().any(|item| {
+                matches!(item,
+            PublicItem::InterfaceTable(template)
+            if template.declaration == table.declaration
+                && template.for_type == Ty::Builtin(BuiltinType::I32)
+                && template.methods.iter().any(|method| method.name == "forward"))
+            })
+        })
+        .unwrap();
+    let value = runtime.make_interface(&old, table, Value::I32(0)).unwrap();
+    let root = runtime.root_value(value).unwrap();
+    let call = old
+        .bytecode
+        .functions
+        .iter()
+        .find_map(|function| {
+            let links = runtime.modules.linked_function(&old, function.id, None)?;
+            (0..old.execution().functions[function.id.index()].calls.len()).find_map(|ordinal| {
+                let call = links.call(ordinal)?;
+                (!call.operations.is_empty()).then(|| call.clone())
+            })
+        })
+        .unwrap();
+    let Value::Interface(id) = value else {
+        unreachable!()
+    };
+    let interface = runtime
+        .gc
+        .interface_snapshot(id)
+        .unwrap()
+        .description
+        .interface_type()
+        .clone();
+    let method = runtime
+        .prepare_interface_method_slot(
+            &value,
+            &interface,
+            0,
+            call.arguments.values(),
+            call.operations.clone(),
+            call.arguments.constructions().clone(),
+        )
+        .unwrap();
+    let semantic_application = method.invocation.application;
+    let before = method.view(&runtime).unwrap();
+    let old_body = before.selected.generic().unwrap().clone();
+    let old_target = before.target();
+    drop(before);
+    let admitted = method.admit(&runtime).unwrap();
+    let admitted_environment = admitted.view(&runtime).unwrap().environment().unwrap().id;
+    let independent = runtime
+        .load_verified_program("independent", old.verified_program().clone())
+        .unwrap();
+    let independent = runtime.select_program(&independent).unwrap();
+    let foreign_selection = runtime
+        .select_call_route(&independent.bind_call_route(old_target).unwrap())
+        .unwrap();
+    assert!(
+        call.operations
+            .transported(&runtime, &foreign_selection)
+            .is_err()
+    );
+    assert!(
+        call.arguments
+            .constructions()
+            .transported(&runtime, &foreign_selection)
+            .is_err()
+    );
+    let interface_type = Ty::Trait(interface.clone());
+    assert!(
+        !TypeView::new(&interface_type, &old, None)
+            .identity()
+            .unwrap()
+            .same_contract(
+                &TypeView::new(&interface_type, &independent, None)
+                    .identity()
+                    .unwrap()
+            )
+    );
+    let changed = source
+        .replace(
+            &format!("{first_impl}\n        {second_impl}"),
+            &format!("{second_impl}\n        {first_impl}"),
+        )
+        .replace("{ self }", "{ self + 10 }");
+    let (_, _, candidate) = load_source(&changed, None);
+    let candidate = runtime
+        .stage_reload_verified_program(&program, None, candidate.verified_program().clone())
+        .unwrap();
+    {
+        let _session = runtime.begin_candidate_initialization(&candidate).unwrap();
+        assert_eq!(
+            admitted.view(&runtime).err().unwrap().kind(),
+            RuntimeErrorKind::ExecutionPhaseViolation,
+            "exact admission must not bypass candidate isolation"
+        );
+    }
+    runtime.publish_staged_reload(candidate).unwrap();
+    let current = runtime.select_program(&program).unwrap();
+    runtime.collect_garbage().unwrap();
+    {
+        let exact = admitted.view(&runtime).unwrap();
+        assert_eq!(
+            exact.implementation().publication_token(),
+            old.publication_token()
+        );
+        assert_eq!(exact.target(), old_target);
+        assert_eq!(exact.environment().unwrap().id, admitted_environment);
+        assert!(exact.environment().unwrap().types.matches(&old_body));
+    }
+    let view = method.view(&runtime).unwrap();
+    assert_eq!(
+        view.implementation().publication_token(),
+        current.publication_token()
+    );
+    assert_eq!(
+        view.proof_implementation().publication_token(),
+        old.publication_token()
+    );
+    assert_eq!(method.invocation.application, semantic_application);
+    let environment = view.environment().unwrap().clone();
+    let body = view.selected.generic().unwrap();
+    assert!(environment.types.matches(body));
+    for (old_parameter, parameter) in old_body.parameters.iter().zip(&body.parameters) {
+        assert_eq!(
+            view.selected.mapping().map(old_parameter.owner).unwrap(),
+            parameter.owner
+        );
+    }
+    assert!(
+        old_body.parameters != body.parameters || old_target != view.target(),
+        "fixture must move executable placement or binder owners"
+    );
+    let operation_ids = call.operations.identity().unwrap();
+    let OperationSegment::Selected(operation_id) = operation_ids[0] else {
+        panic!("fixture must carry an explicit checked witness")
+    };
+    let operation = runtime.gc.bound_operation(operation_id).unwrap();
+    let requirement = view
+        .selected
+        .mapping()
+        .remap(&operation.requirement, &Default::default())
+        .unwrap()
+        .into_records();
+    assert_eq!(
+        environment.operation(&runtime.gc, &requirement, &operation.receiver_identity),
+        Some(operation_id)
+    );
+    drop(operation);
+    let selected_operation = MethodInvocation::from_operation(&runtime, operation_id).unwrap();
+    assert_eq!(
+        selected_operation
+            .view(&runtime)
+            .unwrap()
+            .implementation()
+            .publication_token(),
+        current.publication_token()
+    );
+    let bound = &body.bounds[0];
+    let required = ConstructionRequirement {
+        receiver: bound.ty.clone(),
+        interface: bound.constraints[0].clone(),
+    };
+    let selected_owner = view.implementation().clone();
+    let selected_target = view.target();
+    let environment_root = runtime
+        .root_metadata(vec![MetadataRoot::Environment(environment.id)])
+        .unwrap();
+    drop(view);
+    runtime.collect_garbage().unwrap();
+    let result = runtime
+        .make_bound_interface(&selected_owner, &environment, &required, Value::I32(7))
+        .unwrap();
+    let result_root = runtime.root_value(result).unwrap();
+    let Value::Interface(result_id) = result else {
+        unreachable!()
+    };
+    let result_interface = runtime
+        .gc
+        .interface_snapshot(result_id)
+        .unwrap()
+        .description
+        .interface_type()
+        .clone();
+    let read = runtime
+        .resolve_interface_method_slot(&result, &result_interface, 0, &[])
+        .unwrap();
+    assert_eq!(
+        read.implementation(&runtime).unwrap().publication_token(),
+        current.publication_token()
+    );
+    // The exact retained construction proof still belongs to the old publication.
+    assert_eq!(
+        read.view(&runtime)
+            .unwrap()
+            .proof_implementation()
+            .publication_token(),
+        old.publication_token()
+    );
+    let stack = runtime.enter_execution_stack(&current).unwrap();
+    stack
+        .push_interface_method(
+            &runtime,
+            method.clone(),
+            &[Value::I32(0), Value::I32(7)],
+            None,
+        )
+        .unwrap();
+    assert_eq!(
+        stack.current().unwrap().loaded().publication_token(),
+        current.publication_token()
+    );
+    assert_eq!(stack.current().unwrap().target(), selected_target);
+    assert!(matches!(selected_target, CallableTarget::Script(_)));
+    drop((
+        stack,
+        environment_root,
+        result_root,
+        read,
+        admitted,
+        method,
+        root,
+    ));
+    runtime.collect_garbage().unwrap();
+    assert!(!runtime.is_quarantined());
+}
+
+#[test]
 fn polymorphic_retention_is_bounded_and_eviction_preserves_active_applications() {
     let (runtime, _loaded_program, loaded, table) = generic_fixture();
     let value = runtime
@@ -418,13 +673,14 @@ fn polymorphic_retention_is_bounded_and_eviction_preserves_active_applications()
     }
     runtime.collect_garbage().unwrap();
     assert!(runtime.gc.method_application(application).is_some());
-    assert_eq!(runtime.gc.stats().method_applications, 129);
+    // The active frame also retains its separately admitted computation.
+    assert_eq!(runtime.gc.stats().method_applications, 130);
     drop(retained);
     runtime.collect_garbage().unwrap();
     // With the external lease gone and the cache entry evicted, only the active
-    // window protects the applied signature needed to validate the return.
+    // window protects the applied signature and exact computation needed on return.
     assert!(runtime.gc.method_application(application).is_some());
-    assert_eq!(runtime.gc.stats().method_applications, 129);
+    assert_eq!(runtime.gc.stats().method_applications, 130);
     assert_eq!(
         stack
             .finish_return(&runtime, ReturnValue::general(Value::I32(7)))

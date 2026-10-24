@@ -1,7 +1,13 @@
+mod fixtures;
+
+use self::fixtures::closure_constraint_provider;
 use super::*;
 use crate::{
     executor::Executor,
-    tests::common::{round_trip_bytecode, standard_runtime},
+    tests::{
+        common::{round_trip_bytecode, standard_runtime},
+        native_boundary::compile_without_foundation,
+    },
     vm::fixtures::FixtureExecution,
 };
 use kagari_bytecode::instruction::ConstructionTarget as BytecodeConstruction;
@@ -10,6 +16,7 @@ use kagari_bytecode::{
     program::{identity, verify_program},
     verifier::{BytecodeVerificationError, verify_module},
 };
+
 use kagari_contract::{ids::FunctionRef, types::PublicItem};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
@@ -311,7 +318,7 @@ fn source_return_and_local_bindings_keep_the_boxed_interface_value() {
 }
 
 #[test]
-fn interface_method_keeps_its_implementation_across_reload() {
+fn interface_method_selects_current_implementation_after_reload() {
     let source = "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { self + 1 } } fn read<T: Tag>(x: T) -> i32 { x.tag() } fn main() -> i32 { read(7) }";
     let first = compile_test_bytecode(source);
     let second = compile_test_bytecode(&source.replace("self + 1", "self + 2"));
@@ -333,7 +340,7 @@ fn interface_method_keeps_its_implementation_across_reload() {
     assert_eq!(
         vm.invoke_interface_method(&old_value, &method, &[])
             .unwrap(),
-        Value::I32(8)
+        Value::I32(9)
     );
     assert_eq!(
         vm.invoke_interface_method(&new_value, &method, &[])
@@ -346,7 +353,7 @@ fn interface_method_keeps_its_implementation_across_reload() {
 }
 
 #[test]
-fn interface_frame_descendants_follow_the_receivers_pinned_program() {
+fn interface_frames_and_descendants_select_current_code() {
     let source = "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { helper() + self } } fn helper() -> i32 { 1 } fn main() -> i32 { 0 }";
     let old_code = compile_test_bytecode(source);
     let new_code = compile_test_bytecode(
@@ -396,9 +403,9 @@ fn interface_frame_descendants_follow_the_receivers_pinned_program() {
     // receiver's external root are gone, even while a newer program is current.
     drop(receiver_root);
     runtime.collect_garbage().unwrap();
-    assert_eq!(stack.current().unwrap().loaded().key(), old.key());
-    stack.push(&runtime, old.slot(), helper, &[], None).unwrap();
-    assert_eq!(stack.current().unwrap().loaded().key(), old.key());
+    assert_eq!(stack.current().unwrap().loaded().key(), new.key());
+    stack.push(&runtime, new.slot(), helper, &[], None).unwrap();
+    assert_eq!(stack.current().unwrap().loaded().key(), new.key());
     stack.pop().unwrap();
     assert_eq!(
         stack
@@ -412,7 +419,7 @@ fn interface_frame_descendants_follow_the_receivers_pinned_program() {
 }
 
 #[test]
-fn source_interface_dispatch_keeps_old_method_and_descendant_after_reload() {
+fn source_interface_dispatch_selects_current_method_and_descendant_after_reload() {
     let source = "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { helper() + self } } fn helper() -> i32 { 1 } fn read(value: Tag) -> i32 { value.tag() } fn main() -> i32 { read(7) }";
     let old_code = compile_test_bytecode(source);
     let new_code = compile_test_bytecode(
@@ -445,7 +452,7 @@ fn source_interface_dispatch_keeps_old_method_and_descendant_after_reload() {
         .unwrap()
         .id;
     let mut old_call = Executor::new(&runtime, &new, read, &[old_value]).unwrap();
-    assert_eq!(old_call.run().unwrap(), Value::I32(8));
+    assert_eq!(old_call.run().unwrap(), Value::I32(9));
     drop(old_call);
     let mut new_call = Executor::new(&runtime, &new, read, &[new_value]).unwrap();
     assert_eq!(new_call.run().unwrap(), Value::I32(9));
@@ -523,8 +530,8 @@ fn generic_interface_and_retained_closure_keep_their_environment_after_reload() 
     let _new_program = _old_program.clone();
     runtime.collect_garbage().unwrap();
     for (name, args, expected) in [
-        ("read", vec![interface], 42),
-        ("use_closure", vec![closure], 42),
+        ("read", vec![interface], 43),
+        ("use_closure", vec![closure], 43),
         ("main", vec![], 43),
     ] {
         let entry = new
@@ -741,7 +748,7 @@ fn interface_instruction_uses_a_reachable_dependency_table() {
 }
 
 #[test]
-fn a_retained_generic_closure_pins_the_callers_constraint_generation() {
+fn a_retained_generic_closure_keeps_constraint_evidence_but_calls_current_code() {
     let source = r#"
         trait Capture {
             fn capture<F: Fn() -> i32>(self, callback: F) -> fn() -> i32 { || callback() }
@@ -771,9 +778,14 @@ fn a_retained_generic_closure_pins_the_callers_constraint_generation() {
             .run()
             .unwrap()
     }
-    let mut runtime = standard_runtime(Default::default());
+    // Supply the actual callable protocol, not unrelated foundation Hash/Eq
+    // protocols whose unknown callbacks correctly freeze ordinary body edits.
+    let provider = closure_constraint_provider();
+    let compile = |text: &str| compile_without_foundation(text, Some(&provider));
+    let mut runtime = Runtime::default();
+    provider.install(&mut runtime).unwrap();
     let first = runtime
-        .load_program("constraint-reload", compile_test_bytecode(source))
+        .load_program("constraint-reload", compile(source))
         .unwrap();
     let _first_program = first;
     let first = runtime.select_program(&_first_program).unwrap();
@@ -783,7 +795,7 @@ fn a_retained_generic_closure_pins_the_callers_constraint_generation() {
         .stage_reload_program(
             &_first_program,
             Some("constraint-reload".into()),
-            compile_test_bytecode(&source.replace("{ 42 }", "{ 43 }")),
+            compile(&source.replace("{ 42 }", "{ 43 }")),
         )
         .unwrap();
     let second = candidate.module().clone();
@@ -796,7 +808,7 @@ fn a_retained_generic_closure_pins_the_callers_constraint_generation() {
         .stage_reload_program(
             &_second_program,
             Some("constraint-reload".into()),
-            compile_test_bytecode(&source.replace("{ 42 }", "{ 44 }")),
+            compile(&source.replace("{ 42 }", "{ 44 }")),
         )
         .unwrap();
     let third = candidate.module().clone();
@@ -807,7 +819,7 @@ fn a_retained_generic_closure_pins_the_callers_constraint_generation() {
     assert!(!reclaimed.contains(&second.key()));
     assert_eq!(
         execute(&runtime, &third, "use_closure", &[closure]),
-        Value::I32(43)
+        Value::I32(44)
     );
     drop(closure_root);
     let reclaimed = runtime.collect_garbage().unwrap().reclaimed_modules;

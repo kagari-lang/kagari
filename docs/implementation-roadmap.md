@@ -801,8 +801,8 @@ subsequently prioritized transparent generic type aliases first; that prerequisi
 is now locally complete. The user reauthorized the full sequence on 2026-10-24.
 The order remains joint HM00 + UP00, followed by HM01, UP01, HM02, UP02, HM03,
 HM04, UP03, UP04 and UP05. Joint HM00+UP00 was committed as `bbfc0af6`.
-**HM01 is committed as `3523c4c8`; UP01 as `cd79fc80`. HM02 is locally complete;
-UP02 is next.**
+**HM01 is committed as `3523c4c8`, UP01 as `cd79fc80`, HM02 as `f0e1917d`.
+UP02 implementation is locally complete; HM03 is next.**
 Type exports, alias/layout demand and reload comparison include validated
 `private_types: Vec<TypeDeclaration>` separate from public authority. The
 [HM01 ledger](host-api-refactor.md#hm01-integration-and-up01-handoff) owns its
@@ -823,14 +823,28 @@ same-name empty providers. Reviewer recheck and final focused tests/local checks
 passed; no carried errors remain. The
 [HM02 ledger](host-api-refactor.md#hm02-integration-and-up02hm03-handoff) owns the
 repair and validation evidence.
-Calls remain pinned until UP02. HM03 reuses HM02 navigation to unify relative
-function/type leaf binding; current leaf lookup remains transitional and root-based.
-Full CI remains unrun; MS remains unstarted.
+UP02 integrates stable nonreused callable mapping/current selection, exact retained
+execution, global publication admission, detached source Update/capsules and exact
+source inspection, including compiled manifest anchors and optional artifact source.
+Its [single ledger](update-model-design.md#up02-implementation-and-integration)
+records all review findings closed, fresh source-enabled/source-free artifact passes,
+completed durable documentation/conformance migration and the passing parent check
+chain. Final conformance/example and correspondence follow-ups also passed, including
+both parent's and contract owner's final local checks. No carried UP02 errors or
+pending local validation remain. The default-environment identity defect is fixed:
+unchanged reload/identical replacement succeeds, while real protected body changes
+still reject. This does not establish full CI acceptance.
+HM03 reuses HM02 navigation to unify relative function/type leaf binding; current
+leaf lookup remains transitional and root-based. Full CI remains unrun; MS remains
+unstarted.
 The [resolved transitive-selection policy](update-model-design.md#resumed-up00-audit-at-bbe30666)
 rejects changes to published Hash/Eq, static initializers and their transitive
 dependencies, independently of container liveness or initialization state; unknown
 dependencies conservatively freeze installation inventory. UP01 implements this
 protection without an alternate pinned-call domain, eager initialization or rehash.
+**Material delivery limit:** default standard-foundation `Unknown` dependencies can
+reject even a simple Engine body patch. This is intentional conservative protection;
+passing finite-environment update fixtures do not promise default-Engine patchability.
 The [Host API plan](host-api-refactor.md) and
 [update plan](update-model-design.md) retain their own ledgers and acceptance.
 HM owns live Program/Module lookup and verified type exports; UP owns stable
@@ -847,8 +861,9 @@ complete. The later user instruction resumed HM00/UP00; alias work itself did no
 complete either phase.
 Alias language semantics alone did not implement host exports or dispatch. HM01
 now supplies the export schema and layout roots; HM02 live handles are locally
-complete, while current-call dispatch remains UP02 work. Detailed phase evidence
-stays in the owning plans, not a parallel roadmap progress queue.
+complete, as is UP02 current-call dispatch/source Update with final local checks
+passed and no carried errors. HM03 is next.
+Detailed phase evidence stays in the owning plans, not a parallel roadmap progress queue.
 
 ## Other queued designs
 

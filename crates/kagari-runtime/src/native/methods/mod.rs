@@ -9,16 +9,18 @@ mod resolution;
 use crate::{
     error::RuntimeError,
     gc::roots::RootedValue,
+    module::dispatch::CallRoute,
     native::{
         binding::NativeResult,
         conversion::{FromKagari, arguments::IntoKagariArguments},
-        function_handle::PinnedFunction,
+        function_handle::Function,
         methods::{
             arguments::ReceiverArguments,
             receiver::{AppliedReceiver, RetainedReceiver},
         },
         typed::NativeContext,
     },
+    source::FunctionSourceTarget,
 };
 use kagari_common::identity::table::{DefinitionId, DefinitionTable};
 use kagari_types::ty::{GenericParam, Ty};
@@ -56,7 +58,7 @@ impl InherentMember {
 #[derive(Debug)]
 pub struct Method<A, R> {
     receiver: AppliedReceiver,
-    function: PinnedFunction<ReceiverArguments<A>, R>,
+    function: Function<ReceiverArguments<A>, R>,
 }
 
 impl<A, R> Clone for Method<A, R> {
@@ -65,6 +67,17 @@ impl<A, R> Clone for Method<A, R> {
             receiver: self.receiver.clone(),
             function: self.function.clone(),
         }
+    }
+}
+
+impl<A, R> Method<A, R> {
+    pub fn source_target(&self) -> FunctionSourceTarget {
+        self.function.source_target()
+    }
+
+    /// Inspect the checked method route without selecting executable code.
+    pub fn call_route(&self) -> Option<&CallRoute> {
+        self.function.call_route()
     }
 }
 
@@ -80,7 +93,7 @@ impl<A: IntoKagariArguments, R: FromKagari> Method<A, R> {
         receiver.validate(cx.runtime())?;
         if !self.receiver.matches(&receiver) {
             return Err(RuntimeError::module_validation(
-                "method binding belongs to another applied type or generation",
+                "method binding belongs to another applied type or installation",
             ));
         }
         self.function.call(

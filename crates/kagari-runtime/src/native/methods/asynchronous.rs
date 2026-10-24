@@ -1,8 +1,9 @@
-//! Async inherent members reuse receiver validation and pinned callable admission.
+//! Async inherent members reuse receiver validation and current-call admission.
 use crate::{
     Runtime,
     error::RuntimeError,
     gc::roots::RootedValue,
+    module::dispatch::CallRoute,
     native::{
         binding::NativeResult,
         conversion::{
@@ -18,9 +19,10 @@ use crate::{
     },
     scheduler::result::ScheduledResult,
     session::ExecutionOptions,
+    source::FunctionSourceTarget,
 };
 
-/// A generation-pinned Future-returning inherent method; `A` excludes its receiver.
+/// A current-call Future-returning inherent method; `A` excludes its receiver.
 /// Receiver compatibility is checked again at admission before argument conversion.
 #[derive(Debug)]
 pub struct AsyncMethod<A, R> {
@@ -59,6 +61,16 @@ impl Runtime {
     }
 }
 
+impl<A, R> AsyncMethod<A, R> {
+    pub fn source_target(&self) -> FunctionSourceTarget {
+        self.function.source_target()
+    }
+
+    pub fn call_route(&self) -> Option<&CallRoute> {
+        self.function.call_route()
+    }
+}
+
 impl<A: IntoKagariArguments, R: FromKagari + Send + 'static> AsyncMethod<A, R> {
     pub(crate) fn schedule_on(
         &self,
@@ -72,7 +84,7 @@ impl<A: IntoKagariArguments, R: FromKagari + Send + 'static> AsyncMethod<A, R> {
         receiver.validate(runtime)?;
         if !self.receiver.matches(&receiver) {
             return Err(RuntimeError::module_validation(
-                "method binding belongs to another applied type or generation",
+                "method binding belongs to another applied type or installation",
             ));
         }
         self.function.schedule(

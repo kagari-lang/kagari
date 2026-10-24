@@ -16,10 +16,10 @@ For source-level data structures and ID lookup, start with the
 - Verified MIR is the common backend handoff; bytecode is its interpreter target.
 - Executable loading and verification work without source analysis.
 - Rust host state and the script heap have separate ownership and access rules.
-- Currently, calls retain exact dependency generations across hot reload. The
-  [confirmed update migration](update-model-design.md#calls-retained-objects-and-new-trait-implementations)
-  replaces this with current ordinary call selection and retained computation bodies;
-  it is not implemented yet.
+- Ordinary calls select current implementations within a live installation;
+  created closures/Futures and admitted frames/queues retain exact computation bodies.
+  Publication requires a serialized host-top-level synchronous boundary. See
+  [live installations and publication](#live-installations-and-publication).
 - Left-to-right once-only evaluation, checked arithmetic, trap order, completed
   effects and cleanup are preserved across interpreter and native execution.
 - Installed interfaces determine available APIs. Cancellation and call-depth
@@ -179,7 +179,8 @@ therefore reports every selected dependent root, without a second mutable revers
 index. Removed roots are reported separately. Hosts associate families with their
 own installations, compile affected candidates and advance their installed baseline
 only after successful explicit reload. No installation is automatically unloaded,
-no cross-Program atomic publication is implied, and old calls retain pinned code.
+no cross-Program atomic publication is implied, and admitted computations retain
+exact bodies while ordinary inner calls select current implementations.
 
 Immutable `ProgramInputs` retains one exact dependency closure and hands external/root files
 to `kagari-source`; HIR derives inline modules from those same captured bytes.
@@ -201,30 +202,33 @@ trait candidates. Module traversal uses a package hub rather than all-to-all mem
 edges. Source visibility still controls name lookup independently of closure membership.
 Namespace/type/callable comparisons guard incremental reuse when bytes, bindings or
 exact selections change. Native provider contracts remain separate analysis inputs.
-Checked Programs also own the public namespace graph and canonical non-generic
-script function references, plus a separate root `main` capability. Module aliases
+Checked Programs also own the public namespace graph and canonical function
+declarations, plus a separate root `main` capability. Module aliases
 retain finite graph edges, including cycles; lookup bounds path length. Public generic
-source templates can be specialized by dependents but do not become host entries.
+source declarations remain discoverable without executable applications, including
+for source updates; typed generic public-path binding remains pending (HM03).
 The compiler maps source references into the contract-owned `ProgramExports` graph.
 MIR owns root, modules and exports together, including when verification seals are
 discarded for editing or identities are imported into another context. Its portable
 codec retains bounded namespace records and file-local definition references.
-Source-free verification checks reachable graph edges, public concrete script
-leaves and their semantic signatures, and the separate zero-argument root entry.
+Source-free verification checks reachable graph edges, public declarations and
+their contracts, available executable applications, and the separate zero-argument
+root entry. Declaration discovery is not evidence that an application can execute.
 Bytecode carries the same graph through canonical encoding and identity traversal.
 Its verifier binds retained declarations to exact module/function slots and keeps
 those bindings with suspension evidence. Runtime import remaps graph and binding IDs
 together without rescanning names, preserving the supplying Program version.
-`LoadedModule::exported_function` resolves only Program-root public paths even on a
-child handle; `entry_function` separately retains the root entry. Reload retains
-existing module ABI/path checks and additionally compares public
+`ExecutableModule::exported_function` resolves executable Program-root public paths
+even on a child executable handle; `exported_function_declaration` also resolves
+unspecialized declarations. `entry_function` separately retains the root entry.
+Reload retains existing module ABI/path checks and additionally compares public
 namespace/function paths and the separate entry signature. Function targets can
 change when the public paths and semantic parameter/result types remain compatible.
 Signatures enter one temporary identity context before comparison; nominal types
 are never compared by unrelated scoped ID numbers. Namespace equivalence joins
 matching states, preserving cycles without flattening or product-graph expansion.
-Typed runtime `bind_function` consumes those export slots and retains the target
-Program; explicit declaration/application binding continues to consume installed
+Typed runtime `bind_function` consumes checked export evidence and retains a live
+call route; explicit declaration/application binding continues to consume installed
 closed-entry evidence. Direct VM/SDK execution and native preparation use
 `ProgramEntry`: strings select public export paths, while `ProgramEntry::Main`
 selects the separate root entry. Typed conversion, owned execution and native
@@ -1043,10 +1047,11 @@ no_std, broader JIT support, new traits or a package manager.
 Native entries return synchronously. NativeContext receives owned Rust arguments
 or retained handles; recursive adapters check declared types and protect arguments
 and results automatically. Object, Opaque, collection and interface handles
-preserve shared identity. PinnedFunction and prepared Method/Field descriptors
-retain exact applied scopes and program generations; weak binding caches retain
-no obsolete version by themselves. Selected trait operations consume installed
-compiler evidence and reenter the same execution stack. The SDK with_context scope
+preserve shared identity. `Function` and prepared Method/Field descriptors retain
+checked identity and applied lexical scopes. Named call routes select current bodies;
+field/layout evidence and exact computation bodies retain their required owners.
+Weak binding caches retain no obsolete version by themselves. Selected trait
+operations consume installed compiler evidence and reenter the same execution stack. The SDK with_context scope
 applies cancellation, observation and execution policy to host object operations.
 
 NativeStorage attaches a Rust payload to an ordinary nominal native type.
@@ -1056,7 +1061,7 @@ Advanced NativePayload supplies tracing, a fallible `HeapCharge` description and
 Rust destruction. Its scoped borrows validate the registered Rust type and cannot
 span collection or reentry.
 Advanced CallContext and borrowed views remain for storage operations; StoredCallable
-is a traced heap edge, while host-retained callbacks use PinnedFunction.
+is a traced heap edge, while host-retained callbacks use `Function`.
 New payloads require no concrete Value/HeapObject variants. Scalar sequences use
 typed compact buffers; GC-bearing sequences use traced Values. Hash callbacks run
 outside table borrows with checked hashes and stable key tokens.
@@ -1071,7 +1076,9 @@ Vec stable sorting edits its actual buffer through a scoped lease. Roots
 protect reference elements during callback reentry. Cleanup restores valid storage
 on every exit; failure may change ordering but preserves the original elements.
 Completed payload mutations remain. No universal collection rollback is promised.
-Lazy native adapters trace source/callback edges and retain pinned selections.
+Lazy native adapters trace source/callback edges and retain checked selections;
+ordinary callback invocation follows current routes, while created closures retain
+exact bodies.
 Collection cursors check structural revisions on each read; writes commit without
 iteration leases, including while a cursor is parked. Generic execution does not name MapIterator.
 
@@ -1508,14 +1515,14 @@ complete semantic types, access and initializer authority. They do not infer tho
 facts again from source or current values.
 
 For example, after v1 increments `COUNT` to 100, publishing compatible v2 leaves
-that same cell at 100. Old calls still execute v1; new calls execute v2; both see
-and may update that cell. A separately installed root gets a different cell. An
-unread static still runs its introducing generation's initializer when v2 first
+that same cell at 100. Retained v1 computations and new v2 frames both see and may
+update that cell; ordinary calls from either select current implementations.
+A separately installed root gets a different cell. An unread static still runs its introducing generation's initializer when v2 first
 accesses it. Reload never implies a reset, callback rebinding or snapshot restore.
 The [activation contract](spec/module-activation.md) owns the compatibility rules,
-including static-only additions, private schema checking and candidate denial.
+including protected initializer dependencies, private schema checking and candidate denial.
 
-A cold access enters the retained recipe's `LoadedModule` through ordinary frame
+A cold access enters the retained recipe's `ExecutableModule` through ordinary frame
 admission and shares cancellation/depth/session state. A private frame-owned attempt
 settles success or failure; immediate shared completion prevents swallowed recursive
 reentry from publishing success. A rooted return survives frame retirement and full
@@ -1527,9 +1534,12 @@ an initializer. See [failure semantics](spec/failure-semantics.md#static-initial
 Joint GC traces installation/program bindings to cells, Ready values and pending
 recipes. Immutable descriptor provenance is not an executable root. Clearing a stored
 callback or releasing an installation permits otherwise unreachable code/state cycles
-to retire. Stored Map/Set lookup protocols and retained callable/interface/native
-values keep their original execution authority; content comparison remains a separate
-caller-selected operation. [Runtime storage](spec/runtime.md#persistent-static-cells)
+to retire. Stored Map/Set lookup protocols retain their checked key selection;
+protected Hash/Eq transitive dependencies prevent compatible publication from changing
+that behavior, independently of live tables. Named callable/interface operations use
+current implementations; retained computation bodies keep exact execution authority.
+Content comparison remains a separate caller-selected operation.
+[Runtime storage](spec/runtime.md#persistent-static-cells)
 and [collection semantics](spec/collection-access.md) own those distinctions.
 
 Access resolves one generation's indexed binding and one cell-table lookup, then
@@ -1546,6 +1556,73 @@ storage, individual declaration initialization, no blocking/default-value recurs
 and its existing cancellation/quarantine semantics. ERTS `persistent_term`'s global,
 read-mostly copy/update model is not adopted. Typed generation bindings and joint GC
 are necessary for Kagari's shared-state/pinned-code boundary, not performance shortcuts.
+
+## Live installations and publication
+
+`kagari-runtime::module` separates live `Program`/`Module` installation handles from
+exact `ExecutableModule` owners. Each load creates independent state and authority,
+even from the same prepared product or display label. Installation identity owns
+statics, script type compatibility and current publication; shutdown retires its
+capabilities. Reload advances it and returns unit rather than replacing live handles.
+
+`module::dispatch` owns installation-stable `CallRoute` identities, publication
+mapping and current target tables. Linking captures checked declaration/application
+routes once. Direct/shared/recursive calls, interface dispatch and native callbacks
+select through this owner; they do not perform source lookup or trait inference.
+Alias lookup at binding chooses the declaration once, not a string to re-resolve at
+every call. Named `Function` handles and named script function values carry routes
+without obsolete executable leases. Receiver/type scopes and argument/result checks
+survive transport to the current executable.
+
+Generated closure/Future/resume bodies, admitted frames and queued invocations have
+exact owners. If a v1 Future resumes after v2 publication, its instruction stream
+remains v1 but an ordinary call to a changed helper enters v2. A recursive ordinary
+call also selects current code, not the resumed frame's old dependency set. Exact
+native prepared-code handles retain their separate code/version contract; this is
+not permission to run a mismatched native product.
+
+`publication` owns runtime-wide synchronous activation and exclusive publication
+admission, separately from parked session/frame storage. Callback, observer, reentry,
+driver and cleanup scopes count until they end. Parked work does not block a
+host-top-level publication. `PublicationGuard` rejects execution/resumption, driver
+consumption and another publication while held. Staging builds metadata without
+initializers, callbacks or GC-driven host destruction; commit revalidates the base,
+installation and bindings before one visibility change.
+
+`kagari-contract::updates` owns frozen declaration comparison, retained application
+demands and protected Hash/Eq/static-initializer transitive closure comparison.
+Verification establishes evidence independently of source and heap liveness. An
+unknown protected edge freezes the complete installation inventory; the standard
+foundation currently contains such edges and can reject a simple engine-prepared
+body patch. This deliberate conservative policy must not be advertised as universal
+standard-library update support. The [activation specification](spec/module-activation.md)
+owns admission and preserved-state semantics.
+
+SDK source preparation owns immutable compilation capsules, not a runtime frontend.
+`CheckedInputs` captures bytes/origins, package/declaration environment, root and
+compiler/acquisition identity; `CompilationInputs` adds lowering/preparation settings.
+An update creates a fresh analysis database, checks one bounded complete batch and
+lowers with retained demands. No mutable engine session, filesystem acquisition,
+callback or executable lease lives in the capsule. SDK publication associations are
+reserved by exact `PublicationToken` before initial-load/reload/update commit and
+rolled back on failure. A low-level publication without a matching capsule cannot
+fall back to old inputs; later source update reports `MissingCompilationContext`.
+
+Source text has a separate owner: bytecode verifies an optional source package
+against executable source-manifest anchors, then runtime `source` supplies exact
+snapshots, opaque declaration locators and handle/value/frame observations. These
+retain diagnostics, not code leases or private-call authority. Ordinary preparation
+retains source; artifact export defaults to no source, independently of debug/MIR.
+An artifact source package does not reconstruct a compilation capsule. See the
+[source API](spec/embedding-api.md#exact-source-inspection) and
+[artifact contract](spec/artifacts.md#retained-source-packages).
+
+The comparison with [Java SE 25 Instrumentation.redefineClasses](https://docs.oracle.com/en/java/javase/25/docs/api/java.instrument/java/lang/instrument/Instrumentation.html#redefineClasses(java.lang.instrument.ClassDefinition...))
+is limited to active-frame body retention, new-invocation selection and preserved
+static values. Kagari additionally owns cold Futures, closure captures, installation
+identities, explicit roots, frozen contracts and protected dependency inventory; it
+does not adopt JVM class loading, object migration or JVM concurrency. This describes
+ownership and semantics, not a measured performance improvement.
 
 ## Runtime Model
 
@@ -1746,7 +1823,7 @@ dependencies even when the vacant identity slot remains available for reuse.
 owner/generation, then borrows bounded scalar/managed banks for the closed operation.
 Its cursor is private and cannot escape to callers or accept callbacks/external Values.
 Region admission also selects one immutable ExecutionFunction and borrows its exact
-LoadedModule and optional LinkedFunction separately from the mutable PC/executing
+ExecutableModule and optional LinkedFunction separately from the mutable PC/executing
 position. Scalar, managed, field and index handlers share those views. The scalar
 kernel operates directly on this cursor; it no longer reconstructs a second cursor
 or reselects the function after every managed operation. Field/index ordinal checks
@@ -1836,8 +1913,9 @@ shared environments and interface adapters retain their full return validation.
 Function/ModuleFunction, Shared, InterfaceMethod and ClosureRegister call sites prepare
 physical arguments and return destinations once. The sealed execution instruction
 selects a dense function-local call ordinal; final bytecode PCs remain executable
-locations, with mandatory origins supplying exact diagnostic identity. Module slots
-bind through the caller's pinned program descriptor.
+locations, with mandatory origins supplying exact diagnostic identity. The caller's
+exact executable supplies linked route evidence; ordinary callee selection uses the
+installation's current dispatch table.
 Shared calls select their runtime-owned environment and retain caller-scoped
 semantic argument checks before common admission.
 Interface calls retain a `MethodInvocation` containing checked selection/application
@@ -1856,9 +1934,9 @@ with lexical provenance, method type arguments and operation witnesses, independ
 of receiver values. Sealed call records classify actual environment dependence and
 assign dense function-local ordinals. Closed contracts, including independent calls
 inside generic functions, are prepared before candidate publication. Linking validates
-their graph and proves that every executable dependency belongs to the same pinned
-program. Function entry admits one linked execution record containing the immutable
-call table, its module's constant pool and layout operands when needed;
+their graph and proves installation-scoped dependency authority, preserving the
+original lexical evidence while ordinary routes select current code. Function entry
+admits one linked execution record containing the immutable call table, its module's constant pool and layout operands when needed;
 functions with no runtime links need no such record.
 Calls borrow facts directly by ordinal while the active window's program root protects
 the record and its traced edges.
@@ -2110,7 +2188,7 @@ without an intermediate value vector; callers remain rooted during the copy.
 Leases can move across threads and outlive runtime teardown without owning heap
 storage. Runtime owns session, frame, program and executable metadata stores by
 value. Borrowed execution/host scopes prevent owner replacement during execution
-and release roots, call depth and borrow leases on every exit. LoadedModule shares
+and release roots, call depth and borrow leases on every exit. ExecutableModule shares
 immutable verified descriptors; installed native callbacks and layout caches live
 in module records. GC traces executable IDs and exact program dependencies together,
 validates storage before sweeping and disposes of records outside table borrows.
@@ -2145,14 +2223,14 @@ Source-only builds can emit portable MIR for native-only consumers.
 Prepare reusable checked products, then link them in each runtime. `execute`
 interprets; `prepare_native` compiles/caches and installs exact-version handles;
 `execute_prepared` consumes that decision. Reload validates a prepared candidate
-before publication and retains old dependency versions needed by values/calls.
-The current typed facade binds generation-pinned `function`/`async_function` and
-member descriptors once. `call` returns typed results; `call_async` returns a
-borrowed driving `Call`, while `submit_async` returns a result-only `PendingCall`.
+before serialized publication and retains exact bodies needed by existing computations.
+The typed facade binds `function`/`async_function` and member descriptors once;
+ordinary named calls use current implementations. `call` returns typed results;
+`call_async` returns a borrowed driving `Call`, while `submit_async` returns a result-only `PendingCall`.
 Both async modes use one runtime-owned scheduler. `poll` supports external host
 integration, `close` acknowledges local cleanup, and `take_task_event` drains bounded
-managed-Task failures. Latest-version lookup and broader preparation workflow changes
-remain in the [host facade proposal](host-api-refactor.md).
+managed-Task failures. Typed generic public-path binding and broader preparation
+workflow changes remain in the [host facade proposal](host-api-refactor.md).
 See [embedding](spec/embedding-api.md), [loading](spec/module-loading.md) and
 [activation](spec/module-activation.md).
 
@@ -2577,7 +2655,8 @@ parent views, result adapters and supplying generations. Construction demands us
 ordinary ConcreteFunctionIdentity records; there are no receiver comparison
 certificates, negative eligibility facts or comparison-only retention edges.
 Content helper comparison operations belong to the caller's selected generation;
-iteration through a retained view continues using that view's pinned methods.
+iteration through a retained view keeps its checked method selections; ordinary
+invocations use their current implementations.
 Invocation, cancellation, call depth, roots and trap cleanup use checked calls.
 
 Generated protocol adapter identities distinguish value-type arguments from their
@@ -2682,14 +2761,14 @@ comparison/equality/hash/formatting, StringPartsJoin and Assert. Their signature
 effects and operand facts belong to contract/MIR verification; Rust bodies belong
 to runtime and physical helper calls to ABI/backend. No primitive owns or defines
 a source trait. Existing storage layouts, roots, scoped host borrows, cancellation
-and generation-pinned execution retain their current owners.
+and exact admitted computation ownership retain their current owners.
 
 ### Scope and completion boundary
 
 The [roadmap](implementation-roadmap.md) owns future changes. The current
 boundaries preserve the mandatory foundation, shared generics, storage safety
-and reload pinning. They do not promise a stable external ABI or compatibility
-readers. Performance effects require measurement. A future kagari-ffi C adapter
+and checked reload/retained-body ownership. They do not promise a stable external
+ABI or compatibility readers. Performance effects require measurement. A future kagari-ffi C adapter
 belongs over kagari; internal helper ABI stays separate, and no placeholder
 crate is needed.
 
@@ -2809,8 +2888,8 @@ recording owner. The [execution contract](spec/execution.md#structured-two-input
 defines bounds, cycles and non-owning shared Task waits.
 
 Waiting frames and cold factories retain their original executable/type environment
-through compatible reload. Explicit binding against a newly published module selects
-new code; new calls through an old pinned handle still select its original generation.
+through compatible reload. New admissions through an existing named handle select
+current code, and ordinary inner calls from retained bodies also use current routes.
 Detached bounded Spawn/Await origins preserve portable task, scope and code identities without
 retaining GC or version leases. Debug snapshots identify their root execution;
 independent parked roots do not become synchronous reentry frames or consume each

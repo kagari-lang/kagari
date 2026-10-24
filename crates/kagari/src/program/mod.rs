@@ -1,17 +1,30 @@
 //! Preparation-side executable input and local compilation cache, independent of runtimes.
 #[cfg(all(feature = "aot-build", not(target_family = "wasm")))]
 pub mod aot;
+#[cfg(any(feature = "source", feature = "native"))]
+pub(crate) mod inputs;
 #[cfg(feature = "native")]
 pub mod native;
 
+#[cfg(any(feature = "source", feature = "native"))]
+use crate::program::inputs::RetainedPreparation;
 #[cfg(feature = "native")]
 use std::cell::RefCell;
 #[cfg(feature = "native")]
 use std::collections::HashMap;
 use std::rc::Rc;
+#[cfg(feature = "source")]
+use std::sync::Arc;
 
 #[cfg(feature = "source")]
-use crate::engine::source::{PreparationOptions, compilation::Compilation};
+use crate::engine::source::{
+    PreparationOptions, compilation::Compilation, inputs::CompilationInputs,
+};
+#[cfg(feature = "source")]
+use crate::{
+    CompileResult,
+    error::{CompilationPhase, EmbeddingError},
+};
 use kagari_bytecode::{
     artifact::{ArtifactCompatibility, ArtifactValidationError, KbcArtifact},
     verifier::BytecodeVerificationError,
@@ -26,7 +39,10 @@ use kagari_common::{
 use kagari_compiler::native_input::{NativeInputError, verify_native_input};
 #[cfg(feature = "native")]
 use kagari_mir::program::VerifiedMirProgram;
-use kagari_runtime::module::VerifiedProgram;
+use kagari_runtime::{
+    error::{RuntimeError, RuntimeErrorKind},
+    module::VerifiedProgram,
+};
 
 #[cfg(feature = "native")]
 use crate::program::native::{CachedFunction, NativeCacheKey};
@@ -44,6 +60,8 @@ pub struct PreparedProgram {
 #[derive(Debug)]
 struct ProgramState {
     bytecode: VerifiedProgram,
+    #[cfg(feature = "source")]
+    compilation: Option<Arc<CompilationInputs>>,
     #[cfg(feature = "native")]
     mir: Option<VerifiedMirProgram>,
     #[cfg(feature = "native")]
@@ -62,6 +80,8 @@ pub enum ProgramPreparationError {
     Identity(DefinitionMappingError),
     #[error("invalid artifact: {0}")]
     Artifact(ArtifactValidationError),
+    #[error("invalid source package attachment: {0}")]
+    SourcePackage(RuntimeError),
     #[cfg(feature = "native")]
     #[error("invalid native input: {0}")]
     NativeInput(NativeInputError),
@@ -101,19 +121,36 @@ impl From<NativeInputError> for ProgramPreparationError {
 impl PreparedProgram {
     /// Adopt products paired by the SDK's private source lowering owner.
     #[cfg(feature = "source")]
-    pub(crate) fn from_compilation(compilation: Compilation, options: &PreparationOptions) -> Self {
-        let (bytecode, mir) = compilation.into_parts();
+    pub(crate) fn from_compilation(
+        compilation: Compilation,
+        options: &PreparationOptions,
+    ) -> CompileResult<Self> {
+        let inputs = Arc::new(compilation.inputs().with_preparation(options));
+        let (bytecode, mir, source) = compilation.into_parts();
+        let bytecode = VerifiedProgram::from_bytecode(bytecode)
+            .with_source_package(source, &options.lowering.cancel)
+            .map_err(|error| {
+                if error.kind() == RuntimeErrorKind::Cancelled {
+                    EmbeddingError::Cancelled
+                } else {
+                    EmbeddingError::Compilation {
+                        phase: CompilationPhase::BytecodeLowering,
+                        message: format!("source attachment: {error}"),
+                    }
+                }
+            })?;
         #[cfg(not(feature = "native"))]
         let _ = (mir, options);
-        Self {
+        Ok(Self {
             state: Rc::new(ProgramState {
-                bytecode: VerifiedProgram::from_bytecode(bytecode),
+                bytecode,
+                compilation: Some(inputs),
                 #[cfg(feature = "native")]
                 mir: options.retain_native_input.then_some(mir),
                 #[cfg(feature = "native")]
                 native: RefCell::default(),
             }),
-        }
+        })
     }
 
     /// Validate the artifact before runtime linking or script effects. Native-enabled
@@ -142,19 +179,57 @@ impl PreparedProgram {
             .portable_mir()
             .map(|payload| verify_native_input(&payload.bytes, artifact.bytecode(), cancel))
             .transpose()?;
-        let bytecode = VerifiedProgram::from_bytecode(artifact.into_bytecode());
+        let (bytecode, _, source) = artifact.into_parts();
+        let mut bytecode = VerifiedProgram::from_bytecode(bytecode);
+        if let Some(source) = source {
+            bytecode = bytecode
+                .with_source_package(source, cancel)
+                .map_err(|error| {
+                    if error.kind() == RuntimeErrorKind::Cancelled {
+                        ProgramPreparationError::Cancelled
+                    } else {
+                        ProgramPreparationError::SourcePackage(error)
+                    }
+                })?;
+        }
         cancel
             .check()
             .map_err(|_| ProgramPreparationError::Cancelled)?;
         Ok(Self {
             state: Rc::new(ProgramState {
                 bytecode,
+                #[cfg(feature = "source")]
+                compilation: None,
                 #[cfg(feature = "native")]
                 mir,
                 #[cfg(feature = "native")]
                 native: RefCell::default(),
             }),
         })
+    }
+
+    /// Detach immutable compiler inputs without retaining this preparation cache.
+    #[cfg(any(feature = "source", feature = "native"))]
+    pub(crate) fn retained_inputs(&self) -> RetainedPreparation {
+        RetainedPreparation {
+            #[cfg(feature = "source")]
+            compilation: self.state.compilation.clone(),
+            #[cfg(feature = "native")]
+            mir: self.state.mir.clone(),
+        }
+    }
+
+    #[cfg(feature = "native")]
+    pub(crate) fn from_current(bytecode: VerifiedProgram, inputs: RetainedPreparation) -> Self {
+        Self {
+            state: Rc::new(ProgramState {
+                bytecode,
+                #[cfg(feature = "source")]
+                compilation: inputs.compilation,
+                mir: inputs.mir,
+                native: RefCell::default(),
+            }),
+        }
     }
 
     pub fn bytecode(&self) -> &VerifiedProgram {

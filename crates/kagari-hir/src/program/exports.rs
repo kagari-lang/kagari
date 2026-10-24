@@ -1,4 +1,4 @@
-//! Checked public namespace edges, canonical types and concrete source function leaves.
+//! Checked public namespace edges, canonical types and authored function declarations.
 
 use crate::{
     hir::item::function::FunctionKind,
@@ -48,8 +48,8 @@ pub enum TypeExport {
 /// `pub use crate::internal::calculate as damage` records `damage` as a leaf
 /// pointing to `internal`'s original function. Public module aliases preserve
 /// cycles as edges; path lookup is bounded and never expands all possible paths.
-/// Function leaves are non-generic script free functions. Generic/native functions
-/// use concrete wrappers on this path; member binding is separate. Type leaves
+/// Function leaves are script free-function declarations, including unused generics.
+/// They do not imply an executable instance; member binding is separate. Type leaves
 /// preserve declarations, normalized closed aliases and rejection-only open aliases.
 #[derive(Debug, Clone, Default)]
 pub struct ProgramExports {
@@ -133,9 +133,7 @@ impl ProgramExports {
                         continue;
                     };
                     match target {
-                        ResolvedTarget::Source(source)
-                            if concrete_script_function(program, &source) =>
-                        {
+                        ResolvedTarget::Source(source) if script_function(program, &source) => {
                             exported.functions.insert(name.as_str().into(), source);
                         }
                         ResolvedTarget::Source(source) if category == NameNamespace::Type => {
@@ -168,7 +166,10 @@ impl ProgramExports {
             };
             (function.name == "main"
                 && function.params.is_empty()
-                && concrete_script_function(program, &source))
+                && script_function(program, &source)
+                && program
+                    .source_function(&source)
+                    .is_some_and(|(_, signature)| signature.generic_params.is_empty()))
             .then_some(source)
         });
         cancel.check().map_err(|_| ProgramCheckError::Cancelled)?;
@@ -257,12 +258,11 @@ fn checked_type_export(
     }
 }
 
-fn concrete_script_function(program: &CheckedProgram, source: &SourceDeclRef) -> bool {
+fn script_function(program: &CheckedProgram, source: &SourceDeclRef) -> bool {
     program
         .source_function(source)
         .is_some_and(|(module, signature)| {
             module.lowered.module.functions[signature.id.index()].kind == FunctionKind::User
-                && signature.generic_params.is_empty()
                 && matches!(signature.implementation, FunctionImplementation::Script)
         })
 }

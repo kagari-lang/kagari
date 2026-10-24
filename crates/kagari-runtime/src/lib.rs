@@ -19,8 +19,8 @@ use crate::{
     host_scope::HostResourceScope,
     metadata::{TypeId, TypeRegistry},
     module::{
-        ExecutableModule, Installation, ModuleEpochRetention, ModuleKey, ModuleStore,
-        VerifiedProgram, staging::StagedProgram,
+        ExecutableModule, Installation, ModuleEpochRetention, ModuleKey, ModuleStore, Program,
+        VerifiedProgram, dispatch::PublicationToken, staging::StagedProgram,
     },
     native::{
         callable::PreparedClosure, completion::CompletionRegistry,
@@ -69,6 +69,7 @@ pub mod metadata;
 pub mod module;
 pub mod native;
 pub mod numeric;
+pub mod publication;
 pub mod range;
 pub mod reflection;
 pub mod reload;
@@ -79,6 +80,7 @@ mod test_support;
 mod value_check;
 
 pub mod session;
+pub mod source;
 pub mod task;
 pub mod value;
 pub mod value_semantics;
@@ -93,9 +95,30 @@ struct PreparedReload {
     bindings: Vec<module::LinkedHostBindings>,
 }
 
+/// Fully linked initial installation that is not yet visible as a live Program.
+///
+/// Use its token for fallible host association work before `Runtime::publish_staged_load`.
+/// Dropping it abandons the existing candidate lease; ordinary collection reclaims
+/// its storage. It exposes neither executable entry authority nor a live Program.
+#[derive(Debug)]
+#[must_use]
+pub struct StagedLoad {
+    installation: Arc<Installation>,
+    program: StagedProgram,
+}
+
+impl StagedLoad {
+    /// Exact precommit association identity, without code ownership or entry authority.
+    /// Publication preserves this token; an abandoned token never becomes live.
+    pub fn publication_token(&self) -> PublicationToken {
+        self.program.module().publication_token()
+    }
+}
+
 /// Installed candidate whose entry has not been activated.
 #[derive(Debug)]
 pub struct StagedReload {
+    target: Program,
     initialization_error: RefCell<Option<RuntimeError>>,
     baseline: ExecutableModule,
     program: StagedProgram,
@@ -280,6 +303,7 @@ impl Runtime {
         &self,
         candidate: &'candidate StagedReload,
     ) -> Result<CandidateSession<'_, 'candidate>, RuntimeError> {
+        let _activation = self.resources().begin_synchronous_activation()?;
         self.reject_static_initialization("candidate session switch")?;
         if let Some(error) = candidate.initialization_error() {
             return Err(error);
@@ -323,6 +347,7 @@ impl Runtime {
         options: ExecutionOptions,
         entry: ExecutionEntry,
     ) -> Result<ExecutionSession<'_>, RuntimeError> {
+        let activation = self.resources().begin_synchronous_activation()?;
         self.ensure_scheduler_open()?;
         self.gc.ensure_no_native_borrow()?;
         if self.modules.is_staged(module)
@@ -410,6 +435,7 @@ impl Runtime {
         let guard = ExecutionSession {
             id,
             resources: self.resources(),
+            _activation: activation,
         };
         self.resources().poll_execution()?;
         Ok(guard)
@@ -632,6 +658,7 @@ impl Runtime {
 
     /// Collect unreachable heap objects and module instances in one graph traversal.
     pub fn collect_garbage(&self) -> Result<GcCollection, RuntimeError> {
+        self.resources().ensure_not_publishing()?;
         self.gc.ensure_no_native_borrow()?;
         self.resources().ensure_execution_allowed()?;
         self.gc.collect(&self.modules, &self.host.gc_roots())

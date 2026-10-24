@@ -40,8 +40,9 @@ entrypoint.
 
 The public ABI describes a static's declaration identity, type and access contract,
 not its initializer expression, source position or live value. Exact artifact
-identity still covers the initializer code. Thus a changed initializer can produce
-a different artifact without authorizing replacement of an existing cell's fixed
+identity still covers the initializer code. A changed initializer can produce a
+valid fresh-installation artifact, but compatible publication rejects changes to an
+existing protected initializer/dependency closure and never replaces its fixed
 recipe. Private statics and the recursive applied schema remain independently
 checked by [reload compatibility](module-activation.md#static-publication-compatibility).
 
@@ -210,7 +211,9 @@ prove preservation of their source templates or bounds.
 
 This unpublished schema change retains the current format/ABI identifiers and
 requires regenerating affected development artifacts, not an old-schema reader.
-It does not change the host `LoadedModule` API or pinned-call execution model.
+Live `Program`/`Module` handles and exact `ExecutableModule` owners have separate
+roles; [ordinary call selection](module-activation.md#live-installations-and-call-selection)
+is current within an installation.
 
 ### Unified executable slots and origins
 
@@ -557,12 +560,46 @@ read bytes
   -> publish only after module/reload validation succeeds
 ```
 
+## Retained source packages
+
+Ordinary source preparation retains an exact verified source package by default.
+Artifact export uses `ArtifactOptions::retain_source`, default `false`; hosts must
+explicitly opt in to distributing source. Source-free artifacts remain valid.
+`PreparedProgram::from_artifact` preserves a supplied verified source package even
+without the SDK `source` feature, but does not gain an immutable compilation capsule.
+Source text alone cannot enable `Runtime::update`; that API requires the exact
+publication's captured compilation context.
+
+The optional package carries physical documents, logical module mappings, complete
+authored declaration extents/fingerprints and executable-to-authored associations.
+The executable carries compiler-captured source-manifest anchors. Source-free
+validation checks bounded counts/text, executable fingerprint, complete declaration
+and association inventory, document/module identity, byte lengths, fingerprints,
+nonempty UTF-8-aligned ranges, authored kinds and generated/native origin consistency.
+Recomputed text fingerprints alone cannot replace comparison with executable anchors.
+Equal display URIs in distinct modules are allowed and do not merge their identities.
+
+These checks establish internal consistency, **not authenticity** or proof that
+untrusted bytes were produced by a trusted compiler. They do not parse source,
+fetch files, confer call authority or weaken executable verification. Attachment to
+an already verified product requires its exact product identity and definition scope.
+Source retention is independent of local/debug information and optional portable MIR;
+stripping either does not imply stripping source, and retaining MIR does not imply
+retaining source. Native/intrinsic provenance is diagnostic, never fabricated script
+text. Runtime snapshots retain source metadata without executable leases; see the
+[source inspection API](embedding-api.md#exact-source-inspection).
+
 ## Hot Reload
 
 Reload candidates may come from `.kbc` artifacts.
 
-The reload validator compares artifact metadata against the active module epoch and runtime state.
-Failed artifact reload does not replace the active module.
+The reload validator compares verified frozen declarations, retained applications,
+protected transitive dependencies and runtime bindings against the installation's
+current publication. Admission is independent of source availability and heap
+liveness. Publication requires the [host-top-level boundary](module-activation.md#publication-boundary).
+Failed artifact reload does not replace current code or state. A successful
+low-level publication without an SDK compilation capsule makes subsequent source
+update report `MissingCompilationContext`, not reuse the previous source baseline.
 
 ## JIT Interaction
 

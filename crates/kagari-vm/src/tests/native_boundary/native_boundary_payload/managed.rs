@@ -10,7 +10,7 @@ use kagari_runtime::{
         catalog::DeclarationCatalog,
         conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
         declarations::FunctionDecl,
-        function_handle::PinnedFunction,
+        function_handle::Function,
         module::NativeModule,
         payload::{
             Opaque,
@@ -29,7 +29,7 @@ use std::{
 };
 
 kagari_runtime::native_data! { struct State { hp: i32 } }
-type Callback = PinnedFunction<(), i32>;
+type Callback = Function<(), i32>;
 type Holder = Opaque<Managed<State>>;
 
 struct Registration {

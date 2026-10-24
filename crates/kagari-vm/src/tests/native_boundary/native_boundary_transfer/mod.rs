@@ -10,7 +10,7 @@ use kagari_runtime::{
         builder::ModuleBuilder,
         context::CallContext,
         declarations::FunctionDecl,
-        function_handle::PinnedFunction,
+        function_handle::Function,
         module::NativeModule,
         storage::{NativePayload, NativeStorage},
         typed::NativeContext,
@@ -76,7 +76,7 @@ impl Drop for Observer {
     }
 }
 
-type Callback = PinnedFunction<(i32,), i32>;
+type Callback = Function<(i32,), i32>;
 
 fn module(held: &Arc<Mutex<Option<Callback>>>, drops: Sender<ThreadId>) -> NativeModule {
     let mut builder = ModuleBuilder::new(

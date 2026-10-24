@@ -5,7 +5,7 @@ use kagari_runtime::native::{
     builder::ModuleBuilder,
     collections::vector::ScriptVec,
     declarations::{CallableRequirement, FunctionDecl, MethodDecl},
-    function_handle::PinnedFunction,
+    function_handle::Function,
     interfaces::Interface,
     objects::Object,
     typed::NativeContext,
@@ -157,9 +157,7 @@ fn generic_value_handles_forward_selected_results_without_erasing_type_access_or
             .bind_field::<i32>(item.object_type(), "value")
             .unwrap();
         assert_eq!(item.get(&mut cx, &field).unwrap(), 42);
-        let callback = closure
-            .decode::<PinnedFunction<(), Object>>(&mut cx)
-            .unwrap();
+        let callback = closure.decode::<Function<(), Object>>(&mut cx).unwrap();
         drop((number, text, vector, closure, readonly, items, item));
         vm.runtime().collect_garbage().unwrap();
         let result = callback.call(&mut cx, ()).unwrap();

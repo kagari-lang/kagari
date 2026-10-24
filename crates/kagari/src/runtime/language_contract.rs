@@ -41,10 +41,15 @@ use kagari_types::{
 };
 use kagari_vm::{
     error::VmError,
-    vm::{ExecutionReport, JitExecutionStatus, native::PreparedNativeEntry},
+    vm::{
+        ExecutionReport, JitExecutionStatus,
+        native::{PreparedNativeEntry, PreparedNativeExecution},
+        owned::DriveResult,
+    },
 };
 use std::{
     cell::Cell,
+    num::NonZeroUsize,
     sync::{Arc, Mutex},
 };
 
@@ -117,11 +122,17 @@ struct RecordingHost {
     log: Vec<String>,
 }
 
+struct PublishedReload<'a> {
+    candidate: &'a Case<'a>,
+    selected_result: fn(&GcHeap) -> Value,
+    native_entry: &'a str,
+}
+
 struct Case<'a> {
     name: &'static str,
     source: &'a str,
     modules: &'a [(&'a str, &'a str)],
-    published_reload: Option<&'a Case<'a>>,
+    published_reload: Option<PublishedReload<'a>>,
     expected: Expected,
     calls: &'static [&'static str],
     committed: &'static [&'static str],
@@ -242,7 +253,7 @@ fn observe_vector() -> DefinitionMetadata<ModuleDecl> {
     DefinitionMetadata::checked(definitions, declaration, &Default::default()).unwrap()
 }
 
-fn compile(case: &Case<'_>) -> Option<RoutePrograms> {
+fn compile(case: &Case<'_>, publication: bool) -> Option<RoutePrograms> {
     let mut sources = SourceDatabase::default();
     let mut root = None;
     for (name, text) in case
@@ -264,7 +275,14 @@ fn compile(case: &Case<'_>) -> Option<RoutePrograms> {
         root = Some(sources.set(&uri, text.into(), SourceLayer::Base).unwrap());
     }
     let engine = preparation::engine(case.vector.is_some());
-    let checked = engine.compile_snapshot(sources.snapshot(), root.unwrap(), &Default::default());
+    let checked = if publication {
+        Ok(preparation::check_publication(
+            sources.snapshot(),
+            root.unwrap(),
+        ))
+    } else {
+        engine.compile_snapshot(sources.snapshot(), root.unwrap(), &Default::default())
+    };
     if let Expected::Diagnostic(code) = case.expected {
         let Err(EmbeddingError::Diagnostics { diagnostics }) = checked else {
             let outcome = checked.map(|_| "checked successfully");
@@ -315,14 +333,15 @@ impl RoutePrograms {
 }
 
 fn run_routes(case: &Case<'_>) {
-    let Some(programs) = compile(case) else {
+    let Some(programs) = compile(case, case.published_reload.is_some()) else {
         return;
     };
     // Interpreter and JIT routes consume the same checked input. Validate direct
     // and serialized products separately; every route still gets a fresh runtime.
     let candidate = case
         .published_reload
-        .map(|case| compile(case).expect("published candidate must compile"));
+        .as_ref()
+        .map(|reload| compile(reload.candidate, true).expect("published candidate must compile"));
     for route in Route::ALL {
         run(
             case,
@@ -524,21 +543,38 @@ fn run(
         let outcome = execute_route(&vm, module, &loaded, case, route, &mut backend);
         assert_outcome(vm.runtime(), case, route, attempt, outcome);
     }
-    if let Some(candidate) = case.published_reload {
+    if let Some(reload) = &case.published_reload {
+        let candidate = reload.candidate;
         let program = candidate_program.expect("published candidate must compile");
         let old_native = matches!(route, Route::Jit | Route::ArtifactJit).then(|| {
-            vm.prepare_native(
-                module,
-                &loaded,
+            [
                 ProgramEntry::Main,
-                &mut backend,
-                &Default::default(),
-            )
-            .unwrap()
+                ProgramEntry::Export(reload.native_entry),
+            ]
+            .map(|entry| {
+                let prepared = vm
+                    .prepare_native(module, &loaded, entry, &mut backend, &Default::default())
+                    .unwrap();
+                if matches!(entry, ProgramEntry::Export(_)) {
+                    assert!(
+                        matches!(prepared, PreparedNativeEntry::Native(_)),
+                        "{} ({route:?}): dependency must be native: {prepared:?}",
+                        case.name
+                    );
+                }
+                (entry, prepared)
+            })
         });
-        let outer = vm
-            .runtime()
-            .begin_execution(&selected, vm.runtime().execution_options())
+        // Queue the exact old body before publication; no synchronous activation
+        // remains while the host publishes. Its ordinary calls still select current.
+        let old_execution = vm
+            .vm
+            .start(
+                &selected,
+                ProgramEntry::Main,
+                &[],
+                vm.runtime().execution_options(),
+            )
             .unwrap();
         let stale = vm
             .runtime()
@@ -549,20 +585,78 @@ fn run(
         let current = loaded.clone();
         let current_selected = vm.runtime().select_program(&current).unwrap();
         assert_ne!(current_selected.key(), selected.key());
-        assert_eq!(vm.runtime().execution_root().unwrap().key(), selected.key());
+        assert!(vm.runtime().execution_root().is_none());
+        let DriveResult::Complete(result) = vm
+            .vm
+            .drive(&old_execution, NonZeroUsize::new(1024).unwrap())
+            .unwrap()
+        else {
+            panic!(
+                "{} ({route:?}): queued scalar entry must complete",
+                case.name
+            );
+        };
+        let result = result.unwrap();
+        assert!(
+            script_equal(
+                vm.runtime().gc(),
+                &result.value(vm.runtime().gc()).unwrap(),
+                &(reload.selected_result)(vm.runtime().gc()),
+            )
+            .unwrap(),
+            "{} ({route:?}): old body must call the current dependency",
+            case.name
+        );
+        drop(result);
+        if let Some(entries) = &old_native {
+            for (entry, prepared) in entries {
+                match prepared {
+                    PreparedNativeEntry::Native(_) => {
+                        // An exact native product cannot be reused for the current
+                        // entry, even when the host explicitly requests fallback.
+                        for fallback_reason in [None, Some("interpret current entry")] {
+                            let error = vm
+                                .vm
+                                .execute_prepared(
+                                    &selected,
+                                    *entry,
+                                    PreparedNativeExecution {
+                                        prepared,
+                                        fallback_reason,
+                                    },
+                                )
+                                .unwrap_err();
+                            assert!(
+                                matches!(
+                                    error.cause(),
+                                    VmError::RuntimeError(error)
+                                        if error.kind() == RuntimeErrorKind::ModuleValidation
+                                ),
+                                "{} ({route:?}): {error:?}",
+                                case.name
+                            );
+                        }
+                    }
+                    PreparedNativeEntry::Unsupported { .. } => {
+                        let outcome =
+                            vm.vm
+                                .execute_prepared(&selected, ProgramEntry::Main, prepared);
+                        assert_eq!(
+                            outcome.as_ref().unwrap().jit.as_ref().unwrap().status,
+                            JitExecutionStatus::InterpreterFallback
+                        );
+                        assert_outcome(vm.runtime(), candidate, route, 0, outcome);
+                    }
+                }
+            }
+        }
         assert_outcome(
             vm.runtime(),
-            case,
+            candidate,
             route,
-            case.repeat,
-            match &old_native {
-                Some(prepared) => vm
-                    .vm
-                    .execute_prepared(&selected, ProgramEntry::Main, prepared),
-                None => vm.vm.execute(&selected, ProgramEntry::Main),
-            },
+            0,
+            vm.vm.execute(&selected, ProgramEntry::Main),
         );
-        drop(outer);
         assert_outcome(
             vm.runtime(),
             candidate,

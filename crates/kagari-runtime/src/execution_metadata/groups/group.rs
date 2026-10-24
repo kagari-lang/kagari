@@ -56,6 +56,13 @@ impl OperationGroup {
         Self { id, entries, index }
     }
 
+    pub(crate) fn operation_ids(&self) -> impl Iterator<Item = OperationId> + '_ {
+        (0..self.entries.len()).map(|member| OperationId {
+            group: self.id,
+            member,
+        })
+    }
+
     pub(crate) fn get(&self, id: OperationId) -> Option<&BoundOperation> {
         (id.group == self.id)
             .then(|| self.entries.get(id.member))
@@ -64,6 +71,7 @@ impl OperationGroup {
 
     pub(crate) fn associated_interfaces(&self) -> impl Iterator<Item = AssociatedInterface> + '_ {
         self.entries.iter().map(|operation| AssociatedInterface {
+            lookup_scope: None,
             outputs: Default::default(),
             receiver: operation.requirement.receiver.clone(),
             interface: operation.associated_interface.clone(),

@@ -3,6 +3,7 @@ pub(crate) mod collection;
 pub(crate) mod constants;
 mod descriptor_index;
 pub(crate) mod descriptors;
+pub mod dispatch;
 pub mod entry;
 pub mod execution;
 mod exports;
@@ -22,7 +23,7 @@ pub mod state;
 mod tests;
 use crate::{
     cache::ReloadDependencySnapshot,
-    error::RuntimeError,
+    error::{RuntimeError, RuntimeErrorKind},
     host::{HostPathDescriptorId, HostRegistryId},
     metadata::TypeId,
     module::state::{
@@ -30,6 +31,7 @@ use crate::{
         cells::{CellId, StaticCell},
     },
     module::{
+        dispatch::{PublicationDispatch, PublicationToken},
         execution::ExecutionModule,
         layout_admission::{AggregateKind, LayoutAdmissions, LayoutEndpoint},
         layout_identity::{LayoutIdentity, ProgramLayouts},
@@ -43,14 +45,18 @@ use crate::{
         ModuleEpoch, ModuleEpochAllocator,
         updates::{ReloadAdmission, RetainedDemands, coverage::CoverageFacts},
     },
+    source::ProgramSourceSnapshot,
 };
 use kagari_bytecode::{
     artifact::{ArtifactFingerprint, ArtifactValidationError, validate_program_resource_limits},
     instruction::{EnumId, PathId, StructId},
     module::BytecodeModule,
     program::{
-        BytecodeProgram, ModuleRef, exports::ExportTarget, verified::VerifiedBytecodeProgram,
+        BytecodeProgram, ModuleRef,
+        exports::ExportTarget,
+        verified::{VerifiedBytecodeProgram, VerifiedProductIdentity},
     },
+    source_package::{SourcePackageError, VerifiedSourcePackage},
 };
 
 use kagari_contract::{
@@ -65,6 +71,7 @@ use kagari_common::{
     identity::{
         ModuleIdentity,
         map::DefinitionContext,
+        mapping::DefinitionMappingError,
         metadata::DefinitionMetadata,
         table::{DefinitionId, DefinitionTable, DefinitionView},
     },
@@ -75,7 +82,7 @@ use std::{
     ops::Deref,
     sync::{
         Arc, Mutex, Weak,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
 
@@ -145,6 +152,7 @@ pub(crate) struct Installation {
     pub(crate) id: InstallationId,
     root_identity: ModuleIdentity,
     current: Mutex<Option<Arc<ProgramDescriptor>>>,
+    next_declaration: AtomicU64,
 }
 
 /// One captured namespace query; never exposed as an ordinary live handle.
@@ -171,6 +179,8 @@ pub struct ExecutableModule {
 /// Host bindings and module instances are created separately for each runtime.
 #[derive(Debug, Clone)]
 pub struct VerifiedProgram {
+    product_identity: VerifiedProductIdentity,
+    source_package: Option<VerifiedSourcePackage>,
     update_evidence: Arc<UpdateEvidence>,
     update_coverage: Arc<CoverageFacts>,
     initializers: Arc<[HashSet<FunctionRef>]>,
@@ -247,6 +257,8 @@ impl VerifiedProgram {
             &program.program().exports,
             &program.program().update_evidence,
             &update_coverage,
+            None,
+            &CancellationToken::default(),
         )
         .expect("verified program retains bounded definition references");
         let mut allocation_work = 0;
@@ -280,6 +292,8 @@ impl VerifiedProgram {
             .collect::<Vec<HashSet<FunctionRef>>>()
             .into();
         Self {
+            product_identity: program.product_identity(),
+            source_package: None,
             update_evidence: Arc::new(program.program().update_evidence.clone()),
             update_coverage,
             initializers,
@@ -293,6 +307,44 @@ impl VerifiedProgram {
             modules,
             dependencies,
         }
+    }
+
+    /// Attach separately verified source for this canonical product without reading
+    /// or reverifying executable bodies. Exact portable identities must exist in this
+    /// retained scope; all authored references join publication/import inventory.
+    /// Cancellation, missing identities and product mismatch reject atomically.
+    pub fn with_source_package(
+        mut self,
+        package: VerifiedSourcePackage,
+        cancel: &CancellationToken,
+    ) -> Result<Self, RuntimeError> {
+        let package = package
+            .for_product(self.product_identity, &self.definitions, cancel)
+            .map_err(|error| match error {
+                SourcePackageError::Identity(DefinitionMappingError::Cancelled) => {
+                    RuntimeError::new(
+                        RuntimeErrorKind::Cancelled,
+                        "source package attachment cancelled",
+                    )
+                }
+                error => RuntimeError::module_validation(error.to_string()),
+            })?;
+        let references = Self::prepare_definition_references(
+            &self.modules,
+            &self.exports,
+            &self.update_evidence,
+            &self.update_coverage,
+            Some(&package),
+            cancel,
+        )?;
+        self.definition_references = references;
+        self.source_package = Some(package);
+        Ok(self)
+    }
+
+    /// Exact source metadata is independent of compiler inputs and execution leases.
+    pub fn source_package(&self) -> Option<&VerifiedSourcePackage> {
+        self.source_package.as_ref()
     }
 
     /// Independently verified publication evidence, in `definitions()`'s scope.
@@ -325,9 +377,11 @@ impl VerifiedProgram {
 
 #[derive(Debug)]
 struct ProgramDescriptor {
+    source: ProgramSourceSnapshot,
     installation: InstallationId,
     code: VerifiedProgram,
     retained_demands: Arc<RetainedDemands>,
+    dispatch: Arc<PublicationDispatch>,
     layouts: ProgramLayouts,
     layout_admissions: LayoutAdmissions,
     root: ModuleRef,
@@ -370,6 +424,11 @@ impl Deref for ExecutableModule {
 }
 
 impl ExecutableModule {
+    /// Copy immutable source metadata without retaining this executable descriptor.
+    pub fn source_snapshot(&self) -> ProgramSourceSnapshot {
+        self.program.source.clone()
+    }
+
     /// Identity of the installation supplying this exact publication.
     pub fn installation_id(&self) -> InstallationId {
         self.program.installation
@@ -649,6 +708,22 @@ struct ModuleStoreInner {
 }
 
 impl ModuleStore {
+    pub(crate) fn source_observation_owner(
+        &self,
+        publication: PublicationToken,
+        module: ModuleRef,
+    ) -> Result<Option<ExecutableModule>, RuntimeError> {
+        let inner = self.inner.try_borrow().map_err(|_| {
+            RuntimeError::module_validation("source observation module store is borrowed")
+        })?;
+        Ok(inner.records.values().find_map(|record| {
+            let owner = &record.module;
+            (owner.publication_token() == publication && owner.slot() == module)
+                .then(|| inner.available(owner.key()).cloned())
+                .flatten()
+        }))
+    }
+
     pub(crate) fn reserve_epoch(
         &self,
         installation: InstallationId,
@@ -710,6 +785,30 @@ impl ModuleStore {
                 None,
             ),
         };
+        let previous = expected_base
+            .map(|baseline| {
+                let previous = installation.capture_current()?;
+                if previous.key() != baseline {
+                    return Err(RuntimeError::module_validation("dispatch baseline changed"));
+                }
+                Ok(previous)
+            })
+            .transpose()?;
+        let token = PublicationToken::new(installation.registry_owner, installation.id, epoch);
+        let dispatch = Arc::new(PublicationDispatch::prepare(
+            &installation,
+            token,
+            previous
+                .as_ref()
+                .map(|previous| previous.program.dispatch.as_ref()),
+            &program,
+        )?);
+        let source = ProgramSourceSnapshot::prepare(
+            installation.registry_owner,
+            dispatch.scope.clone(),
+            &program,
+            previous.as_ref().map(|previous| &previous.program.source),
+        )?;
         let name = name.into();
         let mut inner = self.inner.try_borrow_mut().map_err(|_| {
             RuntimeError::module_validation("module store is borrowed during staging")
@@ -763,8 +862,10 @@ impl ModuleStore {
             })
             .collect::<Result<Vec<_>, RuntimeError>>()?;
         let program = Arc::new(ProgramDescriptor {
+            source,
             installation: installation.id,
             retained_demands,
+            dispatch,
             layouts: ProgramLayouts::prepare(&program.modules, shared_traits),
             layout_admissions: LayoutAdmissions::default(),
             code: program,

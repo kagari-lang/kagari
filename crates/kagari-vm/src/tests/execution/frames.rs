@@ -588,7 +588,7 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
     let vm = Vm::new(runtime);
     let old_report = vm
         .execute_fixture(&first_loaded, FunctionRef::new(0))
-        .expect("old active epoch should remain executable");
+        .expect("an ordinary call through old evidence should select current code");
     let latest = vm
         .runtime()
         .select_program(&_first_loaded_program)
@@ -598,13 +598,13 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
         .expect("new call should use latest epoch");
 
     assert_eq!(second_loaded.epoch, latest.epoch);
-    assert_eq!(old_report.epoch, first_loaded.epoch.0);
+    assert_eq!(old_report.epoch, second_loaded.epoch.0);
     assert_eq!(
         old_report
             .return_value
             .value(vm.runtime().gc())
             .expect("retained execution result"),
-        Value::I32(1)
+        Value::I32(2)
     );
     assert_eq!(latest_report.epoch, second_loaded.epoch.0);
     assert_eq!(

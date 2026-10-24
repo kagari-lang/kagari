@@ -2,7 +2,10 @@
 
 use crate::{
     CompileResult,
-    engine::{packages::PackageBuildInput, source::CheckedModule},
+    engine::{
+        packages::PackageBuildInput,
+        source::{CheckedModule, inputs::CheckedInputs},
+    },
     error::EmbeddingError,
 };
 use kagari_common::cancellation::CancellationToken;
@@ -10,6 +13,7 @@ use kagari_hir::{
     analysis::AnalysisSnapshot, imports::ModuleOrderError, program::ProgramCheckError,
 };
 use kagari_source::{identity::FileId, presentation::DiagnosticRecord};
+use std::sync::Arc;
 
 /// A recoverable root analysis under the engine's sealed native declarations.
 /// Retains the same facts for optional tools and strict checking; changing tool
@@ -18,10 +22,27 @@ use kagari_source::{identity::FileId, presentation::DiagnosticRecord};
 pub struct SourceAnalysis {
     pub(super) snapshot: AnalysisSnapshot,
     pub(super) root: FileId,
-    pub(super) package_inputs: Option<PackageBuildInput>,
+    pub(super) inputs: Arc<CheckedInputs>,
 }
 
 impl SourceAnalysis {
+    pub(crate) fn new(
+        snapshot: AnalysisSnapshot,
+        root: FileId,
+        provenance: Option<PackageBuildInput>,
+    ) -> CompileResult<Self> {
+        let inputs = CheckedInputs::capture(&snapshot, root, provenance)?;
+        Ok(Self {
+            snapshot,
+            root,
+            inputs,
+        })
+    }
+
+    pub(crate) fn inputs(&self) -> &Arc<CheckedInputs> {
+        &self.inputs
+    }
+
     pub fn snapshot(&self) -> &AnalysisSnapshot {
         &self.snapshot
     }
@@ -105,7 +126,7 @@ impl SourceAnalysis {
         Ok(CheckedModule {
             source_name: source.name().to_owned(),
             program,
-            package_inputs: self.package_inputs.clone(),
+            inputs: self.inputs().clone(),
         })
     }
 }

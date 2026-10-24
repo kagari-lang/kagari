@@ -384,7 +384,7 @@ impl Walker<'_, '_> {
             // current targets. Requiring a named target would invent recompilation
             // requests for an adapter already present in the candidate inventory.
             if let Some(body) = self.current_bodies.get(&instance)
-                && matches!(&body.classification, BodyClassification::Adapter(origin) if origin == &instance)
+                && matches!(&body.classification, BodyClassification::IntrinsicAdapter(origin) if origin == &instance)
             {
                 return self.enqueue(
                     BodyApplication {
@@ -667,7 +667,11 @@ impl Walker<'_, '_> {
                 )?;
                 found = true;
             }
-            if !found {
+            // A verified boxed-interface call ranges over the admissible inventory;
+            // an empty set does not assert that any receiver can be constructed.
+            // Concrete selections still require coverage, and historical targets
+            // remain independent demands even when this dynamic set is empty.
+            if !found && receiver.is_some() {
                 self.requests.missing(
                     Request::Interface(InterfaceRequest {
                         interface,

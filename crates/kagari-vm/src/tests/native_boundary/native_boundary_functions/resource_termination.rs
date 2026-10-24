@@ -13,7 +13,7 @@ use kagari_runtime::{
             context::{ConversionContext, ConversionLimits},
         },
         declarations::FunctionDecl,
-        function_handle::PinnedFunction,
+        function_handle::Function,
         typed::NativeContext,
     },
     session::{ExecutionEvent, ExecutionObserver},
@@ -127,9 +127,8 @@ fn conversion_reentry(failure: Failure, observer_error: Option<RuntimeErrorKind>
             enter,
             move |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<()> {
                 let root = callback_root.get().expect("installed namespace");
-                let nested: PinnedFunction<(), i32> = cx.runtime().bind_function(root, "nested")?;
-                let healthy: PinnedFunction<(), i32> =
-                    cx.runtime().bind_function(root, "healthy")?;
+                let nested: Function<(), i32> = cx.runtime().bind_function(root, "nested")?;
+                let healthy: Function<(), i32> = cx.runtime().bind_function(root, "healthy")?;
                 let nested = nested.call(cx, ()).unwrap_err();
                 let termination = cx.runtime().resources().termination();
                 if termination.is_some() && observer_error.is_none() {
@@ -226,7 +225,7 @@ fn conversion_reentry(failure: Failure, observer_error: Option<RuntimeErrorKind>
         .iter()
         .map(|frame| frame.function_name.as_str())
         .collect::<Vec<_>>();
-    assert_eq!(names, ["nested", "main"]);
+    assert_eq!(names, ["fail", "nested", "enter", "main"]);
     if terminal {
         assert!(
             result.is_err(),

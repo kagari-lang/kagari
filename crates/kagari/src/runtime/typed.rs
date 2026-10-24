@@ -5,7 +5,7 @@ use kagari_runtime::{
     native::{
         binding::NativeResult,
         conversion::{FromKagari, arguments::IntoKagariArguments},
-        function_handle::PinnedFunction,
+        function_handle::Function,
         typed::NativeContext,
     },
 };
@@ -43,7 +43,7 @@ impl Runtime {
 
     pub fn call<A: IntoKagariArguments, R: FromKagari>(
         &mut self,
-        function: &PinnedFunction<A, R>,
+        function: &Function<A, R>,
         arguments: A,
     ) -> RunResult<R> {
         self.call_with_context(function, arguments, &self.default_context.clone())
@@ -51,16 +51,17 @@ impl Runtime {
 
     pub fn call_with_context<A: IntoKagariArguments, R: FromKagari>(
         &mut self,
-        function: &PinnedFunction<A, R>,
+        function: &Function<A, R>,
         arguments: A,
         context: &ExecutionContext,
     ) -> RunResult<R> {
         context.validate_for_execute("bound function")?;
+        let prepared = function.prepare_call(self.runtime())?;
         let mut cx = self
             .vm
-            .context(function.owner())
+            .context(prepared.owner())
             .map_err(EmbeddingError::vm)?;
-        function
+        prepared
             .call_with_options(&mut cx, arguments, context.runtime_options())
             .map_err(|error| EmbeddingError::vm(VmError::RuntimeError(error)))
     }

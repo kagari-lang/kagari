@@ -1,3 +1,5 @@
+mod publication;
+
 use crate::test_support as support;
 use crate::test_support::native::program::ProgramFixture;
 

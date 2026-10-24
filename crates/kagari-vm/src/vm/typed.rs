@@ -14,7 +14,7 @@ use kagari_runtime::{
     native::{
         binding::NativeResult,
         conversion::{FromKagari, arguments::IntoKagariArguments, context::ConversionContext},
-        function_handle::PinnedFunction,
+        function_handle::Function,
         typed::NativeContext,
     },
     session::ExecutionOptions,
@@ -76,11 +76,14 @@ impl Vm {
 
     pub fn call<A: IntoKagariArguments, R: FromKagari>(
         &self,
-        function: &PinnedFunction<A, R>,
+        function: &Function<A, R>,
         arguments: A,
     ) -> Result<R, VmError> {
-        let mut cx = self.context(function.owner())?;
-        function.call(&mut cx, arguments).map_err(VmError::from)
+        let prepared = function.prepare_call(&self.runtime)?;
+        let mut cx = self.context(prepared.owner())?;
+        prepared
+            .call_with_options(&mut cx, arguments, self.runtime.execution_options())
+            .map_err(VmError::from)
     }
 
     /// Execute a public path or explicit root entry with an owned typed result.
@@ -96,6 +99,7 @@ impl Vm {
         let (owner, function) = entry
             .resolve(module)
             .ok_or_else(|| VmError::MissingFunction(entry.label().to_owned()))?;
+        let (owner, function) = self.select_function(&owner, function)?;
         let module = &owner;
         let body = module
             .bytecode

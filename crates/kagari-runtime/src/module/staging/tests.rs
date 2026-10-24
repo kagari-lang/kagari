@@ -1,9 +1,9 @@
 use super::*;
 use crate::test_support::native::program::ProgramFixture;
 use crate::{
-    Runtime, RuntimeConfig, StagedReload,
+    Runtime, RuntimeConfig, StagedLoad, StagedReload,
     error::RuntimeErrorKind,
-    module::{Module, ModuleEpochRetention, Program},
+    module::{Module, ModuleEpochRetention, Program, VerifiedProgram},
 };
 use kagari_bytecode::{
     module::BytecodeModule,
@@ -34,6 +34,122 @@ fn stage(runtime: &mut Runtime, baseline: &Program) -> StagedReload {
     runtime
         .stage_reload_program(baseline, None, program())
         .unwrap()
+}
+
+fn stage_initial(runtime: &mut Runtime) -> StagedLoad {
+    let code = VerifiedProgram::new(program(), runtime.definition_context()).unwrap();
+    runtime
+        .stage_load_verified_program("initial", code)
+        .unwrap()
+}
+
+#[test]
+fn staged_initial_load_prepares_token_and_metadata_before_visibility() {
+    let mut runtime = Runtime::default();
+    let candidate = stage_initial(&mut runtime);
+    let token = candidate.publication_token();
+    let installation = candidate.installation.clone();
+    let key = candidate.program.module().key();
+    assert_eq!(
+        installation.capture_current().unwrap_err().kind(),
+        RuntimeErrorKind::StaleHandle
+    );
+    assert_eq!(
+        candidate.program.module().source_snapshot().publication(),
+        token
+    );
+    assert!(runtime.modules.is_staged(candidate.program.module()));
+    assert!(runtime.modules.current_roots().unwrap().is_empty());
+
+    let live = runtime.publish_staged_load(candidate).unwrap();
+    assert_eq!(runtime.publication_token(&live).unwrap(), token);
+    assert_eq!(runtime.select_program(&live).unwrap().key(), key);
+    assert_eq!(runtime.source_snapshot(&live).unwrap().publication(), token);
+    assert_eq!(runtime.modules.current_roots().unwrap(), vec![key]);
+}
+
+#[test]
+fn staged_initial_load_abandonment_foreign_owner_and_shutdown_never_publish() {
+    let mut runtime = Runtime::default();
+    let candidate = stage_initial(&mut runtime);
+    let token = candidate.publication_token();
+    let module = candidate.program.module().clone();
+    let installation = candidate.installation.clone();
+    let view = runtime.modules.inner.borrow_mut();
+    drop(candidate);
+    drop(view);
+    assert!(runtime.validate_executable_module(&module).is_err());
+    assert!(installation.capture_current().is_err());
+    assert_eq!(
+        runtime.collect_garbage().unwrap().reclaimed_modules,
+        vec![module.key()]
+    );
+
+    let candidate = stage_initial(&mut runtime);
+    assert_ne!(candidate.publication_token(), token);
+    let installation = candidate.installation.clone();
+    let mut foreign = Runtime::default();
+    let existing = foreign.load_program("initial", program()).unwrap();
+    let existing_token = foreign.publication_token(&existing).unwrap();
+    assert_eq!(
+        foreign.publish_staged_load(candidate).unwrap_err().kind(),
+        RuntimeErrorKind::StaleHandle
+    );
+    assert!(installation.capture_current().is_err());
+    assert_eq!(
+        foreign.publication_token(&existing).unwrap(),
+        existing_token
+    );
+
+    let candidate = stage_initial(&mut runtime);
+    let installation = candidate.installation.clone();
+    runtime.close().unwrap();
+    assert!(runtime.publish_staged_load(candidate).is_err());
+    assert!(installation.capture_current().is_err());
+    let code = VerifiedProgram::new(program(), runtime.definition_context()).unwrap();
+    assert!(runtime.stage_load_verified_program("closed", code).is_err());
+}
+
+#[test]
+fn staged_initial_load_admission_rejects_forgotten_scopes_and_publication_guards() {
+    for mode in 0..3 {
+        let mut runtime = Runtime::default();
+        let live = runtime.load_program("existing", program()).unwrap();
+        let candidate = stage_initial(&mut runtime);
+        let installation = candidate.installation.clone();
+        let code = VerifiedProgram::new(program(), runtime.definition_context()).unwrap();
+        // Safe code cannot mutably borrow Runtime while a scope is live. Leaking
+        // a scope ends that Rust borrow but must not bypass runtime admission.
+        match mode {
+            0 => {
+                let module = runtime.select_program(&live).unwrap();
+                mem::forget(
+                    runtime
+                        .begin_execution(&module, Default::default())
+                        .unwrap(),
+                );
+            }
+            1 => {
+                let cx = Context::from_waker(Waker::noop());
+                mem::forget(runtime.begin_scheduler_turn(&cx, None).unwrap());
+            }
+            _ => mem::forget(runtime.begin_publication(&live).unwrap()),
+        }
+        assert_eq!(
+            runtime
+                .stage_load_verified_program("reentrant", code)
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::ExecutionPhaseViolation
+        );
+        assert_eq!(
+            runtime.publish_staged_load(candidate).unwrap_err().kind(),
+            RuntimeErrorKind::ExecutionPhaseViolation
+        );
+        assert!(installation.capture_current().is_err());
+        drop(runtime);
+        assert!(live.capture_current().is_err());
+    }
 }
 
 #[test]

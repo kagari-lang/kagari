@@ -9,8 +9,11 @@ The joint HM00/UP00 design checkpoint was committed as `bbfc0af6`; HM01 is local
 complete and committed as `3523c4c8`. UP01 is locally complete and committed as
 `cd79fc80`; the [UP01 ledger](#up01-implementation-and-integration) retains evidence.
 [HM02 integration](host-api-refactor.md#hm02-integration-and-up02hm03-handoff) is
-locally complete with no carried errors; UP02 is next and dispatch is not yet
-migrated. Full CI remains unrun. The user explicitly prioritized
+locally complete and committed as `f0e1917d`. [UP02 integration](#up02-implementation-and-integration)
+is locally complete with no carried errors or pending local checks; HM03 is next.
+Full CI remains unrun. The default-foundation `Unknown` protection described in
+the ledger is a material delivery limit, not a promise of unrestricted body patches.
+The user explicitly prioritized
 transparent generic type aliases first; the authorized prerequisite and its sole
 progress ledger are in the [host API plan](host-api-refactor.md#transparent-generic-alias-prerequisite).
 This design defines two deliberately
@@ -33,18 +36,20 @@ identities within one installation and always query its latest published content
 Existing function handles invoke current implementations after publication. No
 Program/Module reacquisition or function rebinding is required. Internal immutable
 versions and explicit source/debug snapshots remain separate from these ordinary
-handles; this target is not implemented by the current pinned runtime.
+handles. UP02 has implemented and locally validated this separation; final focused
+behavioral and local check evidence is recorded in its ledger.
 
 On 2026-10-23 the user confirmed the update submission shape: construct an `Update`
 containing function/file changes and submit it once to Runtime. There is no required
 `begin_update`, caller-supplied version number or old-body hash. One Update is one
 atomic publication batch for one installation. The exact UP02 API and compiler
-ownership are frozen below; this is a design contract, not implemented support.
+ownership are frozen below; integrated implementation and remaining acceptance
+are recorded in the UP02 ledger.
 The user also confirmed that compatible updates replace function/method bodies or
 add declarations, never change existing signatures or type definitions. Adding a
 trait implementation to an existing type remains excluded even when the trait is
-new in that batch. Exact-version function-source inspection is a required follow-up,
-not a claim that runtime source retrieval is already implemented.
+new in that batch. Exact-version function-source inspection is implemented in UP02;
+source-review findings are closed.
 
 The confirmed patch delivery direction is source batches compiled in the hosting
 process, using the interpreter and optional runtime JIT. AOT patch construction,
@@ -58,8 +63,9 @@ script synchronous stack. A single-threaded Actor may receive an external update
 request and process it before further script dispatch or async resumption. Existing
 suspended computations retain their selected body/state, but subsequent ordinary
 calls select the current implementation. This replaces, rather than supplements,
-the earlier pinned-callable policy; it is not implemented yet. Existing specifications
-and historical acceptance describe the old behavior until the migration lands.
+the earlier pinned-callable policy. UP02 integrates the replacement; historical
+pinned-call acceptance is not evidence of current-dispatch acceptance. Lasting
+specification migration is complete through the assigned documentation owner.
 
 The [package specification](spec/packages.md) owns dependency selection and build identity;
 the [host API plan](host-api-refactor.md) owns embedding entrypoints. This document
@@ -67,6 +73,10 @@ owns update compatibility and state cutover, using the interop, Native and execu
 protection contracts rather than duplicating them.
 
 ## Current foundation and gaps
+
+Historical baseline before UP01/UP02: the inventory below explains the original
+gaps, not the current integrated implementation. The [UP02 ledger](#up02-implementation-and-integration)
+owns current behavior, evidence and remaining acceptance.
 
 [Module activation](spec/module-activation.md) already defines validated staging,
 per-runtime publication, no implicit execution on load/reload and retained execution
@@ -236,6 +246,9 @@ inventory and selection relationships: reject body/initializer/native-selection
 changes and executable additions unless complete evidence proves independence.
 This deliberate conservative limitation may block otherwise useful patches; report
 the protected root and unknown edge rather than silently pinning or guessing.
+In the integrated SDK, the default standard foundation can trigger this rule even
+for a simple Engine body patch. Finite-environment success fixtures do not establish
+default-foundation patch availability; the UP02 ledger records that delivery limit.
 
 A helper shared by a handler and Hash/Eq is protected even when edited through the
 handler's file or a public alias. Compare resolved dependencies too: unchanged text
@@ -1181,10 +1194,10 @@ linking remain separate.
   rejection policy in UP01. Keep existing dispatch until UP02 coherently migrates
   it; no ignored validation or execution stubs. Locally complete with no carried
   errors; the [UP01 ledger](#up01-implementation-and-integration) records acceptance
-  evidence. Committed as `cd79fc80`; HM02 is locally complete and UP02 is next.
+  evidence. Committed as `cd79fc80`; HM02 is committed as `f0e1917d` and UP02 is locally complete.
   HM02 acceptance is recorded in the [HM ledger](host-api-refactor.md#hm02-integration-and-up02hm03-handoff).
   Full CI remains unrun.
-- [ ] UP02: Replace whole-dependency-pinned ordinary dispatch with current-call
+- [x] UP02: Replace whole-dependency-pinned ordinary dispatch with current-call
   selection across runtime/VM/host/interface/native owners; retain selected
   Future/closure/frame bodies and cleanup. Integrate one-shot Update and prepared
   reload with host-top-level serialized publication and common candidate validation.
@@ -1194,7 +1207,10 @@ linking remain separate.
   current selection from retained/historical bodies. Migrate affected specifications,
   examples, repository invariants and tests in this checkpoint; do not leave two
   public semantic modes or assert that the old pinned suite is final acceptance.
-  No new trait relationships for old types.
+  No new trait relationships for old types. Implementation is locally complete;
+  HM03 is next. The [UP02 ledger](#up02-implementation-and-integration) records closed
+  reviews, fresh artifacts and final passing checks. No carried errors or pending
+  local validation remain. Full CI remains unrun.
 - [ ] UP03: At phase entry freeze the codec/envelope format, exact export/restore and
   migration-hook signatures, schema evolution rules, numeric/size/work limits and
   alias/cycle diagnostics against existing conversion APIs; record that gate here
@@ -1303,13 +1319,172 @@ or success result is invented by this proposal.
 
 ## Execution ledger
 
+### UP02 implementation and integration
+
+**Status: locally complete; no carried errors or pending local checks. HM03 next.**
+Started from HM02 commit `f0e1917d`. Dispatch, publication, SDK Update, exact-source
+work, artifact regeneration, review closure and durable specification/conformance
+migration are complete, including final local validation. Full CI remains unrun.
+This is the single UP02 ledger, consolidating the earlier publication-owner and SDK logs.
+
+**Material delivery limit — default Engine body patches can reject.** The standard
+foundation can introduce protected `Unknown` dependencies, conservatively freezing
+installation inventory even for a seemingly unrelated, simple body replacement.
+This is intended protection, not a remaining dispatch bug. Passing update fixtures
+with a finite independent declaration environment demonstrate the real SDK pipeline
+under those inputs; they do not promise that the default Engine accepts the same
+patch. The standard-foundation rejection test preserves code, source and token.
+There is no special old-version Hash/Eq/static call domain, eager initialization,
+automatic rehash or weakening of unknown-dependency protection.
+
+#### Integrated responsibilities and boundaries
+
+- Runtime callable identities use stable, nonreused mappings and a current-target
+  table per installation. Ordinary direct/shared/interface calls, native callbacks
+  and host `Function` select current implementations; no `PinnedFunction` alternative
+  remains. Named function values no longer retain old executable code solely as
+  ordinary bindings. Selected generated/closure/resume bodies and queued native or
+  interface selections retain their exact execution evidence; they are not rebound
+  midway through an operation. Calls made by retained work use ordinary current
+  selection where required, not a second protected-code dispatch domain.
+- Runtime-global synchronous activation is distinct from parked execution sessions.
+  Entry, nested/candidate scopes, observers/callbacks and scheduler turns retain
+  activation through cleanup; parking releases it. `Runtime::begin_publication`
+  requires no active synchronous scope, competing publication or native storage
+  borrow and a live target/runtime. Entry/resumption and driver consumption reject
+  while the guard is held; producer notifications remain independent.
+- Source updates acquire `PublicationGuard` before compilation, stage through
+  `stage_reload_verified_program` and commit with `guard.publish`. The existing
+  `publish_staged_reload` wrapper acquires the same guard, not a nested one. Metadata
+  staging defers GC/abandoned-record cleanup and runs no initializer or callback.
+  Initial load uses `stage_load_verified_program` and `publish_staged_load`; ordinary
+  load composes them. `StagedLoad::publication_token` exists before visibility, with
+  no live Program/executable handle exposed. SDK source association reserves/inserts
+  by this exact token before commit, rolls back on rejection/unwind and performs only
+  infallible completion afterward; no post-commit allocation/token lookup is needed.
+- Immutable Send-compatible compilation capsules capture physical source/module
+  mappings, declarations, package environment, settings and provenance, not callbacks,
+  mutable analysis databases, PreparedProgram caches or executable leases. Update
+  builders own replacements/additions; resolution rejects duplicate aliases and
+  overlapping edits, then rechecks one detached candidate using retained demands.
+  Failed preparation/publication cannot advance the authoritative source baseline.
+  Successful publication prunes superseded capsules; a low-level publication without
+  its own capsule reports `MissingCompilationContext`, never reuses an older one.
+- Exact source queries distinguish current callable selection from observed/historical
+  bodies. Prepared products carry verified source packages; artifact retention is
+  opt-in via `ArtifactOptions::retain_source` (default false). Source-free artifact
+  preparation preserves/verifies retained source without frontend dependencies.
+  Compiled source-manifest anchors close the same-document range-swap hole. Physical
+  source identity is `(module, uri)`: multiple packages may share a presentation URI.
+- Public generic authored declarations and aliases remain in the checked export graph
+  even without a concrete executable slot. Source update resolves declaration identity,
+  not a fabricated callable or source-name fallback. Generic signature/arity/bounds
+  comparison uses scoped binder correspondence; equivalent aliases may retarget while
+  changed bounds/results and private/generic-entry forgeries reject. A declaration
+  export alone does not authorize a typed executable binding.
+- SDK batch preparation preflights final physical-document and aggregate text sizes
+  before allocation/replay, including unchanged text, replacements and additions.
+  Checked arithmetic, UTF-8 extent/overlap validation and shared `MAX_SOURCE_BYTES`
+  apply independently of edit order; materialization rechecks before cloning. Text
+  copy observes cancellation at UTF-8 boundaries at most 64 KiB apart. Failures use
+  the same RAII association/publication cleanup. The latest SDK follow-up reports
+  all three focused preflight tests passing after the manifest handoff.
+
+Mechanism reference: the previously consulted Java SE 25 `Instrumentation.redefineClasses`
+in the [resumed audit](#resumed-up00-audit-at-bbe30666) retains old active frames,
+selects new code on new invocations, preserves statics and publishes a batch atomically.
+UP02 applies that separation with Kagari's exclusive host-top-level publication,
+checked generic targets and retained generated/resume state, not JVM concurrent
+redefinition or its schema rules.
+
+#### Reported focused evidence
+
+Results below are owner/coordinator reports from selected runs, not a new sweep or
+additive coverage totals; earlier and latest selections can overlap.
+
+| Boundary | Passing evidence |
+| --- | --- |
+| Core dispatch | 4 dispatch cases; independent review confirmed 2 dispatch issues fixed |
+| Publication / initial load | 5 guard cases and 3 staged-load cases |
+| Native/JIT and drivers | 11 JIT/native cases, 2 owned-driver cases and source-free frame coverage; 3 old-native-admitted/current-callback cases |
+| Retained values and cleanup | 12 named/closure/async/source-cleanup cases after the root-retention fix |
+| Method and queued execution | 14 method/queued cases; earlier 6 transport and 5 callback cases |
+| Typed SDK targets | 3 selected typed-function/async/source targets |
+| Runtime source | 6 source-runtime and 2 product-attachment cases |
+| Source packages / codecs | Compiler source-package 8, contract 3, bytecode 3 and disassembly 7 |
+| SDK source updates | Original 9 selected cases including rollback, plus 2 protection/generic-alias cases |
+| Capsules / preflight | Existing 4 capsule cases, including repaired equal-URI reconstruction; latest SDK follow-up: all 3 new preflight cases passed without further repairs |
+| Generic declaration exports | Earlier compiler package exports 2 and runtime reload exports 7 |
+| Native contracts / VM repairs | Native contract 10 and dynamic-empty 3; 7 previously failing VM cases now resolved, including the last interface fixture |
+
+Final reported closure evidence:
+
+- Review findings 1 (source-manifest anchors) and 2 (preflight) are reviewer-closed.
+  Finding 3 (ordinary bound-interface current selection) and the `BodyOwned`
+  regression are repaired; 2 focused tests passed, including the exact diagnostic
+  after old-code collection. No review findings remain open.
+- Parent regenerated the artifact with the fresh compiled source manifest using
+  source-enabled `portable_artifact_executes_without_source_compilation`, then ran
+  it source-free (`--no-default-features`); both passed.
+- Parent's final chained workspace `cargo clippy --workspace --all-targets -- -D warnings`,
+  formatting, structure and diff checks all passed, including closure of the final
+  conformance-test check. The earlier blank-line issue is resolved.
+- The migrated publication conformance case queues the old body, then publishes at
+  the host top level: 43 before publication, 100 from the queued old body calling
+  the latest inner function, and 101 from a new current call. Stale candidate/native
+  product rejection and fallback are covered. This single case passed across
+  source/artifact input and interpreter/JIT routes, including actual native scalar
+  prepared execution; it is not the full conformance/backend matrix.
+- The documentation owner completed the 26-document durable contract migration,
+  alongside conformance migration. URI identity and source-manifest integration
+  failures are resolved; no fixture regeneration or source-review work is carried.
+
+Earlier guard fixtures, staged-load visibility assertions, generic export lookup,
+equal-URI source attachment, root cleanup and native/interface fixtures are repaired;
+their failed intermediate runs are not current blockers. The anchored-manifest
+handoff resolved missing `source_manifest` initializers and E0624 on the private
+fingerprint accessor. The SDK owner then reported all 3 exact preflight tests passed
+with `--no-default-features --features source --lib`, without further SDK repairs:
+`resulting_source_size_preflight_counts_retained_replacements_and_additions`,
+`source_text_copy_observes_cancellation_between_utf8_chunks`, and
+`function_size_preflight_validates_utf8_and_overlap_before_building_text`.
+Changed-file rustfmt and diff checks also passed. Earlier update tests were not
+repeated; this follow-up did not run workspace Clippy or the full suite.
+
+#### Final checkpoint validation
+
+All final local checks are complete. The host-objects example now reuses the bound
+`make` handle to observe the current result of 200 without rebinding, using a finite
+Future provider. `async_facade::typed_members_and_current_reload_workflow` passed
+(1 case). Parent's final check chain and the contract owner's final workspace Clippy,
+structure, formatting and diff checks all passed; no carried errors remain.
+
+The default-environment control exposed and resolved a correspondence identity bug:
+merging semantically equivalent impls produced duplicate physical `SourceManifest`
+IDs in comparison. The contract update comparison now projects semantic evidence
+without carrying the physical manifest; the original manifest is fully validated
+before comparison. Original executable anchors, canonical source/dependency evidence
+and `Unknown` protection remain unchanged. Five correspondence tests, including
+negative cases, passed.
+
+With the original host example's default environment, unchanged recompilation/reload
+and identical source replacement now pass. A real `hp: 100` to `hp: 200` body change
+still rejects through protected `Unknown` dependencies, as intended; the default
+protection test passed. This separates the repaired identity defect from the material
+patchability limit above, rather than treating every rejection as intended.
+
+Full-workspace tests and the complete feature/backend/platform matrix remain
+CI-only and unrun. HM03 is next for unified relative leaf binding; state replacement
+and MS remain unstarted. No performance or complete CI claim.
+
 ### UP01 implementation and integration
 
 **Status: locally complete; committed as `cd79fc80`, no carried UP01 errors.**
 HM01 is committed as `3523c4c8`. The compiler owner confirmed the final focused
-case and 11 related tests pass on the repaired tree. HM02 is now locally complete;
+case and 11 related tests pass on the repaired tree. HM02 is committed as `f0e1917d`;
 its evidence stays in the [HM ledger](host-api-refactor.md#hm02-integration-and-up02hm03-handoff).
-UP02 is next.
+UP02 is locally complete with final local checks passed and no carried errors;
+its evidence is in the ledger above. HM03 is next.
 Full CI remains unrun.
 
 Implemented scope:
@@ -1361,8 +1536,9 @@ entering source shared-method requests. No current blocker remains.
 Full-workspace tests and the complete feature/backend/platform matrix remain
 CI-only and unrun. UP01 did not deliver live handles or dispatch. Subsequent HM02
 work implements live Program/Module metadata and navigation with separate exact
-`ExecutableModule` ownership and has passed local acceptance. Ordinary calls remain
-pinned; UP02 owns dispatch/source Update integration, and HM03 unifies relative
+`ExecutableModule` ownership and has passed local acceptance. UP02 now integrates
+current dispatch/source Update with local acceptance complete; its final passing
+checks are recorded above. HM03 next unifies relative
 function/type leaf binding. State replacement and MS remain unstarted.
 
 ### Joint HM00/UP00 audit at 3b898e80

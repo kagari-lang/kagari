@@ -84,6 +84,7 @@ pub mod native;
 
 pub mod program;
 pub mod resolver;
+pub mod source_inspection;
 pub mod source_map;
 pub mod typeck;
 pub mod types;

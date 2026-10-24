@@ -292,9 +292,7 @@ fn checked_shared_native_registration_and_unknown_callbacks_are_supported() {
         },
         callable_requirements: vec![],
     };
-    candidate
-        .selections
-        .push(CallRequirement::Native(Box::new(native.clone())));
+
     candidate.bodies[2]
         .requirement
         .calls
@@ -310,7 +308,17 @@ fn checked_shared_native_registration_and_unknown_callbacks_are_supported() {
     let definitions = f.context.snapshot();
     let catalog =
         ProofCatalog::new(vec![], [], [], [&declaration], &definitions, &f.cancel).unwrap();
-    validate_semantics(&candidate, &catalog, &mut f.budget()).unwrap();
+    validate_semantics(&candidate, [&native], &catalog, &mut f.budget()).unwrap();
+    assert_eq!(
+        validate_semantics(&candidate, [], &catalog, &mut f.budget()),
+        Err(UpdateError::MissingNative(native.instance.clone()))
+    );
+    let mut invalid = native.clone();
+    invalid.binding = identity.declaration;
+    assert_eq!(
+        validate_semantics(&candidate, [&native, &invalid], &catalog, &mut f.budget()),
+        Err(UpdateError::InvalidEvidence)
+    );
     let envelope = publication_demands(&candidate, &mut f.budget()).unwrap();
     let natives = [NativeClosure {
         import: &native,
@@ -387,7 +395,7 @@ fn symbolic_forwarding_uses_verified_binder_authority_not_an_empty_dependency_cl
         &f.cancel,
     )
     .unwrap();
-    validate_semantics(&candidate, &catalog, &mut f.budget()).unwrap();
+    validate_semantics(&candidate, [], &catalog, &mut f.budget()).unwrap();
     let envelope = publication_demands(&candidate, &mut f.budget()).unwrap();
     check_coverage(&envelope, &coverage(&candidate), &catalog, &mut f.budget()).unwrap();
     candidate
@@ -401,7 +409,7 @@ fn symbolic_forwarding_uses_verified_binder_authority_not_an_empty_dependency_cl
         .bounds
         .clear();
     assert_eq!(
-        validate_semantics(&candidate, &catalog, &mut f.budget()),
+        validate_semantics(&candidate, [], &catalog, &mut f.budget()),
         Err(UpdateError::InvalidEvidence)
     );
 }

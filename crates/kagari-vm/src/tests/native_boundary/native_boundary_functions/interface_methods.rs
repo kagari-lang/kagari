@@ -1,4 +1,5 @@
 use super::fixture;
+use super::{compile_without_foundation, fixture_without_foundation};
 use crate::tests::native_boundary::compile_program;
 use kagari_common::cancellation::CancellationToken;
 use kagari_runtime::native::{
@@ -233,7 +234,7 @@ fn retained_interface_calls_cannot_escape_candidate_initialization() {
 }
 
 #[test]
-fn interface_dispatch_collects_during_reentry_and_pins_old_default_code() {
+fn interface_dispatch_collects_during_reentry_and_selects_current_default_code() {
     let calls = Arc::new(AtomicUsize::new(0));
     let observed = calls.clone();
     let mut builder = ModuleBuilder::new(
@@ -262,7 +263,7 @@ fn interface_dispatch_collects_during_reentry_and_pins_old_default_code() {
         "use example::interface_methods::collect;\n{}",
         SOURCE.replace("self.get() - amount", "collect(); self.get() - amount")
     );
-    let (vm, old) = fixture(&source, Some(&module));
+    let (vm, old) = fixture_without_foundation(&source, Some(&module));
     let _old_program = old;
     let old = vm.runtime().select_program(&_old_program).unwrap();
     let player: Interface = vm.execute_typed(&old, "make", (100,)).unwrap();
@@ -279,7 +280,7 @@ fn interface_dispatch_collects_during_reentry_and_pins_old_default_code() {
     vm.reload_program(
         &_old_program,
         Some("functions".into()),
-        compile_program(
+        compile_without_foundation(
             &source.replace("self.get() - amount", "self.get() - amount - 1"),
             Some(&module),
         ),
@@ -293,12 +294,13 @@ fn interface_dispatch_collects_during_reentry_and_pins_old_default_code() {
         .bind_interface_method::<(i32,), i32>(&new_player.member(vm.runtime(), "damage").unwrap())
         .unwrap();
     let mut cx = vm.context(&new).unwrap();
-    assert!(new_player.call(&mut cx, &damage, (10,)).is_err());
-    assert!(player.call(&mut cx, &new_damage, (10,)).is_err());
     assert_eq!(calls.load(Ordering::Relaxed), 0);
-    assert_eq!(player.call(&mut cx, &damage, (10,)).unwrap(), 90);
-    assert_eq!(new_player.call(&mut cx, &new_damage, (10,)).unwrap(), 89);
+    assert_eq!(new_player.call(&mut cx, &damage, (10,)).unwrap(), 89);
+    assert_eq!(player.call(&mut cx, &new_damage, (10,)).unwrap(), 89);
     assert_eq!(calls.load(Ordering::Relaxed), 2);
+    assert_eq!(player.call(&mut cx, &damage, (10,)).unwrap(), 89);
+    assert_eq!(new_player.call(&mut cx, &new_damage, (10,)).unwrap(), 89);
+    assert_eq!(calls.load(Ordering::Relaxed), 4);
     drop(player);
     drop(damage);
     assert!(

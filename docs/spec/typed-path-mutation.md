@@ -55,8 +55,9 @@ checks with declared host-function borrows and release leases on every exit.
 
 Adapter callbacks now receive HostCallContext followed by HostPathContext (then
 the operation/value or mutation record). Read, validate and prepare callbacks can
-reenter initialized functions in the pinned program, subject to the same borrow
-conflicts, declared access and cancellation. Borrowed read results
+reenter checked functions in the installation, using current ordinary-call routes
+and the same borrow conflicts, declared access and cancellation. Active callbacks
+and synchronous reentry prevent reload publication. Borrowed read results
 cannot escape. PreparedHostPathWrite retains the existing infallible commit rule:
 its commit action cannot invoke scripts or runtime mutations. No resource-table
 borrow spans user callbacks; dropping a rejected prepared action releases its host

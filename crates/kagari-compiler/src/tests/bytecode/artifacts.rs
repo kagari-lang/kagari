@@ -642,6 +642,7 @@ fn abi_fingerprints_change_with_public_signatures_and_path_descriptors() {
         BytecodeProgram {
             exports: Default::default(),
             update_evidence: UpdateEvidence {
+                source_manifest: None,
                 sources: vec![],
                 bodies: vec![],
                 roots: vec![],

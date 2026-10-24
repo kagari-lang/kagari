@@ -175,13 +175,20 @@ or end the debug stop. Existing owned-root and host-task cancellation/cleanup
 contracts still apply. Inspection of unrelated parked roots is outside the first
 interactive scope.
 
-Retain the current frame's pinned module generation and corresponding source/debug
-metadata. Never display current disk contents as the old frame's source without
-checking their identity. Breakpoints resolve against each relevant loaded version;
-missing locations remain pending/unverified. Continuation and nested calls keep
-existing generation-pinned dependencies; later root admission follows ordinary
-publication rules. Do not reload or publish through the paused command loop.
-Retained source delivery and source path mapping belong to the SDK/tooling boundary.
+Retain the current frame's exact executable and corresponding source/debug metadata.
+An old resumed body keeps its instructions, but its ordinary nested calls select
+current implementations under the [publication contract](spec/module-activation.md).
+Breakpoints must resolve against each relevant executable version; missing locations
+remain pending/unverified. Never substitute current disk contents for retained source.
+The implemented [source inspection API](spec/embedding-api.md#exact-source-inspection)
+provides exact frame observations and source snapshots independently of debug metadata;
+these diagnostic tokens retain neither executable leases nor call authority. Source
+path mapping and interactive delivery remain SDK/tooling integration work.
+
+Do not reload or publish through the paused command loop. The synchronous observer,
+callback/reentry and cleanup scopes still prevent publication while waiting; only
+parked work outside active synchronous scopes may coexist with host-top-level
+publication. This constraint does not implement the proposed interactive pause loop.
 
 Keep the current pre-entry interpreter fallback when an observer is attached:
 Cranelift has no actual debug callbacks for this purpose. Attaching to already

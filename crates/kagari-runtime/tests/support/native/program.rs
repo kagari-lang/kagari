@@ -80,6 +80,7 @@ impl ProgramFixture {
             modules: self.modules,
             exports: self.exports,
             update_evidence: UpdateEvidence {
+                source_manifest: None,
                 sources: vec![],
                 bodies: vec![],
                 roots: vec![],

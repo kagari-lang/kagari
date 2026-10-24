@@ -1,4 +1,4 @@
-use super::{Case, Expected, Value, run_routes};
+use super::{Case, Expected, PublishedReload, Value, run_routes};
 
 #[test]
 fn generic_aggregate_layout_instances() {
@@ -221,20 +221,24 @@ fn cyclic_imports_allow_nonrecursive_calls() {
 }
 
 #[test]
-fn publication_pins_old_dependencies_and_rejects_stale_candidate() {
+fn publication_preserves_selected_body_with_current_calls_and_rejects_stale_candidate() {
     let candidate = Case::new(
         "published-dependency-version",
-        "use contract::dependency::answer; fn main() -> i32 { answer() }",
-        Expected::Value(|_| Value::I32(99)),
+        "pub use contract::dependency::answer; fn main() -> i32 { answer() + 2 }",
+        Expected::Value(|_| Value::I32(101)),
     )
     .modules(&[("dependency", "pub fn answer() -> i32 { 99 }")]);
     let mut versioned = Case::new(
-        "publication-pins-old-dependencies-and-rejects-stale-candidate",
-        "use contract::dependency::answer; fn main() -> i32 { answer() }",
-        Expected::Value(|_| Value::I32(42)),
+        "publication-preserves-selected-body-with-current-calls-and-rejects-stale-candidate",
+        "pub use contract::dependency::answer; fn main() -> i32 { answer() + 1 }",
+        Expected::Value(|_| Value::I32(43)),
     )
     .modules(&[("dependency", "pub fn answer() -> i32 { 42 }")]);
-    versioned.published_reload = Some(&candidate);
+    versioned.published_reload = Some(PublishedReload {
+        candidate: &candidate,
+        selected_result: |_| Value::I32(100),
+        native_entry: "answer",
+    });
     run_routes(&versioned);
 }
 

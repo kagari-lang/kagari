@@ -53,21 +53,40 @@ fn compile_program(
     text: &str,
     module: Option<&NativeModule>,
 ) -> DefinitionMetadata<BytecodeProgram> {
-    let mut sources = SourceDatabase::default();
-    let root = sources
-        .set("main.kgr", text.into(), SourceLayer::Base)
-        .unwrap();
-    let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(
-        foundation::modules()
-            .unwrap()
+    let modules = foundation::modules().unwrap();
+    compile_with_modules(
+        text,
+        modules
             .iter()
             .filter(|installed| {
                 module.is_none_or(|module| {
                     module.declaration().identity != installed.declaration().identity
                 })
             })
-            .chain(module)
+            .chain(module),
+    )
+}
+
+/// Reload fixtures include only their providers, not unrelated protected foundation code.
+pub(super) fn compile_without_foundation(
+    text: &str,
+    module: Option<&NativeModule>,
+) -> DefinitionMetadata<BytecodeProgram> {
+    compile_with_modules(text, module)
+}
+
+fn compile_with_modules<'a>(
+    text: &str,
+    modules: impl IntoIterator<Item = &'a NativeModule>,
+) -> DefinitionMetadata<BytecodeProgram> {
+    let mut sources = SourceDatabase::default();
+    let root = sources
+        .set("main.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut analysis = AnalysisDatabase::default();
+    analysis.set_native_modules(
+        modules
+            .into_iter()
             .map(|module| Arc::new(module.to_declaration()))
             .collect(),
     );

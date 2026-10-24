@@ -31,6 +31,7 @@ use kagari_contract::{
     contracts,
     exports::{
         ProgramExports, entry_function_matches, public_function_matches,
+        public_generic_function_matches,
         type_validation::{TypeExportModule, TypeExportValidator},
     },
     host::external::bindings_match as external_bindings_match,
@@ -765,12 +766,31 @@ pub fn verify_program(
             },
         )
     })?;
+    let mut generic_declarations = HashSet::new();
+    for module in &modules {
+        for record in &module.abi.named_declarations {
+            cancel
+                .check()
+                .map_err(|_| error(&root, ProgramErrorKind::Cancelled))?;
+            if public_generic_function_matches(
+                record,
+                &module.identity,
+                &module.abi.public_items,
+                &definitions,
+            ) {
+                generic_declarations.insert(record.declaration);
+            }
+        }
+    }
     exports
         .validate(
             &root,
             &definitions,
             cancel,
             |id, entry| {
+                if !entry && generic_declarations.contains(&id) {
+                    return true;
+                }
                 let instance = ConcreteFunctionIdentity {
                     declaration: id,
                     arguments: vec![],

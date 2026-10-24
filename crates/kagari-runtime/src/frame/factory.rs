@@ -4,13 +4,16 @@ use crate::{
     closure::ClosureTarget,
     error::RuntimeError,
     error_trace::asynchronous::CallableOrigin,
-    frame::{ExecutionStack, types::arguments::TypeArgument, waiting::QueuedFuture},
+    frame::{
+        ExecutionStack, arguments::FrameArguments, types::arguments::TypeArgument,
+        waiting::QueuedFuture,
+    },
     gc::roots::{RootSet, RootedValue},
     module::ExecutableModule,
-    native::{binding::NativeResult, function_handle::PreparedFunction},
+    native::{binding::NativeResult, callable::PreparedClosure, function_handle::PreparedFunction},
     value::Value,
 };
-use kagari_bytecode::module::CallableTarget;
+
 use kagari_types::{
     declaration::{TypeDefKind, native::NativeStorageLayout},
     ty::Ty,
@@ -54,7 +57,8 @@ impl QueuedFactory {
 impl Runtime {
     pub(crate) fn prepare_future_factory(&self, value: &Value) -> NativeResult<QueuedFactory> {
         self.gc().validate_async_values(slice::from_ref(value))?;
-        let closure = self.resolve_closure(value)?;
+        let (prepared, root) = PreparedClosure::from_value(self, *value)?.prepare_call(self)?;
+        let closure = prepared.snapshot(self)?;
         let signature = closure.signature(self)?;
         let invalid = || RuntimeError::module_validation("task factory requires Fn() -> Future<T>");
         if let ClosureTarget::Script(function) = closure.target
@@ -80,17 +84,15 @@ impl Runtime {
         {
             return Err(invalid());
         }
+
         Ok(QueuedFactory {
             entry: FactoryEntry::Closure {
-                value: self.root_value(*value).ok_or_else(invalid)?,
+                value: root,
                 origin: CallableOrigin {
                     epoch: closure.implementation.epoch.0,
                     code_fingerprint: closure.implementation.program_fingerprint(),
                     module: closure.implementation.slot(),
-                    target: match closure.target {
-                        ClosureTarget::Script(function) => CallableTarget::Script(function),
-                        ClosureTarget::Native(ref native) => CallableTarget::Native(native.import),
-                    },
+                    target: closure.callable_target(),
                 },
             },
             owner: closure.implementation.clone(),
@@ -118,7 +120,8 @@ impl ExecutionStack<'_> {
                 runtime
                     .gc()
                     .validate_async_values(slice::from_ref(&value))?;
-                self.push_closure(runtime, &value, &[], None)?;
+                let closure = runtime.resolve_closure(&value)?;
+                self.push_exact_closure(runtime, &closure, FrameArguments::plain(&[]), None, None)?;
             }
             FactoryEntry::Pinned {
                 function,

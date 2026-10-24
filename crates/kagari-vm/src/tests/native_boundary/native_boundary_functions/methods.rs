@@ -1,5 +1,6 @@
 use super::fixture;
-use crate::tests::native_boundary::compile_program;
+use super::{compile_without_foundation, fixture_without_foundation};
+
 use kagari_runtime::native::{
     binding::NativeResult, builder::ModuleBuilder, declarations::FunctionDecl, objects::Object,
     typed::NativeContext,
@@ -186,8 +187,8 @@ fn object_method_reentry_collects_and_retains_returned_aliases() {
 }
 
 #[test]
-fn prepared_methods_pin_old_code_and_reject_new_generation_receivers() {
-    let (vm, old) = fixture(PLAYER, None);
+fn prepared_methods_select_current_code_and_preserve_receiver_admission() {
+    let (vm, old) = fixture_without_foundation(PLAYER, None);
     let _old_program = old;
     let old = vm.runtime().select_program(&_old_program).unwrap();
     let old_type = vm
@@ -207,7 +208,7 @@ fn prepared_methods_pin_old_code_and_reject_new_generation_receivers() {
     vm.reload_program(
         &_old_program,
         Some("functions".into()),
-        compile_program(&source, None),
+        compile_without_foundation(&source, None),
     )
     .unwrap();
     let _new_program = _old_program.clone();
@@ -226,11 +227,15 @@ fn prepared_methods_pin_old_code_and_reject_new_generation_receivers() {
         .unwrap();
     let new_player = vm.call(&new_create, (100,)).unwrap();
     let mut cx = vm.context(&new).unwrap();
-    assert!(new_player.call(&mut cx, &old_damage, (1,)).is_err());
-    assert!(player.call(&mut cx, &new_damage, (1,)).is_err());
+    let enemy: Object = vm.execute_typed(&new, "enemy", ()).unwrap();
+    assert!(enemy.call(&mut cx, &old_damage, (1,)).is_err());
+    assert!(enemy.call(&mut cx, &new_damage, (1,)).is_err());
+    drop(enemy);
+    assert_eq!(new_player.call(&mut cx, &old_damage, (1,)).unwrap(), 98);
+    assert_eq!(player.call(&mut cx, &new_damage, (1,)).unwrap(), 98);
     vm.runtime().collect_garbage().unwrap();
-    assert_eq!(player.call(&mut cx, &old_damage, (10,)).unwrap(), 90);
-    assert_eq!(new_player.call(&mut cx, &new_damage, (10,)).unwrap(), 89);
+    assert_eq!(player.call(&mut cx, &old_damage, (10,)).unwrap(), 87);
+    assert_eq!(new_player.call(&mut cx, &new_damage, (10,)).unwrap(), 87);
     let duplicate = vm
         .runtime()
         .bind_method::<(i32,), i32>(&old_type, "damage")

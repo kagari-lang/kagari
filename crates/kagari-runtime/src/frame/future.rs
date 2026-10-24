@@ -86,7 +86,7 @@ impl ExecutionStack<'_> {
                 return Err(invalid());
             }
         }
-        let closure = runtime.make_closure(owner, function, values, environment)?;
+        let closure = runtime.make_retained_closure(owner, function, values, environment)?;
         let _root = runtime.root_value(closure).ok_or_else(invalid)?;
         let Ty::NativeObject(nominal) = future.ty() else {
             return Err(invalid());

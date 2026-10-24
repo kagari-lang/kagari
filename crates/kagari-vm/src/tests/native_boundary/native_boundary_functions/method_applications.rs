@@ -1,4 +1,5 @@
 use super::fixture;
+use super::{compile_without_foundation, fixture_without_foundation};
 use crate::tests::native_boundary::compile_program;
 use kagari_runtime::native::{conversion::context::ConversionContext, objects::Object};
 use std::slice;
@@ -111,8 +112,11 @@ fn inherent_applications_infer_impl_arguments_and_check_method_evidence() {
 }
 
 #[test]
-fn inherent_application_handles_keep_old_code_pinned_after_reload() {
-    let (vm, old) = fixture(SOURCE, None);
+fn inherent_application_handles_select_current_code_after_reload() {
+    let source = SOURCE
+        .replace("String", "bool")
+        .replace("\"other\"", "true");
+    let (vm, old) = fixture_without_foundation(&source, None);
     let _old_program = old;
     let old = vm.runtime().select_program(&_old_program).unwrap();
     let i32_type = ConversionContext::new(vm.runtime(), &old)
@@ -132,13 +136,13 @@ fn inherent_application_handles_keep_old_code_pinned_after_reload() {
         .bind_associated_function::<(i32,), Object>(&old_type, "create")
         .unwrap();
     let object = vm.call(&old_create, (42,)).unwrap();
-    let source = SOURCE
+    let source = source
         .replace("self.calls + 1", "self.calls + 10")
         .replace("Holder::create(42)", "Holder::create(43)");
     vm.reload_program(
         &_old_program,
         Some("functions".into()),
-        compile_program(&source, None),
+        compile_without_foundation(&source, None),
     )
     .unwrap();
     let _new_program = _old_program.clone();
@@ -153,15 +157,18 @@ fn inherent_application_handles_keep_old_code_pinned_after_reload() {
         .unwrap();
     let replacement: Object = vm.execute_typed(&new, "make", ()).unwrap();
     let mut cx = vm.context(&new).unwrap();
-    assert!(object.call(&mut cx, &new_get, ()).is_err());
-    assert!(replacement.call(&mut cx, &old_get, ()).is_err());
+    let other: Object = vm.execute_typed(&new, "other", ()).unwrap();
+    assert!(other.call(&mut cx, &old_get, ()).is_err());
+    assert!(other.call(&mut cx, &new_get, ()).is_err());
+    assert_eq!(object.call(&mut cx, &new_get, ()).unwrap(), 42);
+    assert_eq!(replacement.call(&mut cx, &old_get, ()).unwrap(), 43);
     vm.runtime().collect_garbage().unwrap();
     assert_eq!(object.call(&mut cx, &old_get, ()).unwrap(), 42);
     assert_eq!(replacement.call(&mut cx, &new_get, ()).unwrap(), 43);
     let old_calls = vm.runtime().bind_field::<i32>(&old_type, "calls").unwrap();
     let new_calls = vm.runtime().bind_field::<i32>(&new_type, "calls").unwrap();
-    assert_eq!(object.get(&mut cx, &old_calls).unwrap(), 1);
-    assert_eq!(replacement.get(&mut cx, &new_calls).unwrap(), 10);
+    assert_eq!(object.get(&mut cx, &old_calls).unwrap(), 20);
+    assert_eq!(replacement.get(&mut cx, &new_calls).unwrap(), 20);
 }
 
 #[test]

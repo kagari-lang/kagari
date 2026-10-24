@@ -12,6 +12,7 @@ use crate::{
             applications::{ApplicationEvidence, AppliedMethod},
         },
     },
+    source::FunctionSourceTarget,
 };
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath,
@@ -49,12 +50,35 @@ impl InterfaceMember {
     pub fn definitions(&self) -> &DefinitionTable {
         self.owner.definitions()
     }
+
+    pub fn owner(&self) -> &ExecutableModule {
+        &self.owner
+    }
 }
 
 #[derive(Debug)]
 pub struct InterfaceMethod<A, R> {
     pub(super) record: Arc<MethodRecord>,
     mapping: PhantomData<fn(A) -> R>,
+}
+
+impl<A, R> InterfaceMethod<A, R> {
+    /// Report the declaring trait/member with no observed body. This binding has
+    /// no receiver; use a rooted method selection to inspect an implementation.
+    pub fn source_target(&self) -> FunctionSourceTarget {
+        let member = self.member();
+        let declaration = member
+            .definitions()
+            .resolve(member.declaration())
+            .expect("checked interface member declaration")
+            .to_path();
+        FunctionSourceTarget::unobserved_member(member.owner(), declaration)
+    }
+
+    /// Checked member identity; receiver-specific dispatch is selected by Interface.
+    pub fn member(&self) -> &InterfaceMember {
+        &self.record.member
+    }
 }
 
 impl<A, R> Clone for InterfaceMethod<A, R> {

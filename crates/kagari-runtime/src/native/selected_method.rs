@@ -1,7 +1,7 @@
-//! Retain the exact operation selected for a registered native requirement.
+//! Retain the checked relationship selected for a registered native requirement.
 use crate::{
     error::RuntimeError,
-    module::ExecutableModule,
+    module::dispatch::CallRoute,
     native::{
         binding::NativeResult,
         context::LinkedOperation,
@@ -10,18 +10,18 @@ use crate::{
             arguments::{IntoKagariArguments, KagariArguments},
         },
         declarations::SelectedCall,
-        function_handle::PinnedFunction,
+        function_handle::Function,
         typed::NativeContext,
     },
     session::ExecutionOptions,
 };
 
-/// An owning, generation-pinned selected operation. Instance methods include
-/// their receiver as the first tuple element; static members use their actual
-/// parameters. Clones share the prepared descriptor and its metadata roots.
+/// A checked native requirement whose calls use the current implementation.
+/// Instance methods include their receiver as the first tuple element; static
+/// members use their actual parameters. Clones share checked relationship evidence.
 #[derive(Debug)]
 pub struct SelectedMethod<A, R> {
-    function: PinnedFunction<A, R>,
+    function: Function<A, R>,
 }
 
 impl<A, R> Clone for SelectedMethod<A, R> {
@@ -54,14 +54,14 @@ impl NativeContext<'_> {
                 RuntimeError::module_validation("native callable requirement is not ready")
             })?;
         Ok(SelectedMethod {
-            function: PinnedFunction::from_selected(self.runtime(), owner, target)?,
+            function: Function::from_selected(self.runtime(), owner, target)?,
         })
     }
 }
 
 impl<A, R> SelectedMethod<A, R> {
-    pub fn owner(&self) -> &ExecutableModule {
-        self.function.owner()
+    pub fn call_route(&self) -> Option<&CallRoute> {
+        self.function.call_route()
     }
 }
 

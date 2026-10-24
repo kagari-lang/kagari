@@ -1,11 +1,16 @@
 use super::*;
 use crate::{
+    source::{
+        AuthoredDeclaration, AuthoredKind,
+        manifest::{SourceDocumentAnchor, SourceManifest},
+    },
     types::{
         InterfaceBridge,
         named::{ImplementationContract, NamedContract, NamedDeclaration},
     },
     updates::correspondence::import_verified_evidence,
 };
+use kagari_common::{identity::mapping::DefinitionMappingError, span::Span};
 use kagari_types::visibility::Visibility;
 
 struct SplitHeaders {
@@ -102,6 +107,38 @@ impl SplitHeaders {
         }
     }
 
+    fn attach_manifest(&mut self) {
+        self.evidence.source_manifest = Some(SourceManifest {
+            documents: vec![SourceDocumentAnchor {
+                modules: vec![
+                    self.fixture
+                        .context
+                        .snapshot()
+                        .resolve(self.fixture.root)
+                        .unwrap()
+                        .module()
+                        .clone(),
+                ],
+                uri: "update.kgr".into(),
+                byte_length: 100,
+                fingerprint: 1,
+            }],
+            declarations: self
+                .evidence
+                .sources
+                .iter()
+                .enumerate()
+                .map(|(index, source)| AuthoredDeclaration {
+                    declaration: source.declaration,
+                    kind: AuthoredKind::Declaration,
+                    document: 0,
+                    range: Span::new(index * 10, index * 10 + 5),
+                    fingerprint: index as u64,
+                })
+                .collect(),
+        });
+    }
+
     fn admit(&self) -> Result<(), UpdateError> {
         let bodies: Vec<_> = ["hash", "helper", "handler"]
             .into_iter()
@@ -124,8 +161,11 @@ impl SplitHeaders {
 
 #[test]
 fn equal_split_headers_coalesce_after_import_without_losing_members_or_unknown_freeze() {
-    let split = SplitHeaders::new(true);
-    let merged = SplitHeaders::new(false);
+    let mut split = SplitHeaders::new(true);
+    let mut merged = SplitHeaders::new(false);
+    split.attach_manifest();
+    merged.attach_manifest();
+    let original_manifest = split.evidence.source_manifest.clone();
     split.admit().unwrap();
     merged.admit().unwrap();
     let mut correspondence = DeclarationCorrespondence::new().unwrap();
@@ -157,6 +197,9 @@ fn equal_split_headers_coalesce_after_import_without_losing_members_or_unknown_f
         &mut merged.fixture.budget(),
     )
     .unwrap();
+    assert_eq!(split.evidence.source_manifest, original_manifest);
+    assert!(old.records().source_manifest.is_none());
+    assert!(new.records().source_manifest.is_none());
     assert_eq!(split.evidence.sources.len(), 5);
     assert_eq!(old.records().sources.len(), 4);
     assert_eq!(old.records(), new.records());
@@ -191,6 +234,40 @@ fn equal_split_headers_coalesce_after_import_without_losing_members_or_unknown_f
         compare_protected(old.records(), &added, &mut split.fixture.budget()),
         Err(UpdateError::ProtectedChange { .. })
     ));
+}
+
+#[test]
+fn comparison_projection_validates_physical_manifest_before_coalescing() {
+    let mut split = SplitHeaders::new(true);
+    split.attach_manifest();
+    let original = split.evidence.source_manifest.clone();
+    for invalid_case in 0..3 {
+        split.evidence.source_manifest = original.clone();
+        let manifest = split.evidence.source_manifest.as_mut().unwrap();
+        match invalid_case {
+            0 => manifest.declarations[0].range.end = 101,
+            1 => manifest.declarations[1].declaration = manifest.declarations[0].declaration,
+            2 => {
+                manifest.declarations.pop();
+            }
+            _ => unreachable!(),
+        }
+        let result = import_verified_evidence(
+            &mut DeclarationCorrespondence::new().unwrap(),
+            &split.evidence,
+            &split.headers,
+            &split.fixture.context.snapshot(),
+            &mut split.fixture.budget(),
+        );
+        assert_eq!(
+            result.unwrap_err(),
+            if invalid_case == 2 {
+                UpdateError::InvalidEvidence
+            } else {
+                UpdateError::Identity(DefinitionMappingError::InvalidContract)
+            }
+        );
+    }
 }
 
 #[test]

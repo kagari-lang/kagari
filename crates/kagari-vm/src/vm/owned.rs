@@ -35,6 +35,7 @@ impl Vm {
         let (module, function) = entry
             .resolve(module)
             .ok_or_else(|| VmError::MissingFunction(entry.label().to_owned()))?;
+        let (module, function) = self.select_function(&module, function)?;
         Ok(self
             .runtime
             .start_owned_execution(&module, function, arguments, options)?)

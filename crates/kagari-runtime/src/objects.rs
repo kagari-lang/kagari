@@ -229,6 +229,32 @@ impl Runtime {
         captures: Vec<value::Value>,
         environment: Option<TypeEnvironment>,
     ) -> Result<value::Value, RuntimeError> {
+        let mut snapshot = self.prepare_closure(implementation, function, captures, environment)?;
+        snapshot.bind_named(self)?;
+        self.validate_metadata(MetadataEdge::Closure(&snapshot))?;
+        self.gc.alloc_closure(snapshot).map(Value::Closure)
+    }
+
+    /// Cold computation creation has already selected its resume body and values.
+    pub(crate) fn make_retained_closure(
+        &self,
+        implementation: &ExecutableModule,
+        function: FunctionRef,
+        captures: Vec<Value>,
+        environment: Option<TypeEnvironment>,
+    ) -> Result<Value, RuntimeError> {
+        let snapshot = self.prepare_closure(implementation, function, captures, environment)?;
+        self.validate_metadata(MetadataEdge::Closure(&snapshot))?;
+        self.gc.alloc_closure(snapshot).map(Value::Closure)
+    }
+
+    fn prepare_closure(
+        &self,
+        implementation: &ExecutableModule,
+        function: FunctionRef,
+        captures: Vec<Value>,
+        environment: Option<TypeEnvironment>,
+    ) -> Result<ClosureValueSnapshot, RuntimeError> {
         self.validate_executable_module(implementation)?;
         if implementation.is_static_initializer(function) {
             return Err(RuntimeError::module_validation(
@@ -277,14 +303,12 @@ impl Runtime {
             }
         }
         self.validate_heap_payloads(&captures)?;
-        let snapshot = ClosureValueSnapshot {
+        Ok(ClosureValueSnapshot {
             environment,
             implementation: implementation.clone(),
             target: ClosureTarget::Script(function),
             captures,
-        };
-        self.validate_metadata(MetadataEdge::Closure(&snapshot))?;
-        self.gc.alloc_closure(snapshot).map(Value::Closure)
+        })
     }
 
     pub fn iter_operation(

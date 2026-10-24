@@ -1,4 +1,4 @@
-//! Native-to-script reentry uses the existing generation-pinned execution scope.
+//! Native-to-script reentry executes the exact selection prepared by Runtime.
 use crate::{error::VmError, executor::Executor};
 use kagari_runtime::{
     Runtime,
@@ -10,16 +10,11 @@ use kagari_runtime::{
 
 pub(crate) fn invoke_script(
     runtime: &Runtime,
-    owner: &ExecutableModule,
+    _owner: &ExecutableModule,
     target: ScriptCall<'_>,
     arguments: &[Value],
 ) -> NativeResult<Value> {
     let stack = match target {
-        ScriptCall::Selected(target) => {
-            let stack = runtime.enter_execution_stack(owner)?;
-            stack.push_selected_call(runtime, owner, target, arguments)?;
-            stack
-        }
         ScriptCall::Closure(closure) => {
             let stack = runtime.enter_closure_execution_stack(closure)?;
             stack.push_closure(runtime, closure.value(), arguments, None)?;

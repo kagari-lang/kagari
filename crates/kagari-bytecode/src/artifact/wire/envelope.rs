@@ -18,7 +18,7 @@ use kagari_common::{
         table::wire::{DefinitionDecoding, DefinitionEncoding},
     },
 };
-use kagari_contract::ids::FunctionRef;
+use kagari_contract::{ids::FunctionRef, source::wire::SourcePackageRecord};
 use serde::{Deserialize, Serialize};
 
 /// File-local KbcArtifact facts; no verification evidence is serialized.
@@ -31,6 +31,7 @@ pub(in crate::artifact) struct KbcArtifactRecord {
     debug: Option<DebugMetadata>,
     signatures: Option<ArtifactSignatures>,
     portable_mir: Option<PortableMir>,
+    source: Option<SourcePackageRecord>,
 }
 
 impl KbcArtifactRecord {
@@ -54,6 +55,11 @@ impl KbcArtifactRecord {
             debug: value.debug.clone(),
             signatures: value.signatures.clone(),
             portable_mir: value.portable_mir.clone(),
+            source: value
+                .source
+                .as_ref()
+                .map(|source| SourcePackageRecord::encode(source, encoding, cancel))
+                .transpose()?,
         })
     }
 
@@ -73,6 +79,10 @@ impl KbcArtifactRecord {
             debug: self.debug,
             signatures: self.signatures,
             portable_mir: self.portable_mir,
+            source: self
+                .source
+                .map(|source| source.decode(decoding, cancel))
+                .transpose()?,
         })
     }
 }

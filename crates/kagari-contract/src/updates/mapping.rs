@@ -12,6 +12,7 @@ use crate::{
         interface::InterfaceCallContract, shared::SharedCall, witness::OperationWitness,
     },
     native_import::NativeImport,
+    source::manifest::SourceManifest,
     types::ConcreteFunctionIdentity,
 };
 use kagari_common::{
@@ -52,6 +53,7 @@ macro_rules! delegate {
 }
 
 delegate!(
+    SourceManifest,
     DemandRequests,
     InterfaceRequest,
     NominalTy,
@@ -162,6 +164,9 @@ fn evidence_guard(
     value: &UpdateEvidence,
     cancel: &CancellationToken,
 ) -> Result<(), DefinitionMappingError> {
+    if let Some(manifest) = &value.source_manifest {
+        manifest.validate_limits(cancel)?;
+    }
     let mut budget = Budget::new(Limits::default(), cancel).map_err(guard_error)?;
     if value.bodies.len() > MAX_APPLICATIONS || value.targets.len() > MAX_APPLICATIONS {
         return Err(DefinitionMappingError::LimitExceeded);
@@ -300,7 +305,7 @@ macro_rules! variants {
     };
 }
 
-record!(UpdateEvidence { sources, bodies, roots, targets, selections; } guard evidence_guard);
+record!(UpdateEvidence { source_manifest, sources, bodies, roots, targets, selections; } guard evidence_guard);
 record!(SourceRecord { declaration, generic, inputs, calls, dependencies; tokens } guard source_guard);
 record!(BodyApplication { body, arguments; });
 record!(BodyRecord { requirement, classification, signature, captures, instructions, actual_instructions, dependencies; format, actual_format } guard body_guard);
@@ -311,7 +316,7 @@ record!(CurrentTarget { application, body; module, function });
 record!(DemandEnvelope { applications, bodies, requirements; });
 record!(DemandRequests { functions, shared, interfaces, constructions, layouts; });
 record!(InterfaceRequest { interface, receiver, arguments; method_slot });
-variants!(BodyClassification { Named, Closure, Async, Resume, Adapter, StaticInitializer; });
+variants!(BodyClassification { Named, Closure, Async, Resume, Adapter, StaticInitializer, IntrinsicAdapter; });
 variants!(CanonicalOperand { Declaration, Type, Application; Local, Block, Unsigned, Signed, Bytes, Call });
 variants!(CallRequirement { Direct, Shared, Interface, RetainedBody, Native, Operation, Construction, Layout; Unknown });
 variants!(Dependency { Source, Body; Unknown });

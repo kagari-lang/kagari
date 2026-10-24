@@ -12,6 +12,7 @@ mod tests;
 #[cfg(test)]
 pub(crate) fn empty() -> UpdateEvidence {
     UpdateEvidence {
+        source_manifest: None,
         sources: vec![],
         bodies: vec![],
         roots: vec![],
@@ -58,6 +59,7 @@ pub fn build(
     let modules = modules.iter().collect::<Vec<_>>();
     let mut budget = Budget::new(Limits::default(), cancel)?;
     let mut evidence = UpdateEvidence {
+        source_manifest: None,
         sources: inputs.sources,
         bodies: vec![],
         roots: inputs.roots,
@@ -199,7 +201,14 @@ pub(crate) fn verify(
             }
         }
     }
-    admission::validate_semantics(evidence, catalog, &mut budget)
+    admission::validate_semantics(
+        evidence,
+        modules
+            .iter()
+            .flat_map(|module| module.native_applications()),
+        catalog,
+        &mut budget,
+    )
 }
 
 fn extract(

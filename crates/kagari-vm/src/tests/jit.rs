@@ -1,7 +1,11 @@
 use crate::{
     debug::DebugSession,
     tests::{common, common::standard_runtime, native_fixtures},
-    vm::{JitExecutionStatus, Vm, fixtures::FixtureExecution, native::PreparedNativeEntry},
+    vm::{
+        JitExecutionStatus, Vm,
+        fixtures::FixtureExecution,
+        native::{PreparedNativeEntry, PreparedNativeExecution},
+    },
 };
 use kagari_abi::{native::BackendId, representation::ValueType};
 use kagari_bytecode::{
@@ -296,6 +300,79 @@ fn ordinary_interpreter_execution_has_no_jit_report() {
         Value::Unit
     );
     assert!(report.jit.is_none());
+}
+
+#[test]
+fn native_products_must_match_current_selection_before_entry_or_fallback() {
+    let program_code = |value| {
+        common::module_program(common::test_function_module(
+            "main",
+            vec![
+                BytecodeInstruction::LoadConst {
+                    dst: Slot::new(0),
+                    constant: ConstantId::new(0),
+                },
+                BytecodeInstruction::Return(Some(Slot::new(0))),
+            ],
+            ValueType::I32,
+            vec![ValueType::I32],
+            vec![ConstantOperand::I32(value)],
+        ))
+    };
+    let mut runtime = jit_runtime();
+    let program = runtime
+        .load_program("native-current", program_code(7))
+        .unwrap();
+    let old = runtime.select_program(&program).unwrap();
+    let stale = native_fixtures::install_i32::<7>(&runtime, &old, false);
+    let vm = Vm::new(runtime);
+    vm.reload_program(&program, None, program_code(9)).unwrap();
+    let current = vm.runtime().select_program(&program).unwrap();
+    let prepared = PreparedNativeEntry::Native(stale.clone());
+    for fallback_reason in [None, Some("host requests interpretation")] {
+        assert!(
+            vm.execute_fixture_prepared(
+                &old,
+                FunctionRef::new(0),
+                PreparedNativeExecution {
+                    prepared: &prepared,
+                    fallback_reason,
+                }
+            )
+            .is_err(),
+            "a stale product cannot authorize entry or fallback"
+        );
+    }
+    assert!(vm.runtime().invoke_native_function(&stale).is_err());
+    let prepared = PreparedNativeEntry::Native(native_fixtures::install_i32::<9>(
+        vm.runtime(),
+        &current,
+        false,
+    ));
+    let report = vm
+        .execute_fixture_prepared(&old, FunctionRef::new(0), &prepared)
+        .unwrap();
+    assert_eq!(report.epoch, current.epoch.0);
+    assert_eq!(
+        report.return_value.value(vm.runtime().gc()),
+        Some(Value::I32(9))
+    );
+    assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
+    let report = vm
+        .execute_fixture_prepared(&old, FunctionRef::new(0), &native_fixtures::unsupported())
+        .unwrap();
+    assert_eq!(report.epoch, current.epoch.0);
+    assert_eq!(
+        report.return_value.value(vm.runtime().gc()),
+        Some(Value::I32(9))
+    );
+    assert_eq!(
+        report.jit.unwrap().status,
+        JitExecutionStatus::InterpreterFallback
+    );
+    assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
+    assert!(vm.runtime().execution_root().is_none());
+    assert!(!vm.runtime().is_quarantined());
 }
 
 #[test]

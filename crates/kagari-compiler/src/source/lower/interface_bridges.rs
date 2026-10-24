@@ -213,7 +213,7 @@ pub(super) fn collect(
             )?);
             classifications.push((
                 function.instance.clone(),
-                BodyClassification::Adapter(function.instance.clone()),
+                BodyClassification::IntrinsicAdapter(function.instance.clone()),
             ));
             functions.push(function);
         }

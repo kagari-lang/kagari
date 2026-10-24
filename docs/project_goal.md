@@ -50,19 +50,24 @@ borrow scope while retaining once-only evaluation and completed effects.
 
 ## Reload and executable boundaries
 
-Compile and validate candidates before atomic publication. The confirmed target is
-publication at the host/Actor top-level scheduling boundary, with no active script
-synchronous stack; suspended tasks may remain. Ordinary calls select the current
-implementation, including calls from old resumed bodies. Retain matching code and
+Compile and validate candidates before atomic publication at the host/Actor
+top-level scheduling boundary, with no active synchronous execution, callback or
+reentry scope; parked executions and suspended tasks may remain. Ordinary calls
+select the current implementation, including calls from old resumed bodies. Retain matching code and
 metadata for existing Future/closure/frame state, not an immutable old dependency
 selection for every subsequent call. Frozen contracts and checked installation/type
 identity remain mandatory; business-state coordination belongs to the host.
 
-This is a planned migration, not the current dependency-pinned implementation.
-[Loading/activation](spec/module-activation.md) defines current behavior; the
-[update design](update-model-design.md) owns the replacement semantics and separate
-explicit state replacement. Persistent statics follow their existing contract;
-publication does not reset state or implicitly migrate it.
+[Loading/activation](spec/module-activation.md) defines the implemented contract.
+Live `Program`/`Module` handles identify an installation; exact `ExecutableModule`
+owners retain selected code. Named function values and typed `Function` bindings
+follow current implementations without retaining obsolete executable leases.
+Persistent statics are preserved, and protected Hash/Eq and static-initializer
+transitive dependencies restrict compatible changes independently of live values.
+Unknown protected dependencies conservatively freeze the installation inventory:
+even a simple engine-prepared body patch can reject with the standard foundation.
+This is a deliberate safety restriction, not a promise that every standard-library
+program is currently updatable. Publication never resets or implicitly migrates state.
 
 Verified MIR supplies interpreter/native lowering facts. Serialized programs are
 bounded and validated before execution, without a source frontend. Backends share
@@ -79,8 +84,12 @@ process isolation or generic CPU/memory quotas. Hosts own admission and deadline
 Compile-time metadata can support registrations, routing, schemas and editor data.
 Ordinary game logic uses typed calls/fields rather than reflective string lookup.
 Explicit reflection is limited by declared metadata and access adapters.
-Tooling should report errors on incomplete source and preserve useful source/debug
-origins without making source analysis a runtime dependency.
+Tooling reports errors on incomplete source and preserves useful source/debug
+origins without making source analysis a runtime dependency. Source preparation
+retains immutable compilation inputs for bounded, atomic source updates; exact
+source snapshots remain diagnostic data, not executable leases or call authority.
+Artifact source retention is opt-in and does not reconstruct compilation context.
+See the [source update and inspection API](spec/embedding-api.md#source-updates).
 
 ## Scope boundaries
 
@@ -93,9 +102,9 @@ Borrowed `Call` drives its invocation without a separate pump; submitted `Pendin
 receives results while the host drives Runtime separately. Managed Tasks can continue
 under that external driver after a handler returns. See the
 [embedding contract](spec/embedding-api.md#typed-async-calls-scheduling-and-native-waits).
-Package distribution, the confirmed current-call update migration, state replacement
-and broader async composition remain separate work; they are not implemented by
-these APIs.
+Package distribution, explicit state replacement, typed generic public-path binding
+(HM03) and broader async composition remain separate work. Public generic declaration
+lookup for source updates does not implement typed generic host calls.
 
 ## Document authority
 

@@ -1,8 +1,9 @@
 //! Compare complete reified layout graphs while preserving lexical type scopes.
 use crate::{
+    error::RuntimeError,
     frame::types::{arguments::type_parameter, bindings::TypeBindings},
     host::HostRegistryId,
-    module::{ExecutableModule, InstallationId, ModuleKey},
+    module::{ExecutableModule, InstallationId, ModuleKey, dispatch::identity::PublicationMapping},
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::{NominalTy, Ty, substitution::TypeSubstitution};
@@ -26,6 +27,28 @@ struct Application<'a> {
 pub(crate) struct TypeIdentity {
     ty: Ty,
     owners: Vec<(HostRegistryId, InstallationId, ModuleKey)>,
+}
+
+impl TypeIdentity {
+    /// Normalize a lookup key only; lexical value/layout scopes are not rewritten.
+    pub(crate) fn transported(&self, mapping: &PublicationMapping) -> Result<Self, RuntimeError> {
+        Ok(Self {
+            ty: mapping.remap(&self.ty, &Default::default())?.into_records(),
+            owners: self.owners.clone(),
+        })
+    }
+
+    /// A checked publication bridge may compare frozen contracts across epochs,
+    /// but never across runtime/installation boundaries (including script traits).
+    pub(crate) fn same_contract(&self, other: &Self) -> bool {
+        self.ty == other.ty
+            && self.owners.len() == other.owners.len()
+            && self
+                .owners
+                .iter()
+                .zip(&other.owners)
+                .all(|(a, b)| a.0 == b.0 && a.1 == b.1)
+    }
 }
 
 impl<'a> TypeView<'a> {

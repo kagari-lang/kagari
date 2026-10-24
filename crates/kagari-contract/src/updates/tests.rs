@@ -138,6 +138,7 @@ impl Fixture {
             })
             .collect();
         UpdateEvidence {
+            source_manifest: None,
             sources,
             bodies,
             roots,

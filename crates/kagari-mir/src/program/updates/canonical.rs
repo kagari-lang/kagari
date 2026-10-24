@@ -456,7 +456,8 @@ fn classification_contract(
     }
     if let BodyClassification::Closure(parent)
     | BodyClassification::Async(parent)
-    | BodyClassification::Resume(parent) = classification
+    | BodyClassification::Resume(parent)
+    | BodyClassification::Adapter(parent) = classification
         && (parent == &function.instance || !context.bodies.contains(parent))
     {
         return Err(UpdateError::InvalidEvidence);
@@ -474,10 +475,23 @@ fn classification_contract(
     {
         return Err(UpdateError::InvalidEvidence);
     }
-    if let BodyClassification::Adapter(identity) = classification
+    if let BodyClassification::IntrinsicAdapter(identity) = classification
         && (identity != &function.instance
             || (function.semantic.protocol_adapter.is_none()
                 && !context.bridges.contains(identity)))
+    {
+        return Err(UpdateError::InvalidEvidence);
+    }
+    // A source-local adapter cannot erase its authored owner by claiming to be
+    // intrinsic. Only module-owned protocol recipes or verified bridge methods qualify.
+    if let BodyClassification::IntrinsicAdapter(identity) = classification
+        && !context.bridges.contains(identity)
+        && context
+            .definitions
+            .parent(identity.declaration)
+            .ok()
+            .flatten()
+            != context.definitions.lookup_root(&module.identity)
     {
         return Err(UpdateError::InvalidEvidence);
     }
@@ -502,6 +516,7 @@ fn classification_contract(
             BodyClassification::Closure(parent)
             | BodyClassification::Async(parent)
             | BodyClassification::Resume(parent)
+            | BodyClassification::Adapter(parent)
                 if parent != &creation.parent =>
             {
                 return Err(UpdateError::InvalidEvidence);

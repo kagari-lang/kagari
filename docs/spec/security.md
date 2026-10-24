@@ -17,9 +17,11 @@ not configurable permissions. Reflection cannot manufacture undeclared members,
 bypass readonly fields or expose unrestricted Rust references. Typed host paths
 preserve scoped borrows, no-escape, identity, lifetime and generation checks.
 
-Candidate initialization cannot perform external effects or access module state
-outside its pinned program. This protects atomic publication and hot reload; it
-is an execution-phase invariant, not a host privilege matrix.
+Candidate initialization cannot perform external effects, access any static cell,
+or escape its staged installation through an external call route. Publication itself
+requires an idle synchronous host boundary and cannot run inside callbacks/reentry.
+These atomic-publication safeguards are execution-phase invariants, not a host
+privilege matrix.
 
 ## Execution control
 
@@ -41,7 +43,7 @@ universal wall-time response bound. Host timers may request cancellation.
 ## Retained validation
 
 Static typing, verified bytecode/native contracts, bounds and overflow checks,
-GC roots, ownership, borrow validity, reload pinning and invariant-failure
+GC roots, ownership, borrow validity, exact computation retention and invariant-failure
 quarantine remain required. Structural decode and compiler work limits protect
 analysis and artifact validation; they are independent of execution control.
 GC occupancy and call/module counts serve collection and lifecycle diagnostics.

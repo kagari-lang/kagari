@@ -1,6 +1,7 @@
 //! Inventory reconciliation and local evidence validation, shared by extractors.
 mod semantic;
 use crate::{
+    native_import::NativeImport,
     types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
     updates::{
         BodyClassification, BodyRecord, CallRequirement, CanonicalOperand, CurrentTarget,
@@ -78,12 +79,17 @@ pub fn validate_inventory(
 /// Validate signature scopes and every executable semantic call/witness using the
 /// existing linked proof catalog. Source templates remain the checked collector's
 /// responsibility; independent inventory reconciliation is also mandatory.
-pub fn validate_semantics(
-    evidence: &UpdateEvidence,
+/// `native_imports` must enumerate the actual executable native-import inventory,
+/// including templates used only through shared calls or function values. Every
+/// variant is checked against its registered declaration; explicit native edges
+/// must retain an exact supplied import. All records share the catalog's ID scope.
+pub fn validate_semantics<'a>(
+    evidence: &'a UpdateEvidence,
+    native_imports: impl IntoIterator<Item = &'a NativeImport>,
     catalog: &ProofCatalog<'_>,
     budget: &mut Budget<'_>,
 ) -> Result<(), UpdateError> {
-    semantic::validate(evidence, catalog, budget)
+    semantic::validate(evidence, native_imports, catalog, budget)
 }
 
 /// Compare independently extracted emitted instructions with the declared actual
@@ -191,6 +197,20 @@ pub(crate) fn validate_shape(
     budget: &mut Budget<'_>,
 ) -> Result<(), UpdateError> {
     budget.check()?;
+    if let Some(manifest) = &evidence.source_manifest {
+        manifest.validate(definitions, budget.cancel)?;
+        let declarations = manifest
+            .declarations
+            .iter()
+            .map(|record| record.declaration)
+            .collect::<HashSet<_>>();
+        for source in &evidence.sources {
+            budget.visit()?;
+            if !declarations.contains(&source.declaration) {
+                return Err(UpdateError::InvalidEvidence);
+            }
+        }
+    }
     if evidence.bodies.len() > MAX_APPLICATIONS || evidence.targets.len() > MAX_APPLICATIONS {
         return Err(UpdateError::LimitExceeded);
     }

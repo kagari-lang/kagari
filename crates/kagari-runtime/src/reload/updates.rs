@@ -225,7 +225,7 @@ fn prepare_records(
     result.map_err(|error| admission_error(error, definitions))
 }
 
-fn headers(program: &VerifiedProgram) -> Vec<NamedDeclaration> {
+pub(crate) fn headers(program: &VerifiedProgram) -> Vec<NamedDeclaration> {
     contracts::inventory(program.modules().iter().map(Arc::as_ref))
         .filter(|record| matches!(record.contract, NamedContract::Implementation(_)))
         .collect()

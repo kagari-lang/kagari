@@ -1,5 +1,5 @@
-use super::fixture;
-use crate::tests::native_boundary::{compile_program, publish_unused_version};
+use super::{fixture, fixture_without_foundation};
+use crate::tests::native_boundary::{compile_without_foundation, publish_unused_version};
 use kagari_runtime::{
     native::{
         binding::NativeResult,
@@ -153,7 +153,7 @@ fn selected_handles_retain_generic_default_and_static_calls_across_gc_and_reload
         pub fn wrong_receiver() -> Counter<bool> { Counter { amount: 21, marker: true } }
         pub fn run() -> i32 { val relay: Relay = 0; relay.relay(make()) }
     "#;
-    let (vm, old) = fixture(source, Some(&module));
+    let (vm, old) = fixture_without_foundation(source, Some(&module));
     let _old_program = old;
     let old = vm.runtime().select_program(&_old_program).unwrap();
     let run = vm
@@ -182,7 +182,7 @@ fn selected_handles_retain_generic_default_and_static_calls_across_gc_and_reload
         .stage_reload_program(
             &_old_program,
             Some("functions".into()),
-            compile_program(&updated, Some(&module)),
+            compile_without_foundation(&updated, Some(&module)),
         )
         .unwrap();
     {
@@ -199,7 +199,7 @@ fn selected_handles_retain_generic_default_and_static_calls_across_gc_and_reload
     vm.reload_program(
         &_old_program,
         Some("functions".into()),
-        compile_program(&updated, Some(&module)),
+        compile_without_foundation(&updated, Some(&module)),
     )
     .unwrap();
     let _published_program = _old_program.clone();
@@ -211,15 +211,14 @@ fn selected_handles_retain_generic_default_and_static_calls_across_gc_and_reload
     assert_eq!(vm.call(&new_run, ()).unwrap(), 44);
     let (_, new_twice, _) = retained.lock().unwrap().take().unwrap();
     let mut cx = vm.context(&published).unwrap();
-    assert_eq!(twice.call(&mut cx, (receiver.clone(),)).unwrap(), 42);
-    // Arguments follow the existing layout-compatibility rules across reload;
-    // the operation still executes the exact version selected at preparation.
+    assert_eq!(twice.call(&mut cx, (receiver.clone(),)).unwrap(), 44);
+    // Arguments keep their original evidence; ordinary method code is current.
     assert_eq!(new_twice.call(&mut cx, (receiver.clone(),)).unwrap(), 44);
     let wrong_receiver: Object = vm.execute_typed(&published, "wrong_receiver", ()).unwrap();
     let before = effects.load(Ordering::Relaxed);
     assert!(new_twice.call(&mut cx, (wrong_receiver,)).is_err());
     assert_eq!(effects.load(Ordering::Relaxed), before);
-    let (foreign, foreign_owner) = fixture("pub fn main() {}", None);
+    let (foreign, foreign_owner) = fixture_without_foundation("pub fn main() {}", None);
     let _foreign_owner_program = foreign_owner;
     let foreign_owner = foreign
         .runtime()
@@ -230,7 +229,8 @@ fn selected_handles_retain_generic_default_and_static_calls_across_gc_and_reload
             .is_err()
     );
     drop(cx);
-    drop((run, make, receiver, read, twice));
+    // Receiver/type evidence retains the old publication; the ordinary static
+    // method binding alone must not keep its obsolete code alive.
     assert!(
         !vm.runtime()
             .collect_garbage()
@@ -238,7 +238,7 @@ fn selected_handles_retain_generic_default_and_static_calls_across_gc_and_reload
             .reclaimed_modules
             .contains(&old.key())
     );
-    drop(base);
+    drop((run, make, receiver, read, twice));
     assert!(
         vm.runtime()
             .collect_garbage()
@@ -246,6 +246,11 @@ fn selected_handles_retain_generic_default_and_static_calls_across_gc_and_reload
             .reclaimed_modules
             .contains(&old.key())
     );
+    assert_eq!(
+        base.call(&mut vm.context(&published).unwrap(), ()).unwrap(),
+        20
+    );
+    drop(base);
 }
 
 #[test]

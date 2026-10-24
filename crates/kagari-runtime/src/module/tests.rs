@@ -49,7 +49,7 @@ fn version_token_preserves_root_identity_without_retaining_execution() {
         .iter()
         .map(Arc::downgrade)
         .collect::<Vec<_>>();
-    let same_context = code.normalized(&context).unwrap();
+    let same_context = code.normalized(&context, &Default::default()).unwrap();
     assert!(Arc::ptr_eq(&code.modules, &same_context.modules));
     assert!(code.same_version(&same_context));
     let mut other_root = code.clone();

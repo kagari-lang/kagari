@@ -11,7 +11,7 @@ use kagari_common::identity::{
 };
 use kagari_contract::{
     exports::{
-        entry_function_matches, public_function_matches,
+        entry_function_matches, public_function_matches, public_generic_function_matches,
         type_validation::{TypeExportModule, TypeExportValidator},
     },
     ids::FunctionRef,
@@ -57,7 +57,21 @@ pub(crate) fn verify(
         )
         .map_err(|_| invalid())?;
     let mut bindings = HashMap::new();
+    let mut generic_declarations = HashSet::new();
     for (index, module) in program.modules.iter().enumerate() {
+        for record in &module.named_declarations {
+            cancel
+                .check()
+                .map_err(|_| BytecodeVerificationError::Cancelled)?;
+            if public_generic_function_matches(
+                record,
+                &module.identity,
+                &module.public_items,
+                definitions,
+            ) {
+                generic_declarations.insert(record.declaration);
+            }
+        }
         for function in &module.functions {
             cancel
                 .check()
@@ -108,6 +122,9 @@ pub(crate) fn verify(
             definitions,
             cancel,
             |id, entry| {
+                if !entry && generic_declarations.contains(&id) {
+                    return true;
+                }
                 let Some(target) = bindings.get(&id) else {
                     return false;
                 };

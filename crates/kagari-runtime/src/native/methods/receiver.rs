@@ -48,7 +48,7 @@ impl AppliedReceiver {
     }
 
     pub(crate) fn matches(&self, other: &Self) -> bool {
-        self.owner.program_root().key() == other.owner.program_root().key()
+        self.owner.installation_id() == other.owner.installation_id()
             && self
                 .argument
                 .view(&self.owner)

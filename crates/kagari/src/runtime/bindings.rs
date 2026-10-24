@@ -1,10 +1,10 @@
-//! Bind once using installed public, generation-pinned callable and member evidence.
+//! Bind installed public callable contracts and checked member evidence.
 use crate::{RunResult, runtime::Runtime};
 use kagari_runtime::{
     module::Module,
     native::{
         conversion::{KagariType, arguments::KagariArguments},
-        function_handle::{PinnedFunction, asynchronous::AsyncFunction},
+        function_handle::{Function, asynchronous::AsyncFunction},
         interfaces::{Interface, asynchronous::AsyncInterfaceMethod, binding::InterfaceMethod},
         methods::{InherentType, Method, asynchronous::AsyncMethod},
         objects::{ObjectType, fields::Field},
@@ -13,12 +13,12 @@ use kagari_runtime::{
 
 impl Runtime {
     /// Bind a public callable and validate its argument/result types once.
-    /// The returned handle retains this generation, not the latest publication.
+    /// Calls select the current implementation of the originally bound declaration.
     pub fn function<A: KagariArguments + 'static, R: KagariType + 'static>(
         &self,
         module: &Module,
         name: &str,
-    ) -> RunResult<PinnedFunction<A, R>> {
+    ) -> RunResult<Function<A, R>> {
         self.runtime()
             .bind_function(module, name)
             .map_err(Into::into)
@@ -65,7 +65,7 @@ impl Runtime {
         &self,
         ty: &impl InherentType,
         name: &str,
-    ) -> RunResult<PinnedFunction<A, R>> {
+    ) -> RunResult<Function<A, R>> {
         self.runtime()
             .bind_associated_function(ty, name)
             .map_err(Into::into)

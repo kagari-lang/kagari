@@ -22,6 +22,7 @@ use crate::{
     },
     ids::FunctionRef,
     native_import::NativeImport,
+    source::manifest::SourceManifest,
     types::ConcreteFunctionIdentity,
 };
 use kagari_common::identity::table::DefinitionId;
@@ -35,6 +36,9 @@ use serde::{Deserialize, Serialize};
 /// installation, as established by `admission::validate_inventory`, not by a flag.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpdateEvidence {
+    /// Compiler-captured complete source anchors. None forbids source attachment.
+    /// Part of canonical executable identity even when the text package is stripped.
+    pub source_manifest: Option<SourceManifest>,
     pub sources: Vec<SourceRecord>,
     pub bodies: Vec<BodyRecord>,
     pub roots: Vec<ProtectedRoot>,
@@ -70,8 +74,11 @@ pub enum BodyClassification {
     Closure(ConcreteFunctionIdentity),
     Async(ConcreteFunctionIdentity),
     Resume(ConcreteFunctionIdentity),
+    /// Source-local callable adapter; the application is its actual enclosing body.
     Adapter(ConcreteFunctionIdentity),
     StaticInitializer(DefinitionId),
+    /// Module-owned protocol helper or intrinsic interface bridge, not an authored body.
+    IntrinsicAdapter(ConcreteFunctionIdentity),
 }
 
 /// Exact body-origin application plus a shared body's binder arguments. Generated

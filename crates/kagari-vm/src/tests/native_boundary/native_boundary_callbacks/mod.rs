@@ -10,7 +10,7 @@ use kagari_runtime::{
         callable::{CallableHandle, StoredCallable},
         context::CallContext,
         declarations::FunctionDecl,
-        function_handle::PinnedFunction,
+        function_handle::Function,
         storage::NativeStorage,
         typed::NativeContext,
         types::Type,
@@ -24,7 +24,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-type Callback = PinnedFunction<(i32,), i32>;
+type Callback = Function<(i32,), i32>;
 
 #[test]
 fn machine_scalar_conveniences_check_host_range_before_callback_entry() {

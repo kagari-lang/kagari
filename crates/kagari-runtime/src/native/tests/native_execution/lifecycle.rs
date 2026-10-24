@@ -22,7 +22,7 @@ fn scoped_program(name: &str) -> DefinitionMetadata<BytecodeProgram> {
 fn referenced_normalization_releases_original_and_intermediate_graphs() {
     let context = DefinitionContext::new().unwrap();
     let source = VerifiedProgram::new(scoped_program("Record"), &context).unwrap();
-    let same_context = source.normalized(&context).unwrap();
+    let same_context = source.normalized(&context, &Default::default()).unwrap();
     assert!(source.same_version(&same_context));
     assert!(Arc::ptr_eq(
         &source.modules()[0],

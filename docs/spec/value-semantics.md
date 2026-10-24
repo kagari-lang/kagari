@@ -341,8 +341,10 @@ failure behavior. `===` never invokes a user callback.
 Map keys and Set elements continue to require `Eq + Hash`, including in generic
 code. A Map's values do not need those bounds. Lookup hashes the key, then uses
 the key equality selected at construction to distinguish candidate keys. Those
-[stored protocols](collection-access.md#stored-key-protocols-across-reload) remain
-pinned across reload; a later caller's `==` selection need not use the same body.
+[stored protocols](collection-access.md#stored-key-protocols-across-reload) retain
+their checked selection; protected transitive dependency comparison prevents
+compatible publication from changing its behavior. This protection is independent
+of table liveness. Explicit content comparison is a separate caller-selected protocol.
 
 Users implementing these protocols must ensure:
 

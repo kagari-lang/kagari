@@ -13,6 +13,7 @@ use crate::{
     },
     ids::FunctionRef,
     native_import::{NativeImport, wire::NativeImportRecord},
+    source::{manifest::SourceManifest, wire::SourceManifestRecord},
     types::{ConcreteFunctionIdentity, wire::module::ConcreteFunctionIdentityRecord},
     updates::{
         RootKind, UnknownDependency, UnknownReason,
@@ -57,6 +58,34 @@ fn size(value: &impl Serialize, budget: &mut Budget<'_>) -> Result<(), UpdateErr
         .serialized_size(value)
         .map_err(|_| UpdateError::InvalidEvidence)?;
     budget.bytes(usize::try_from(bytes).map_err(|_| UpdateError::LimitExceeded)?)
+}
+
+impl WireValue for SourceManifest {
+    type Record = SourceManifestRecord;
+
+    fn encode_value(
+        &self,
+        encoding: &DefinitionEncoding,
+        budget: &mut Budget<'_>,
+    ) -> Result<Self::Record, UpdateError> {
+        self.validate_limits(budget.cancel)?;
+        budget.records(self.documents.len() + self.declarations.len())?;
+        let record = SourceManifestRecord::encode(self, encoding, budget.cancel)?;
+        size(&record, budget)?;
+        Ok(record)
+    }
+
+    fn decode_value(
+        value: Self::Record,
+        decoding: &DefinitionDecoding,
+        budget: &mut Budget<'_>,
+    ) -> Result<Self, UpdateError> {
+        budget.check()?;
+        size(&value, budget)?;
+        let result = value.decode(decoding, budget.cancel)?;
+        budget.records(result.documents.len() + result.declarations.len())?;
+        Ok(result)
+    }
 }
 
 macro_rules! plain {

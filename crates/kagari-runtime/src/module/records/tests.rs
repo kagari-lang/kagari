@@ -112,7 +112,9 @@ fn detached_copy(loaded: &ExecutableModule) -> ExecutableModule {
     ExecutableModule {
         slot: loaded.slot,
         program: Arc::new(ProgramDescriptor {
+            source: loaded.program.source.clone(),
             installation: loaded.program.installation,
+            dispatch: loaded.program.dispatch.clone(),
             code: loaded.program.code.clone(),
             retained_demands: loaded.program.retained_demands.clone(),
             layouts: loaded.program.layouts.clone(),

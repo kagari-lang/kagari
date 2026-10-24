@@ -12,6 +12,7 @@ use crate::{
     gc::GcHeap,
     host::HostFrameId,
     module::{ExecutableModule, retention::ProgramLease},
+    publication::SynchronousActivation,
     resource::{ResourceCounters, ResourceState},
     session::store::SessionId,
     value::Value,
@@ -347,6 +348,7 @@ impl SessionState {
 pub struct ExecutionSession<'runtime> {
     pub(crate) id: SessionId,
     pub(crate) resources: &'runtime ResourceState,
+    pub(crate) _activation: SynchronousActivation<'runtime>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

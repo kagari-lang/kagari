@@ -1,5 +1,5 @@
 use crate::source::lower::instances::MirLoweringOptions;
-use instances::{InstanceBody, InstancePlanner};
+use instances::{InstanceBody, InstanceClassification, InstancePlanner};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -233,23 +233,30 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
             instance.body.span(origin),
         )?;
         classifications.push((identity.clone(), instance.classification.lower(&identity)));
-        let authored = match instance.body {
-            InstanceBody::Function(id) => ResolvedName::Function(id),
-            InstanceBody::Static(id) => ResolvedName::Static(id),
-        };
-        let DeclarationId::Definition(source) = origin
-            .declarations
-            .target(authored)
-            .ok_or(MirLoweringError::MissingBinding(
-                "emitted body source owner",
-            ))?
-            .id
-        else {
-            return Err(MirLoweringError::MissingBinding(
-                "emitted body source identity",
-            ));
-        };
-        source_bodies.push((source, identity));
+        // Intrinsic recipes borrow a lowering context, not its authored ownership.
+        // In particular, the first function in a module is not their source body.
+        if !matches!(
+            instance.classification,
+            InstanceClassification::IntrinsicAdapter
+        ) {
+            let authored = match instance.body {
+                InstanceBody::Function(id) => ResolvedName::Function(id),
+                InstanceBody::Static(id) => ResolvedName::Static(id),
+            };
+            let DeclarationId::Definition(source) = origin
+                .declarations
+                .target(authored)
+                .ok_or(MirLoweringError::MissingBinding(
+                    "emitted body source owner",
+                ))?
+                .id
+            else {
+                return Err(MirLoweringError::MissingBinding(
+                    "emitted body source identity",
+                ));
+            };
+            source_bodies.push((source, identity));
+        }
         functions.push(if instance.callable.is_some() {
             function::lower_callable(origin, instance, &mut planner)?
         } else if instance.protocol.is_some() {

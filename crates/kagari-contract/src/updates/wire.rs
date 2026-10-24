@@ -10,6 +10,7 @@ use crate::{
     },
     ids::FunctionRef,
     native_import::NativeImport,
+    source::manifest::SourceManifest,
     types::ConcreteFunctionIdentity,
     updates::{
         BodyApplication, BodyClassification, BodyRecord, BodyRequirement, CallRequirement,
@@ -116,6 +117,7 @@ macro_rules! variants {
 }
 
 record!(UpdateEvidence => UpdateEvidenceRecord {
+    source_manifest: Option<SourceManifest>,
     #[serde(deserialize_with = "crate::decode_limits::table")]
     sources: Vec<SourceRecord>,
     #[serde(deserialize_with = "crate::decode_limits::functions")]
@@ -194,6 +196,7 @@ record!(CurrentTarget => CurrentTargetWire {
 variants!(BodyClassification => BodyClassificationWire {
     Named: DefinitionId, Closure: ConcreteFunctionIdentity, Async: ConcreteFunctionIdentity,
     Resume: ConcreteFunctionIdentity, Adapter: ConcreteFunctionIdentity, StaticInitializer: DefinitionId,
+    IntrinsicAdapter: ConcreteFunctionIdentity,
 });
 variants!(CanonicalOperand => CanonicalOperandWire {
     Local: u32, Block: u32, Unsigned: u64, Signed: i64,

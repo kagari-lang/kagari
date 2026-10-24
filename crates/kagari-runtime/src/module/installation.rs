@@ -9,7 +9,7 @@ use crate::{
     },
 };
 use kagari_common::identity::ModuleIdentity;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, atomic::Ordering};
 
 impl Program {
     /// Construct the root namespace identity, even after the installation is closed.
@@ -38,6 +38,14 @@ impl Module {
 }
 
 impl Installation {
+    pub(super) fn reserve_declaration(&self) -> Result<u64, RuntimeError> {
+        self.next_declaration
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
+                next.checked_add(1)
+            })
+            .map_err(|_| RuntimeError::resource_limit("stable declaration identity exhausted"))
+    }
+
     pub(crate) fn namespace_handle(self: &Arc<Self>, namespace: ModuleIdentity) -> Module {
         Module {
             installation: self.clone(),
@@ -95,6 +103,7 @@ impl ModuleStore {
             id,
             root_identity,
             current: Mutex::new(None),
+            next_declaration: Default::default(),
         });
         self.installations.insert(id, installation.clone());
         Ok(installation)
@@ -144,8 +153,8 @@ impl ModuleStore {
             return Ok(());
         }
         // Initial linking needs exact candidate metadata before the first
-        // publication. This internal lease never escapes load_program;
-        // reload leases cannot authorize a retired installation.
+        // publication. StagedLoad retains this lease without exposing executable
+        // entry authority; reload leases cannot authorize a retired installation.
         let inner = self.inner.try_borrow().map_err(|_| {
             RuntimeError::module_validation("module store borrowed during admission")
         })?;

@@ -35,14 +35,15 @@ and execution with an observer keep explicit pre-entry interpreter selection.
 Synchronous callbacks reached from async execution must preserve the existing
 session contracts; they do not authorize native suspension.
 
-Library-owned collection migration (NC), host-registration unification (HR/SA21)
-and compatible-reload redesign remain separate tasks. The confirmed
-[update target](update-model-design.md#calls-retained-objects-and-new-trait-implementations)
-replaces dependency-pinned ordinary calls with current implementation selection at
-host-top-level publication boundaries, while retaining selected computation bodies.
-This migration is not implemented yet. J01/J03 must coordinate its ordering with UP
-and consume one shared runtime selection owner, not freeze obsolete dependency
-pinning into a second native dispatch model. Do not add the UP migration to J phases.
+Library-owned collection migration (NC) and host-registration unification (HR/SA21)
+remain separate tasks. The implemented
+[publication contract](spec/module-activation.md#live-installations-and-call-selection)
+selects current implementations for ordinary calls while retaining exact
+created/admitted computation bodies; publication is serialized at host-top-level
+synchronous boundaries. J01/J03 must
+consume the shared runtime selection owner rather than reproduce obsolete dependency
+pinning in a second native dispatch model. This runtime baseline does not activate
+J01-J06, broaden native coverage or change exact prepared-native code/version checks.
 This plan makes no numerical speedup or compilation-latency promise.
 
 ## Baseline and architectural diagnosis
@@ -75,8 +76,9 @@ code; checked object/host services perform reads, mutation and notification.
 Arguments remain rooted across notification, a callback observes the committed
 health change, and an error preserves earlier effects without replaying the loop.
 Both routes preserve the selected body's ownership and runtime call semantics.
-Current code pins dependency generations; the confirmed UP target selects current
-implementations for subsequent ordinary calls, including from retained old bodies.
+For resumed implementation work, the current runtime contract selects current
+implementations for ordinary calls, including from retained old bodies. The dated
+planning inventory above is historical evidence, not a claim of current native coverage.
 
 ## Required design contracts
 
@@ -173,10 +175,11 @@ or a target's merely unprepared state as unsupported decisions.
 
 For example, a new-version entry can receive a host-retained old-version closure.
 Preparing both exact versions lets the driver resolve and execute the old closure's
-body natively with its matching capture layout. Under the UP target, ordinary calls
-inside that body select current implementations, not its original dependency set.
-Preparing only the new
-version selects interpretation for that closure before its effects; it must neither
+body natively with its matching capture layout. Under the current runtime contract,
+ordinary calls inside that body select current implementations, not its original
+dependency set. This native preparation-set example remains proposed J03/J05 work.
+Preparing only the new version selects interpretation for that closure before its
+effects; it must neither
 retarget to the new body nor compile on demand.
 
 The execution driver may select native or interpreter at a callee boundary and

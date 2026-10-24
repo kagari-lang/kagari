@@ -349,7 +349,9 @@ retain distinct checked targets.
 Runtime bindings and Rust storage factories are local installation data, not
 serialized function pointers. Artifacts retain portable identities and contracts.
 Executable loading works without HIR, source parsing or generated declaration text.
-Retained callables pin their defining code generation across reload.
+Named callable bindings select current implementations across reload without an
+obsolete executable lease. Created closures/Futures and admitted computations retain
+exact bodies; ordinary calls inside them still use current implementations.
 
 ## Calls, roots and storage
 

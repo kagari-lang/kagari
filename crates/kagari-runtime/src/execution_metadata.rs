@@ -2,6 +2,7 @@
 pub(crate) mod application_key;
 pub(crate) mod applications;
 pub(crate) mod call_contracts;
+mod environment_transport;
 pub(crate) mod environments;
 pub(crate) mod groups;
 pub(crate) mod interfaces;
@@ -302,11 +303,7 @@ impl<'a> MetadataTrace<'a> {
                     if !self.live_applications.insert(id) {
                         continue;
                     }
-                    let application = self.applications.get(id)?;
-                    self.environment(application.environment.as_ref());
-                    if let Some(adapter) = &application.result_adapter {
-                        self.pending.push(MetadataEdge::Binding(adapter));
-                    }
+                    self.applications.record(id)?.trace(&mut self.pending);
                 }
                 MetadataEdge::Binding(binding) => {
                     self.pending.push(MetadataEdge::Program(&binding.owner));
@@ -324,8 +321,12 @@ impl<'a> MetadataTrace<'a> {
                     }
                 }
                 MetadataEdge::Closure(closure) => {
-                    self.pending
-                        .push(MetadataEdge::Program(&closure.implementation));
+                    // Ordinary routes retain captures and lexical evidence, not
+                    // their original executable. Admission creates an exact edge.
+                    if closure.call_route().is_none() {
+                        self.pending
+                            .push(MetadataEdge::Program(&closure.implementation));
+                    }
                     self.environment(closure.environment.as_ref());
                 }
             }

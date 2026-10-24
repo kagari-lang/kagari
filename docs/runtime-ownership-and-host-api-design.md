@@ -7,8 +7,9 @@ the public API. Explicitly optional generated views remain proposals.
 
 One runtime executes exclusively and can move between host threads; it does not
 permit concurrent access to a script heap. The collector is nonmoving mark-sweep.
-Static typing, checked identities, GC roots, scoped access and generation-pinned
-calls remain enforced. This reference describes ownership and API contracts;
+Static typing, checked identities, GC roots, scoped access and exact computation
+ownership remain enforced; ordinary calls select current implementations.
+This reference describes ownership and API contracts;
 [architecture](architecture.md) owns their implementation boundaries.
 
 ## Relationship to existing proposals
@@ -25,11 +26,13 @@ edge-free take are implemented. External Ref/RefMut scopes retain their separate
 host ownership under the implemented branded scope contract. Shared resources
 inside a payload need their own Rust access guarantees.
 
-The SDK already exposes typed pinned binding, calls and shared async scheduling.
+The SDK exposes typed `Function` bindings, current ordinary-call selection and
+shared async scheduling. `Program`/`Module` are live installation handles;
+`ExecutableModule` owns an exact version. Created closures/Futures and admitted
+frames/queues retain exact bodies, but their ordinary inner calls use current code.
 The [host facade proposal](host-api-refactor.md) owns further workflow redesign and
-logical latest-version Function handles, not these implemented entrypoints. Its
-outer-tuple argument rule applies here. Pinned callable handles do not activate or
-implement a latest-version policy.
+typed generic public-path binding (HM03), not this implemented dispatch contract.
+The outer-tuple argument rule applies here.
 
 The [async](async-execution-design.md) and
 [task-scope](host-task-scope-design.md) contracts own implemented suspension and
@@ -169,7 +172,7 @@ The collector walks typed edges with an explicit worklist and visited sets:
 | Edge source | Edges that must be visited |
 | --- | --- |
 | Structs, enums and collections | Stored script values and required layout/type environments |
-| Closures and interface values | Captures/receiver, selected callable information, environments and pinned program |
+| Closures and interface values | Captures/receiver and checked environments; created closures additionally retain exact bodies |
 | Managed Rust payloads | Declared traced script fields and stored callables |
 | Generic environments and operation groups | Parent scopes, associated-type owners, required selected groups and program versions |
 | Retained program versions | Exact dependencies, reachable module state and installed executable owners |
@@ -290,7 +293,7 @@ input/output capabilities allow return-only types.
 | Scalars and owned String | Checked values; String conversion may copy |
 | Vec<T>, supported tuples, Option<T> and Result<T, E> | Owned data conversion using installed ordinary declarations |
 | Object<S>, ScriptVec<T>, ScriptMap<K, V>, ScriptSet<T> | Retained reference to an existing script object, preserving aliases |
-| PinnedFunction<A, R> and Interface<S> | Retained callable/interface with a verified signature |
+| Function<A, R> and Interface<S> | Retained callable/interface with a verified signature |
 | Opaque<T> | Checked handle to a registered runtime-owned Rust payload |
 | ScriptValue | Retained value with the exact declared type and access view of a generic parameter or result |
 
@@ -417,7 +420,7 @@ map.insert(cx, key.clone(), 42)?;
 ```
 
 `bind_set_constructor` follows the same model. These return ordinary cached
-`PinnedFunction` handles, with their usual owner, generation and execution checks.
+`Function` handles, with their usual owner, generation and execution checks.
 The installed program must contain a concrete constructor entry or a closed shared
 call for that application. Merely having a generic declaration does not supply its
 Hash/Eq evidence. Missing evidence, ambiguous constructors, incompatible supplying
@@ -452,7 +455,7 @@ For direct declaration binding, `player_type.method("on_damage")` returns an
 `InherentMember`; `runtime.bind_method_declaration::<(i32,), ()>(&member)` prepares
 the same checked call without repeating the member-name lookup. The method tuple
 excludes `self`. Static members use `bind_associated_function` or its declaration
-form and return a `PinnedFunction<A, R>`; a public `Player::create(hp)` can therefore
+form and return a `Function<A, R>`; a public `Player::create(hp)` can therefore
 be bound as `(i32,) -> Object` and called through the ordinary VM/SDK call API.
 Both forms consume public inherent-member metadata from the installed product,
 including the declaring impl and receiver scope. A function body's presence alone
@@ -513,7 +516,7 @@ receivers and owned returns; split collects Vec<String> through NativeContext.
 SDK host access uses `runtime.with_context(&loaded, &execution, |cx| ...)` so object
 operations and nested calls inherit the chosen execution policy. The runtime-only
 NativeContext constructor remains useful for access without a script backend.
-Host-retained callbacks use PinnedFunction; the superseded RootedCallable wrapper
+Host-retained callbacks use `Function`; the superseded RootedCallable wrapper
 is removed. Advanced traced StoredCallable descriptors remain heap edges and must
 be kept reachable by their owning payload, never mistaken for host roots.
 
@@ -610,7 +613,7 @@ token checks the Rust mapping against the installed field type and pins its scop
 ```rust
 let mut storage = ManagedStorage::<PlayerState>::new();
 let name = storage.field::<String>("name", String::kagari_type(&catalog)?)?;
-let on_damage = storage.field::<PinnedFunction<(i32,), ()>>(
+let on_damage = storage.field::<Function<(i32,), ()>>(
     "on_damage", Type::function([Type::i32()], Type::unit()),
 )?;
 let mut declaration = module.define_type("Player");
@@ -648,7 +651,7 @@ complete data/field set only after all values pass checks. Ordinary setters perf
 conversion and rooting before the individual commit. Both write paths see old and
 new edges before overwriting; they store Values traced through the existing payload
 descriptor, never public Object/Function root leases. Reading a function field
-returns a retained PinnedFunction, and its invocation occurs after the storage
+returns a retained `Function`, and its invocation occurs after the storage
 borrow ends. A payload/closure cycle is therefore retained by an external handle
 and reclaimed when no external roots remain.
 
@@ -679,7 +682,8 @@ of another binding descriptor. The receiver/layout check can compare a prepared
 identity rather than reconstructing its generic semantic type. Mutable access,
 generation and active lease checks remain necessary on each operation.
 
-Method calls reuse the prepared target or an interface's verified method ordinal.
+Method calls reuse the checked route or an interface's verified method ordinal;
+ordinary invocation selects the current implementation of that declaration.
 Argument conversion, temporary retention, frame setup, cancellation/depth checks
 and execution still have costs; trait implementation search is not among them.
 Scalar get/set needs no new owning object handle. Object-valued reads/results may
@@ -696,13 +700,14 @@ TypeId alone are insufficient. Repeated binding can reuse a record, but retainin
 the returned handle still avoids even the cache lookup on the normal hot path.
 
 Cache entries hold runtime-local descriptor IDs and do not introduce permanent
-roots. Exported live handles pin their required program; the cache itself must
-not retain an otherwise unreachable old version. Release cache records with their
-owning version or remove them when their descriptor generation becomes stale.
-After reload, a retained binding continues to address its original version. Bind
-once for the new version when it is selected; never overwrite an old descriptor
-with a new field slot or method target. Existing schema and version checks decide
-whether a particular object can use a binding.
+roots or keep an otherwise unreachable old executable alive. A named `Function`
+retains an installation-scoped declaration/application route without an old code
+lease; exact closures and admitted computations retain their required body owners.
+After reload, ordinary calls through an existing binding select current code, but
+never repeat alias lookup or change the selected declaration. Existing lexical
+scope, schema, receiver and storage-generation checks still decide whether an
+object can use a member. Publication does not replace a Rust layout or revoke
+borrow checks. Weak cache records remain non-owning.
 
 Registration already produces declaration/member handles. Provide a binding path
 that consumes those handles directly, so native-authored members need no string
@@ -729,24 +734,27 @@ Function and method invocation share one conversion, rooting and execution path.
 The normal API returns typed data or retained handles instead of a mandatory raw
 ExecutionReport. Observers provide optional execution statistics.
 
-For the SDK Runtime:
+For the SDK Runtime and an installed `Program`:
 
 ```rust
-let make = runtime.function::<(), Object>(&loaded, "make_player")?;
+let make = runtime.function::<(), Object>(&program.root(), "make_player")?;
 let player = runtime.call(&make, ())?;
 ```
 
 SDK `function` delegates to core `bind_function`, resolves a public path relative
-to the installed Program root and returns `PinnedFunction<A, R>`. For
+to the installed Program root and returns `Function<A, R>`. For
 `pub use internal::calculate as damage`, binding `damage` uses the verified target
 in `internal`; a dependency module handle does not
 change the lookup root or expose its private paths. Binding checks the complete Rust
-signature before execution and retains that exact target generation through reload.
+signature before execution and retains the checked declaration/application route
+through reload, selecting its current implementation at each ordinary admission.
 The export table survives artifact loading, so ordinary binding does not scan private
 function names or reconstruct declaration paths.
 
-Public source generic functions are templates available to source dependents; ordinary
-host paths expose concrete non-generic script wrappers. Explicit declaration APIs
+Public source generic declarations are discoverable through public paths even
+without executable applications, notably for source updates. This is not typed
+generic public-path binding; HM03 remains pending. Ordinary typed calls can use
+concrete non-generic script wrappers. Explicit declaration APIs
 (`bind_function_declaration` and `bind_function_application_declaration`) separately
 bind public installed declarations, including native entries and checked generic
 applications. They require existing executable evidence, preserve visibility and do
@@ -754,13 +762,13 @@ not ask HIR to specialize missing applications. There is no local-name generic b
 shortcut. Unsupported paths, declarations and Rust signatures fail before script
 effects; binding never synthesizes implementations or picks similarly named methods.
 
-A PinnedFunction for an installed native entry converts to a script function value
+A `Function` for an installed native entry converts to a script function value
 through the ordinary closure heap representation. It stores the checked native
 import, scoped signature and applied environment; it does not require a generated
 script wrapper. Script invocation enters the existing native frame, sharing argument
 checks, synchronous reentry, result adaptation, cancellation and call-depth cleanup.
-The closure traces its owning program and environment as graph edges, without an
-internal host ProgramLease or RootSet. It can be returned, captured by another
+Named callable values retain their checked live route and required environment
+metadata, without an obsolete executable lease or internal host RootSet. It can be returned, captured by another
 closure or stored in a managed field, and obsolete module-state cycles remain
 collectable. Both concrete imports and installed closed shared-native applications
 are supported. An open template without application evidence still cannot be bound
@@ -797,8 +805,8 @@ let read = cx.selected_method::<(ScriptValue,), ScriptValue>(&required_read)?;
 let result = read.call(cx, (receiver,))?;
 ```
 
-The returned `SelectedMethod<A, R>` owns the selected code version, generic
-environment and lexical signature. Retain or clone it for repeated calls, even
+The returned `SelectedMethod<A, R>` retains the checked selection, generic
+environment and lexical signature; ordinary invocation selects its current body. Retain or clone it for repeated calls, even
 after the native callback returns. Its tuple is the actual selected function
 signature: instance operations include the receiver first; static operations have
 only their declared arguments. Prepared primitive operations use the same typed
@@ -845,10 +853,12 @@ The invocation sequence is: validate/pin target and signature; convert/protect
 arguments left to right; release storage borrows; enter the existing execution
 session; invoke; protect and validate the result; transfer it to the caller;
 release temporaries on every exit. Synchronous native-to-script-to-native reentry
-shares cancellation, call depth and the pinned dependency graph. Object and method
-version checks prevent accidentally applying a new layout to an old object.
-Old closures/interfaces continue to invoke their retained implementations after
-reload. Failed publication leaves existing handles usable.
+shares cancellation, call depth and installation authority. Object and method
+checks prevent applying an incompatible layout to an old object. Existing closures
+retain their exact bodies, while interface calls and ordinary inner calls select
+current implementations. Publication is forbidden during active synchronous
+callbacks/reentry, including cleanup; parked work may remain. Failed publication
+leaves existing handles and the source baseline usable.
 
 `AsyncFunction<A, R>` retains the same checked target and the lexical output scope
 of exactly one installed `Future<R>` layer. Admission converts and roots arguments
@@ -859,8 +869,9 @@ runtime borrow. Invocation and structured-child cleanup precede result publicati
 Dropping an unfinished Call before its first poll never runs its factory; dropping
 a PendingCall requests cancellation without driving. Completed host values survive
 runtime teardown, but retained Objects still need their live owning runtime for
-access. Neither retained objects nor pinned function/member handles retarget on
-reload, even when used to start a new invocation.
+access. Admitted queues retain exact factories even before first poll; new admissions
+through named function/member handles select current implementations. Retained
+objects keep identity and state, not an immutable old ordinary-call dependency set.
 
 ## Crate responsibilities
 
@@ -882,8 +893,9 @@ to the same checked operations; obsolete raw public entrypoints are replaced.
 
 ## Contract coverage
 
-Use existing GC ownership, native boundary, typed object, host reentry and pinned
-reload tests. Forced collection must preserve traced fields/captures and reclaim
+Use existing GC ownership, native boundary, typed object, host reentry and
+current-call/exact-computation reload tests. Forced collection must preserve traced
+fields/captures and reclaim
 rootless data/metadata cycles. Foreign/stale identities, unsafe payload edits,
 escaped borrows and invalid thread transfer remain rejected. Validate source-free
 consumers separately from source analysis; do not infer actual native execution

@@ -75,8 +75,8 @@ Runtime owns DebugSession as its boxed execution observer. The VM exposes short
 Ref/RefMut guards into that state, without a second shared owner. It moves with
 the runtime and needs Send, not Sync. Root observer activation is inherited by
 synchronous host reentry; an executor does not hold a mutable debugger borrow
-across a host call. Breakpoints are resolved for the
-pinned dependency program before execution. Nested instruction and trap events
+across a host call. Breakpoint locations belong to exact executable versions,
+not the current contents of a display URI. Nested instruction and trap events
 inspect the complete session-owned stack. Suspended callers report the active call
 instruction, while the executing frame advances to its next program point only
 when it resumes. Snapshot values keep their explicit GC roots after frame cleanup.
@@ -94,10 +94,18 @@ snapshot binds to the first observed root. Manual pause remains isolate-wide.
 
 The host may remove or replace the observer between drive calls. Parked roots
 forget the old attachment, and each activates the replacement and resolves its
-pinned program on its next drive. Completion notices only mark readiness; they
+retained root executable on its next drive. Completion notices only mark readiness; they
 neither enter the debugger nor execute script. The current observer records
 snapshots synchronously and does not block the host driver waiting for a debugger
 command. An interactive transport/pause scheduler is outside the async integration.
+
+Frame inspection reports the exact admitted body, while an ordinary inner call
+from an old resumed frame may enter current code. `frame_source_target` accepts only
+a frame from the active safe observation view and copies diagnostic provenance;
+`function_source` then reads that exact observation rather than current disk text.
+Source retention is independent of optional stepping/local metadata. See
+[exact source inspection](embedding-api.md#exact-source-inspection). Publication
+cannot occur from the synchronous observer or a paused callback loop.
 
 A debug session is created by the host.
 

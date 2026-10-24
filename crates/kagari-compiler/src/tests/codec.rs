@@ -163,6 +163,7 @@ fn codec_rejects_old_versions_trailing_data_truncation_and_cancelled_work() {
         MirProgram {
             root: root.clone(),
             update_evidence: UpdateEvidence {
+                source_manifest: None,
                 sources: vec![],
                 bodies: vec![],
                 roots: vec![],

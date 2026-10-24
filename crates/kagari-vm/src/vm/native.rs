@@ -53,12 +53,13 @@ impl Vm {
         entry: impl Into<ProgramEntry<'a>>,
         prepared: impl Into<PreparedNativeExecution<'p>>,
     ) -> Result<ExecutionReport, VmError> {
-        let session = self.begin_execution(module)?;
         self.runtime.validate_executable_module(module)?;
         let entry = entry.into();
         let (owner, function) = entry
             .resolve(module)
             .ok_or_else(|| VmError::MissingFunction(entry.label().to_owned()))?;
+        let (owner, function) = self.select_function(&owner, function)?;
+        let session = self.begin_execution(&owner)?;
         self.execute_prepared_selected(&owner, function, entry.label(), prepared, &session)
     }
 
