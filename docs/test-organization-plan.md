@@ -607,12 +607,12 @@ schema and allocator/measurement targets retain their purposes.
 
 ### TO08 — Common/types and native/compiler API consumers
 
-- [ ] Review `kagari-common` scoped-identity/cancellation/wire families and
+- [x] Review `kagari-common` scoped-identity/cancellation/wire families and
   `kagari-types` numeric/declaration tables. Preserve reference algorithms,
   retained-prefix lifetimes, explicit imports and corruption bounds.
-- [ ] Classify ABI/codegen/derive contracts at their real consumer/doctest owners;
+- [x] Classify ABI/codegen/derive contracts at their real consumer/doctest owners;
   a reviewed no-code-change disposition is expected when already well organized.
-- [ ] Parameterize independent Cranelift rows where useful, without dismantling
+- [x] Parameterize independent Cranelift rows where useful, without dismantling
   backend-drop/product retention, failure-then-success, thread-transfer or exact
   native trap scenarios. Fallback is not actual-native evidence.
 
@@ -734,8 +734,29 @@ fewer Rust strings, fewer binaries or a different test count is not speed eviden
 | TO05 | Complete locally: lowering/admission split, adoption support and disassembly goldens |
 | TO06 | Complete locally: SDK lifecycle ownership, fixed sources and preparation cleanup |
 | TO07 | Complete locally: runtime rows, VM sources/support and stdlib preparation |
-| TO08-TO10 | Planned, not started |
+| TO08 | Complete locally: common/types/native rows and public consumer review |
+| TO09-TO10 | Planned, not started |
 | TO11 | Pending completion of owner phases |
+
+2026-10-24 TO08: common -> types -> Cranelift checkpoints complete. Four original
+functions expose 12 capacity workloads, six valid/eight invalid character inputs,
+and four malformed-link/four exact-trap rows. All row values, native direct calls,
+trap coordinates, resource/reference and identity assertions are preserved. Common
+scoped imports/retained prefixes, cancellation retirement, wire bounds; types'
+reference algorithms/substitution/binders/corruption; and native product retention,
+failure-then-success and thread-transfer scenarios remain unchanged. ABI/codegen/
+derive contracts stay at actual consumer/doctest owners without empty suites.
+All 95 files/59 original definitions are accounted for; 92 Rust files and 55
+retained test bodies are unchanged. Only three dev rstest edges were added; no
+production behavior, new target or active CI/script selector change.
+
+Local selection passed six common, 15 types and 11 Cranelift tests (32 distinct).
+Four capacity rows plus lifetime/cancellation neighbors were selected, not all
+12 workloads; every character/native row and three native temporal regressions
+passed. Workspace Clippy, format, structure (1,597 files, zero findings/exceptions)
+and diff checks passed. No carried errors. Eight capacity rows, other suites/
+API fences and exhaustive feature/platform/AOT acceptance remain CI-owned.
+TO09 is next.
 
 2026-10-24 TO07: runtime -> VM -> stdlib checkpoints completed serially. Seven
 runtime groups expose 23 independent admission/GC/ABI/proof/input rows; two VM

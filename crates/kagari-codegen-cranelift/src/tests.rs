@@ -13,6 +13,7 @@ use kagari_runtime::{
 };
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
+use rstest::rstest;
 use std::{sync::Arc, thread};
 use {
     kagari_abi::{native::ExecutableEntryPoint, native_call::JIT_POLL_EXECUTION_SYMBOL},
@@ -208,66 +209,61 @@ fn cranelift_backend_requires_precise_stack_maps_for_gc_values() {
     assert!(error.diagnostics[0].message.contains("stack maps"));
 }
 
-#[test]
-fn malformed_helper_links_fail_compilation_without_becoming_fallback() {
+#[rstest]
+#[case::missing_helper(|links: &mut NativeLinkDescription| links.helpers.clear())]
+#[case::unknown_symbol(|links: &mut NativeLinkDescription| links.helpers[0].symbol = "unknown".into())]
+#[case::wrong_parameters(|links: &mut NativeLinkDescription| links.helpers[0].parameters.clear())]
+#[case::duplicate_helper(
+    |links: &mut NativeLinkDescription| links.helpers.push(links.helpers[0].clone())
+)]
+fn malformed_helper_links_fail_compilation_without_becoming_fallback(
+    #[case] corrupt: fn(&mut NativeLinkDescription),
+) {
     let mir = mir("fn main() -> i32 { 42 }");
     let mut backend = CraneliftBackend::for_host().unwrap();
-    let valid = NativeLinkDescription::scalar();
-    for kind in 0..4 {
-        let mut links = valid.clone();
-        match kind {
-            0 => links.helpers.clear(),
-            1 => links.helpers[0].symbol = "unknown".into(),
-            2 => links.helpers[0].parameters.clear(),
-            _ => links.helpers.push(links.helpers[0].clone()),
-        }
-        let error = backend
-            .compile_function(
-                BackendFunctionInput::new(root(&mir), root(&mir).functions[0].id, &links).unwrap(),
-            )
-            .unwrap_err();
-        assert!(!error.is_unsupported());
-    }
+    let mut links = NativeLinkDescription::scalar();
+    corrupt(&mut links);
+    let error = backend
+        .compile_function(
+            BackendFunctionInput::new(root(&mir), root(&mir).functions[0].id, &links).unwrap(),
+        )
+        .unwrap_err();
+    assert!(!error.is_unsupported());
 }
 
-#[test]
-fn checked_i32_traps_keep_the_exact_mir_point() {
-    for expression in [
-        "2147483647 + 1",
-        "(-2147483647 - 1) - 1",
-        "50000 * 50000",
-        "-(-2147483647 - 1)",
-    ] {
-        let mir = mir(&format!("fn main() -> i32 {{ {expression} }}"));
-        let code = Arc::new(compile(&mut CraneliftBackend::for_host().unwrap(), &mir).unwrap());
-        let overflow_offset = code.artifact.code.traps.last().unwrap().instruction_offset;
-        {
-            let mut runtime = runtime();
-            let bytecode = lower_program_to_bytecode(&mir, &Default::default())
-                .map(|program| program.into_unverified())
-                .unwrap();
-            let function =
-                &bytecode.records().modules[bytecode.records().root.index()].functions[0];
-            let origin = function.metadata.origins[overflow_offset].clone();
-            let module = runtime.load_program("native", bytecode).unwrap();
-            let installed =
-                unsafe { runtime.install_native_function(&module, code.clone()) }.unwrap();
-            let failure = runtime.invoke_native_function(&installed).unwrap_err();
-            let BackendInvocationError::RuntimeFailure(error) = failure.error else {
-                panic!("runtime trap")
-            };
-            assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap, "{expression}");
-            assert_eq!(
-                failure.trace.frames[0].semantic_origin,
-                Some(overflow_offset)
-            );
-            assert_eq!(
-                failure.trace.frames[0].instruction_offset,
-                origin.instruction
-            );
-            assert_eq!(failure.trace.frames[0].source_span, Some(origin.span));
-            assert_eq!(runtime.resources().counters().current_call_depth, 0);
-            assert_eq!(runtime.gc().active_roots(), 0);
-        }
+#[rstest]
+#[case::add_overflow("2147483647 + 1")]
+#[case::subtract_overflow("(-2147483647 - 1) - 1")]
+#[case::multiply_overflow("50000 * 50000")]
+#[case::negate_minimum("-(-2147483647 - 1)")]
+fn checked_i32_traps_keep_the_exact_mir_point(#[case] expression: &str) {
+    let mir = mir(&format!("fn main() -> i32 {{ {expression} }}"));
+    let code = Arc::new(compile(&mut CraneliftBackend::for_host().unwrap(), &mir).unwrap());
+    let overflow_offset = code.artifact.code.traps.last().unwrap().instruction_offset;
+    {
+        let mut runtime = runtime();
+        let bytecode = lower_program_to_bytecode(&mir, &Default::default())
+            .map(|program| program.into_unverified())
+            .unwrap();
+        let function = &bytecode.records().modules[bytecode.records().root.index()].functions[0];
+        let origin = function.metadata.origins[overflow_offset].clone();
+        let module = runtime.load_program("native", bytecode).unwrap();
+        let installed = unsafe { runtime.install_native_function(&module, code.clone()) }.unwrap();
+        let failure = runtime.invoke_native_function(&installed).unwrap_err();
+        let BackendInvocationError::RuntimeFailure(error) = failure.error else {
+            panic!("runtime trap")
+        };
+        assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap, "{expression}");
+        assert_eq!(
+            failure.trace.frames[0].semantic_origin,
+            Some(overflow_offset)
+        );
+        assert_eq!(
+            failure.trace.frames[0].instruction_offset,
+            origin.instruction
+        );
+        assert_eq!(failure.trace.frames[0].source_span, Some(origin.span));
+        assert_eq!(runtime.resources().counters().current_call_depth, 0);
+        assert_eq!(runtime.gc().active_roots(), 0);
     }
 }

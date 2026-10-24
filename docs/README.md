@@ -134,7 +134,7 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   freeze, TO01-TO02 SDK language organization and TO03 source/parser/UI work are
   complete locally, as are TO04 HIR/package and TO05 executable-contract
   organization, TO06 SDK lifecycle/product and TO07 runtime/VM/stdlib work;
-  TO08 foundational/native consumers are next. The pilot and lasting rules remain in
+  TO08 foundational/native consumers are complete locally; TO09 tooling/UI is next. The pilot and lasting rules remain in
   the [testing guide](testing.md), with previous performance debt kept separate.
 - [Script testing](script-testing-design.md): proposed `kg test`, source-owned
   `#[test]` functions and host-orchestrated fixtures; design only, separate from

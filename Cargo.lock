@@ -595,6 +595,7 @@ dependencies = [
  "kagari-runtime",
  "kagari-source",
  "kagari-stdlib",
+ "rstest",
  "thiserror",
 ]
 
@@ -603,6 +604,7 @@ name = "kagari-common"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "rstest",
  "serde",
  "thiserror",
 ]
@@ -797,6 +799,7 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "kagari-common",
+ "rstest",
  "serde",
  "thiserror",
 ]
