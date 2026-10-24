@@ -1,0 +1,24 @@
+use std::collections::{HashSet};
+use std::hash::{Hash};
+
+struct Key<T> { val value:T }
+impl<T:PartialEq> PartialEq for Key<T> { fn eq(self, other:Self)->bool { self.value == other.value } }
+impl<T:Eq> Eq for Key<T> {}
+impl<T:Eq+Hash> Hash for Key<T> { fn hash(self)->i64 { self.value.hash() } }
+enum Chain { End, Next(Key<i32>, Chain) }
+impl PartialEq for Chain {
+ fn eq(self, other: Self) -> bool { match (self, other) {
+  (Chain::End, Chain::End) => true,
+  (Chain::Next(a, tail), Chain::Next(b, rest)) => a == b && tail == rest,
+  _ => false
+ } }
+}
+impl Eq for Chain {}
+impl Hash for Chain { fn hash(self) -> i64 { match self { Chain::End => 0i64, Chain::Next(key, tail) => key.hash() + tail.hash() } } }
+fn main()->i32 {
+ val a=Chain::Next(Key{value:42},Chain::End);
+ val b=Chain::Next(Key{value:42},Chain::End);
+ val set:HashSet<Chain> = HashSet::new(); set.insert(a);set.insert(b);
+ if a != b { return 0; }
+ if set.len()==Vec::from([1]).len() && set.contains(b) {42} else {0}
+}

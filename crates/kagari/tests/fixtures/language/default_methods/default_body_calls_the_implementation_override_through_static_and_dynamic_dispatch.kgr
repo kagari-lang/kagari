@@ -1,0 +1,7 @@
+
+trait Read { fn read(self) -> i32; fn twice(self) -> i32 { helper(self.read()) } }
+fn helper(x: i32) -> i32 { x * 2 }
+struct Number {}
+impl Read for Number { fn read(self) -> i32 { 7 } }
+fn generic<T: Read>(value: T) -> i32 { value.twice() }
+fn main() -> i32 { val dynamic: Read = Number {}; Number {}.twice() + generic(Number {}) + dynamic.twice() }

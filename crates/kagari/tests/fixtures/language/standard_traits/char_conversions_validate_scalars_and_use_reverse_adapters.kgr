@@ -1,0 +1,25 @@
+use core::char::CharTryFromError;
+use std::char::CharTryFromError as FacadeError;
+
+fn convert<T, U: From<T>>(value:T)->U { U::from(value) }
+fn reverse<T: Into<U>, U>(value:T)->U { value.into() }
+fn checked<T: TryInto<char, Error = CharTryFromError>>(value:T)->Result<char, CharTryFromError> {
+    value.try_into()
+}
+fn main()->i32 {
+    for scalar in [0u32, 0x7fu32, 0x80u32, 0xd7ffu32, 0xe000u32, 0xffffu32, 0x10000u32, 0x1f642u32, 0x10ffffu32] {
+        val value = match char::try_from(scalar) { Ok(value) => value, Err(_) => { return 1; } };
+        val code: u32 = convert(value);
+        val reversed: u32 = reverse(value);
+        if code != scalar || reversed != scalar { return 2; }
+        match checked(scalar) { Ok(other) => { if other != value { return 3; } }, Err(_) => { return 4; } }
+    }
+    for scalar in [0xd800u32, 0xdbffu32, 0xdc00u32, 0xdfffu32, 0x110000u32, 0xffffffffu32] {
+        match char::try_from(scalar) { Err(CharTryFromError::InvalidScalar) => {}, Ok(_) => { return 5; } };
+        match checked(scalar) { Err(FacadeError::InvalidScalar) => {}, Ok(_) => { return 6; } }
+    }
+    val text: String = convert('🙂');
+    val reversed: String = reverse('é');
+    if text != "🙂" || reversed != "é" || String::from('\0') != "\0" { return 7; }
+    42
+}

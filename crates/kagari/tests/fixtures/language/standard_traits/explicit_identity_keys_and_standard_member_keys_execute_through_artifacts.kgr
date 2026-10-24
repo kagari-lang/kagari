@@ -1,0 +1,19 @@
+use std::collections::{HashMap};
+
+struct Key { var value: i32 }
+impl PartialEq for Key { fn eq(self, other: Self) -> bool { self === other } }
+impl Eq for Key {}
+// A constant hash is correct for explicit identity equality, with collisions.
+impl std::hash::Hash for Key { fn hash(self) -> i64 { 0i64 } }
+fn main()->i32 {
+    val map: HashMap<(Option<String>, i32), i32> = HashMap::new();
+    map.insert((Some("a"), 2), 20);
+    val key = Key { value: 1 };
+    val identities: HashMap<Key, i32> = HashMap::new();
+    identities.insert(key, 22);
+    key.value = 9;
+    val different = Key { value: 9 };
+    if identities.contains_key(different) { 0 } else {
+        (match map.get((Some("a"), 2)) { Some(value) => value, None => 0 }) + (match identities.get(key) { Some(value) => value, None => 0 })
+    }
+}

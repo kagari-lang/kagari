@@ -1,0 +1,21 @@
+
+trait Identity { fn identity<T>(self, value: T) -> T { value } }
+struct Source { var calls: i32 }
+impl Identity for Source {
+    fn identity<T>(self, value: T) -> T { self.calls += 1; value }
+}
+fn forward<S: Identity, T>(source: S, value: T) -> T { source.identity(value) }
+trait Relay {
+    fn relay<S: Identity, T>(self, source: S, value: T) -> T {
+        forward(source, value)
+    }
+}
+impl Relay for i32 {}
+struct Item { val value: i32 }
+fn main() -> i32 {
+    val relay: Relay = 0;
+    val source = Source { calls: 0 };
+    val result = relay.relay(source, Item { value: 42 });
+    val text: String = relay.relay(source, "checked");
+    if source.calls == 2 && text == "checked" { result.value } else { 0 }
+}

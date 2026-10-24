@@ -1,0 +1,5 @@
+*.kgr text eol=lf
+# These extracted literal values intentionally retain their original final blank line.
+conversion_traits/explicit-and-generic-from-conversions.kgr whitespace=-blank-at-eof
+conversion_traits/native-construction-consumes-lazy-native-iterators.kgr whitespace=-blank-at-eof
+default_methods/bound_construction/shared_bound_construction_preserves_empty_and_projected_capabilities.kgr whitespace=-blank-at-eof

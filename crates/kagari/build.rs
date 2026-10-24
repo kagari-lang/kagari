@@ -23,11 +23,13 @@ fn main() {
     #[cfg(all(feature = "source", feature = "native"))]
     {
         let manifest = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("manifest"));
-        let examples = manifest.join("../../examples/syntax");
-        if examples.is_dir() {
-            // Explicit rerun rules replace Cargo's default package scan; rustc tracks Rust sources.
-            println!("cargo:rerun-if-changed=build.rs");
-            println!("cargo:rerun-if-changed={}", examples.display());
+        for relative in ["../../examples/syntax", "tests/fixtures/language"] {
+            let directory = manifest.join(relative);
+            if directory.is_dir() {
+                // Explicit rerun rules replace the package scan; rustc tracks Rust sources.
+                println!("cargo:rerun-if-changed=build.rs");
+                println!("cargo:rerun-if-changed={}", directory.display());
+            }
         }
     }
     #[cfg(feature = "aot-load")]

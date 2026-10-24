@@ -101,14 +101,19 @@ Use the existing owners as templates, not a new universal runner:
   same-flow delimiter errors with typed kind/severity/text/range assertions and
   inputs under `kagari-syntax/tests/fixtures/parser`. Recovery-tree checks stay in
   their distinct scenario rather than conditional branches in the diagnostic test.
-- SDK [language](../crates/kagari/src/runtime/tests/language/syntax_examples.rs)
+- SDK [syntax examples](../crates/kagari/src/runtime/tests/language/syntax_examples.rs)
   and [reload](../crates/kagari/src/runtime/tests/embedding/generic_reload.rs)
-  cases load scripts from `kagari/tests/fixtures/test-fixtures`. Syntax examples use
-  file discovery as described below; the two default-method programs share a
-  named parameterized test. Logical source paths, route selection, GC settings and
-  stateful assertions remain at the semantic owner. Singleton and lifecycle tests
-  need not be parameterized. Independent programs remain independent named cases;
-  this is not lost or duplicate coverage.
+  load scripts from `kagari/tests/fixtures/test-fixtures`. Ordinary conversion,
+  default-method and standard-trait execution uses directory-discovered inputs in
+  `kagari/tests/fixtures/language/{conversion_traits,default_methods,standard_traits}`.
+  Each owner keeps its logical source name, GC threshold `Some(1)`, result `42`
+  and source/artifact/artifact-JIT routes. The default-method cursor case reuses
+  the canonical `iterable-default-cursor.kgr` directly, preserving its CRLF bytes;
+  admission tests reuse ordinary fixtures when they need the same program.
+  Rejection, linking, forged-contract and callback-lifecycle scenarios keep their
+  explicit assertions in focused modules. Singleton and lifecycle tests need not
+  be parameterized. Independent programs remain independent named cases; a common
+  final result does not make them duplicate coverage.
 - [Numeric predicate programs](../crates/kagari/src/runtime/tests/language/numeric_checks.rs)
   share bounded source generation and retain the expression for each failure
   marker. Integer/float owners retain their own compilation, routes, result/root,

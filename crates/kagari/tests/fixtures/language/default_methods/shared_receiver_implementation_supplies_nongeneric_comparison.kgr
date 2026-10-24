@@ -1,0 +1,17 @@
+
+struct Holder<T> { val value: T }
+impl<T> PartialEq for Holder<T> {
+    fn eq(self, other: Self) -> bool { true }
+}
+fn same<T: PartialEq>(a: T, b: T) -> bool { a == b }
+trait Compare {
+    fn compare<T>(self, a: T, b: T) -> bool {
+        same(Holder { value: a }, Holder { value: b })
+    }
+}
+struct Source {}
+impl Compare for Source {}
+fn main() -> i32 {
+    val source: Compare = Source {};
+    if source.compare(1, 2) && source.compare("left", "right") { 42 } else { 0 }
+}

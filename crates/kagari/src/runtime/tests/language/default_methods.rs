@@ -19,6 +19,7 @@ use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_stdlib::identity as library;
 use kagari_types::{callable::CallableImplementation, scalar::BuiltinType, ty::Ty};
 use rstest::rstest;
+use std::{fs, path::PathBuf};
 
 use crate::test_support::execution;
 
@@ -27,7 +28,19 @@ mod constraint_members;
 mod default_method_contracts;
 mod shared_arithmetic;
 
-fn execute(source: &str) {
+#[rstest]
+fn ordinary_default_methods(
+    #[files("**/*.kgr")]
+    #[base_dir = "tests/fixtures/language/default_methods"]
+    #[files("../../iterable-default-cursor.kgr")]
+    path: PathBuf,
+) {
+    let source = fs::read_to_string(&path).unwrap_or_else(|error| {
+        panic!(
+            "failed to read default-method fixture {}: {error}",
+            path.display()
+        )
+    });
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let engine = execution::engine(config);
@@ -43,179 +56,6 @@ fn execute(source: &str) {
             execution::Route::ArtifactJit,
         ],
         42,
-    );
-}
-
-#[test]
-fn default_body_calls_the_implementation_override_through_static_and_dynamic_dispatch() {
-    execute(
-        r#"
-trait Read { fn read(self) -> i32; fn twice(self) -> i32 { helper(self.read()) } }
-fn helper(x: i32) -> i32 { x * 2 }
-struct Number {}
-impl Read for Number { fn read(self) -> i32 { 7 } }
-fn generic<T: Read>(value: T) -> i32 { value.twice() }
-fn main() -> i32 { val dynamic: Read = Number {}; Number {}.twice() + generic(Number {}) + dynamic.twice() }
-"#,
-    );
-}
-
-#[test]
-fn explicit_override_takes_precedence_over_the_default_body() {
-    execute(
-        r#"
-trait Read { fn read(self) -> i32 { 0 } }
-struct Number {}
-impl Read for Number { fn read(self) -> i32 { 21 } }
-fn main() -> i32 { val dynamic: Read = Number {}; Number {}.read() + dynamic.read() }
-"#,
-    );
-}
-
-#[rstest]
-#[case::generic_implementations(include_str!(
-    "../../../../tests/fixtures/test-fixtures/language/default-methods-generic-implementations.kgr"
-))]
-#[case::local_binders(include_str!(
-    "../../../../tests/fixtures/test-fixtures/language/default-methods-local-binders.kgr"
-))]
-fn generic_implementations_and_default_local_binders_are_specialized(#[case] source: &str) {
-    execute(source);
-}
-
-#[test]
-fn generic_default_method_is_callable_through_one_interface_with_distinct_arguments() {
-    execute(
-        r#"
-trait Identity { fn identity<T>(self, value: T) -> T { value } }
-struct Number {}
-impl Identity for Number {}
-fn main() -> i32 {
-    val value: Identity = Number {};
-    val text: String = value.identity("key");
-    if text == "key" { value.identity(42) } else { 0 }
-}
-"#,
-    );
-}
-
-#[test]
-fn generic_interface_override_and_inherited_default_preserve_gc_values() {
-    execute(
-        r#"
-trait Identity { fn identity<T>(self, value: T) -> T { value } }
-trait Child: Identity {}
-struct Number {}
-struct Item { val value: i32 }
-impl Identity for Number { fn identity<T>(self, value: T) -> T { value } }
-impl Child for Number {}
-fn main() -> i32 {
-    val value: Child = Number {};
-    val item: Item = value.identity(Item { value: 42 });
-    item.value
-}
-"#,
-    );
-}
-
-#[test]
-fn generic_interface_default_forwards_its_binder_to_another_interface() {
-    execute(
-        r#"
-trait Identity { fn identity<T>(self, value: T) -> T { value } }
-trait Forward { fn forward<T>(self, target: Identity, value: T) -> T { target.identity(value) } }
-struct Number {}
-impl Identity for Number {}
-impl Forward for Number {}
-fn main() -> i32 {
-    val target: Identity = Number {};
-    val source: Forward = Number {};
-    val text: String = source.forward(target, "key");
-    if text == "key" { source.forward(target, 42) } else { 0 }
-}
-"#,
-    );
-}
-
-#[test]
-fn generic_interface_default_returns_a_closure_retaining_its_type_environment() {
-    execute(
-        r#"
-trait Capture { fn capture<T>(self, value: T) -> fn() -> T { || value } }
-struct Number {}
-struct Item { val value: i32 }
-impl Capture for Number {}
-fn main() -> i32 {
-    val source: Capture = Number {};
-    val get = source.capture(Item { value: 42 });
-    get().value
-}
-"#,
-    );
-}
-
-#[test]
-fn defaults_can_call_inherited_methods_and_use_associated_outputs() {
-    execute(
-        r#"
-trait Read { type Item; fn read(self) -> Self::Item; fn again(self) -> Self::Item { self.read() } }
-trait Child: Read<Item = i32> { fn number(self) -> i32 { self.again() } }
-struct Number {}
-impl Read for Number { type Item = i32; fn read(self) -> i32 { 21 } }
-impl Child for Number {}
-fn main() -> i32 { val child: Child = Number {}; child.number() + child.again() }
-"#,
-    );
-}
-
-#[test]
-fn generic_interface_default_preserves_nested_result_types() {
-    execute(
-        r#"
-trait Wrap { fn wrap<T>(self, value: T) -> Option<Option<T>> { Some(Some(value)) } }
-struct Number {}
-impl Wrap for Number {}
-fn main() -> i32 {
-    val source: Wrap = Number {};
-    match source.wrap(42) { Some(inner) => match inner { Some(value) => value, None => 0 }, None => 0 }
-}
-"#,
-    );
-}
-
-#[test]
-fn generic_interface_keeps_trait_and_method_binders_distinct() {
-    execute(
-        r#"
-trait Read<T> {
-    fn read(self) -> T;
-    fn pair<K>(self, key: K) -> (T, K) { (self.read(), key) }
-}
-struct Number {}
-impl Read<i32> for Number { fn read(self) -> i32 { 42 } }
-fn main() -> i32 {
-    val source: Read<i32> = Number {};
-    match source.pair("key") { (value, key) => if key == "key" { value } else { 0 } }
-}
-"#,
-    );
-}
-
-#[test]
-fn bounded_generic_interface_default_forwards_its_constraint() {
-    execute(
-        r#"
-trait Identity { fn identity<T: Ord>(self, value: T) -> T { value } }
-trait Forward { fn forward<T: Ord>(self, target: Identity, value: T) -> T { target.identity(value) } }
-struct Number {}
-impl Identity for Number {}
-impl Forward for Number {}
-fn main() -> i32 {
-    val target: Identity = Number {};
-    val source: Forward = Number {};
-    source.forward(target, 42)
-}
-"#,
     );
 }
 
@@ -324,22 +164,6 @@ fn invalid_default_bodies_are_checked_even_without_an_implementation() {
             "accepted {source}"
         );
     }
-}
-
-#[test]
-fn default_closures_and_bound_helpers_substitute_the_concrete_self_receiver() {
-    execute(
-        r#"
-trait Read {
-    fn read(self) -> i32;
-    fn again(self) -> i32 { val call = || helper(self); call() }
-}
-fn helper<T: Read>(value: T) -> i32 { value.read() }
-struct Number {}
-impl Read for Number { fn read(self) -> i32 { 42 } }
-fn main() -> i32 { Number {}.again() }
-"#,
-    );
 }
 
 #[test]
@@ -470,30 +294,6 @@ fn main() -> i32 { val source: Capture = Number {}; val get = source.capture(42)
 }
 
 #[test]
-fn shared_generic_method_constructs_a_typed_list_result() {
-    execute(
-        r#"use std::collections::{List};
-
-trait Wrap { fn wrap<T>(self, value: T) -> List<T> { Vec::from([value]) } }
-struct Source {}
-impl Wrap for Source {}
-struct Item { val value: i32 }
-fn main() -> i32 {
-    val source: Wrap = Source {};
-    val a = source.wrap(21);
-    val b = source.wrap(Item { value: 21 });
-    val nested = source.wrap(b);
-    var sum = 0;
-    for item in a { sum += item; }
-    for item in nested[0] { sum += item.value; }
-    if sum != 42 { return 0; }
-    a[0] + b[0].value
-}
-"#,
-    );
-}
-
-#[test]
 fn shared_list_table_mappings_are_checked_without_source() {
     let artifact = execution::engine(Default::default())
         .compile_to_artifact(
@@ -574,72 +374,9 @@ fn main() -> i32 { val source: Wrap = Source {}; source.wrap(42)[0] }
     }
 }
 
-#[test]
-fn shared_generic_method_calls_an_ordinary_generic_helper() {
-    execute(
-        r#"
-fn identity<T>(value: T) -> T { value }
-trait Forward { fn forward<T>(self, value: T) -> T { identity(value) } }
-struct Source {}
-impl Forward for Source {}
-struct Item { val value: i32 }
-fn main() -> i32 {
-    val source: Forward = Source {};
-    source.forward(21) + source.forward(Item { value: 21 }).value
-}
-"#,
-    );
-}
-
-#[test]
-fn shared_helpers_forward_bounds_and_retain_nested_types() {
-    execute(
-        r#"
-fn invoke<F: Fn() -> i32>(callback: F) -> i32 { callback() }
-fn retain<T>(value: T, remaining: i32) -> fn() -> T {
-    if remaining == 0 { || value } else { retain(value, remaining - 1) }
-}
-trait Run {
-    fn run<F: Fn() -> i32>(self, callback: F) -> i32 { invoke(callback) }
-    fn keep<T>(self, value: T) -> fn() -> (T, i32) { retain((value, 1), 2) }
-}
-struct Source {}
-impl Run for Source {}
-struct Callback { val value: i32 }
-impl Fn<()> for Callback { type Output = i32; fn call(self, args: ()) -> i32 { self.value } }
-fn main() -> i32 {
-    val source: Run = Source {};
-    val get = source.keep(Callback { value: 20 });
-    val pair = get();
-    source.run(pair[0]) + source.run(|| 21) + pair[1]
-}
-"#,
-    );
-}
-
-#[test]
-fn shared_receiver_implementation_supplies_nongeneric_comparison() {
-    execute(SHARED_RECEIVER_COMPARISON);
-}
-
-const SHARED_RECEIVER_COMPARISON: &str = r#"
-struct Holder<T> { val value: T }
-impl<T> PartialEq for Holder<T> {
-    fn eq(self, other: Self) -> bool { true }
-}
-fn same<T: PartialEq>(a: T, b: T) -> bool { a == b }
-trait Compare {
-    fn compare<T>(self, a: T, b: T) -> bool {
-        same(Holder { value: a }, Holder { value: b })
-    }
-}
-struct Source {}
-impl Compare for Source {}
-fn main() -> i32 {
-    val source: Compare = Source {};
-    if source.compare(1, 2) && source.compare("left", "right") { 42 } else { 0 }
-}
-"#;
+const SHARED_RECEIVER_COMPARISON: &str = include_str!(
+    "../../../../tests/fixtures/language/default_methods/shared_receiver_implementation_supplies_nongeneric_comparison.kgr"
+);
 
 #[test]
 fn shared_function_call_arguments_and_operations_are_verified_without_source() {
@@ -785,58 +522,6 @@ fn main() -> i32 {
 }
 
 #[test]
-fn shared_generic_methods_construct_nominal_values() {
-    execute(
-        r#"
-struct Box<T> { var value: T }
-trait Wrap {
-    fn wrap<T>(self, value: T) -> Box<T> { Box { value: value } }
-    fn update<T>(self, target: Box<T>, value: T) -> T {
-        val old = target.value;
-        target.value = value;
-        old
-    }
-}
-struct Source {}
-impl Wrap for Source {}
-struct Item { val value: i32 }
-fn main() -> i32 {
-    val source: Wrap = Source {};
-    val left = source.wrap(20);
-    val right = source.wrap(Item { value: 21 });
-    if source.update(left, 21) != 20 { return 0; }
-    val previous = source.update(right, Item { value: 21 });
-    if previous.value != 21 { return 0; }
-    left.value + right.value.value
-}
-"#,
-    );
-}
-
-#[test]
-fn shared_methods_upcast_generic_interfaces() {
-    execute(
-        r#"use std::collections::{List, MutableList};
-
-trait Wrap {
-    fn wrap<T>(self, value: T) -> List<T> {
-        val mutable: MutableList<T> = Vec::from([value]);
-        val readonly: List<T> = mutable;
-        readonly
-    }
-}
-struct Source {}
-impl Wrap for Source {}
-struct Item { val value: i32 }
-fn main() -> i32 {
-    val source: Wrap = Source {};
-    source.wrap(21)[0] + source.wrap(Item { value: 21 })[0].value
-}
-"#,
-    );
-}
-
-#[test]
 fn generic_interface_upcasts_reject_forged_scopes_and_parents() {
     let artifact = execution::engine(Default::default())
         .compile_to_artifact(
@@ -899,41 +584,6 @@ fn main() -> i32 { val source: Wrap = Source {}; source.wrap(42)[0] }
 }
 
 #[test]
-fn shared_interface_tables_supply_receiver_bound_operations() {
-    execute(
-        r#"use std::cmp::{Ordering};
-
-trait Reader<T: Ord> {
-    fn lesser(self, left: T, right: T) -> T { if left < right { left } else { right } }
-}
-struct Source {}
-impl<T: Ord> Reader<T> for Source {}
-trait Choose {
-    fn reader<T: Ord>(self, value: T) -> Reader<T> { Source {} }
-    fn choose<T: Ord>(self, left: T, right: T) -> T {
-        val reader: Reader<T> = Source {};
-        reader.lesser(left, right)
-    }
-}
-impl Choose for Source {}
-struct Rank { val value: i32 }
-impl PartialEq for Rank { fn eq(self, other: Self) -> bool { self.value == other.value } }
-impl Eq for Rank {}
-impl PartialOrd for Rank { fn partial_cmp(self, other: Self) -> Option<Ordering> { self.value.partial_cmp(other.value) } }
-impl Ord for Rank { fn cmp(self, other: Self) -> Ordering { self.value.cmp(other.value) } }
-fn main() -> i32 {
-    val chooser: Choose = Source {};
-    val scalar = chooser.choose(20, 43);
-    val reader = chooser.reader(Rank { value: 22 });
-    val concrete: Reader<i32> = Source {};
-    if concrete.lesser(1, 2) != 1 { return 0; }
-    scalar + reader.lesser(Rank { value: 22 }, Rank { value: 23 }).value
-}
-"#,
-    );
-}
-
-#[test]
 fn ordinary_interface_methods_require_receiver_bound_witnesses() {
     let artifact = execution::engine(Default::default())
         .compile_to_artifact(
@@ -977,34 +627,6 @@ fn main() -> i32 { val chooser: Choose = Source {}; chooser.choose(42, 43) }
     assert!(
         BytecodeArtifact::from_program(program, Default::default(), &context, &Default::default())
             .is_err()
-    );
-}
-
-#[test]
-fn shared_nominal_layouts_preserve_nested_fields_and_enum_patterns() {
-    execute(
-        r#"use std::collections::{List};
-
-struct Box<T> { var value: T }
-enum Wrapped<T> { Some(T), None }
-trait Wrap {
-    fn wrap<T>(self, value: T) -> List<Box<Wrapped<T>>> {
-        Vec::from([Box { value: Wrapped::Some(value) }])
-    }
-    fn unwrap<T>(self, value: Box<Wrapped<T>>, fallback: T) -> T {
-        match value.value { Wrapped::Some(inner) => inner, Wrapped::None => fallback }
-    }
-}
-struct Source {}
-impl Wrap for Source {}
-struct Item { val value: i32 }
-fn main() -> i32 {
-    val source: Wrap = Source {};
-    val scalar = source.wrap(20);
-    val object = source.wrap(Item { value: 22 });
-    source.unwrap(scalar[0], 0) + source.unwrap(object[0], Item { value: 0 }).value
-}
-"#,
     );
 }
 
@@ -1099,13 +721,6 @@ fn main() -> i32 { val source: Wrap = Source {}; source.read(source.wrap(42)) }
             "mutation {mutation}"
         );
     }
-}
-
-#[test]
-fn generic_interface_default_retains_cursor_with_nested_function_result() {
-    execute(include_str!(
-        "../../../../tests/fixtures/iterable-default-cursor.kgr"
-    ));
 }
 
 /// Retain one scope and prove the unmodified input before testing each forgery.

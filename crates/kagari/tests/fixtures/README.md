@@ -1,6 +1,11 @@
 # SDK feature-boundary artifact
 
-Ordinary file-backed language and stateful scenario inputs also live under
+Ordinary file-backed language inputs live under [`language`](language), grouped
+by their owning language contract (conversions, default methods and standard traits).
+Their directory-discovered cases keep route/result/GC configuration in the existing
+Rust owner; boundary scenarios retain explicit assertions. The default-method
+cursor input reuses `iterable-default-cursor.kgr` rather than copying it.
+Syntax-example and stateful scenario inputs also live under
 [`test-fixtures/language`](test-fixtures/language) and
 [`test-fixtures/embedding`](test-fixtures/embedding). They are source data loaded
 by the existing library test harness, not additional integration targets. Rust

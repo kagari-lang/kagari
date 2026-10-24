@@ -1,0 +1,9 @@
+
+struct Count { val value:i32 }
+impl From<i32> for Count { fn from(value:i32)->Self { Count{value} } }
+fn convert<S,D:From<S>>(value:S)->Result<i32,D> { val error:Result<i32,S> = Err(value); Ok(error?) }
+fn main()->i32 {
+    val a:Result<i32,Count> = convert(10); val b:Result<i32,Count> = convert(11);
+    match a {Err(x)=>match b {Err(y)=>x.value+y.value+21,Ok(_)=>0},Ok(_)=>0}
+}
+

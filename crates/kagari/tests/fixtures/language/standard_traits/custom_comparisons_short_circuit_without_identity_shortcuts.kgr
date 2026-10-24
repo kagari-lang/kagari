@@ -1,0 +1,16 @@
+
+struct Counter {var count:i32}
+struct Key {val id:i32,val counter:Counter}
+impl PartialEq for Key {fn eq(self,other:Self)->bool {self.counter.count+=1;self.id==other.id}}
+fn main()->i32 {
+ val c=Counter{count:0};val a=Key{id:1,counter:c};val b=Key{id:2,counter:c};
+ { val passed = !(a,a).eq((b,a)); if !passed { val zero = 0; 1 / zero; } };
+ { val passed = c.count==1; if !passed { val zero = 0; 1 / zero; } };
+ { val passed = Some((a,a))!=None; if !passed { val zero = 0; 1 / zero; } };
+ { val passed = c.count==1; if !passed { val zero = 0; 1 / zero; } };
+ { val passed = Some((a,a))!=Some((b,a)); if !passed { val zero = 0; 1 / zero; } };
+ { val passed = c.count==2; if !passed { val zero = 0; 1 / zero; } };
+ { val passed = a==a; if !passed { val zero = 0; 1 / zero; } };
+ { val passed = c.count==3; if !passed { val zero = 0; 1 / zero; } };
+ 42
+}

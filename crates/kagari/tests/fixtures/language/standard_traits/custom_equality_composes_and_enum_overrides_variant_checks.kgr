@@ -1,0 +1,15 @@
+use std::hash::{Hash};
+
+struct Point { val x:i32 }
+impl PartialEq for Point { fn eq(self, other:Self)->bool { self.x == other.x } }
+impl Eq for Point {}
+enum Id { Local(i32), Remote(i32) }
+fn number(v:Id)->i32 { match v { Id::Local(x)=>x, Id::Remote(x)=>x } }
+impl PartialEq for Id { fn eq(self, other:Self)->bool { number(self)==number(other) } }
+impl Eq for Id {}
+impl Hash for Id { fn hash(self)->i64 { number(self).hash() } }
+fn same<T:Eq>(a:T,b:T)->bool { a==b && a.eq(b) }
+fn main()->i32 {
+ val a=Point{x:1}; val b=Point{x:1};
+ if same(a,b) && a !== b && same((a,7),(b,7)) && same(Some(a),Some(b)) && same(Id::Local(42),Id::Remote(42)) && Id::Local(42).hash()==Id::Remote(42).hash() {42} else {0}
+}

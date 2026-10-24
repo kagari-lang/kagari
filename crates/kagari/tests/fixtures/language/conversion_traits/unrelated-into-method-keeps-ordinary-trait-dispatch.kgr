@@ -1,0 +1,5 @@
+
+trait Local{fn into(self)->i32;}
+struct X{}
+impl Local for X{fn into(self)->i32{42}}
+fn main()->i32{X{}.into()}

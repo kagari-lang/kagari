@@ -1,0 +1,12 @@
+use std::collections::{HashMap};
+use std::hash::{Hash};
+
+trait Read<T: Eq + Hash> { type Item: Eq + Hash; fn get(self, value:T)->Self::Item; }
+struct Reader {}
+impl Read<i32> for Reader { type Item = (i32, String); fn get(self,value:i32)->(i32,String) { (value,"ok") } }
+fn same<T: PartialEq>(a:T,b:T)->bool { a.eq(b) }
+fn main()->i32 {
+    val unit: HashMap<(), i32> = HashMap::new(); unit.insert((),42);
+    val value = Reader {}.get(42);
+    if same(1.5,1.5) && same(value,(42,"ok")) && ().debug() == "()" { (match unit.get(()) { Some(value) => value, None => 0 }) } else { 0 }
+}

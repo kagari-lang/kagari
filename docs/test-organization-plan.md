@@ -484,13 +484,13 @@ uncertainty is named. No production changes or migration framework is required.
 Scope: SDK `conversion_traits`, `default_methods`, `standard_traits` and their
 existing child modules, classified case by case.
 
-- [ ] Move the 15 ordinary conversion programs into a contract-owned fixture group,
+- [x] Move the 15 ordinary conversion programs into a contract-owned fixture group,
   with discovery where their route/result/configuration is uniform. Preserve
   threshold `Some(1)`, all three routes, source identity and every script predicate.
-- [ ] Separate conversion rejection and linked-module orchestration. Extend the
+- [x] Separate conversion rejection and linked-module orchestration. Extend the
   same treatment to ordinary default/standard-trait cases; preserve callback,
   forged-environment, source-origin and source-free cases as distinct owners.
-- [ ] Retire local `execute` wrappers only when their remaining callers no longer
+- [x] Retire local `execute` wrappers only when their remaining callers no longer
   need them; do not retain a single-caller forwarding layer around the shared runner.
 
 Exit: all original programs and boundary cases are mapped; same-flow registration
@@ -727,8 +727,34 @@ fewer Rust strings, fewer binaries or a different test count is not speed eviden
 | Phase | Implementation state |
 | --- | --- |
 | TO00 | Complete: family dispositions, UI schema and first-batch inventory frozen |
-| TO01-TO10 | Planned, not started |
+| TO01 | Complete locally: 59 ordinary inputs, 43 retained cases; focused validation passed |
+| TO02-TO10 | Planned, not started |
 | TO11 | Pending completion of owner phases |
+
+2026-10-24 TO01: moved 15 conversion, 27 default-method and 17 standard-trait
+programs to directory discovery. The 59 ordinary inputs match their frozen source
+values byte-for-byte; all retained test bodies/assertions are unchanged. The shared
+cursor uses its canonical CRLF input without a copy or new newline exception.
+Three exact fixture paths permit their inherited final blank line in Git whitespace
+checks; the source values are not trimmed to satisfy a formatting check.
+Admission tests reuse ordinary comparison fixtures. Removed each now-unused local
+`execute` wrapper. Rejection/linking/native-aggregation and standard-trait
+admission/callback/hash boundaries have focused owners; generated arithmetic keeps
+its two-route macro and independent reference/cleanup assertions. No test or
+semantic input was deleted as duplicate in this phase.
+
+Pre/post selected discovery lists both contain 102 cases (59 ordinary, 43 retained).
+Nineteen focused behavioral cases passed across conversion identity/construction,
+rejection/linking/overflow cleanup, defaults/cursor/tuple/capability/arithmetic and
+standard collection/callback/hash/linking contracts. An add/run/remove fixture
+probe independently appeared as case 103, passed its three routes, and disappeared
+again without registration edits; the restored name set matches the 102-case list.
+Static verification compares all inputs and retained bodies against pre-edit
+snapshots. The build script watches the language fixture tree for discovery.
+Workspace Clippy, structure, formatting and diff checks passed. These checks do not
+claim execution of all 102 cases: exhaustive affected suites and the complete
+feature/backend/platform matrix remain CI-owned. No performance result is claimed;
+TO02 and subsequent phases are not complete. No carried implementation errors.
 
 2026-10-24 TO00: implementation/phase commits authorized. Reconciled all 24 members,
 eight integration targets and tracked non-Rust runner/product families. The static

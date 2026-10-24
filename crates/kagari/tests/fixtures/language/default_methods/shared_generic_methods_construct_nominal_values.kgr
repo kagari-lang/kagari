@@ -1,0 +1,22 @@
+
+struct Box<T> { var value: T }
+trait Wrap {
+    fn wrap<T>(self, value: T) -> Box<T> { Box { value: value } }
+    fn update<T>(self, target: Box<T>, value: T) -> T {
+        val old = target.value;
+        target.value = value;
+        old
+    }
+}
+struct Source {}
+impl Wrap for Source {}
+struct Item { val value: i32 }
+fn main() -> i32 {
+    val source: Wrap = Source {};
+    val left = source.wrap(20);
+    val right = source.wrap(Item { value: 21 });
+    if source.update(left, 21) != 20 { return 0; }
+    val previous = source.update(right, Item { value: 21 });
+    if previous.value != 21 { return 0; }
+    left.value + right.value.value
+}

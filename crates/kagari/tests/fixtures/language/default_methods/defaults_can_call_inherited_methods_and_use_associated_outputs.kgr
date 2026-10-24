@@ -1,0 +1,7 @@
+
+trait Read { type Item; fn read(self) -> Self::Item; fn again(self) -> Self::Item { self.read() } }
+trait Child: Read<Item = i32> { fn number(self) -> i32 { self.again() } }
+struct Number {}
+impl Read for Number { type Item = i32; fn read(self) -> i32 { 21 } }
+impl Child for Number {}
+fn main() -> i32 { val child: Child = Number {}; child.number() + child.again() }

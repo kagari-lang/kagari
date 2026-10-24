@@ -1,0 +1,9 @@
+
+trait Read {
+    fn read(self) -> i32;
+    fn again(self) -> i32 { val call = || helper(self); call() }
+}
+fn helper<T: Read>(value: T) -> i32 { value.read() }
+struct Number {}
+impl Read for Number { fn read(self) -> i32 { 42 } }
+fn main() -> i32 { Number {}.again() }

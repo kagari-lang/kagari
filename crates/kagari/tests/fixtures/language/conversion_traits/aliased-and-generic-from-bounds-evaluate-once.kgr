@@ -1,0 +1,14 @@
+
+use core::convert::From as Convert;
+struct Count{val value:i32}
+impl Convert<i32> for Count{fn from(value:i32)->Self{Count{value}}}
+struct Calls{var count:i32}
+fn source(c:Calls)->i32{c.count+=1;21}
+fn convert<S,D:Convert<S>>(value:S)->Result<i32,D> {val x:Result<i32,S> = Err(value);Ok(x?)}
+fn main()->i32 {
+    val calls=Calls{count:0};
+    val a:Result<i32,Count> = convert(source(calls));
+    val b:Result<i32,Count> = convert(source(calls));
+    if calls.count != 2 { return 0; }
+    match a {Err(x)=>match b {Err(y)=>x.value+y.value,Ok(_)=>0},Ok(_)=>0}
+}

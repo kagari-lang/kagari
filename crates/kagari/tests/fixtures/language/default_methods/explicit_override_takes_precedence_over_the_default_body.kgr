@@ -1,0 +1,5 @@
+
+trait Read { fn read(self) -> i32 { 0 } }
+struct Number {}
+impl Read for Number { fn read(self) -> i32 { 21 } }
+fn main() -> i32 { val dynamic: Read = Number {}; Number {}.read() + dynamic.read() }

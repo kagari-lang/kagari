@@ -1,0 +1,10 @@
+
+trait Capture { fn capture<T>(self, value: T) -> fn() -> T { || value } }
+struct Number {}
+struct Item { val value: i32 }
+impl Capture for Number {}
+fn main() -> i32 {
+    val source: Capture = Number {};
+    val get = source.capture(Item { value: 42 });
+    get().value
+}

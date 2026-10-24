@@ -1,0 +1,12 @@
+
+struct Source {val values:Vec<i32>}
+struct Cursor {val values:Vec<i32>,var index:u64}
+impl Iterator for Cursor {
+    type Item=i32;
+    fn next(self)->Option<i32> {if self.index<self.values.len() {val item=self.values[self.index];self.index=self.index+1u64;Some(item)}else{None}}
+}
+impl Iterable for Source {
+    type Item=i32;type Iter=Cursor;
+    fn iter(self)->Cursor {Cursor{values:self.values,index:0u64}}
+}
+fn main()->i32 {i32::sum(Source{values:Vec::from([20,22])})}
