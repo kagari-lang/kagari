@@ -58,16 +58,23 @@ for (const name of [...selected, ...representative]) {
   });
 }
 
-test('character shapes reject multiple scalars and trivia without losing following declarations', () => {
-  for (const literal of ["''", "'ab'", "'e\u0301'", "'\t'", "'\n'", "'\r'", "'a '", "'/*x*/a'", "'a/*x*/'",
-    String.raw`'\x80'`, String.raw`'\u{_41}'`, String.raw`'\u{0000000}'`]) {
+for (const [name, literal] of [
+  ['empty', "''"], ['two-ascii-scalars', "'ab'"], ['combining-second-scalar', "'e\u0301'"],
+  ['physical-tab', "'\t'"], ['physical-lf', "'\n'"], ['physical-cr', "'\r'"],
+  ['trailing-space', "'a '"], ['leading-comment', "'/*x*/a'"], ['trailing-comment', "'a/*x*/'"],
+  ['non-ascii-hex-escape', String.raw`'\x80'`], ['leading-unicode-underscore', String.raw`'\u{_41}'`],
+  ['seven-unicode-digits', String.raw`'\u{0000000}'`],
+]) {
+  test(`native character rejection: ${name}`, () => {
     const source = `fn broken() { val c = ${literal}; }\nfn after() { 42 }`;
     const tree = parse(source);
     assert.ok(tree.rootNode.hasError, literal);
     assert.ok(nodes(tree.rootNode, 'function_item').some(node => node.childForFieldName('name')?.text === 'after'),
       tree.rootNode.toString());
-  }
-  // Escaped scalar-domain checks belong to kagari-source, not this editing grammar.
+  });
+}
+
+test('escaped character scalar-domain checks belong to kagari-source, not the editing grammar', () => {
   valid(String.raw`fn chars() { '\u{D800}'; '\u{110000}'; }`);
 });
 
@@ -168,16 +175,20 @@ test('persistent statics have named typed initializers only at module scope', ()
   assert.equal(nodes(initialized.rootNode, 'static_item')[0].childForFieldName('value').type, 'block');
 });
 
-test('static declarations require a single name, explicit type and initializer', () => {
-  for (const source of [
-    'static count: i64 = 0;', 'static val count = 0;', 'static var count: i64;',
-    'static val count: = 0;', 'static var count: i64 = ;',
-    'static val (left, right): (i64, i64) = (1, 2);',
-    'static val count<T>: T = make();', 'static var count: i64 = 0',
-  ]) {
+for (const [name, source] of [
+  ['missing-binding-kind', 'static count: i64 = 0;'],
+  ['missing-type', 'static val count = 0;'],
+  ['missing-initializer', 'static var count: i64;'],
+  ['missing-type-operand', 'static val count: = 0;'],
+  ['missing-initializer-operand', 'static var count: i64 = ;'],
+  ['destructuring-name', 'static val (left, right): (i64, i64) = (1, 2);'],
+  ['generic-static', 'static val count<T>: T = make();'],
+  ['missing-semicolon', 'static var count: i64 = 0'],
+]) {
+  test(`native static rejection: ${name}`, () => {
     assert.ok(parse(source).rootNode.hasError, source);
-  }
-});
+  });
+}
 
 test('local and associated statics are not valid module items', () => {
   for (const binding of ['val', 'var']) {
@@ -225,17 +236,18 @@ test('struct rest is final and shared by declarations, matches, loops and condit
   }
 });
 
-test('struct updates keep explicit fields and one terminal ordinary base expression', () => {
-  for (const [operand, type] of [
-    ['base', 'path'], ['Default::default()', 'call_expression'],
-    ['make()?.items[0]', 'index_expression'], ['source.await', 'await_expression'],
-    ['{ val next = make(); next }', 'block'],
-    ['if ready { first } else { second }', 'if_expression'],
-    ['match tag { _ => base }', 'match_expression'], ['loop { break base; }', 'loop_expression'],
-    ['Point { ..base }', 'struct_expression'], ['|x: i32| x', 'closure_expression'],
-    ['left + right * 2', 'binary_expression'], ['base as Point', 'cast_expression'],
-    ['1..2', 'range_expression'], ['..end', 'range_expression'], ['..', 'range_expression'],
-  ]) {
+for (const [name, operand, type] of [
+  ['path', 'base', 'path'], ['call', 'Default::default()', 'call_expression'],
+  ['index-after-try', 'make()?.items[0]', 'index_expression'], ['await', 'source.await', 'await_expression'],
+  ['block', '{ val next = make(); next }', 'block'],
+  ['if', 'if ready { first } else { second }', 'if_expression'],
+  ['match', 'match tag { _ => base }', 'match_expression'], ['loop', 'loop { break base; }', 'loop_expression'],
+  ['nested-update', 'Point { ..base }', 'struct_expression'], ['closure', '|x: i32| x', 'closure_expression'],
+  ['binary', 'left + right * 2', 'binary_expression'], ['cast', 'base as Point', 'cast_expression'],
+  ['bounded-range', '1..2', 'range_expression'], ['end-only-range', '..end', 'range_expression'],
+  ['unbounded-range', '..', 'range_expression'],
+]) {
+  test(`native update operand: ${name}`, () => {
     const tree = valid(`fn main() { model::Point<i32> { x: 1, label, ..${operand} } }`);
     const struct = nodes(tree.rootNode, 'struct_expression')[0];
     assert.equal(struct.childForFieldName('type').text, 'model::Point');
@@ -247,7 +259,10 @@ test('struct updates keep explicit fields and one terminal ordinary base express
     assert.equal(base.childForFieldName('value').type, type, operand);
     assert.equal(base.childForFieldName('value').text, operand);
     assert.equal(nodes(tree.rootNode, 'rest_pattern').length, 0);
-  }
+  });
+}
+
+test('struct updates remain distinct from ranges and pattern rest', () => {
   const tree = valid(`fn main() {
     Point {}; Point { x, }; Point { ..base }; Point { x: ..end, ..base };
     val Point { .., } = base;
@@ -259,20 +274,23 @@ test('struct updates keep explicit fields and one terminal ordinary base express
   assert.equal(nodes(tree.rootNode, 'rest_pattern').length, 1);
 });
 
-test('malformed update placement and missing operands preserve following source', () => {
-  for (const expression of ['Point { .. }', 'Point { x, .. }', 'Point { ..base, }',
-    'Point { ..base, x: 1 }', 'Point { ..base, ..other }', 'Point { ..=base }',
-    'Point { x ..base }']) {
-    for (const eol of ['\n', '\r\n']) {
+for (const [label, eol] of [['LF', '\n'], ['CRLF', '\r\n']]) {
+  for (const [name, expression] of [
+    ['empty', 'Point { .. }'], ['field-with-empty', 'Point { x, .. }'],
+    ['trailing-comma', 'Point { ..base, }'], ['field-after-base', 'Point { ..base, x: 1 }'],
+    ['second-base', 'Point { ..base, ..other }'], ['inclusive-marker', 'Point { ..=base }'],
+    ['missing-field-comma', 'Point { x ..base }'],
+  ]) {
+    test(`native update recovery ${label}: ${name}`, () => {
       const tree = parse(`fn main() { val broken = ${expression};${eol}val after = 42; }${eol}fn later() { 7 }`);
       assert.ok(tree.rootNode.hasError, expression);
       assert.ok(nodes(tree.rootNode, 'binding_statement').some(n => n.childForFieldName('pattern')?.text === 'after'),
         tree.rootNode.toString());
       assert.ok(nodes(tree.rootNode, 'function_item').some(n => n.childForFieldName('name')?.text === 'later'),
         tree.rootNode.toString());
-    }
+    });
   }
-});
+}
 
 test('struct update bindings precede identifier interpolation', () => {
   for (const eol of ['\n', '\r\n']) {
@@ -451,44 +469,48 @@ function editSequence(initial, edits) {
   }
 }
 
-test('incremental quotes, hole/block braces and nested comment terminators agree with fresh parsing', () => {
-  for (const eol of ['\n', '\r\n']) {
-    editSequence(`mod state {${eol}static var count: i64 = 0;${eol}fn after() { count }${eol}}`, [
+for (const [label, eol] of [['LF', '\n'], ['CRLF', '\r\n']]) {
+  for (const [name, initial, edits] of [
+    ['static-declaration', `mod state {${eol}static var count: i64 = 0;${eol}fn after() { count }${eol}}`, [
       ['static var', 'static val'], [': i64', ':'], [': =', ': i64 ='],
       ['= 0;', '= ;'], ['= ;', '= { val initial = 1; initial };'],
       ['static val', 'val'], ['val count', 'static val count'],
-    ]);
-    editSequence(['fn main() {', 'val s = "文🙂";', 'val after = 42;', '}'].join(eol), [
+    ]],
+    ['cooked-string-and-hole', ['fn main() {', 'val s = "文🙂";', 'val after = 42;', '}'].join(eol), [
       ['文🙂"', '文🙂'], ['文🙂', '文🙂"'], ['"文🙂"', '"文🙂 {after}"'],
       ['{after}', '{{after}'], ['{{after}', '{after}'],
       ['{after}', '{after:?}'], ['{after:?}', '{after: ?}'], ['{after: ?}', '{after:?}'],
-    ]);
-    editSequence(`fn main() {${eol}val (left, Point { x: renamed, .. }) = input;${eol}val after = 42; }`, [
+    ]],
+    ['binding-pattern', `fn main() {${eol}val (left, Point { x: renamed, .. }) = input;${eol}val after = 42; }`, [
       ['.. }', '. }'], ['. }', '.. }'], ['.. })', '.. )'], ['.. )', '.. })'],
       ['(left, Point', '((left, _) | (_, left), Point'],
-    ]);
-    editSequence(['fn main() { val point = Point { label: "inner {score}", ..base };',
+    ]],
+    ['struct-update-and-string', ['fn main() { val point = Point { label: "inner {score}", ..base };',
       '"outer {point} tail"; val after = 42; }'].join(eol), [
       ['..base', '..'], ['.. };', '..base };'],
       ['..base', '..base,'], ['..base,', '..base'],
       ['inner {score}"', 'inner {score}'], ['inner {score}', 'inner {score}"'],
-    ]);
-    editSequence(`/* outer /* inner */ end */${eol}fn main() { 42 }`, [
+    ]],
+    ['nested-comment', `/* outer /* inner */ end */${eol}fn main() { 42 }`, [
       ['inner */', 'inner'], ['inner', 'inner */'], ['end */', 'end'], ['end', 'end */'],
-    ]);
-    editSequence(['fn main() { val bytes = b"first', String.raw`{name} \xFF`, '"; val after = 42; }'].join(eol), [
+    ]],
+    ['cooked-byte', ['fn main() { val bytes = b"first', String.raw`{name} \xFF`, '"; val after = 42; }'].join(eol), [
       ['b"', 'br"'], ['br"', 'b"'], ['{name}', '{name:?}'],
       ['\\xFF', '\\u{41}'], ['\\u{41}', '\\xFF'], ['first', 'non-ASCII é'], ['non-ASCII é', 'first'],
       ['"; val after', '; val after'], ['; val after', '"; val after'],
-    ]);
-    editSequence(['fn main() { val raw = br##"first', String.raw`{name} \n "# last`, '"##; val after = 42; }'].join(eol), [
+    ]],
+    ['raw-byte', ['fn main() { val raw = br##"first', String.raw`{name} \n "# last`, '"##; val after = 42; }'].join(eol), [
       ['br##"', 'br#"'], ['br#"', 'br##"'],
       ['"##;', '"#;'], ['"#;', '"##;'], ['br##"', 'r##"'], ['r##"', 'br##"'],
-    ]);
-    editSequence(['fn main() { val raw = r##"first', String.raw`{name} \n "# last`, '"##; val after = 42; }'].join(eol), [
+    ]],
+    ['raw-string', ['fn main() { val raw = r##"first', String.raw`{name} \n "# last`, '"##; val after = 42; }'].join(eol), [
       ['r##"', 'r#"'], ['r#"', 'r##"'],
       ['"##;', '"#;'], ['"#;', '"##;'],
       ['{name}', '{name:?}'], ['{name:?}', '{name}'],
-    ]);
+    ]],
+  ]) {
+    test(`native incremental sequence: ${name}-${label}`, () => {
+      editSequence(initial, edits);
+    });
   }
-});
+}

@@ -135,7 +135,7 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   complete locally, as are TO04 HIR/package and TO05 executable-contract
   organization, TO06 SDK lifecycle/product and TO07 runtime/VM/stdlib work;
   TO08 foundational/native consumers and TO09 tooling/UI are complete locally;
-  TO10 native ecosystems/workflows and final reconciliation remain. The pilot and lasting rules remain in
+  TO10 native ecosystems/workflows are complete locally; TO11 reconciliation remains. The pilot and lasting rules remain in
   the [testing guide](testing.md), with previous performance debt kept separate.
 - [Script testing](script-testing-design.md): proposed `kg test`, source-owned
   `#[test]` functions and host-orchestrated fixtures; design only, separate from

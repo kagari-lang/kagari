@@ -640,13 +640,13 @@ selectors; real process/filesystem/adapter boundaries remain intact.
 
 ### TO10 — Native runner ecosystems, workflows and benchmarks
 
-- [ ] Review Node/editor/site and Python families with their existing frameworks.
+- [x] Review Node/editor/site and Python families with their existing frameworks.
   Use named cases/subtests and externalize substantial fixed inputs when beneficial;
   retain Tree-sitter corpus and shared lexical oracles instead of duplicating them.
-- [ ] Keep real native/WASI grammar products, TextMate/Oniguruma, editor hosts,
+- [x] Keep real native/WASI grammar products, TextMate/Oniguruma, editor hosts,
   browser/WASM/Worker/UI, standalone feature/AOT guards and platform prerequisites
   distinct. Fake Worker or in-process checks cannot replace actual consumers.
-- [ ] Classify benchmark/example/manual roles. Preserve independent references,
+- [x] Classify benchmark/example/manual roles. Preserve independent references,
   workload registries/digests, timing regions, batches and sampling; representation
   cleanup does not authorize redesigning or rerunning performance acceptance.
 
@@ -736,8 +736,41 @@ fewer Rust strings, fewer binaries or a different test count is not speed eviden
 | TO07 | Complete locally: runtime rows, VM sources/support and stdlib preparation |
 | TO08 | Complete locally: common/types/native rows and public consumer review |
 | TO09 | Complete locally: formatter/lint/tooling rows and real-process CLI UI |
-| TO10 | Planned, not started |
+| TO10 | Complete locally: native named rows, browser source data and runner reconciliation |
 | TO11 | Pending completion of owner phases |
+
+2026-10-24 TO10: five native grammar groups expose 65 named rejection/operand/
+recovery/incremental rows. Each incremental history retains its full edit sequence;
+strong AST/physical span/fresh-vs-incremental observations remain unchanged. Two
+preservation cases keep escaped-character domain delegation and combined update/
+range/rest distinctions. Five direct-browser source values move byte-exactly to
+fixtures; the existing eleven-case runner reads them once without normalization,
+keeps explicit metadata and rechecks hashes. Missing files fail. Two stale profile
+descriptions are corrected without changing release recipes or measured windows.
+All 27 non-Rust/product/benchmark family subdivisions retain their original native
+framework, generated products/oracles, process/Worker/UI distinction, provenance,
+digests, timing regions and API/example/measurement roles. No workflow selector,
+production grammar/Worker, dependency, target or benchmark change.
+
+Initial selected native failures reproduced before edits. Queries showed the local
+ignored addon lacked char_literal and struct_update_base despite current metadata.
+Existing `npm run build` rebuilt only that addon from committed C/scanner sources
+with installed node-gyp/VS2022/Python/cached headers; no generation or installation.
+Both queries then worked and the exact affected selection passed 27/27, including
+all 16 incremental histories and the original character/update failures. Generated
+source hashes and every tracked/fixture byte stayed unchanged during rebuilding.
+This disposable-product mismatch is resolved, not a carried semantic failure.
+
+Selected TextMate, FakeWorker and Python framing cases passed (one each), plus 13
+site provenance/mutation cases. Node syntax, exact row/source/assertion/loader/scope
+proofs, workspace Clippy, format, structure (1,603 files, zero findings/exceptions)
+and diff checks passed. Actual browser/Worker/UI require missing site dependencies,
+fresh source/artifact WASM bindings, native artifact and matching bindgen; actual
+WASI/Zed require SDK/staging/host prerequisites. Zed exit 2 remains incomplete, not
+success. Existing VS Code host assertions still conflict with current single-quote
+pairing config; this unrelated host-oracle drift is retained for its existing
+roadmap owner rather than silently changing assertions. Real hosts, product/AOT/
+feature matrices and measurements remain CI/manual scope. TO11 reconciliation next.
 
 2026-10-24 TO09: formatter -> lint -> CLI -> analyzer -> web checkpoints complete.
 Eleven formatter pairs and seven lint sources are byte-exact fixtures; meaningful

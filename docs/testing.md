@@ -210,6 +210,23 @@ example tree. This hook adds no source-analysis or framework production dependen
 The separate [script testing proposal](script-testing-design.md) does not provide
 an implemented `kg test` runner and is not a prerequisite for these patterns.
 
+## Native ecosystem and product boundaries
+
+Use Node's native named tests, Python `unittest`/`subTest`, Tree-sitter corpus and
+existing browser/editor runners rather than translating them into Rust cases.
+A complete incremental edit history remains one scenario. Direct-browser fixed
+sources live under `site/scripts/fixtures/wasm-browser`; the existing runner keeps
+mode/result/effect metadata and fails missing data without normalizing its bytes.
+
+Native binding, WASI grammar, TextMate/Oniguruma, actual editor hosts, FakeWorker,
+actual Worker, direct WASM and browser UI prove different boundaries. Refresh a
+stale ignored native binding from committed sources before diagnosing grammar
+semantics; metadata or a native query alone is not actual-host acceptance. Zed's
+host probe exit 2 is explicitly incomplete. Keep fixture producers, product hashes,
+source-free graphs, source-deleted AOT and benchmark timing/allocator windows at
+their existing owners. Static extraction/provenance checks do not pass an unrun
+browser/product/feature matrix or establish a speedup.
+
 ## Default placement and integration exceptions
 
 Put ordinary tests beside their semantic owner under `src/`, using `#[cfg(test)]`

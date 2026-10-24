@@ -495,8 +495,8 @@ focused behavior, fixture equivalence and discovery checks passed. TO03 parser
 UI/source ownership and TO04 HIR/package organization are complete locally;
 TO05 executable-contract and TO06 SDK lifecycle/product organization are also
 complete locally, as are TO07 runtime/VM/stdlib and TO08 foundational/native
-consumers and TO09 tooling/UI; TO10 native ecosystems/workflows and final
-reconciliation remain. The user authorized implementation and phase commits. This creates no
+consumers, TO09 tooling/UI and TO10 native ecosystems/workflows. Final TO11
+reconciliation remains. The user authorized implementation and phase commits. This creates no
 new test binary/framework layer and does not replace the older measurement debt
 below; complete CI acceptance remains separate.
 
