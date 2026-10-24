@@ -1,0 +1,7 @@
+fn main() -> i32 {
+    val event = enums::roundtrip(enums::make([40], 2));
+    match event {
+        enums::Event::Data(value, sequence) => value[0u64] + sequence,
+        enums::Event::Closed => 0
+    }
+}

@@ -22,6 +22,7 @@ use kagari_source::{
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer, SourceSnapshot},
 };
+use rstest::rstest;
 use std::sync::Arc;
 
 fn engine() -> KagariEngine {
@@ -167,7 +168,8 @@ fn complete_package_batch_adds_modules_and_preserves_state_and_failed_baseline()
 
 #[test]
 fn opaque_private_method_and_named_local_targets_preserve_context_and_locator_identity() {
-    let source = "pub trait Bound {} fn hidden() -> i32 { 1 } struct CapsuleItem {} impl CapsuleItem { fn capsule_read(self) -> i32 { hidden() } } pub fn answer() -> i32 { CapsuleItem {}.capsule_read() } pub fn named() -> i32 { fn capsule_local() -> i32 { 3 } capsule_local() } mod inner { use crate::Bound; pub fn unused<T>(v: T) -> i32 where T: Bound { 5 } } pub use crate::inner::unused as generic_alias;";
+    let source =
+        include_str!("../../../tests/fixtures/embedding/source-updates/private-targets.kgr");
     let engine = engine();
     let prepared = prepare(&engine, source);
     let mut runtime = engine.runtime(Default::default());
@@ -234,7 +236,8 @@ fn retained_old_closure_demands_recompile_generic_applications_removed_from_new_
 #[test]
 fn malformed_duplicate_overlapping_and_foreign_updates_leave_source_unchanged() {
     let engine = engine();
-    let source = "pub fn answer() -> i32 { fn nested_target() -> i32 { 1 } nested_target() } pub use crate::answer as alias; struct NotAFunction {}";
+    let source =
+        include_str!("../../../tests/fixtures/embedding/source-updates/invalid-batches.kgr");
     let prepared = prepare(&engine, source);
     let mut runtime = engine.runtime(Default::default());
     let program = runtime.load_program(&prepared, Default::default()).unwrap();
@@ -354,8 +357,12 @@ fn admission_bounds_and_request_cancellation_precede_compilation() {
     assert_eq!(call(&runtime, &program, "answer"), 2);
 }
 
-#[test]
-fn artifact_source_is_opt_in_and_low_level_or_artifact_reload_never_reuses_old_capsules() {
+#[rstest]
+#[case::sdk_reload(false)]
+#[case::core_reload(true)]
+fn artifact_source_is_opt_in_and_low_level_or_artifact_reload_never_reuses_old_capsules(
+    #[case] low_level: bool,
+) {
     let engine = engine();
     let checked = checked_source("pub fn answer() -> i32 { 1 }");
     let direct = engine.prepare(&checked, Default::default()).unwrap();
@@ -381,46 +388,44 @@ fn artifact_source_is_opt_in_and_low_level_or_artifact_reload_never_reuses_old_c
     )
     .unwrap();
     assert!(artifact.bytecode().source_package().is_some());
-    for low_level in [false, true] {
-        let mut runtime = engine.runtime(Default::default());
-        let program = runtime.load_program(&direct, Default::default()).unwrap();
-        if low_level {
-            let candidate = runtime
-                .runtime()
-                .stage_reload_verified_program(&program, None, artifact.bytecode().clone())
-                .unwrap();
-            runtime.runtime().publish_staged_reload(candidate).unwrap();
-        } else {
-            runtime
-                .reload_program(&program, &artifact, Default::default())
-                .unwrap();
-        }
-        assert!(
-            runtime
-                .source_snapshot(&program)
-                .unwrap()
-                .source_package()
-                .is_some()
-        );
-        let mut update = Update::new();
-        update.replace_function("answer", "pub fn answer() -> i32 { 2 }");
-        assert!(
-            matches!(runtime.update(&program, update), Err(EmbeddingError::Source { message }) if message.contains("MissingCompilationContext"))
-        );
-        assert_eq!(call(&runtime, &program, "answer"), 1);
-        runtime
-            .reload_program(&program, &direct, Default::default())
+    let mut runtime = engine.runtime(Default::default());
+    let program = runtime.load_program(&direct, Default::default()).unwrap();
+    if low_level {
+        let candidate = runtime
+            .runtime()
+            .stage_reload_verified_program(&program, None, artifact.bytecode().clone())
             .unwrap();
-        let mut update = Update::new();
-        update.replace_function("answer", "pub fn answer() -> i32 { 3 }");
-        runtime.update(&program, update).unwrap();
-        assert_eq!(call(&runtime, &program, "answer"), 3);
+        runtime.runtime().publish_staged_reload(candidate).unwrap();
+    } else {
+        runtime
+            .reload_program(&program, &artifact, Default::default())
+            .unwrap();
     }
+    assert!(
+        runtime
+            .source_snapshot(&program)
+            .unwrap()
+            .source_package()
+            .is_some()
+    );
+    let mut update = Update::new();
+    update.replace_function("answer", "pub fn answer() -> i32 { 2 }");
+    assert!(
+        matches!(runtime.update(&program, update), Err(EmbeddingError::Source { message }) if message.contains("MissingCompilationContext"))
+    );
+    assert_eq!(call(&runtime, &program, "answer"), 1);
+    runtime
+        .reload_program(&program, &direct, Default::default())
+        .unwrap();
+    let mut update = Update::new();
+    update.replace_function("answer", "pub fn answer() -> i32 { 3 }");
+    runtime.update(&program, update).unwrap();
+    assert_eq!(call(&runtime, &program, "answer"), 3);
 }
 
 #[test]
 fn generic_alias_retargeting_compares_binders_bounds_and_results_without_instances() {
-    let source = "pub trait Bound {} pub trait Other {} pub fn first<T>(x: T) -> i32 where T: Bound { 1 } pub fn second<U>(x: U) -> i32 where U: Bound { 2 } pub fn other_bound<V>(x: V) -> i32 where V: Other { 3 } pub fn other_result<W>(x: W) -> bool where W: Bound { true } pub fn answer() -> i32 { 1 } pub use crate::first as alias;";
+    let source = include_str!("../../../tests/fixtures/embedding/source-updates/generic-alias.kgr");
     let engine = engine();
     let prepared = prepare(&engine, source);
     let mut runtime = engine.runtime(Default::default());
@@ -463,7 +468,10 @@ fn generic_alias_retargeting_compares_binders_bounds_and_results_without_instanc
         "pub fn second<U>(x: U) -> i32 where U: Bound { 20 }",
     );
     runtime.update(&program, update).unwrap();
-    assert!(text(&runtime, &program, &first).contains("{ 1 }"));
+    assert_eq!(
+        text(&runtime, &program, &first),
+        "pub fn first<T>(x: T) -> i32 where T: Bound {\n    1\n}"
+    );
     assert!(text(&runtime, &program, &second).contains("{ 20 }"));
 }
 

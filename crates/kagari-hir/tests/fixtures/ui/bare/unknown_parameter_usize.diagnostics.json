@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_TYPE_UNKNOWN_TYPE",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 19,
+          "path": "test.kg",
+          "start": 13
+        }
+      }
+    ],
+    "message": "unknown parameter type `usize` in function `foo`",
+    "notes": [],
+    "primary": {
+      "end": 19,
+      "path": "test.kg",
+      "start": 13
+    },
+    "severity": "error"
+  }
+]

@@ -493,39 +493,181 @@ pub(crate) fn usage() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cli, Command, DisassemblyMode, ProjectAction};
+    use super::{Cli, Command, DisassemblyMode, FormatArgs, ProjectAction, ProjectArgs};
     use crate::report::MessageFormat;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::all(&[], DisassemblyMode::All)]
+    #[case::list_functions(&["--list-functions"], DisassemblyMode::ListFunctions)]
+    #[case::artifact_slot(
+                &["--function", "@0:3"],
+                DisassemblyMode::Function("@0:3".into()),
+            )]
+    #[case::raw_unicode_selector(
+                &["--function", "module::名前\u{202e}"],
+                DisassemblyMode::Function("module::名前\u{202e}".into()),
+            )]
+    fn disassembly_modes_preserve_raw_selectors_and_allow_option_ordering(
+        #[case] options: &[&str],
+        #[case] mode: DisassemblyMode,
+        #[values(0, 1, 2)] position: usize,
+    ) {
+        let mut args = vec!["disasm", "file.kbc"];
+        args.splice(position..position, options.iter().copied());
+        assert_eq!(
+            Cli::parse(args.iter().map(|arg| (*arg).to_owned())).unwrap(),
+            Cli {
+                command: Command::Disassemble {
+                    artifact: "file.kbc".into(),
+                    mode: mode.clone(),
+                },
+                jit: false,
+            },
+            "{args:?}",
+        );
+    }
+
+    #[rstest]
+    #[case::missing_artifact(&["disasm"])]
+    #[case::empty_artifact(&["disasm", ""])]
+    #[case::stdin_artifact(&["disasm", "-"])]
+    #[case::extra_artifact(&["disasm", "file.kbc", "extra.kbc"])]
+    #[case::missing_selector(&["disasm", "file.kbc", "--function"])]
+    #[case::empty_selector(&["disasm", "file.kbc", "--function", ""])]
+    #[case::selector_is_option(&["disasm", "file.kbc", "--function", "--list-functions"])]
+    #[case::duplicate_list_trailing(&["disasm", "file.kbc", "--list-functions", "--list-functions"])]
+    #[case::duplicate_list_across_command(&["--list-functions", "disasm", "--list-functions", "file.kbc"])]
+    #[case::duplicate_selector_across_command(&[
+                "--function",
+                "@0:0",
+                "disasm",
+                "file.kbc",
+                "--function",
+                "@0:1",
+            ])]
+    #[case::list_then_selector_across_command(&[
+                "--list-functions",
+                "disasm",
+                "--function",
+                "@0:0",
+                "file.kbc",
+            ])]
+    #[case::selector_then_list_across_command(&[
+                "--function",
+                "@0:0",
+                "disasm",
+                "file.kbc",
+                "--list-functions",
+            ])]
+    #[case::post_terminator_extra_operand(&["disasm", "file.kbc", "--", "--list-functions"])]
+    #[case::duplicate_selector_trailing(&[
+                "disasm",
+                "file.kbc",
+                "--function",
+                "@0:0",
+                "--function",
+                "@0:1",
+            ])]
+    #[case::list_then_selector_trailing(&[
+                "disasm",
+                "file.kbc",
+                "--list-functions",
+                "--function",
+                "@0:0",
+            ])]
+    #[case::selector_then_list_trailing(&[
+                "disasm",
+                "file.kbc",
+                "--function",
+                "@0:0",
+                "--list-functions",
+            ])]
+    #[case::list_on_run_artifact(&["run-artifact", "file.kbc", "--list-functions"])]
+    #[case::selector_on_check(&["check", "--function", "main"])]
+    #[case::selector_on_implicit_artifact(&["file.kbc", "--function", "main"])]
+    fn disassembly_rejects_invalid_operands_and_selection_modes(#[case] args: &[&str]) {
+        let error = Cli::parse(args.iter().map(|arg| (*arg).to_owned())).unwrap_err();
+        assert_eq!(error.exit_code(), 2, "{args:?}");
+    }
+
+    #[rstest]
+    #[case::jit(&["--jit"])]
+    #[case::no_jit(&["--no-jit"])]
+    #[case::manifest(&["--manifest-path", "Kagari.toml"])]
+    #[case::input_root(&["--input-root", "."])]
+    #[case::package_short(&["-p", "game"])]
+    #[case::package_long(&["--package", "game"])]
+    #[case::workspace(&["--workspace"])]
+    #[case::locked(&["--locked"])]
+    #[case::offline(&["--offline"])]
+    #[case::frozen(&["--frozen"])]
+    #[case::output_short(&["-o", "out.kbc"])]
+    #[case::output_long(&["--output", "out.kbc"])]
+    #[case::message_format(&["--message-format", "human"])]
+    #[case::format_check(&["--check"])]
+    #[case::indent_width(&["--indent-width", "4"])]
+    #[case::max_width(&["--max-width", "80"])]
+    #[case::newline(&["--newline", "lf"])]
+    #[case::list_rules(&["--list-rules"])]
+    #[case::explain_unknown(&["--explain", "unknown"])]
+    #[case::deny_warnings(&["-D", "warnings"])]
+    #[case::allow_unknown(&["-A", "unknown"])]
+    #[case::warn_unknown(&["-W", "unknown"])]
+    #[case::escaped_unknown_option(&["--unknown\n\u{202e}"])]
+    fn disassembly_rejects_unrelated_options_including_leading_options(
+        #[case] options: &[&str],
+        #[values(0, 1, 2)] position: usize,
+    ) {
+        let mut args = vec!["disasm", "file.kbc"];
+        args.splice(position..position, options.iter().copied());
+        let error = Cli::parse(args.iter().map(|arg| (*arg).to_owned())).unwrap_err();
+        assert_eq!(error.exit_code(), 2, "{args:?}");
+        assert!(!error.to_string().contains('\n'), "{args:?}");
+        assert!(!error.to_string().contains('\u{202e}'), "{args:?}");
+    }
+
+    #[rstest]
+    #[case::frozen_package_build(&["--frozen", "build", "-p", "game", "--manifest-path", "project/Kagari.toml"], Cli { command: Command::Project {action: ProjectAction::Build, options: ProjectArgs { packages: vec!["game".into()], locked: true, offline: true, manifest: Some("project/Kagari.toml".into()), ..Default::default()}}, jit: false})]
+    #[case::trailing_jit_run(&["run", "main.kgr", "--jit"], Cli {command: Command::RunSource {source: "main.kgr".into()}, jit: true})]
+    #[case::json_source_check(&["check", "main.kgr", "--message-format", "json"], Cli {command: Command::Check {source: "main.kgr".into(), format: MessageFormat::Json}, jit: false})]
+    #[case::stdin_format_width(&["fmt", "-", "--max-width", "80"], Cli {command: Command::Format {source: "-".into(), options: FormatArgs {max_width: Some(80), ..Default::default()}}, jit: false})]
+    fn project_options_are_order_independent_and_command_scoped(
+        #[case] args: &[&str],
+        #[case] expected: Cli,
+    ) {
+        assert_eq!(
+            Cli::parse(args.iter().map(|arg| (*arg).to_owned())).unwrap(),
+            expected
+        );
+    }
+
+    #[rstest]
+    #[case::source_with_lock(&["check", "main.kgr", "--locked"])]
+    #[case::check_output(&["check", "-o", "ignored.kbc"])]
+    #[case::workspace_and_package(&["build", "--workspace", "-p", "game"])]
+    #[case::missing_manifest_value(&["run", "--manifest-path"])]
+    #[case::build_source_operand(&["build", "main.kgr"])]
+    #[case::parse_unknown(&["parse", "--unknown"])]
+    #[case::check_jit(&["check", "--jit"])]
+    #[case::yaml_message_format(&["check", "--message-format", "yaml"])]
+    #[case::build_json(&["build", "--message-format", "json"])]
+    #[case::unsupported_fix(&["check", "--fix"])]
+    #[case::stdin_format_check(&["fmt", "-", "--check"])]
+    #[case::source_fmt_lock(&["fmt", "file.kgr", "--locked"])]
+    #[case::workspace_fmt_frozen(&["fmt", "--workspace", "--frozen"])]
+    #[case::zero_max_width(&["fmt", "file.kgr", "--max-width", "0"])]
+    #[case::stdin_check(&["check", "-"])]
+    #[case::format_flag_on_check(&["check", "--check"])]
+    fn project_options_reject_invalid_combinations(#[case] args: &[&str]) {
+        assert!(
+            Cli::parse(args.iter().map(|arg| (*arg).to_owned())).is_err(),
+            "{args:?}"
+        );
+    }
 
     #[test]
-    fn disassembly_modes_preserve_raw_selectors_and_allow_option_ordering() {
-        for (options, mode) in [
-            (vec![], DisassemblyMode::All),
-            (vec!["--list-functions"], DisassemblyMode::ListFunctions),
-            (
-                vec!["--function", "@0:3"],
-                DisassemblyMode::Function("@0:3".into()),
-            ),
-            (
-                vec!["--function", "module::名前\u{202e}"],
-                DisassemblyMode::Function("module::名前\u{202e}".into()),
-            ),
-        ] {
-            for position in 0..=2 {
-                let mut args = vec!["disasm", "file.kbc"];
-                args.splice(position..position, options.iter().copied());
-                assert_eq!(
-                    Cli::parse(args.iter().map(|arg| (*arg).to_owned())).unwrap(),
-                    Cli {
-                        command: Command::Disassemble {
-                            artifact: "file.kbc".into(),
-                            mode: mode.clone(),
-                        },
-                        jit: false,
-                    },
-                    "{args:?}",
-                );
-            }
-        }
+    fn disassembly_accepts_dash_path_after_terminator() {
         assert!(matches!(
             Cli::parse(["disasm", "--", "--file.kbc"].map(str::to_owned))
                 .unwrap()
@@ -535,168 +677,10 @@ mod tests {
     }
 
     #[test]
-    fn disassembly_rejects_invalid_operands_and_selection_modes() {
-        for args in [
-            vec!["disasm"],
-            vec!["disasm", ""],
-            vec!["disasm", "-"],
-            vec!["disasm", "file.kbc", "extra.kbc"],
-            vec!["disasm", "file.kbc", "--function"],
-            vec!["disasm", "file.kbc", "--function", ""],
-            vec!["disasm", "file.kbc", "--function", "--list-functions"],
-            vec!["disasm", "file.kbc", "--list-functions", "--list-functions"],
-            vec!["--list-functions", "disasm", "--list-functions", "file.kbc"],
-            vec![
-                "--function",
-                "@0:0",
-                "disasm",
-                "file.kbc",
-                "--function",
-                "@0:1",
-            ],
-            vec![
-                "--list-functions",
-                "disasm",
-                "--function",
-                "@0:0",
-                "file.kbc",
-            ],
-            vec![
-                "--function",
-                "@0:0",
-                "disasm",
-                "file.kbc",
-                "--list-functions",
-            ],
-            vec!["disasm", "file.kbc", "--", "--list-functions"],
-            vec![
-                "disasm",
-                "file.kbc",
-                "--function",
-                "@0:0",
-                "--function",
-                "@0:1",
-            ],
-            vec![
-                "disasm",
-                "file.kbc",
-                "--list-functions",
-                "--function",
-                "@0:0",
-            ],
-            vec![
-                "disasm",
-                "file.kbc",
-                "--function",
-                "@0:0",
-                "--list-functions",
-            ],
-            vec!["run-artifact", "file.kbc", "--list-functions"],
-            vec!["check", "--function", "main"],
-            vec!["file.kbc", "--function", "main"],
-        ] {
-            let error = Cli::parse(args.iter().map(|arg| (*arg).to_owned())).unwrap_err();
-            assert_eq!(error.exit_code(), 2, "{args:?}");
-        }
+    fn disassembly_selector_validation_is_not_argument_parsing() {
         // Selector syntax and existence belong to library selection (status 1), not parsing.
         assert!(
             Cli::parse(["disasm", "file.kbc", "--function", "@bad"].map(str::to_owned)).is_ok()
         );
-    }
-
-    #[test]
-    fn disassembly_rejects_unrelated_options_including_leading_options() {
-        for options in [
-            vec!["--jit"],
-            vec!["--no-jit"],
-            vec!["--manifest-path", "Kagari.toml"],
-            vec!["--input-root", "."],
-            vec!["-p", "game"],
-            vec!["--package", "game"],
-            vec!["--workspace"],
-            vec!["--locked"],
-            vec!["--offline"],
-            vec!["--frozen"],
-            vec!["-o", "out.kbc"],
-            vec!["--output", "out.kbc"],
-            vec!["--message-format", "human"],
-            vec!["--check"],
-            vec!["--indent-width", "4"],
-            vec!["--max-width", "80"],
-            vec!["--newline", "lf"],
-            vec!["--list-rules"],
-            vec!["--explain", "unknown"],
-            vec!["-D", "warnings"],
-            vec!["-A", "unknown"],
-            vec!["-W", "unknown"],
-            vec!["--unknown\n\u{202e}"],
-        ] {
-            for position in 0..=2 {
-                let mut args = vec!["disasm", "file.kbc"];
-                args.splice(position..position, options.iter().copied());
-                let error = Cli::parse(args.iter().map(|arg| (*arg).to_owned())).unwrap_err();
-                assert_eq!(error.exit_code(), 2, "{args:?}");
-                assert!(!error.to_string().contains('\n'), "{args:?}");
-                assert!(!error.to_string().contains('\u{202e}'), "{args:?}");
-            }
-        }
-    }
-
-    #[test]
-    fn project_options_are_order_independent_and_command_scoped() {
-        let parse = |args: &[&str]| Cli::parse(args.iter().map(|arg| (*arg).to_owned()));
-        let cli = parse(&[
-            "--frozen",
-            "build",
-            "-p",
-            "game",
-            "--manifest-path",
-            "project/Kagari.toml",
-        ])
-        .unwrap();
-        let Command::Project { action, options } = cli.command else {
-            panic!("project command")
-        };
-        assert_eq!(action, ProjectAction::Build);
-        assert_eq!(options.packages, ["game"]);
-        assert!(options.locked && options.offline);
-        assert_eq!(
-            options.manifest.unwrap().to_str(),
-            Some("project/Kagari.toml")
-        );
-        assert!(parse(&["run", "main.kgr", "--jit"]).unwrap().jit);
-        assert!(matches!(
-            parse(&["check", "main.kgr", "--message-format", "json"])
-                .unwrap()
-                .command,
-            Command::Check {
-                format: MessageFormat::Json,
-                ..
-            }
-        ));
-        assert!(matches!(
-            parse(&["fmt", "-", "--max-width", "80"]).unwrap().command,
-            Command::Format { .. }
-        ));
-        for args in [
-            vec!["check", "main.kgr", "--locked"],
-            vec!["check", "-o", "ignored.kbc"],
-            vec!["build", "--workspace", "-p", "game"],
-            vec!["run", "--manifest-path"],
-            vec!["build", "main.kgr"],
-            vec!["parse", "--unknown"],
-            vec!["check", "--jit"],
-            vec!["check", "--message-format", "yaml"],
-            vec!["build", "--message-format", "json"],
-            vec!["check", "--fix"],
-            vec!["fmt", "-", "--check"],
-            vec!["fmt", "file.kgr", "--locked"],
-            vec!["fmt", "--workspace", "--frozen"],
-            vec!["fmt", "file.kgr", "--max-width", "0"],
-            vec!["check", "-"],
-            vec!["check", "--check"],
-        ] {
-            assert!(parse(&args).is_err(), "{args:?}");
-        }
     }
 }

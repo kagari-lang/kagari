@@ -4,7 +4,11 @@
 affected contract tests locally; CI owns complete workspace tests and exhaustive
 feature/backend validation. Full-workspace Clippy runs locally for implementation
 acceptance: `cargo clippy --workspace --all-targets -- -D warnings`.
-This page defines source ownership, justified integration targets and reusable test setup.
+This page defines source ownership, fixture formats, justified integration targets
+and reusable test setup. The repository-wide organization migration is complete;
+Git history owns its phase ledger and command logs. Remaining performance
+measurement work belongs to the existing [preparation plan](test-preparation-plan.md),
+not a second test-organization queue.
 
 ## Match the test to its semantic owner
 
@@ -12,7 +16,290 @@ Parser tests should not construct an SDK engine. Typing tests should use HIR;
 runtime ownership and installation tests should exercise runtime boundaries.
 SDK conformance tests retain the full checked source/artifact/backend path when
 that path establishes the contract. Do not remove source-free, actual-native,
-GC, cancellation or pinned-reload coverage to reduce execution time.
+GC, cancellation or publication/call-selection coverage to reduce execution time.
+
+## Classify the contract before choosing a format
+
+A case has three separate dimensions: its primary semantic owner, its execution
+requirements (such as source, decoded artifact, actual-native, platform or process),
+and its expression form. File-driven input is a format, not a new semantic owner.
+Classify individual cases; one Rust file may contain ordinary return checks and
+stateful cleanup scenarios.
+
+| Primary contract | Suitable expression form | Assertions that remain explicit |
+| --- | --- | --- |
+| Lexing, parsing and recovery | Source files with diagnostic or selected-tree expectations | Token bytes, ranges, partial tree and recovery behavior |
+| Static semantics and diagnostics | Source plus structured diagnostics; Rust scenarios for surviving facts | Eligibility, neighbor facts and inference/identity isolation |
+| Ordinary language execution | `.kgr` input with typed result expectations | Existing routes, runtime settings and result/root cleanup |
+| Text and presentation | Input/expected golden files | Options, exact bytes, ordering, idempotence and error behavior |
+| Pure algorithms and numeric boundaries | Rust tables or narrowly parameterized cases | Independent reference values, bit patterns, allowed sets and traps |
+| Lowering, IR, bytecode and artifact admission | Constructed inputs and focused Rust assertions | Typed operands, effects, forged-input rejection and source-free validation |
+| Multimodule and package acquisition | Fixture trees plus Rust graph/filesystem scenarios | Locks, fingerprints, namespaces and retained snapshots |
+| Incremental analysis, caches and scoped identity | Explicit Rust scenarios | Reuse, invalidation, owner identity and old-snapshot isolation |
+| GC, roots, handles and resources | Explicit Rust scenarios; external source where useful | Foreign/stale rejection, accounting and release order |
+| Host borrowing, conversion and reentry | Explicit Rust and compile-fail scenarios | Scoped access, alias rules, unwinding and synchronous reentry |
+| Async, cancellation, statics and reload | Explicit Rust scenarios; external source where useful | Poll/drop/wake order, publication, version choice and cleanup |
+| Products, processes and deployment | Existing dedicated process/platform runners | Real binaries, feature isolation, actual-native and source-free execution |
+
+Prefer four forms: source plus typed expectations, stable text goldens, structured
+Rust tables, and explicit Rust scenarios. A short inline input remains appropriate
+when separating it from its assertion would make the contract harder to read.
+Moving source out of Rust does not justify reducing a lifecycle test to its final
+return value, or treating interpreter fallback as proof of native execution.
+
+Fixtures stay under the owning crate; keep Rust orchestration in ordinary test
+modules. Use explicit named registration and `include_str!` for fixed text inputs
+when sufficient. Keep logical source filenames and byte-sensitive inputs stable.
+Do not normalize whitespace, spans, float bits, effect order or identity distinctions
+that the case is intended to test. Review golden changes as assertions, not output
+to accept automatically; do not snapshot entire private `Debug` representations.
+
+Use [`rstest`](https://docs.rs/rstest/0.28.0/rstest/) with descriptive
+`#[case::name(...)]` inputs when independent cases share orchestration and
+assertions but need explicit metadata. For a directory with one execution contract,
+prefer `#[files(...)]`: each matched file becomes an independently scheduled test,
+not one runtime directory loop. Keep unique stateful scenarios as ordinary
+`#[test]` functions. Parameterization belongs to the existing library harness;
+adding cases does not require a custom registration macro or integration target.
+`rstest` is a workspace-managed dev dependency of the selected test owners, with
+its default `async-timeout` and `crate-name` features disabled. Do not add it to
+production dependencies or build a second registration DSL around it.
+
+Inline setup/assertion logic into its parameterized test when no other caller
+needs it. Keep helpers that have actual consumers or an independent responsibility,
+such as the shared SDK execution runner; a new name is not itself a reason for
+another forwarding function. Framework adoption does not inherently reduce
+compilation/execution cost. Avoid uncontrolled operation/type/backend Cartesian
+products and one serial test that walks an entire fixture directory. A custom
+discovery harness needs a concrete justification for departing from ordinary
+ownership rules.
+
+### Compiler UI diagnostic tests
+
+Here UI means user-facing compiler diagnostics, not graphical interfaces. The
+source/expectation separation follows [rustc UI tests](https://rustc-dev-guide.rust-lang.org/tests/ui.html)
+(reference review: 2026-10-24), without adopting compiletest's directive system.
+Parser and HIR suites run in their existing library harnesses; CLI presentation
+runs through the existing real-process target. Recovery trees, stronger typed
+errors, healthy-neighbor facts and codegen eligibility remain explicit assertions;
+a matching golden cannot replace them. No new test binary, source directive DSL,
+production serialization API or test renderer is required.
+
+#### Parser/HIR expectations
+
+Each owner keeps homogeneous groups under `tests/fixtures/ui/<family>/`.
+One independently discovered `<case>.kgr` pairs with the same-stem
+`<case>.diagnostics.json`; the expectation is not discovered by a second glob.
+Owner inventory checks reject missing, malformed or orphaned expectations and
+unexpected files. Logical source names stay independent of physical fixture paths.
+
+The JSON root is an **ordered array** of full producer records:
+
+| Object | Required fields |
+| --- | --- |
+| Diagnostic | `code` (string), `severity` (`error` or `warning`), `primary` (span object or explicit `null`), `message` (string), `labels` (ordered label array), `notes` (ordered string array) |
+| Span | `path` (logical source name), `start`, `end` (nonnegative zero-based, end-exclusive UTF-8 byte offsets) |
+| Label | `span` (span object), `message` (string) |
+
+All fields are required, including nullable `primary` and empty arrays. Unknown or
+duplicate fields, wrong/null types, positional arrays in place of objects, trailing
+JSON and invalid UTF-8/source ranges fail. An empty root array means no diagnostics,
+not a missing expectation. Do not sort, deduplicate, trim, discard warnings or
+compare just the first matching code. Positive owners must separately establish
+their successful result; an operational failure cannot become an expected diagnostic.
+
+The [shared test-only schema](../crates/kagari-source/tests/support/diagnostics.rs)
+belongs to the diagnostic/source owner and is shared narrowly by syntax and HIR.
+Owners supply real `DiagnosticRecord` values; message generation, resolution and
+line indexing remain production responsibilities. Validate every present raw span,
+file identity, revision and captured-source membership **before** adaptation can
+turn invalid ranges into anonymous locations. Projection to logical paths must
+reject lost/stale/foreign/ambiguous locations, not normalize them into matching
+`null` spans. Offsets are bytes, not display columns or UTF-16 units.
+
+#### CLI streams and normalization
+
+CLI sources pair with explicit mode-specific `.stdout`, `.stderr` and `.exit`
+expectations, including empty streams and failed-command stderr footers. Tests run
+the actual `kg` binary. Compare human streams byte-for-byte. JSON mode validates
+one complete object per line, with all public fields, ordered diagnostics/labels,
+terminal summary and process status; it is not reduced to the parser/HIR schema.
+Object key order is not a field-value contract, while separate serialization tests
+may deliberately assert exact bytes. Top-level and nested positional substitutes,
+unknown/duplicate/missing fields and malformed summaries fail.
+
+Normalization is deny-by-default. The existing lint family maps only its known
+owned physical-root location path to `$FIXTURE/script.kgr`: recognized human
+location-line path slices, or JSON primary/label `location.path` fields. It rejects
+neighboring/unreviewed paths. Never globally replace backslashes, messages, notes,
+excerpts, whitespace, CRLF, offsets, source revisions or record/label order. Source
+revision 1 is an explicit observed fixture assertion, not scrubbed process identity.
+Other presentation/identity scenarios retain their direct source-bound assertions.
+
+#### Compare, review, verify
+
+Normal test/CI runs only read tracked expectations. For an intentional diagnostic
+change, select affected cases, inspect received outputs (temporary artifacts under
+`target/test-organization/ui/`), and update only reviewed expectations. No automatic
+bless mode is provided. Rerun normal comparison afterward; generation alone is not
+acceptance. Pair/admission tests and deliberate message/span/count/order/status
+mismatches must detect broken expectations independently of the language producer.
+Keep Unicode/CRLF coordinate coverage at its existing owner rather than normalizing
+it away. Use selected nonempty filters; full UI and feature matrices remain CI-owned.
+
+### Existing file-backed patterns
+
+Use the existing owners as templates, not a new universal runner:
+
+- [Formatter layout cases](../crates/kagari-format/src/tests.rs) use named `rstest`
+  cases for input/expected pairs with explicit width/idempotence settings. The
+  parameterized test compares exact output and second-format/narrow-width results
+  directly, without a custom registrar or single-caller assertion helper. Data
+  lives under `kagari-format/tests/fixtures/layout`. Full grammar inventory uses
+  ignored directory discovery and remains CI-owned; local checks select a small
+  representative set rather than executing the whole ignored group.
+- [Parser error cases](../crates/kagari-syntax/src/tests/parser/errors.rs) retain
+  typed delimiter kind/count/severity and separate partial-tree recovery checks.
+  [Parser UI cases](../crates/kagari-syntax/src/tests/parser/ui.rs) discover paired
+  `.kgr`/`.diagnostics.json` files under `kagari-syntax/tests/fixtures/ui/parser`.
+  The real producer supplies all messages and labels. The
+  [source-owned test schema](../crates/kagari-source/tests/support/diagnostics.rs)
+  rejects malformed fields and validates captured identities/revisions and UTF-8
+  ranges before projecting IDs to logical paths. Missing/orphan pairs fail the
+  owner inventory; normal comparisons never update expectations.
+- [CLI UI cases](../crates/kagari-cli/tests/ui/mod.rs) run six explicit human/JSON
+  modes through the actual `kg` process. Source revisions and coordinates, complete
+  records/summary, exact streams and status are asserted. Only reviewed location
+  path fields map the owned temp root to `$FIXTURE`; arbitrary message/excerpt text
+  and CRLF are not rewritten. The existing toolchain target owns bounded pipe
+  capture, process deadlines, kill/wait cleanup and exclusive temporary directories.
+- [HIR UI cases](../crates/kagari-hir/src/tests/ui.rs) group bare, installed-standard
+  and local-function diagnostics without inferring policy from source comments.
+  They bind final records to captured sources before projection. Stronger typed
+  payloads, healthy-neighbor facts, query identity and codegen rejection remain
+  explicit in their semantic owners; matching a golden does not replace them.
+- SDK [syntax examples](../crates/kagari/src/runtime/tests/language/syntax_examples.rs)
+  and [reload](../crates/kagari/src/runtime/tests/embedding/generic_reload.rs)
+  load scripts from `kagari/tests/fixtures/test-fixtures`. Ordinary conversion,
+  default-method and standard-trait execution uses directory-discovered inputs in
+  `kagari/tests/fixtures/language/{conversion_traits,default_methods,standard_traits}`.
+  Each owner keeps its logical source name, GC threshold `Some(1)`, result `42`
+  and source/artifact/artifact-JIT routes. The default-method cursor case reuses
+  the canonical `iterable-default-cursor.kgr` directly;
+  admission tests reuse ordinary fixtures when they need the same program.
+  The remaining types/dispatch, collections/iteration, operators, Result/Try and
+  string owners follow the same representation rule, not one universal execution
+  policy. Rejection, linking, forged-contract and callback-lifecycle scenarios keep
+  their explicit assertions in focused modules. Singleton and lifecycle tests need
+  not be parameterized. Independent programs remain independent named cases; a common
+  final result does not make them duplicate coverage.
+- SDK host/async source data lives under `kagari/tests/fixtures/embedding` while
+  installed typed paths, factories, iteration, error origins and scheduling keep
+  explicit Rust scenarios. Shared async support selects its final intended product
+  after fresh provider installation; it does not load a discarded synthetic program
+  before source preparation. The synthetic source-free constructor remains a
+  separate public-consumer proof, not an interchangeable source route.
+- VM source data under `kagari-vm/tests/fixtures` keeps its original execution,
+  GC, native-boundary and owned-drive Rust observations. Standard runtime setup has
+  one owner, but reflection's unverified loader remains distinct from verified
+  module admission. Stdlib runtime-boundary support shares compilation only across
+  compatible identity/options consumers, not mutable runtimes or codec contexts.
+- Compiler compile-success programs use named fixture cases under
+  `kagari-compiler/tests/fixtures/language_foundation`; typed lowering/emission and
+  forged admission remain separate Rust owners. Compiler adoption uses existing
+  test support rather than a second identity-collection implementation.
+- Bytecode disassembly goldens under `kagari-bytecode/tests/fixtures/disassembly`
+  contain stable body/descriptor fragments only. Dynamic header/fingerprint facts,
+  scoped identity, independent decoding and writer-error behavior stay explicit.
+- [Numeric predicate programs](../crates/kagari/src/runtime/tests/language/numeric_checks.rs)
+  share bounded source generation and retain the expression for each failure
+  marker. Integer/float owners retain their own compilation, routes, result/root,
+  depth and quarantine checks. Named `rstest` rows expose the existing integer and
+  float width dimensions, while bounded inner predicates stay generated in Rust.
+  Typed result carriers, exact float bits, NaN rules and allowed signed-zero sets
+  remain explicit; no general expectation DSL is needed.
+
+Ordinary source fixtures use normal Kagari formatting: four-space indentation,
+LF layout and one final newline, without copied Rust-string outer indentation or
+incidental leading/trailing blank lines. Use the existing formatter, which verifies
+non-whitespace tokens and CST shape and preserves literal/comment spelling; do not
+use global whitespace replacement that could change raw strings or continuations.
+Exact extraction-byte checks establish migration equivalence, not a permanent
+requirement to retain accidental Rust literal layout.
+
+Preserve authored bytes where they are the contract: formatter input/output goldens,
+dedicated whitespace/CRLF/literal line-rule cases, diagnostic byte/display ranges,
+malformed recovery inputs, and canonical artifact sources. Keep their Rust assertions
+and paired expectations intact rather than updating goldens to hide a layout change.
+A file merely having CRLF or no final newline is not itself a reason to exempt it.
+Fixture-local LF attributes keep ordinary checkout layout stable. Remove inherited
+trailing-whitespace exceptions when normal formatting makes them unnecessary.
+
+Keep logical source names and evaluation order unchanged. When reload tests construct
+a new version by replacing source text, update checked matches alongside formatting
+and assert each intended match count; a missing replacement must not silently turn
+reload into the original program. Always read fixture contents as authored: formatting
+is a reviewed repository edit, not normalization in a runtime loader or test driver.
+
+### Directory-discovered syntax examples
+
+`syntax_examples::source_examples` discovers `examples/syntax/*.kgr` at test
+compilation through `rstest`. Ordinary files in that directory are admitted to the
+same contract: standard installation, default GC settings, `i32` result `42`, and
+source plus encoded-artifact interpreter routes. Adding an ordinary example needs
+no Rust registration row. This is not permission to execute arbitrary repository
+`.kgr` files under that contract.
+
+Five existing files remain explicitly excluded, not silently skipped on failure:
+
+| File | Different contract / existing owner |
+| --- | --- |
+| `async.kgr` | Cold async declarations without a synchronous `main`; async execution has its own owners. |
+| `byte-literals.kgr` | Returns `1`, not `42`; formatter tests retain literal-byte and layout checks. |
+| `char-literals.kgr` | Returns unit, not `i32`; character semantics and formatter tests have their own assertions. |
+| `grammar-witnesses.kgr` | Parser/formatter grammar witness with unresolved external declarations, not a standalone executable. |
+| `try-protocols.kgr` | Returns `42`, but the Try owner requires forced GC, encoded-only transport, reload retirement and heap cleanup; `try_protocols::ordinary_execution` selects this canonical input directly. |
+
+The four separately selected root examples and two extracted programs stay explicit
+in `additional_source_examples`: the repository root example directory has mixed
+host/async/error contracts, and the grouped-glob case intentionally uses only the
+artifact interpreter route. Do not relocate/copy public examples merely to make a
+glob work, infer policy from source text, or gradually replace every case row with
+an exclusion. New different-contract examples need an explicit owner and reviewed
+admission decision; homogeneous test-only fixture directories should instead group
+by contract.
+
+The discovered test receives a physical path, reads its UTF-8 text without
+normalization and retains the logical name `examples/syntax/<filename>` for source
+origins. Missing files fail with the physical path. Existing scripts are not
+rewritten and result-release/root cleanup remains in the shared execution runner.
+
+The SDK build script watches the external syntax and language-fixture directories
+when the source feature and each directory are present, including source-only
+builds. File additions/removals therefore rerun macro discovery; do not rely on
+`include_str!` content tracking to notice new files.
+The missing-directory guard keeps standalone consumers from requiring the workspace
+example tree. This hook adds no source-analysis or framework production dependency.
+
+The separate [script testing proposal](script-testing-design.md) does not provide
+an implemented `kg test` runner and is not a prerequisite for these patterns.
+
+## Native ecosystem and product boundaries
+
+Use Node's native named tests, Python `unittest`/`subTest`, Tree-sitter corpus and
+existing browser/editor runners rather than translating them into Rust cases.
+A complete incremental edit history remains one scenario. Direct-browser fixed
+sources live under `site/scripts/fixtures/wasm-browser`; the existing runner keeps
+mode/result/effect metadata and fails missing data without normalizing its bytes.
+
+Native binding, WASI grammar, TextMate/Oniguruma, actual editor hosts, FakeWorker,
+actual Worker, direct WASM and browser UI prove different boundaries. Refresh a
+stale ignored native binding from committed sources before diagnosing grammar
+semantics; metadata or a native query alone is not actual-host acceptance. Zed's
+host probe exit 2 is explicitly incomplete. Keep fixture producers, product hashes,
+source-free graphs, source-deleted AOT and benchmark timing/allocator windows at
+their existing owners. Static extraction/provenance checks do not pass an unrun
+browser/product/feature matrix or establish a speedup.
 
 ## Default placement and integration exceptions
 
@@ -23,13 +310,15 @@ require a separate integration executable. Cargo schedules test executables
 sequentially; the harness schedules cases within one executable concurrently.
 Compilation parallelism (`-j`) does not remove those execution barriers.
 
-The workspace keeps six integration targets for concrete boundaries:
+The workspace keeps eight integration targets for concrete boundaries:
 
 | Package / target | Reason |
 | --- | --- |
 | `kagari-cli` / `toolchain` | Executes the actual `kg` binary to verify stdout/stderr, JSON, exit status, project side effects and direct SDK agreement. |
 | `kagari` / `artifact_features` | Standalone consumer checks ordinary public visibility and source-free feature/dependency isolation. |
 | `kagari` / `async_execution` | Standalone native-wait/owned-execution consumer, including builds without source/native features. Source scenarios live in the runtime unit tree. |
+| `kagari` / `async_facade` | External consumer of public typed async calls, direct await and externally driven execution; keeps public API visibility and lifecycle checks outside the library harness. |
+| `kagari-analyzer` / `stdio` | Launches the actual analyzer process to verify framed stdio messages, synchronization, bounded transport and shutdown. |
 | `kagari-runtime` / `native_schema` | External derive, `native_data!` and Serde expansion against ordinary runtime visibility. Manual rollback cases live beside schema registration. |
 | `kagari-vm` / `allocation_contracts` | A single custom global allocator with thread-local measurement windows for the existing native/interface allocation assertions. |
 | `kagari-vm` / `library_measurements` | Ignored manual timing workload with a separate allocator process; ordinary test success is not a performance result. |
@@ -71,7 +360,7 @@ sessions and captured mutable host state remain case-local.
 Select by package, library and qualified test filter, for example:
 
 ```text
-cargo test -p kagari --lib -- runtime::tests::language::syntax_examples::array_operations
+cargo test -p kagari --lib -- runtime::tests::language::syntax_examples::source_examples::path_01__UP__UP_examples_syntax_array_operations_kgr
 cargo test -p kagari-vm --test allocation_contracts -- native_allocations::
 ```
 
@@ -88,13 +377,44 @@ Select cases at the layer whose behavior changed; this table is not a local swee
 | Importer aliases, empty roots, visibility, unused bodies, implementation-only dependencies and retained scopes | `kagari-package/src/tests/analysis.rs` and the HIR import/signature owners |
 | Canonical native contracts and provider/query-setting identity | `kagari-types` native compiler-input unit case and `kagari-hir` environment-identity unit case |
 | Public export target/signature validation and malformed source-free artifacts | Compiler/bytecode export cases and runtime/VM `package_exports` unit modules |
-| Exact SDK capture, affected roots, dependency constants/generic bodies and pinned reload through decoded artifacts | `kagari/src/engine/tests/package_inputs.rs` |
+| Exact SDK capture, affected roots, frozen dependency constants, current generic bodies and publication through decoded artifacts | `kagari/src/engine/tests/package_inputs.rs` |
 | CLI discovery/selection, shared products, locked edits and standalone artifacts | `kagari-cli` project and artifact-pipeline cases |
 
 The [workspace/host example](../examples/package-workspace/README.md) is a runnable
 user workflow. It complements boundary assertions rather than duplicating another
 integration suite. CI owns the exhaustive feature/backend/platform matrix;
 `scripts/check_features.py` also checks source-free production dependencies.
+
+## Publication and executable-contract test owners
+
+The [live-installation and call-selection contract](spec/module-activation.md#live-installations-and-call-selection)
+distinguishes live `Program`/`Module` handles from exact `ExecutableModule` owners.
+Ordinary calls select current bodies; closures, cold futures and admitted work
+retain selected bodies, whose ordinary inner calls still select current bodies.
+Keep both observations in one lifecycle scenario rather than asserting that every
+value created before publication calls old code. Preserve alias-binding identity,
+failed-publication atomicity, frozen declarations, static continuity and cleanup.
+
+SDK orchestration remains in the existing `embedding/generic_reload`,
+`embedding/typed_calls` and `runtime/update` unit modules. Their source inputs live
+under `crates/kagari/tests/fixtures/embedding/{reload,typed,source-updates}/`.
+Use named `rstest` rows for shared orchestration, explicit versioned fixtures for
+substantial source changes, and guarded once-only replacements for small edits.
+Source-inspection fixtures with exact authored-definition assertions retain their
+intentional spelling; they are not ordinary formatting examples.
+
+Runtime admission and historical specialization demands belong to
+`kagari-runtime/src/module/tests/update_admission.rs`; frozen named inventory and
+forged evidence belong to `src/module/tests/package_exports/named_contracts.rs`.
+Compiler source/export cases and contract/bytecode validators retain their own
+structured assertions, including source-free rejection. Construct complete fixture
+evidence after adding functions or modules, rather than reusing a native-only
+program's earlier evidence. Runtime/stdlib composition stays in the existing
+stdlib `runtime_boundary/installation_access` owner, not a new runtime integration
+target or a dependency change to unify two test-harness type identities.
+
+Native-schema DTO/derive/Serde coverage is a separate host-conversion contract.
+It does not imply script-state snapshot/restore or migration APIs.
 
 ## Host interop contract owners
 
@@ -136,25 +456,44 @@ cache invalidation and custom captured-state tests construct their own engine.
 For a single source case, the runner performs these steps:
 
 1. Compile the source once using its own source session.
-2. Encode/decode once, and prepare direct and decoded programs once each.
+2. Prepare each selected product once: direct for the source route; one
+   encode/decode and decoded preparation for artifact routes. Artifact-only cases
+   do not prepare an unused direct product.
 3. Run the chosen source, artifact and artifact/JIT routes in separate runtimes.
 4. Assert the result while it remains rooted in that runtime.
 5. Release the scalar result and assert that the execution left no active roots.
 
-JIT preparation still belongs to the loaded runtime/generation. The general
+Native compilation products retain exact executable-version evidence; runtime
+installation and entry admission must still match the selected executable. An
+obsolete product must not become a back door to an old ordinary call, even when
+JIT is disabled. Use an independent installation when testing actual execution
+of the original code alongside an updated installation. The general
 language-contract runner additionally preserves actual-native requirements,
 ordered host effects, mutations, traps, cancellation and reload assertions.
 Do not reuse a runtime, heap, host registry, cancellation token or mutable callback
 capture between independent cases. Sharing prepared registration does not clone
 Rust state captured by a callback.
 
+Not every existing SDK test's first lane is the checked-source route. Arrays,
+iteration, numeric operations, operator traits, Result/Option and interpolation
+also test **unencoded compiled artifacts** before their decoded artifact lanes.
+Keep this distinction when choosing a runner. Some owners require more than the
+standard scalar runner: Result/Option observes actual collection on every lane;
+String/Try retire materialized constants before checking final heap cleanup; native
+enums use a fresh installed source-unaware consumer and repeat on its loaded heap.
+These are separate contracts, not setup differences to discard for uniformity.
+
 ## Expose cases to the harness
 
-Give independent scenarios stable `#[test]` names, or generate them with a small
-macro such as the one in
-[`syntax_examples.rs`](../crates/kagari/src/runtime/tests/language/syntax_examples.rs).
-Do not hide a growing independent case list inside one serial test. Related
-sequences such as trap-then-recovery or publish-then-call-old-generation remain
+Give independent scenarios descriptive `#[test]` names or named `rstest` cases,
+as in [`syntax_examples.rs`](../crates/kagari/src/runtime/tests/language/syntax_examples.rs).
+`rstest` produces qualified names with a group, ordinal and case description or
+sanitized file path. Prefer `#[base_dir]` to keep directory prefixes from consuming
+the framework's truncated file description. File ordering can change ordinals;
+update affected filters rather than retaining forwarding aliases. Preserve semantic descriptions and use selected
+`--list` output to confirm exact names when needed. Do not hide a growing
+independent case list inside one serial test. Related
+sequences such as trap-then-recovery or publish-then-resume-a-retained-body remain
 one scenario. Run its routes sequentially; let Rust's test harness schedule
 scenarios without a nested pool or a separate executable per scenario.
 
@@ -162,7 +501,8 @@ The language-contract cases are grouped by types/dispatch and evaluation, with
 one shared runner. Ordinary scalar SDK routes in `default_methods`,
 `standard_traits`, `instantiation`, `associated_types`, `conversion_traits`,
 `collection_interfaces` and `collection_access` use this one source-owned helper.
-`syntax_examples` selects the two interpreter routes. Keep each caller's runtime
+Ordinary `syntax_examples` use two interpreter routes; the grouped-glob case
+explicitly selects only the artifact interpreter route. Keep each caller's runtime
 configuration, including collection thresholds; the helper does not choose policy
 for a semantic owner. Specialized host, mutation, trap and root-lifetime assertions
 remain with their existing runner.

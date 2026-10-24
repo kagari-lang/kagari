@@ -38,6 +38,7 @@ use kagari_types::{
     scalar::BuiltinType,
     ty::{NominalTy, Ty},
 };
+use rstest::rstest;
 use std::sync::Arc;
 
 fn load_source(
@@ -69,183 +70,181 @@ fn load_source(
     (runtime, loaded_program, loaded)
 }
 
-#[test]
-fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cycle() {
-    for teardown in [false, true] {
-        let mut module =
-            ModuleBuilder::new("example::defaults", &DeclarationCatalog::default()).unwrap();
-        let mut declaration = module.define_trait("Read").unwrap();
-        let read = declaration
-            .define_method(MethodDecl::instance("read").returns(Type::i32()))
-            .unwrap();
-        let twice = declaration
-            .define_method(MethodDecl::instance("twice").returns(Type::i32()))
-            .unwrap();
-        let required = declaration.operation(&read).unwrap();
-        let selected = declaration
-            .method(&twice, |method| method.requires(required))
-            .unwrap();
-        declaration
-            .bind(
-                twice,
-                NativeBinding::new(vec![Codec::Value], Codec::Exact(Type::i32()), move |cx| {
-                    let receiver = cx.argument(0)?;
-                    let target = cx.selected(&selected)?;
-                    let Value::I32(value) = cx.call_values(target, &[receiver])? else {
-                        return Err(RuntimeError::module_validation("checked Read result"));
-                    };
-                    Ok(Value::I32(value * 2))
-                }),
-            )
-            .unwrap();
-        declaration.finish().unwrap();
-        let module = module.finish().unwrap();
-        let (runtime, loaded_program, loaded) = load_source(
-            r#"
-        use example::defaults::Read;
-        impl Read for i32 { fn read(self) -> i32 { self } }
-        fn main() -> Read { 7 }
-        "#,
-            Some(&module),
-        );
-        let table = loaded
-            .bytecode
-            .interface_tables
-            .iter()
-            .position(|table| {
-                table
-                    .methods
-                    .iter()
-                    .any(|method| loaded.definition_name(method.method) == Some("twice"))
-            })
-            .unwrap();
-        let Value::Interface(id) = runtime
-            .make_interface(&loaded, table, Value::I32(7))
-            .unwrap()
-        else {
-            panic!("interface fixture");
-        };
-        let snapshot = runtime.gc.interface_snapshot(id).unwrap();
-        let group = runtime
-            .bind_table_operations(&snapshot.description.receiver_table)
-            .unwrap();
-        let member = snapshot
-            .description
-            .methods
-            .iter()
-            .flatten()
-            .find(|method| loaded.definition_name(method.method) == Some("twice"))
-            .unwrap()
-            .method;
-        let requirement = NativeCallableRequirement {
-            receiver: snapshot.description.concrete_type.clone(),
-            interface: snapshot.description.interface_type().clone(),
-            member,
-            arguments: vec![],
-        };
-        let operation_id = runtime
-            .gc
-            .operation_group(group)
-            .unwrap()
-            .operation(
-                &requirement,
-                &TypeView::new(&requirement.receiver, &loaded, None)
-                    .identity()
+#[rstest]
+#[case::collect(false)]
+#[case::teardown(true)]
+fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cycle(
+    #[case] teardown: bool,
+) {
+    let mut module =
+        ModuleBuilder::new("example::defaults", &DeclarationCatalog::default()).unwrap();
+    let mut declaration = module.define_trait("Read").unwrap();
+    let read = declaration
+        .define_method(MethodDecl::instance("read").returns(Type::i32()))
+        .unwrap();
+    let twice = declaration
+        .define_method(MethodDecl::instance("twice").returns(Type::i32()))
+        .unwrap();
+    let required = declaration.operation(&read).unwrap();
+    let selected = declaration
+        .method(&twice, |method| method.requires(required))
+        .unwrap();
+    declaration
+        .bind(
+            twice,
+            NativeBinding::new(vec![Codec::Value], Codec::Exact(Type::i32()), move |cx| {
+                let receiver = cx.argument(0)?;
+                let target = cx.selected(&selected)?;
+                let Value::I32(value) = cx.call_values(target, &[receiver])? else {
+                    return Err(RuntimeError::module_validation("checked Read result"));
+                };
+                Ok(Value::I32(value * 2))
+            }),
+        )
+        .unwrap();
+    declaration.finish().unwrap();
+    let module = module.finish().unwrap();
+    let (runtime, loaded_program, loaded) = load_source(
+        r#"
+    use example::defaults::Read;
+    impl Read for i32 { fn read(self) -> i32 { self } }
+    fn main() -> Read { 7 }
+    "#,
+        Some(&module),
+    );
+    let table = loaded
+        .bytecode
+        .interface_tables
+        .iter()
+        .position(|table| {
+            table
+                .methods
+                .iter()
+                .any(|method| loaded.definition_name(method.method) == Some("twice"))
+        })
+        .unwrap();
+    let Value::Interface(id) = runtime
+        .make_interface(&loaded, table, Value::I32(7))
+        .unwrap()
+    else {
+        panic!("interface fixture");
+    };
+    let snapshot = runtime.gc.interface_snapshot(id).unwrap();
+    let group = runtime
+        .bind_table_operations(&snapshot.description.receiver_table)
+        .unwrap();
+    let member = snapshot
+        .description
+        .methods
+        .iter()
+        .flatten()
+        .find(|method| loaded.definition_name(method.method) == Some("twice"))
+        .unwrap()
+        .method;
+    let requirement = NativeCallableRequirement {
+        receiver: snapshot.description.concrete_type.clone(),
+        interface: snapshot.description.interface_type().clone(),
+        member,
+        arguments: vec![],
+    };
+    let operation_id = runtime
+        .gc
+        .operation_group(group)
+        .unwrap()
+        .operation(
+            &requirement,
+            &TypeView::new(&requirement.receiver, &loaded, None)
+                .identity()
+                .unwrap(),
+        )
+        .unwrap();
+    let operation = runtime.gc.bound_operation(operation_id).unwrap();
+    let prepare = || {
+        let method = MethodInvocation::from_operation(&runtime, operation_id).unwrap();
+        let method = runtime
+            .apply_method_invocation(
+                method,
+                &ApplicationArguments::new(&loaded, vec![], ConstructionScope::new(&loaded))
                     .unwrap(),
+                Default::default(),
             )
             .unwrap();
-        let operation = runtime.gc.bound_operation(operation_id).unwrap();
-        let prepare = || {
-            let method = MethodInvocation::from_operation(&runtime, operation_id).unwrap();
-            let method = runtime
-                .apply_method_invocation(
-                    method,
-                    &ApplicationArguments::new(&loaded, vec![], ConstructionScope::new(&loaded))
-                        .unwrap(),
-                    Default::default(),
-                )
-                .unwrap();
-            let mut edges = Vec::new();
-            method.append_metadata(&mut edges);
-            (runtime.root_metadata(edges).unwrap(), method)
-        };
-        let (first_root, first) = prepare();
-        let (second_root, second) = prepare();
-        let environment = first
-            .view(&runtime)
+        let mut edges = Vec::new();
+        method.append_metadata(&mut edges);
+        (runtime.root_metadata(edges).unwrap(), method)
+    };
+    let (first_root, first) = prepare();
+    let (second_root, second) = prepare();
+    let environment = first
+        .view(&runtime)
+        .unwrap()
+        .environment()
+        .cloned()
+        .unwrap();
+    assert_eq!(
+        environment.id,
+        second.view(&runtime).unwrap().environment().unwrap().id
+    );
+    assert_eq!(
+        environment.id,
+        runtime
+            .gc
+            .method_application(first.application.unwrap())
             .unwrap()
-            .environment()
-            .cloned()
+            .environment
+            .as_ref()
+            .unwrap()
+            .id
+    );
+    assert!(
+        environment
+            .operation(&runtime.gc, &requirement, &operation.receiver_identity)
+            .is_some()
+    );
+    let environment_id = environment.id;
+    let runtime_owner = runtime.resources().lifetime_probe();
+    let application_id = first.application.unwrap();
+    assert_eq!(first.application, Some(application_id));
+    assert_eq!(second.application, Some(application_id));
+    drop((operation, snapshot, first_root));
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc.stats().operation_groups, 1);
+    assert!(runtime.gc.environment(environment_id).is_some());
+    assert!(runtime.gc.method_application(application_id).is_some());
+    assert_eq!(runtime.gc.stats().method_applications, 1);
+    if teardown {
+        // A prepared identity can survive runtime teardown without owning the
+        // operation or its cached application. This handle has no applied view.
+        let retained = MethodInvocation::from_operation(&runtime, operation_id).unwrap();
+        let mut edges = Vec::new();
+        retained.append_metadata(&mut edges);
+        let retained_root = runtime.root_metadata(edges).unwrap();
+        drop(second_root);
+        drop(runtime);
+        assert!(runtime_owner.upgrade().is_none());
+        let foreign = Runtime::default();
+        assert!(retained.view(&foreign).is_err());
+        drop(retained_root);
+    } else {
+        let candidate = runtime
+            .stage_reload_verified_program(&loaded_program, None, loaded.verified_program().clone())
             .unwrap();
-        assert_eq!(
-            environment.id,
-            second.view(&runtime).unwrap().environment().unwrap().id
-        );
-        assert_eq!(
-            environment.id,
-            runtime
-                .gc
-                .method_application(first.application.unwrap())
-                .unwrap()
-                .environment
-                .as_ref()
-                .unwrap()
-                .id
-        );
-        assert!(
-            environment
-                .operation(&runtime.gc, &requirement, &operation.receiver_identity)
-                .is_some()
-        );
-        let environment_id = environment.id;
-        let runtime_owner = runtime.resources().lifetime_probe();
-        let application_id = first.application.unwrap();
-        assert_eq!(first.application, Some(application_id));
-        assert_eq!(second.application, Some(application_id));
-        drop((operation, snapshot, first_root));
+        runtime.publish_staged_reload(candidate).unwrap();
+        // The retained method protects the old program/application cycle;
+        // after its last root is dropped, the entire retired cycle is dead.
         runtime.collect_garbage().unwrap();
-        assert_eq!(runtime.gc.stats().operation_groups, 1);
-        assert!(runtime.gc.environment(environment_id).is_some());
         assert!(runtime.gc.method_application(application_id).is_some());
-        assert_eq!(runtime.gc.stats().method_applications, 1);
-        if teardown {
-            // A prepared identity can survive runtime teardown without owning the
-            // operation or its cached application. This handle has no applied view.
-            let retained = MethodInvocation::from_operation(&runtime, operation_id).unwrap();
-            let mut edges = Vec::new();
-            retained.append_metadata(&mut edges);
-            let retained_root = runtime.root_metadata(edges).unwrap();
-            drop(second_root);
-            drop(runtime);
-            assert!(runtime_owner.upgrade().is_none());
-            let foreign = Runtime::default();
-            assert!(retained.view(&foreign).is_err());
-            drop(retained_root);
-        } else {
-            let candidate = runtime
-                .stage_reload_verified_program(
-                    &loaded_program,
-                    None,
-                    loaded.verified_program().clone(),
-                )
-                .unwrap();
-            runtime.publish_staged_reload(candidate).unwrap();
-            // The retained method protects the old program/application cycle;
-            // after its last root is dropped, the entire retired cycle is dead.
-            runtime.collect_garbage().unwrap();
-            assert!(runtime.gc.method_application(application_id).is_some());
-            drop(second_root);
-            assert_eq!(
-                runtime
-                    .collect_garbage()
-                    .unwrap()
-                    .reclaimed_operation_groups,
-                1
-            );
-            assert!(runtime.gc.environment(environment_id).is_none());
-            assert!(runtime.gc.method_application(application_id).is_none());
-            assert_eq!(runtime.gc.stats().method_applications, 0);
-        }
+        drop(second_root);
+        assert_eq!(
+            runtime
+                .collect_garbage()
+                .unwrap()
+                .reclaimed_operation_groups,
+            1
+        );
+        assert!(runtime.gc.environment(environment_id).is_none());
+        assert!(runtime.gc.method_application(application_id).is_none());
+        assert_eq!(runtime.gc.stats().method_applications, 0);
     }
 }
 
@@ -696,82 +695,82 @@ fn polymorphic_retention_is_bounded_and_eviction_preserves_active_applications()
     assert!(runtime.gc.interface_snapshot(id).is_none());
 }
 
-#[test]
-fn optional_application_retention_expires_with_abandoned_witness_providers() {
-    for publish in [false, true] {
-        let (runtime, loaded_program, loaded, table) = generic_fixture();
-        let value = runtime
-            .make_interface(&loaded, table, Value::I32(1))
-            .unwrap();
-        let root = runtime.root_value(value).unwrap();
-        let candidate = runtime
-            .stage_reload_verified_program(&loaded_program, None, loaded.verified_program().clone())
-            .unwrap();
-        let supplier = candidate.module().clone();
-        let Value::Interface(id) = runtime
-            .make_interface(&supplier, table, Value::I32(2))
-            .unwrap()
-        else {
-            unreachable!()
-        };
-        let snapshot = runtime.gc.interface_snapshot(id).unwrap();
-        let group = runtime
-            .bind_table_operations(&snapshot.description.receiver_table)
-            .unwrap();
-        let interface = snapshot.description.interface_type().clone();
-        drop(snapshot);
-        let mut operations = OperationBindings::default();
-        operations.receiver(&runtime.gc, group).unwrap();
-        let arguments = runtime
-            .resolve_type_arguments(&loaded, &[Ty::Builtin(BuiltinType::I32)])
-            .unwrap();
-        let method = runtime
-            .prepare_interface_method_slot(
-                &value,
-                &interface,
-                0,
-                &arguments,
-                operations,
-                Default::default(),
-            )
-            .unwrap();
-        let application = method.invocation.application.unwrap();
-        let environment = runtime
-            .gc
-            .method_application(application)
-            .unwrap()
-            .environment
-            .clone()
-            .unwrap();
-        let pending = runtime.gc.environment(environment.id).unwrap().clone();
-        runtime.validate_environment(environment.id).unwrap();
-        drop(method);
-        if publish {
-            runtime.publish_staged_reload(candidate).unwrap();
-        } else {
-            drop(candidate);
-        }
-        // A still-live environment ID must not admit an abandoned transitive
-        // witness provider. Re-publication must reject it before installing an ID.
-        assert_eq!(
-            runtime.validate_environment(environment.id).is_ok(),
-            publish
-        );
-        let before = runtime.gc.stats();
-        assert_eq!(runtime.alloc_environment(pending).is_ok(), publish);
-        if !publish {
-            assert_eq!(runtime.gc.stats(), before);
-        }
-        runtime.collect_garbage().unwrap();
-        assert_eq!(
-            runtime.gc.method_application(application).is_some(),
-            publish
-        );
-        assert!(!runtime.is_quarantined());
-        drop(root);
-        runtime.collect_garbage().unwrap();
-        assert!(runtime.gc.method_application(application).is_none());
+#[rstest]
+#[case::abandoned(false)]
+#[case::published(true)]
+fn optional_application_retention_expires_with_abandoned_witness_providers(#[case] publish: bool) {
+    let (runtime, loaded_program, loaded, table) = generic_fixture();
+    let value = runtime
+        .make_interface(&loaded, table, Value::I32(1))
+        .unwrap();
+    let root = runtime.root_value(value).unwrap();
+    let candidate = runtime
+        .stage_reload_verified_program(&loaded_program, None, loaded.verified_program().clone())
+        .unwrap();
+    let supplier = candidate.module().clone();
+    let Value::Interface(id) = runtime
+        .make_interface(&supplier, table, Value::I32(2))
+        .unwrap()
+    else {
+        unreachable!()
+    };
+    let snapshot = runtime.gc.interface_snapshot(id).unwrap();
+    let group = runtime
+        .bind_table_operations(&snapshot.description.receiver_table)
+        .unwrap();
+    let interface = snapshot.description.interface_type().clone();
+    drop(snapshot);
+    let mut operations = OperationBindings::default();
+    operations.receiver(&runtime.gc, group).unwrap();
+    let arguments = runtime
+        .resolve_type_arguments(&loaded, &[Ty::Builtin(BuiltinType::I32)])
+        .unwrap();
+    let method = runtime
+        .prepare_interface_method_slot(
+            &value,
+            &interface,
+            0,
+            &arguments,
+            operations,
+            Default::default(),
+        )
+        .unwrap();
+    let application = method.invocation.application.unwrap();
+    let environment = runtime
+        .gc
+        .method_application(application)
+        .unwrap()
+        .environment
+        .clone()
+        .unwrap();
+    let pending = runtime.gc.environment(environment.id).unwrap().clone();
+    runtime.validate_environment(environment.id).unwrap();
+    drop(method);
+    if publish {
+        runtime.publish_staged_reload(candidate).unwrap();
+    } else {
+        drop(candidate);
     }
+    // A still-live environment ID must not admit an abandoned transitive
+    // witness provider. Re-publication must reject it before installing an ID.
+    assert_eq!(
+        runtime.validate_environment(environment.id).is_ok(),
+        publish
+    );
+    let before = runtime.gc.stats();
+    assert_eq!(runtime.alloc_environment(pending).is_ok(), publish);
+    if !publish {
+        assert_eq!(runtime.gc.stats(), before);
+    }
+    runtime.collect_garbage().unwrap();
+    assert_eq!(
+        runtime.gc.method_application(application).is_some(),
+        publish
+    );
+    assert!(!runtime.is_quarantined());
+    drop(root);
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.gc.method_application(application).is_none());
 }
 
 #[test]

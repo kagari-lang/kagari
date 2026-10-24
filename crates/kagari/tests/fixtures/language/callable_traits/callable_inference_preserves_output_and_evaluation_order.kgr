@@ -1,0 +1,59 @@
+struct Trace {
+    var digits: i32
+}
+
+struct Add {
+    val trace: Trace
+}
+
+impl Fn<(i32, i32)> for Add {
+    type Output = i32;
+    fn call(self, args: (i32, i32)) -> i32 {
+        {
+            val passed = self.trace.digits == 123;
+            if !passed {
+                return 0;
+            }
+        };
+        args[0] + args[1]
+    }
+}
+
+fn receiver(trace: Trace) -> Add {
+    trace.digits = trace.digits * 10 + 1;
+    Add { trace }
+}
+
+fn argument(trace: Trace, digit: i32, value: i32) -> i32 {
+    trace.digits = trace.digits * 10 + digit;
+    value
+}
+
+fn first<T, R, F: Fn (T) -> R>(f: F, x: T) -> R {
+    f(x)
+}
+
+fn projected<F: Fn<(i32,)>>(f: F) -> F::Output {
+    f(21)
+}
+
+fn twice(x: i32) -> i32 {
+    x * 2
+}
+
+fn main() -> i32 {
+    {
+        val passed = first(|x| x.len(), [1, 2, 3]) == 3;
+        if !passed {
+            return 0;
+        }
+    };
+    {
+        val passed = projected(|x| twice(x)) == 42;
+        if !passed {
+            return 0;
+        }
+    };
+    val trace = Trace { digits: 0 };
+    receiver(trace)(argument(trace, 2, 20), argument(trace, 3, 22))
+}

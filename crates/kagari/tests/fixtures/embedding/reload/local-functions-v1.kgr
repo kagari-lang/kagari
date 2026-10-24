@@ -1,0 +1,47 @@
+trait Run {
+    fn run(self, mode: i32) -> i32;
+}
+
+struct Saved {
+    val callback: fn(i32) -> i32
+}
+
+impl Run for Saved {
+    fn run(self, mode: i32) -> i32 {
+        (self.callback)(mode)
+    }
+}
+
+trait Keep {
+    fn keep<F: Fn (i32) -> i32>(self, callback: F) -> Run {
+        Saved {
+            callback: |mode| {
+                val boxed: Fn<(i32,), Output = i32> = callback;
+                boxed.call((mode,))
+            }
+        }
+    }
+}
+
+impl Keep for i32 {}
+
+pub fn make() -> Run {
+    fn local(mode: i32) -> i32 {
+        val items = Vec::from([mode]);
+        fn work(items: Vec<i32>) -> i32 {
+            if items[0] == 0 {
+                42
+            } else if items[0] == 1 {
+                val zero = items[0] - 1;
+                1 / zero
+            } else if items[0] == 2 {
+                work(items)
+            } else {
+                loop {}
+            }
+        }
+        work(items)
+    }
+    val keeper: Keep = 0;
+    keeper.keep(local)
+}

@@ -1,0 +1,22 @@
+use std::collections::{ List, MutableList };
+
+trait Wrap {
+    fn wrap<T>(self, value: T) -> List<T> {
+        val mutable: MutableList<T> = Vec::from([value]);
+        val readonly: List<T> = mutable;
+        readonly
+    }
+}
+
+struct Source {}
+
+impl Wrap for Source {}
+
+struct Item {
+    val value: i32
+}
+
+fn main() -> i32 {
+    val source: Wrap = Source {};
+    source.wrap(21)[0] + source.wrap(Item { value: 21 })[0].value
+}

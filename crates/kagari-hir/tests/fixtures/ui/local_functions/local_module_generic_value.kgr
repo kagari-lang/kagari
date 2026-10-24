@@ -1,0 +1,1 @@
+fn module<T>(x: T) -> T { x } fn outer() { val f = module::<i32>; }

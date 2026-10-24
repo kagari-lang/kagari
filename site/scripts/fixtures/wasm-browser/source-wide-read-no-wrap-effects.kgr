@@ -1,0 +1,14 @@
+use web::print;
+
+fn index() -> u64 {
+    print("index");
+    4294967296u64
+}
+
+fn main() -> i32 {
+    val values = [7];
+    print("before");
+    val result = values[index()];
+    print("after");
+    result
+}

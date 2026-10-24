@@ -1,0 +1,48 @@
+struct NoDefault {
+    val value: i32
+}
+
+fn make<T: Default>() -> T {
+    Default::default()
+}
+
+fn main() -> i32 {
+    val _: () = Default::default();
+    val a: i8 = make();
+    val b: i16 = make();
+    val c: i32 = make();
+    val d: i64 = make();
+    val f: u8 = make();
+    val g: u16 = make();
+    val h: u32 = make();
+    val i: u64 = make();
+    val single: f32 = make();
+    val double: f64 = make();
+    val flag: bool = make();
+    val text: String = make();
+    if a != 0i8 || b != 0i16 || c != 0 || d != 0i64 || f != 0u8 || g != 0u16 || h != 0u32 ||
+        i != 0u64 ||
+        single != 0f32 ||
+        double != 0f64 ||
+        flag ||
+        text != "" {
+        return 0;
+    }
+    if !(1f32 / single > 0f32) || !(1f64 / double > 0f64) {
+        return 0;
+    }
+    val first: Vec<NoDefault> = Default::default();
+    val second = Vec<NoDefault>::default();
+    if first === second || first.len() != 0u64 || second.len() != 0u64 {
+        return 0;
+    }
+    first.push(NoDefault { value: 42 });
+    if second.len() != 0u64 {
+        return 0;
+    }
+    val empty: Option<NoDefault> = make();
+    match empty {
+        None => first[0].value,
+        Some(_) => 0
+    }
+}

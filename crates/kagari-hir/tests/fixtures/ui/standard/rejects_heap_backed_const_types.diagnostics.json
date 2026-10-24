@@ -1,0 +1,65 @@
+[
+  {
+    "code": "KG_TYPE_INVALID_CONST_INITIALIZER",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 73,
+          "path": "test.kg",
+          "start": 41
+        }
+      }
+    ],
+    "message": "invalid const initializer in const `PAIR`: const type `(i32, i32)` is heap-backed; const supports value types only",
+    "notes": [],
+    "primary": {
+      "end": 73,
+      "path": "test.kg",
+      "start": 41
+    },
+    "severity": "error"
+  },
+  {
+    "code": "KG_TYPE_INVALID_CONST_INITIALIZER",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 117,
+          "path": "test.kg",
+          "start": 74
+        }
+      }
+    ],
+    "message": "invalid const initializer in const `VALUES`: const type `Vec<i32>` is heap-backed; const supports value types only",
+    "notes": [],
+    "primary": {
+      "end": 117,
+      "path": "test.kg",
+      "start": 74
+    },
+    "severity": "error"
+  },
+  {
+    "code": "KG_TYPE_INVALID_CONST_INITIALIZER",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 160,
+          "path": "test.kg",
+          "start": 118
+        }
+      }
+    ],
+    "message": "invalid const initializer in const `POINT`: const type `Point` is heap-backed; const supports value types only",
+    "notes": [],
+    "primary": {
+      "end": 160,
+      "path": "test.kg",
+      "start": 118
+    },
+    "severity": "error"
+  }
+]

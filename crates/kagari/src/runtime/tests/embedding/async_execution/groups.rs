@@ -11,50 +11,7 @@ use kagari_runtime::{
 use kagari_vm::vm::owned::DriveResult;
 use std::{num::NonZeroUsize, sync::atomic::Ordering};
 
-const SOURCE: &str = r#"
-use core::task::{join, try_join};
-use test::async_sdk::request;
-pub fn cold() -> Future<(i32,i32)> { join(request(10), request(20)) }
-pub async fn pair() -> i32 { val (a,b)=cold().await; a*100+b }
-async fn read() -> Result<i32,String> { Ok(request(10).await) }
-async fn reject() -> Result<i32,String> { Err("original") }
-pub async fn fail_right() -> Result<(i32,i32),String> { try_join(read(), reject()).await }
-pub async fn ordinary_result() -> i32 {
-    val (a,b)=join(reject(), request(20)).await;
-    match a { Err(_) => b, Ok(_) => 0 }
-}
-pub async fn successful() -> i32 {
-    val value:Result<(i32,i32),String> = try_join(async { Ok(3) }, async { Ok(4) }).await;
-    match value { Ok((a,b)) => a*10+b, Err(_) => 0 }
-}
-pub async fn nested_output() -> i32 {
-    val (a,b)=join(async { request(10) }, async { 2 }).await;
-    a.await+b
-}
-pub fn input() -> Future<i32> { request(0) }
-pub fn compose(a:Future<i32>,b:Future<i32>) -> Future<(i32,i32)> { join(a,b) }
-pub async fn duplicate(a:Future<i32>) -> i32 { val (x,y)=join(a,a).await; x+y }
-pub async fn supplied(a:Future<i32>,b:Future<i32>) -> i32 { val (x,y)=join(a,b).await; x+y }
-pub async fn nested() -> i32 { val ((a,b),c)=join(join(request(10),request(20)),request(30)).await; a+b+c }
-pub async fn busy() -> i32 { var n=0; while n<200 { n+=1; } n }
-pub async fn fair() -> i32 { val (a,b)=join(busy(),request(10)).await; a+b }
-fn admitted(result:Result<Task<i32>,SpawnError>) -> Task<i32> {
-    match result { Ok(task) => task, Err(_) => { val zero=0; val bad=1/zero; admitted(result) } }
-}
-pub fn launch(scope:TaskScope) -> Task<i32> { admitted(scope.spawn(async || request(10).await)) }
-pub async fn observe(task:Task<i32>) -> i32 { task.await }
-pub async fn shared(task:Task<i32>) -> Result<(i32,i32),String> { try_join(async { Ok(task.await) },reject()).await }
-pub fn tasks() -> Vec<Task<i32>> { Vec::from([]) }
-pub fn add(tasks:Vec<Task<i32>>, task:Task<i32>) { tasks.push(task); }
-pub fn cycle(scope:TaskScope, tasks:Vec<Task<i32>>, nested:bool) -> Task<i32> {
-    admitted(scope.spawn(async || {
-        if nested { val ((a,b),c)=join(join(async { tasks[0].await },async { 1 }),async { 2 }).await; a+b+c }
-        else { val (a,b)=join(async { tasks[0].await },async { 1 }).await; a+b }
-    }))
-}
-async fn recurse(n:i32) -> i32 { if n==0 { 1 } else { val (a,b)=join(recurse(n-1),async { 0 }).await; a+b } }
-pub async fn deep() -> i32 { recurse(20).await }
-"#;
+const SOURCE: &str = include_str!("../../../../../tests/fixtures/embedding/async/groups.kgr");
 
 #[test]
 fn groups_waits_are_nonowning_and_cycles_cross_nested_groups() {

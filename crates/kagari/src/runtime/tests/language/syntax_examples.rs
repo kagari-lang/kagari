@@ -3,104 +3,74 @@ use crate::{
 };
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::source::SourceFile;
+use rstest::rstest;
+use std::{fs, path::PathBuf};
 
 use kagari_runtime::value::Value;
 
 use crate::test_support::execution;
 
-macro_rules! syntax_examples {
-    ($($name:ident: $path:literal => $source:literal),* $(,)?) => {
-        $(
-            #[test]
-            fn $name() {
-                let engine = execution::engine(Default::default());
-                let artifact = engine.compile_source(
-                    SourceFile::new($path, include_str!($source)),
-                ).unwrap();
-                execution::assert_returns_i32(&engine, artifact,
-                    &[execution::Route::Source, execution::Route::Artifact], 42);
-            }
-        )*
-    };
+#[rstest]
+fn source_examples(
+    #[files("../../examples/syntax/*.kgr")]
+    #[exclude(r"[/\\](async|byte-literals|char-literals|grammar-witnesses|try-protocols)\.kgr$")]
+    path: PathBuf,
+) {
+    let source = fs::read_to_string(&path).unwrap_or_else(|error| {
+        panic!("failed to read syntax example {}: {error}", path.display())
+    });
+    let filename = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .expect("UTF-8 syntax example file name");
+    execute_source_example(
+        &format!("examples/syntax/{filename}"),
+        &source,
+        &[execution::Route::Source, execution::Route::Artifact],
+    );
 }
 
-syntax_examples! {
-    struct_updates_preserve_context_order_and_shared_fields: "examples/syntax/struct-update.kgr" => "../../../../../../examples/syntax/struct-update.kgr",
-    declaration_patterns_preserve_scope_aliases_and_captures: "examples/syntax/binding-patterns.kgr" => "../../../../../../examples/syntax/binding-patterns.kgr",
-    callables: "examples/syntax/callables.kgr" => "../../../../../../examples/syntax/callables.kgr",
-    array_operations: "examples/syntax/array-operations.kgr" => "../../../../../../examples/syntax/array-operations.kgr",
-    bitwise: "examples/syntax/bitwise.kgr" => "../../../../../../examples/syntax/bitwise.kgr",
-    numeric_conversions: "examples/syntax/numeric-conversions.kgr" => "../../../../../../examples/syntax/numeric-conversions.kgr",
-    numeric_6502_numeric: "examples/6502-numeric.kgr" => "../../../../../../examples/6502-numeric.kgr",
-    error_conversion: "examples/syntax/error-conversion.kgr" => "../../../../../../examples/syntax/error-conversion.kgr",
-    type_inference: "examples/syntax/type-inference.kgr" => "../../../../../../examples/syntax/type-inference.kgr",
-    iterator_extensions: "examples/syntax/iterator-extensions.kgr" => "../../../../../../examples/syntax/iterator-extensions.kgr",
-    collection_pipelines: "examples/syntax/collection-pipelines.kgr" => "../../../../../../examples/syntax/collection-pipelines.kgr",
-    collection_access: "examples/syntax/collection-access.kgr" => "../../../../../../examples/syntax/collection-access.kgr",
-    string_interpolation: "examples/syntax/string-interpolation.kgr" => "../../../../../../examples/syntax/string-interpolation.kgr",
-    iterators: "examples/syntax/iterators.kgr" => "../../../../../../examples/syntax/iterators.kgr",
-    conversions: "examples/syntax/conversions.kgr" => "../../../../../../examples/syntax/conversions.kgr",
-    ordering: "examples/syntax/ordering.kgr" => "../../../../../../examples/syntax/ordering.kgr",
-    operators: "examples/syntax/operators.kgr" => "../../../../../../examples/syntax/operators.kgr",
-    index: "examples/syntax/index.kgr" => "../../../../../../examples/syntax/index.kgr",
-    standard_traits: "examples/syntax/standard-traits.kgr" => "../../../../../../examples/syntax/standard-traits.kgr",
-    result_option: "examples/syntax/result-option.kgr" => "../../../../../../examples/syntax/result-option.kgr",
-    generic_associated_types: "examples/syntax/generic-associated-types.kgr" => "../../../../../../examples/syntax/generic-associated-types.kgr",
-    associated_constants: "examples/syntax/associated-constants.kgr" => "../../../../../../examples/syntax/associated-constants.kgr",
-    default_methods: "examples/syntax/default-methods.kgr" => "../../../../../../examples/syntax/default-methods.kgr",
-    trait_inheritance: "examples/syntax/trait-inheritance.kgr" => "../../../../../../examples/syntax/trait-inheritance.kgr",
-    generic_interfaces: "examples/syntax/generic-interfaces.kgr" => "../../../../../../examples/syntax/generic-interfaces.kgr",
-    associated_types: "examples/syntax/associated-types.kgr" => "../../../../../../examples/syntax/associated-types.kgr",
-    visibility: "examples/syntax/visibility.kgr" => "../../../../../../examples/syntax/visibility.kgr",
-    inline_modules: "examples/syntax/inline-modules.kgr" => "../../../../../../examples/syntax/inline-modules.kgr",
-    tuple_types: "examples/syntax/tuple-types.kgr" => "../../../../../../examples/syntax/tuple-types.kgr",
-    attributes: "examples/syntax/attributes.kgr" => "../../../../../../examples/syntax/attributes.kgr",
-    binding_conditions: "examples/syntax/binding-conditions.kgr" => "../../../../../../examples/syntax/binding-conditions.kgr",
-    pattern_alternatives: "examples/syntax/pattern-alternatives.kgr" => "../../../../../../examples/syntax/pattern-alternatives.kgr",
-    match_guards: "examples/syntax/match-guards.kgr" => "../../../../../../examples/syntax/match-guards.kgr",
-    ranges: "examples/syntax/ranges.kgr" => "../../../../../../examples/syntax/ranges.kgr",
-    blocks: "examples/syntax/blocks.kgr" => "../../../../../../examples/syntax/blocks.kgr",
-    literals_and_comments: "examples/syntax/literals-and-comments.kgr" => "../../../../../../examples/syntax/literals-and-comments.kgr",
-    closures: "examples/syntax/closures.kgr" => "../../../../../../examples/syntax/closures.kgr",
-    data_model: "examples/syntax/data-model.kgr" => "../../../../../../examples/syntax/data-model.kgr",
-    expressions: "examples/syntax/expressions.kgr" => "../../../../../../examples/syntax/expressions.kgr",
-    control_flow: "examples/syntax/control-flow.kgr" => "../../../../../../examples/syntax/control-flow.kgr",
-    for_collections: "examples/syntax/for-collections.kgr" => "../../../../../../examples/syntax/for-collections.kgr",
-    r#match: "examples/syntax/match.kgr" => "../../../../../../examples/syntax/match.kgr",
-    where_bounds: "examples/syntax/where-bounds.kgr" => "../../../../../../examples/syntax/where-bounds.kgr",
-    import_alias: "examples/syntax/import-alias.kgr" => "../../../../../../examples/syntax/import-alias.kgr",
-    interface_dispatch: "examples/interface-dispatch.kgr" => "../../../../../../examples/interface-dispatch.kgr",
-    generic_trait_methods: "examples/generic-trait-methods.kgr" => "../../../../../../examples/generic-trait-methods.kgr",
-    standard_library: "examples/standard-library.kgr" => "../../../../../../examples/standard-library.kgr",
+#[rstest]
+#[case::numeric_6502_numeric(
+    "examples/6502-numeric.kgr",
+    include_str!("../../../../../../examples/6502-numeric.kgr")
+)]
+#[case::interface_dispatch(
+    "examples/interface-dispatch.kgr",
+    include_str!("../../../../../../examples/interface-dispatch.kgr")
+)]
+#[case::generic_trait_methods(
+    "examples/generic-trait-methods.kgr",
+    include_str!("../../../../../../examples/generic-trait-methods.kgr")
+)]
+#[case::standard_library(
+    "examples/standard-library.kgr",
+    include_str!("../../../../../../examples/standard-library.kgr")
+)]
+#[case::struct_pattern_rest_executes_in_existing_contexts(
+    "struct-pattern-rest.kgr",
+    include_str!("../../../../tests/fixtures/test-fixtures/language/struct-pattern-rest.kgr")
+)]
+#[case::grouped_standard_globs_execute(
+    "standard-glob.kgr",
+    include_str!("../../../../tests/fixtures/test-fixtures/language/standard-glob.kgr"),
+    &[execution::Route::Artifact]
+)]
+fn additional_source_examples(
+    #[case] path: &str,
+    #[case] source: &str,
+    #[case(default(&[execution::Route::Source, execution::Route::Artifact]))]
+    routes: &[execution::Route],
+) {
+    execute_source_example(path, source, routes);
 }
 
-#[test]
-fn struct_pattern_rest_executes_in_existing_contexts() {
+fn execute_source_example(path: &str, source: &str, routes: &[execution::Route]) {
     let engine = execution::engine(Default::default());
     let artifact = engine
-        .compile_source(SourceFile::new(
-            "struct-pattern-rest.kgr",
-            r#"
-struct Pair<T> { val first: T, val spare: i32 }
-fn main() -> i32 {
-    val pair = Pair { first: 10, spare: 99 };
-    val selected = match pair { Pair { first, .. } => first };
-    var sum = 0;
-    for Pair { first, .. } in [pair] { sum += first; }
-    if val Pair { first, .. } = pair { sum += first; }
-    while val Pair { first, .. } = pair { sum += first; break; }
-    val rest = match pair { Pair { .. } => 2 };
-    selected + sum + rest
-}
-"#,
-        ))
+        .compile_source(SourceFile::new(path, source))
         .unwrap();
-    execution::assert_returns_i32(
-        &engine,
-        artifact,
-        &[execution::Route::Source, execution::Route::Artifact],
-        42,
-    );
+    execution::assert_returns_i32(&engine, artifact, routes, 42);
 }
 
 #[test]
@@ -137,39 +107,6 @@ fn attributes_without_compiler_behavior_are_rejected_before_execution() {
             "{attribute}: {error:?}"
         );
     }
-}
-
-#[test]
-fn grouped_standard_globs_execute() {
-    let engine = execution::engine(Default::default());
-    let artifact = engine
-        .compile_to_artifact(
-            SourceFile::new(
-                "standard-glob.kgr",
-                "use std::{collections::*}; fn main() -> i32 { var total=0;for value in Vec::from([22,20]).map(|value|value){total+=value;}total }",
-            ),
-
-            Default::default(),
-        )
-        .unwrap();
-    let context = ExecutionContext::default();
-    let mut runtime = engine.runtime(context.clone());
-    let loaded = runtime
-        .load_program(
-            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap(),
-            Default::default(),
-        )
-        .unwrap();
-    assert_eq!(
-        runtime
-            .execute(&loaded, ProgramEntry::Main, &[], &context)
-            .unwrap()
-            .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(42)
-    );
 }
 
 #[test]
@@ -284,14 +221,7 @@ fn closure_trap_releases_execution_resources() {
         .compile_to_artifact(
             SourceFile::new(
                 "closure_trap.kgr",
-                r#"
-pub fn fail() -> i32 {
-    var count = 40;
-    val fail = || { count = count + 1; 1 / 0 };
-    fail()
-}
-pub fn after() -> i32 { 42 }
-"#,
+                include_str!("../../../../tests/fixtures/test-fixtures/language/closure-trap.kgr"),
             ),
             Default::default(),
         )

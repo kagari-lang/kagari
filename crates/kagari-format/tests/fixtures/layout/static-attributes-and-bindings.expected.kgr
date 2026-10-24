@@ -1,0 +1,4 @@
+#[tag]
+pub static val cache: Vec<i32> = make(1, 2);
+
+static var count: i32 = 0;

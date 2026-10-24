@@ -16,50 +16,12 @@ use kagari_package::{
 };
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use serde_json::{Value as JsonValue, from_slice};
-use std::{
-    fs,
-    path::PathBuf,
-    process::{Command, Output},
-    sync::atomic::{AtomicUsize, Ordering},
-};
+use std::{fs, process::Output};
 
-static NEXT: AtomicUsize = AtomicUsize::new(0);
+mod support;
+mod ui;
 
-struct Project(PathBuf);
-
-impl Project {
-    fn new() -> Self {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../target/toolchain-contracts")
-            .join(format!(
-                "{}-{}",
-                std::process::id(),
-                NEXT.fetch_add(1, Ordering::Relaxed)
-            ));
-        fs::create_dir_all(&root).unwrap();
-        Self(root.canonicalize().unwrap())
-    }
-
-    fn write(&self, path: &str, text: &str) {
-        let path = self.0.join(path);
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(path, text).unwrap();
-    }
-
-    fn run(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_kg"))
-            .current_dir(&self.0)
-            .args(args)
-            .output()
-            .unwrap()
-    }
-}
-
-impl Drop for Project {
-    fn drop(&mut self) {
-        fs::remove_dir_all(&self.0).unwrap();
-    }
-}
+use support::Project;
 
 fn records(output: &Output) -> Vec<JsonValue> {
     output
@@ -96,24 +58,10 @@ fn lint_cli_policy_required_errors_and_rule_help() {
             .code(),
         Some(2)
     );
-    project.write("script.kgr", "fn good(){val unused=1;}");
-    let warn = project.run(&["lint", "script.kgr", "--message-format", "json"]);
-    assert!(warn.status.success(), "{warn:?}");
-    let json = records(&warn);
-    assert_eq!(json[0]["code"], "unused_binding");
-    assert_eq!(json[0]["severity"], "warning");
-    assert_eq!(json[0]["location"]["byte_start"], 14);
-    assert_eq!(json.last().unwrap()["succeeded"], 1);
-    let deny = project.run(&[
-        "lint",
+    project.write(
         "script.kgr",
-        "-D",
-        "warnings",
-        "--message-format",
-        "json",
-    ]);
-    assert_eq!(deny.status.code(), Some(1));
-    assert_eq!(records(&deny)[0]["severity"], "error");
+        include_str!("fixtures/ui/lint/unused-binding.kgr"),
+    );
     assert!(
         project
             .run(&[
@@ -126,29 +74,6 @@ fn lint_cli_policy_required_errors_and_rule_help() {
             ])
             .status
             .success()
-    );
-    project.write(
-        "script.kgr",
-        "fn broken()->i32{true} fn good(){val unused=1;}",
-    );
-    let failure = project.run(&[
-        "lint",
-        "script.kgr",
-        "-A",
-        "unused_binding",
-        "--message-format",
-        "json",
-    ]);
-    assert_eq!(failure.status.code(), Some(1));
-    assert!(
-        records(&failure)
-            .iter()
-            .any(|record| record["severity"] == "error")
-    );
-    assert!(
-        !records(&failure)
-            .iter()
-            .any(|record| record["code"] == "unused_binding")
     );
 }
 

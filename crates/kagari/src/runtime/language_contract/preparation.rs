@@ -45,8 +45,8 @@ pub(super) fn engine(vector: bool) -> KagariEngine {
 }
 
 pub(super) fn check_publication(sources: SourceSnapshot, root: FileId) -> CheckedModule {
-    // This scalar fixture needs no native declarations. Keep its protected closure
-    // finite without weakening the standard foundation's Unknown protection.
+    // This scalar publication fixture needs no native declarations; check the
+    // explicit source closure independently of the standard provider baseline.
     let mut analysis = AnalysisDatabase::new("/language-contract").unwrap();
     let cancel = CancellationToken::default();
     let snapshot = analysis.snapshot(sources, &cancel).unwrap();

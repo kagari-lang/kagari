@@ -37,7 +37,10 @@ pub fn assert_returns_i32(
     routes: &[Route],
     expected: i32,
 ) {
-    let direct = engine.prepare(&checked, Default::default()).unwrap();
+    let direct = routes
+        .iter()
+        .any(|route| matches!(route, Route::Source))
+        .then(|| engine.prepare(&checked, Default::default()).unwrap());
     let encoded = routes
         .iter()
         .any(|route| !matches!(route, Route::Source))
@@ -50,7 +53,7 @@ pub fn assert_returns_i32(
             PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default())
                 .unwrap()
         });
-    assert_prepared_returns_i32(engine, Some(&direct), encoded.as_ref(), routes, expected);
+    assert_prepared_returns_i32(engine, direct.as_ref(), encoded.as_ref(), routes, expected);
 }
 
 pub fn assert_artifact_returns_i32(

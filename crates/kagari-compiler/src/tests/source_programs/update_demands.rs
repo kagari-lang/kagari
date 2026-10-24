@@ -1,9 +1,23 @@
-use super::*;
-use crate::source::program::lower_program_to_mir_with_demands;
+use super::{checked, insert};
+use crate::{
+    bytecode::lower_program_to_bytecode,
+    source::{
+        lower::instances::MirLoweringOptions,
+        program::{lower_program_to_mir, lower_program_to_mir_with_demands},
+    },
+};
+use kagari_common::{cancellation::CancellationToken, identity::metadata::DefinitionMetadata};
 use kagari_contract::{
     types::named::{NamedContract, NamedDeclaration, correspondence::DeclarationCorrespondence},
     updates::{BodyClassification, DemandEnvelope, demands::publication_demands, limits::Budget},
 };
+use kagari_mir::{
+    codec::{decode_program, encode_program},
+    program::VerifiedMirProgram,
+};
+use kagari_source::source_database::SourceDatabase;
+use kagari_types::{scalar::BuiltinType, ty::Ty};
+use std::collections::HashSet;
 
 fn history(
     program: &VerifiedMirProgram,
@@ -36,7 +50,7 @@ fn history(
         )
         .unwrap();
     let definitions = headers.definitions().clone();
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = HashSet::new();
     let headers = headers
         .into_records()
         .into_iter()
@@ -139,15 +153,7 @@ fn publication_keeps_preoptimization_tokens_and_executable_recipe() {
     let root = insert(
         &mut sources,
         "root",
-        r#"
-        static val N: i32 = ((1 + 2));
-        fn folded() -> i32 { 1 + 2 }
-        fn named() -> fn(i32) -> i32 { fn local(x: i32) -> i32 { x } local }
-        fn closure() -> fn(i32) -> i32 { |x: i32| x }
-        async fn asynchronous(x: i32) -> i32 { x }
-        fn cold() { val future = async { 1 }; }
-        fn main() -> i32 { N }
-        "#,
+        include_str!("../../../tests/fixtures/updates/publication.kgr"),
     );
     let source = checked(&sources, root);
     let program = lower_program_to_mir(

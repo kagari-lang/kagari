@@ -1,137 +1,58 @@
 //! Lexical declarations and noncapturing callable boundaries.
 
 use crate::{analyze_source, hir::item::function::FunctionKind};
-use kagari_source::{diagnostic::DiagnosticKind, source::SourceFile};
+use kagari_source::source::SourceFile;
 use kagari_stdlib::catalog;
+use rstest::rstest;
 
-#[test]
-fn local_function_scope_and_callable_contracts() {
-    for text in [
-        "fn outer() -> i32 { val answer = inner(41); fn inner(x: i32) -> i32 { x + 1 } answer }",
-        "fn outer() -> bool { fn even(n: i32) -> bool { if n == 0 { true } else { odd(n - 1) } } fn odd(n: i32) -> bool { if n == 0 { false } else { even(n - 1) } } even(4) }",
-        "fn outer<T>(value: T) -> T { fn id<T>(x: T) -> T { x } id(value) }",
-        "fn outer() -> fn(i32) -> i32 { fn id<T>(x: T) -> T { x } id }",
-        "fn outer() -> i32 { fn id<T>(x: T) -> T { x } (id::<i32>)(42) }",
-        "fn outer() -> fn(i32) -> i32 { fn inc(x: i32) -> i32 { x + 1 } inc }",
-        "fn outer() -> i32 { fn f() -> i32 { 1 } val f = || 2; { fn f() -> i32 { 3 } f(); } f() }",
-        "fn outer() -> fn() -> i32 { fn make(x: i32) -> fn() -> i32 { || x } make(42) }",
-        "fn outer() -> i32 { val closure = || { fn inner() -> i32 { 42 } inner() }; closure() }",
-        "struct S {} impl S { fn method(self) -> i32 { fn inner() -> i32 { 42 } inner() } }",
-        "async fn outer() -> i32 { async fn inner() -> i32 { 42 } inner().await }",
-        "fn outer() -> i32 { val answer = inner(); fn inner() -> i32 { 42 } answer }",
-    ] {
-        let source = SourceFile::new("locals.kgr", text);
-        let result = analyze_source(&source, catalog::shared().unwrap()).unwrap();
-        assert!(
-            result.diagnostics().is_empty(),
-            "{text}\n{:?}",
-            result.diagnostics()
-        );
-        let facts = result.facts();
-        assert!(
-            facts
-                .lowered
-                .module
-                .functions
-                .iter()
-                .any(|f| matches!(f.kind, FunctionKind::Local { .. }))
-        );
-        assert_eq!(
-            facts.typed.checked_bodies,
-            facts.lowered.module.functions.len()
-        );
-    }
-}
-
-#[test]
-fn local_function_boundaries_reject_capture_and_leakage() {
-    for (text, expected) in [
-        (
-            "fn outer(x: i32) { fn inner() -> i32 { x } }",
-            "KG_RESOLVE_UNKNOWN_NAME",
-        ),
-        (
-            "const x: i32 = 99; fn outer(x: i32) { fn inner() -> i32 { x } }",
-            "KG_RESOLVE_UNKNOWN_NAME",
-        ),
-        (
-            "fn outer() { var x = 0; fn inner() { x = 1; } }",
-            "KG_TYPE_INVALID_ASSIGNMENT_TARGET",
-        ),
-        (
-            "fn outer(x: i32) { fn inner() -> fn() -> i32 { || x } }",
-            "KG_RESOLVE_UNKNOWN_NAME",
-        ),
-        (
-            "fn outer<T>(x: T) { fn inner(x: T) {} }",
-            "KG_TYPE_UNKNOWN_TYPE",
-        ),
-        (
-            "struct S {} impl S { fn outer(self) { fn inner() { self; } } }",
-            "KG_RESOLVE_UNKNOWN_NAME",
-        ),
-        (
-            "fn outer() { fn inner() {} fn inner() {} }",
-            "KG_RESOLVE_DUPLICATE_DECLARATION",
-        ),
-        (
-            "fn outer() { { fn inner() {} } inner(); }",
-            "KG_RESOLVE_UNKNOWN_NAME",
-        ),
-        (
-            "fn outer() { fn inner() {} } fn other() { inner(); }",
-            "KG_RESOLVE_UNKNOWN_NAME",
-        ),
-        (
-            "fn outer() -> fn(f32) -> f32 { fn id<T: std::hash::Hash>(x: T) -> T { x } id }",
-            "KG_TYPE_GENERIC_BOUND_NOT_SATISFIED",
-        ),
-        (
-            "fn outer() { #[reflect] fn inner() {} }",
-            "KG_ATTRIBUTE_UNSUPPORTED",
-        ),
-        (
-            "fn outer() { fn id<T>(x: T) -> T { x } val f = id::<i32, bool>; }",
-            "KG_TYPE_INVALID_CALL_TARGET",
-        ),
-        (
-            "fn outer() { fn id<T>(x: T) -> T { x } val f = id::<i32, Item = i32>; }",
-            "KG_TYPE_INVALID_CALL_TARGET",
-        ),
-        (
-            "fn module<T>(x: T) -> T { x } fn outer() { val f = module::<i32>; }",
-            "KG_TYPE_INVALID_VALUE_TARGET",
-        ),
-    ] {
-        let source = SourceFile::new("locals.kgr", text);
-        let result = analyze_source(&source, catalog::shared().unwrap()).unwrap();
-        assert!(
-            result
-                .diagnostics()
-                .iter()
-                .any(|d| d.kind.code() == expected),
-            "{text}\n{:?}",
-            result.diagnostics()
-        );
-        assert!(result.into_codegen().is_err(), "{text}");
-    }
-    for text in [
-        "fn outer() { pub fn inner() {} }",
-        "const N: i32 = { fn inner() -> i32 { 42 } 42 };",
-    ] {
-        let result = analyze_source(
-            &SourceFile::new("locals.kgr", text),
-            catalog::shared().unwrap(),
-        )
-        .unwrap();
-        assert!(
-            result
-                .diagnostics()
-                .iter()
-                .any(|d| matches!(d.kind, DiagnosticKind::UnsupportedSyntax { .. })),
-            "{:?}",
-            result.diagnostics()
-        );
-        assert!(result.into_codegen().is_err());
-    }
+#[rstest]
+#[case::forward_call(
+    "fn outer() -> i32 { val answer = inner(41); fn inner(x: i32) -> i32 { x + 1 } answer }"
+)]
+#[case::mutual_recursion(
+    "fn outer() -> bool { fn even(n: i32) -> bool { if n == 0 { true } else { odd(n - 1) } } fn odd(n: i32) -> bool { if n == 0 { false } else { even(n - 1) } } even(4) }"
+)]
+#[case::shadowed_generics("fn outer<T>(value: T) -> T { fn id<T>(x: T) -> T { x } id(value) }")]
+#[case::contextual_generic_value("fn outer() -> fn(i32) -> i32 { fn id<T>(x: T) -> T { x } id }")]
+#[case::explicit_generic_value("fn outer() -> i32 { fn id<T>(x: T) -> T { x } (id::<i32>)(42) }")]
+#[case::ordinary_function_value(
+    "fn outer() -> fn(i32) -> i32 { fn inc(x: i32) -> i32 { x + 1 } inc }"
+)]
+#[case::block_shadowing(
+    "fn outer() -> i32 { fn f() -> i32 { 1 } val f = || 2; { fn f() -> i32 { 3 } f(); } f() }"
+)]
+#[case::returned_capture(
+    "fn outer() -> fn() -> i32 { fn make(x: i32) -> fn() -> i32 { || x } make(42) }"
+)]
+#[case::closure_local(
+    "fn outer() -> i32 { val closure = || { fn inner() -> i32 { 42 } inner() }; closure() }"
+)]
+#[case::method_local(
+    "struct S {} impl S { fn method(self) -> i32 { fn inner() -> i32 { 42 } inner() } }"
+)]
+#[case::async_local("async fn outer() -> i32 { async fn inner() -> i32 { 42 } inner().await }")]
+#[case::forward_zero_argument_call(
+    "fn outer() -> i32 { val answer = inner(); fn inner() -> i32 { 42 } answer }"
+)]
+fn local_function_scope_and_callable_contracts(#[case] text: &str) {
+    let source = SourceFile::new("locals.kgr", text);
+    let result = analyze_source(&source, catalog::shared().unwrap()).unwrap();
+    assert!(
+        result.diagnostics().is_empty(),
+        "{text}\n{:?}",
+        result.diagnostics()
+    );
+    let facts = result.facts();
+    assert!(
+        facts
+            .lowered
+            .module
+            .functions
+            .iter()
+            .any(|f| matches!(f.kind, FunctionKind::Local { .. }))
+    );
+    assert_eq!(
+        facts.typed.checked_bodies,
+        facts.lowered.module.functions.len()
+    );
 }

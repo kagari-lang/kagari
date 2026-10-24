@@ -94,8 +94,7 @@ fn source_exports_matching_native_input_or_explicit_bytecode_only_artifacts() {
 #[test]
 fn prepared_reload_preserves_abi_validation_and_the_previous_version_on_failure() {
     let engine = KagariEngine::default();
-    // Keep this scalar ABI test independent of the standard catalog's unknown
-    // native Hash/Eq callbacks, which conservatively protect all handlers on reload.
+    // Author a provider-free ABI fixture and admit only its verified artifact.
     let prepare = |source: &str| {
         let mut sources = SourceDatabase::default();
         let root = sources
@@ -121,7 +120,7 @@ fn prepared_reload_preserves_abi_validation_and_the_previous_version_on_failure(
     let old = runtime.load_program(&first, Default::default()).unwrap();
     let independent = runtime.load_program(&first, Default::default()).unwrap();
     let root = old.root();
-    let pinned = runtime.function::<(), i32>(&root, "main").unwrap();
+    let retained = runtime.function::<(), i32>(&root, "main").unwrap();
     assert_ne!(
         runtime.runtime().select_program(&old).unwrap().id,
         runtime.runtime().select_program(&independent).unwrap().id
@@ -147,7 +146,7 @@ fn prepared_reload_preserves_abi_validation_and_the_previous_version_on_failure(
     runtime
         .reload_program(&old, &second, Default::default())
         .unwrap();
-    assert_eq!(runtime.call(&pinned, ()).unwrap(), 1);
+    assert_eq!(runtime.call(&retained, ()).unwrap(), 2);
     let rebound = runtime.function::<(), i32>(&root, "main").unwrap();
     assert_eq!(runtime.call(&rebound, ()).unwrap(), 2);
     let separate = runtime

@@ -1,0 +1,7 @@
+fn current() -> i32 {
+    1
+}
+
+pub async fn run() -> i32 {
+    10 + current()
+}

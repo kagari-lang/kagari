@@ -1,0 +1,29 @@
+enum Token<T> {
+    Empty,
+    Data(T)
+}
+
+impl<T: PartialEq> PartialEq for Token<T> {
+    fn eq(self, other: Self) -> bool {
+        match (self, other) {
+            (Token::Empty, Token::Empty) => true,
+            (Token::Data(a), Token::Data(b)) => a == b,
+            _ => false
+        }
+    }
+}
+
+fn empty<T>() -> Token<T> {
+    Token<T>::Empty
+}
+
+fn main() -> i32 {
+    val a = Token<i32>::Data(7);
+    val b = Token<bool>::Data(true);
+    val e: Token<i32> = empty();
+    if a == Token<i32>::Data(7) && b == Token<bool>::Data(true) && e == Token<i32>::Empty {
+        42
+    } else {
+        0
+    }
+}

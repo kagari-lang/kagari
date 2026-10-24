@@ -5,6 +5,7 @@ use crate::{
 };
 use kagari_abi::representation::ValueType;
 use kagari_common::identity::map::DefinitionContext;
+use rstest::rstest;
 use std::sync::Arc;
 
 fn empty(runtime: &Runtime) -> EnvironmentRecord {
@@ -174,26 +175,28 @@ fn borrowed_view_rejects_allocation_and_sweeping_before_any_detachment() {
     assert!(runtime.gc.environment(environment.id).is_some());
 }
 
-#[test]
-fn environment_growth_reaches_safepoints_without_value_allocations() {
-    for threshold in [Some(4), None] {
-        let mut config = RuntimeConfig::default();
-        config.gc.collection_threshold = threshold;
-        let runtime = Runtime::new(config);
-        for _ in 0..64 {
-            runtime.alloc_environment(empty(&runtime)).unwrap();
-            runtime.gc_safepoint().unwrap();
-            if threshold.is_some() {
-                assert!(runtime.gc.stats().environments < 4);
-            }
+#[rstest]
+#[case::automatic(Some(4))]
+#[case::disabled(None)]
+fn environment_growth_reaches_safepoints_without_value_allocations(
+    #[case] threshold: Option<usize>,
+) {
+    let mut config = RuntimeConfig::default();
+    config.gc.collection_threshold = threshold;
+    let runtime = Runtime::new(config);
+    for _ in 0..64 {
+        runtime.alloc_environment(empty(&runtime)).unwrap();
+        runtime.gc_safepoint().unwrap();
+        if threshold.is_some() {
+            assert!(runtime.gc.stats().environments < 4);
         }
-        let stats = runtime.gc.stats();
-        assert_eq!(stats.allocated_objects, 0);
-        assert_eq!(stats.environments, if threshold.is_some() { 0 } else { 64 });
-        assert_eq!(stats.collections, if threshold.is_some() { 16 } else { 0 });
-        runtime.collect_garbage().unwrap();
-        assert_eq!(runtime.gc.stats().environments, 0);
     }
+    let stats = runtime.gc.stats();
+    assert_eq!(stats.allocated_objects, 0);
+    assert_eq!(stats.environments, if threshold.is_some() { 0 } else { 64 });
+    assert_eq!(stats.collections, if threshold.is_some() { 16 } else { 0 });
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc.stats().environments, 0);
 }
 
 #[test]

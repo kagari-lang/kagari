@@ -263,22 +263,7 @@ fn retained_zip_keeps_sources_and_closures_but_calls_current_methods() {
             module.declaration().identity == kagari_stdlib::namespaces::module("core", "iter")
         })
         .unwrap();
-    let source = r#"
-fn bias()->i32{0}
-struct Source { val values: Vec<i32>, var position: u64 }
-impl Iterator for Source {
-    type Item=i32;
-    fn next(self)->Option<i32> {
-        val value=self.values.get(self.position); self.position+=1u64;
-        match value { Some(item)=>Some(item+bias()), None=>None }
-    }
-}
-pub fn make()->Iterator<Item=(i32,i32)> {
-    val offset=Vec::from([1]);
-    Source { values:Vec::from([10,20]),position:0u64 }.map(|item|item+offset[0])
-        .zip(Source {values:Vec::from([30,40]),position:0u64}.map(|item|item+offset[0]))
-}
-"#;
+    let source = include_str!("../../../../tests/fixtures/collections/retained-custom-zip.kgr");
     let mut runtime = Runtime::default();
     kagari_runtime::native::module::NativeModule::install_all(
         &kagari_stdlib::modules().unwrap(),
@@ -299,19 +284,19 @@ pub fn make()->Iterator<Item=(i32,i32)> {
         .value(vm.runtime().gc())
         .expect("retained execution result");
     let root = vm.runtime().root_value(iterator).unwrap();
+    let bias = "fn bias() -> i32 {\n    0\n}";
+    assert_eq!(source.matches("[1]").count(), 1);
+    assert_eq!(source.matches(bias).count(), 1);
+    let updated_source = source
+        .replace("[1]", "[100]")
+        .replace(bias, "fn bias() -> i32 {\n    100\n}");
     vm.reload_program(
         &_old_program,
         Some("map".into()),
-        program(
-            &source
-                .replace("[1]", "[100]")
-                .replace("fn bias()->i32{0}", "fn bias()->i32{100}"),
-            &[&library],
-        ),
+        program(&updated_source, &[&library]),
     )
     .unwrap();
-    let _replacement_program = _old_program.clone();
-    let replacement = vm.runtime().select_program(&_replacement_program).unwrap();
+    let replacement = vm.runtime().select_program(&_old_program).unwrap();
     drop(old);
     vm.runtime().collect_garbage().unwrap();
     assert!(vm.runtime().modules().loaded(old_key).is_some());

@@ -1,0 +1,57 @@
+trait Read {
+    fn read(self) -> bool;
+}
+
+struct Item {
+    val value: i32
+}
+
+impl Read for Item {
+    fn read(self) -> bool {
+        true
+    }
+}
+
+trait Source {
+    type Item: Read;
+}
+
+struct Tag {}
+
+impl Source for Tag {
+    type Item = Item;
+}
+
+fn erase<T: Read>(value: T) -> Read {
+    value
+}
+
+trait Boxer {
+    fn one<S: Source>(self, source: S, value: S::Item) -> Read {
+        erase(value)
+    }
+}
+
+struct Factory {}
+
+impl Boxer for Factory {}
+
+trait Probe {
+    fn check(self, factory: Boxer) -> bool;
+}
+
+struct Checker {}
+
+impl Probe for Checker {
+    fn check(self, factory: Boxer) -> bool {
+        factory.one(Tag {}, Item { value: 42 }).read()
+    }
+}
+
+pub fn make() -> Boxer {
+    Factory {}
+}
+
+pub fn probe() -> Probe {
+    Checker {}
+}

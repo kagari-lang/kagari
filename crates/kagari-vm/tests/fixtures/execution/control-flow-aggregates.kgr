@@ -1,0 +1,20 @@
+struct Point {
+    var x: i32,
+    var y: i32
+}
+
+fn main() -> i32 {
+    var total = 0;
+    var index = 0;
+    while index < 3 {
+        total = total + index;
+        index = index + 1;
+    }
+    val values = [total, 10];
+    val selected = match values[1] {
+        10 => values[1],
+        _ => 0
+    };
+    val point = Point { x: values[0], y: selected };
+    point.x + point.y
+}

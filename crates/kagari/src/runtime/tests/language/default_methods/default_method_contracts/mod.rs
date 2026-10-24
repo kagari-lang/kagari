@@ -1,5 +1,5 @@
 //! Structural operation contracts used by shared generic default methods.
-use super::{editable_artifact, execute, execution};
+use super::{editable_artifact, execution};
 use crate::BytecodeArtifact;
 use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
 use kagari_contract::{
@@ -9,43 +9,9 @@ use kagari_contract::{
 use kagari_source::source::SourceFile;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
-#[test]
-fn shared_tuple_comparison_composes_element_operations() {
-    execute(SHARED_TUPLE_COMPARISON);
-}
-
-const SHARED_TUPLE_COMPARISON: &str = r#"
-use std::hash::Hash;
-use std::collections::list_content_equal;
-fn same<T: PartialEq>(a: T, b: T) -> bool { a == b }
-fn hashed<T: Hash>(value: T) -> i64 { val boxed: Hash = value; boxed.hash() }
-struct Item { val value: i32 }
-impl PartialEq for Item { fn eq(self, other: Self) -> bool { true } }
-impl Eq for Item {}
-impl Hash for Item { fn hash(self) -> i64 { 7i64 } }
-trait Compare {
-    fn compare<T: PartialEq>(self, a: T, b: T) -> bool {
-        (a, 7, a) == (b, 7, b) && !((a, 7) != (b, 7))
-            && same((a, (7, a)), (b, (7, b)))
-            && same(Vec::from([(a, 7)]), Vec::from([(b, 7)]))
-            && list_content_equal(Vec::from([(a, 7)]), Vec::from([(b, 7)]))
-    }
-    fn hashes<T: Eq + Hash>(self, a: T, b: T) -> bool {
-        (a, 7).hash() == (b, 7).hash() && hashed((a, (7, a))) == hashed((b, (7, b)))
-            && hashed(Vec::from([(a, 7)])) == hashed(Vec::from([(b, 7)]))
-    }
-}
-struct Source {}
-impl Compare for Source {}
-fn main() -> i32 {
-    val source: Compare = Source {};
-    val left = Item { value: 1 };
-    val right = Item { value: 2 };
-    if source.compare(left, right)
-        && !source.compare(1, 2) && source.compare("same", "same")
-        && source.hashes(left, right) && source.hashes(3, 3) && source.hashes("same", "same") { 42 } else { 0 }
-}
-"#;
+const SHARED_TUPLE_COMPARISON: &str = include_str!(
+    "../../../../../../tests/fixtures/language/default_methods/tuple_operations/shared_tuple_comparison_composes_element_operations.kgr"
+);
 
 #[test]
 fn shared_tuple_protocol_metadata_is_verified_without_source() {

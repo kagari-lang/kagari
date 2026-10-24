@@ -3,8 +3,9 @@ use crate::{
     host::HostPackage,
     identity::PackageFamily,
     lock::ResolutionOptions,
-    modules::{ModuleLimits, VirtualSources},
+    modules::ModuleLimits,
     snapshot::ProgramInputs,
+    test_support as support,
     workspace::{WorkspaceInputs, WorkspaceLimits},
 };
 use kagari_common::cancellation::CancellationToken;
@@ -12,18 +13,8 @@ use kagari_hir::analysis::AnalysisDatabase;
 use kagari_source::source_database::SourceDatabase;
 use std::{collections::BTreeMap, sync::Arc};
 
-fn sources(files: &[(&str, &str)]) -> VirtualSources {
-    VirtualSources::new(
-        files
-            .iter()
-            .map(|(name, text)| (name.to_string(), Arc::from(*text))),
-        &CancellationToken::default(),
-    )
-    .unwrap()
-}
-
 fn capture(files: &[(&str, &str)], hosts: BTreeMap<String, Arc<HostPackage>>) -> ProgramInputs {
-    let input = sources(files);
+    let input = support::sources(files);
     let cancel = CancellationToken::default();
     let workspace = WorkspaceInputs::load(
         &input,
@@ -60,7 +51,7 @@ fn rules(namespace: &str, body: &str) -> Arc<HostPackage> {
             PackageFamily::new(namespace, "", "rules").unwrap(),
             "rev1",
             "[package]\nname = 'rules'\nversion = '1.0.0'",
-            sources(&[("src/lib.kgr", body)]),
+            support::sources(&[("src/lib.kgr", body)]),
             &CancellationToken::default(),
         )
         .unwrap(),

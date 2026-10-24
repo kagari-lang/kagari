@@ -13,83 +13,88 @@ use kagari_hir::{analysis::AnalysisDatabase, program::ProgramCheckError};
 use kagari_mir::codec::{decode_program, encode_program};
 use kagari_source::{diagnostic::DiagnosticKind, source_database::SourceDatabase};
 use kagari_types::{declaration::TypeDefKind, scalar::BuiltinType, ty::Ty};
+use rstest::rstest;
 
-const BOUNDED_PRIVATE_APPLICATION: &str = "trait Tag {} impl Tag for i32 {} struct Hidden<T: Tag> { val value: T } enum Nested<T: Tag> { Value(Hidden<T>) } pub struct Cell<T> { val value: T } fn main() { val cell = Cell { value: Nested::Value(Hidden { value: 1 }) }; }";
+const BOUNDED_PRIVATE_APPLICATION: &str =
+    include_str!("../../../tests/fixtures/type_exports/bounded-private-argument.kgr");
 
-#[test]
-fn public_generic_layouts_keep_private_argument_contracts() {
-    for source in [
-        "pub struct Cell<T> { val value: T } struct Hidden {} fn main() { val cell = Cell { value: Hidden {} }; }",
-        BOUNDED_PRIVATE_APPLICATION,
-    ] {
-        let mut sources = SourceDatabase::default();
-        let root = insert(&mut sources, "root", source);
-        let checked = AnalysisDatabase::default()
-            .snapshot(sources.snapshot(), &Default::default())
+#[rstest]
+#[case::private_argument(
+    include_str!("../../../tests/fixtures/type_exports/private-argument.kgr"),
+    false
+)]
+#[case::bounded_private_argument(BOUNDED_PRIVATE_APPLICATION, true)]
+fn public_generic_layouts_keep_private_argument_contracts(
+    #[case] source: &str,
+    #[case] bounded: bool,
+) {
+    let mut sources = SourceDatabase::default();
+    let root = insert(&mut sources, "root", source);
+    let checked = AnalysisDatabase::default()
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap()
+        .check_program(root, &Default::default())
+        .unwrap();
+    let program = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let bytes = encode_program(&program, &Default::default()).unwrap();
+    let decoded = decode_program(&bytes, &Default::default()).unwrap();
+    let exports = &decoded.exports().namespaces[decoded.root()];
+    assert!(matches!(exports.types["Cell"], TypeExport::Declaration(_)));
+    for private in ["Hidden", "Nested", "Tag"] {
+        assert!(!exports.types.contains_key(private));
+        assert!(decoded.modules().iter().all(|module| {
+            module
+                .abi
+                .public_items
+                .iter()
+                .all(|item| item.name() != private)
+        }));
+    }
+    let owner = decoded
+        .modules()
+        .iter()
+        .find(|module| &module.identity == decoded.root())
+        .unwrap();
+    let hidden = owner
+        .abi
+        .private_types
+        .iter()
+        .find(|record| record.definition.name == "Hidden")
+        .unwrap();
+    assert_eq!(hidden.definition.kind, TypeDefKind::Struct);
+    assert_eq!(
+        decoded
+            .definitions()
+            .resolve(hidden.declaration)
             .unwrap()
-            .check_program(root, &Default::default())
-            .unwrap();
-        let program = lower_program_to_mir(&checked, &Default::default()).unwrap();
-        let bytes = encode_program(&program, &Default::default()).unwrap();
-        let decoded = decode_program(&bytes, &Default::default()).unwrap();
-        let exports = &decoded.exports().namespaces[decoded.root()];
-        assert!(matches!(exports.types["Cell"], TypeExport::Declaration(_)));
-        for private in ["Hidden", "Nested", "Tag"] {
-            assert!(!exports.types.contains_key(private));
-            assert!(decoded.modules().iter().all(|module| {
-                module
-                    .abi
-                    .public_items
-                    .iter()
-                    .all(|item| item.name() != private)
-            }));
-        }
-        let owner = decoded
-            .modules()
-            .iter()
-            .find(|module| &module.identity == decoded.root())
-            .unwrap();
-        let hidden = owner
+            .module(),
+        decoded.root()
+    );
+    if bounded {
+        let nested = owner
             .abi
             .private_types
             .iter()
-            .find(|record| record.definition.name == "Hidden")
+            .find(|record| record.definition.name == "Nested")
             .unwrap();
-        assert_eq!(hidden.definition.kind, TypeDefKind::Struct);
-        assert_eq!(
-            decoded
-                .definitions()
-                .resolve(hidden.declaration)
-                .unwrap()
-                .module(),
-            decoded.root()
-        );
-        if source == BOUNDED_PRIVATE_APPLICATION {
-            let nested = owner
-                .abi
-                .private_types
-                .iter()
-                .find(|record| record.definition.name == "Nested")
-                .unwrap();
-            assert_eq!(nested.definition.kind, TypeDefKind::Enum);
-            for record in [hidden, nested] {
-                let parameters = &record.definition.generic_params;
-                assert_eq!(parameters.len(), 1);
-                assert_eq!(parameters[0].owner, record.declaration);
-                assert_eq!(parameters[0].position, 0);
-                let bounds = &record.definition.bounds;
-                assert_eq!(bounds.len(), 1);
-                assert_eq!(bounds[0].ty, parameters[0].as_type());
-                assert_eq!(bounds[0].constraints.len(), 1);
-            }
+        assert_eq!(nested.definition.kind, TypeDefKind::Enum);
+        for record in [hidden, nested] {
+            let parameters = &record.definition.generic_params;
+            assert_eq!(parameters.len(), 1);
+            assert_eq!(parameters[0].owner, record.declaration);
+            assert_eq!(parameters[0].position, 0);
+            let bounds = &record.definition.bounds;
+            assert_eq!(bounds.len(), 1);
+            assert_eq!(bounds[0].ty, parameters[0].as_type());
+            assert_eq!(bounds[0].constraints.len(), 1);
         }
-        let bytecode = lower_program_to_bytecode(&decoded, &Default::default()).unwrap();
-        let bytecode = bytecode.program();
-        assert_eq!(
-            bytecode.modules[bytecode.root.index()].private_types,
-            owner.abi.private_types
-        );
     }
+    let bytecode = lower_program_to_bytecode(&decoded, &Default::default()).unwrap();
+    let bytecode = bytecode.program();
+    assert_eq!(
+        bytecode.modules[bytecode.root.index()].private_types,
+        owner.abi.private_types
+    );
 }
 
 #[test]
@@ -124,7 +129,7 @@ fn unused_nonobject_exports_retain_enum_layouts_for_structural_bound_proofs() {
     let root = insert(
         &mut sources,
         "root",
-        "pub enum Wrapper<T: Eq> { Value(T) } pub type Exported = Wrapper<Option<i32>>;",
+        include_str!("../../../tests/fixtures/type_exports/enum-bound-alias.kgr"),
     );
     let checked = checked(&sources, root);
     let program = lower_program_to_mir(&checked, &Default::default()).unwrap();
@@ -176,17 +181,17 @@ fn unused_closed_exports_demand_owner_layouts_and_transitive_private_fields() {
     insert(
         &mut sources,
         "types",
-        "struct Inner<T> { val value: T } pub struct Cell<T> { val inner: Inner<T> } pub type IntCell = Cell<i32>; pub type Identity<T> = T;",
+        include_str!("../../../tests/fixtures/type_exports/nested-owner.kgr"),
     );
     insert(
         &mut sources,
         "facade",
-        "use pkg::types::{Identity, IntCell}; pub type Nested = Identity<IntCell>;",
+        include_str!("../../../tests/fixtures/type_exports/nested-facade.kgr"),
     );
     let root = insert(
         &mut sources,
         "root",
-        "struct Cell {} pub use pkg::facade::Nested as Int; pub use pkg::types::IntCell as Again; pub type Bool = pkg::types::Cell<bool>; pub type Erased<T> = pkg::types::Cell<u32>; pub type Wrapped = (pkg::types::Cell<u64>, bool);",
+        include_str!("../../../tests/fixtures/type_exports/nested-root.kgr"),
     );
     let checked = AnalysisDatabase::default()
         .snapshot(sources.snapshot(), &Default::default())

@@ -103,41 +103,7 @@ fn tracing_a_deep_heap_chain_uses_an_explicit_work_stack() {
 #[test]
 fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
     let (vm, loaded) = compile(
-        r#"use std::collections::{HashMap, HashSet};
-        use std::hash::Hash;
-
-        pub struct KeyObject { var value: i32 }
-        impl PartialEq for KeyObject {
-            fn eq(self, other: Self) -> bool { self === other }
-        }
-        impl Eq for KeyObject {}
-        impl Hash for KeyObject { fn hash(self) -> i64 { 0i64 } }
-
-        pub fn key_hash(key: Option<(KeyObject, String)>) -> i64 { key.hash() }
-        pub fn keys_equal(left: Option<(KeyObject, String)>, right: Option<(KeyObject, String)>) -> bool {
-            left == right
-        }
-        pub fn contains(map: HashMap<Option<(KeyObject, String)>, i32>, set: HashSet<Option<(KeyObject, String)>>, key: Option<(KeyObject, String)>) -> bool {
-            map.contains_key(key) && set.contains(key)
-        }
-        pub fn restore_map(map: HashMap<Option<(KeyObject, String)>, i32>, key: Option<(KeyObject, String)>) {
-            map.insert(key, 20);
-        }
-        fn main() -> (HashMap<Option<(KeyObject, String)>, i32>, HashSet<Option<(KeyObject, String)>>, bool) {
-            val object = KeyObject { value: 42 };
-            val alias = object;
-            val key = Some((object, "key"));
-            val map: HashMap<Option<(KeyObject, String)>, i32> = HashMap::new();
-            map.insert(key, 20);
-            val set: HashSet<Option<(KeyObject, String)>> = HashSet::new();
-            set.insert(key);
-            alias.value = 99;
-            val equal = Some((alias, "key"));
-            val different = Some((KeyObject { value: 99 }, "key"));
-            val found = match map.get(equal) { Some(value) => value == 20, None => false };
-            (map, set, found && set.contains(equal) && !map.contains_key(different) && !set.contains(different))
-        }
-    "#,
+        include_str!("../../../../tests/fixtures/native/structural-and-identity-hash-keys.kgr"),
         None,
     );
     let _loaded_program = loaded;

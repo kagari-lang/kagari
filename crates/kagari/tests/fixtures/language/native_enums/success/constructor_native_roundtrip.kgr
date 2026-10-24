@@ -1,0 +1,8 @@
+fn main() -> i32 {
+    val event = enums::Event::Data(40, 2);
+    if enums::is_data(event) && !enums::is_data(enums::closed(0, 0)) {
+        enums::sequence(enums::roundtrip(event)) + 40
+    } else {
+        0
+    }
+}

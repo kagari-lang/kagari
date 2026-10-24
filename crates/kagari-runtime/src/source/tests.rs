@@ -36,6 +36,7 @@ use kagari_compiler::{
 use kagari_contract::source::ExecutableOrigin;
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use rstest::rstest;
 use std::sync::Arc;
 
 fn compiled(
@@ -301,78 +302,75 @@ fn current_routes_exact_values_frames_and_source_only_history() {
     );
 }
 
-#[test]
-fn source_free_packages_stripping_mismatch_and_locator_authority() {
+#[rstest]
+#[case::stripped(false)]
+#[case::retained(true)]
+fn source_free_packages_stripping_mismatch_and_locator_authority(#[case] retained: bool) {
     let text = "pub fn value() -> i32 { 1 } fn main() {}";
     let (bytecode, package) = compiled(text, None);
-    let (different, _) = compiled(&text.replace("{ 1 }", "{ 2 }"), None);
-    assert!(
-        VerifiedProgram::from_bytecode(different)
-            .with_source_package(package.clone(), &Default::default())
-            .is_err()
-    );
     let artifact =
         KbcArtifact::from_verified(bytecode, Default::default(), &Default::default()).unwrap();
-    let retained =
-        KbcArtifact::with_source_package(artifact.clone(), &package, &Default::default()).unwrap();
-    for (artifact, retained) in [(artifact, false), (retained, true)] {
-        let bytes = artifact.records().to_bytes(artifact.definitions()).unwrap();
-        let context = DefinitionContext::new().unwrap();
-        let verified = KbcArtifact::from_bytes(&bytes)
-            .unwrap()
-            .import_into(&context, &Default::default())
-            .unwrap()
-            .into_records()
-            .into_verified(
-                &ArtifactCompatibility::default(),
-                &context,
-                &Default::default(),
-            )
-            .unwrap();
-        let (bytecode, _, source) = verified.into_parts();
-        let code = VerifiedProgram::from_bytecode(bytecode);
-        let code = match source {
-            Some(source) => code
-                .with_source_package(source, &Default::default())
-                .unwrap(),
-            None => code,
-        };
-        let mut runtime = Runtime::default();
-        let program = runtime
-            .load_verified_program("source-free", code.clone())
-            .unwrap();
-        let other = runtime.load_verified_program("other", code).unwrap();
-        let snapshot = runtime.source_snapshot(&program).unwrap();
-        let locator = declaration(&snapshot, "value");
-        let query = runtime
-            .function_source(
-                &runtime
-                    .bind_function::<(), i32>(&program.root(), "value")
-                    .unwrap()
-                    .source_target(),
-            )
-            .unwrap();
-        if retained {
-            assert!(available(query).text.contains("{ 1 }"));
-            assert!(
-                runtime
-                    .resolve_source_declaration(&program, &locator)
-                    .is_ok()
-            );
-        } else {
-            assert!(
-                matches!(query, SourceQuery::Unavailable(reason) if reason.reason == SourceUnavailableReason::MissingPackage && reason.application.is_some())
-            );
-        }
+    let artifact = if retained {
+        KbcArtifact::with_source_package(artifact, &package, &Default::default()).unwrap()
+    } else {
+        artifact
+    };
+    let bytes = artifact.records().to_bytes(artifact.definitions()).unwrap();
+    let context = DefinitionContext::new().unwrap();
+    let verified = KbcArtifact::from_bytes(&bytes)
+        .unwrap()
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records()
+        .into_verified(
+            &ArtifactCompatibility::default(),
+            &context,
+            &Default::default(),
+        )
+        .unwrap();
+    let (bytecode, _, source) = verified.into_parts();
+    let code = VerifiedProgram::from_bytecode(bytecode);
+    let code = match source {
+        Some(source) => code
+            .with_source_package(source, &Default::default())
+            .unwrap(),
+        None => code,
+    };
+    let mut runtime = Runtime::default();
+    let program = runtime
+        .load_verified_program("source-free", code.clone())
+        .unwrap();
+    let other = runtime.load_verified_program("other", code).unwrap();
+    let snapshot = runtime.source_snapshot(&program).unwrap();
+    let locator = declaration(&snapshot, "value");
+    let query = runtime
+        .function_source(
+            &runtime
+                .bind_function::<(), i32>(&program.root(), "value")
+                .unwrap()
+                .source_target(),
+        )
+        .unwrap();
+    if retained {
+        assert!(available(query).text.contains("{ 1 }"));
         assert!(
             runtime
-                .resolve_source_declaration(&other, &locator)
-                .is_err()
+                .resolve_source_declaration(&program, &locator)
+                .is_ok()
         );
+    } else {
         assert!(
-            matches!(runtime.source_snapshot(&other).unwrap().function(&locator), SourceQuery::Unavailable(reason) if reason.reason == SourceUnavailableReason::Mismatch)
+            matches!(query, SourceQuery::Unavailable(reason) if reason.reason == SourceUnavailableReason::MissingPackage && reason.application.is_some())
         );
     }
+    assert!(
+        runtime
+            .resolve_source_declaration(&other, &locator)
+            .is_err()
+    );
+    assert!(
+        matches!(runtime.source_snapshot(&other).unwrap().function(&locator), SourceQuery::Unavailable(reason) if reason.reason == SourceUnavailableReason::Mismatch)
+    );
 }
 
 fn future_provider() -> NativeModule {
@@ -608,4 +606,16 @@ fn rejected_candidate_never_changes_active_source() {
     let after = available(runtime.function_source(&target).unwrap());
     assert_eq!(before.publication, after.publication);
     assert_eq!(before.text, after.text);
+}
+
+#[test]
+fn source_package_rejects_mismatched_executable_products() {
+    let text = "pub fn value() -> i32 { 1 } fn main() {}";
+    let (_, package) = compiled(text, None);
+    let (different, _) = compiled(&text.replace("{ 1 }", "{ 2 }"), None);
+    assert!(
+        VerifiedProgram::from_bytecode(different)
+            .with_source_package(package.clone(), &Default::default())
+            .is_err()
+    );
 }

@@ -1,0 +1,27 @@
+use std::iter::{ CollectionCursor };
+
+struct Values {
+    val items: Vec<i32>
+}
+
+impl Iterable for Values {
+    type Item = i32;
+    type Iter = CollectionCursor<i32>;
+    fn iter(self) -> Self::Iter {
+        self.items.iter()
+    }
+}
+
+fn sum<I: Iterable<Item = i32>>(source: I) -> i32 {
+    var total = 0;
+    for item in source {
+        total += item;
+    }
+    total
+}
+
+fn main() -> i32 {
+    val values = Values { items: Vec::from([20, 22]) };
+    val items: CollectionCursor<i32> = values.iter();
+    sum(items)
+}

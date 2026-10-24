@@ -1,0 +1,29 @@
+fn assert(value: bool) {
+    {
+        val passed = value;
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+}
+
+const MASK: u8 = !0u8;
+
+fn main() -> i32 {
+    var x = 128u8;
+    x <<= 1u16;
+    x |= 3u8;
+    x ^= 1u8;
+    x &= 2u8;
+    x >>= 1u32;
+    assert(x == 1u8);
+    assert(MASK == 255u8);
+    assert((128u8 << 1) == 0u8);
+    assert((-128i8 >> 7u8) == -1i8);
+    assert((128u8 >> 7i64) == 1u8);
+    assert(!0u64 == 18446744073709551615u64);
+    assert((1u16 << 8u8) == 256u16);
+    assert((1 | 2 & 0 ^ 4) == 5);
+    42
+}

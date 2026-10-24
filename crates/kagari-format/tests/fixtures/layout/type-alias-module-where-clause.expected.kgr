@@ -1,0 +1,3 @@
+mod model {
+    pub (super) type Items<T> where T: Show = [T];
+}

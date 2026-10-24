@@ -78,26 +78,9 @@ fn frame_roots_preserve_returned_objects_across_calls_and_collection_safepoints(
 
 #[test]
 fn closures_keep_captured_objects_and_cells_alive_across_collection() {
-    let module = compile_test_bytecode(
-        r#"
-fn make_reader() -> fn() -> i32 {
-    val values = [42];
-    || values[0]
-}
-fn make_counter() -> fn() -> i32 {
-    var count = 40;
-    || { count = count + 1; count }
-}
-fn main() -> i32 {
-    val reader = make_reader();
-    val counter = make_counter();
-    val garbage = [1, 2, 3];
-    val first = counter();
-    val second = counter();
-    reader() + second - first
-}
-"#,
-    );
+    let module = compile_test_bytecode(include_str!(
+        "../../tests/fixtures/gc/captured-object-and-cell.kgr"
+    ));
     let mut runtime = runtime();
     let loaded = runtime.load_program("closure_gc.kgr", module).unwrap();
     let _loaded_program = loaded;
@@ -289,23 +272,9 @@ fn cloned_debug_bindings_keep_inspected_objects_alive_after_the_session_is_repla
 
 #[test]
 fn growing_execution_windows_keep_outer_values_alive_and_release_them_on_return() {
-    let program = compile_test_bytecode(
-        r#"
-fn descend(n: i32, kept: Vec<i32>) -> Vec<i32> {
-    if n == 0 { kept } else {
-        val inner = Vec::from([n]);
-        val returned = descend(n - 1, inner);
-        kept.push(returned[0]);
-        kept
-    }
-}
-fn main() -> i32 {
-    val original = Vec::from([42]);
-    val returned = descend(32, original);
-    returned[0] + returned[1]
-}
-"#,
-    );
+    let program = compile_test_bytecode(include_str!(
+        "../../tests/fixtures/gc/recursive-window-roots.kgr"
+    ));
     let mut runtime = runtime();
     let loaded = runtime.load_program("growing_windows", program).unwrap();
     let _loaded_program = loaded;

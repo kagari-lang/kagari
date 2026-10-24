@@ -1,0 +1,17 @@
+trait Value {
+    const VALUE: i32;
+    fn get(self) -> i32;
+}
+
+struct Number {}
+
+impl Value for Number {
+    const VALUE: i32 = 42;
+    fn get(self) -> i32 {
+        Self::VALUE
+    }
+}
+
+fn main() -> i32 {
+    Number {}.get()
+}

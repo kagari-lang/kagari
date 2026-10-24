@@ -1,47 +1,50 @@
-use super::{FLOATS, assert_checks, check_source, context, engine, programs};
+use super::{FLOATS, Float, assert_checks, context, engine, programs};
+use crate::runtime::tests::language::numeric_checks::NumericChecks;
 use kagari_runtime::{module::entry::ProgramEntry, native::objects::Object};
+use rstest::rstest;
 
-#[test]
-fn receivers_and_arguments_run_once_in_left_to_right_order() {
+#[rstest]
+#[case::f32(FLOATS[0])]
+#[case::f64(FLOATS[1])]
+fn receivers_and_arguments_run_once_in_left_to_right_order(#[case] float: Float) {
     let mut source = String::from("struct Log { var sequence: i32 }\n");
     let mut checks = Vec::new();
-    for float in FLOATS {
-        let ty = float.ty;
-        let uint = float.uint;
-        source.push_str(&format!(
-            "fn receiver{ty}(log: Log) -> {ty} {{ log.sequence = log.sequence * 10 + 1; 0.5{ty} }}\n\
-             fn low{ty}(log: Log) -> {ty} {{ log.sequence = log.sequence * 10 + 2; -1.0{ty} }}\n\
-             fn high{ty}(log: Log) -> {ty} {{ log.sequence = log.sequence * 10 + 3; 1.0{ty} }}\n\
-             fn bits{ty}(log: Log) -> {uint} {{ log.sequence = log.sequence * 10 + 1; 0{uint} }}\n"
+    let ty = float.ty;
+    let uint = float.uint;
+    source.push_str(&format!(
+        "fn receiver{ty}(log: Log) -> {ty} {{ log.sequence = log.sequence * 10 + 1; 0.5{ty} }}\n\
+         fn low{ty}(log: Log) -> {ty} {{ log.sequence = log.sequence * 10 + 2; -1.0{ty} }}\n\
+         fn high{ty}(log: Log) -> {ty} {{ log.sequence = log.sequence * 10 + 3; 1.0{ty} }}\n\
+         fn bits{ty}(log: Log) -> {uint} {{ log.sequence = log.sequence * 10 + 1; 0{uint} }}\n"
+    ));
+    for (expression, expected_sequence, expected_bits) in [
+        (format!("receiver{ty}(log).abs()"), 1, float.bits(0.5)),
+        (
+            format!("receiver{ty}(log).min(low{ty}(log))"),
+            12,
+            float.bits(-1.0),
+        ),
+        (
+            format!("receiver{ty}(log).max(low{ty}(log))"),
+            12,
+            float.bits(0.5),
+        ),
+        (
+            format!("receiver{ty}(log).clamp(low{ty}(log), high{ty}(log))"),
+            123,
+            float.bits(0.5),
+        ),
+        (format!("{ty}::from_bits(bits{ty}(log))"), 1, 0),
+    ] {
+        checks.push(format!(
+            "{{ val log = Log {{ sequence: 0 }}; val result = {expression}; \
+             log.sequence == {expected_sequence} && result.to_bits() == {expected_bits}{uint} }}"
         ));
-        for (expression, expected_sequence, expected_bits) in [
-            (format!("receiver{ty}(log).abs()"), 1, float.bits(0.5)),
-            (
-                format!("receiver{ty}(log).min(low{ty}(log))"),
-                12,
-                float.bits(-1.0),
-            ),
-            (
-                format!("receiver{ty}(log).max(low{ty}(log))"),
-                12,
-                float.bits(0.5),
-            ),
-            (
-                format!("receiver{ty}(log).clamp(low{ty}(log), high{ty}(log))"),
-                123,
-                float.bits(0.5),
-            ),
-            (format!("{ty}::from_bits(bits{ty}(log))"), 1, 0),
-        ] {
-            checks.push(format!(
-                "{{ val log = Log {{ sequence: 0 }}; val result = {expression}; \
-                 log.sequence == {expected_sequence} && result.to_bits() == {expected_bits}{uint} }}"
-            ));
-        }
     }
-    source.push_str(&check_source(checks));
+    let checks = NumericChecks::new(checks);
+    source.push_str(&checks.source());
     for (route, program) in programs(&source) {
-        assert_checks(&program, route, &source);
+        assert_checks(&program, route, &source, &checks);
     }
 }
 

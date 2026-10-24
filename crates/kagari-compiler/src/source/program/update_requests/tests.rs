@@ -69,17 +69,9 @@ fn named(module: &CheckedAnalysis, name: &str) -> DefinitionId {
 
 #[test]
 fn contract_batches_materialize_all_five_products_without_specializing_shared_bodies() {
-    let checked = checked(
-        r#"
-struct Box<T> { val value: T }
-struct Unused<T> { val value: T }
-trait Read { fn read(self) -> i32; }
-impl<T> Read for Box<T> { fn read(self) -> i32 { 7 } }
-fn retained<T>(x: T) -> T { x }
-fn shared<T>(x: T) -> T { x }
-fn main() {}
-"#,
-    );
+    let checked = checked(include_str!(
+        "../../../../tests/fixtures/updates/demand-products.kgr"
+    ));
     let definitions = checked.definitions();
     let i32_ty = Ty::Builtin(BuiltinType::I32);
     let i64_ty = Ty::Builtin(BuiltinType::I64);
@@ -272,14 +264,9 @@ fn main() {}
 
 #[test]
 fn shared_receiver_and_method_binder_identity_remains_exact() {
-    let checked = checked(
-        r#"
-struct Box<T> { val value: T }
-trait Read { fn read<U>(self, value: U) -> U; }
-impl<T> Read for Box<T> { fn read<U>(self, value: U) -> U { value } }
-fn main() {}
-"#,
-    );
+    let checked = checked(include_str!(
+        "../../../../tests/fixtures/updates/shared-binders.kgr"
+    ));
     let method = inventory(&checked)
         .into_iter()
         .find(|record| {

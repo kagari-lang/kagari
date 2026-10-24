@@ -27,18 +27,7 @@ fn scoped_task_contract() {
     config.default_runtime.async_limits.max_tasks = NonZeroUsize::new(2).unwrap();
     config.default_runtime.async_limits.max_task_scopes = NonZeroUsize::new(2).unwrap();
     let f = Fixture::configured_source(
-        r#"
-use test::async_sdk::request;
-pub fn items() -> Vec<i32> { Vec::from([10,20]) }
-pub fn push(items:Vec<i32>) { items.push(30); }
-pub fn replace(items:Vec<i32>) { items[1]=40; }
-pub fn count(items:Vec<i32>) -> u64 { items.len() }
-pub fn work(items:Vec<i32>) -> fn()->Future<Vec<i32>> {
-    async || { val results:Vec<i32> = Vec::from([]); for item in items { results.push(request(item).await); } results }
-}
-pub fn simple() -> fn()->Future<i32> { async || 7 }
-pub fn trapped() -> fn()->Future<i32> { || { val zero=0; val bad=1/zero; request(0) } }
-"#,
+        include_str!("../../../../../tests/fixtures/embedding/async/task-scope.kgr"),
         config,
     );
     let runtime = f.runtime.runtime();

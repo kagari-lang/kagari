@@ -1,5 +1,31 @@
 # SDK feature-boundary artifact
 
+Ordinary file-backed language inputs live under [`language`](language), grouped
+by their owning language contract (types/dispatch, collections/iteration, operators,
+traits, Result/Try, strings and numerics).
+Their directory-discovered cases keep route/result/GC configuration in the existing
+Rust owner; boundary scenarios retain explicit assertions. The default-method
+cursor input reuses `iterable-default-cursor.kgr` rather than copying it. Try
+execution directly selects the canonical public example. The `language_contract`
+subtree holds source data for explicit effect/trap/cancellation scenarios, not a
+second runner. Numeric predicates stay generated from bounded Rust tables; only
+useful fixed programs are extracted.
+Host/async source data lives under [`embedding`](embedding), with fresh provider
+installation, scheduling/borrow/reentry and cleanup assertions retained in Rust.
+Syntax-example and stateful scenario inputs also live under
+[`test-fixtures/language`](test-fixtures/language) and
+[`test-fixtures/embedding`](test-fixtures/embedding). They are source data loaded
+by the existing library test harness, not additional integration targets. Rust
+owns expected values, route/GC configuration, traps, publication, alias checks and
+resource cleanup. Ordinary inputs use normal four-space Kagari layout, LF and a
+final newline, not the incidental indentation of their former Rust raw strings.
+Preserve exact bytes only for dedicated line/whitespace/source-location contracts
+and the canonical artifact source below. Keep logical source names unchanged; do
+not normalize contents when loading them. Local attributes keep ordinary inputs
+LF-only on Windows. See the [testing guide](../../../../docs/testing.md#existing-file-backed-patterns).
+
+## Feature-boundary artifact
+
 `target/fixtures/feature_artifact.kbc` is the disposable current-format artifact emitted from the exact
 `feature_artifact.kgr` text with source name `memory://feature-artifact.kgr`.
 It contains bytecode, carried declarations/dependencies and portable MIR, without

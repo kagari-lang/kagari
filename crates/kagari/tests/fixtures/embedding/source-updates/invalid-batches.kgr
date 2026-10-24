@@ -1,0 +1,10 @@
+pub fn answer() -> i32 {
+    fn nested_target() -> i32 {
+        1
+    }
+    nested_target()
+}
+
+pub use crate::answer as alias;
+
+struct NotAFunction {}

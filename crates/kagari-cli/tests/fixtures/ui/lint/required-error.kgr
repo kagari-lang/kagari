@@ -1,0 +1,1 @@
+fn broken()->i32{true} fn good(){val unused=1;}

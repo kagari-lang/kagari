@@ -1,0 +1,1 @@
+fn outer() { pub fn inner() {} }

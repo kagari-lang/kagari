@@ -1,0 +1,19 @@
+use std::collections;
+
+fn main() -> i32 {
+    val source = Vec::from([20, 22]);
+    val selected: core::iter::MapIterator<i32, Result<i32, String>> = source.map(|x| Ok(x));
+    var total = 0;
+    for item in selected {
+        match item {
+            Ok(n) => {
+                total += n;
+            },
+            Err(_) => {
+                return 0;
+            }
+        };
+    }
+    val nested: Vec<Vec<i32>> = Vec::from([Vec::from([]), Vec::from([total])]);
+    nested[1][0]
+}

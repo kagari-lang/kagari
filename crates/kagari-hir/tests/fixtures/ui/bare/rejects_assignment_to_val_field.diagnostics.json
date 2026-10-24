@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_TYPE_INVALID_ASSIGNMENT_TARGET",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 92,
+          "path": "test.kg",
+          "start": 85
+        }
+      }
+    ],
+    "message": "invalid assignment target: `val` field `x` cannot be assigned",
+    "notes": [],
+    "primary": {
+      "end": 92,
+      "path": "test.kg",
+      "start": 85
+    },
+    "severity": "error"
+  }
+]

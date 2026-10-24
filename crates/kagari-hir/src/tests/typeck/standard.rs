@@ -611,45 +611,6 @@ fn unique<T: Eq + Hash>(values: HashSet<T>) -> u64 {
 }
 
 #[test]
-fn rejects_standard_library_invalid_arity_and_argument_types() {
-    let lowered = common::lower_ok("fn bad() { Vec::push([1]); }");
-    let diagnostics = crate::analyze_source(&lowered.source, foundation_catalog::shared().unwrap())
-        .expect("installed declaration analysis")
-        .into_checked()
-        .expect_err("standard call arity should reject");
-    assert!(diagnostics.iter().any(|diagnostic| {
-        diagnostic.kind
-            == DiagnosticKind::CallArityMismatch {
-                function_name: "push".to_owned(),
-                expected: 2,
-                found: 1,
-            }
-    }));
-
-    let lowered = common::lower_ok(
-        r#"use std::collections::{HashMap};
-
-fn bad(values: HashMap<String, i32>) -> bool {
-    values.contains_key(1)
-}
-"#,
-    );
-    let diagnostics = crate::analyze_source(&lowered.source, foundation_catalog::shared().unwrap())
-        .expect("installed declaration analysis")
-        .into_checked()
-        .expect_err("standard method key type should reject");
-    assert!(diagnostics.iter().any(|diagnostic| {
-        diagnostic.kind
-            == DiagnosticKind::ArgumentTypeMismatch {
-                function_name: "contains_key".to_owned(),
-                parameter_name: "arg1".to_owned(),
-                expected: "String".to_owned(),
-                found: "i32".to_owned(),
-            }
-    }));
-}
-
-#[test]
 fn checks_standard_numeric_surface() {
     let lowered = common::lower_ok(
         r#"

@@ -167,20 +167,10 @@ fn embedding_conformance_executes_foundation_native_artifacts() {
         .compile_to_artifact(
             SourceFile::new(
                 "builtins.kgr",
-                r#"use std::collections::{HashMap, HashSet};
-
-fn main() -> (u64, u64, u64, bool, i32) {
-    val values = Vec::from([1, 2]);
-    values.push(3);
-    val map: HashMap<String, i32> = HashMap::new();
-    map.insert("ok", 7);
-    val set: HashSet<String> = HashSet::new();
-    set.insert("ready");
-    (values.len(), values.len() - 1u64, map.len(), set.contains("ready"), match map.get("ok") { Some(x) => x, None => 0 })
-}
-"#,
+                include_str!(
+                    "../../../../tests/fixtures/embedding/installation/foundation-artifact.kgr"
+                ),
             ),
-
             ArtifactOptions::default(),
         )
         .expect("builtin source should compile to artifact");

@@ -209,11 +209,8 @@ fn generic_bindings_keep_type_evidence_without_pinning_ordinary_code() {
         .unwrap();
     let module = builder.finish().unwrap();
     let declaration = declaration_query(&module, DefinitionKind::Function, "identity");
-    let source = r#"
-        use example::generic_helper::identity;
-        pub struct Item { pub val value: i32 }
-        pub fn make() -> Item { identity(Item { value: 41 }) }
-    "#;
+    let source =
+        include_str!("../../../../tests/fixtures/native/generic-binding-type-evidence.kgr");
     let (vm, old) = fixture_without_foundation(source, Some(&module));
     let _old_program = old;
     let old = vm.runtime().select_program(&_old_program).unwrap();
@@ -243,6 +240,9 @@ fn generic_bindings_keep_type_evidence_without_pinning_ordinary_code() {
         .bind_function::<(), Object>(&_old_program.root(), "make")
         .unwrap();
     let object = vm.call(&make, ()).unwrap();
+    for pattern in ["pub val value: i32", "value: 41"] {
+        assert_eq!(source.matches(pattern).count(), 1, "{pattern}");
+    }
     let new_source = source
         .replace(
             "pub val value: i32",
@@ -451,15 +451,8 @@ fn admitted_native_retains_its_frame_while_selected_callbacks_use_current_code()
         )
         .unwrap();
     let module = builder.finish().unwrap();
-    let source = r#"
-        use example::admitted::{Step, invoke};
-        pub struct Counter { pub var value: i32 }
-        impl Step for Counter {
-            fn step(self) -> i32 { self.value += 1; self.value }
-        }
-        pub fn make() -> Counter { Counter { value: 1 } }
-        pub fn evidence() -> i32 { invoke(make()) }
-    "#;
+    let source =
+        include_str!("../../../../tests/fixtures/native/admitted-selected-current-callback.kgr");
     let (vm, program) = fixture_without_foundation(source, Some(&module));
     let old = vm.runtime().select_program(&program).unwrap();
     let counter = vm
@@ -483,6 +476,7 @@ fn admitted_native_retains_its_frame_while_selected_callbacks_use_current_code()
         old.publication_token()
     );
     assert!(owners.lock().unwrap().is_empty());
+    assert_eq!(source.matches("self.value += 1").count(), 1);
     let updated = source.replace("self.value += 1", "self.value += 10");
     let candidate = vm
         .runtime()

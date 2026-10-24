@@ -1,0 +1,15 @@
+struct Box<T> {
+    val value: T,
+}
+
+trait Read {
+    fn read<U>(self, value: U) -> U;
+}
+
+impl<T> Read for Box<T> {
+    fn read<U>(self, value: U) -> U {
+        value
+    }
+}
+
+fn main() {}

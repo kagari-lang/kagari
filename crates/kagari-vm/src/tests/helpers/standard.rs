@@ -11,7 +11,7 @@ fn executes_source_lowered_declared_host_log() {
     let messages = Arc::new(Mutex::new(Vec::<String>::new()));
     let sink = Arc::clone(&messages);
 
-    let mut runtime = host_runtime();
+    let mut runtime = standard_runtime(RuntimeConfig::default());
     logging_module(move |cx, args| {
         let Some(Value::Str(message)) = args.first() else {
             return Err(HostError::new("host.log expects one string argument"));
@@ -120,8 +120,10 @@ fn main() -> u64 {
 
 #[test]
 fn struct_field_updates_mutate_shared_struct_handle_in_place() {
-    let (runtime, loaded) = load_reflection_test_module(
-        r#"
+    let (runtime, loaded) = load_bytecode_program(
+        "test.kgr",
+        compile_test_bytecode(
+            r#"
 struct Point { var x: i32 }
 
 fn main() -> i32 {
@@ -131,7 +133,10 @@ fn main() -> i32 {
     alias.x
 }
 "#,
+        ),
     );
+    let program = loaded;
+    let loaded = runtime.select_program(&program).unwrap();
     let vm = Vm::new(runtime);
     let report = vm
         .execute(&loaded, ProgramEntry::Main)

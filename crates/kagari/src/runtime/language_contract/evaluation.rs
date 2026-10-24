@@ -1,8 +1,9 @@
 use super::{Case, Expected, Value, run_routes};
+use rstest::rstest;
 
 #[test]
 fn resolved_runtime_helpers() {
-    run_routes(&Case::new("resolved-runtime-helpers", "struct Cell { var n: i32 } fn main() -> i32 { val c = Cell { n: 1 }; val xs = [1]; set_field(c, \"n\", 2); set_index(xs, 0, 3); print(type_of(7)); get_field(c, \"n\") + xs[0] }", Expected::Value(|_| Value::I32(5))).effects(&["i32"], &["i32"]).reflection());
+    run_routes(&Case::new("resolved-runtime-helpers", "struct Cell { var n: i32 } fn main() -> i32 { val c = Cell { n: 1 }; val xs = [1]; set_field(c, \"n\", 2); set_index(xs, 0, 3); print(type_of(7)); get_field(c, \"n\") + xs[0] }", Expected::Value(|_| Value::I32(5))).effects(&["i32"], &["i32"]));
 }
 
 #[test]
@@ -95,32 +96,13 @@ fn heap_cancellation_preserves_earlier_write() {
     ).vector(&[1], &[42]).effects(&["cancel"], &["cancel"]);
     heap_cancel.cancel_call = Some(2);
     run_routes(&heap_cancel);
+}
 
+#[test]
+fn struct_update_default_cancellation_preserves_base_write() {
     let mut update_cancel = Case::new(
         "struct-update-default-cancellation-preserves-base-write",
-        r#"
-use observe as test;
-struct Pending { val ready: Vec<i32>, val spare: Vec<i32> }
-impl Default for Pending {
-    fn default() -> Self {
-        val spare = Vec::from([2]);
-        print("default-cancel");
-        loop {}
-    }
-}
-fn explicit() -> Vec<i32> { print("explicit"); Vec::from([1]) }
-fn base(a: Vec<i32>) -> Pending {
-    a[0] = 42;
-    print("base");
-    Default::default()
-}
-fn main() {
-    val a = test::vector();
-    val pending = Pending { ready: explicit(), ..base(a) };
-    print("unreachable");
-    pending.ready[0];
-}
-"#,
+        include_str!("../../../tests/fixtures/language/language_contract/evaluation/struct-update-default-cancellation-preserves-base-write.kgr"),
         Expected::Cancelled,
     )
     .vector(&[1], &[42])
@@ -142,28 +124,13 @@ fn heap_loop_cancellation_preserves_earlier_write() {
     ).vector(&[1], &[42]).effects(&["committed"], &["committed"]);
     heap_loop_cancel.cancel_at = Some(100);
     run_routes(&heap_loop_cancel);
+}
 
+#[test]
+fn declaration_initializer_cancellation_preserves_earlier_write() {
     let mut declaration_cancel = Case::new(
         "declaration-initializer-cancellation-preserves-earlier-write",
-        r#"
-use observe as test;
-struct Pending { val ready: fn() -> i32, val spare: Vec<i32> }
-fn spin() -> i32 { print("pending"); loop {} }
-fn main() {
-    val a = test::vector();
-    var (count, _) = (0, Vec::from([1]));
-    val Pending { ready, .. } = Pending {
-        ready: || { count += 1; count }, spare: Vec::from([2])
-    };
-    a[0] = 41 + ready();
-    print("committed");
-    val (Pending { ready: next, .. }, _) = (
-        Pending { ready: ready, spare: Vec::from([3]) }, spin()
-    );
-    next();
-    print("unreachable");
-}
-"#,
+        include_str!("../../../tests/fixtures/language/language_contract/evaluation/declaration-initializer-cancellation-preserves-earlier-write.kgr"),
         Expected::Cancelled,
     )
     .vector(&[1], &[42])
@@ -172,9 +139,16 @@ fn main() {
     run_routes(&declaration_cancel);
 }
 
-#[test]
-fn iteration_invalidated_by_push() {
-    let operation = "a.push(9)";
+#[rstest]
+#[case::push("a.push(9)", &[42, 2, 9])]
+#[case::insert("a.insert(a.len(), 9)", &[42, 2, 9])]
+#[case::pop("a.pop()", &[42])]
+#[case::remove("a.remove(a.len() - a.len())", &[2])]
+#[case::clear("a.clear()", &[])]
+fn iteration_invalidated_by_structural_mutation(
+    #[case] operation: &str,
+    #[case] expected: &'static [i32],
+) {
     let source = format!(
         "use observe as test; fn main() {{ val a = test::vector(); val cursor = a.iter(); a[0] = 42; print(\"before\"); {operation}; print(\"committed\"); cursor.next(); print(\"unreachable\"); }}"
     );
@@ -183,71 +157,7 @@ fn iteration_invalidated_by_push() {
         &source,
         Expected::ScriptTrap("invalid or structurally modified iterator"),
     )
-    .vector(&[1, 2], &[42, 2, 9])
-    .effects(&["before", "committed"], &["before", "committed"]);
-    run_routes(&case);
-}
-
-#[test]
-fn iteration_invalidated_by_insert() {
-    let operation = "a.insert(a.len(), 9)";
-    let source = format!(
-        "use observe as test; fn main() {{ val a = test::vector(); val cursor = a.iter(); a[0] = 42; print(\"before\"); {operation}; print(\"committed\"); cursor.next(); print(\"unreachable\"); }}"
-    );
-    let case = Case::new(
-        "iteration-detects-committed-write",
-        &source,
-        Expected::ScriptTrap("invalid or structurally modified iterator"),
-    )
-    .vector(&[1, 2], &[42, 2, 9])
-    .effects(&["before", "committed"], &["before", "committed"]);
-    run_routes(&case);
-}
-
-#[test]
-fn iteration_invalidated_by_pop() {
-    let operation = "a.pop()";
-    let source = format!(
-        "use observe as test; fn main() {{ val a = test::vector(); val cursor = a.iter(); a[0] = 42; print(\"before\"); {operation}; print(\"committed\"); cursor.next(); print(\"unreachable\"); }}"
-    );
-    let case = Case::new(
-        "iteration-detects-committed-write",
-        &source,
-        Expected::ScriptTrap("invalid or structurally modified iterator"),
-    )
-    .vector(&[1, 2], &[42])
-    .effects(&["before", "committed"], &["before", "committed"]);
-    run_routes(&case);
-}
-
-#[test]
-fn iteration_invalidated_by_remove() {
-    let operation = "a.remove(a.len() - a.len())";
-    let source = format!(
-        "use observe as test; fn main() {{ val a = test::vector(); val cursor = a.iter(); a[0] = 42; print(\"before\"); {operation}; print(\"committed\"); cursor.next(); print(\"unreachable\"); }}"
-    );
-    let case = Case::new(
-        "iteration-detects-committed-write",
-        &source,
-        Expected::ScriptTrap("invalid or structurally modified iterator"),
-    )
-    .vector(&[1, 2], &[2])
-    .effects(&["before", "committed"], &["before", "committed"]);
-    run_routes(&case);
-}
-
-#[test]
-fn iteration_invalidated_by_clear() {
-    let operation = "a.clear()";
-    let source = format!(
-        "use observe as test; fn main() {{ val a = test::vector(); val cursor = a.iter(); a[0] = 42; print(\"before\"); {operation}; print(\"committed\"); cursor.next(); print(\"unreachable\"); }}"
-    );
-    let case = Case::new(
-        "iteration-detects-committed-write",
-        &source,
-        Expected::ScriptTrap("invalid or structurally modified iterator"),
-    )
-    .vector(&[1, 2], &[])
+    .vector(&[1, 2], expected)
     .effects(&["before", "committed"], &["before", "committed"]);
     run_routes(&case);
 }
@@ -259,27 +169,33 @@ fn return_discards_following_effects() {
         "fn main() -> i32 { return 7; print(\"unreachable\"); 42 }",
         Expected::Value(|_| Value::I32(7)),
     ));
-    for (name, initializer, effects) in [
-        (
-            "struct-update-explicit-return-skips-later-field-and-default",
-            r#"Pending {
+}
+
+#[rstest]
+#[case::explicit_return_skips_later_field_and_default(
+    "struct-update-explicit-return-skips-later-field-and-default",
+    r#"Pending {
                 ready: { a[0] = 42; print("committed"); return 7; Vec::from([1]) },
                 spare: { print("unreachable-field"); Vec::from([2]) },
                 ..Default::default()
             }"#,
-            &["committed"][..],
-        ),
-        (
-            "struct-update-base-return-discards-pending-heap-field",
-            r#"Pending {
+    &["committed"][..],
+)]
+#[case::base_return_discards_pending_heap_field(
+    "struct-update-base-return-discards-pending-heap-field",
+    r#"Pending {
                 ready: { print("explicit"); Vec::from([1]) },
                 ..{ a[0] = 42; print("committed"); return 7; Default::default() }
             }"#,
-            &["explicit", "committed"][..],
-        ),
-    ] {
-        let source = format!(
-            r#"
+    &["explicit", "committed"][..],
+)]
+fn struct_update_return_discards_following_effects(
+    #[case] name: &'static str,
+    #[case] initializer: &str,
+    #[case] effects: &'static [&'static str],
+) {
+    let source = format!(
+        r#"
 use observe as test;
 struct Pending {{ val ready: Vec<i32>, val spare: Vec<i32> }}
 impl Default for Pending {{
@@ -295,13 +211,12 @@ fn main() -> i32 {{
     pending.ready[0]
 }}
 "#
-        );
-        run_routes(
-            &Case::new(name, &source, Expected::Value(|_| Value::I32(7)))
-                .vector(&[1], &[42])
-                .effects(effects, effects),
-        );
-    }
+    );
+    run_routes(
+        &Case::new(name, &source, Expected::Value(|_| Value::I32(7)))
+            .vector(&[1], &[42])
+            .effects(effects, effects),
+    );
 }
 
 #[test]
@@ -316,23 +231,14 @@ fn duplicate_field_declarations() {
 #[test]
 fn field_initializers_follow_source_order() {
     run_routes(&Case::new("field-initializers-follow-source-order", "struct P { var left: i32, var right: i32 } fn left() -> i32 { print(\"left\"); 1 } fn right() -> i32 { print(\"right\"); 2 } fn main() -> i32 { val p = P { right: right(), left: left() }; p.left += p.right; p.left * 10 + p.right }", Expected::Value(|_| Value::I32(32))).effects(&["right", "left"], &["right", "left"]));
+}
+
+#[test]
+fn declaration_initializer_runs_once_including_ignored_fields() {
     run_routes(
         &Case::new(
             "declaration-initializer-runs-once-including-ignored-fields",
-            r#"
-struct P { val left: i32, val right: i32 }
-fn left() -> i32 { print("left"); 1 }
-fn right() -> i32 { print("right"); 2 }
-fn make() -> (P, P) {
-    print("initializer");
-    (P { right: right(), left: left() }, P { left: left(), right: right() })
-}
-fn main() -> i32 {
-    val _ = print("discarded");
-    val (P { right, .. }, P { .. }) = make();
-    right
-}
-"#,
+            include_str!("../../../tests/fixtures/language/language_contract/evaluation/declaration-initializer-runs-once-including-ignored-fields.kgr"),
             Expected::Value(|_| Value::I32(2)),
         )
         .effects(
@@ -340,22 +246,14 @@ fn main() -> i32 {
             &["discarded", "initializer", "right", "left", "left", "right"],
         ),
     );
+}
+
+#[test]
+fn struct_update_fields_precede_once_only_default_even_when_all_overridden() {
     run_routes(
         &Case::new(
             "struct-update-fields-precede-once-only-default-even-when-all-overridden",
-            r#"
-struct P { val left: i32, val right: i32 }
-impl Default for P {
-    fn default() -> Self { print("default"); P { left: 10, right: 20 } }
-}
-fn left() -> i32 { print("left"); 1 }
-fn right() -> i32 { print("right"); 2 }
-fn main() -> i32 {
-    val base = P { ..Default::default() };
-    val changed = P { right: right(), left: left(), ..P::default() };
-    base.left + base.right + changed.left * 10 + changed.right
-}
-"#,
+            include_str!("../../../tests/fixtures/language/language_contract/evaluation/struct-update-fields-precede-once-only-default-even-when-all-overridden.kgr"),
             Expected::Value(|_| Value::I32(42)),
         )
         .effects(
@@ -363,29 +261,16 @@ fn main() -> i32 {
             &["default", "right", "left", "default"],
         ),
     );
+}
+
+#[test]
+fn struct_update_pending_explicit_heap_value_survives_collecting_default() {
     // The shared harness keeps the default 1024-unit GC threshold; churn past it
     // inside Default while the explicit Vec exists only as a pending field value.
     run_routes(
         &Case::new(
             "struct-update-pending-explicit-heap-value-survives-collecting-default",
-            r#"
-struct Pending { val ready: Vec<i32>, val spare: Vec<i32> }
-impl Default for Pending {
-    fn default() -> Self {
-        print("default-enter");
-        var last: Vec<i32> = Default::default();
-        var n = 0;
-        while n < 2048 { last = Vec::from([n]); n += 1; }
-        print("default-exit");
-        Pending { ready: Vec::new(), spare: last }
-    }
-}
-fn explicit() -> Vec<i32> { print("explicit"); Vec::from([41]) }
-fn main() -> i32 {
-    val pending = Pending { ready: explicit(), ..Default::default() };
-    pending.ready[0] + pending.spare[0]
-}
-"#,
+            include_str!("../../../tests/fixtures/language/language_contract/evaluation/struct-update-pending-explicit-heap-value-survives-collecting-default.kgr"),
             Expected::Value(|_| Value::I32(2088)),
         )
         .effects(
@@ -425,15 +310,6 @@ fn pop_empty_option() {
             heap.alloc_tuple(vec![Value::I32(7), Value::Bool(true), Value::U64(0)])
                 .unwrap()
         }),
-    ));
-}
-
-#[test]
-fn user_print_is_direct_call() {
-    run_routes(&Case::new(
-        "user-print-is-direct-call",
-        "fn print(n: i32) -> i32 { n + 1 } fn main() -> i32 { print(41) }",
-        Expected::Value(|_| Value::I32(42)),
     ));
 }
 
@@ -505,12 +381,7 @@ fn assignment_evaluates_target_first() {
     run_routes(
         &Case::new(
             "assignment-evaluates-target-first",
-            r#"
-            fn root(a: [i32]) -> [i32] { print("root"); a }
-            fn index() -> i32 { print("index"); 0 }
-            fn rhs(a: [i32]) -> i32 { print("rhs"); a[0] = 20; 2 }
-            fn main() -> i32 { val a = [1]; root(a)[index()] += rhs(a); a[0] }
-        "#,
+            include_str!("../../../tests/fixtures/language/language_contract/evaluation/assignment-evaluates-target-first.kgr"),
             Expected::Value(|_| Value::I32(22)),
         )
         .effects(&["root", "index", "rhs"], &["root", "index", "rhs"]),
@@ -522,12 +393,7 @@ fn plain_assignment_evaluates_target_first() {
     run_routes(
         &Case::new(
             "plain-assignment-evaluates-target-first",
-            r#"
-            fn root(a: [i32]) -> [i32] { print("root"); a }
-            fn index() -> i32 { print("index"); 0 }
-            fn rhs() -> i32 { print("rhs"); 42 }
-            fn main() -> i32 { val a = [1]; root(a)[index()] = rhs(); a[0] }
-        "#,
+            include_str!("../../../tests/fixtures/language/language_contract/evaluation/plain-assignment-evaluates-target-first.kgr"),
             Expected::Value(|_| Value::I32(42)),
         )
         .effects(&["root", "index", "rhs"], &["root", "index", "rhs"]),
@@ -539,12 +405,7 @@ fn nested_location_evaluated_once() {
     run_routes(
         &Case::new(
             "nested-location-evaluated-once",
-            r#"
-            struct Point { var x: i32 }
-            fn index() -> i32 { print("index"); 0 }
-            fn rhs(a: [Point]) -> i32 { print("rhs"); a[0] = Point { x: 20 }; 2 }
-            fn main() -> i32 { val a = [Point { x: 1 }]; a[index()].x += rhs(a); a[0].x }
-        "#,
+            include_str!("../../../tests/fixtures/language/language_contract/evaluation/nested-location-evaluated-once.kgr"),
             Expected::Value(|_| Value::I32(22)),
         )
         .effects(&["index", "rhs"], &["index", "rhs"]),
@@ -556,10 +417,7 @@ fn rhs_removes_compound_target() {
     run_routes(
         &Case::new(
             "rhs-removes-compound-target",
-            r#"
-            fn rhs(a: Vec<i32>) -> i32 { a.pop(); print("removed"); 2 }
-            fn main() -> i32 { val a = Vec::from([1]); a[0] += rhs(a); print("written"); 0 }
-        "#,
+            include_str!("../../../tests/fixtures/language/language_contract/evaluation/rhs-removes-compound-target.kgr"),
             Expected::IndexTrap,
         )
         .effects(&["removed"], &["removed"]),
@@ -878,37 +736,14 @@ fn alias() {
         "struct P { var n: i32 } fn main() -> i32 { val a = P { n: 1 }; val b = a; b.n = 7; a.n }",
         Expected::Value(|_| Value::I32(7)),
     ));
+}
+
+#[test]
+fn struct_update_reads_omitted_fields_after_alias_effects_and_shares_inner_values() {
     run_routes(
         &Case::new(
             "struct-update-reads-omitted-fields-after-alias-effects-and-shares-inner-values",
-            r#"
-struct P { var n: i32, var items: Vec<i32> }
-impl Default for P {
-    fn default() -> Self { P { n: 1, items: Vec::from([2]) } }
-}
-fn explicit(base: P) -> i32 {
-    print("explicit");
-    base.items = Vec::from([3]);
-    7
-}
-fn base(alias: P) -> P {
-    print("base");
-    alias.n = 5;
-    alias.items = Vec::from([4]);
-    alias
-}
-fn main() -> bool {
-    val original = P::default();
-    val old_items = original.items;
-    val changed = P { n: explicit(original), ..base(original) };
-    changed.items.push(9);
-    changed.n += 1;
-    changed !== original && changed.items === original.items &&
-        changed.items !== old_items && old_items[0] == 2 &&
-        original.items[0] == 4 && original.items[1] == 9 &&
-        original.n == 5 && changed.n == 8
-}
-"#,
+            include_str!("../../../tests/fixtures/language/language_contract/evaluation/struct-update-reads-omitted-fields-after-alias-effects-and-shares-inner-values.kgr"),
             Expected::Value(|_| Value::Bool(true)),
         )
         .effects(&["explicit", "base"], &["explicit", "base"]),
@@ -957,40 +792,25 @@ fn completed_effect_survives_trap() {
         )
         .effects(&["committed"], &["committed"]),
     );
+}
+
+#[test]
+fn declaration_initializer_trap_preserves_earlier_write() {
     run_routes(
         &Case::new(
             "declaration-initializer-trap-preserves-earlier-write",
-            r#"
-use observe as test;
-struct Pending { val ready: fn() -> i32, val spare: Vec<i32> }
-fn main() {
-    val a = test::vector();
-    var (count, _) = (0, Vec::from([1]));
-    val Pending { ready, .. } = Pending {
-        ready: || { count += 1; count }, spare: Vec::from([2])
-    };
-    val (Pending { ready: next, .. }, _) = (
-        Pending { ready: ready, spare: Vec::from([3]) },
-        {
-            a[0] = 41 + ready();
-            print("committed");
-            val invalid = [1];
-            invalid[9]
-        }
-    );
-    next();
-    print("unreachable");
-}
-"#,
+            include_str!("../../../tests/fixtures/language/language_contract/evaluation/declaration-initializer-trap-preserves-earlier-write.kgr"),
             Expected::IndexTrap,
         )
         .vector(&[1], &[42])
         .effects(&["committed"], &["committed"]),
     );
-    for (name, initializer, effects) in [
-        (
-            "struct-update-explicit-trap-skips-later-field-and-default",
-            r#"Pending {
+}
+
+#[rstest]
+#[case::explicit_trap_skips_later_field_and_default(
+    "struct-update-explicit-trap-skips-later-field-and-default",
+    r#"Pending {
                 ready: {
                     a[0] = 42;
                     print("committed");
@@ -1001,19 +821,23 @@ fn main() {
                 spare: { print("unreachable-field"); Vec::from([2]) },
                 ..Default::default()
             }"#,
-            &["committed"][..],
-        ),
-        (
-            "struct-update-default-trap-releases-pending-heap-field",
-            r#"Pending {
+    &["committed"][..],
+)]
+#[case::default_trap_releases_pending_heap_field(
+    "struct-update-default-trap-releases-pending-heap-field",
+    r#"Pending {
                 ready: { print("explicit"); Vec::from([1]) },
                 ..base(a)
             }"#,
-            &["explicit", "committed", "default-trap"][..],
-        ),
-    ] {
-        let source = format!(
-            r#"
+    &["explicit", "committed", "default-trap"][..],
+)]
+fn struct_update_trap_preserves_completed_effects(
+    #[case] name: &'static str,
+    #[case] initializer: &str,
+    #[case] effects: &'static [&'static str],
+) {
+    let source = format!(
+        r#"
 use observe as test;
 struct Pending {{ val ready: Vec<i32>, val spare: Vec<i32> }}
 impl Default for Pending {{
@@ -1037,13 +861,12 @@ fn main() {{
     pending.ready[0];
 }}
 "#
-        );
-        run_routes(
-            &Case::new(name, &source, Expected::IndexTrap)
-                .vector(&[1], &[42])
-                .effects(effects, effects),
-        );
-    }
+    );
+    run_routes(
+        &Case::new(name, &source, Expected::IndexTrap)
+            .vector(&[1], &[42])
+            .effects(effects, effects),
+    );
 }
 
 #[test]

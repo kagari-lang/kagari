@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_TYPE_INVALID_ASSIGNMENT_TARGET",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 35,
+          "path": "test.kg",
+          "start": 34
+        }
+      }
+    ],
+    "message": "invalid assignment target: `val` binding cannot be reassigned",
+    "notes": [],
+    "primary": {
+      "end": 35,
+      "path": "test.kg",
+      "start": 34
+    },
+    "severity": "error"
+  }
+]

@@ -1,21 +1,13 @@
 use crate::{
     Runtime,
     module::{
-        ExecutableModule, ModuleEpochRetention, VerifiedProgram,
+        ExecutableModule, ModuleEpochRetention,
         dispatch::{CallRoute, CallRouteKind},
     },
-    reload::{
-        ReloadValidationError, validate_reload_artifact_candidate, validate_reload_candidate,
-    },
+    test_support::update_programs as programs,
 };
 use kagari_bytecode::module::CallableTarget;
 use std::sync::Arc;
-
-// Share source/artifact construction with the namespace and integration suites;
-// the helper contains no tests and avoids a second fixture producer here.
-#[allow(clippy::duplicate_mod)]
-#[path = "../../../tests/support/update_programs.rs"]
-mod programs;
 
 fn route(module: &ExecutableModule, name: &str) -> CallRoute {
     let (owner, function) = module.exported_function(name).unwrap();

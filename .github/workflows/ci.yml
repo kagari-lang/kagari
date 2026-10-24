@@ -58,7 +58,7 @@ jobs:
         run: cargo test --workspace --no-fail-fast
 
       - name: Run complete formatter grammar inventory
-        run: cargo test --locked -p kagari-format --lib complete_grammar_fixture_inventory -- --ignored
+        run: cargo test --locked -p kagari-format --lib tests::complete_grammar_fixture_inventory:: -- --ignored
 
       - name: Run host-driven async example
         run: cargo run --locked -p kagari --no-default-features --features source --example async_tasks
@@ -194,7 +194,7 @@ jobs:
         run: cargo test --locked -p kagari-analyzer --test stdio --no-fail-fast
 
       - name: Test CLI AOT and JIT arguments
-        run: cargo test --locked -p kagari-cli --features aot,jit tests::parses
+        run: cargo test --locked -p kagari-cli --features aot,jit -- tests::parses tests::rejects_jit_for_aot_bundle
 
       - name: Prove independent compiler-free deployment
         run: uv run python scripts/check_aot.py

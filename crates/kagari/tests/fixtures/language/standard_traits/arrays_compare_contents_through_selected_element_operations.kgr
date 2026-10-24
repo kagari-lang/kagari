@@ -1,0 +1,53 @@
+struct Counter {
+    var calls: i32
+}
+
+struct Item {
+    val value: i32,
+    val counter: Counter
+}
+
+impl PartialEq for Item {
+    fn eq(self, other: Self) -> bool {
+        self.counter.calls += 1;
+        self.value == other.value
+    }
+}
+
+fn same<T: PartialEq>(a: T, b: T) -> bool {
+    a == b
+}
+
+fn arrays<T: PartialEq>(a: [T], b: [T]) -> bool {
+    a == b
+}
+
+fn main() -> i32 {
+    val count = Counter { calls: 0 };
+    val a = Item { value: 1, counter: count };
+    val b = Item { value: 2, counter: count };
+    val xs = [a, b];
+    if xs == [b, a] || count.calls != 1 {
+        return 1;
+    }
+    if !same(xs, xs) || count.calls != 3 {
+        return 2;
+    }
+    if xs == [a] || count.calls != 3 {
+        return 3;
+    }
+    if !arrays(xs, [a, b]) || count.calls != 5 {
+        return 4;
+    }
+    if !(xs === xs && xs !== [a, b]) {
+        return 5;
+    }
+    val nan = [0.0f32 / 0.0f32];
+    if nan == nan {
+        return 6;
+    }
+    if !([0.0f32] == [-0.0f32]) || !([[1, 2]] == [[1, 2]]) {
+        return 7;
+    }
+    42
+}

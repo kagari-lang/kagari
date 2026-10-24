@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_TYPE_TRAIT_METHOD_MISMATCH",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 116,
+          "path": "test.kg",
+          "start": 90
+        }
+      }
+    ],
+    "message": "trait method `Display.show` mismatch: missing impl method",
+    "notes": [],
+    "primary": {
+      "end": 116,
+      "path": "test.kg",
+      "start": 90
+    },
+    "severity": "error"
+  }
+]

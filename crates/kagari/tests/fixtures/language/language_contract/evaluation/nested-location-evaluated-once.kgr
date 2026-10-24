@@ -1,0 +1,20 @@
+struct Point {
+    var x: i32
+}
+
+fn index() -> i32 {
+    print("index");
+    0
+}
+
+fn rhs(a: [Point]) -> i32 {
+    print("rhs");
+    a[0] = Point { x: 20 };
+    2
+}
+
+fn main() -> i32 {
+    val a = [Point { x: 1 }];
+    a[index()].x += rhs(a);
+    a[0].x
+}

@@ -1,0 +1,27 @@
+struct Box<T> {
+    val value: T,
+}
+
+struct Unused<T> {
+    val value: T,
+}
+
+trait Read {
+    fn read(self) -> i32;
+}
+
+impl<T> Read for Box<T> {
+    fn read(self) -> i32 {
+        7
+    }
+}
+
+fn retained<T>(x: T) -> T {
+    x
+}
+
+fn shared<T>(x: T) -> T {
+    x
+}
+
+fn main() {}

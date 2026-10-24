@@ -1,0 +1,17 @@
+mod provider {
+    pub static val ready: i32 = helper();
+    pub static val value: i32 = helper();
+    fn helper() -> i32 {
+        7
+    }
+}
+
+use self::provider::{ ready, value };
+
+pub fn read_ready() -> i32 {
+    ready
+}
+
+pub fn read() -> i32 {
+    value
+}

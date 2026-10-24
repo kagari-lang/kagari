@@ -1,0 +1,61 @@
+use std::collections::{ HashSet };
+
+use std::fmt::{ Display };
+
+use core::cmp::Eq as Equal;
+
+use core::hash::Hash;
+
+use core::fmt as formatting;
+
+trait Named: Equal {
+    fn name(self) -> String;
+}
+
+struct Item {
+    val value: i32
+}
+
+impl PartialEq for Item {
+    fn eq(self, other: Self) -> bool {
+        self.value == other.value
+    }
+}
+
+impl Equal for Item {}
+
+impl Hash for Item {
+    fn hash(self) -> i64 {
+        self.value.hash()
+    }
+}
+
+impl Named for Item {
+    fn name(self) -> String {
+        "item"
+    }
+}
+
+fn same<T: Named>(a: T, b: T) -> bool {
+    a.eq(b)
+}
+
+fn output<T: formatting::Display>(x: T) -> String {
+    x.display()
+}
+
+fn hashed<T: Equal + Hash>(x: T) -> i64 {
+    x.hash()
+}
+
+fn main() -> i32 {
+    val item = Item { value: 42 };
+    val set: HashSet<Option<(i32, String)>> = HashSet::new();
+    set.insert(Some((42, "ok")));
+    if same(item, item) && set.contains(Some((42, "ok"))) && output(42) == "42" &&
+        hashed(item) == hashed(item) {
+        item.value
+    } else {
+        0
+    }
+}

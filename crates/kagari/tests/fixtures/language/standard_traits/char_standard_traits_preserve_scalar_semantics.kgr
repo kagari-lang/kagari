@@ -1,0 +1,47 @@
+use std::fmt::{ Debug, Display };
+
+use std::hash::Hash;
+
+use std::collections::HashSet;
+
+use core::cmp::Ordering;
+
+fn inspect<T: Eq + Ord + Hash + Display + Debug>(a: T, b: T) -> bool {
+    a.eq(b) && a == b && a.cmp(b) == Ordering::Equal && a.partial_cmp(b) == Some(Ordering::Equal) &&
+        a.hash() == b.hash() &&
+        a.display() == b.display() &&
+        a.debug() == b.debug()
+}
+
+fn make<T: Default>() -> T {
+    T::default()
+}
+
+fn main() -> i32 {
+    val nul: char = make();
+    val original = '🙂';
+    val copied = original;
+    if nul != '\0' || !inspect(original, copied) {
+        return 1;
+    }
+    if !('\0' < 'a' && 'a' < 'é' && 'é' < '🙂' && '🙂' < '\u{10ffff}') {
+        return 2;
+    }
+    if original.display() != "🙂" || original.debug() != "'🙂'" {
+        return 3;
+    }
+    if nul.display() != "\0" || nul.debug() != "'\\0'" {
+        return 4;
+    }
+    if '\n'.debug() != "'\\n'" || '\''.debug() != "'\\''" || '\\'.debug() != "'\\\\'" {
+        return 5;
+    }
+    val keys: HashSet<char> = HashSet::new();
+    keys.insert(original);
+    keys.insert(copied);
+    keys.insert(nul);
+    if keys.len() != 2u64 || !keys.contains('🙂') || keys.contains('a') {
+        return 6;
+    }
+    42
+}

@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_TYPE_ARGUMENT_TYPE_MISMATCH",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 81,
+          "path": "test.kg",
+          "start": 77
+        }
+      }
+    ],
+    "message": "argument type mismatch for parameter `value` in `add_one`: expected `i32`, found `bool`",
+    "notes": [],
+    "primary": {
+      "end": 81,
+      "path": "test.kg",
+      "start": 77
+    },
+    "severity": "error"
+  }
+]

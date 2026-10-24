@@ -375,7 +375,11 @@ impl DeclaredAnalysis {
                         cancel,
                     )
                     .unwrap_or(false)
-                && old.declarations.imported_types == self.declarations.imported_types)
+                && old.declarations.imported_types.same_reuse_inputs(
+                    &self.declarations.imported_types,
+                    old.names.facts.items.unit.as_ref(),
+                    self.names.facts.items.unit.as_ref(),
+                ))
             {
                 return None;
             }

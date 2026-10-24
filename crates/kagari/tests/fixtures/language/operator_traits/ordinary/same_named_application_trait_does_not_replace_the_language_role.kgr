@@ -1,0 +1,26 @@
+use core::ops::Add as LanguageAdd;
+
+trait Add<Rhs> {
+    fn unrelated(self, rhs: Rhs) -> i32;
+}
+
+struct Number {
+    val value: i32
+}
+
+impl Add<Number> for Number {
+    fn unrelated(self, rhs: Number) -> i32 {
+        0
+    }
+}
+
+impl LanguageAdd<Number> for Number {
+    type Output = i32;
+    fn add(self, rhs: Number) -> i32 {
+        self.value + rhs.value
+    }
+}
+
+fn main() -> i32 {
+    Number { value: 20 } + Number { value: 22 }
+}

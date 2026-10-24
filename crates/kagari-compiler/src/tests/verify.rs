@@ -23,7 +23,7 @@ use kagari_hir::types::{NominalType, TypeId, semantic::lower_type};
 use kagari_mir::{
     function::{MirModule, MirTemp},
     ids::{BlockId, InstanceId, LocalId, TempId},
-    instruction::{CallTarget, Constant, Instruction, MirValue, PathRef, Terminator},
+    instruction::{CallTarget, Instruction, MirValue, PathRef, Terminator},
     program::{ProgramErrorKind, verify_program as verify_mir_program},
     verify::{MirVerificationErrorKind as Error, verify_mir},
 };
@@ -34,8 +34,6 @@ use kagari_types::{
     visibility::Visibility,
 };
 use std::slice;
-
-mod struct_updates;
 
 fn raw(context: &DefinitionContext, source: &str) -> MirModule {
     common::adopt(
@@ -581,58 +579,6 @@ fn field_operands_require_an_existing_owner_slot_type_and_write_permission() {
 }
 
 #[test]
-fn bytecode_initializers_use_layout_order_after_source_order_evaluation() {
-    let context = DefinitionContext::new().unwrap();
-    for expression in [
-        "P { second: true, first: 42 }",
-        "P { ..base() }",
-        "P { second: true, ..base() }",
-        "P { second: true, first: 42, ..base() }",
-    ] {
-        let input = common::program_ok(&format!(
-            "struct P {{ val first: i32, val second: bool }} fn base() -> P {{ P {{ first: 0, second: false }} }} fn main() -> P {{ {expression} }}",
-        ));
-        let module = lower_to_mir(input.root(), &Default::default()).unwrap();
-        let bytecode =
-            common::adopt_bytecode(&context, common::bytecode_with_edited_root(&input, &module));
-        let main = bytecode.modules[bytecode.root.index()]
-            .functions
-            .iter()
-            .find(|function| function.name == "main")
-            .unwrap();
-        let (structure, fields) = main
-            .instructions
-            .iter()
-            .find_map(|instruction| {
-                if let BytecodeInstruction::MakeStruct {
-                    structure, fields, ..
-                } = instruction
-                {
-                    Some((structure, fields))
-                } else {
-                    None
-                }
-            })
-            .unwrap();
-        assert_eq!(
-            bytecode.modules[bytecode.root.index()].structures[structure.index()]
-                .fields
-                .iter()
-                .map(|field| field.name.as_str())
-                .collect::<Vec<_>>(),
-            ["first", "second"]
-        );
-        assert_eq!(
-            fields
-                .iter()
-                .map(|register| main.metadata.slots[register.index()])
-                .collect::<Vec<_>>(),
-            [ValueType::I32, ValueType::Bool]
-        );
-    }
-}
-
-#[test]
 fn rejects_missing_call_and_duplicate_instance_identity_before_bytecode() {
     let context = DefinitionContext::new().unwrap();
     let mut module = raw(
@@ -830,36 +776,6 @@ fn validates_effects_parameter_layout_and_encoding_limits() {
             limit: u16::MAX as usize
         }
     );
-}
-
-#[test]
-fn emits_the_declared_entry_block_first() {
-    let context = DefinitionContext::new().unwrap();
-    let input = common::program_ok("fn main() -> i32 { 7 }");
-    let mut module = common::adopt(
-        &context,
-        lower_to_mir(input.root(), &Default::default())
-            .unwrap()
-            .into_unverified(),
-    );
-    let mut entry = module.functions[0].blocks[0].clone();
-    if let Instruction::LoadConst { constant, .. } = &mut entry.instructions[0] {
-        *constant = Constant::I32(42);
-    }
-    module.functions[0].blocks.push(entry);
-    module.functions[0].entry = BlockId::new(1);
-    let checked = common::verify_edited(&context, module).unwrap();
-    let bytecode = common::adopt_bytecode(
-        &context,
-        common::bytecode_with_edited_root(&input, &checked),
-    );
-    assert!(matches!(
-        bytecode.modules[bytecode.root.index()].functions[0].instructions[0],
-        BytecodeInstruction::LoadConst {
-            constant,
-            ..
-        } if bytecode.modules[bytecode.root.index()].constants[constant.index()] == ConstantOperand::I32(42)
-    ));
 }
 
 #[test]

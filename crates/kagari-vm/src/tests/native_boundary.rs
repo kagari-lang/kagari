@@ -849,38 +849,7 @@ fn hash_callbacks_can_collect_and_trap_without_losing_keys_or_lookup_guards() {
         .unwrap();
     let module = builder.finish().unwrap();
     let (vm, loaded) = compile(
-        r#"use std::collections::{HashMap, HashSet};
-use std::hash::{Hash};
-
-        use example::hash_gc::collect;
-        struct Key { val value: i32 }
-        impl PartialEq for Key {
-            fn eq(self, other: Key) -> bool {
-                collect();
-                if self.value == 99 { other.value / (self.value - self.value) == 0 }
-                else { self.value == other.value }
-            }
-        }
-        impl Eq for Key {}
-        impl Hash for Key { fn hash(self) -> i64 { collect() } }
-        pub fn failing() -> i32 {
-            val map = HashMap::new();
-            map.insert(Key { value: 99 }, 1); map.insert(Key { value: 1 }, 2); 0
-        }
-        pub fn healthy() -> i32 {
-            val map = HashMap::new();
-            map.insert(Key { value: 1 }, 20); map.insert(Key { value: 2 }, 22);
-            val set = HashSet::new();
-            set.insert(Key { value: 1 }); set.insert(Key { value: 2 });
-            set.insert(Key { value: 1 });
-            val first_key = Key { value: 1 }; val second_key = Key { value: 2 };
-            if set.len() != (2 as u64) || !set.contains(second_key) { return -1; }
-            match map.get(first_key) {
-                Some(first) => match map.get(second_key) { Some(second) => first + second, None => -2 },
-                None => -3
-            }
-        }
-    "#,
+        include_str!("../../tests/fixtures/native/hash-gc-and-trap.kgr"),
         Some(&module),
     );
     let _loaded_program = loaded;

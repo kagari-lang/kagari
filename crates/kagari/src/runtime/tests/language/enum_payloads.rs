@@ -184,15 +184,20 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
             .replace("Some(i32)", "Some(String)")
             .replace("Some(42)", "Some(\"new\")"),
     );
-    runtime
-        .reload_program(
-            &loaded,
-            &PreparedProgram::from_artifact(changed, &Default::default(), &Default::default())
-                .unwrap(),
-            Default::default(),
-        )
-        .unwrap();
-    let new = loaded.clone();
+    let changed =
+        PreparedProgram::from_artifact(changed, &Default::default(), &Default::default()).unwrap();
+    assert!(
+        runtime
+            .reload_program(&loaded, &changed, Default::default())
+            .is_err()
+    );
+    assert_eq!(
+        runtime.runtime().select_program(&loaded).unwrap().key(),
+        old_key
+    );
+    // Frozen payload layouts reject publication. An independent installation with
+    // the changed schema still cannot consume the retained old values.
+    let new = runtime.load_program(&changed, Default::default()).unwrap();
     assert!(
         runtime
             .runtime()

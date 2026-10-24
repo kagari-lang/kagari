@@ -13,3 +13,4 @@ serde.workspace = true
 
 [dev-dependencies]
 kagari-stdlib.workspace = true
+rstest.workspace = true

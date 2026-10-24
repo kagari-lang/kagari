@@ -6,7 +6,7 @@ import { runCommand } from './wasm-products.mjs';
 
 /** One explicit, finite products -> render -> exact-output check path. The product
  * builder always refreshes the source-free dependency graph before compiling both
- * dev-profile modes. Tool installation remains an explicit CI/maintainer step.
+ * release-profile modes. Tool installation remains an explicit CI/maintainer step.
  */
 export async function buildPages(run = runCommand) {
   for (const [script, args, timeout] of [

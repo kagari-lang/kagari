@@ -1,3 +1,5 @@
+mod struct_updates;
+
 use crate::{
     source::{
         lower::{MirLoweringError, instances::MirLoweringOptions, lower_to_mir},

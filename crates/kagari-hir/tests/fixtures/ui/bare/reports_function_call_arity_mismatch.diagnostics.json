@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_TYPE_CALL_ARITY_MISMATCH",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 57,
+          "path": "test.kg",
+          "start": 51
+        }
+      }
+    ],
+    "message": "call arity mismatch in `answer`: expected 0 arguments, found 1",
+    "notes": [],
+    "primary": {
+      "end": 57,
+      "path": "test.kg",
+      "start": 51
+    },
+    "severity": "error"
+  }
+]

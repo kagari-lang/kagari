@@ -98,6 +98,7 @@ impl ToolConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     #[test]
     fn config_is_strict_and_style_only() {
@@ -107,14 +108,15 @@ mod tests {
         .unwrap();
         assert_eq!(config.format.indent_width, 2);
         assert!(matches!(config.lint.unused_binding, Some(Level::Deny)));
-        for text in [
-            "unknown=1",
-            "[format]\nwidth=80",
-            "[format]\nindent_width=0",
-            "[lint]\nunused='allow'",
-            "[lint]\nunused_binding='off'",
-        ] {
-            assert!(ToolConfig::parse(text).is_err(), "{text}");
-        }
+    }
+
+    #[rstest]
+    #[case::unknown_root("unknown=1")]
+    #[case::unknown_format_key("[format]\nwidth=80")]
+    #[case::invalid_indent_width("[format]\nindent_width=0")]
+    #[case::unknown_lint_key("[lint]\nunused='allow'")]
+    #[case::invalid_lint_level("[lint]\nunused_binding='off'")]
+    fn config_rejects_invalid_fields_and_levels(#[case] text: &str) {
+        assert!(ToolConfig::parse(text).is_err(), "{text}");
     }
 }

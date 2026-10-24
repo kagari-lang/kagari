@@ -47,12 +47,28 @@ The root cause inside the native binding is not established; retain the working
 binding until a candidate passes both the regression suite and full scan.
 Do not skip files or weaken structural rules to accommodate the crash.
 
+
 The failed candidate can be reproduced from the repository root without changing
 the pinned script dependencies:
 
 ```text
 uv run --with tree-sitter==0.26.0 --with tree-sitter-rust==0.24.2 python -X faulthandler scripts/check_structure.py
 ```
+
+### Consecutive parameter attributes
+
+The pinned grammar also misparses consecutive function-parameter attributes:
+`fn f(#[a] #[b] path: PathBuf) {}` produces an `ERROR` containing the first
+complete `attribute_item`, followed by the final attribute and ordinary parameter
+in the same `parameters` node. The checker suppresses only this recovery diagnostic
+when every error child is a complete, error-free attribute or comment (with at
+least one attribute), followed by standalone complete attributes/comments (with
+at least one attribute) and a complete ordinary parameter. Extra tokens, nested
+errors, missing nodes/tokens and other recovery shapes remain rejected; in
+particular, three bare attributes can recover as slice patterns and are not
+covered. The original tree, byte offsets, traversal and all other checks remain
+unchanged. This is a bounded workaround for grammar 0.24.2 with binding 0.25.2,
+not a general syntax-error exemption; reassess it when upgrading the parser.
 
 ## Enforced Rules
 

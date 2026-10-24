@@ -1,0 +1,33 @@
+pub trait Bound {}
+
+fn hidden() -> i32 {
+    1
+}
+
+struct CapsuleItem {}
+
+impl CapsuleItem {
+    fn capsule_read(self) -> i32 {
+        hidden()
+    }
+}
+
+pub fn answer() -> i32 {
+    CapsuleItem {}.capsule_read()
+}
+
+pub fn named() -> i32 {
+    fn capsule_local() -> i32 {
+        3
+    }
+    capsule_local()
+}
+
+mod inner {
+    use crate::Bound;
+    pub fn unused<T>(v: T) -> i32 where T: Bound {
+        5
+    }
+}
+
+pub use crate::inner::unused as generic_alias;

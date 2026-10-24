@@ -1,0 +1,86 @@
+[
+  {
+    "code": "KG_TYPE_ASSIGNMENT_TYPE_MISMATCH",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 82,
+          "path": "test.kg",
+          "start": 78
+        }
+      }
+    ],
+    "message": "assignment type mismatch: expected `i32`, found `bool`",
+    "notes": [],
+    "primary": {
+      "end": 82,
+      "path": "test.kg",
+      "start": 78
+    },
+    "severity": "error"
+  },
+  {
+    "code": "KG_TYPE_INVALID_STRUCT_INITIALIZER",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 88,
+          "path": "test.kg",
+          "start": 87
+        }
+      }
+    ],
+    "message": "invalid struct initializer for `Point`: unknown field `z`",
+    "notes": [],
+    "primary": {
+      "end": 88,
+      "path": "test.kg",
+      "start": 87
+    },
+    "severity": "error"
+  },
+  {
+    "code": "KG_TYPE_INVALID_STRUCT_INITIALIZER",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 94,
+          "path": "test.kg",
+          "start": 93
+        }
+      }
+    ],
+    "message": "invalid struct initializer for `Point`: duplicate field `x`",
+    "notes": [],
+    "primary": {
+      "end": 94,
+      "path": "test.kg",
+      "start": 93
+    },
+    "severity": "error"
+  },
+  {
+    "code": "KG_TYPE_INVALID_STRUCT_INITIALIZER",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 96,
+          "path": "test.kg",
+          "start": 67
+        }
+      }
+    ],
+    "message": "invalid struct initializer for `Point`: missing field `y`",
+    "notes": [],
+    "primary": {
+      "end": 96,
+      "path": "test.kg",
+      "start": 67
+    },
+    "severity": "error"
+  }
+]

@@ -1,0 +1,1 @@
+trait Pair { fn same(self, other: Self) -> bool; } fn use_pair(value: Pair) {}

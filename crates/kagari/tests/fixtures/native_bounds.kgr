@@ -1,8 +1,15 @@
-use game::bounds::{echo, Container, Marker};
+use game::bounds::{ echo, Container, Marker };
+
 use std::array::Vec;
-struct Token { val values: Vec<i32> }
+
+struct Token {
+    val values: Vec<i32>
+}
+
 impl Container<u64> for Token {}
+
 impl Marker for Token {}
+
 fn main() -> i32 {
     val value = echo(Token { values: Vec::from([21, 21]) }, 0u64);
     value.values[0u64] + value.values[1u64]

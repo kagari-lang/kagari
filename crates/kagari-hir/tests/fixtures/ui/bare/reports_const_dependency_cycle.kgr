@@ -1,0 +1,3 @@
+
+const A: i32 = B;
+const B: i32 = A;

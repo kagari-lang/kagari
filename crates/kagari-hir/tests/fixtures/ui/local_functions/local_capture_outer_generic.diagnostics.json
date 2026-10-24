@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_TYPE_UNKNOWN_TYPE",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 33,
+          "path": "locals.kgr",
+          "start": 31
+        }
+      }
+    ],
+    "message": "unknown parameter type `T` in function `inner`",
+    "notes": [],
+    "primary": {
+      "end": 33,
+      "path": "locals.kgr",
+      "start": 31
+    },
+    "severity": "error"
+  }
+]

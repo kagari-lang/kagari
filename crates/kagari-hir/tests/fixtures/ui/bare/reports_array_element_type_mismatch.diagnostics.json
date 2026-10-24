@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_TYPE_ARRAY_ELEMENT_TYPE_MISMATCH",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 28,
+          "path": "test.kg",
+          "start": 24
+        }
+      }
+    ],
+    "message": "array element type mismatch: expected `i32`, found `bool`",
+    "notes": [],
+    "primary": {
+      "end": 28,
+      "path": "test.kg",
+      "start": 24
+    },
+    "severity": "error"
+  }
+]

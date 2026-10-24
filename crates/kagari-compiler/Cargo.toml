@@ -32,3 +32,4 @@ required-features = ["source"]
 
 [dev-dependencies]
 kagari-stdlib.workspace = true
+rstest.workspace = true

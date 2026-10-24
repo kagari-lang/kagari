@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_TYPE_INVALID_ASSIGNMENT_TARGET",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 38,
+          "path": "locals.kgr",
+          "start": 37
+        }
+      }
+    ],
+    "message": "invalid assignment target: unresolved assignment target",
+    "notes": [],
+    "primary": {
+      "end": 38,
+      "path": "locals.kgr",
+      "start": 37
+    },
+    "severity": "error"
+  }
+]

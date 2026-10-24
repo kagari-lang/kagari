@@ -1,4 +1,5 @@
 use super::*;
+use rstest::rstest;
 
 fn namespace(
     functions: &[(&'static str, usize)],
@@ -19,25 +20,30 @@ fn contract(root: usize) -> Contract {
     }
 }
 
-#[test]
-fn implicit_and_explicit_empty_roots_preserve_the_same_query_start() {
+#[rstest]
+#[case::implicit_to_explicit(false)]
+#[case::explicit_to_implicit(true)]
+fn implicit_and_explicit_empty_roots_preserve_the_same_query_start(#[case] reverse: bool) {
     let root = ModuleIdentity::single_file("root");
     let implicit = ProgramExports::default();
     let explicit = ProgramExports {
         namespaces: BTreeMap::from([(root.clone(), Default::default())]),
         entry: None,
     };
-    for (previous, candidate) in [(&implicit, &explicit), (&explicit, &implicit)] {
-        let mut comparison = Comparison::new().unwrap();
-        let definitions = comparison.context.snapshot();
-        let left = comparison
-            .capture(&root, previous, &definitions, [].iter(), |_| None)
-            .unwrap();
-        let right = comparison
-            .capture(&root, candidate, &definitions, [].iter(), |_| None)
-            .unwrap();
-        comparison.compare(left, right).unwrap();
-    }
+    let (previous, candidate) = if reverse {
+        (&explicit, &implicit)
+    } else {
+        (&implicit, &explicit)
+    };
+    let mut comparison = Comparison::new().unwrap();
+    let definitions = comparison.context.snapshot();
+    let left = comparison
+        .capture(&root, previous, &definitions, [].iter(), |_| None)
+        .unwrap();
+    let right = comparison
+        .capture(&root, candidate, &definitions, [].iter(), |_| None)
+        .unwrap();
+    comparison.compare(left, right).unwrap();
 }
 
 #[test]

@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_ATTRIBUTE_UNSUPPORTED",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 23,
+          "path": "locals.kgr",
+          "start": 13
+        }
+      }
+    ],
+    "message": "attribute `@reflect` has no compiler behavior yet",
+    "notes": [],
+    "primary": {
+      "end": 23,
+      "path": "locals.kgr",
+      "start": 13
+    },
+    "severity": "error"
+  }
+]

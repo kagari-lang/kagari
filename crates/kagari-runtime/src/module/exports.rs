@@ -225,6 +225,7 @@ mod tests {
     use kagari_hir::analysis::AnalysisDatabase;
     use kagari_source::source_database::{SourceDatabase, SourceLayer};
     use kagari_types::{scalar::BuiltinType, ty::Ty};
+    use rstest::rstest;
     use std::sync::Arc;
 
     const FUNCTION_PATHS: &str = r#"
@@ -351,29 +352,6 @@ mod tests {
             .unwrap();
         let root = program.root();
         let child = program.module("api").unwrap();
-        for (path, detail) in [
-            ("absent::bad-name", "invalid public path"),
-            ("run::", "invalid public path"),
-            ("missing", "public path not found"),
-            ("hidden::secret", "public path not found"),
-            ("main", "public path not found"),
-            ("Count", "public path has wrong target kind"),
-            ("api::again", "public path has wrong target kind"),
-        ] {
-            for result in [
-                runtime.bind_function::<(), i32>(&root, path).map(|_| ()),
-                runtime
-                    .bind_async_function::<(), i32>(&root, path)
-                    .map(|_| ()),
-            ] {
-                let error = result.expect_err(path);
-                assert_eq!(error.kind(), RuntimeErrorKind::TypedPathValidation);
-                assert_eq!(
-                    error.to_string(),
-                    format!("typed path validation failed: {detail}: {path:?} (expected function)")
-                );
-            }
-        }
         // No root fallback even though Count exists there.
         let error = runtime
             .bind_function::<(), i32>(&child, "Count")
@@ -387,21 +365,6 @@ mod tests {
             snapshot.resolve_public_path("Count", PublicPathKind::Type),
             Ok(PublicPathTarget::Type(_))
         ));
-        for kind in [PublicPathKind::Module, PublicPathKind::Type] {
-            let expected = if kind == PublicPathKind::Module {
-                "module"
-            } else {
-                "type"
-            };
-            let error = snapshot.resolve_public_path("run", kind).unwrap_err();
-            assert_eq!(error.kind(), RuntimeErrorKind::TypedPathValidation);
-            assert_eq!(
-                error.to_string(),
-                format!(
-                    "typed path validation failed: public path has wrong target kind: \"run\" (expected {expected})"
-                )
-            );
-        }
         let selected = runtime.select_program(&program).unwrap();
         let generic = selected
             .exported_function_declaration("api::generic")
@@ -662,5 +625,61 @@ mod tests {
             RuntimeErrorKind::StaleHandle
         );
         assert!(runtime.validate_executable_module(&old).is_err());
+    }
+
+    #[rstest]
+    #[case::invalid_segment("absent::bad-name", "invalid public path")]
+    #[case::empty_segment("run::", "invalid public path")]
+    #[case::missing("missing", "public path not found")]
+    #[case::private("hidden::secret", "public path not found")]
+    #[case::entry_not_export("main", "public path not found")]
+    #[case::type_not_function("Count", "public path has wrong target kind")]
+    #[case::module_not_function("api::again", "public path has wrong target kind")]
+    fn public_function_binding_errors_preserve_exact_path_diagnostics(
+        #[case] path: &str,
+        #[case] detail: &str,
+    ) {
+        let mut runtime = Runtime::default();
+        let program = runtime
+            .load_verified_program("paths", function_program(FUNCTION_PATHS))
+            .unwrap();
+        let root = program.root();
+        for result in [
+            runtime.bind_function::<(), i32>(&root, path).map(|_| ()),
+            runtime
+                .bind_async_function::<(), i32>(&root, path)
+                .map(|_| ()),
+        ] {
+            let error = result.expect_err(path);
+            assert_eq!(error.kind(), RuntimeErrorKind::TypedPathValidation);
+            assert_eq!(
+                error.to_string(),
+                format!("typed path validation failed: {detail}: {path:?} (expected function)")
+            );
+        }
+    }
+
+    #[rstest]
+    #[case::module(PublicPathKind::Module)]
+    #[case::type_leaf(PublicPathKind::Type)]
+    fn public_snapshot_rejects_function_as_module_or_type(#[case] kind: PublicPathKind) {
+        let mut runtime = Runtime::default();
+        let program = runtime
+            .load_verified_program("paths", function_program(FUNCTION_PATHS))
+            .unwrap();
+        let snapshot = runtime.capture_module(&program.root()).unwrap();
+        let expected = if kind == PublicPathKind::Module {
+            "module"
+        } else {
+            "type"
+        };
+        let error = snapshot.resolve_public_path("run", kind).unwrap_err();
+        assert_eq!(error.kind(), RuntimeErrorKind::TypedPathValidation);
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "typed path validation failed: public path has wrong target kind: \"run\" (expected {expected})"
+            )
+        );
     }
 }

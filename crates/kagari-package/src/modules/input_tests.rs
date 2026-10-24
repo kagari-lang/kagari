@@ -4,167 +4,16 @@ use crate::{
     error::PackageError,
     filesystem::FilesystemSources,
     identity::{PackageFamily, source_namespace},
-    manifest::{DependencySource, Inheritance, Manifest},
     modules::{ModuleLimits, ModuleTree, VirtualSources},
 };
 use kagari_common::cancellation::CancellationToken;
+use rstest::rstest;
 use std::{fs, sync::Arc};
 use support::{link_directory, scratch};
 
-fn manifest(text: &str) -> Manifest {
-    Manifest::parse("Kagari.toml", text, &CancellationToken::default()).unwrap()
-}
-
-fn sources(files: &[(&str, &str)]) -> VirtualSources {
-    VirtualSources::new(
-        files
-            .iter()
-            .map(|(name, text)| (name.to_string(), Arc::from(*text))),
-        &CancellationToken::default(),
-    )
-    .unwrap()
-}
-
-#[test]
-fn inheritance_preserves_declaration_bases_and_explicit_dependency_access() {
-    let workspace = manifest(
-        r#"
-[workspace]
-members = ["packages/*"]
-[workspace.dependencies]
-shared = { package = "shared-rules", path = "shared", version = "^1.2" }
-unused = { host = "private-provider" }
-"#,
-    );
-    let member = manifest(
-        r#"
-[package]
-name = "game"
-version = "1.0.0"
-[dependencies]
-shared.workspace = true
-local = { path = "../local" }
-service = { package = "service-api", host = "approved/service", version = "2" }
-"#,
-    );
-    let normalized = member
-        .normalize(
-            "packages/game/Kagari.toml",
-            "packages/game",
-            Some(Inheritance {
-                directory: "",
-                manifest_origin: "Kagari.toml",
-                workspace: workspace.workspace.as_ref().unwrap(),
-            }),
-            &CancellationToken::default(),
-        )
-        .unwrap()
-        .unwrap();
-    assert_eq!(normalized.root, "packages/game/src/lib.kgr");
-    assert_eq!(normalized.dependencies.len(), 3);
-    let shared = &normalized.dependencies["shared"];
-    assert_eq!(shared.package, "shared-rules");
-    assert_eq!(shared.source, DependencySource::Path("shared".into()));
-    assert!(
-        shared
-            .version
-            .as_ref()
-            .unwrap()
-            .matches(&"1.3.0".parse().unwrap())
-    );
-    assert!(
-        !shared
-            .version
-            .as_ref()
-            .unwrap()
-            .matches(&"2.0.0".parse().unwrap())
-    );
-    assert_eq!(shared.origin, "Kagari.toml: dependency shared");
-    assert_eq!(
-        normalized.dependencies["local"].source,
-        DependencySource::Path("packages/local".into())
-    );
-    assert_eq!(
-        normalized.dependencies["service"].source,
-        DependencySource::Host("approved/service".into())
-    );
-    assert!(!normalized.dependencies.contains_key("unused"));
-}
-
-#[test]
-fn invalid_manifests_do_not_silently_accept_unsupported_or_conflicting_settings() {
-    let prefix = "[package]\nname = 'app'\nversion = '1.0.0'\n";
-    let cancel = CancellationToken::default();
-    for (body, expected) in [
-        ("build = 'script.kgr'", "unknown field"),
-        (
-            "[dependencies]\na = { version = '1' }",
-            "remote acquisition is unsupported",
-        ),
-        (
-            "[dependencies]\na = { path = '.', host = 'a' }",
-            "exactly one",
-        ),
-        (
-            "[dependencies]\na = { workspace = true, path = '.' }",
-            "inheritance must be exactly",
-        ),
-        (
-            "[dependencies]\na = { workspace = false }",
-            "inheritance must be exactly",
-        ),
-        (
-            "[dependencies]\nfn = { path = '.' }",
-            "invalid dependency alias",
-        ),
-        (
-            "[workspace.dependencies]\na = { workspace = true }",
-            "inheritance must be exactly",
-        ),
-    ] {
-        let error = Manifest::parse("input", &format!("{prefix}{body}"), &cancel).unwrap_err();
-        assert!(error.to_string().contains(expected), "{error}");
-    }
-    assert!(
-        Manifest::parse(
-            "input",
-            "[workspace]\n[dependencies]\na = { path = '.' }",
-            &cancel
-        )
-        .unwrap_err()
-        .to_string()
-        .contains("virtual workspaces")
-    );
-    let inherited = manifest(&format!("{prefix}[dependencies]\na.workspace = true"));
-    assert!(
-        inherited
-            .normalize("input", "app", None, &cancel)
-            .unwrap_err()
-            .to_string()
-            .contains("owning workspace")
-    );
-    let no_deps = manifest("[workspace]");
-    assert!(
-        inherited
-            .normalize(
-                "input",
-                "app",
-                Some(Inheritance {
-                    directory: "",
-                    manifest_origin: "root",
-                    workspace: no_deps.workspace.as_ref().unwrap(),
-                }),
-                &cancel
-            )
-            .unwrap_err()
-            .to_string()
-            .contains("missing workspace dependency")
-    );
-}
-
 #[test]
 fn declared_module_tree_has_unnamed_root_and_one_owner_for_inline_and_external_sources() {
-    let input = sources(&[
+    let input = support::sources(&[
         (
             "src/lib.kgr",
             "pub mod api { mod details; } mod storage; fn main() {}",
@@ -198,34 +47,24 @@ fn declared_module_tree_has_unnamed_root_and_one_owner_for_inline_and_external_s
     );
 }
 
-#[test]
-fn module_discovery_rejects_ambiguity_duplicates_missing_files_and_invalid_syntax() {
+#[rstest]
+#[case::ambiguous(
+    &[("lib.kgr", "mod child;"), ("child.kgr", ""), ("child/mod.kgr", "")],
+    "ambiguous module child"
+)]
+#[case::duplicate(&[("lib.kgr", "mod child {} mod child {}")], "duplicate module child")]
+#[case::missing(&[("lib.kgr", "mod child;")], "missing module child")]
+#[case::invalid_syntax(&[("lib.kgr", "fn broken(")], "lib.kgr")]
+fn module_discovery_rejections(#[case] files: &[(&str, &str)], #[case] expected: &str) {
     let cancel = CancellationToken::default();
-    for (files, expected) in [
-        (
-            vec![
-                ("lib.kgr", "mod child;"),
-                ("child.kgr", ""),
-                ("child/mod.kgr", ""),
-            ],
-            "ambiguous module child",
-        ),
-        (
-            vec![("lib.kgr", "mod child {} mod child {}")],
-            "duplicate module child",
-        ),
-        (vec![("lib.kgr", "mod child;")], "missing module child"),
-        (vec![("lib.kgr", "fn broken(")], "lib.kgr"),
-    ] {
-        let error = ModuleTree::load(
-            &sources(&files),
-            "lib.kgr",
-            ModuleLimits::default(),
-            &cancel,
-        )
-        .unwrap_err();
-        assert!(error.to_string().contains(expected), "{error}");
-    }
+    let error = ModuleTree::load(
+        &support::sources(files),
+        "lib.kgr",
+        ModuleLimits::default(),
+        &cancel,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains(expected), "{error}");
 }
 
 #[test]
@@ -249,7 +88,7 @@ fn input_paths_limits_and_cancellation_are_enforced_before_publication() {
         )
         .is_err()
     );
-    let input = sources(&[("lib.kgr", "mod child {}")]);
+    let input = support::sources(&[("lib.kgr", "mod child {}")]);
     for limits in [
         ModuleLimits {
             max_modules: 1,
@@ -276,10 +115,6 @@ fn input_paths_limits_and_cancellation_are_enforced_before_publication() {
         ModuleTree::load(&input, "lib.kgr", ModuleLimits::default(), &cancel),
         Err(PackageError::Cancelled)
     ));
-    assert!(matches!(
-        Manifest::parse("input", "[workspace]", &cancel),
-        Err(PackageError::Cancelled)
-    ));
 }
 
 #[test]
@@ -290,7 +125,7 @@ fn filesystem_and_virtual_inputs_preserve_portable_module_identity_after_relocat
         ("src/data.kgr", "pub fn count() -> i32 { 1 }"),
     ];
     let virtual_tree = ModuleTree::load(
-        &sources(&files),
+        &support::sources(&files),
         "src/lib.kgr",
         ModuleLimits::default(),
         &cancel,
@@ -388,7 +223,7 @@ fn filesystem_rejects_escaped_links_and_duplicate_physical_module_sources() {
 fn recovery_retains_invalid_text_and_independent_siblings_without_complete_evidence() {
     use crate::modules::ModuleDiscovery;
 
-    let input = sources(&[
+    let input = support::sources(&[
         ("lib.kgr", "mod broken; mod absent; mod healthy;"),
         ("broken.kgr", "mod hidden; fn broken("),
         ("broken/hidden.kgr", "fn hidden() {}"),

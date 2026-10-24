@@ -1,0 +1,11 @@
+struct Inner<T> {
+    val value: T,
+}
+
+pub struct Cell<T> {
+    val inner: Inner<T>,
+}
+
+pub type IntCell = Cell<i32>;
+
+pub type Identity<T> = T;

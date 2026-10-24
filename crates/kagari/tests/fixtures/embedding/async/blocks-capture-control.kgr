@@ -1,0 +1,103 @@
+fn identity<T>(value: T) -> Future<T> {
+    async {
+        value
+    }
+}
+
+pub fn events() -> Vec<i32> {
+    Vec::from([])
+}
+
+pub fn count(events: Vec<i32>) -> u64 {
+    events.len()
+}
+
+pub fn cold(events: Vec<i32>) -> Future<i32> {
+    async {
+        events.push(1);
+        42
+    }
+}
+
+pub fn discard(events: Vec<i32>) {
+    async {
+        events.push(99);
+    };
+}
+
+pub fn nested(events: Vec<i32>) -> Future<Future<i32>> {
+    async {
+        cold(events)
+    }
+}
+
+pub async fn captures() -> i32 {
+    var count = 1;
+    val scalar = 4;
+    val first = async {
+        count += scalar;
+        count
+    };
+    val make = || async {
+        count += 1;
+        count
+    };
+    val second = make();
+    count = 10;
+    first.await * 10 + second.await
+}
+
+pub async fn boundaries() -> i32 {
+    val first = async {
+        val f = || {
+            return 3;
+        };
+        return f();
+    }.await;
+    var sum = 0;
+    for value in [1, 2] {
+        sum += async {
+            var n = 0;
+            while n < value {
+                n += 1;
+                continue;
+            }
+            val result = loop {
+                break identity(n).await;
+            };
+            result
+        }.await;
+    }
+    val nested = async {
+        async {
+            return 4;
+        }.await +
+            5
+    }.await;
+    first * 100 + sum * 10 + nested
+}
+
+pub async fn propagation() -> i32 {
+    val failure: Future<Result<i32, i32>> = async {
+        val result: Result<i32, i32> = Err(7);
+        val value = result?;
+        Ok(value + 100)
+    };
+    val absent: Future<Option<i32>> = async {
+        val value: Option<i32> = None;
+        Some(value?)
+    };
+    val a = match failure.await {
+        Ok(_) => 0,
+        Err(n) => n
+    };
+    val b = match absent.await {
+        Some(_) => 0,
+        None => 2
+    };
+    a * 10 + b
+}
+
+pub fn unit() -> Future<()> {
+    async {}
+}

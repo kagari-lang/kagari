@@ -1,0 +1,7 @@
+fn main() -> String {
+    val retained = ["rooted 😀"];
+    for i in 0..4096 {
+        val garbage = ["{i}😀"];
+    }
+    retained[0]
+}

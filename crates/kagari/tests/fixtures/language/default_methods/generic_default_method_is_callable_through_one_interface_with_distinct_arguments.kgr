@@ -1,0 +1,19 @@
+trait Identity {
+    fn identity<T>(self, value: T) -> T {
+        value
+    }
+}
+
+struct Number {}
+
+impl Identity for Number {}
+
+fn main() -> i32 {
+    val value: Identity = Number {};
+    val text: String = value.identity("key");
+    if text == "key" {
+        value.identity(42)
+    } else {
+        0
+    }
+}

@@ -1,0 +1,26 @@
+struct Pair<T> {
+    val first: T,
+    val spare: i32
+}
+
+fn main() -> i32 {
+    val pair = Pair { first: 10, spare: 99 };
+    val selected = match pair {
+        Pair { first, .. } => first
+    };
+    var sum = 0;
+    for Pair { first, .. } in [pair] {
+        sum += first;
+    }
+    if val Pair { first, .. } = pair {
+        sum += first;
+    }
+    while val Pair { first, .. } = pair {
+        sum += first;
+        break;
+    }
+    val rest = match pair {
+        Pair { .. } => 2
+    };
+    selected + sum + rest
+}

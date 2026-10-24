@@ -1,0 +1,93 @@
+trait Read {
+    fn read(self) -> i32;
+}
+
+trait Child: Read {}
+
+trait Marker {}
+
+trait Source {
+    type Item: Read;
+}
+
+struct Number {
+    val value: i32
+}
+
+impl Read for Number {
+    fn read(self) -> i32 {
+        self.value
+    }
+}
+
+impl Read for i32 {
+    fn read(self) -> i32 {
+        self
+    }
+}
+
+impl Child for Number {}
+
+impl Marker for Number {}
+
+struct Holder<T> {
+    val value: T
+}
+
+impl<T: Read> Read for Holder<T> {
+    fn read(self) -> i32 {
+        self.value.read()
+    }
+}
+
+struct Tag {}
+
+impl Source for Tag {
+    type Item = Number;
+}
+
+fn erase<T: Read>(value: T) -> Read {
+    value
+}
+
+trait Erase {
+    fn erase<T: Read>(self, value: T) -> Read {
+        erase(value)
+    }
+    fn parent<T: Child>(self, value: T) -> Read {
+        value
+    }
+    fn keep<T: Read>(self, value: T) -> fn() -> Read {
+        || value
+    }
+    fn item<S: Source>(self, source: S, value: S::Item) -> Read {
+        value
+    }
+    fn marker<T: Marker>(self, value: T) -> Marker {
+        value
+    }
+}
+
+struct DefaultErase {}
+
+impl Erase for DefaultErase {}
+
+struct OverrideErase {}
+
+impl Erase for OverrideErase {
+    fn erase<T: Read>(self, value: T) -> Read {
+        value
+    }
+}
+
+fn main() -> i32 {
+    val a: Erase = DefaultErase {};
+    val b: Erase = OverrideErase {};
+    val value = Number { value: 7 };
+    val boxed = a.erase(value);
+    val kept = a.keep(value);
+    val marker = a.marker(value);
+    boxed.read() + b.erase(Holder { value: value }).read() + a.parent(value).read() + kept().read() +
+        a.item(Tag {}, value).read() +
+        a.erase(7).read()
+}

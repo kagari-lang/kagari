@@ -143,21 +143,9 @@ fn resumed_frames_select_current_direct_recursive_shared_and_module_calls() {
 
 #[test]
 fn async_owned_drive_contract() {
-    let program = compile_logging_test_bytecode(
-        r#"
-        struct State { var sum: i32, var kept: [i32] }
-        fn helper(n: i32) -> i32 { n + 1 }
-        fn main() -> [i32] {
-            val state = State { sum: 0, kept: [1, 2, 3] };
-            for value in state.kept { state.sum += helper(value); print("step"); }
-            state.kept = [state.sum, state.kept[0]];
-            state.kept
-        }
-        pub fn spin() { while true {} }
-        pub fn recurse() -> i32 { recurse() }
-        pub fn ping() -> i32 { 7 }
-    "#,
-    );
+    let program = compile_logging_test_bytecode(include_str!(
+        "../../tests/fixtures/owned/owned-drive-state.kgr"
+    ));
     let ping = program.records().modules[program.records().root.index()]
         .functions
         .iter()

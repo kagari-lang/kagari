@@ -199,16 +199,6 @@ fn invalid_syntax_diagnostics_reject_non_spec_forms() {
         parse.diagnostics()
     );
 
-    let parse = common::parse("fn apply(effect: dyn Effect) {}");
-    assert!(
-        parse
-            .diagnostics()
-            .iter()
-            .any(|diagnostic| diagnostic.severity == Severity::Error),
-        "expected an error for non-spec type form, got {:?}",
-        parse.diagnostics()
-    );
-
     let parse = common::parse("struct Player { hp: i32 }");
     assert_eq!(parse.diagnostics().len(), 1);
     assert_eq!(parse.diagnostics()[0].severity, Severity::Error);

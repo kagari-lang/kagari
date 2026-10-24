@@ -3,24 +3,21 @@
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
-    module::{ExecutableModule, ModuleEpochRetention, VerifiedProgram, state::StaticState},
-    native::function_handle::Function,
-    reload::{
-        ReloadValidationError, validate_reload_artifact_candidate, validate_reload_candidate,
+    module::{
+        ExecutableModule, ModuleEpochRetention, Program, VerifiedProgram, state::StaticState,
     },
+    native::function_handle::Function,
+    reload::ReloadValidationError,
+    test_support::update_programs::{bytecode, source_code, source_free_reload_results},
     value::Value,
 };
 use kagari_bytecode::{instruction::BytecodeInstruction, module::CallableTarget};
-use kagari_common::identity::{
-    DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata,
-};
-use kagari_contract::types::named::NamedContract;
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
-use programs::{bytecode, source_code, source_free_reload_results};
 
-// Compile the same source/artifact helpers in unit and public integration tests.
-#[path = "../../../tests/support/update_programs.rs"]
-mod programs;
+use rstest::rstest;
+
+mod named_contracts;
 
 fn code(value: i32) -> VerifiedProgram {
     source_code(&format!(
@@ -218,12 +215,17 @@ fn relative_binding_code(source: &str) -> VerifiedProgram {
     VerifiedProgram::new(metadata, &DefinitionContext::new().unwrap()).unwrap()
 }
 
-#[test]
-fn retained_namespace_bindings_follow_current_declarations_not_retargeted_aliases() {
+fn relative_binding_fixture() -> (Runtime, Program) {
     let mut runtime = Runtime::default();
     let program = runtime
         .load_verified_program("relative", relative_binding_code(RELATIVE_BINDINGS))
         .unwrap();
+    (runtime, program)
+}
+
+#[test]
+fn retained_namespace_bindings_follow_current_declarations_not_retargeted_aliases() {
+    let (runtime, program) = relative_binding_fixture();
     let root = program.root();
     let api = program.module("slotless").unwrap();
     let selected = runtime.bind_function::<(), i32>(&api, "selected").unwrap();
@@ -287,10 +289,7 @@ fn retained_namespace_bindings_follow_current_declarations_not_retargeted_aliase
 
 #[test]
 fn relative_object_aliases_share_exact_layout_and_reject_unsupported_leaves_without_effects() {
-    let mut runtime = Runtime::default();
-    let program = runtime
-        .load_verified_program("relative", relative_binding_code(RELATIVE_BINDINGS))
-        .unwrap();
+    let (runtime, program) = relative_binding_fixture();
     let root = program.root();
     let api = program.module("slotless").unwrap();
     let executable = runtime.select_program(&program).unwrap();
@@ -313,12 +312,6 @@ fn relative_object_aliases_share_exact_layout_and_reject_unsupported_leaves_with
         nested_object.type_argument().ty(),
         object.type_argument().ty()
     );
-    for path in ["Reexport", "Alias", "again::Object"] {
-        let alias = runtime.bind_type(&api, path, &[]).unwrap();
-        assert_eq!(alias.type_argument().ty(), object.type_argument().ty());
-        assert_eq!(alias.owner().key(), object.owner().key());
-        runtime.bind_field::<i32>(&alias, "value").unwrap();
-    }
     // No source expression constructs Cell<i32>; the closed export roots its layout.
     let closed = runtime.bind_type(&api, "IntCell", &[]).unwrap();
     runtime.bind_field::<i32>(&closed, "value").unwrap();
@@ -341,45 +334,6 @@ fn relative_object_aliases_share_exact_layout_and_reject_unsupported_leaves_with
         .unwrap();
     assert_eq!(closed.type_argument().ty(), advanced.type_argument().ty());
     assert_eq!(closed.owner().key(), advanced.owner().key());
-    for (path, arguments, detail) in [
-        ("Object::", &[][..], "invalid public path"),
-        ("secret", &[][..], "public path not found"),
-        ("missing", &[][..], "public path not found"),
-        ("value", &[][..], "public path has wrong target kind"),
-        ("again", &[][..], "public path has wrong target kind"),
-        ("Scalar", &[][..], "type is not a script object"),
-        ("Event", &[][..], "type is not a script object"),
-        ("Reader", &[][..], "type is not a script object"),
-        (
-            "Open",
-            &[][..],
-            "open generic alias is not supported for host binding",
-        ),
-        (
-            "Open",
-            arguments.as_slice(),
-            "open generic alias is not supported for host binding",
-        ),
-        ("Cell", &[][..], "type argument count mismatch"),
-        (
-            "IntCell",
-            arguments.as_slice(),
-            "type argument count mismatch",
-        ),
-        (
-            "Object",
-            arguments.as_slice(),
-            "type argument count mismatch",
-        ),
-    ] {
-        let error = runtime.bind_type(&api, path, arguments).unwrap_err();
-        assert_eq!(
-            error.kind(),
-            RuntimeErrorKind::TypedPathValidation,
-            "{path}: {error}"
-        );
-        assert!(error.message().contains(detail), "{path}: {error}");
-    }
     let error = runtime.bind_type(&api, "Unused", &arguments).unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
     assert!(
@@ -484,8 +438,22 @@ fn reload_normalizes_type_aliases_and_reexports_before_publication() {
     runtime.publish_staged_reload(candidate).unwrap();
 }
 
-#[test]
-fn reload_rejects_changed_type_targets_arguments_and_marker_classes_without_effects() {
+#[rstest]
+#[case::nominal_target(|original: &str| original.replace("implementation::A as Object", "implementation::B as Object"))]
+#[case::applied_argument(|original: &str| original.replace("implementation::IntCell;", "implementation::Cell<bool>;"))]
+#[case::open_arity(|original: &str| original.replace(
+            "implementation::Open as Open",
+            "implementation::Pair as Open",
+        ))]
+#[case::open_to_concrete(|original: &str| original.replace("implementation::Open as Open", "implementation::A as Open"))]
+#[case::nested_scalar(|original: &str| original.replace(
+            "pub type Scalar = (i32, [i32]);",
+            "pub type Scalar = (i32, [bool]);",
+        ))]
+#[case::removed_path(|original: &str| original.replace("as Object;", "as Renamed;"))]
+fn reload_rejects_changed_type_targets_arguments_and_marker_classes_without_effects(
+    #[case] candidate: fn(&str) -> String,
+) {
     let original = type_reload_source(
         "pub use crate::implementation::A as Object;",
         "crate::implementation::IntCell",
@@ -497,43 +465,28 @@ fn reload_rejects_changed_type_targets_arguments_and_marker_classes_without_effe
         .unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     let (owner, function) = loaded.exported_function("value").unwrap();
-    for source in [
-        // Structurally identical nominal declarations are not interchangeable.
-        original.replace("implementation::A as Object", "implementation::B as Object"),
-        original.replace("implementation::IntCell;", "implementation::Cell<bool>;"),
-        original.replace(
-            "implementation::Open as Open",
-            "implementation::Pair as Open",
-        ),
-        original.replace("implementation::Open as Open", "implementation::A as Open"),
-        original.replace(
-            "pub type Scalar = (i32, [i32]);",
-            "pub type Scalar = (i32, [bool]);",
-        ),
-        original.replace("as Object;", "as Renamed;"),
-    ] {
-        assert_source_free_reload(&loaded, &source, false);
-        assert!(matches!(
-            runtime.stage_reload_verified_program(&loaded_program, None, source_code(&source)),
-            Err(ReloadValidationError::PublicExportMismatch)
-        ));
-        let latest = runtime.select_program(&loaded_program).unwrap();
-        assert_eq!(latest.key(), loaded.key());
-        assert_eq!(latest.program_fingerprint(), loaded.program_fingerprint());
-        let (still_owner, still_function) = latest.exported_function("value").unwrap();
-        assert_eq!(still_owner.key(), owner.key());
-        assert_eq!(still_function, function);
-        assert!(matches!(
-            runtime
-                .module_instance_snapshot(&latest)
-                .unwrap()
-                .module_slots
-                .as_slice(),
-            [StaticState::Uninitialized(_)]
-        ));
-        assert_eq!(runtime.resources().counters().peak_call_depth, 0);
-        assert_eq!(runtime.gc().active_roots(), 0);
-    }
+    let source = candidate(&original);
+    assert_source_free_reload(&loaded, &source, false);
+    assert!(matches!(
+        runtime.stage_reload_verified_program(&loaded_program, None, source_code(&source)),
+        Err(ReloadValidationError::PublicExportMismatch)
+    ));
+    let latest = runtime.select_program(&loaded_program).unwrap();
+    assert_eq!(latest.key(), loaded.key());
+    assert_eq!(latest.program_fingerprint(), loaded.program_fingerprint());
+    let (still_owner, still_function) = latest.exported_function("value").unwrap();
+    assert_eq!(still_owner.key(), owner.key());
+    assert_eq!(still_function, function);
+    assert!(matches!(
+        runtime
+            .module_instance_snapshot(&latest)
+            .unwrap()
+            .module_slots
+            .as_slice(),
+        [StaticState::Uninitialized(_)]
+    ));
+    assert_eq!(runtime.resources().counters().peak_call_depth, 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
 }
 
 fn reload_source(next: &str, target: &str, alias: &str, nominal: &str, entry: &str) -> String {
@@ -558,8 +511,32 @@ fn reload_source(next: &str, target: &str, alias: &str, nominal: &str, entry: &s
     )
 }
 
+#[rstest]
+#[case::function_rename(reload_source("one", "integer", "renamed", "a", "fn main() {}"))]
+#[case::function_signature(reload_source("one", "boolean", "value", "a", "fn main() {}"))]
+#[case::nominal_result(reload_source("one", "integer", "value", "b", "fn main() {}"))]
+#[case::removed_entry(reload_source("one", "integer", "value", "a", ""))]
+#[case::entry_signature(reload_source("one", "integer", "value", "a", "fn main() -> i32 { 0 }"))]
+#[case::module_rename(reload_source("one", "integer", "value", "a", "fn main() {}")
+            .replace("as api", "as renamed"))]
+fn reload_compares_public_path_contracts_without_expanding_alias_cycles(#[case] source: String) {
+    let original = source_code(&reload_source(
+        "one",
+        "integer",
+        "value",
+        "a",
+        "fn main() {}",
+    ));
+    let mut runtime = Runtime::default();
+    let loaded_program = runtime.load_verified_program("exports", original).unwrap();
+    assert!(matches!(
+        runtime.stage_reload_verified_program(&loaded_program, None, source_code(&source)),
+        Err(ReloadValidationError::PublicExportMismatch)
+    ));
+}
+
 #[test]
-fn reload_compares_public_path_contracts_without_expanding_alias_cycles() {
+fn reload_accepts_equivalent_alias_cycles_and_same_signature_retargeting() {
     let original = source_code(&reload_source(
         "one",
         "integer",
@@ -570,20 +547,7 @@ fn reload_compares_public_path_contracts_without_expanding_alias_cycles() {
     let mut runtime = Runtime::default();
     let loaded_program = runtime.load_verified_program("exports", original).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
-    for source in [
-        reload_source("one", "integer", "renamed", "a", "fn main() {}"),
-        reload_source("one", "boolean", "value", "a", "fn main() {}"),
-        reload_source("one", "integer", "value", "b", "fn main() {}"),
-        reload_source("one", "integer", "value", "a", ""),
-        reload_source("one", "integer", "value", "a", "fn main() -> i32 { 0 }"),
-        reload_source("one", "integer", "value", "a", "fn main() {}")
-            .replace("as api", "as renamed"),
-    ] {
-        assert!(matches!(
-            runtime.stage_reload_verified_program(&loaded_program, None, source_code(&source)),
-            Err(ReloadValidationError::PublicExportMismatch)
-        ));
-    }
+
     // One-state and two-state namespace cycles expose the same path language.
     // Retargeting a public leaf to a same-signature declaration is compatible.
     let candidate = source_code(&reload_source(
@@ -676,8 +640,58 @@ fn reload_accepts_added_public_paths_but_preserves_old_paths() {
     ));
 }
 
+#[rstest]
+#[case::removed_struct(|source: &str| source.replace("struct Hidden<T> { val value: T }", ""), "Hidden")]
+#[case::field_mutability(|source: &str| source.replace("val value: T", "var value: T"), "Hidden")]
+#[case::field_type(|source: &str| source.replace("val value: T", "val value: (T, i32)"), "Hidden")]
+#[case::generic_arity(|source: &str| source.replace("Hidden<T>", "Hidden<T, U>"), "Hidden")]
+#[case::removed_enum(|source: &str| source.replace("enum Secret<T> { Value(T), Empty }", ""), "Secret")]
+#[case::variant_payload(|source: &str| source.replace("Value(T), Empty", "Value(T, i32), Empty"), "Secret")]
+#[case::added_variant(|source: &str| source.replace("Value(T), Empty", "Value(T), Empty, Added"), "Secret")]
+#[case::removed_trait(|source: &str| source.replace("trait Internal { fn read(self) -> i32; }", ""), "Internal::read")]
+#[case::trait_signature(|source: &str| source.replace("fn read(self) -> i32", "fn read(self) -> bool"), "Internal::read")]
+fn reload_preserves_unused_private_nominal_and_trait_contracts_source_free(
+    #[case] candidate: fn(&str) -> String,
+    #[case] name: &str,
+) {
+    let source = r#"
+        struct Hidden<T> { val value: T }
+        enum Secret<T> { Value(T), Empty }
+        trait Internal { fn read(self) -> i32; }
+        pub fn value() -> i32 { 7 }
+        fn main() {}
+    "#;
+    let mut runtime = Runtime::default();
+    let loaded_program = runtime
+        .load_verified_program("exports", source_code(source))
+        .unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
+    let root = loaded.bytecode.as_ref();
+    assert_eq!(root.private_types.len(), 2);
+    assert_eq!(root.trait_contracts.len(), 1);
+    assert!(root.structures.is_empty());
+    assert!(root.enumerations.is_empty());
+    let candidate = candidate(source);
+    for result in source_free_reload_results(&loaded, &candidate)
+        .into_iter()
+        .chain([runtime
+            .stage_reload_verified_program(&loaded_program, None, source_code(&candidate))
+            .map(|_| ())])
+    {
+        let Err(ReloadValidationError::DeclarationContractMismatch { declaration }) = result else {
+            panic!("expected frozen declaration rejection for {name}: {result:?}");
+        };
+        assert!(declaration.ends_with(name), "{declaration}");
+    }
+    let latest = runtime.select_program(&loaded_program).unwrap();
+    assert_eq!(latest.key(), loaded.key());
+    assert_eq!(latest.program_fingerprint(), loaded.program_fingerprint());
+    assert_eq!(runtime.resources().counters().peak_call_depth, 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
+}
+
 #[test]
-fn reload_preserves_unused_private_nominal_and_trait_contracts_source_free() {
+fn reload_accepts_reordered_private_contracts_and_binder_renaming() {
     let source = r#"
         struct Hidden<T> { val value: T }
         enum Secret<T> { Value(T), Empty }
@@ -696,57 +710,6 @@ fn reload_preserves_unused_private_nominal_and_trait_contracts_source_free() {
     assert!(root.structures.is_empty());
     assert!(root.enumerations.is_empty());
 
-    for (candidate, name) in [
-        (
-            source.replace("struct Hidden<T> { val value: T }", ""),
-            "Hidden",
-        ),
-        (source.replace("val value: T", "var value: T"), "Hidden"),
-        (
-            source.replace("val value: T", "val value: (T, i32)"),
-            "Hidden",
-        ),
-        (source.replace("Hidden<T>", "Hidden<T, U>"), "Hidden"),
-        (
-            source.replace("enum Secret<T> { Value(T), Empty }", ""),
-            "Secret",
-        ),
-        (
-            source.replace("Value(T), Empty", "Value(T, i32), Empty"),
-            "Secret",
-        ),
-        (
-            source.replace("Value(T), Empty", "Value(T), Empty, Added"),
-            "Secret",
-        ),
-        (
-            source.replace("trait Internal { fn read(self) -> i32; }", ""),
-            "Internal::read",
-        ),
-        (
-            source.replace("fn read(self) -> i32", "fn read(self) -> bool"),
-            "Internal::read",
-        ),
-    ] {
-        for result in source_free_reload_results(&loaded, &candidate)
-            .into_iter()
-            .chain([runtime
-                .stage_reload_verified_program(&loaded_program, None, source_code(&candidate))
-                .map(|_| ())])
-        {
-            let Err(ReloadValidationError::DeclarationContractMismatch { declaration }) = result
-            else {
-                panic!("expected frozen declaration rejection for {name}: {result:?}");
-            };
-            assert!(declaration.ends_with(name), "{declaration}");
-        }
-        let latest = runtime.select_program(&loaded_program).unwrap();
-        assert_eq!(latest.key(), loaded.key());
-        assert_eq!(latest.program_fingerprint(), loaded.program_fingerprint());
-        assert_eq!(runtime.resources().counters().peak_call_depth, 0);
-        assert_eq!(runtime.gc().active_roots(), 0);
-    }
-
     // Source order, binder spelling and fresh private declarations do not alter
     // the old contracts, even though each compilation has an independent ID scope.
     let candidate = r#"
@@ -764,226 +727,10 @@ fn reload_preserves_unused_private_nominal_and_trait_contracts_source_free() {
     runtime.publish_staged_reload(staged).unwrap();
 }
 
-const NAMED_RELOAD_SOURCE: &str = r#"
-    trait Tag {}
-    struct Old { val n: i32 }
-    struct Wrapper<T> { val value: T }
-    impl<T: Tag> Wrapper<T> { fn unwrap(self) -> T { self.value } }
-    fn unused<T>(x: T) -> T { x }
-    const SECRET: i32 = 7;
-    type Alias<T> = (T, i32);
-    impl Old {
-        fn hidden(self) -> i32 { self.n }
-        pub fn read(self) -> i32 { self.n }
-    }
-    impl Tag for Old {}
-    fn main() -> i32 { val value = Old { n: SECRET }; value.read() }
-"#;
-
-#[test]
-fn named_inventory_allows_additions_and_matches_semantic_impl_owners() {
-    let mut runtime = Runtime::default();
-    let loaded_program = runtime
-        .load_verified_program("exports", source_code(NAMED_RELOAD_SOURCE))
-        .unwrap();
-    let loaded = runtime.select_program(&loaded_program).unwrap();
-    let candidate = NAMED_RELOAD_SOURCE
-        .replace("impl Tag for Old {}", "")
-        .replace("impl Old {", "impl Tag for Old {} impl Old {")
-        .replace("fn unused<T>(x: T) -> T", "fn unused<U>(x: U) -> U")
-        .replace(
-            "impl<T: Tag> Wrapper<T> { fn unwrap(self) -> T",
-            "impl<U: Tag> Wrapper<U> { fn unwrap(self) -> U",
-        );
-    let candidate = format!(
-        r#"{candidate}
-        impl Old {{ pub fn added(self) -> i32 {{ self.n + 1 }} }}
-        pub mod extra {{
-            pub struct New<T> {{ val value: T }}
-            impl<T> crate::Tag for New<T> {{}}
-            pub fn added() -> i32 {{ 9 }}
-        }}
-    "#
-    );
-    for result in source_free_reload_results(&loaded, &candidate) {
-        result.unwrap();
-    }
-    let staged = runtime
-        .stage_reload_verified_program(&loaded_program, None, source_code(&candidate))
-        .unwrap();
-    runtime.publish_staged_reload(staged).unwrap();
-
-    let published = runtime.select_program(&loaded_program).unwrap();
-    assert!(published.exported_function("extra::added").is_some());
-    assert!(loaded.exported_function("extra::added").is_none());
-    assert!(published.members().count() > loaded.members().count());
-}
-
-#[test]
-fn named_inventory_freezes_unused_declarations_and_restricts_new_impl_domains() {
-    let mut runtime = Runtime::default();
-    let loaded_program = runtime
-        .load_verified_program("exports", source_code(NAMED_RELOAD_SOURCE))
-        .unwrap();
-    let loaded = runtime.select_program(&loaded_program).unwrap();
-    for candidate in [
-        NAMED_RELOAD_SOURCE.replace("fn unused<T>(x: T) -> T { x }", ""),
-        NAMED_RELOAD_SOURCE.replace(
-            "fn unused<T>(x: T) -> T { x }",
-            "fn unused<T>(x: T) -> (T, T) { (x, x) }",
-        ),
-        NAMED_RELOAD_SOURCE.replace("fn unused<T>(x: T)", "fn unused<T: Tag>(x: T)"),
-        NAMED_RELOAD_SOURCE.replace("type Alias<T>", "type Alias<T: Tag>"),
-        NAMED_RELOAD_SOURCE.replace("type Alias<T> = (T, i32);", ""),
-        NAMED_RELOAD_SOURCE.replace("type Alias<T> = (T, i32);", "type Alias<T> = (T, bool);"),
-        NAMED_RELOAD_SOURCE.replace("SECRET: i32 = 7", "SECRET: i32 = 8"),
-        NAMED_RELOAD_SOURCE.replace(
-            "fn hidden(self) -> i32 { self.n }",
-            "fn hidden(self) -> bool { true }",
-        ),
-        NAMED_RELOAD_SOURCE.replace("impl Tag for Old {}", ""),
-        format!("{NAMED_RELOAD_SOURCE} impl Tag for i32 {{}}"),
-        format!("{NAMED_RELOAD_SOURCE} trait Other {{}} impl Other for Old {{}}"),
-    ] {
-        for result in source_free_reload_results(&loaded, &candidate)
-            .into_iter()
-            .chain([runtime
-                .stage_reload_verified_program(&loaded_program, None, source_code(&candidate))
-                .map(|_| ())])
-        {
-            assert!(
-                matches!(
-                    result,
-                    Err(ReloadValidationError::DeclarationContractMismatch { .. })
-                ),
-                "{result:?}"
-            );
-        }
-        assert_eq!(
-            runtime.select_program(&loaded_program).unwrap().key(),
-            loaded.key()
-        );
-        assert_eq!(runtime.resources().counters().peak_call_depth, 0);
-    }
-}
-
-#[test]
-fn source_free_named_inventory_rejects_forged_binders_signatures_and_semantic_duplicates() {
-    let context = DefinitionContext::new().unwrap();
-    let metadata = bytecode(
-        &format!(
-            r#"{NAMED_RELOAD_SOURCE}
-        impl Old {{ pub fn added(self) -> i32 {{ self.n }} }}
-        mod extra {{ struct New {{}} impl crate::Tag for New {{}} }}
-        "#
-        ),
-        None,
-    )
-    .import_into(&context, &Default::default())
-    .unwrap();
-    let original = metadata.into_records();
-    for corruption in 0..5 {
-        let mut program = original.clone();
-        let module = &mut program.modules[program.root.index()];
-        match corruption {
-            0 => {
-                let record = module
-                    .named_declarations
-                    .iter_mut()
-                    .find(|record| matches!(record.contract, NamedContract::Alias(_)))
-                    .unwrap();
-                let NamedContract::Alias(alias) = &mut record.contract else {
-                    unreachable!()
-                };
-                alias.generic_params.clear();
-            }
-            1 => {
-                let record = module.named_declarations.iter_mut().find(|record| matches!(&record.contract, NamedContract::Function(function) if function.name == "main")).unwrap();
-                let NamedContract::Function(function) = &mut record.contract else {
-                    unreachable!()
-                };
-                function.return_type = Ty::Builtin(BuiltinType::Bool);
-            }
-            2 => {
-                let record = module.named_declarations.iter_mut().find(|record| matches!(&record.contract, NamedContract::Implementation(header) if header.trait_type.is_some())).unwrap();
-                let NamedContract::Implementation(header) = &mut record.contract else {
-                    unreachable!()
-                };
-                header.receiver = Ty::Builtin(BuiltinType::Bool);
-            }
-            3 => {
-                let added = module.named_declarations.iter().find(|record| matches!(&record.contract, NamedContract::Function(function) if function.name == "added")).unwrap();
-                let owner = context
-                    .snapshot()
-                    .parent(added.declaration)
-                    .unwrap()
-                    .unwrap();
-                let mut duplicate = module.named_declarations.iter().find(|record| matches!(&record.contract, NamedContract::Function(function) if function.name == "hidden")).unwrap().clone();
-                duplicate.declaration = context
-                    .intern_child(owner, DefinitionKind::Method, "hidden", 0)
-                    .unwrap();
-                module.named_declarations.push(duplicate);
-            }
-            _ => {
-                // A foreign private trait implementation requires the exact
-                // checked source requirement, even without any native binding.
-                let dependent = program
-                    .modules
-                    .iter_mut()
-                    .find(|module| !module.trait_references.is_empty())
-                    .unwrap();
-                dependent.trait_references.clear();
-            }
-        }
-        let metadata =
-            DefinitionMetadata::checked(context.snapshot(), program, &Default::default()).unwrap();
-        assert!(
-            VerifiedProgram::new(metadata, &context).is_err(),
-            "corruption {corruption}"
-        );
-    }
-}
-
-#[test]
-fn ambiguous_named_locals_require_unchanged_enclosing_source_and_executable_evidence() {
-    let source = r#"
-        fn enclosing(flag: bool) -> i32 {
-            if flag { fn local() -> i32 { 1 } local() }
-            else { fn local() -> i32 { 2 } local() }
-        }
-        fn other() -> i32 { 3 }
-        fn main() -> i32 { enclosing(true) }
-    "#;
-    let mut runtime = Runtime::default();
-    let loaded_program = runtime
-        .load_verified_program("exports", source_code(source))
-        .unwrap();
-    let loaded = runtime.select_program(&loaded_program).unwrap();
-    for result in source_free_reload_results(&loaded, source) {
-        result.unwrap();
-    }
-    for candidate in [
-        source.replace("{ 1 } local()", "{ 7 } local()"),
-        source.replace("if flag", "if !flag"),
-    ] {
-        for result in source_free_reload_results(&loaded, &candidate) {
-            assert!(
-                matches!(
-                    result,
-                    Err(ReloadValidationError::DeclarationContractMismatch { .. })
-                ),
-                "{result:?}"
-            );
-        }
-    }
-    assert_eq!(
-        runtime.select_program(&loaded_program).unwrap().key(),
-        loaded.key()
-    );
-}
-
-#[test]
-fn source_free_reload_validators_use_the_same_public_contract() {
+#[rstest]
+#[case::compatible_alias(true)]
+#[case::removed_alias(false)]
+fn source_free_reload_validators_use_the_same_public_contract(#[case] compatible: bool) {
     let original = source_code(&reload_source(
         "one",
         "integer",
@@ -994,12 +741,76 @@ fn source_free_reload_validators_use_the_same_public_contract() {
     let mut runtime = Runtime::default();
     let loaded_program = runtime.load_verified_program("exports", original).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
-    for compatible in [true, false] {
-        let alias = if compatible { "value" } else { "renamed" };
-        assert_source_free_reload(
-            &loaded,
-            &reload_source("two", "replacement", alias, "a", "fn main() {}"),
-            compatible,
+    let alias = if compatible { "value" } else { "renamed" };
+    assert_source_free_reload(
+        &loaded,
+        &reload_source("two", "replacement", alias, "a", "fn main() {}"),
+        compatible,
+    );
+}
+
+#[rstest]
+#[case::invalid_path("Object::", false, "invalid public path")]
+#[case::private("secret", false, "public path not found")]
+#[case::missing("missing", false, "public path not found")]
+#[case::function("value", false, "public path has wrong target kind")]
+#[case::module("again", false, "public path has wrong target kind")]
+#[case::scalar("Scalar", false, "type is not a script object")]
+#[case::enum_leaf("Event", false, "type is not a script object")]
+#[case::trait_leaf("Reader", false, "type is not a script object")]
+#[case::open_alias("Open", false, "open generic alias is not supported for host binding")]
+#[case::applied_open_alias("Open", true, "open generic alias is not supported for host binding")]
+#[case::missing_arguments("Cell", false, "type argument count mismatch")]
+#[case::closed_alias_arguments("IntCell", true, "type argument count mismatch")]
+#[case::nongeneric_arguments("Object", true, "type argument count mismatch")]
+fn relative_object_binding_rejections_preserve_state_and_heap(
+    #[case] path: &str,
+    #[case] with_arguments: bool,
+    #[case] detail: &str,
+) {
+    let (runtime, program) = relative_binding_fixture();
+    let api = program.module("slotless").unwrap();
+    let executable = runtime.select_program(&program).unwrap();
+    let arguments = runtime
+        .type_arguments(&executable, None, &[Ty::Builtin(BuiltinType::I32)])
+        .unwrap();
+    let arguments = if with_arguments {
+        arguments.as_slice()
+    } else {
+        &[]
+    };
+    let error = runtime.bind_type(&api, path, arguments).unwrap_err();
+    assert_eq!(
+        error.kind(),
+        RuntimeErrorKind::TypedPathValidation,
+        "{path}: {error}"
+    );
+    assert!(error.message().contains(detail), "{path}: {error}");
+    for member in executable.members() {
+        assert!(
+            runtime
+                .module_instance_snapshot(&member)
+                .unwrap()
+                .module_slots
+                .iter()
+                .all(|state| matches!(state, StaticState::Uninitialized(_)))
         );
     }
+    assert_eq!(runtime.resources().counters().peak_call_depth, 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+}
+
+#[rstest]
+#[case::reexport("Reexport")]
+#[case::closed_alias("Alias")]
+#[case::cyclic_namespace("again::Object")]
+fn relative_object_alias_paths_retain_the_same_nominal_layout(#[case] path: &str) {
+    let (runtime, program) = relative_binding_fixture();
+    let api = program.module("slotless").unwrap();
+    let object = runtime.bind_type(&api, "Object", &[]).unwrap();
+    let alias = runtime.bind_type(&api, path, &[]).unwrap();
+    assert_eq!(alias.type_argument().ty(), object.type_argument().ty());
+    assert_eq!(alias.owner().key(), object.owner().key());
+    runtime.bind_field::<i32>(&alias, "value").unwrap();
 }

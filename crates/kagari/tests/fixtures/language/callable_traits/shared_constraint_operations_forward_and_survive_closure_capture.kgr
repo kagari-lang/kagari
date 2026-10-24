@@ -1,0 +1,23 @@
+trait Invoke {
+    fn invoke<T, R, F: Fn (T) -> R>(self, x: T, f: F) -> R {
+        f(x)
+    }
+    fn forward<T, R, F: Fn (T) -> R>(self, next: Invoke, x: T, f: F) -> R {
+        next.invoke(x, f)
+    }
+    fn defer<T, R, F: Fn (T) -> R>(self, x: T, f: F) -> fn() -> R {
+        || f(x)
+    }
+}
+
+struct Runner {}
+
+impl Invoke for Runner {}
+
+fn main() -> i32 {
+    val first: Invoke = Runner {};
+    val next: Invoke = Runner {};
+    val a = first.forward(next, 10, |x| x + 10);
+    val later = first.defer(12, |x| x + 10);
+    a + later()
+}

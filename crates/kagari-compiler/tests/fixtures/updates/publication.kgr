@@ -1,0 +1,30 @@
+static val N: i32 = ((1 + 2));
+
+fn folded() -> i32 {
+    1 + 2
+}
+
+fn named() -> fn(i32) -> i32 {
+    fn local(x: i32) -> i32 {
+        x
+    }
+    local
+}
+
+fn closure() -> fn(i32) -> i32 {
+    |x: i32| x
+}
+
+async fn asynchronous(x: i32) -> i32 {
+    x
+}
+
+fn cold() {
+    val future = async {
+        1
+    };
+}
+
+fn main() -> i32 {
+    N
+}

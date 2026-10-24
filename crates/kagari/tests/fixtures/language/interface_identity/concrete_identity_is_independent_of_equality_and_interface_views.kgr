@@ -1,0 +1,61 @@
+trait Read {
+    fn read(self) -> i32;
+}
+
+trait Child: Read {}
+
+struct Item {
+    var value: i32
+}
+
+struct Other {
+    val value: i32
+}
+
+impl Read for Item {
+    fn read(self) -> i32 {
+        self.value
+    }
+}
+
+impl Child for Item {}
+
+impl Read for Other {
+    fn read(self) -> i32 {
+        self.value
+    }
+}
+
+fn boxed(value: Item) -> Child {
+    value
+}
+
+fn same_objects<T>(a: Vec<T>, b: Vec<T>) -> bool {
+    a === b
+}
+
+fn main() -> i32 {
+    val item = Item { value: 42 };
+    val child: Child = boxed(item);
+    val parent: Read = child;
+    val again: Read = item;
+    val separate = Item { value: 42 };
+    val other = Other { value: 42 };
+    val joined: Read = if true {
+        child
+    } else {
+        parent
+    };
+    item.value = 42;
+    if !(item === item && item !== separate && item !== other) {
+        return 1;
+    }
+    if item === other || again.read() != joined.read() {
+        return 2;
+    }
+    val objects = Vec::from([item]);
+    if !same_objects(objects, objects) {
+        return 3;
+    }
+    parent.read()
+}

@@ -1,0 +1,38 @@
+use std::cmp::{ Ordering };
+
+trait Compare<R> {
+    fn choose<K: Ord>(self, left: K, right: K) -> K;
+}
+
+struct Source<R> {
+    val value: R
+}
+
+impl<R> Compare<R> for Source<R> {
+    fn choose<K: Ord>(self, left: K, right: K) -> K {
+        if left.cmp(right) == Ordering::Greater {
+            left
+        } else {
+            right
+        }
+    }
+}
+
+trait Relay {
+    fn relay<S: Compare<i32>, K: Ord>(self, source: S, left: K, right: K) -> K {
+        source.choose(left, right)
+    }
+}
+
+impl Relay for i32 {}
+
+fn main() -> i32 {
+    val relay: Relay = 0;
+    val source = Source { value: 1 };
+    val text: String = relay.relay(source, "a", "b");
+    if text == "b" {
+        relay.relay(source, 21, 42)
+    } else {
+        0
+    }
+}

@@ -1,0 +1,21 @@
+struct Counter {
+    var value: i32
+}
+
+impl Iterator for Counter {
+    type Item = i32;
+    fn next(self) -> Option<i32> {
+        if self.value < 22 {
+            self.value = self.value + 1;
+            Some(self.value)
+        } else {
+            None
+        }
+    }
+}
+
+fn main() -> i32 {
+    val list = Vec<i32>::from_iter(Counter { value: 19 });
+    val total = i32::sum(list);
+    total - 21
+}

@@ -1,0 +1,4 @@
+*.kgr text eol=lf
+*.stdout text eol=lf
+*.stderr text eol=lf
+*.exit text eol=lf

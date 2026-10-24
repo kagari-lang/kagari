@@ -1,0 +1,24 @@
+use std::fmt::{ Debug };
+
+enum Callback {
+    Run(fn() -> i32)
+}
+
+impl Debug for Callback {
+    fn debug(self) -> String {
+        "custom"
+    }
+}
+
+fn format<T: Debug>(x: T) -> String {
+    (x,).debug()
+}
+
+fn main() -> i32 {
+    val c = Callback::Run(|| 42);
+    if c.debug() == "custom" && format(c) == "(Callback::Run(<function>),)" {
+        42
+    } else {
+        0
+    }
+}

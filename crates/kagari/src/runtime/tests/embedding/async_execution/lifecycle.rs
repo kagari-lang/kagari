@@ -20,22 +20,8 @@ use std::{
     sync::{Arc, atomic::Ordering},
 };
 
-const SOURCE: &str = r#"
-use test::async_sdk::request;
-pub fn version() -> i32 { 1 }
-trait Read { fn read(self) -> i32; }
-struct Saved { val value: i32 }
-impl Read for Saved { fn read(self) -> i32 { self.value + version() } }
-async fn finish<T: Read>(saved: T) -> i32 {
-    val first = request(10).await;
-    val second = request(first + version()).await;
-    saved.read() + first + second + version()
-}
-pub fn factory() -> fn() -> Future<i32> { val saved = Saved { value: 5 }; || finish(saved) }
-pub fn cold() -> Future<i32> { finish(Saved { value: 5 }) }
-pub fn native_cold() -> Future<i32> { request(10) }
-pub fn captured() -> fn() -> Future<i32> { val future = cold(); || future }
-"#;
+const SOURCE: &str =
+    include_str!("../../../../../tests/fixtures/embedding/async/pinned-reload.kgr");
 
 fn prepare(f: &Fixture, source: &str) -> PreparedProgram {
     let artifact = f
@@ -161,25 +147,7 @@ fn string_cursor_retains_dynamic_source_across_native_waits() {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let f = Fixture::configured_source(
-        r#"
-use test::async_sdk::request;
-use std::iter::CollectionCursor;
-pub fn cursor() -> CollectionCursor<(u64, char)> {
-    "a-é-🙂".replace("-", "").char_indices()
-}
-pub async fn traverse(cursor: CollectionCursor<(u64, char)>) -> i32 {
-    var total = 0;
-    for (offset, scalar) in cursor {
-        val input = if offset == 0u64 && scalar == 'a' { 10 }
-            else if offset == 1u64 && scalar == 'é' { 20 }
-            else if offset == 3u64 && scalar == '🙂' { 30 }
-            else { 0 };
-        total += request(input).await;
-    }
-    if cursor.next() != None { return 0; }
-    total
-}
-"#,
+        include_str!("../../../../../tests/fixtures/embedding/async/string-cursor-waits.kgr"),
         config,
     );
     let cursor = f.invoke("cursor", &[]);
@@ -241,12 +209,11 @@ fn lifecycle_reload_contract() {
     drop(captured);
     assert_eq!(task_boundary(&f, &scope, waiting), TaskDriveResult::Waiting);
     reject_candidate_work(&f, &scope, &factory);
+    let original_version = "pub fn version() -> i32 {\n    1\n}";
+    assert_eq!(SOURCE.matches(original_version).count(), 1);
     let replacement = prepare(
         &f,
-        &SOURCE.replace(
-            "pub fn version() -> i32 { 1 }",
-            "pub fn version() -> i32 { 100 }",
-        ),
+        &SOURCE.replace(original_version, "pub fn version() -> i32 {\n    100\n}"),
     );
     f.runtime
         .reload_program(&f.module, &replacement, Default::default())
@@ -263,18 +230,18 @@ fn lifecycle_reload_contract() {
         "reload must not drive waiting or queued work"
     );
     assert!(f.runtime.runtime().modules().loaded(old_key).is_some());
-    finish_task(&f, &scope, waiting, 1);
+    finish_task(&f, &scope, waiting, 100);
     // A Future captured before publication remains cold until its queued factory runs.
     assert_eq!(task_boundary(&f, &scope, queued), TaskDriveResult::Waiting);
-    finish_task(&f, &scope, queued, 1);
-    // A retained callable can create a new cold Future from its old generation.
+    finish_task(&f, &scope, queued, 100);
+    // The retained closure keeps its body; its ordinary factory call selects current code.
     let retained = spawn(&f, &scope, &factory);
     drop(factory);
     assert_eq!(
         task_boundary(&f, &scope, retained),
         TaskDriveResult::Waiting
     );
-    finish_task(&f, &scope, retained, 1);
+    finish_task(&f, &scope, retained, 100);
     let execution = f.start_future(&future);
     drop(future);
     assert!(matches!(
@@ -286,12 +253,12 @@ fn lifecycle_reload_contract() {
         owned_boundary(&f, &execution),
         DriveResult::Waiting
     ));
-    assert_eq!(*f.inputs.lock().unwrap().last().unwrap(), 21);
+    assert_eq!(*f.inputs.lock().unwrap().last().unwrap(), 120);
     reply(&f, 30);
     let DriveResult::Complete(result) = owned_boundary(&f, &execution) else {
         panic!("completed retained Future")
     };
-    assert_eq!(f.value(&result.unwrap()), Value::I32(57));
+    assert_eq!(f.value(&result.unwrap()), Value::I32(255));
     drop(execution);
     let fresh_factory = f.invoke("factory", &[]);
     let fresh = spawn(&f, &scope, &fresh_factory);

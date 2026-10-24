@@ -10,6 +10,7 @@ use kagari_bytecode::{
     program::{BytecodeProgram, ModuleRef},
 };
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use rstest::rstest;
 use std::{
     mem,
     panic::{AssertUnwindSafe, catch_unwind},
@@ -110,46 +111,56 @@ fn staged_initial_load_abandonment_foreign_owner_and_shutdown_never_publish() {
     assert!(runtime.stage_load_verified_program("closed", code).is_err());
 }
 
-#[test]
-fn staged_initial_load_admission_rejects_forgotten_scopes_and_publication_guards() {
-    for mode in 0..3 {
-        let mut runtime = Runtime::default();
-        let live = runtime.load_program("existing", program()).unwrap();
-        let candidate = stage_initial(&mut runtime);
-        let installation = candidate.installation.clone();
-        let code = VerifiedProgram::new(program(), runtime.definition_context()).unwrap();
-        // Safe code cannot mutably borrow Runtime while a scope is live. Leaking
-        // a scope ends that Rust borrow but must not bypass runtime admission.
-        match mode {
-            0 => {
-                let module = runtime.select_program(&live).unwrap();
-                mem::forget(
-                    runtime
-                        .begin_execution(&module, Default::default())
-                        .unwrap(),
-                );
-            }
-            1 => {
-                let cx = Context::from_waker(Waker::noop());
-                mem::forget(runtime.begin_scheduler_turn(&cx, None).unwrap());
-            }
-            _ => mem::forget(runtime.begin_publication(&live).unwrap()),
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ForgottenScope {
+    Execution,
+    Scheduler,
+    Publication,
+}
+
+#[rstest]
+#[case::execution(ForgottenScope::Execution)]
+#[case::scheduler(ForgottenScope::Scheduler)]
+#[case::publication(ForgottenScope::Publication)]
+fn staged_initial_load_admission_rejects_forgotten_scopes_and_publication_guards(
+    #[case] mode: ForgottenScope,
+) {
+    let mut runtime = Runtime::default();
+    let live = runtime.load_program("existing", program()).unwrap();
+    let candidate = stage_initial(&mut runtime);
+    let installation = candidate.installation.clone();
+    let code = VerifiedProgram::new(program(), runtime.definition_context()).unwrap();
+    // Safe code cannot mutably borrow Runtime while a scope is live. Leaking
+    // a scope ends that Rust borrow but must not bypass runtime admission.
+    match mode {
+        ForgottenScope::Execution => {
+            let module = runtime.select_program(&live).unwrap();
+            mem::forget(
+                runtime
+                    .begin_execution(&module, Default::default())
+                    .unwrap(),
+            );
         }
-        assert_eq!(
-            runtime
-                .stage_load_verified_program("reentrant", code)
-                .unwrap_err()
-                .kind(),
-            RuntimeErrorKind::ExecutionPhaseViolation
-        );
-        assert_eq!(
-            runtime.publish_staged_load(candidate).unwrap_err().kind(),
-            RuntimeErrorKind::ExecutionPhaseViolation
-        );
-        assert!(installation.capture_current().is_err());
-        drop(runtime);
-        assert!(live.capture_current().is_err());
+        ForgottenScope::Scheduler => {
+            let cx = Context::from_waker(Waker::noop());
+            mem::forget(runtime.begin_scheduler_turn(&cx, None).unwrap());
+        }
+        ForgottenScope::Publication => mem::forget(runtime.begin_publication(&live).unwrap()),
     }
+    assert_eq!(
+        runtime
+            .stage_load_verified_program("reentrant", code)
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::ExecutionPhaseViolation
+    );
+    assert_eq!(
+        runtime.publish_staged_load(candidate).unwrap_err().kind(),
+        RuntimeErrorKind::ExecutionPhaseViolation
+    );
+    assert!(installation.capture_current().is_err());
+    drop(runtime);
+    assert!(live.capture_current().is_err());
 }
 
 #[test]
@@ -318,41 +329,41 @@ fn disabled_automatic_gc_still_invalidates_candidates_until_explicit_collection(
     assert!(!runtime.modules.abandonment_pending());
 }
 
-#[test]
-fn safepoints_reject_borrowed_module_storage_without_panicking() {
-    for automatic in [true, false] {
-        let mut config = RuntimeConfig::default();
-        config.gc.collection_threshold = automatic.then_some(1024);
-        let mut runtime = Runtime::new(config);
-        let baseline = runtime.load_program("candidate", program()).unwrap();
-        let view = runtime.modules.inner.borrow_mut();
-        // Public safepoints retain borrow validation without pending work too.
-        assert_eq!(runtime.gc_safepoint().is_err(), automatic);
-        drop(view);
-        let candidate = stage(&mut runtime, &baseline);
-        let view = runtime.modules.inner.borrow_mut();
-        drop(candidate);
-        let result = runtime.gc_safepoint();
-        if automatic {
-            assert_eq!(
-                result.unwrap_err().kind(),
-                RuntimeErrorKind::ModuleValidation
-            );
-        } else {
-            result.unwrap();
-        }
-        let executable = baseline.capture_current().unwrap();
+#[rstest]
+#[case::automatic(true)]
+#[case::explicit(false)]
+fn safepoints_reject_borrowed_module_storage_without_panicking(#[case] automatic: bool) {
+    let mut config = RuntimeConfig::default();
+    config.gc.collection_threshold = automatic.then_some(1024);
+    let mut runtime = Runtime::new(config);
+    let baseline = runtime.load_program("candidate", program()).unwrap();
+    let view = runtime.modules.inner.borrow_mut();
+    // Public safepoints retain borrow validation without pending work too.
+    assert_eq!(runtime.gc_safepoint().is_err(), automatic);
+    drop(view);
+    let candidate = stage(&mut runtime, &baseline);
+    let view = runtime.modules.inner.borrow_mut();
+    drop(candidate);
+    let result = runtime.gc_safepoint();
+    if automatic {
         assert_eq!(
-            view.records[&executable.key()].module.epoch,
-            executable.epoch
+            result.unwrap_err().kind(),
+            RuntimeErrorKind::ModuleValidation
         );
-        assert!(!runtime.is_quarantined());
-        drop(view);
-        assert_eq!(
-            runtime.collect_garbage().unwrap().reclaimed_modules.len(),
-            1
-        );
+    } else {
+        result.unwrap();
     }
+    let executable = baseline.capture_current().unwrap();
+    assert_eq!(
+        view.records[&executable.key()].module.epoch,
+        executable.epoch
+    );
+    assert!(!runtime.is_quarantined());
+    drop(view);
+    assert_eq!(
+        runtime.collect_garbage().unwrap().reclaimed_modules.len(),
+        1
+    );
 }
 
 #[test]

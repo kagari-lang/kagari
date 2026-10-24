@@ -1,0 +1,22 @@
+fn stop() -> i32 {
+    (
+        if true {
+            return 42;
+        } else {
+            return 1;
+        }
+    ) as u8;
+    0
+}
+
+fn main() -> i32 {
+    val nested: Vec<Vec<u8>> = Vec::from([Vec::from([8u8 >> 1])]);
+    {
+        val passed = nested[0][0] == 4u8;
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    stop()
+}

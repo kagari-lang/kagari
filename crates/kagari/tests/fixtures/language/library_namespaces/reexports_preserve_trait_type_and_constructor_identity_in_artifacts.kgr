@@ -1,0 +1,62 @@
+use core::ops::Add as CoreAdd;
+
+use std::ops::Add as StdAdd;
+
+use core::hash::Hash as CoreHash;
+
+use std::hash::Hash as StdHash;
+
+use std::collections::HashMap;
+
+struct Number {
+    val value: i32
+}
+
+impl PartialEq for Number {
+    fn eq(self, other: Number) -> bool {
+        self.value == other.value
+    }
+}
+
+impl Eq for Number {}
+
+impl CoreAdd<Number> for Number {
+    type Output = Number;
+    fn add(self, other: Number) -> Number {
+        Number { value: self.value + other.value }
+    }
+}
+
+impl CoreHash for Number {
+    fn hash(self) -> i64 {
+        self.value.hash()
+    }
+}
+
+fn plus<T: StdAdd<T>>(left: T, right: T) -> T::Output {
+    left + right
+}
+
+fn hash<T: StdHash>(value: T) -> i64 {
+    value.hash()
+}
+
+fn main() -> i32 {
+    val values: std::vec::Vec<i32> = alloc::vec::Vec::new();
+    values.push(20);
+    val other: alloc::vec::Vec<i32> = Vec::new();
+    other.push(22);
+    val text: std::string::String = "hello";
+    val result: core::option::Option<i32> = std::option::Option::Some(
+        plus(Number { value: values[0] }, Number { value: other[0] }).value
+    );
+    val map: HashMap<i32, i32> = HashMap::new();
+    map.insert(1, hash(Number { value: 42 }) as i32);
+    if text.len() != 5u64 {
+        return 0;
+    }
+    match result {
+        Some(value) => value + map.len() as i32 - 1,
+        None => 0
+    }
+}

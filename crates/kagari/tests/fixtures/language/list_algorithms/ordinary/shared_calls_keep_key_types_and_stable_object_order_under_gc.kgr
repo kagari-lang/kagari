@@ -1,0 +1,75 @@
+use std::cmp::{ Ordering };
+
+use std::collections::{ List };
+
+struct Item {
+    val key: i32,
+    val label: String,
+    val ordinal: i32
+}
+
+struct Counter {
+    var calls: i32
+}
+
+struct Rank {
+    val value: i32
+}
+
+impl PartialEq for Rank {
+    fn eq(self, other: Self) -> bool {
+        self.value == other.value
+    }
+}
+
+impl Eq for Rank {}
+
+impl PartialOrd for Rank {
+    fn partial_cmp(self, other: Self) -> Option<Ordering> {
+        self.value.partial_cmp(other.value)
+    }
+}
+
+impl Ord for Rank {
+    fn cmp(self, other: Self) -> Ordering {
+        self.value.cmp(other.value)
+    }
+}
+
+trait Sorter {
+    fn order<T, K: Ord>(self, values: List<T>, key: fn(T) -> K) -> List<T> {
+        values.sorted_by_key(key)
+    }
+}
+
+impl Sorter for i32 {}
+
+fn main() -> bool {
+    val values: List<Item> = Vec::from(
+        [
+            Item { key: 2, label: "b", ordinal: 0 },
+            Item { key: 1, label: "a", ordinal: 1 },
+            Item { key: 2, label: "b", ordinal: 2 },
+            Item { key: 1, label: "a", ordinal: 3 }
+        ]
+    );
+    val calls = Counter { calls: 0 };
+    val sorter: Sorter = 0;
+    val numeric = sorter.order(
+        values,
+        |item| {
+            calls.calls += 1;
+            item.key
+        }
+    );
+    val text = sorter.order(values, |item| item.label);
+    val objects = sorter.order(values, |item| Rank { value: item.key });
+    numeric[0].ordinal == 1 && numeric[1].ordinal == 3 && numeric[2].ordinal == 0 &&
+        numeric[3].ordinal == 2 &&
+        text[0].ordinal == 1 &&
+        text[1].ordinal == 3 &&
+        objects[0].ordinal == 1 &&
+        objects[1].ordinal == 3 &&
+        calls.calls > 4 &&
+        values[0].ordinal == 0
+}

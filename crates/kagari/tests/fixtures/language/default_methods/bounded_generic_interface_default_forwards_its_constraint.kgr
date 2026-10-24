@@ -1,0 +1,23 @@
+trait Identity {
+    fn identity<T: Ord>(self, value: T) -> T {
+        value
+    }
+}
+
+trait Forward {
+    fn forward<T: Ord>(self, target: Identity, value: T) -> T {
+        target.identity(value)
+    }
+}
+
+struct Number {}
+
+impl Identity for Number {}
+
+impl Forward for Number {}
+
+fn main() -> i32 {
+    val target: Identity = Number {};
+    val source: Forward = Number {};
+    source.forward(target, 42)
+}

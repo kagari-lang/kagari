@@ -38,6 +38,7 @@ use kagari_contract::{
     },
 };
 use kagari_types::ty::{NominalTy, Ty};
+use rstest::rstest;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -479,31 +480,31 @@ fn executable_memory_can_be_shared_without_sharing_runtime_instances() {
     assert_eq!(dropped.load(Ordering::SeqCst), 1);
 }
 
-#[test]
-fn incompatible_native_abis_are_rejected_before_installation() {
-    for helper in [false, true] {
-        let mut runtime = runtime();
-        let module_program = runtime.load_program("native", program()).unwrap();
-        let module = runtime.select_program(&module_program).unwrap();
-        let mut code = product(execute, Arc::default());
-        let artifact = &mut Arc::get_mut(&mut code).unwrap().artifact;
-        if helper {
-            artifact.code.runtime_helper_abi_version = "previous-helper".into();
-        } else {
-            artifact.code.runtime_abi_version = "previous-runtime".into();
-        }
-        assert!(matches!(
-            unsafe { runtime.install_native_function(&module, code) },
-            Err(BackendInvocationError::UnsupportedArtifact(_))
-        ));
-        assert_eq!(
-            runtime
-                .modules()
-                .retention_counts(module.key())
-                .compiled_artifacts,
-            0
-        );
+#[rstest]
+#[case::runtime_abi(false)]
+#[case::helper_abi(true)]
+fn incompatible_native_abis_are_rejected_before_installation(#[case] helper: bool) {
+    let mut runtime = runtime();
+    let module_program = runtime.load_program("native", program()).unwrap();
+    let module = runtime.select_program(&module_program).unwrap();
+    let mut code = product(execute, Arc::default());
+    let artifact = &mut Arc::get_mut(&mut code).unwrap().artifact;
+    if helper {
+        artifact.code.runtime_helper_abi_version = "previous-helper".into();
+    } else {
+        artifact.code.runtime_abi_version = "previous-runtime".into();
     }
+    assert!(matches!(
+        unsafe { runtime.install_native_function(&module, code) },
+        Err(BackendInvocationError::UnsupportedArtifact(_))
+    ));
+    assert_eq!(
+        runtime
+            .modules()
+            .retention_counts(module.key())
+            .compiled_artifacts,
+        0
+    );
 }
 
 #[test]

@@ -1,0 +1,70 @@
+use std::ops::{ Bound, Range, RangeBounds };
+
+use core::ops as foundation;
+
+fn identity<T>(range: Range<T>) -> Range<T> {
+    range
+}
+
+fn upper<R: RangeBounds<u64>>(range: R) -> Bound<u64> {
+    range.end_bound()
+}
+
+fn main() -> i32 {
+    val qualified: foundation::Range<u8> = identity(1u8..4u8);
+    val bound: foundation::Bound<u8> = qualified.start_bound();
+    if bound != foundation::Bound::Included(1u8) {
+        return 0;
+    }
+    var last = 0i8;
+    for n in -128i8..=-126i8 {
+        last = n;
+    }
+    if last != -126i8 {
+        return 0;
+    }
+    if upper(..) != Bound::Unbounded {
+        return 0;
+    }
+    val range: Range<u8> = 1u8..4u8;
+    var total = 0u8;
+    for n in range {
+        total += n;
+    }
+    for n in range {
+        total += n;
+    }
+    if total != 12u8 {
+        return 0;
+    }
+    var count = 0u64;
+    var maximum = 0u8;
+    for n in 254u8..=255u8 {
+        count += 1;
+        maximum = n;
+    }
+    if count != 2u64 || maximum != 255u8 {
+        return 0;
+    }
+    var wide = 0u64;
+    for n in 0u64..18446744073709551615u64 {
+        wide = n;
+        if n == 2u64 {
+            break;
+        }
+    }
+    if wide != 2u64 {
+        return 0;
+    }
+    var open = 0i16;
+    for n in 10i16..{
+        open = n;
+        if n == 11i16 {
+            break;
+        }
+    }
+    if open != 11i16 {
+        return 0;
+    }
+    42
+}

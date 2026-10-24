@@ -5,13 +5,11 @@ use crate::{
     tests::{common, common::check_module},
     types::TypeId,
 };
-use kagari_source::{
-    diagnostic::{DiagnosticKind, TypePosition},
-    source::SourceFile,
-};
-use kagari_syntax::parser::parse_module;
+use kagari_source::{diagnostic::DiagnosticKind, source::SourceFile};
+
 use kagari_types::scalar::BuiltinType;
 
-mod diagnostics;
+mod recovery;
 mod standard;
 mod traits;
+mod typed_facts;

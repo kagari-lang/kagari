@@ -1,0 +1,1 @@
+#[tool::allow("unused_parameter")]struct Boxed<T>{var value:T}

@@ -478,26 +478,7 @@ fn source_interface_dispatch_selects_current_method_and_descendant_after_reload(
 
 #[test]
 fn generic_interface_and_retained_closure_keep_their_environment_after_reload() {
-    let source = r#"
-        struct Item { val value: i32 }
-        trait Capture {
-            fn identity<U>(self, value: U) -> U { value }
-            fn code(self) -> i32 { helper() }
-            fn capture<T>(self, value: T) -> fn() -> i32 {
-                || {
-                    val source: Capture = 1;
-                    val held: T = source.identity(value);
-                    source.code()
-                }
-            }
-        }
-        impl Capture for i32 {}
-        fn helper() -> i32 { 42 }
-        fn read(source: Capture) -> i32 { val get = source.capture(Item { value: 1 }); get() }
-        fn make() -> fn() -> i32 { val source: Capture = 7; source.capture(Item { value: 2 }) }
-        fn use_closure(call: fn() -> i32) -> i32 { call() }
-        fn main() -> i32 { read(7) }
-    "#;
+    let source = include_str!("../../../tests/fixtures/execution/generic-interface-capture.kgr");
     let mut runtime = standard_runtime(Default::default());
     let old = runtime
         .load_program("shared-reload", compile_test_bytecode(source))
@@ -518,11 +499,12 @@ fn generic_interface_and_retained_closure_keep_their_environment_after_reload() 
         execution.run().unwrap()
     };
     let closure_root = runtime.root_value(closure).unwrap();
+    assert_eq!(source.matches("42").count(), 1);
     let candidate = runtime
         .stage_reload_program(
             &_old_program,
             Some("shared-reload".into()),
-            compile_test_bytecode(&source.replace("{ 42 }", "{ 43 }")),
+            compile_test_bytecode(&source.replace("42", "43")),
         )
         .unwrap();
     let new = candidate.module().clone();
@@ -749,22 +731,8 @@ fn interface_instruction_uses_a_reachable_dependency_table() {
 
 #[test]
 fn a_retained_generic_closure_keeps_constraint_evidence_but_calls_current_code() {
-    let source = r#"
-        trait Capture {
-            fn capture<F: Fn() -> i32>(self, callback: F) -> fn() -> i32 { || callback() }
-        }
-        impl Capture for i32 {}
-        struct Callback {}
-        impl Fn<()> for Callback {
-            type Output = i32;
-            fn call(self, args: ()) -> i32 { helper() }
-        }
-        fn helper() -> i32 { 42 }
-        fn source() -> Capture { 7 }
-        fn make(source: Capture) -> fn() -> i32 { source.capture(Callback {}) }
-        fn use_closure(call: fn() -> i32) -> i32 { call() }
-        fn main() -> i32 { helper() }
-    "#;
+    let source =
+        include_str!("../../../tests/fixtures/execution/constraint-generation-capture.kgr");
     fn execute(runtime: &Runtime, module: &ExecutableModule, name: &str, args: &[Value]) -> Value {
         let entry = module
             .bytecode
@@ -790,11 +758,12 @@ fn a_retained_generic_closure_keeps_constraint_evidence_but_calls_current_code()
     let first = runtime.select_program(&_first_program).unwrap();
     let receiver = execute(&runtime, &first, "source", &[]);
     let receiver_root = runtime.root_value(receiver).unwrap();
+    assert_eq!(source.matches("42").count(), 1);
     let candidate = runtime
         .stage_reload_program(
             &_first_program,
             Some("constraint-reload".into()),
-            compile(&source.replace("{ 42 }", "{ 43 }")),
+            compile(&source.replace("42", "43")),
         )
         .unwrap();
     let second = candidate.module().clone();
@@ -807,7 +776,7 @@ fn a_retained_generic_closure_keeps_constraint_evidence_but_calls_current_code()
         .stage_reload_program(
             &_second_program,
             Some("constraint-reload".into()),
-            compile(&source.replace("{ 42 }", "{ 44 }")),
+            compile(&source.replace("42", "44")),
         )
         .unwrap();
     let third = candidate.module().clone();
@@ -841,7 +810,7 @@ fn shared_calls_retain_the_callers_nominal_layout_generation() {
         fn make(source: Capture) -> fn() -> i32 { source.capture(Item { value: 1 }) }
         fn use_closure(call: fn() -> i32) -> i32 { call() }
     "#;
-    check_type_provenance_reload(source);
+    check_type_provenance_reload(source, 1);
 }
 
 #[test]
@@ -861,6 +830,7 @@ fn shared_composite_arguments_keep_distinct_nominal_generations() {
         fn make(source: Capture) -> fn() -> i32 { source.capture(Item { value: 1 }) }
         fn use_closure(call: fn() -> i32) -> i32 { call() }
     "#,
+        2,
     );
 }
 
@@ -880,10 +850,11 @@ fn shared_closures_keep_type_metadata_and_pinned_construction_dependencies() {
         fn make(source: Capture) -> fn() -> i32 { source.capture(Item { value: 1 }) }
         fn use_closure(call: fn() -> i32) -> i32 { call() }
     "#,
+        1,
     );
 }
 
-fn check_type_provenance_reload(source: &str) {
+fn check_type_provenance_reload(source: &str, item_constructions: usize) {
     let mut runtime = standard_runtime(Default::default());
     let old = runtime
         .load_program("type-provenance", compile_test_bytecode(source))
@@ -892,10 +863,25 @@ fn check_type_provenance_reload(source: &str) {
     let old = runtime.select_program(&_old_program).unwrap();
     let interface = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
     let interface_root = runtime.root_value(interface).unwrap();
-    let second_source = source
-        .replace("val value: i32", "val value: i32, val extra: bool")
-        .replace("value: 1 }", "value: 1, extra: true }")
-        .replace("{ 42 }", "{ 43 }");
+    let helper = "fn helper() -> i32 {";
+    assert_eq!(source.matches(helper).count(), 1);
+    let body_start = source.find(helper).unwrap() + helper.len();
+    let body_end = body_start + source[body_start..].find('}').unwrap();
+    assert_eq!(source[body_start..body_end].trim(), "42");
+    let value_start = body_start + source[body_start..body_end].find("42").unwrap();
+    let mut second_source = source.to_owned();
+    second_source.replace_range(value_start..value_start + 2, "43");
+    for (from, to, count) in [
+        ("val value: i32", "val value: i32, val extra: bool", 1),
+        (
+            "Item { value: 1 }",
+            "Item { value: 1, extra: true }",
+            item_constructions,
+        ),
+    ] {
+        assert_eq!(second_source.matches(from).count(), count, "{from}");
+        second_source = second_source.replace(from, to);
+    }
     let candidate = runtime
         .stage_reload_program(
             &_old_program,
@@ -984,10 +970,19 @@ fn check_type_provenance_reload(source: &str) {
         .run()
         .unwrap();
     let root = runtime.root_value(closure).unwrap();
-    let third_source = second_source
-        .replace("val extra: bool", "val extra: bool, val later: i32")
-        .replace("extra: true }", "extra: true, later: 3 }")
-        .replace("{ 43 }", "{ 44 }");
+    let mut third_source = second_source;
+    for (from, to, count) in [
+        ("val extra: bool", "val extra: bool, val later: i32", 1),
+        (
+            "Item { value: 1, extra: true }",
+            "Item { value: 1, extra: true, later: 3 }",
+            item_constructions,
+        ),
+        ("43", "44", 1),
+    ] {
+        assert_eq!(third_source.matches(from).count(), count, "{from}");
+        third_source = third_source.replace(from, to);
+    }
     let candidate = runtime
         .stage_reload_program(
             &_second_program,
@@ -1050,6 +1045,7 @@ fn shared_aggregate_fields_retain_the_callers_nominal_generation() {
         fn make(source: Capture) -> fn() -> i32 { source.capture(Item { value: 1 }) }
         fn use_closure(call: fn() -> i32) -> i32 { call() }
     "#,
+        1,
     );
 }
 
@@ -1071,6 +1067,7 @@ fn shared_native_lists_retain_the_callers_nominal_generation() {
         fn make(source: Capture) -> fn() -> i32 { source.capture(Item { value: 1 }) }
         fn use_closure(call: fn() -> i32) -> i32 { call() }
     "#,
+        1,
     );
 }
 
@@ -1175,34 +1172,8 @@ fn shared_closure_signatures_distinguish_nominal_generations() {
 #[test]
 fn shared_mutable_lists_preserve_mixed_nominal_scopes_and_parent_views() {
     check_type_provenance_reload(
-        r#"use std::collections::{List, MutableList};
-
-        struct Item { val value: i32 }
-        struct Box<T> { val item: T }
-        enum Wrapped<T> { Some(T), None }
-        fn concrete() -> Box<Wrapped<Item>> { Box { item: Wrapped::Some(Item { value: 1 }) } }
-        fn keep<T>(value: T) -> T { value }
-        trait Capture {
-            fn capture<T>(self, value: T) -> fn() -> i32 {
-                val list: MutableList<(Item, Box<Wrapped<T>>)> = Vec::from([(Item { value: 1 }, Box { item: Wrapped::Some(value) })]);
-                list.push((Item { value: 1 }, Box { item: Wrapped::Some(value) }));
-                val view: List<(Item, Box<Wrapped<T>>)> = list;
-                var seen = 0;
-                for pair in view {
-                    val inner: T = match pair[1].item { Wrapped::Some(inner) => inner, Wrapped::None => value };
-                    seen = seen + 1;
-                }
-                || {
-                    val held: (Item, Box<Wrapped<T>>) = keep(view[1]);
-                    match held[1].item { Wrapped::Some(inner) => { val again: T = keep(inner); helper() + seen - 2 }, Wrapped::None => 0 }
-                }
-            }
-        }
-        impl Capture for i32 {}
-        fn helper() -> i32 { 42 }
-        fn make(source: Capture) -> fn() -> i32 { source.capture(Item { value: 1 }) }
-        fn use_closure(call: fn() -> i32) -> i32 { call() }
-    "#,
+        include_str!("../../../tests/fixtures/execution/mixed-nominal-list-capture.kgr"),
+        4,
     );
 }
 
@@ -1224,5 +1195,6 @@ fn shared_repeat_arrays_keep_scalar_contracts_in_generic_frames() {
         fn make(source: Capture) -> fn() -> i32 { source.capture(Item { value: 1 }) }
         fn use_closure(call: fn() -> i32) -> i32 { call() }
     "#,
+        1,
     );
 }

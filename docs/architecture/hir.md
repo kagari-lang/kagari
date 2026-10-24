@@ -605,6 +605,17 @@ edit, even when signature surfaces match. Finer invalidation remains separate.
 Retaining an old snapshot remains safe because its IDs still refer to its old
 arena/definition tables; remapped facts must use the new owners.
 
+Imported type inputs also carry this unit's refined trait surfaces, so local alias
+and supertrait resolution observe the same preparation as foreign imports. For
+signature/body remapping, `ImportedTypes::same_reuse_inputs` permits fresh navigation
+revision/ranges only for surfaces belonging to the exact old and new local units,
+with the same module/file, declaration identity and semantic contract. Namespace,
+native representation, associated arities, methods, members, supertraits and alias
+checks remain. Foreign addresses, explicit type/variant resolutions and canonical
+alias templates retain exact comparison; an inherited foreign trait is not local
+merely because its contract is unchanged. Current declarations supply navigation,
+and whole-file/unchanged-query sharing still requires exact revision/arena equality.
+
 ## Checked handoff and registered inputs
 
 [CheckedAnalysis](../../crates/kagari-hir/src/lib.rs) represents the checked

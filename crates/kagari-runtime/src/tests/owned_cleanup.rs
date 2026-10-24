@@ -19,7 +19,10 @@ use crate::{
         types::Type,
     },
     session::owned::OwnedExecution,
-    test_support::native::{invoke::invoke, program::free_function_program},
+    test_support::native::{
+        invoke::invoke,
+        program::{ProgramFixture, free_function_program},
+    },
     value::Value,
 };
 use kagari_abi::representation::ValueType;
@@ -31,10 +34,7 @@ use kagari_bytecode::{
     },
     program::ModuleRef,
 };
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{map::DefinitionContext, metadata::DefinitionMetadata},
-};
+use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext};
 use kagari_contract::{ids::FunctionRef, types::PublicItem};
 use kagari_stdlib::catalog;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
@@ -339,7 +339,8 @@ impl Fixture {
         let module_program = runtime
             .load_program(
                 "owned-cleanup",
-                DefinitionMetadata::checked(definitions.snapshot(), program, &Default::default())
+                ProgramFixture::from(program)
+                    .metadata(definitions.snapshot(), &Default::default())
                     .unwrap(),
             )
             .unwrap();

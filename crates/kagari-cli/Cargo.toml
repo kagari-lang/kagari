@@ -34,3 +34,6 @@ jit = ["dep:kagari-codegen-cranelift", "kagari/native"]
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
+
+[dev-dependencies]
+rstest.workspace = true

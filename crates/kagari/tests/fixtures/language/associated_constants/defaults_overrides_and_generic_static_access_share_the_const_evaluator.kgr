@@ -1,0 +1,26 @@
+const BASE: i32 = 20;
+
+trait Limit {
+    const VALUE: i32 = BASE + 1;
+    fn limit(self) -> i32 {
+        Self::VALUE
+    }
+}
+
+struct Default {}
+
+struct Override {}
+
+impl Limit for Default {}
+
+impl Limit for Override {
+    const VALUE: i32 = 21;
+}
+
+fn limit<T: Limit>(x: T) -> i32 {
+    T::VALUE + x.limit()
+}
+
+fn main() -> i32 {
+    limit(Default {}) + Override::VALUE - Default::VALUE
+}

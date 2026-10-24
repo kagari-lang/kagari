@@ -1,0 +1,15 @@
+use std::collections::List;
+
+trait Builder<Outer> {
+    fn pack<A, B>(self, first: A, second: B) -> List<[B]> {
+        Vec::from([[second]])
+    }
+}
+
+struct Factory {}
+
+impl Builder<i32> for Factory {}
+
+fn main() -> Builder<i32> {
+    Factory {}
+}

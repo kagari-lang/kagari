@@ -17,3 +17,5 @@ thiserror.workspace = true
 [dev-dependencies]
 kagari-stdlib.workspace = true
 kagari-contract.workspace = true
+rstest.workspace = true
+serde_json = "1"

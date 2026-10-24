@@ -1,0 +1,21 @@
+trait Reader<T> {
+    type Item;
+    fn read(self, input: T) -> Self::Item;
+}
+
+struct N {}
+
+impl Reader<i32> for N {
+    type Item = i32;
+    fn read(self, input: i32) -> Self::Item {
+        input
+    }
+}
+
+fn read<R: Reader<i32, Item = i32>>(r: R) -> i32 {
+    r.read(42)
+}
+
+fn main() -> i32 {
+    read(N {})
+}

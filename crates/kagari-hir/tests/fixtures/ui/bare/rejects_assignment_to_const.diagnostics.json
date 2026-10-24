@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_TYPE_INVALID_ASSIGNMENT_TARGET",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 51,
+          "path": "test.kg",
+          "start": 44
+        }
+      }
+    ],
+    "message": "invalid assignment target: `const` item cannot be reassigned",
+    "notes": [],
+    "primary": {
+      "end": 51,
+      "path": "test.kg",
+      "start": 44
+    },
+    "severity": "error"
+  }
+]

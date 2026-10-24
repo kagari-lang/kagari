@@ -1,0 +1,15 @@
+struct Marker<T> {
+    val value: i32
+}
+
+struct Box {
+    var value: Marker<i32>
+}
+
+fn main() -> i32 {
+    val box = Box { value: Marker { value: 0 } };
+    val array: [Marker<i32>] = [Marker { value: 0 }];
+    set_field(box, "value", Marker { value: 20 });
+    set_index(array, 0, Marker { value: 22 });
+    box.value.value + array[0].value
+}

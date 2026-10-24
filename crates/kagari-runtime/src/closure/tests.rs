@@ -5,24 +5,17 @@ use crate::{
         cursor::kernel::RegionExit,
         driver::{ExecutionAction, ReturnAction},
     },
-    module::{ExecutableModule, VerifiedProgram, dispatch::CallRouteKind},
+    module::dispatch::CallRouteKind,
     native::{
         callable::PreparedClosure,
         conversion::{FromKagari, context::ConversionContext},
         function_handle::Function,
     },
-    reload::{
-        ReloadValidationError, validate_reload_artifact_candidate, validate_reload_candidate,
-    },
     source::{SourceQuery, SourceUnavailableReason},
+    test_support::update_programs as programs,
     value::Value,
 };
 use kagari_bytecode::module::CallableTarget;
-
-// Reuse the source-free reload contract fixture rather than a second compiler setup.
-#[allow(clippy::duplicate_mod)]
-#[path = "../../tests/support/update_programs.rs"]
-mod programs;
 
 #[test]
 fn named_values_and_named_locals_select_current_but_zero_capture_bodies_stay_exact() {

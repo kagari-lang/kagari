@@ -137,6 +137,98 @@ fn f() { // Mixed.
         self.assertEqual((result[0]["line"], result[0]["column"]), (4, 1))
 
 
+class ParameterAttributeRecoveryTests(unittest.TestCase):
+    def test_complete_two_and_three_attribute_recovery(self):
+        for attributes in [
+            '#[a] #[b]',
+            '#[a] #[b = "value"] #[c]',
+            '#[a] /* between */ #[b] // before parameter\n',
+            '#[a] #[b(key = "value")] // before final\n #[c] /* before parameter */',
+            '#[files(r#"fixtures/**/*.kg"#)] #[exclude(r"[/\\\\]invalid[/\\\\].*")]',
+        ]:
+            with self.subTest(attributes=attributes):
+                source = f"fn f({attributes} path: PathBuf) {{}}"
+                self.assertTrue(Parser(LANGUAGE).parse(source.encode()).root_node.has_error)
+                self.assertEqual(rules(source), [])
+
+    def test_single_attributes_and_separate_parameters_need_no_recovery(self):
+        for parameters in ['#[a] path: PathBuf', '#[a] path: PathBuf, #[b] other: PathBuf']:
+            with self.subTest(parameters=parameters):
+                source = f"fn f({parameters}) {{}}"
+                self.assertFalse(Parser(LANGUAGE).parse(source.encode()).root_node.has_error)
+                self.assertEqual(rules(source), [])
+
+    def test_recovery_preserves_paths_imports_and_byte_locations(self):
+        source = '''fn f(
+    #[files(r#"fixtures/**/*.kg"#)]
+    #[exclude(r"invalid/.*")]
+    /* \u00e9 */ path: super::super::Thing,
+) {
+    use bad::*;
+    crate::owner::run();
+}
+'''
+        for newline in ["\n", "\r\n"]:
+            with self.subTest(newline=newline):
+                result = audit({"src/worker.rs": source.replace("\n", newline)})
+                self.assertEqual([(f["path"], f["rule"], f["line"], f["column"]) for f in result],
+                                 [("src/worker.rs", "parent-traversal", 4, 20),
+                                  ("src/worker.rs", "wildcard-import", 6, 5),
+                                  ("src/worker.rs", "qualified-path", 7, 5)])
+
+    def test_recovery_preserves_comment_masking_and_loc_limit(self):
+        source = '''fn f(
+    #[files(r#"fixtures/**/*.kg"#)]
+    // Comment-only line.
+    #[exclude(r"invalid/.*")]
+    path: PathBuf,
+) {}
+'''
+        for newline in ["\n", "\r\n"]:
+            with self.subTest(newline=newline):
+                data = source.replace("\n", newline).encode()
+                self.assertEqual(effective_loc(data, Parser(LANGUAGE).parse(data).root_node), 5)
+                at_limit = source + "const _: () = ();\n" * 1195
+                self.assertEqual(rules(at_limit.replace("\n", newline)), [])
+                result = audit({"src/worker.rs": (at_limit + "const _: () = ();\n")
+                                .replace("\n", newline)})
+                self.assertEqual([f["rule"] for f in result], ["effective-loc"])
+                self.assertEqual(result[0]["effective_loc"], 1201)
+
+    def test_malformed_parameters_attributes_and_nested_damage_still_fail(self):
+        for parameters in [
+            '#[a] + #[b] path: PathBuf',
+            '#[a] , #[b] path: PathBuf',
+            '#[a] #[b] @ path: PathBuf',
+            '#[a] #[b] path PathBuf',
+            '#[a] #[b] path:',
+            '#[a] #[b] path: Vec<Thing',
+            '#[a] #[b] path: PathBuf +',
+            '#[a] #[b] path: PathBuf other: PathBuf',
+            '#[a] #[b]',
+            '#[a(])] #[b] path: PathBuf',
+            '#[a] #[b(])] path: PathBuf',
+            '#[a = ] #[b] path: PathBuf',
+            '#[a(] #[b] path: PathBuf',
+            '#[a] #[b(] path: PathBuf',
+            '#[a] #[b] ...',
+            '#[a] #[b] self',
+        ]:
+            with self.subTest(parameters=parameters):
+                self.assertIn("parse-error", rules(f"fn f({parameters}) {{}}"))
+
+    def test_other_recovery_shapes_are_not_exempt(self):
+        for source in [
+            # Three bare attributes recover as tokens/slice patterns, not attributes.
+            'fn f(#[a] #[b] #[c] path: PathBuf) {}',
+            'fn f(#[a] /* split recovery */ #[b = "value"] #[c] path: PathBuf) {}',
+            'fn f() { #[a] + #[b] }',
+            'fn f(#[a] #[b] path: PathBuf) { let value = ; }',
+        ]:
+            with self.subTest(source=source):
+                self.assertIn("parse-error", rules(source))
+
+
 class FunctionSpacingTests(unittest.TestCase):
     def test_adjacent_functions_in_each_item_scope(self):
         for source in [

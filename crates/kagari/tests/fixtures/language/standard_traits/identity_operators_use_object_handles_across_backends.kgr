@@ -1,0 +1,23 @@
+use std::collections::{ HashMap, HashSet };
+
+struct Item {
+    var value: i32
+}
+
+fn main() -> i32 {
+    val a = Item { value: 1 };
+    val alias = a;
+    val b = Item { value: 1 };
+    val values = [1];
+    val copy = [1];
+    val map: HashMap<i32, i32> = HashMap::new();
+    val set: HashSet<i32> = HashSet::new();
+    a.value = 2;
+    if a === alias && a !== b && values === values && values !== copy && values !== [true] &&
+        map === map &&
+        set === set {
+        42
+    } else {
+        0
+    }
+}

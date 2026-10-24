@@ -1,0 +1,24 @@
+use std::cmp::{ Ordering };
+
+struct Unknown {}
+
+impl PartialEq for Unknown {
+    fn eq(self, other: Self) -> bool {
+        false
+    }
+}
+
+impl PartialOrd for Unknown {
+    fn partial_cmp(self, other: Self) -> Option<Ordering> {
+        None
+    }
+}
+
+fn main() -> i32 {
+    val a = Unknown {};
+    if !(a < a) && !(a <= a) && !(a > a) && !(a >= a) && a.partial_cmp(a) == None {
+        42
+    } else {
+        0
+    }
+}

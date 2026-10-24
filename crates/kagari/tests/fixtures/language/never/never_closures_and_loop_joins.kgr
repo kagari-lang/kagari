@@ -1,0 +1,46 @@
+fn fail() -> ! {
+    val zero = 0;
+    1 / zero;
+    loop {}
+}
+
+fn invoke<T>(callback: fn() -> T) -> T {
+    callback()
+}
+
+fn accept(callback: fn() -> !) -> ! {
+    callback()
+}
+
+fn inferred_argument() {
+    invoke(|| fail());
+}
+
+fn inferred_return() {
+    val stop = || {
+        return fail();
+    };
+    stop();
+}
+
+fn select<T>(callback: fn() -> T, value: T) -> T {
+    value
+}
+
+fn main() -> i32 {
+    val stop = || fail();
+    val value = if false {
+        invoke(stop)
+    } else {
+        20
+    };
+    val contextual = select(|| fail(), value);
+    val next = loop {
+        if true {
+            break 22;
+        } else {
+            fail();
+        }
+    };
+    contextual + next
+}

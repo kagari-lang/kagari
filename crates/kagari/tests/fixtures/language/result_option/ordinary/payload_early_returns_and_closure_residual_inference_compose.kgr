@@ -1,0 +1,33 @@
+fn early() -> Option<i32> {
+    Some(
+        {
+            return Some(42);
+        }
+    )
+}
+
+fn result() -> Result<i32, String> {
+    Err("skip")
+}
+
+fn apply<T, R>(value: T, callback: fn(T) -> R) -> R {
+    callback(value)
+}
+
+fn main() -> i32 {
+    val mapped = apply(
+        1,
+        |n| {
+            result()?;
+            Ok(n)
+        }
+    );
+    if val Err(message) = mapped {
+        match early() {
+            Some(n) => n,
+            None => 0
+        }
+    } else {
+        0
+    }
+}

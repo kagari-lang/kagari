@@ -1,0 +1,8 @@
+async fn f() {
+    val pending = async {
+        42
+    };
+    async /* body */ {
+        pending.await
+    }.await
+}

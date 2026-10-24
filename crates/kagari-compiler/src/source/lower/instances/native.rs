@@ -256,86 +256,57 @@ impl InstancePlanner<'_> {
 mod tests {
     use crate::tests::common;
     use kagari_types::ty::{GenericParam, Ty};
+    use rstest::rstest;
 
-    #[test]
-    fn nested_native_application_retains_unused_leading_binder() {
-        for source in [
-            r#"
-use std::collections::List;
-trait Builder {
-    fn pack<A, B>(self, first: A, second: B) -> List<[B]>;
-}
-struct Factory {}
-impl Builder for Factory {
-    fn pack<A, B>(self, first: A, second: B) -> List<[B]> {
-        Vec::from([[second]])
-    }
-}
-fn main() -> Builder { Factory {} }
-"#,
-            r#"
-use std::collections::List;
-trait Builder<Outer> {
-    fn pack<A, B>(self, first: A, second: B) -> List<[B]> {
-        Vec::from([[second]])
-    }
-}
-struct Factory {}
-impl Builder<i32> for Factory {}
-fn main() -> Builder<i32> { Factory {} }
-"#,
-            r#"
-use std::collections::List;
-fn pack<A, B>(first: A, second: B) -> List<[B]> { Vec::from([[second]]) }
-trait Builder {
-    fn build<A, B>(self, first: A, second: B) -> List<[B]> {
-        pack(first, second)
-    }
-}
-struct Factory {}
-impl Builder for Factory {}
-fn main() -> Builder { Factory {} }
-"#,
-        ] {
-            let program = common::bytecode_ok(source);
-            let definitions = program.definitions();
-            let mut nested = 0;
-            for import in program
-                .records()
-                .modules
-                .iter()
-                .flat_map(|module| &module.native_imports)
-            {
-                let [Ty::Array(element)] = import.instance.arguments.as_slice() else {
-                    continue;
-                };
-                let Ty::Parameter { owner, position: 1 } = element.as_ref() else {
-                    continue;
-                };
-                assert_eq!(
-                    definitions.resolve(*owner).unwrap().last().unwrap().name,
-                    "pack"
-                );
-                assert_eq!(
-                    import.generic.as_ref().unwrap().parameters,
-                    [
-                        GenericParam {
-                            owner: *owner,
-                            position: 0
-                        },
-                        GenericParam {
-                            owner: *owner,
-                            position: 1
-                        }
-                    ]
-                );
-                assert!(import.structurally_valid(definitions));
-                nested += 1;
-            }
-            assert!(
-                nested > 0,
-                "expected native applications containing only Array(P1)"
+    #[rstest]
+    #[case::implementation(include_str!(
+        "../../../../tests/fixtures/native_binders/implementation.kgr"
+    ))]
+    #[case::generic_default(include_str!(
+        "../../../../tests/fixtures/native_binders/generic-default.kgr"
+    ))]
+    #[case::shared_default(include_str!(
+        "../../../../tests/fixtures/native_binders/shared-default.kgr"
+    ))]
+    fn nested_native_application_retains_unused_leading_binder(#[case] source: &str) {
+        let program = common::bytecode_ok(source);
+        let definitions = program.definitions();
+        let mut nested = 0;
+        for import in program
+            .records()
+            .modules
+            .iter()
+            .flat_map(|module| &module.native_imports)
+        {
+            let [Ty::Array(element)] = import.instance.arguments.as_slice() else {
+                continue;
+            };
+            let Ty::Parameter { owner, position: 1 } = element.as_ref() else {
+                continue;
+            };
+            assert_eq!(
+                definitions.resolve(*owner).unwrap().last().unwrap().name,
+                "pack"
             );
+            assert_eq!(
+                import.generic.as_ref().unwrap().parameters,
+                [
+                    GenericParam {
+                        owner: *owner,
+                        position: 0
+                    },
+                    GenericParam {
+                        owner: *owner,
+                        position: 1
+                    }
+                ]
+            );
+            assert!(import.structurally_valid(definitions));
+            nested += 1;
         }
+        assert!(
+            nested > 0,
+            "expected native applications containing only Array(P1)"
+        );
     }
 }

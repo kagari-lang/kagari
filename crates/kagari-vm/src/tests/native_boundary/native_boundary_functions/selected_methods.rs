@@ -307,29 +307,7 @@ fn typed_generic_native_selected_member_keeps_applied_object_results_and_rejects
         .unwrap();
     let module = module.finish().unwrap();
     let (vm, owner) = fixture(
-        r#"
-        use example::selected_generic::{Identity, invoke};
-        struct Source { var calls: i32 }
-        impl Identity for Source {
-            fn identity<T>(self, item: T) -> T { self.calls += 1; item }
-        }
-        trait Relay {
-            fn relay<S: Identity, T>(self, source: S, item: T) -> T { invoke(source, item) }
-        }
-        impl Relay for i32 {}
-        pub struct Item { pub var value: i32 }
-        pub fn run() -> Item {
-            val relay: Relay = 0;
-            val item = Item { value: 42 };
-            val result = relay.relay(Source { calls: 0 }, item);
-            result.value = 43;
-            item
-        }
-        pub fn wrong() -> String {
-            val relay: Relay = 0;
-            relay.relay(Source { calls: 0 }, "wrong")
-        }
-    "#,
+        include_str!("../../../../tests/fixtures/native/selected-generic-object-results.kgr"),
         Some(&module),
     );
     let _owner_program = owner;

@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_TYPE_ARGUMENT_TYPE_MISMATCH",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 106,
+          "path": "test.kg",
+          "start": 105
+        }
+      }
+    ],
+    "message": "argument type mismatch for parameter `arg1` in `contains_key`: expected `String`, found `i32`",
+    "notes": [],
+    "primary": {
+      "end": 106,
+      "path": "test.kg",
+      "start": 105
+    },
+    "severity": "error"
+  }
+]

@@ -1,0 +1,1 @@
+enum Value{Empty,Number(i32),}

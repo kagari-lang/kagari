@@ -1,4 +1,5 @@
 use super::support;
+use rstest::rstest;
 
 use crate::{declarations::StandardDeclarations, namespaces};
 use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
@@ -28,9 +29,12 @@ use kagari_runtime::{
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::declaration::{NativeDeclaration, TraitDef, host::HostCallPolicy};
-use support::native::{
-    invoke::invoke,
-    program::{ProgramFixture, free_function_program},
+use support::{
+    native::{
+        invoke::invoke,
+        program::{ProgramFixture, free_function_program},
+    },
+    update_publication::publish_without_execution,
 };
 
 #[test]
@@ -120,8 +124,10 @@ fn host_cancellation_is_sticky_even_when_the_handler_returns_success() {
     runtime.resources().poll_execution().unwrap();
 }
 
-#[test]
-fn ordinary_installed_traits_require_exact_contracts_without_calls() {
+#[rstest]
+#[case::public_contract(false)]
+#[case::private_contract(true)]
+fn ordinary_installed_traits_require_exact_contracts_without_calls(#[case] private: bool) {
     let context = DefinitionContext::new().unwrap();
     let mut builder = ModuleBuilder::new(
         "example::plain",
@@ -179,16 +185,14 @@ fn ordinary_installed_traits_require_exact_contracts_without_calls() {
         .unwrap();
     let mut forged = contract;
     forged.methods[0].params[0].name = "forged_receiver".into();
-    for private in [false, true] {
-        let candidate = program(forged.clone(), private);
-        VerifiedProgram::new(candidate.clone(), &context).unwrap();
-        assert!(runtime.load_program("forged", candidate.clone()).is_err());
-        assert!(
-            runtime
-                .stage_reload_program(&_active_program, Some("registered".into()), candidate)
-                .is_err()
-        );
-    }
+    let candidate = program(forged.clone(), private);
+    VerifiedProgram::new(candidate.clone(), &context).unwrap();
+    assert!(runtime.load_program("forged", candidate.clone()).is_err());
+    assert!(
+        runtime
+            .stage_reload_program(&_active_program, Some("registered".into()), candidate)
+            .is_err()
+    );
 }
 
 #[test]
@@ -431,4 +435,94 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
             .contains("private reserved or native trait lacks an installed contract"),
         "{error}"
     );
+}
+
+fn standard_code(text: &str) -> VerifiedProgram {
+    let mut source = SourceDatabase::default();
+    let root = source
+        .set("exports.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut analysis = AnalysisDatabase::default();
+    analysis.set_native_modules(crate::catalog::shared().unwrap());
+    let checked = analysis
+        .snapshot(source.snapshot(), &Default::default())
+        .unwrap()
+        .check_program(root, &Default::default())
+        .unwrap();
+    let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let code = lower_program_to_bytecode(&mir, &Default::default())
+        .unwrap()
+        .into_unverified();
+    VerifiedProgram::new(code, &DefinitionContext::new().unwrap()).unwrap()
+}
+
+fn standard_runtime() -> Runtime {
+    let mut runtime = Runtime::default();
+    NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
+    runtime
+}
+
+#[test]
+fn native_initializer_accepts_unchanged_inventory_and_executable_additions() {
+    let source = "use std::hash::Hash; static var STATE: i64 = 7.hash(); fn main() {}";
+    let mut runtime = standard_runtime();
+    let loaded_program = runtime
+        .load_verified_program("exports", standard_code(source))
+        .unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
+    assert!(
+        loaded
+            .verified_program()
+            .modules()
+            .iter()
+            .any(|module| !module.native_imports.is_empty())
+    );
+    publish_without_execution(
+        &mut runtime,
+        &loaded_program,
+        loaded.verified_program().clone(),
+    );
+    let candidate = format!("{source} pub fn added() -> i32 {{ 1 }}");
+    publish_without_execution(&mut runtime, &loaded_program, standard_code(&candidate));
+}
+
+#[rstest]
+#[case::helper_body(|source: &str| source.replace(
+            "hash_helper() -> i64 { 1i64 }",
+            "hash_helper() -> i64 { 2i64 }",
+        ))]
+#[case::hash_body(|source: &str| source.replace("hash_helper() }", "hash_helper() + 1i64 }"))]
+#[case::equality_body(|source: &str| source.replace("-> bool { true }", "-> bool { false }"))]
+fn unused_generic_key_protocols_allow_body_and_helper_updates(
+    #[case] candidate: fn(&str) -> String,
+) {
+    let source = r#"
+        use std::hash::Hash;
+        struct Key<T> { val value: T }
+        fn hash_helper() -> i64 { 1i64 }
+        impl<T> PartialEq for Key<T> { fn eq(self, other: Self) -> bool { true } }
+        impl<T> Eq for Key<T> {}
+        impl<T> Hash for Key<T> { fn hash(self) -> i64 { hash_helper() } }
+        fn main() {}
+    "#;
+    let mut runtime = standard_runtime();
+    let loaded_program = runtime
+        .load_verified_program("exports", standard_code(source))
+        .unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
+    let facts = loaded.verified_program();
+    assert!(facts.update_evidence().initializers.is_empty());
+    for name in ["hash", "eq"] {
+        assert!(facts.update_evidence().sources.iter().any(|source| {
+            facts
+                .definitions()
+                .resolve(source.declaration)
+                .is_ok_and(|view| {
+                    view.module() == &loaded.bytecode.identity
+                        && view.last().is_some_and(|part| part.name == name)
+                })
+        }));
+    }
+    let candidate = candidate(source);
+    publish_without_execution(&mut runtime, &loaded_program, standard_code(&candidate));
 }

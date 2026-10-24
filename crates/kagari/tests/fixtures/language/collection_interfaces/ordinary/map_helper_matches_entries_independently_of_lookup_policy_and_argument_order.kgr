@@ -1,0 +1,91 @@
+use std::collections::{ Map, map_content_equal };
+
+use std::iter::CollectionCursor;
+
+struct Key {
+    val tag: i32
+}
+
+impl PartialEq for Key {
+    fn eq(self, other: Self) -> bool {
+        true
+    }
+}
+
+impl Eq for Key {}
+
+struct Value {
+    val number: i32
+}
+
+impl PartialEq for Value {
+    fn eq(self, other: Self) -> bool {
+        self.number <= other.number + 1 && other.number <= self.number + 1
+    }
+}
+
+struct Pairs {
+    val entries: Vec<(Key, Value)>
+}
+
+impl Iterable for Pairs {
+    type Item = (Key, Value);
+    type Iter = CollectionCursor<(Key, Value)>;
+    fn iter(self) -> CollectionCursor<(Key, Value)> {
+        self.entries.iter()
+    }
+}
+
+impl Map<Key, Value> for Pairs {
+    fn len(self) -> u64 {
+        self.entries.len()
+    }
+    fn is_empty(self) -> bool {
+        self.entries.is_empty()
+    }
+    fn get(self, key: Key) -> Option<Value> {
+        for (stored, value) in self.entries {
+            if stored.tag == key.tag {
+                return Some(value);
+            }
+        }
+        None
+    }
+    fn contains_key(self, key: Key) -> bool {
+        for (stored, value) in self.entries {
+            if stored.tag == key.tag {
+                return true;
+            }
+        }
+        false
+    }
+}
+
+fn main() -> i32 {
+    val a: Map<Key, Value> = Pairs {
+        entries: Vec::from(
+            [(Key { tag: 1 }, Value { number: 1 }), (Key { tag: 2 }, Value { number: 0 })]
+        )
+    };
+    val b: Map<Key, Value> = Pairs {
+        entries: Vec::from(
+            [(Key { tag: 3 }, Value { number: 0 }), (Key { tag: 4 }, Value { number: 2 })]
+        )
+    };
+    val c: Map<Key, Value> = Pairs {
+        entries: Vec::from(
+            [(Key { tag: 1 }, Value { number: 2 }), (Key { tag: 2 }, Value { number: 2 })]
+        )
+    };
+    val lookup = Key { tag: 3 };
+    if a.contains_key(lookup) {
+        return 1;
+    }
+    if !(map_content_equal(a, b) && map_content_equal(b, a)) {
+        return 2;
+    }
+    if map_content_equal(a, c) || map_content_equal(c, a) {
+        return 3;
+    }
+    42
+}

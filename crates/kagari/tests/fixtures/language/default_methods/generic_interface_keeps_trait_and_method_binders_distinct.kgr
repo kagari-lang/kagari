@@ -1,0 +1,25 @@
+trait Read<T> {
+    fn read(self) -> T;
+    fn pair<K>(self, key: K) ->(T, K) {
+        (self.read(), key)
+    }
+}
+
+struct Number {}
+
+impl Read<i32> for Number {
+    fn read(self) -> i32 {
+        42
+    }
+}
+
+fn main() -> i32 {
+    val source: Read<i32> = Number {};
+    match source.pair("key") {
+        (value, key) => if key == "key" {
+            value
+        } else {
+            0
+        }
+    }
+}

@@ -252,14 +252,8 @@ fn source_free_preparation_retains_scope_and_deterministic_output() {
     assert!(
         output.contains("root: @1 fixture::app\nmodules: 2, functions: 5\nportable_mir: absent\n")
     );
-    assert!(output.ends_with(concat!(
-        "\nmodule @0: fixture::dependency\n",
-        "fn @0:0 fixture::dependency::echo(arg0: i32) -> i32 ; instructions=2 may_suspend=false recorded_effects=[]\n",
-        "\nmodule @1: fixture::app\n",
-        "fn @1:0 fixture::app::echo<i32>(arg0: i32) -> i32 ; instructions=2 may_suspend=true recorded_effects=[may_suspend]\n",
-        "fn @1:1 fixture::app::echo<i64>(arg0: i32) -> i32 ; instructions=2 may_suspend=true recorded_effects=[may_suspend]\n",
-        "fn @1:2 fixture::app::\"generated\\n\\u{202e}name\"(arg0: i32) -> i32 ; instructions=2 may_suspend=false recorded_effects=[]\n",
-        "fn @1:3 fixture::app::echo::echo#2(arg0: i32) -> i32 ; instructions=2 may_suspend=false recorded_effects=[]\n",
+    assert!(output.ends_with(include_str!(
+        "../../tests/fixtures/disassembly/directory-tail.txt"
     )));
     assert!(!output.contains("nonexistent"));
     assert!(!output.contains("load_local"));

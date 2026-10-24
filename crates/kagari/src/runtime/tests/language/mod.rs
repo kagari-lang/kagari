@@ -56,6 +56,9 @@ mod native_enums;
 mod never;
 
 #[cfg(feature = "source")]
+mod numeric_checks;
+
+#[cfg(feature = "source")]
 mod numeric_example;
 
 #[cfg(all(feature = "source", feature = "native"))]

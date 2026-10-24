@@ -242,6 +242,7 @@ pub(crate) fn read_integer(ty: BuiltinType, value: &Value) -> Result<i128, Runti
 #[cfg(test)]
 mod boundary_tests {
     use super::*;
+    use rstest::rstest;
 
     #[test]
     fn native_integer_results_and_error_context_preserve_the_declared_contract() {
@@ -303,24 +304,19 @@ mod boundary_tests {
         assert_eq!(gc.active_roots(), 0);
     }
 
-    #[test]
-    fn invalid_direct_native_inputs_return_errors_without_panicking() {
-        use kagari_types::integer::IntegerMethod as M;
-        use kagari_types::scalar::BuiltinType as B;
+    #[rstest]
+    #[case::negative_rotation(IntegerMethod::RotateLeft, BuiltinType::U8, [Value::I64(1), Value::I64(-1)])]
+    #[case::rotation_above_u32(IntegerMethod::RotateRight, BuiltinType::U8, [Value::I64(1), Value::I64(4294967296)])]
+    #[case::receiver_above_u8(IntegerMethod::WrappingAdd, BuiltinType::U8, [Value::I64(256), Value::I64(0)])]
+    #[case::wrong_signed_carrier(IntegerMethod::WrappingAddSigned, BuiltinType::I8, [Value::I32(1), Value::I32(1)])]
+    fn invalid_direct_native_inputs_return_errors_without_panicking(
+        #[case] method: IntegerMethod,
+        #[case] ty: BuiltinType,
+        #[case] args: [Value; 2],
+    ) {
         let runtime = crate::Runtime::default();
         let gc = runtime.gc();
-        for (method, ty, args) in [
-            (M::RotateLeft, B::U8, [Value::I64(1), Value::I64(-1)]),
-            (
-                M::RotateRight,
-                B::U8,
-                [Value::I64(1), Value::I64(4294967296)],
-            ),
-            (M::WrappingAdd, B::U8, [Value::I64(256), Value::I64(0)]),
-            (M::WrappingAddSigned, B::I8, [Value::I32(1), Value::I32(1)]),
-        ] {
-            assert!(integer_method(gc, method, ty, &args).is_err());
-        }
+        assert!(integer_method(gc, method, ty, &args).is_err());
         assert_eq!(runtime.gc().active_roots(), 0);
     }
 }

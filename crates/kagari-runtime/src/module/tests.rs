@@ -665,5 +665,6 @@ fn keeps_latest_and_retained_old_epochs_reachable() {
 mod enum_declarations;
 
 mod package_exports;
+mod update_admission;
 
 mod struct_layouts;

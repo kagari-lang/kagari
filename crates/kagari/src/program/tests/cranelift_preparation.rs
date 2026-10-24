@@ -5,6 +5,7 @@ use crate::{
         KagariEngine,
         source::{ArtifactOptions, PreparationOptions},
     },
+    error::{EmbeddingError, RuntimeFailureKind},
     program::PreparedProgram,
 };
 use kagari_codegen_cranelift::CraneliftBackend;
@@ -13,6 +14,7 @@ use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use kagari_vm::vm::{JitExecutionStatus, native::PreparedNativeEntry};
+use rstest::rstest;
 
 #[test]
 fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() {
@@ -106,65 +108,63 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
     }
 }
 
-#[test]
-fn unsupported_mir_selects_interpreter_before_any_script_instruction() {
+#[rstest]
+#[case::mutable_local("fn main() -> i32 { var value = 40; value += 2; value }", 42)]
+#[case::remainder("fn main() -> i32 { 42 % 5 }", 2)]
+#[case::capturing_closure(
+    "fn main() -> i32 { var count = 40; val next = || { count = count + 1; count }; next(); next() }",
+    42
+)]
+fn unsupported_mir_selects_interpreter_before_any_script_instruction(
+    #[case] source: &str,
+    #[case] expected: i32,
+) {
     let engine = KagariEngine::default();
-    for (source, expected) in [
-        ("fn main() -> i32 { var value = 40; value += 2; value }", 42),
-        ("fn main() -> i32 { 42 % 5 }", 2),
-        (
-            "fn main() -> i32 { var count = 40; val next = || { count = count + 1; count }; next(); next() }",
-            42,
-        ),
-    ] {
-        // Preserve unsupported MIR operations for this backend-boundary fixture.
-        // The native test above separately covers default constant folding.
-        let mut options = ArtifactOptions::default();
-        options.lowering.optimization = None;
-        let artifact = engine
-            .compile_to_artifact(SourceFile::new("fallback.kgr", source), options)
+    // Preserve unsupported MIR operations for this backend-boundary fixture.
+    // The native test above separately covers default constant folding.
+    let mut options = ArtifactOptions::default();
+    options.lowering.optimization = None;
+    let artifact = engine
+        .compile_to_artifact(SourceFile::new("fallback.kgr", source), options)
+        .unwrap();
+    let artifact =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
-        let artifact = BytecodeArtifact::from_bytes(
-            &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+    let program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let context = ExecutionContext {
+        jit_policy: JitPolicy::Enabled,
+        ..Default::default()
+    };
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let prepared = runtime
+        .prepare_native(
+            &program,
+            &loaded,
+            ProgramEntry::Main,
+            &mut CraneliftBackend::for_host().unwrap(),
+            &context.cancellation,
         )
         .unwrap();
-        let program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
-        let context = ExecutionContext {
-            jit_policy: JitPolicy::Enabled,
-            ..Default::default()
-        };
-        let mut runtime = engine.runtime(context.clone());
-        let loaded = runtime.load_program(&program, Default::default()).unwrap();
-        let prepared = runtime
-            .prepare_native(
-                &program,
-                &loaded,
-                ProgramEntry::Main,
-                &mut CraneliftBackend::for_host().unwrap(),
-                &context.cancellation,
-            )
-            .unwrap();
-        assert!(matches!(prepared, PreparedNativeEntry::Unsupported { .. }));
+    assert!(matches!(prepared, PreparedNativeEntry::Unsupported { .. }));
 
-        let report = runtime
-            .execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
-            .unwrap();
-        assert_eq!(
-            report
-                .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result"),
-            Value::I32(expected)
-        );
-        assert_eq!(
-            report.jit.unwrap().status,
-            JitExecutionStatus::InterpreterFallback
-        );
-        drop(report.return_value);
-        assert_eq!(runtime.runtime().gc().active_roots(), 0);
-    }
+    let report = runtime
+        .execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
+        .unwrap();
+    assert_eq!(
+        report
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(expected)
+    );
+    assert_eq!(
+        report.jit.unwrap().status,
+        JitExecutionStatus::InterpreterFallback
+    );
+    drop(report.return_value);
+    assert_eq!(runtime.runtime().gc().active_roots(), 0);
 }
 
 #[test]
@@ -226,32 +226,41 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
             &Default::default(),
         )
         .unwrap();
-    let selected_old = runtime.runtime().select_program(&old).unwrap();
-    let outer = runtime
-        .runtime()
-        .begin_execution(&selected_old, context.runtime_options())
+    let PreparedNativeEntry::Native(installed_old) = &old_native else {
+        panic!("scalar entry should compile to native code");
+    };
+    let old_entry = installed_old.artifact().code.entry.clone();
+    let independent = runtime
+        .load_program(&old_program, Default::default())
         .unwrap();
-    runtime
-        .reload_program(&old, &candidate, Default::default())
-        .unwrap();
-    let current = old.clone();
-    assert_eq!(
-        runtime.runtime().execution_root().unwrap().key(),
-        selected_old.key()
-    );
-    let current_native = runtime
+    let independent_native = runtime
         .prepare_native(
-            &candidate,
-            &current,
+            &old_program,
+            &independent,
             ProgramEntry::Main,
             &mut backend,
             &Default::default(),
         )
         .unwrap();
-    drop(backend);
-    drop(old_program);
-    drop(candidate);
-    // Publication and later compilation must not replace the old function's pages.
+    let selected_old = runtime.runtime().select_program(&old).unwrap();
+    let outer = runtime
+        .runtime()
+        .begin_execution(&selected_old, context.runtime_options())
+        .unwrap();
+    assert!(
+        runtime
+            .reload_program(&old, &candidate, Default::default())
+            .is_err()
+    );
+    assert_eq!(
+        runtime.runtime().select_program(&old).unwrap().key(),
+        selected_old.key()
+    );
+    assert_eq!(
+        runtime.runtime().execution_root().unwrap().key(),
+        selected_old.key()
+    );
+    // Rejected publication must not replace the admitted function's pages.
     let report = runtime
         .backend()
         .execute_prepared(&selected_old, ProgramEntry::Main, &old_native)
@@ -266,9 +275,44 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
     assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
     drop(report.return_value);
     drop(outer);
+    runtime
+        .reload_program(&old, &candidate, Default::default())
+        .unwrap();
+    let current = old.clone();
+    let current_native = runtime
+        .prepare_native(
+            &candidate,
+            &current,
+            ProgramEntry::Main,
+            &mut backend,
+            &Default::default(),
+        )
+        .unwrap();
+    drop(backend);
+    drop(old_program);
+    drop(candidate);
+    assert_eq!(installed_old.module().key(), selected_old.key());
+    assert_eq!(installed_old.artifact().code.entry, old_entry);
+    // Retaining code memory is not authority to invoke an obsolete named body.
+    // Reject its product even when the host requests interpreter fallback.
+    for jit_policy in [JitPolicy::Enabled, JitPolicy::Disabled] {
+        let execution = ExecutionContext {
+            jit_policy,
+            ..Default::default()
+        };
+        let error = runtime
+            .execute_prepared(&old, ProgramEntry::Main, &[], &execution, &old_native)
+            .unwrap_err();
+        assert!(matches!(error, EmbeddingError::Runtime {
+            kind: RuntimeFailureKind::BytecodeVerification, message, ..
+        } if message.contains("different function or execution version")));
+    }
+    // The independent installation still selects the old product legitimately;
+    // the updated installation selects the new one. Both must run actual native code.
+    let selected_independent = runtime.runtime().select_program(&independent).unwrap();
     let selected_current = runtime.runtime().select_program(&current).unwrap();
     for (module, native, value) in [
-        (&selected_old, &old_native, 42),
+        (&selected_independent, &independent_native, 42),
         (&selected_current, &current_native, 43),
     ] {
         let _session = runtime

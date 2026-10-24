@@ -1,41 +1,34 @@
 use kagari_source::diagnostic::Severity;
+use rstest::rstest;
 
 use crate::tests::common;
 
-struct SyntaxCase {
-    spec_section: &'static str,
-    feature: &'static str,
-    source: &'static str,
-}
-
-#[test]
-fn syntax_spec_positive_cases_are_grouped_by_language_feature() {
-    let cases = [
-        SyntaxCase {
-            spec_section: "docs/spec/syntax.md#modules-and-imports",
-            feature: "inline modules, public imports, aliases, and glob imports",
-            source: r#"
+#[rstest]
+#[case::modules_and_imports(
+    "docs/spec/syntax.md#modules-and-imports",
+    "inline modules, public imports, aliases, and glob imports",
+    r#"
 pub mod gameplay {
     pub use crate::math::{Vector as Vec2, ops::*};
     pub const TICK_RATE: i32 = 60;
 }
-"#,
-        },
-        SyntaxCase {
-            spec_section: "docs/spec/syntax.md#functions",
-            feature: "generic functions with parameter bounds and where clauses",
-            source: r#"
+"#
+)]
+#[case::generic_functions(
+    "docs/spec/syntax.md#functions",
+    "generic functions with parameter bounds and where clauses",
+    r#"
 fn identity<T: Clone>(value: T) -> T
 where T: Clone
 {
     value
 }
-"#,
-        },
-        SyntaxCase {
-            spec_section: "docs/spec/syntax.md#structs-and-enums",
-            feature: "val and var fields plus enum tuple payloads",
-            source: r#"
+"#
+)]
+#[case::structs_and_enums(
+    "docs/spec/syntax.md#structs-and-enums",
+    "val and var fields plus enum tuple payloads",
+    r#"
 pub struct Player<T> {
     val id: T,
     pub var name: String,
@@ -45,12 +38,12 @@ enum Maybe<T> {
     None,
     Some(T),
 }
-"#,
-        },
-        SyntaxCase {
-            spec_section: "docs/spec/traits.md#trait-declarations",
-            feature: "trait declarations and trait impl blocks",
-            source: r#"
+"#
+)]
+#[case::traits_and_impls(
+    "docs/spec/traits.md#trait-declarations",
+    "trait declarations and trait impl blocks",
+    r#"
 trait Display {
     fn show(self) -> String;
 }
@@ -64,12 +57,12 @@ impl Display for Player {
         self.name
     }
 }
-"#,
-        },
-        SyntaxCase {
-            spec_section: "docs/spec/syntax.md#blocks-and-statements",
-            feature: "val and var bindings, assignment, while, loop, break, and tail if",
-            source: r#"
+"#
+)]
+#[case::blocks_and_statements(
+    "docs/spec/syntax.md#blocks-and-statements",
+    "val and var bindings, assignment, while, loop, break, and tail if",
+    r#"
 fn main() -> i32 {
     var total = 0;
     while total < 3 {
@@ -80,12 +73,12 @@ fn main() -> i32 {
     }
     if total == 3 { total } else { 0 }
 }
-"#,
-        },
-        SyntaxCase {
-            spec_section: "docs/spec/syntax.md#patterns",
-            feature: "tuple patterns, wildcard patterns, arrays, structs, fields, and indexes",
-            source: r#"
+"#
+)]
+#[case::patterns_and_collections(
+    "docs/spec/syntax.md#patterns",
+    "tuple patterns, wildcard patterns, arrays, structs, fields, and indexes",
+    r#"
 struct Point {
     val x: i32,
     val y: i32,
@@ -98,66 +91,66 @@ fn main() -> i32 {
         (_, value) => value,
     }
 }
-"#,
-        },
-    ];
-
-    for case in cases {
-        let parse = common::parse(case.source);
-        assert!(
-            parse.diagnostics().is_empty(),
-            "{} ({}) should parse without diagnostics, got {:?}",
-            case.spec_section,
-            case.feature,
-            parse.diagnostics()
-        );
-    }
+"#
+)]
+fn syntax_spec_positive_cases(
+    #[case] spec_section: &str,
+    #[case] feature: &str,
+    #[case] source: &str,
+) {
+    let parse = common::parse(source);
+    assert!(
+        parse.diagnostics().is_empty(),
+        "{spec_section} ({feature}) should parse without diagnostics, got {:?}",
+        parse.diagnostics()
+    );
 }
 
-#[test]
-fn syntax_spec_rejects_unrecognized_forms() {
-    let cases = [
-        (
-            "docs/spec/syntax.md#binding-and-field-writeability",
-            "let bindings",
-            "fn main() { let value = 1; }",
-        ),
-        (
-            "docs/spec/syntax.md#module-structure",
-            "static mut instead of static val/var",
-            "pub static mut COUNTER: i32 = 0;",
-        ),
-        (
-            "docs/spec/traits.md#scope-exclusions",
-            "dyn trait object syntax",
-            "fn apply(effect: dyn Effect) {}",
-        ),
-        (
-            "docs/spec/syntax.md#ordinary-parameter-semantics",
-            "ref parameters",
-            "fn update(ref value: i32) {}",
-        ),
-        (
-            "docs/spec/syntax.md#impl-blocks-and-methods",
-            "mut self receivers",
-            "fn update(mut self: Player) {}",
-        ),
-        (
-            "docs/spec/syntax.md#structs-and-enums",
-            "fields without val or var",
-            "struct Player { hp: i32 }",
-        ),
-    ];
+#[rstest]
+#[case::let_binding(
+    "docs/spec/syntax.md#binding-and-field-writeability",
+    "let bindings",
+    "fn main() { let value = 1; }"
+)]
+#[case::static_mut(
+    "docs/spec/syntax.md#module-structure",
+    "static mut instead of static val/var",
+    "pub static mut COUNTER: i32 = 0;"
+)]
+#[case::dyn_trait_object(
+    "docs/spec/traits.md#scope-exclusions",
+    "dyn trait object syntax",
+    "fn apply(effect: dyn Effect) {}"
+)]
+#[case::ref_parameter(
+    "docs/spec/syntax.md#ordinary-parameter-semantics",
+    "ref parameters",
+    "fn update(ref value: i32) {}"
+)]
+#[case::mut_receiver(
+    "docs/spec/syntax.md#impl-blocks-and-methods",
+    "mut self receivers",
+    "fn update(mut self: Player) {}"
+)]
+#[case::missing_field_binding(
+    "docs/spec/syntax.md#structs-and-enums",
+    "fields without val or var",
+    "struct Player { hp: i32 }"
+)]
+fn syntax_spec_rejects_unrecognized_forms(
+    #[case] spec_section: &str,
+    #[case] feature: &str,
+    #[case] source: &str,
+) {
+    let parse = common::parse(source);
 
-    for (spec_section, feature, source) in cases {
-        let parse = common::parse(source);
-        assert!(
-            parse
-                .diagnostics()
-                .iter()
-                .any(|diagnostic| diagnostic.severity == Severity::Error),
-            "{spec_section} ({feature}) should reject with an error, got {:?}",
-            parse.diagnostics()
-        );
-    }
+    assert_eq!(
+        parse
+            .diagnostics()
+            .first()
+            .map(|diagnostic| diagnostic.severity),
+        Some(Severity::Error),
+        "{spec_section} ({feature}) should reject with an error, got {:?}",
+        parse.diagnostics()
+    );
 }

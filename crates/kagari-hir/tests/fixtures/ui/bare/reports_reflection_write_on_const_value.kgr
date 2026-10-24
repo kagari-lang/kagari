@@ -1,0 +1,6 @@
+
+struct Point { var x: i32 }
+struct Holder { var inner: Point }
+const ROOT: Holder = Holder { inner: Point { x: 1 } };
+
+fn main() -> Point { set_field(ROOT.inner, "x", 2) }

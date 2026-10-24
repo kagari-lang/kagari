@@ -1,0 +1,85 @@
+use std::fmt::{ Debug, Display };
+
+const INITIAL: i32 = 1;
+
+static var STATE: i32 = INITIAL;
+
+static val LOG: Vec<i32> = Vec::from([]);
+
+static val LATE: i32 = {
+    LOG.push(8);
+    STATE
+};
+
+struct Item {}
+
+impl Display for Item {
+    fn display(self) -> String {
+        STATE += 1;
+        LOG.push(STATE);
+        "display"
+    }
+}
+
+impl Debug for Item {
+    fn debug(self) -> String {
+        STATE += 10;
+        LOG.push(STATE);
+        "debug"
+    }
+}
+
+fn main() -> i32 {
+    val item = Item {};
+    val result = "{INITIAL}|{STATE}|{item}|{STATE}|{LATE}|{item:?}|{STATE}|{LATE}|{item}";
+    {
+        val passed = result == "1|1|display|2|2|debug|12|2|display";
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    {
+        val passed = STATE == 13;
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    {
+        val passed = LOG.len() == 4u64;
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    {
+        val passed = LOG.get(0u64) == Some(2);
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    {
+        val passed = LOG.get(1u64) == Some(8);
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    {
+        val passed = LOG.get(2u64) == Some(12);
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    {
+        val passed = LOG.get(3u64) == Some(13);
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    42
+}

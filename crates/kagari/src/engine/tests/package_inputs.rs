@@ -50,7 +50,7 @@ fn files(base: i32) -> Vec<(&'static str, String)> {
         ),
         (
             "rules/src/lib.kgr",
-            format!("const BASE: i32 = {base};\npub fn value<T>(ignored: T) -> i32 {{ BASE }}\npub fn plain() -> i32 {{ 9 }}"),
+            format!("const BASE: i32 = 42;\npub fn value<T>(ignored: T) -> i32 {{ BASE + {} }}\npub fn plain() -> i32 {{ 9 }}", base - 42),
         ),
         (
             "other/Kagari.toml",
@@ -92,7 +92,7 @@ fn prepare(engine: &KagariEngine, checked: &CheckedModule) -> PreparedProgram {
 }
 
 #[test]
-fn captured_packages_share_the_sdk_pipeline_and_retain_generations() {
+fn captured_packages_share_the_sdk_pipeline_and_select_current_calls() {
     let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../target/package-sdk")
         .join(
@@ -186,6 +186,36 @@ fn captured_packages_share_the_sdk_pipeline_and_retain_generations() {
         original.package_fingerprint(),
         changed.package_fingerprint()
     );
+    // Constants remain acquisition inputs even though compatible publication
+    // freezes their values. Keep invalidation and publication as separate checks.
+    let mut constant_files = files(43);
+    let rules = &mut constant_files
+        .iter_mut()
+        .find(|(name, _)| *name == "rules/src/lib.kgr")
+        .unwrap()
+        .1;
+    assert_eq!(rules.matches("const BASE: i32 = 42;").count(), 1);
+    *rules = rules.replace("const BASE: i32 = 42;", "const BASE: i32 = 43;");
+    let constant_input = VirtualSources::new(
+        constant_files
+            .into_iter()
+            .map(|(name, text)| (name.into(), Arc::from(text))),
+        &cancel,
+    )
+    .unwrap();
+    let constant_project =
+        ProjectInputs::load(&constant_input, "app", &Default::default(), &cancel).unwrap();
+    let constant_set = PackageBuildSet::capture(&engine, &constant_project, &cancel).unwrap();
+    assert_eq!(
+        constant_set.changes_since(&next).rebuild,
+        [inputs.root().family.clone()].into()
+    );
+    let constant_changed = engine
+        .compile_package(
+            constant_set.programs()[&inputs.root().family].sources(),
+            &cancel,
+        )
+        .unwrap();
     // Workspace membership does not check or expose another root's source bodies.
     let invalid = capture(&virtual_inputs(43), "other");
     assert!(matches!(
@@ -194,21 +224,22 @@ fn captured_packages_share_the_sdk_pipeline_and_retain_generations() {
     ));
     assert!(snapshot.module(original.module_identity()).is_some());
 
-    // Both retained results emit after the engine has moved to an unrelated root.
+    // Retained results emit after the engine has moved to an unrelated root.
     // The runtime consumes decoded artifacts and never receives package inputs.
     let old_program = prepare(&engine, &original);
     let new_program = prepare(&engine, &changed);
+    let constant_program = prepare(&engine, &constant_changed);
     let mut runtime = engine.runtime(Default::default());
     let loaded = runtime
         .load_program(&old_program, Default::default())
         .unwrap();
-    let pinned = runtime
+    let retained = runtime
         .runtime()
         .bind_function::<(), i32>(&loaded.root(), "answer")
         .unwrap();
     assert_eq!(
         runtime
-            .call_with_context(&pinned, (), &Default::default())
+            .call_with_context(&retained, (), &Default::default())
             .unwrap(),
         42
     );
@@ -223,6 +254,24 @@ fn captured_packages_share_the_sdk_pipeline_and_retain_generations() {
             .execute_typed::<(), i32>(&loaded, "rules::plain", (), &Default::default())
             .is_err()
     );
+    let before = runtime.runtime().select_program(&loaded).unwrap().key();
+    assert_eq!(
+        runtime
+            .reload_program(&loaded, &constant_program, Default::default())
+            .unwrap_err()
+            .code(),
+        "KG_RELOAD_DECLARATION_CONTRACT_MISMATCH"
+    );
+    assert_eq!(
+        runtime.runtime().select_program(&loaded).unwrap().key(),
+        before
+    );
+    assert_eq!(
+        runtime
+            .call_with_context(&retained, (), &Default::default())
+            .unwrap(),
+        42
+    );
     runtime
         .reload_program(&loaded, &new_program, Default::default())
         .unwrap();
@@ -236,9 +285,9 @@ fn captured_packages_share_the_sdk_pipeline_and_retain_generations() {
     );
     assert_eq!(
         runtime
-            .call_with_context(&pinned, (), &Default::default())
+            .call_with_context(&retained, (), &Default::default())
             .unwrap(),
-        42
+        43
     );
     // Changing only the generic implementation must rebuild its callers too;
     // signatures and the dependency constant are unchanged in this generation.
@@ -248,7 +297,8 @@ fn captured_packages_share_the_sdk_pipeline_and_retain_generations() {
         .find(|(name, _)| *name == "rules/src/lib.kgr")
         .unwrap()
         .1;
-    *rules = rules.replace("{ BASE }", "{ BASE + 1 }");
+    assert_eq!(rules.matches("{ BASE + 1 }").count(), 1);
+    *rules = rules.replace("{ BASE + 1 }", "{ BASE + 2 }");
     let generic_input = VirtualSources::new(
         generic_files
             .into_iter()
@@ -283,9 +333,9 @@ fn captured_packages_share_the_sdk_pipeline_and_retain_generations() {
     );
     assert_eq!(
         runtime
-            .call_with_context(&pinned, (), &Default::default())
+            .call_with_context(&retained, (), &Default::default())
             .unwrap(),
-        42
+        44
     );
     let mut builder = ModuleBuilder::new(
         "unused",

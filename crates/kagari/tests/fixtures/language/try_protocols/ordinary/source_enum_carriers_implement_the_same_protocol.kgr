@@ -1,0 +1,64 @@
+use core::ops::{ Try, FromResidual, ControlFlow };
+
+use core::convert::Infallible;
+
+enum Carrier<T, E> {
+    Value(T),
+    Failure(E)
+}
+
+impl<T, E> FromResidual<Carrier<Infallible, E>> for Carrier<T, E> {
+    fn from_residual(value: Carrier<Infallible, E>) -> Self {
+        match value {
+            Carrier::Failure(error) => Carrier::Failure(error),
+            Carrier::Value(never) => match never {}
+        }
+    }
+}
+
+impl<T, E> Try for Carrier<T, E> {
+    type Output = T;
+    type Residual = Carrier<Infallible, E>;
+    fn from_output(value: T) -> Self {
+        Carrier::Value(value)
+    }
+    fn branch(self) -> ControlFlow<Self::Residual, T> {
+        match self {
+            Carrier::Value(value) => ControlFlow::Continue(value),
+            Carrier::Failure(error) => ControlFlow::Break(Carrier::Failure(error))
+        }
+    }
+}
+
+fn pass(value: Carrier<i32, String>) -> Carrier<i32, String> {
+    Carrier::Value(value? + 22)
+}
+
+fn stop(value: Carrier<i32, String>) -> Carrier<String, String> {
+    value?;
+    Carrier::Value("unused")
+}
+
+fn main() -> i32 {
+    val callback = || {
+        val value: Carrier<i32, String> = Carrier::Failure("stopped");
+        value?;
+        Carrier::Value("unused")
+    };
+    val callback_result = match callback() {
+        Carrier::Failure(error) => error == "stopped",
+        Carrier::Value(_) => false
+    };
+    val first = match pass(Carrier::Value(20)) {
+        Carrier::Value(value) => value,
+        Carrier::Failure(_) => 0
+    };
+    match stop(Carrier::Failure("stopped")) {
+        Carrier::Failure(error) => if error == "stopped" && callback_result {
+            first
+        } else {
+            0
+        },
+        Carrier::Value(_) => 0
+    }
+}

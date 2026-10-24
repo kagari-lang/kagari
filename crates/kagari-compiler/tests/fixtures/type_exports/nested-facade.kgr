@@ -1,0 +1,3 @@
+use pkg::types::{ Identity, IntCell };
+
+pub type Nested = Identity<IntCell>;

@@ -19,6 +19,7 @@ use kagari_common::identity::{
     scoped::{DefinitionReferences, RemapDefinitions},
     table::DefinitionTableBuilder,
 };
+use rstest::rstest;
 use std::{collections::BTreeSet, slice};
 
 fn interface() -> DefinitionPath {
@@ -32,26 +33,32 @@ fn interface() -> DefinitionPath {
     }
 }
 
-#[test]
-fn character_constant_contract_requires_canonical_unicode_scalars() {
+#[rstest]
+#[case::nul(0)]
+#[case::ascii_end(0x7f)]
+#[case::before_surrogates(0xd7ff)]
+#[case::after_surrogates(0xe000)]
+#[case::supplementary(0x1f642)]
+#[case::maximum_scalar(0x10ffff)]
+fn canonical_character_constants_reject_numeric_aliases(#[case] scalar: u32) {
     let character = Ty::Builtin(BuiltinType::Char);
-    for scalar in [0, 0x7f, 0xd7ff, 0xe000, 0x1f642, 0x10ffff] {
-        let value = format!("const-v1:char:{scalar:08x}");
-        assert!(scalar_const_valid(&character, &value));
-        assert!(!scalar_const_valid(&Ty::Builtin(BuiltinType::U32), &value));
-    }
-    for value in [
-        "const-v1:char:0000d800",
-        "const-v1:char:0000dfff",
-        "const-v1:char:00110000",
-        "const-v1:char:100000061",
-        "const-v1:char:61",
-        "const-v1:char:0000006A",
-        "const-v1:char:+0000061",
-        "const-v1:i32:97",
-    ] {
-        assert!(!scalar_const_valid(&character, value), "{value}");
-    }
+    let value = format!("const-v1:char:{scalar:08x}");
+    assert!(scalar_const_valid(&character, &value));
+    assert!(!scalar_const_valid(&Ty::Builtin(BuiltinType::U32), &value));
+}
+
+#[rstest]
+#[case::surrogate_start("const-v1:char:0000d800")]
+#[case::surrogate_end("const-v1:char:0000dfff")]
+#[case::beyond_unicode("const-v1:char:00110000")]
+#[case::wide_payload("const-v1:char:100000061")]
+#[case::short_hex("const-v1:char:61")]
+#[case::uppercase_hex("const-v1:char:0000006A")]
+#[case::explicit_plus("const-v1:char:+0000061")]
+#[case::integer_tag("const-v1:i32:97")]
+fn noncanonical_character_constants_are_rejected(#[case] value: &str) {
+    let character = Ty::Builtin(BuiltinType::Char);
+    assert!(!scalar_const_valid(&character, value), "{value}");
 }
 
 #[test]

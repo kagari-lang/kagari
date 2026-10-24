@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_TYPE_MATCH_ARM_TYPE_MISMATCH",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 46,
+          "path": "test.kg",
+          "start": 41
+        }
+      }
+    ],
+    "message": "match arm type mismatch: expected `i32`, found `bool`; supply a result type for interface conversion",
+    "notes": [],
+    "primary": {
+      "end": 46,
+      "path": "test.kg",
+      "start": 41
+    },
+    "severity": "error"
+  }
+]

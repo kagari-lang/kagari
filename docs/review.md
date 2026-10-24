@@ -1023,15 +1023,18 @@ removed Hash/Eq protection graph or an intentional compatibility rejection.
    owner and rejects it. The missing owner need not have been removed by the user;
    it may simply not have been generated yet.
 
-**Reproduction and evidence.** Use
-`shared_tuple_adapter_uses_current_operations_for_each_argument` in the existing
+**Reproduction and evidence.** The original
+`shared_tuple_adapter_uses_current_operations_for_each_argument` scenarios now live
+in the named `tuple_local_element`, `tuple_new_argument` and `tuple_same_nominal`
+rows of `shared_collection_comparison_selects_current_operations` in the existing
 [generic reload tests](../crates/kagari/src/runtime/tests/embedding/generic_reload.rs).
-For the diagnostic reproduction, change that test's preparation mode from
-`ReloadPreparation::BodyOnlyArtifact` to `ReloadPreparation::ExpandRetainedApplications`,
-keeping its source, replacements and assertions unchanged, then run:
+For a focused diagnostic reproduction, change only the `tuple_local_element`
+row's preparation mode from `ReloadPreparation::BodyOnlyArtifact` to
+`ReloadPreparation::ExpandRetainedApplications`, keeping its versioned source
+fixtures and assertions unchanged, then run:
 
 ```text
-cargo test -p kagari --lib shared_tuple_adapter_uses_current_operations_for_each_argument -- --nocapture
+cargo test -p kagari --lib shared_collection_comparison_selects_current_operations::case_6_tuple_local_element -- --nocapture
 ```
 
 That experiment failed in `update_requests::import_retained` during replacement

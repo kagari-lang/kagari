@@ -27,6 +27,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use rstest::rstest;
 use std::{
     num::NonZeroUsize,
     sync::{
@@ -78,40 +79,17 @@ fn compile_scalar_static_bytecode(text: &str) -> DefinitionMetadata<BytecodeProg
 
 #[test]
 fn source_and_decoded_statics_are_lazy_shared_on_reload_and_keep_fixed_recipes() {
-    let first = compile_scalar_static_bytecode(
-        r#"
-        static var count: i32 = 0;
-        static val cold: i32 = 7;
-        static val unused: i32 = fail();
-        fn fail() -> i32 { val zero = 0; 1 / zero }
-        pub fn tick() -> i32 { count += 1; count }
-        pub fn read_cold() -> i32 { cold }
-        pub fn read_added() -> i32 { 0 }
-    "#,
-    );
-    let second = compile_scalar_static_bytecode(
-        r#"
-        static val added: i32 = 5;
-        static val unused: i32 = fail();
-        static val cold: i32 = 7;
-        static var count: i32 = 0;
-        fn fail() -> i32 { val zero = 0; 1 / zero }
-        pub fn tick() -> i32 { count += 1; count }
-        pub fn read_cold() -> i32 { cold }
-        pub fn read_added() -> i32 { added }
-    "#,
-    );
-    let third_source = r#"
-        static var count: i32 = 0;
-        static val cold: i32 = 7;
-        static val unused: i32 = fail();
-        static val added: i32 = 5;
-        fn fail() -> i32 { val zero = 0; 1 / zero }
-        pub fn tick() -> i32 { count += 10; count }
-        pub fn read_cold() -> i32 { cold }
-        pub fn read_added() -> i32 { added }
-    "#;
+    let first = compile_scalar_static_bytecode(include_str!(
+        "../../../tests/fixtures/execution/static-recipes-initial.kgr"
+    ));
+    let second = compile_scalar_static_bytecode(include_str!(
+        "../../../tests/fixtures/execution/static-recipes-added.kgr"
+    ));
+    let third_source = include_str!("../../../tests/fixtures/execution/static-recipes-current.kgr");
     let third = compile_scalar_static_bytecode(third_source);
+    for pattern in ["count: i32 = 0", "cold: i32 = 7", "added: i32 = 5"] {
+        assert_eq!(third_source.matches(pattern).count(), 1, "{pattern}");
+    }
     let changed_recipes = compile_scalar_static_bytecode(
         &third_source
             .replace("count: i32 = 0", "count: i32 = 200")
@@ -433,67 +411,63 @@ fn task_cancellation_leaves_unstarted_statics_cold_and_poisoned_attempts_durable
     }
 }
 
-#[test]
-fn imported_static_keeps_ready_values_and_calls_current_helpers_on_first_access() {
-    let source = r#"
-        mod provider {
-            pub static val ready: i32 = helper();
-            pub static val value: i32 = helper();
-            fn helper() -> i32 { 7 }
-        }
-        use self::provider::{ready, value};
-        pub fn read_ready() -> i32 { ready }
-        pub fn read() -> i32 { value }
-    "#;
-    for foundation in [false, true] {
-        let compile = |source: &str| {
-            round_trip_bytecode(if foundation {
-                compile_test_bytecode(source)
-            } else {
-                compile_scalar_static_bytecode(source)
-            })
-        };
-        let mut runtime = standard_runtime(Default::default());
-        let program = runtime.load_program("imports", compile(source)).unwrap();
-        let old = runtime.select_program(&program).unwrap();
-        assert_eq!(runtime.resources().counters().peak_call_depth, 0);
-        let vm = Vm::new(runtime);
-        assert_eq!(call(&vm, &old, "read_ready"), Value::I32(7));
-        let changed_expression =
-            source.replace("value: i32 = helper()", "value: i32 = helper() + 1");
-        assert!(matches!(
-            vm.runtime().stage_reload_program(
-                &program,
-                Some("imports".into()),
-                compile(&changed_expression)
-            ),
-            Err(ReloadValidationError::UpdateEvidence(_))
-        ));
-        assert_eq!(
-            vm.runtime().select_program(&program).unwrap().key(),
-            old.key()
-        );
-        let changed_helper = source.replace("{ 7 }", "{ 90 }");
-        let staged = vm
-            .runtime()
-            .stage_reload_program(&program, Some("imports".into()), compile(&changed_helper))
-            .unwrap();
-        let current = staged.module().clone();
-        vm.runtime().publish_staged_reload(staged).unwrap();
-        vm.runtime().collect_garbage().unwrap();
-        assert_eq!(call(&vm, &current, "read_ready"), Value::I32(7));
-        assert_eq!(call(&vm, &current, "read"), Value::I32(90));
-        assert!(
-            vm.runtime()
-                .collect_garbage()
-                .unwrap()
-                .reclaimed_modules
-                .contains(&old.key())
-        );
-        assert_eq!(call(&vm, &current, "read"), Value::I32(90));
-        assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
-        assert_eq!(vm.runtime().gc().active_roots(), 0);
-    }
+#[rstest]
+#[case::scalar_catalog(false)]
+#[case::foundation_catalog(true)]
+fn imported_static_keeps_ready_values_and_calls_current_helpers_on_first_access(
+    #[case] foundation: bool,
+) {
+    let source =
+        include_str!("../../../tests/fixtures/execution/imported-static-current-helper.kgr");
+    let helper = "fn helper() -> i32 {\n        7\n    }";
+    assert_eq!(source.matches("value: i32 = helper()").count(), 1);
+    assert_eq!(source.matches(helper).count(), 1);
+    let compile = |source: &str| {
+        round_trip_bytecode(if foundation {
+            compile_test_bytecode(source)
+        } else {
+            compile_scalar_static_bytecode(source)
+        })
+    };
+    let mut runtime = standard_runtime(Default::default());
+    let program = runtime.load_program("imports", compile(source)).unwrap();
+    let old = runtime.select_program(&program).unwrap();
+    assert_eq!(runtime.resources().counters().peak_call_depth, 0);
+    let vm = Vm::new(runtime);
+    assert_eq!(call(&vm, &old, "read_ready"), Value::I32(7));
+    let changed_expression = source.replace("value: i32 = helper()", "value: i32 = helper() + 1");
+    assert!(matches!(
+        vm.runtime().stage_reload_program(
+            &program,
+            Some("imports".into()),
+            compile(&changed_expression)
+        ),
+        Err(ReloadValidationError::UpdateEvidence(_))
+    ));
+    assert_eq!(
+        vm.runtime().select_program(&program).unwrap().key(),
+        old.key()
+    );
+    let changed_helper = source.replace(helper, "fn helper() -> i32 {\n        90\n    }");
+    let staged = vm
+        .runtime()
+        .stage_reload_program(&program, Some("imports".into()), compile(&changed_helper))
+        .unwrap();
+    let current = staged.module().clone();
+    vm.runtime().publish_staged_reload(staged).unwrap();
+    vm.runtime().collect_garbage().unwrap();
+    assert_eq!(call(&vm, &current, "read_ready"), Value::I32(7));
+    assert_eq!(call(&vm, &current, "read"), Value::I32(90));
+    assert!(
+        vm.runtime()
+            .collect_garbage()
+            .unwrap()
+            .reclaimed_modules
+            .contains(&old.key())
+    );
+    assert_eq!(call(&vm, &current, "read"), Value::I32(90));
+    assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
+    assert_eq!(vm.runtime().gc().active_roots(), 0);
 }
 
 #[test]

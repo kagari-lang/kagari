@@ -1,0 +1,24 @@
+trait Reader {
+    type Item;
+    fn read(self) -> Self::Item;
+}
+
+struct Holder<T> {
+    val value: T
+}
+
+impl<T> Reader for Holder<T> {
+    type Item = T;
+    fn read(self) -> Self::Item {
+        val result: Self::Item = self.value;
+        result
+    }
+}
+
+fn read<R: Reader>(r: R) -> R::Item {
+    r.read()
+}
+
+fn main() -> i32 {
+    read(Holder<i32> { value: 42 })
+}

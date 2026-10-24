@@ -1,0 +1,23 @@
+fn a() -> i32 {
+    1
+}
+
+fn b() -> i32 {
+    2
+}
+
+struct A {
+    val x: i32,
+}
+
+struct B {
+    val y: i32,
+}
+
+fn unused<T>(x: T) -> T {
+    x
+}
+
+fn other<T>(y: T) -> T {
+    y
+}

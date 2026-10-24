@@ -1,0 +1,34 @@
+trait Read {
+    fn read(self) -> i32;
+}
+
+struct Holder<T> {
+    val value: T
+}
+
+impl Read for Holder<i32> {
+    fn read(self) -> i32 {
+        self.value
+    }
+}
+
+trait Family<A> {
+    type Item<T> where T: PartialEq;
+    fn make<T: PartialEq>(self, value: T) -> Self::Item<T>;
+}
+
+impl<A> Family<A> for Holder<A> {
+    type Item<U> = [(A, U)] where U: PartialEq;
+    fn make<V: PartialEq>(self, value: V) -> [(A, V)] {
+        [(self.value, value)]
+    }
+}
+
+fn make<A, F: Family<A>>(f: F, first: A) -> F::Item<i32> {
+    f.make(22)
+}
+
+fn main() -> i32 {
+    val value = make(Holder { value: 20 }, 20);
+    value[0][0] + value[0][1]
+}

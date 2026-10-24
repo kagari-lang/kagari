@@ -1,0 +1,6 @@
+
+fn show<T>(value: T) -> T
+where T: Missing
+{
+    value
+}

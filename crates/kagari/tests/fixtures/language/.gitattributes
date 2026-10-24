@@ -1,0 +1,3 @@
+*.kgr text eol=lf
+# Dedicated literal line-rule input retains its authored final indentation.
+array_operations/line_rules/byte_literals_preserve_payloads_fixed_types_and_line_rules.kgr whitespace=-blank-at-eof,-blank-at-eol

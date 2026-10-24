@@ -109,20 +109,7 @@ impl HostLoop {
     }
 }
 
-const SOURCE: &str = r#"
-use test::async_sdk::request;
-fn admitted(result:Result<Task<i32>,SpawnError>) -> Task<i32> {
-    match result { Ok(task) => task, Err(_) => { val zero=0; val bad=1/zero; admitted(result) } }
-}
-pub fn launch(scope:TaskScope) -> Task<i32> { admitted(scope.spawn(async || request(10).await)) }
-pub fn fast(scope:TaskScope) -> Task<i32> { admitted(scope.spawn(async || 17)) }
-pub fn busy(scope:TaskScope) -> Task<i32> { admitted(scope.spawn(async || long().await)) }
-pub fn fail(scope:TaskScope) -> Task<i32> { admitted(scope.spawn(async || { val zero=0; 1/zero })) }
-pub async fn observe(task:Task<i32>) -> i32 { task.await + 1 }
-pub async fn io(value:i32) -> i32 { request(value).await }
-pub async fn long() -> i32 { var n=0; while n < 200 { n+=1; } n }
-pub fn value() -> i32 { 42 }
-"#;
+const SOURCE: &str = include_str!("../../../../../tests/fixtures/embedding/async/scheduler.kgr");
 
 pub(super) fn decode(runtime: &CoreRuntime, value: &RootedValue) -> NativeResult<i32> {
     let owner = runtime

@@ -1,4 +1,5 @@
 use crate::test_support::native::program::ProgramFixture;
+use rstest::rstest;
 mod compatibility;
 mod contracts;
 mod initialization;
@@ -533,128 +534,144 @@ fn additions_reordering_and_stale_publication_are_transactional_and_deletion_is_
     assert_eq!(runtime.modules.inner.borrow().cells.len(), 2);
 }
 
-#[test]
-fn private_contract_changes_remain_rejected() {
-    for mutation in 0..4 {
-        let mut runtime = Runtime::default();
-        let code = program(scalar(), true);
-        let baseline_program = runtime.load_program("state", code.clone()).unwrap();
-        let baseline = runtime.select_program(&baseline_program).unwrap();
-        ready(&runtime, &baseline, 0, Value::I32(7));
-        let (definitions, mut candidate) = code.into_parts();
-        match mutation {
-            0 => candidate.modules[0].module_slots.clear(),
-            1 => candidate.modules[0].module_slots[0].contract.mutable = false,
-            2 => candidate.modules[0].module_slots[0].contract.visibility = Visibility::PublicCrate,
-            _ => {
-                candidate.modules[0].module_slots[0].contract.ty = Ty::Builtin(BuiltinType::I64);
-                candidate.modules[0].functions[1].metadata.semantic.result =
-                    Some(Ty::Builtin(BuiltinType::I64));
-                candidate.modules[0].functions[1].metadata.return_type = ValueType::I64;
-                candidate.modules[0].function_table[1].return_type = ValueType::I64;
-                candidate.modules[0].types.push(ValueType::I64);
-            }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StaticContractChange {
+    Removed,
+    Mutability,
+    Visibility,
+    SemanticType,
+}
+
+#[rstest]
+#[case::removed(StaticContractChange::Removed)]
+#[case::mutability(StaticContractChange::Mutability)]
+#[case::visibility(StaticContractChange::Visibility)]
+#[case::semantic_type(StaticContractChange::SemanticType)]
+fn private_contract_changes_remain_rejected(#[case] mutation: StaticContractChange) {
+    let mut runtime = Runtime::default();
+    let code = program(scalar(), true);
+    let baseline_program = runtime.load_program("state", code.clone()).unwrap();
+    let baseline = runtime.select_program(&baseline_program).unwrap();
+    ready(&runtime, &baseline, 0, Value::I32(7));
+    let (definitions, mut candidate) = code.into_parts();
+    match mutation {
+        StaticContractChange::Removed => candidate.modules[0].module_slots.clear(),
+        StaticContractChange::Mutability => {
+            candidate.modules[0].module_slots[0].contract.mutable = false
         }
-        assert!(
-            runtime
-                .stage_reload_program(
-                    &baseline_program,
-                    None,
-                    ProgramFixture::from(candidate)
-                        .metadata(definitions, &Default::default())
-                        .unwrap()
-                )
-                .is_err()
-        );
+        StaticContractChange::Visibility => {
+            candidate.modules[0].module_slots[0].contract.visibility = Visibility::PublicCrate
+        }
+        StaticContractChange::SemanticType => {
+            candidate.modules[0].module_slots[0].contract.ty = Ty::Builtin(BuiltinType::I64);
+            candidate.modules[0].functions[1].metadata.semantic.result =
+                Some(Ty::Builtin(BuiltinType::I64));
+            candidate.modules[0].functions[1].metadata.return_type = ValueType::I64;
+            candidate.modules[0].function_table[1].return_type = ValueType::I64;
+            candidate.modules[0].types.push(ValueType::I64);
+        }
+    }
+    assert!(
+        runtime
+            .stage_reload_program(
+                &baseline_program,
+                None,
+                ProgramFixture::from(candidate)
+                    .metadata(definitions, &Default::default())
+                    .unwrap()
+            )
+            .is_err()
+    );
+    assert_eq!(
+        runtime
+            .read_module_slot(&baseline, ModuleSlot::new(0))
+            .unwrap(),
+        Value::I32(7)
+    );
+}
+
+#[rstest]
+#[case::uninitialized(false)]
+#[case::ready(true)]
+fn public_constant_additions_preserve_contracts_and_lazy_static_state_source_free(
+    #[case] initialized: bool,
+) {
+    let mut runtime = Runtime::default();
+    let code = program(scalar(), true);
+    let baseline_program = runtime.load_program("state", code.clone()).unwrap();
+    let baseline = runtime.select_program(&baseline_program).unwrap();
+    if initialized {
+        ready(&runtime, &baseline, 0, Value::I32(7));
+    }
+    let context = DefinitionContext::new().unwrap();
+    let mut candidate = code
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    let root = context.intern_root(&candidate.modules[0].identity).unwrap();
+    context
+        .intern_child(root, DefinitionKind::Const, "added_constant", 0)
+        .unwrap();
+    let added = PublicItem::Const(ConstDef {
+        name: "added_constant".into(),
+        ty: scalar(),
+        value: "7".into(),
+    });
+    candidate.modules[0].public_items.push(added.clone());
+    let candidate = ProgramFixture::from(candidate).build(&context);
+    VerifiedProgram::new(
+        DefinitionMetadata::checked(context.snapshot(), candidate.clone(), &Default::default())
+            .unwrap(),
+        &context,
+    )
+    .unwrap();
+    let artifact =
+        KbcArtifact::from_program(candidate, Default::default(), &context, &Default::default())
+            .unwrap();
+    let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
+    let staged = runtime
+        .stage_reload_artifact(
+            &baseline_program,
+            None,
+            KbcArtifact::from_bytes(&bytes).unwrap(),
+            &Default::default(),
+        )
+        .unwrap();
+    let published = staged.module().clone();
+    runtime.publish_staged_reload(staged).unwrap();
+    assert!(published.bytecode.public_items.contains(&added));
+    assert_eq!(published.bytecode.module_slots.len(), 1);
+    assert_eq!(
+        cell(&runtime.modules, &baseline, 0),
+        cell(&runtime.modules, &published, 0)
+    );
+    if initialized {
         assert_eq!(
             runtime
-                .read_module_slot(&baseline, ModuleSlot::new(0))
+                .read_module_slot(&published, ModuleSlot::new(0))
                 .unwrap(),
             Value::I32(7)
         );
-    }
-}
-
-#[test]
-fn public_constant_additions_preserve_contracts_and_lazy_static_state_source_free() {
-    for initialized in [false, true] {
-        let mut runtime = Runtime::default();
-        let code = program(scalar(), true);
-        let baseline_program = runtime.load_program("state", code.clone()).unwrap();
-        let baseline = runtime.select_program(&baseline_program).unwrap();
-        if initialized {
-            ready(&runtime, &baseline, 0, Value::I32(7));
-        }
-        let context = DefinitionContext::new().unwrap();
-        let mut candidate = code
-            .import_into(&context, &Default::default())
-            .unwrap()
-            .into_records();
-        let root = context.intern_root(&candidate.modules[0].identity).unwrap();
-        context
-            .intern_child(root, DefinitionKind::Const, "added_constant", 0)
-            .unwrap();
-        let added = PublicItem::Const(ConstDef {
-            name: "added_constant".into(),
-            ty: scalar(),
-            value: "7".into(),
-        });
-        candidate.modules[0].public_items.push(added.clone());
-        let candidate = ProgramFixture::from(candidate).build(&context);
-        VerifiedProgram::new(
-            DefinitionMetadata::checked(context.snapshot(), candidate.clone(), &Default::default())
-                .unwrap(),
-            &context,
-        )
-        .unwrap();
-        let artifact =
-            KbcArtifact::from_program(candidate, Default::default(), &context, &Default::default())
-                .unwrap();
-        let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
-        let staged = runtime
-            .stage_reload_artifact(
-                &baseline_program,
-                None,
-                KbcArtifact::from_bytes(&bytes).unwrap(),
-                &Default::default(),
-            )
-            .unwrap();
-        let published = staged.module().clone();
-        runtime.publish_staged_reload(staged).unwrap();
-        assert!(published.bytecode.public_items.contains(&added));
-        assert_eq!(published.bytecode.module_slots.len(), 1);
-        assert_eq!(
-            cell(&runtime.modules, &baseline, 0),
-            cell(&runtime.modules, &published, 0)
-        );
-        if initialized {
-            assert_eq!(
-                runtime
-                    .read_module_slot(&published, ModuleSlot::new(0))
-                    .unwrap(),
-                Value::I32(7)
-            );
-        } else {
-            assert!(matches!(
-                runtime
-                    .modules
-                    .static_state(&published, ModuleSlot::new(0))
-                    .unwrap(),
-                StaticState::Uninitialized(_)
-            ));
-        }
-        assert_eq!(runtime.resources().counters().peak_call_depth, 0);
-        // Once published, the added constant is an old contract, not disposable metadata.
-        assert!(
+    } else {
+        assert!(matches!(
             runtime
-                .stage_reload_program(&baseline_program, None, code)
-                .is_err()
-        );
-        assert_eq!(
-            runtime.modules().current_for(&published).unwrap().key(),
-            published.key()
-        );
+                .modules
+                .static_state(&published, ModuleSlot::new(0))
+                .unwrap(),
+            StaticState::Uninitialized(_)
+        ));
     }
+    assert_eq!(runtime.resources().counters().peak_call_depth, 0);
+    // Once published, the added constant is an old contract, not disposable metadata.
+    assert!(
+        runtime
+            .stage_reload_program(&baseline_program, None, code)
+            .is_err()
+    );
+    assert_eq!(
+        runtime.modules().current_for(&published).unwrap().key(),
+        published.key()
+    );
 }
 
 #[test]
@@ -718,63 +735,73 @@ fn failed_and_initializing_are_not_values_and_failed_state_releases_the_recipe()
     );
 }
 
-#[test]
-fn corrupt_storage_quarantines_and_cleans_frame_resources() {
-    for corruption in 0..4 {
-        let mut runtime = Runtime::default();
-        let module_program = runtime
-            .load_program("state", program(scalar(), true))
-            .unwrap();
-        let module = runtime.select_program(&module_program).unwrap();
-        ready(&runtime, &module, 0, Value::I32(7));
-        let independent_program = runtime
-            .load_program("independent", program(scalar(), true))
-            .unwrap();
-        let independent = runtime.select_program(&independent_program).unwrap();
-        ready(&runtime, &independent, 0, Value::I32(9));
-        let other_cell = cell(&runtime.modules, &independent, 0);
-        let stack = runtime.enter_execution_stack(&module).unwrap();
-        stack
-            .push(&runtime, module.slot(), FunctionRef::new(0), &[], None)
-            .unwrap();
-        stack
-            .current_mut()
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StorageCorruption {
+    MissingCell,
+    WrongValue,
+    ForeignBinding,
+    MissingBinding,
+}
+
+#[rstest]
+#[case::missing_cell(StorageCorruption::MissingCell)]
+#[case::wrong_value(StorageCorruption::WrongValue)]
+#[case::foreign_binding(StorageCorruption::ForeignBinding)]
+#[case::missing_binding(StorageCorruption::MissingBinding)]
+fn corrupt_storage_quarantines_and_cleans_frame_resources(#[case] corruption: StorageCorruption) {
+    let mut runtime = Runtime::default();
+    let module_program = runtime
+        .load_program("state", program(scalar(), true))
+        .unwrap();
+    let module = runtime.select_program(&module_program).unwrap();
+    ready(&runtime, &module, 0, Value::I32(7));
+    let independent_program = runtime
+        .load_program("independent", program(scalar(), true))
+        .unwrap();
+    let independent = runtime.select_program(&independent_program).unwrap();
+    ready(&runtime, &independent, 0, Value::I32(9));
+    let other_cell = cell(&runtime.modules, &independent, 0);
+    let stack = runtime.enter_execution_stack(&module).unwrap();
+    stack
+        .push(&runtime, module.slot(), FunctionRef::new(0), &[], None)
+        .unwrap();
+    stack
+        .current_mut()
+        .unwrap()
+        .write_slot(&runtime, Slot::new(0), array(&runtime, &module, 7))
+        .unwrap();
+    let id = cell(&runtime.modules, &module, 0);
+    if corruption == StorageCorruption::MissingCell {
+        runtime.modules.inner.borrow_mut().cells.remove(&id);
+    } else if corruption == StorageCorruption::WrongValue {
+        runtime
+            .modules
+            .inner
+            .borrow_mut()
+            .cells
+            .get_mut(&id)
             .unwrap()
-            .write_slot(&runtime, Slot::new(0), array(&runtime, &module, 7))
-            .unwrap();
-        let id = cell(&runtime.modules, &module, 0);
-        if corruption == 0 {
-            runtime.modules.inner.borrow_mut().cells.remove(&id);
-        } else if corruption == 1 {
-            runtime
-                .modules
-                .inner
-                .borrow_mut()
-                .cells
-                .get_mut(&id)
-                .unwrap()
-                .state = StaticState::Ready(Value::Bool(true));
+            .state = StaticState::Ready(Value::Bool(true));
+    } else {
+        let mut store = runtime.modules.inner.borrow_mut();
+        let record = store.records.get_mut(&module.key()).unwrap();
+        if corruption == StorageCorruption::ForeignBinding {
+            record.bindings[0] = other_cell;
         } else {
-            let mut store = runtime.modules.inner.borrow_mut();
-            let record = store.records.get_mut(&module.key()).unwrap();
-            if corruption == 2 {
-                record.bindings[0] = other_cell;
-            } else {
-                record.bindings.clear();
-            }
+            record.bindings.clear();
         }
-        assert_eq!(
-            runtime
-                .read_module_slot(&module, ModuleSlot::new(0))
-                .unwrap_err()
-                .kind(),
-            RuntimeErrorKind::EngineFault
-        );
-        drop(stack);
-        assert!(runtime.execution_root().is_none());
-        assert_eq!(runtime.resources().counters().current_call_depth, 0);
-        assert_eq!(runtime.gc().active_roots(), 0);
     }
+    assert_eq!(
+        runtime
+            .read_module_slot(&module, ModuleSlot::new(0))
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::EngineFault
+    );
+    drop(stack);
+    assert!(runtime.execution_root().is_none());
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
 }
 
 #[test]

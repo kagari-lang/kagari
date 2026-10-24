@@ -1,0 +1,4 @@
+error[KG_PARSE_UNEXPECTED_TOKEN]: unexpected token (app)
+  --> unicode.kgr:2:2
+   |     broken
+   |     ^ primary

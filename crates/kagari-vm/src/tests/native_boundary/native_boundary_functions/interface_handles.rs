@@ -143,21 +143,17 @@ fn typed_native_interfaces_keep_readonly_views_and_survive_collection() {
 
 #[test]
 fn retained_interfaces_select_current_dispatch_after_reload_and_thread_transfer() {
-    let source = r#"
-        pub trait Read<T> { fn get(self) -> T; }
-        pub struct Holder<T> { pub var value: T }
-        impl Read<i32> for Holder<i32> {
-            fn get(self) -> i32 { self.value + 1 }
-        }
-        pub fn make() -> Read<i32> { Holder { value: 41 } }
-        pub fn read(value: Read<i32>) -> i32 { value.get() }
-    "#;
+    let source =
+        include_str!("../../../../tests/fixtures/native/retained-interface-current-dispatch.kgr");
     let (vm, old) = fixture_without_foundation(source, None);
     let _old_program = old;
     let old = vm.runtime().select_program(&_old_program).unwrap();
     let value: Interface = vm.execute_typed(&old, "make", ()).unwrap();
     let alias = value.clone();
     // Change both code and constructor data while preserving the public contract.
+    for pattern in ["Holder { value: 41 }", "self.value + 1"] {
+        assert_eq!(source.matches(pattern).count(), 1, "{pattern}");
+    }
     let source = source
         .replace("Holder { value: 41 }", "Holder { value: 7 }")
         .replace("self.value + 1", "self.value + 2");

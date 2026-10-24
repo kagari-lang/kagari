@@ -64,21 +64,11 @@ function rawRequest(origin, path, method = 'GET') {
 }
 
 const cases = [
-  { name: 'source-fixed64-output', mode: 'source', kind: 'execute', source: 'use web::print; fn main() -> u64 { val minimum = -9223372036854775808i64; val maximum = 9223372036854775807i64; if minimum >= 0i64 || maximum <= 0i64 { return 0u64; } print("hello 😀"); 18446744073709551615u64 }', result: { tag: 'u64', value: '18446744073709551615' }, output: ['hello 😀'] },
-  { name: 'source-wide-collections-parsing-take', mode: 'source', kind: 'execute', source: `use std::collections::HashSet;
-fn main() -> u64 {
-    val maximum = match u64::from_str("18446744073709551615") { Ok(value) => value, Err(_) => { return 0u64; } };
-    if "{maximum}" != "18446744073709551615" { return 0u64; }
-    val keys = HashSet::new(); keys.insert(maximum);
-    if !keys.contains(maximum) || keys.len() != 1u64 { return 0u64; }
-    val values = Vec::from([maximum]); values.sort();
-    if values.take(4294967296u64).count() != 1u64 { return 0u64; }
-    if values.skip(4294967296u64).count() != 0u64 { return 0u64; }
-    values.take(18446744073709551615u64).sum()
-}`, result: { tag: 'u64', value: '18446744073709551615' }, output: [] },
-  { name: 'source-wide-read-no-wrap-effects', mode: 'source', kind: 'trap', source: 'use web::print; fn index() -> u64 { print("index"); 4294967296u64 } fn main() -> i32 { val values = [7]; print("before"); val result = values[index()]; print("after"); result }', output: ['before', 'index'], indexDiagnostic: 'array index 4294967296 is out of bounds' },
-  { name: 'source-wide-write-no-wrap-effects', mode: 'source', kind: 'trap', source: 'use web::print; fn base(values: [i32]) -> [i32] { print("base"); values } fn index() -> u64 { print("index"); 18446744073709551615u64 } fn replacement() -> i32 { print("replacement"); 9 } fn main() { val values = [7]; base(values)[index()] = replacement(); print("after"); }', output: ['base', 'index', 'replacement'], indexDiagnostic: 'InvalidIndex(18446744073709551615)' },
-  { name: 'source-gc-repeated-rooted-results', mode: 'source', kind: 'gc', source: 'fn main() -> String { val retained = ["rooted 😀"]; for i in 0..4096 { val garbage = ["{i}😀"]; } retained[0] }' },
+  { name: 'source-fixed64-output', mode: 'source', kind: 'execute', sourceFile: 'fixtures/wasm-browser/source-fixed64-output.kgr', result: { tag: 'u64', value: '18446744073709551615' }, output: ['hello 😀'] },
+  { name: 'source-wide-collections-parsing-take', mode: 'source', kind: 'execute', sourceFile: 'fixtures/wasm-browser/source-wide-collections-parsing-take.kgr', result: { tag: 'u64', value: '18446744073709551615' }, output: [] },
+  { name: 'source-wide-read-no-wrap-effects', mode: 'source', kind: 'trap', sourceFile: 'fixtures/wasm-browser/source-wide-read-no-wrap-effects.kgr', output: ['before', 'index'], indexDiagnostic: 'array index 4294967296 is out of bounds' },
+  { name: 'source-wide-write-no-wrap-effects', mode: 'source', kind: 'trap', sourceFile: 'fixtures/wasm-browser/source-wide-write-no-wrap-effects.kgr', output: ['base', 'index', 'replacement'], indexDiagnostic: 'InvalidIndex(18446744073709551615)' },
+  { name: 'source-gc-repeated-rooted-results', mode: 'source', kind: 'gc', sourceFile: 'fixtures/wasm-browser/source-gc-repeated-rooted-results.kgr' },
   { name: 'source-unicode-crlf-diagnostics', mode: 'source', kind: 'diagnostics' },
   { name: 'source-removed-names-and-suffixes', mode: 'source', kind: 'removed' },
   { name: 'source-sliced-cancel-reset', mode: 'source', kind: 'cancel' },
@@ -283,7 +273,7 @@ async function main(explicitPath, mode) {
     startedAt: new Date(started).toISOString(), node: process.version, platform: process.platform,
     selectedCases: cases.filter((test) => !mode || test.mode === mode).map((test) => test.name),
     launchAttempts: [], checks: [], screenshots: [],
-    limits: ['WB03 direct-page WASM only; Worker/hard-stop/stale-message tests belong to WB04.', 'Default workspace dev profile, default Cargo parallelism; timings are diagnostic, not performance acceptance.', 'Allocation stress does not expose exact GC collection/root counts.', 'Local Chromium only; no CI/backend/platform matrix or public deployment acceptance.'],
+    limits: ['WB03 direct-page WASM only; Worker/hard-stop/stale-message tests belong to WB04.', 'Workspace release profile, default Cargo parallelism; timings are diagnostic, not performance acceptance.', 'Allocation stress does not expose exact GC collection/root counts.', 'Local Chromium only; no CI/backend/platform matrix or public deployment acceptance.'],
   };
   const save = async () => { report.elapsedMs = Date.now() - started; await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`); };
   let browser;
@@ -300,6 +290,12 @@ async function main(explicitPath, mode) {
     await save();
   }
   try {
+    report.sourceFixtureSha256 = {};
+    for (const test of cases.filter((test) => test.sourceFile)) {
+      const bytes = await readFile(new URL(test.sourceFile, import.meta.url));
+      test.source = bytes.toString('utf8');
+      report.sourceFixtureSha256[test.sourceFile] = sha256(bytes);
+    }
     snapshot = await snapshotProducts();
     report.products = snapshot.record;
     report.harnessSha256 = sha256(await readFile(fileURLToPath(import.meta.url)));
@@ -367,6 +363,9 @@ async function main(explicitPath, mode) {
     if (snapshot) await check('source-products-unchanged', async () => {
       assert.deepEqual(await verifyProducts(), snapshot.record, 'Product provenance changed during browser run');
       assert.equal(sha256(await readFile(fileURLToPath(import.meta.url))), report.harnessSha256, 'Harness changed during run');
+      for (const [file, hash] of Object.entries(report.sourceFixtureSha256)) {
+        assert.equal(sha256(await readFile(new URL(file, import.meta.url))), hash, `Source fixture changed: ${file}`);
+      }
     });
     report.success = !report.fatal && report.checks.every((item) => item.status === 'passed');
     await save();

@@ -1,0 +1,64 @@
+use std::collections::{ List, MutableList };
+
+struct Item {
+    val value: i32
+}
+
+struct Box<T> {
+    val item: T
+}
+
+enum Wrapped<T> {
+    Some(T),
+    None
+}
+
+fn concrete() -> Box<Wrapped<Item>> {
+    Box { item: Wrapped::Some(Item { value: 1 }) }
+}
+
+fn keep<T>(value: T) -> T {
+    value
+}
+
+trait Capture {
+    fn capture<T>(self, value: T) -> fn() -> i32 {
+        val list: MutableList<(Item, Box<Wrapped<T>>)> = Vec::from(
+            [(Item { value: 1 }, Box { item: Wrapped::Some(value) })]
+        );
+        list.push((Item { value: 1 }, Box { item: Wrapped::Some(value) }));
+        val view: List<(Item, Box<Wrapped<T>>)> = list;
+        var seen = 0;
+        for pair in view {
+            val inner: T = match pair[1].item {
+                Wrapped::Some(inner) => inner,
+                Wrapped::None => value
+            };
+            seen = seen + 1;
+        }
+        || {
+            val held: (Item, Box<Wrapped<T>>) = keep(view[1]);
+            match held[1].item {
+                Wrapped::Some(inner) => {
+                    val again: T = keep(inner);
+                    helper() + seen - 2
+                },
+                Wrapped::None => 0
+            }
+        }
+    }
+}
+
+impl Capture for i32 {}
+
+fn helper() -> i32 {
+    42
+}
+
+fn make(source: Capture) -> fn() -> i32 {
+    source.capture(Item { value: 1 })
+}
+
+fn use_closure(call: fn() -> i32) -> i32 {
+    call()
+}

@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_TYPE_RETURN_TYPE_MISMATCH",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 24,
+          "path": "test.kg",
+          "start": 0
+        }
+      }
+    ],
+    "message": "return type mismatch in function `foo`: expected `i32`, found `bool`",
+    "notes": [],
+    "primary": {
+      "end": 24,
+      "path": "test.kg",
+      "start": 0
+    },
+    "severity": "error"
+  }
+]

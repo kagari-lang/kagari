@@ -1,0 +1,1 @@
+fn outer() -> fn(f32) -> f32 { fn id<T: std::hash::Hash>(x: T) -> T { x } id }

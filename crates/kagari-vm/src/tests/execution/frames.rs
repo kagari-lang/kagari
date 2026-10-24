@@ -260,20 +260,9 @@ fn main() -> i32 { callee() }
 
 #[test]
 fn deterministic_frames_keep_caller_and_callee_storage_isolated() {
-    let (runtime, loaded) = load_test_module(
-        r#"
-fn callee(input: i32) -> i32 {
-    val local = input + 1;
-    local
-}
-
-fn main() -> i32 {
-    val local = 10;
-    val returned = callee(1);
-    local + returned
-}
-"#,
-    );
+    let (runtime, loaded) = load_test_module(include_str!(
+        "../../../tests/fixtures/execution/isolated-call-frames.kgr"
+    ));
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);

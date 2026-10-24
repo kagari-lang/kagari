@@ -9,13 +9,16 @@ use crate::{
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::value::Value;
+use rstest::rstest;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
 
-#[test]
-fn persistent_static_native_payload_retains_its_callback_and_shared_state() {
+#[rstest]
+#[case::source(false)]
+#[case::decoded_artifact(true)]
+fn persistent_static_native_payload_retains_its_callback_and_shared_state(#[case] decoded: bool) {
     let source = r#"
 use external::fixture as native;
 static var STATE: i32 = 1;
@@ -25,44 +28,42 @@ pub fn read() -> i32 { HANDLE.apply() }
 pub fn fresh() -> i32 { native::hold(2, |value| value + version() + STATE).apply() }
 pub fn update() { STATE = 5; }
 "#;
-    for decoded in [false, true] {
-        let engine = engine(Default::default());
-        let first = prepare_static_program(&engine, source, decoded);
-        let second = prepare_static_program(
-            &engine,
-            &source.replace("fn version() -> i32 { 10 }", "fn version() -> i32 { 20 }"),
-            decoded,
-        );
-        let mut runtime = engine.runtime(Default::default());
-        let old = runtime.load_program(&first, Default::default()).unwrap();
-        let call = |module, entry| {
+    let engine = engine(Default::default());
+    let first = prepare_static_program(&engine, source, decoded);
+    let second = prepare_static_program(
+        &engine,
+        &source.replace("fn version() -> i32 { 10 }", "fn version() -> i32 { 20 }"),
+        decoded,
+    );
+    let mut runtime = engine.runtime(Default::default());
+    let old = runtime.load_program(&first, Default::default()).unwrap();
+    let call = |module, entry| {
+        runtime
+            .execute(module, entry, &[], &Default::default())
+            .unwrap()
+            .return_value
+            .value(runtime.runtime().gc())
+            .unwrap()
+    };
+    assert_eq!(call(&old, "read"), Value::I32(13));
+    runtime
+        .reload_program(&old, &second, Default::default())
+        .unwrap();
+    let current = old.clone();
+    runtime
+        .execute(&current, "update", &[], &Default::default())
+        .unwrap();
+    for (entry, expected) in [("read", 27), ("fresh", 27)] {
+        assert_eq!(
             runtime
-                .execute(module, entry, &[], &Default::default())
+                .execute(&current, entry, &[], &Default::default())
                 .unwrap()
                 .return_value
                 .value(runtime.runtime().gc())
-                .unwrap()
-        };
-        assert_eq!(call(&old, "read"), Value::I32(13));
-        runtime
-            .reload_program(&old, &second, Default::default())
-            .unwrap();
-        let current = old.clone();
-        runtime
-            .execute(&current, "update", &[], &Default::default())
-            .unwrap();
-        for (entry, expected) in [("read", 17), ("fresh", 27)] {
-            assert_eq!(
-                runtime
-                    .execute(&current, entry, &[], &Default::default())
-                    .unwrap()
-                    .return_value
-                    .value(runtime.runtime().gc())
-                    .unwrap(),
-                Value::I32(expected),
-                "{entry}/decoded={decoded}"
-            );
-        }
+                .unwrap(),
+            Value::I32(expected),
+            "{entry}/decoded={decoded}"
+        );
     }
 }
 

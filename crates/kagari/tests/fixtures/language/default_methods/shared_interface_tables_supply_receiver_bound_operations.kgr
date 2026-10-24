@@ -1,0 +1,62 @@
+use std::cmp::{ Ordering };
+
+trait Reader<T: Ord> {
+    fn lesser(self, left: T, right: T) -> T {
+        if left < right {
+            left
+        } else {
+            right
+        }
+    }
+}
+
+struct Source {}
+
+impl<T: Ord> Reader<T> for Source {}
+
+trait Choose {
+    fn reader<T: Ord>(self, value: T) -> Reader<T> {
+        Source {}
+    }
+    fn choose<T: Ord>(self, left: T, right: T) -> T {
+        val reader: Reader<T> = Source {};
+        reader.lesser(left, right)
+    }
+}
+
+impl Choose for Source {}
+
+struct Rank {
+    val value: i32
+}
+
+impl PartialEq for Rank {
+    fn eq(self, other: Self) -> bool {
+        self.value == other.value
+    }
+}
+
+impl Eq for Rank {}
+
+impl PartialOrd for Rank {
+    fn partial_cmp(self, other: Self) -> Option<Ordering> {
+        self.value.partial_cmp(other.value)
+    }
+}
+
+impl Ord for Rank {
+    fn cmp(self, other: Self) -> Ordering {
+        self.value.cmp(other.value)
+    }
+}
+
+fn main() -> i32 {
+    val chooser: Choose = Source {};
+    val scalar = chooser.choose(20, 43);
+    val reader = chooser.reader(Rank { value: 22 });
+    val concrete: Reader<i32> = Source {};
+    if concrete.lesser(1, 2) != 1 {
+        return 0;
+    }
+    scalar + reader.lesser(Rank { value: 22 }, Rank { value: 23 }).value
+}

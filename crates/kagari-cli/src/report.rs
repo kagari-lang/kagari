@@ -325,5 +325,21 @@ mod tests {
         assert!(report.records[1].location.is_none());
         assert!(!report.records[1].notes.is_empty());
         assert!(!human(&report.records[1]).contains("broken"));
+        assert_eq!(
+            human(&report.records[0]),
+            include_str!("../tests/fixtures/report/valid.human")
+        );
+        assert_eq!(
+            serde_json::to_string(&report.records[0]).unwrap(),
+            include_str!("../tests/fixtures/report/valid.json")
+        );
+        assert_eq!(
+            human(&report.records[1]),
+            include_str!("../tests/fixtures/report/unavailable.human")
+        );
+        assert_eq!(
+            serde_json::to_string(&report.records[1]).unwrap(),
+            include_str!("../tests/fixtures/report/unavailable.json")
+        );
     }
 }

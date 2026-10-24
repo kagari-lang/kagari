@@ -1,0 +1,28 @@
+struct Pending {
+    val ready: Vec<i32>,
+    val spare: Vec<i32>
+}
+
+impl Default for Pending {
+    fn default() -> Self {
+        print("default-enter");
+        var last: Vec<i32> = Default::default();
+        var n = 0;
+        while n < 2048 {
+            last = Vec::from([n]);
+            n += 1;
+        }
+        print("default-exit");
+        Pending { ready: Vec::new(), spare: last }
+    }
+}
+
+fn explicit() -> Vec<i32> {
+    print("explicit");
+    Vec::from([41])
+}
+
+fn main() -> i32 {
+    val pending = Pending { ready: explicit(), ..Default::default() };
+    pending.ready[0] + pending.spare[0]
+}

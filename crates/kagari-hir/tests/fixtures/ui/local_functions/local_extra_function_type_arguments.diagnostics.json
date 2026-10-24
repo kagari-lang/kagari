@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_TYPE_INVALID_CALL_TARGET",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 62,
+          "path": "locals.kgr",
+          "start": 47
+        }
+      }
+    ],
+    "message": "value of type `expected 1 type arguments, found 2` cannot be called",
+    "notes": [],
+    "primary": {
+      "end": 62,
+      "path": "locals.kgr",
+      "start": 47
+    },
+    "severity": "error"
+  }
+]

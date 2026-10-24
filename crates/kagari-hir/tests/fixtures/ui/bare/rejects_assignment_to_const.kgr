@@ -1,0 +1,3 @@
+
+const VERSION: i32 = 1;
+fn main() -> i32 { VERSION = 2; 0 }

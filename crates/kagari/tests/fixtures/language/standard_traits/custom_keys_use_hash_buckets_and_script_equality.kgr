@@ -1,0 +1,102 @@
+use std::collections::{ HashMap, HashSet };
+
+use std::hash::{ Hash };
+
+struct Key {
+    val id: i32,
+    var ignored: i32
+}
+
+impl PartialEq for Key {
+    fn eq(self, other: Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for Key {}
+
+impl Hash for Key {
+    fn hash(self) -> i64 {
+        0.hash()
+    }
+}
+
+fn store<T: Eq + Hash>(map: HashMap<T, i32>, key: T, value: i32) {
+    map.insert(key, value);
+}
+
+fn main() -> i32 {
+    val map: HashMap<(Option<Key>, i32), i32> = HashMap::new();
+    val a = Key { id: 1, ignored: 0 };
+    val b = Key { id: 2, ignored: 0 };
+    store(map, (Some(a), 7), 20);
+    store(map, (Some(b), 7), 21);
+    a.ignored = 99;
+    store(map, (Some(Key { id: 1, ignored: 3 }), 7), 22);
+    val set: HashSet<Key> = HashSet::new();
+    set.insert(a);
+    set.insert(b);
+    set.insert(Key { id: 1, ignored: 4 });
+    {
+        val passed = set.len() == Vec::from([1, 2]).len();
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    {
+        val passed = set.contains(Key { id: 2, ignored: 5 });
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    {
+        val passed = set.remove(Key { id: 2, ignored: 5 });
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    {
+        val passed = !set.contains(b);
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    {
+        val passed = map.len() == Vec::from([1, 2]).len();
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    {
+        val passed = map.contains_key((Some(Key { id: 2, ignored: 0 }), 7));
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    val query = (Some(Key { id: 1, ignored: 0 }), 7);
+    val found = map.get(query);
+    val result = match found {
+        Some(value) => value,
+        None => 0
+    };
+    {
+        val passed = (
+            match map.remove((Some(b), 7)) {
+                Some(value) => value,
+                None => 0
+            }
+        ) ==
+            21;
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    result + 20
+}

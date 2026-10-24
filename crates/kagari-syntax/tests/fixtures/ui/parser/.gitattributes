@@ -1,0 +1,2 @@
+*.kgr text eol=lf
+*.diagnostics.json text eol=lf

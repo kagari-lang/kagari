@@ -1,0 +1,42 @@
+trait Read {
+    type Item;
+    fn read(self) -> Self::Item;
+}
+
+trait Child: Read<Item = i32> {
+    fn extra(self) -> Self::Item;
+}
+
+struct Number {
+    val value: i32
+}
+
+impl Read for Number {
+    type Item = i32;
+    fn read(self) -> Self::Item {
+        self.value
+    }
+}
+
+impl Child for Number {
+    fn extra(self) -> Self::Item {
+        0
+    }
+}
+
+fn generic<T: Child>(x: T) -> T::Item {
+    x.read()
+}
+
+fn qualified<T: Child>(x: T) -> <T as Read>::Item {
+    x.read()
+}
+
+fn parent(x: Child) -> Read<Item = i32> {
+    x
+}
+
+fn main() -> i32 {
+    val x: Child = Number { value: 14 };
+    generic(Number { value: 14 }) + qualified(Number { value: 14 }) + parent(x).read() + x.extra()
+}

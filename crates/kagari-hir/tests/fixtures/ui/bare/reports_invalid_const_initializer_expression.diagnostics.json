@@ -1,0 +1,44 @@
+[
+  {
+    "code": "KG_TYPE_INVALID_CONST_INITIALIZER",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 29,
+          "path": "test.kg",
+          "start": 19
+        }
+      }
+    ],
+    "message": "invalid const initializer in const `VALUE`: unsupported const initializer expression",
+    "notes": [],
+    "primary": {
+      "end": 29,
+      "path": "test.kg",
+      "start": 19
+    },
+    "severity": "error"
+  },
+  {
+    "code": "KG_TYPE_INVALID_CONST_INITIALIZER",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 29,
+          "path": "test.kg",
+          "start": 19
+        }
+      }
+    ],
+    "message": "invalid const initializer in const `VALUE`: expected `i32`, found `String`",
+    "notes": [],
+    "primary": {
+      "end": 29,
+      "path": "test.kg",
+      "start": 19
+    },
+    "severity": "error"
+  }
+]

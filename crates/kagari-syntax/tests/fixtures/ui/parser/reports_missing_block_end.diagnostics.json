@@ -1,0 +1,15 @@
+[
+  {
+    "code": "KG_PARSE_EXPECTED_BLOCK_END",
+    "severity": "error",
+    "primary": { "path": "test.kg", "start": 18, "end": 18 },
+    "message": "expected `}` to end block",
+    "labels": [
+      {
+        "span": { "path": "test.kg", "start": 18, "end": 18 },
+        "message": "primary"
+      }
+    ],
+    "notes": []
+  }
+]

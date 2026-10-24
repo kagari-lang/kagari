@@ -1,0 +1,1 @@
+const x: i32 = 99; fn outer(x: i32) { fn inner() -> i32 { x } }

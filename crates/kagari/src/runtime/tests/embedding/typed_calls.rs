@@ -47,7 +47,7 @@ use std::{
 };
 
 fn prepare_typed_program(source: &str, providers: &[NativeModule]) -> PreparedProgram {
-    // Exercise SDK admission without importing unrelated protected foundation code.
+    // Exercise SDK admission and source observations under explicitly authored providers.
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("typed-calls.kgr", source.into(), SourceLayer::Base)
@@ -84,26 +84,10 @@ fn future_provider() -> NativeModule {
 
 #[test]
 fn existing_typed_handles_select_current_implementations_and_keep_closure_bodies() {
-    let source = r#"
-        pub fn value() -> i32 { 10 }
-        pub fn other() -> i32 { 7 }
-        pub use crate::value as selected;
-        pub fn named() -> fn() -> i32 { fn local() -> i32 { 10 } local }
-        pub fn closure() -> fn() -> i32 { || 100 + value() }
-        pub struct Item { pub val amount: i32 }
-        impl Item { pub fn read(self) -> i32 { self.amount + value() } }
-        pub trait Read { fn read(self) -> i32; }
-        impl Read for Item { fn read(self) -> i32 { self.amount + value() } }
-        pub fn make() -> Item { Item { amount: 1 } }
-        pub fn view() -> Read { make() }
-        pub fn evidence() -> i32 { make().read() }
-    "#;
+    let source = include_str!("../../../../tests/fixtures/embedding/typed/current-handles-v1.kgr");
     let first = prepare_typed_program(source, &[]);
     let second = prepare_typed_program(
-        &source
-            .replace("{ 10 }", "{ 20 }")
-            .replace("100 + value()", "200 + value()")
-            .replace("crate::value as selected", "crate::other as selected"),
+        include_str!("../../../../tests/fixtures/embedding/typed/current-handles-v2.kgr"),
         &[],
     );
     let mut runtime = SdkRuntime::new(Runtime::default(), Default::default());
@@ -169,16 +153,11 @@ fn existing_typed_handles_select_current_implementations_and_keep_closure_bodies
 
 #[test]
 fn async_typed_admission_retains_selected_factory_before_any_poll() {
-    let source = r#"
-        fn current() -> i32 { 1 }
-        pub async fn run() -> i32 { 10 + current() }
-    "#;
+    let source = include_str!("../../../../tests/fixtures/embedding/typed/async-admission-v1.kgr");
     let providers = [future_provider()];
     let first = prepare_typed_program(source, &providers);
     let second = prepare_typed_program(
-        &source
-            .replace("{ 1 }", "{ 2 }")
-            .replace("10 + current()", "100 + current()"),
+        include_str!("../../../../tests/fixtures/embedding/typed/async-admission-v2.kgr"),
         &providers,
     );
     let mut core = Runtime::default();
@@ -217,26 +196,13 @@ fn async_typed_admission_retains_selected_factory_before_any_poll() {
 
 #[test]
 fn interface_source_targets_distinguish_unbound_members_from_observed_implementations() {
-    let source = r#"
-        use fixture::typed::Future;
-        pub trait Inspect {
-            fn read(self) -> i32 { 999 }
-            fn later(self) -> Future<i32>;
-        }
-        impl Inspect for i32 {
-            fn read(self) -> i32 { 7 }
-            fn later(self) -> Future<i32> { async { 7 } }
-        }
-        impl Inspect for bool {
-            fn read(self) -> i32 { 9 }
-            fn later(self) -> Future<i32> { async { 9 } }
-        }
-        pub fn integer() -> Inspect { 1 }
-        pub fn boolean() -> Inspect { true }
-    "#;
+    let source = include_str!("../../../../tests/fixtures/embedding/typed/interface-source-v1.kgr");
     let providers = [future_provider()];
     let first = prepare_typed_program(source, &providers);
-    let second = prepare_typed_program(&source.replace("{ 7 }", "{ 17 }"), &providers);
+    let second = prepare_typed_program(
+        include_str!("../../../../tests/fixtures/embedding/typed/interface-source-v2.kgr"),
+        &providers,
+    );
     let mut core = Runtime::default();
     NativeModule::install_all(&providers, &mut core).unwrap();
     let mut runtime = SdkRuntime::new(core, Default::default());
@@ -352,14 +318,12 @@ fn interface_source_targets_intrinsic_bridges_survive_executable_reclamation() {
         }))
         .unwrap();
     let providers = providers.finish().unwrap().into_modules().unwrap();
-    let source = r#"
-        use core::hash::Hash;
-        pub fn primitive() -> Hash { 42 }
-        pub fn tuple() -> Hash { (42, true) }
-        pub fn version() -> i32 { 1 }
-    "#;
+    let source = include_str!("../../../../tests/fixtures/embedding/typed/intrinsic-source-v1.kgr");
     let first = prepare_typed_program(source, &providers);
-    let second = prepare_typed_program(&source.replace("{ 1 }", "{ 2 }"), &providers);
+    let second = prepare_typed_program(
+        include_str!("../../../../tests/fixtures/embedding/typed/intrinsic-source-v2.kgr"),
+        &providers,
+    );
     let mut core = Runtime::default();
     NativeModule::install_all(&providers, &mut core).unwrap();
     let mut runtime = SdkRuntime::new(core, Default::default());

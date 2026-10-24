@@ -32,9 +32,9 @@ fn checked(text: &str) -> CheckedProgram {
 #[test]
 fn executable_source_anchors_reject_same_document_definition_swaps() {
     let cancel = CancellationToken::default();
-    let checked = checked(
-        "fn a() -> i32 { 1 } fn b() -> i32 { 2 } struct A { val x: i32 } struct B { val y: i32 } fn unused<T>(x: T) -> T { x } fn other<T>(y: T) -> T { y }",
-    );
+    let checked = checked(include_str!(
+        "../../../tests/fixtures/source_package/declaration-swaps.kgr"
+    ));
     let bytecode = compile(&checked);
     let package = build_source_package(&checked, &bytecode, &cancel).unwrap();
     let artifact =

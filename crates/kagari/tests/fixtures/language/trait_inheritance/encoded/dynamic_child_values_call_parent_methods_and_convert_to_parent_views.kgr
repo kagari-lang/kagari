@@ -1,0 +1,37 @@
+trait Read {
+    fn read(self) -> i32;
+}
+
+trait Child: Read {
+    fn extra(self) -> i32;
+}
+
+struct Number {
+    val value: i32
+}
+
+impl Read for Number {
+    fn read(self) -> i32 {
+        self.value
+    }
+}
+
+impl Child for Number {
+    fn extra(self) -> i32 {
+        1
+    }
+}
+
+fn parent(value: Read) -> i32 {
+    value.read()
+}
+
+pub fn boxed(value: Child) -> Read {
+    value
+}
+
+fn main() -> i32 {
+    val child: Child = Number { value: 14 };
+    val parent_view: Read = child;
+    child.read() + parent(parent_view) + boxed(child).read()
+}

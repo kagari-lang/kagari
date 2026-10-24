@@ -159,6 +159,16 @@ installation and broader editor/platform matrix remain pending CI. Windows local
 acceptance does not establish those results. Semantic IDE features, editor
 server-launch integration and marketplace publication remain deferred.
 
+Before the next actual-editor acceptance, reconcile the pre-existing single-quote
+oracle drift: `editors/tests/vscode-host/index.cjs` expects no apostrophe autoclose,
+while `editors/vscode/language-configuration.json` enables character-quote pairing.
+The VS Code host README and Zed manual checklist also retain the old no-single-quote
+wording despite current pairing configuration. Resolve those oracles/checklists
+against the current character-literal contract, then run the real host checks;
+this source-level mismatch is not a reproduced current-host failure. It was not
+silently fixed or counted as passing by the test-organization migration. Zed's
+actual-host probe exit 2 remains incomplete even after successful grammar loading.
+
 Old analyzer repository retirement remains a separately authorized administrative
 action. Its public tree at `4a05bc564dd56c5e32f68c7f0138ddc83840cec2` and public
 issue/PR/release metadata were audited: only skeletons/design intent were present,
@@ -482,6 +492,23 @@ consumers, with an external collection proof. Builtin Array remains separate; re
 implemented host registration and scoped borrowing contracts.
 
 ## Test execution cost
+
+Repository-wide test organization is implemented and reconciled across all 24
+workspace members and the existing Node/Python/editor/browser/product/benchmark
+families. The [testing guide](testing.md) owns semantic classification, named cases,
+directory discovery, exact fixtures/goldens, strict parser/HIR/real-process CLI UI
+expectations and explicit ownership/lifecycle assertions. Existing library harnesses
+and eight integration targets remain; framework/parsing dependencies are dev-only.
+The completed phase plan was retired; Git history owns its mappings and command logs.
+
+Focused local behavior, exact-input/assertion preservation, discovery and deliberate
+mismatch checks passed, as did required structural/format/Clippy checks. This is
+not execution of every migrated case or complete CI acceptance. Full workspace,
+ignored grammar, backend/feature/platform and independent artifact/AOT deployment
+matrices remain CI-owned. Actual browser/Worker/UI and editor/WASI acceptance still
+need their documented dependencies, fresh products and host/manual checks; native
+adapter/provenance tests do not substitute for them. There is no measured speed or
+memory-reduction claim. The older preparation/performance debt below is unchanged.
 
 [The test preparation task](test-preparation-plan.md) has implemented reusable
 native preparation, isolated source sessions and three SDK pilot migrations.

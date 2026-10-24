@@ -164,36 +164,7 @@ fn group_cleanup_fault_case(fatal_entry: bool) {
     let starts = Arc::new(AtomicUsize::new(0));
     let cancels = Arc::new(AtomicUsize::new(0));
     let completions = Arc::new(Mutex::new(Vec::new()));
-    let mut f = Fixture::with_provider(Default::default(), |engine| {
-        let mut module = ModuleBuilder::new("test::fault", engine.declarations()).unwrap();
-        let future = module
-            .declarations()
-            .future_type()
-            .unwrap()
-            .apply([Type::i32()])
-            .unwrap();
-        let call = module
-            .define_function(
-                FunctionDecl::new("wait")
-                    .parameter("input", Type::i32())
-                    .returns(future),
-            )
-            .unwrap();
-        let (starts, cancels, completions) = (starts.clone(), cancels.clone(), completions.clone());
-        module
-            .bind::<Async<(i32,)>, i32>(call, move |(input,): (i32,), done: Completion<i32>| {
-                starts.fetch_add(1, Ordering::SeqCst);
-                completions.lock().unwrap().push(done);
-                let cancels = cancels.clone();
-                Ok(NativeStart::cancellable(move || {
-                    cancels.fetch_add(1, Ordering::SeqCst);
-                    assert_ne!(input, 10, "host cancellation cleanup fault");
-                }))
-            })
-            .unwrap();
-        engine.install(module.finish().unwrap()).unwrap();
-    });
-    f.load_source(
+    let mut f = Fixture::with_source(
         r#"
 use core::task::{join,try_join};
 use test::fault::wait;
@@ -203,7 +174,39 @@ pub async fn run() -> Result<(i32,i32),String> {
         async { request(30).await; Err("selected") }).await
 }
 "#,
+        Default::default(),
+        |engine| {
+            let mut module = ModuleBuilder::new("test::fault", engine.declarations()).unwrap();
+            let future = module
+                .declarations()
+                .future_type()
+                .unwrap()
+                .apply([Type::i32()])
+                .unwrap();
+            let call = module
+                .define_function(
+                    FunctionDecl::new("wait")
+                        .parameter("input", Type::i32())
+                        .returns(future),
+                )
+                .unwrap();
+            let (starts, cancels, completions) =
+                (starts.clone(), cancels.clone(), completions.clone());
+            module
+                .bind::<Async<(i32,)>, i32>(call, move |(input,): (i32,), done: Completion<i32>| {
+                    starts.fetch_add(1, Ordering::SeqCst);
+                    completions.lock().unwrap().push(done);
+                    let cancels = cancels.clone();
+                    Ok(NativeStart::cancellable(move || {
+                        cancels.fetch_add(1, Ordering::SeqCst);
+                        assert_ne!(input, 10, "host cancellation cleanup fault");
+                    }))
+                })
+                .unwrap();
+            engine.install(module.finish().unwrap()).unwrap();
+        },
     );
+
     let host = HostLoop::new();
     assert!(f.runtime.poll(&mut host.context()).is_pending());
     let future = f.invoke("run", &[]);
@@ -313,34 +316,38 @@ pub async fn waiting() -> i32 { val (a,b)=join(request(10),request(20)).await; a
 #[test]
 fn groups_share_parent_inputs_rng_and_host_recording() {
     let random = Arc::new(Mutex::new(Vec::new()));
-    let mut f = Fixture::with_provider(Default::default(), |engine| {
-        let mut module = ModuleBuilder::new("test::context", engine.declarations()).unwrap();
-        let function = module
-            .define_function(FunctionDecl::new("probe").returns(Type::i32()).host_policy(
-                HostCallPolicy {
-                    passing: vec![],
-                    effects: Default::default(),
-                },
-            ))
-            .unwrap();
-        let random = random.clone();
-        module
-            .bind(function, move |cx: &HostCallContext<'_>, _: &[Value]| {
-                assert_eq!(cx.execution_time_millis().unwrap(), 123);
-                random
-                    .lock()
-                    .unwrap()
-                    .push(cx.next_execution_random_u64().unwrap());
-                Ok(Value::I32(1))
-            })
-            .unwrap();
-        engine.install(module.finish().unwrap()).unwrap();
-    });
-    f.load_source(r#"
+    let mut f = Fixture::with_source(
+        r#"
 use test::context::probe;
 pub async fn grouped() -> i32 { probe(); val (a,b)=core::task::join(async { probe() },async { probe() }).await; probe()+a+b }
 pub async fn serial() -> i32 { probe(); val a=probe(); val b=probe(); probe()+a+b }
-"#);
+"#,
+        Default::default(),
+        |engine| {
+            let mut module = ModuleBuilder::new("test::context", engine.declarations()).unwrap();
+            let function = module
+                .define_function(FunctionDecl::new("probe").returns(Type::i32()).host_policy(
+                    HostCallPolicy {
+                        passing: vec![],
+                        effects: Default::default(),
+                    },
+                ))
+                .unwrap();
+            let random = random.clone();
+            module
+                .bind(function, move |cx: &HostCallContext<'_>, _: &[Value]| {
+                    assert_eq!(cx.execution_time_millis().unwrap(), 123);
+                    random
+                        .lock()
+                        .unwrap()
+                        .push(cx.next_execution_random_u64().unwrap());
+                    Ok(Value::I32(1))
+                })
+                .unwrap();
+            engine.install(module.finish().unwrap()).unwrap();
+        },
+    );
+
     let mut context = ExecutionContext {
         tracing_enabled: true,
         ..Default::default()
@@ -386,7 +393,7 @@ pub async fn serial() -> i32 { probe(); val a=probe(); val b=probe(); probe()+a+
 }
 
 #[test]
-fn groups_cold_and_waiting_branches_pin_reload_generation() {
+fn groups_keep_admitted_bodies_but_call_current_helpers_after_reload() {
     let source = r#"
 use test::async_sdk::request;
 pub fn version() -> i32 { 1 }
@@ -433,8 +440,8 @@ pub async fn run() -> i32 { val (a,b)=core::task::join(branch(),branch()).await;
     host.until(&mut f.runtime, || {
         waiting.is_finished() && retained.is_finished()
     });
-    assert_eq!(result(&mut waiting).unwrap(), 23);
-    assert_eq!(result(&mut retained).unwrap(), 23);
+    assert_eq!(result(&mut waiting).unwrap(), 320);
+    assert_eq!(result(&mut retained).unwrap(), 320);
     f.runtime.runtime().collect_garbage().unwrap();
     assert_eq!(
         f.runtime

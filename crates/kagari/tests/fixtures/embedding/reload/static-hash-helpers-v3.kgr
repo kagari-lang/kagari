@@ -1,0 +1,211 @@
+use std::collections::{
+    HashMap, HashSet, Map, MutableMap, MutableSet, Set, map_content_equal, set_content_equal
+};
+
+use std::hash::Hash;
+
+trait Read {
+    fn read(self) -> i32;
+}
+
+struct Reader {}
+
+impl Read for Reader {
+    fn read(self) -> i32 {
+        version() + STATE
+    }
+}
+
+trait Keep {
+    fn keep<T: Read>(self, value: T) -> fn() -> i32 {
+        || value.read()
+    }
+}
+
+impl Keep for i32 {}
+
+fn make_callback() -> fn() -> i32 {
+    val provider: Keep = 0;
+    provider.keep(Reader {})
+}
+
+struct Key {
+    val value: i32
+}
+
+impl PartialEq for Key {
+    fn eq(self, other: Self) -> bool {
+        EQ_BODY = 2;
+        EQ_HELPER = eq_marker();
+        self.value % 10 == other.value % 10
+    }
+}
+
+impl Eq for Key {}
+
+impl Hash for Key {
+    fn hash(self) -> i64 {
+        HASH_BODY = 2;
+        HASH_HELPER = hash_marker();
+        1i64
+    }
+}
+
+static var HASH_BODY: i32 = 0;
+
+static var HASH_HELPER: i32 = 0;
+
+static var EQ_BODY: i32 = 0;
+
+static var EQ_HELPER: i32 = 0;
+
+fn hash_marker() -> i32 {
+    4
+}
+
+fn eq_marker() -> i32 {
+    4
+}
+
+pub fn reset_markers() {
+    HASH_BODY = 0;
+    HASH_HELPER = 0;
+    EQ_BODY = 0;
+    EQ_HELPER = 0;
+}
+
+pub fn markers() -> i32 {
+    HASH_BODY * 1000 + HASH_HELPER * 100 + EQ_BODY * 10 + EQ_HELPER
+}
+
+pub fn hash_observed() -> i32 {
+    HASH_BODY * 10 + HASH_HELPER
+}
+
+fn version() -> i32 {
+    10
+}
+
+static var STATE: i32 = 1;
+
+static var CALLBACK: fn() -> i32 = make_callback();
+
+static val FUNCTION: fn() -> i32 = {
+    fn retained() -> i32 {
+        version()
+    }
+    retained
+};
+
+static val ORIGINAL: fn() -> i32 = CALLBACK;
+
+static var VIEW: Read = Reader {};
+
+static val ORIGINAL_VIEW: Read = VIEW;
+
+static val MAP: HashMap<Key, i32> = {
+    val map: HashMap<Key, i32> = HashMap::new();
+    map.insert(Key { value: 1 }, 7);
+    map
+};
+
+static val SET: HashSet<Key> = HashSet::from([Key { value: 1 }]);
+
+pub fn init() -> bool {
+    CALLBACK() == 11 && VIEW.read() == 11
+}
+
+pub fn map_lookup() -> bool {
+    MAP.get(Key { value: 11 }) == Some(7)
+}
+
+pub fn set_lookup() -> bool {
+    SET.contains(Key { value: 11 })
+}
+
+pub fn fresh_lookup() -> bool {
+    val map: HashMap<Key, i32> = HashMap::new();
+    map.insert(Key { value: 1 }, 7);
+    map.contains_key(Key { value: 11 })
+}
+
+pub fn compare_contents() -> i32 {
+    val other_map: HashMap<Key, i32> = HashMap::new();
+    other_map.insert(Key { value: 11 }, 7);
+    val other_set = HashSet::from([Key { value: 11 }]);
+    var matches = 0;
+    if MAP == other_map {
+        matches += 1;
+    }
+    if map_content_equal(MAP, other_map) {
+        matches += 2;
+    }
+    if SET == other_set {
+        matches += 4;
+    }
+    if set_content_equal(SET, other_set) {
+        matches += 8;
+    }
+    matches
+}
+
+pub fn content_hashes() -> bool {
+    val other_map: HashMap<Key, i32> = HashMap::new();
+    other_map.insert(Key { value: 1 }, 7);
+    val other_set = HashSet::from([Key { value: 1 }]);
+    MAP.hash() == other_map.hash() && SET.hash() == other_set.hash()
+}
+
+pub fn mutate_keys() -> bool {
+    MAP.insert(Key { value: 21 }, 9);
+    SET.insert(Key { value: 21 });
+    val map: MutableMap<Key, i32> = MAP;
+    val set: MutableSet<Key> = SET;
+    if map.len() != 1u64 || set.len() != 1u64 {
+        return false;
+    }
+    map.insert(Key { value: 31 }, 12);
+    set.insert(Key { value: 31 });
+    val read_map: Map<Key, i32> = map;
+    val read_set: Set<Key> = set;
+    val lookup = Key { value: 11 };
+    if read_map.get(lookup) != Some(12) || !read_set.contains(lookup) {
+        return false;
+    }
+    val removed = Key { value: 41 };
+    if map.remove(removed) != Some(12) || !set.remove(removed) {
+        return false;
+    }
+    if !map.is_empty() || !set.is_empty() {
+        return false;
+    }
+    MAP.insert(Key { value: 2 }, 15);
+    SET.insert(Key { value: 2 });
+    map.clear();
+    set.clear();
+    map.insert(Key { value: 3 }, 17);
+    set.insert(Key { value: 3 });
+    MAP.contains_key(Key { value: 13 }) && MAP.get(Key { value: 13 }) == Some(17) &&
+        SET.contains(Key { value: 13 })
+}
+
+pub fn function() -> i32 {
+    FUNCTION()
+}
+
+pub fn set_state() {
+    STATE = 5;
+}
+
+pub fn saved() -> i32 {
+    ORIGINAL() + ORIGINAL_VIEW.read()
+}
+
+pub fn current() -> i32 {
+    CALLBACK() + VIEW.read()
+}
+
+pub fn replace() {
+    CALLBACK = make_callback();
+    VIEW = Reader {};
+}

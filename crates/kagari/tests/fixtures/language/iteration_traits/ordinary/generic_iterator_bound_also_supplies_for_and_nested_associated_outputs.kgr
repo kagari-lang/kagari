@@ -1,0 +1,45 @@
+struct Counter {
+    var value: i32
+}
+
+impl Iterator for Counter {
+    type Item = i32;
+    fn next(self) -> Option<i32> {
+        if self.value > 0 {
+            val n = self.value;
+            self.value = 0;
+            Some(n)
+        } else {
+            None
+        }
+    }
+}
+
+fn consume<T: Iterator<Item = i32>>(it: T) -> i32 {
+    var total = 0;
+    for value in it {
+        total += value;
+    }
+    total
+}
+
+struct Wrap<T> {
+    val inner: T
+}
+
+impl<T: Iterator<Item = i32>> Iterable for Wrap<T> {
+    type Item = i32;
+    type Iter = T;
+    fn iter(self) -> T {
+        self.inner
+    }
+}
+
+fn main() -> i32 {
+    val a = Wrap { inner: Counter { value: 21 } };
+    var total = consume(Counter { value: 21 });
+    for value in a {
+        total += value;
+    }
+    total
+}

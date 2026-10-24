@@ -1,0 +1,13 @@
+use std::ops::Neg;
+
+fn negate<T: Neg<Output = T>>(value: T) -> T {
+    -value
+}
+
+fn forward<T>(value: T) -> T where T: Neg<Output = T> {
+    negate(value)
+}
+
+fn main() -> i32 {
+    forward(-20) + negate(-22)
+}

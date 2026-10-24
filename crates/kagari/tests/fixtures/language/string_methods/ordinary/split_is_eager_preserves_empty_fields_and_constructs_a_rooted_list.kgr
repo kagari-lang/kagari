@@ -1,0 +1,38 @@
+use std::collections::{ List };
+
+struct Text {
+    val text: String
+}
+
+fn fields<T: Fn () -> String>(source: T) -> List<String> {
+    source().split("|")
+}
+
+fn main() -> bool {
+    val source = Text { text: "|é||🙂|" };
+    val values = fields(|| source.text);
+    val scalars = "é🙂".split("");
+    val empty = "".split("|");
+    val combining = "é".split("");
+    val empty_pattern = "".split("");
+    val ordered = "b,a,b".split(",").sorted().distinct();
+    values.len() == 5u64 && values[0] == "" && values[1] == "é" && values[2] == "" &&
+        values[3] == "🙂" &&
+        values[4] == "" &&
+        source.text == "|é||🙂|" &&
+        scalars.len() == 4u64 &&
+        scalars[0] == "" &&
+        scalars[1] == "é" &&
+        scalars[2] == "🙂" &&
+        scalars[3] == "" &&
+        combining.len() == 4u64 &&
+        combining[1] == "e" &&
+        combining[2] == "́" &&
+        empty.len() == 1u64 &&
+        empty[0] == "" &&
+        empty_pattern.len() == 2u64 &&
+        empty_pattern[0] == "" &&
+        empty_pattern[1] == "" &&
+        ordered.len() == 2u64 &&
+        ordered[0] == "a"
+}

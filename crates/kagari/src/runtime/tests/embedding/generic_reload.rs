@@ -20,6 +20,7 @@ use kagari_runtime::{
 use kagari_source::source::SourceFile;
 use kagari_types::declaration::module::ModuleDecl;
 use kagari_vm::vm::Vm;
+use rstest::rstest;
 
 pub(super) fn prepare_static_program(
     engine: &KagariEngine,
@@ -51,8 +52,10 @@ fn static_call(runtime: &Runtime, module: &Program, entry: &str) -> Value {
         .unwrap()
 }
 
-#[test]
-fn persistent_static_char_preserves_state_and_rejects_integer_retyping() {
+#[rstest]
+#[case::source(false)]
+#[case::decoded_artifact(true)]
+fn persistent_static_char_preserves_state_and_rejects_integer_retyping(#[case] decoded: bool) {
     let source = r#"
 static var STATE: char = 'a';
 pub fn read() -> u32 { u32::from(STATE) }
@@ -63,318 +66,180 @@ static var STATE: u32 = 97u32;
 pub fn read() -> u32 { u32::from(STATE) }
 pub fn write() { STATE = 128578u32; }
 "#;
-    for decoded in [false, true] {
-        let engine = KagariEngine::default();
-        let first = prepare_static_program(&engine, source, decoded);
-        let changed_initializer =
-            prepare_static_program(&engine, &source.replace("'a'", "'z'"), decoded);
-        let second = prepare_static_program(
-            &engine,
-            &source.replace("u32::from(STATE)", "u32::from(STATE) + 0u32"),
-            decoded,
-        );
-        let incompatible = prepare_static_program(&engine, retyped, decoded);
-        let mut runtime = engine.runtime(Default::default());
-        let old = runtime.load_program(&first, Default::default()).unwrap();
-        assert_eq!(static_call(&runtime, &old, "read"), Value::I64(97));
-        static_call(&runtime, &old, "write");
-        assert_eq!(
-            runtime
-                .reload_program(&old, &changed_initializer, Default::default())
-                .unwrap_err()
-                .code(),
-            "KG_RELOAD_UPDATE_EVIDENCE"
-        );
+    let engine = KagariEngine::default();
+    let first = prepare_static_program(&engine, source, decoded);
+    let changed_initializer =
+        prepare_static_program(&engine, &source.replace("'a'", "'z'"), decoded);
+    let second = prepare_static_program(
+        &engine,
+        &source.replace("u32::from(STATE)", "u32::from(STATE) + 0u32"),
+        decoded,
+    );
+    let incompatible = prepare_static_program(&engine, retyped, decoded);
+    let mut runtime = engine.runtime(Default::default());
+    let old = runtime.load_program(&first, Default::default()).unwrap();
+    assert_eq!(static_call(&runtime, &old, "read"), Value::I64(97));
+    static_call(&runtime, &old, "write");
+    assert_eq!(
         runtime
-            .reload_program(&old, &second, Default::default())
-            .unwrap();
-        let current = old.clone();
-        assert!(
-            runtime
-                .reload_program(&current, &incompatible, Default::default())
-                .is_err()
-        );
-        for module in [&old, &current] {
-            assert_eq!(static_call(&runtime, module, "read"), Value::I64(128578));
-        }
-    }
-}
-
-#[test]
-fn persistent_static_objects_and_recursive_nominal_collections_preserve_aliases() {
-    let source = r#"
-use std::collections::{HashMap, HashSet};
-struct Node { var value: i32, val children: Vec<Node> }
-enum Envelope { Kept(Option<Result<(String, [Node]), i32>>) }
-static var ROOT: Node = Node { value: 1, children: Vec::new() };
-static val ALIAS: Node = ROOT;
-static val ITEMS: Vec<Option<Node>> = Vec::from([Some(ROOT)]);
-static val TABLE: HashMap<String, Vec<Node>> = {
-    val map: HashMap<String, Vec<Node>> = HashMap::new();
-    map.insert("root", Vec::from([ROOT]));
-    map
-};
-static val KEYS: HashSet<String> = HashSet::from(["root"]);
-static val PACKED: Envelope = Envelope::Kept(Some(Ok(("root", [ROOT]))));
-static val UNIT: () = ();
-pub fn check() -> bool {
-    UNIT;
-    val item = match ITEMS[0] { Some(node) => node, None => { return false; } };
-    val nodes = match TABLE.get("root") { Some(nodes) => nodes, None => { return false; } };
-    val packed = match PACKED {
-        Envelope::Kept(Some(Ok(pair))) => pair,
-        _ => { return false; },
-    };
-    item === ALIAS && nodes[0] === ALIAS && packed[1][0] === ALIAS
-        && KEYS.contains(packed[0])
-}
-pub fn replace() {
-    ROOT = Node { value: 90, children: Vec::new() };
-    ALIAS.value = 7;
-    ALIAS.children.push(ROOT);
-}
-pub fn read() -> i32 { ALIAS.value * 100 + ALIAS.children[0].value }
-pub fn distinct() -> bool { !(ROOT === ALIAS) }
-"#;
-    for decoded in [false, true] {
-        let engine = KagariEngine::default();
-        let first = prepare_static_program(&engine, source, decoded);
-        let changed_initializer =
-            prepare_static_program(&engine, &source.replace("value: 1,", "value: 2,"), decoded);
-        let second = prepare_static_program(
-            &engine,
-            &source.replace("value: 90,", "value: 91,"),
-            decoded,
-        );
-        let mut runtime = engine.runtime(Default::default());
-        let old = runtime.load_program(&first, Default::default()).unwrap();
-        assert_eq!(static_call(&runtime, &old, "check"), Value::Bool(true));
-        assert_eq!(
-            runtime
-                .reload_program(&old, &changed_initializer, Default::default())
-                .unwrap_err()
-                .code(),
-            "KG_RELOAD_UPDATE_EVIDENCE"
-        );
+            .reload_program(&old, &changed_initializer, Default::default())
+            .unwrap_err()
+            .code(),
+        "KG_RELOAD_UPDATE_EVIDENCE"
+    );
+    runtime
+        .reload_program(&old, &second, Default::default())
+        .unwrap();
+    let current = old.clone();
+    assert!(
         runtime
-            .reload_program(&old, &second, Default::default())
-            .unwrap();
-        let current = old.clone();
-        static_call(&runtime, &current, "replace");
-        for module in [&old, &current] {
-            assert_eq!(static_call(&runtime, module, "check"), Value::Bool(true));
-            assert_eq!(static_call(&runtime, module, "distinct"), Value::Bool(true));
-            assert_eq!(static_call(&runtime, module, "read"), Value::I32(791));
-        }
+            .reload_program(&current, &incompatible, Default::default())
+            .is_err()
+    );
+    for module in [&old, &current] {
+        assert_eq!(static_call(&runtime, module, "read"), Value::I64(128578));
     }
 }
 
-const STATIC_PINNING_SOURCE: &str = r#"
-use std::collections::{HashMap, HashSet, Map, MutableMap, MutableSet, Set, map_content_equal, set_content_equal};
-use std::hash::Hash;
-trait Read { fn read(self) -> i32; }
-struct Reader {}
-impl Read for Reader { fn read(self) -> i32 { version() + STATE } }
-trait Keep {
-    fn keep<T: Read>(self, value: T) -> fn() -> i32 { || value.read() }
-}
-impl Keep for i32 {}
-fn make_callback() -> fn() -> i32 { val provider: Keep = 0; provider.keep(Reader {}) }
-struct Key { val value: i32 }
-impl PartialEq for Key { fn eq(self, other: Self) -> bool {
-    EQ_BODY = 1; EQ_HELPER = eq_marker(); self.value % 10 == other.value % 10
-} }
-impl Eq for Key {}
-impl Hash for Key { fn hash(self) -> i64 { HASH_BODY = 1; HASH_HELPER = hash_marker(); 1i64 } }
-static var HASH_BODY: i32 = 0;
-static var HASH_HELPER: i32 = 0;
-static var EQ_BODY: i32 = 0;
-static var EQ_HELPER: i32 = 0;
-fn hash_marker() -> i32 { 3 }
-fn eq_marker() -> i32 { 3 }
-pub fn reset_markers() { HASH_BODY = 0; HASH_HELPER = 0; EQ_BODY = 0; EQ_HELPER = 0; }
-pub fn markers() -> i32 { HASH_BODY * 1000 + HASH_HELPER * 100 + EQ_BODY * 10 + EQ_HELPER }
-pub fn hash_observed() -> i32 { HASH_BODY * 10 + HASH_HELPER }
-fn version() -> i32 { 10 }
-static var STATE: i32 = 1;
-static var CALLBACK: fn() -> i32 = make_callback();
-static val FUNCTION: fn() -> i32 = { fn retained() -> i32 { version() } retained };
-static val ORIGINAL: fn() -> i32 = CALLBACK;
-static var VIEW: Read = Reader {};
-static val ORIGINAL_VIEW: Read = VIEW;
-static val MAP: HashMap<Key, i32> = {
-    val map: HashMap<Key, i32> = HashMap::new();
-    map.insert(Key { value: 1 }, 7);
-    map
-};
-static val SET: HashSet<Key> = HashSet::from([Key { value: 1 }]);
-pub fn init() -> bool { CALLBACK() == 11 && VIEW.read() == 11 }
-pub fn map_lookup() -> bool { MAP.get(Key { value: 11 }) == Some(7) }
-pub fn set_lookup() -> bool { SET.contains(Key { value: 11 }) }
-pub fn fresh_lookup() -> bool {
-    val map: HashMap<Key, i32> = HashMap::new();
-    map.insert(Key { value: 1 }, 7);
-    map.contains_key(Key { value: 11 })
-}
-pub fn compare_contents() -> i32 {
-    val other_map: HashMap<Key, i32> = HashMap::new();
-    other_map.insert(Key { value: 11 }, 7);
-    val other_set = HashSet::from([Key { value: 11 }]);
-    var matches = 0;
-    if MAP == other_map { matches += 1; }
-    if map_content_equal(MAP, other_map) { matches += 2; }
-    if SET == other_set { matches += 4; }
-    if set_content_equal(SET, other_set) { matches += 8; }
-    matches
-}
-pub fn content_hashes() -> bool {
-    val other_map: HashMap<Key, i32> = HashMap::new();
-    other_map.insert(Key { value: 1 }, 7);
-    val other_set = HashSet::from([Key { value: 1 }]);
-    MAP.hash() == other_map.hash() && SET.hash() == other_set.hash()
-}
-pub fn mutate_keys() -> bool {
-    MAP.insert(Key { value: 21 }, 9);
-    SET.insert(Key { value: 21 });
-    val map: MutableMap<Key, i32> = MAP;
-    val set: MutableSet<Key> = SET;
-    if map.len() != 1u64 || set.len() != 1u64 { return false; }
-    map.insert(Key { value: 31 }, 12);
-    set.insert(Key { value: 31 });
-    val read_map: Map<Key, i32> = map;
-    val read_set: Set<Key> = set;
-    val lookup = Key { value: 11 };
-    if read_map.get(lookup) != Some(12) || !read_set.contains(lookup) {
-        return false;
+#[rstest]
+#[case::source(false)]
+#[case::decoded_artifact(true)]
+fn persistent_static_objects_and_recursive_nominal_collections_preserve_aliases(
+    #[case] decoded: bool,
+) {
+    let source = include_str!(
+        "../../../../tests/fixtures/test-fixtures/embedding/persistent-static-objects.kgr"
+    );
+    assert_eq!(source.matches("value: 1,").count(), 1);
+    assert_eq!(source.matches("value: 90,").count(), 1);
+    let engine = KagariEngine::default();
+    let first = prepare_static_program(&engine, source, decoded);
+    let changed_initializer =
+        prepare_static_program(&engine, &source.replace("value: 1,", "value: 2,"), decoded);
+    let second = prepare_static_program(
+        &engine,
+        &source.replace("value: 90,", "value: 91,"),
+        decoded,
+    );
+    let mut runtime = engine.runtime(Default::default());
+    let old = runtime.load_program(&first, Default::default()).unwrap();
+    assert_eq!(static_call(&runtime, &old, "check"), Value::Bool(true));
+    assert_eq!(
+        runtime
+            .reload_program(&old, &changed_initializer, Default::default())
+            .unwrap_err()
+            .code(),
+        "KG_RELOAD_UPDATE_EVIDENCE"
+    );
+    runtime
+        .reload_program(&old, &second, Default::default())
+        .unwrap();
+    let current = old.clone();
+    static_call(&runtime, &current, "replace");
+    for module in [&old, &current] {
+        assert_eq!(static_call(&runtime, module, "check"), Value::Bool(true));
+        assert_eq!(static_call(&runtime, module, "distinct"), Value::Bool(true));
+        assert_eq!(static_call(&runtime, module, "read"), Value::I32(791));
     }
-    val removed = Key { value: 41 };
-    if map.remove(removed) != Some(12) || !set.remove(removed) {
-        return false;
-    }
-    if !map.is_empty() || !set.is_empty() { return false; }
-    MAP.insert(Key { value: 2 }, 15);
-    SET.insert(Key { value: 2 });
-    map.clear();
-    set.clear();
-    map.insert(Key { value: 3 }, 17);
-    set.insert(Key { value: 3 });
-    MAP.contains_key(Key { value: 13 }) && MAP.get(Key { value: 13 }) == Some(17)
-        && SET.contains(Key { value: 13 })
 }
-pub fn function() -> i32 { FUNCTION() }
-pub fn set_state() { STATE = 5; }
-pub fn saved() -> i32 { ORIGINAL() + ORIGINAL_VIEW.read() }
-pub fn current() -> i32 { CALLBACK() + VIEW.read() }
-pub fn replace() { CALLBACK = make_callback(); VIEW = Reader {}; }
-"#;
 
-#[test]
-fn persistent_static_callbacks_and_interfaces_call_current_helpers() {
-    let source = STATIC_PINNING_SOURCE;
+const STATIC_SOURCE: &str =
+    include_str!("../../../../tests/fixtures/embedding/reload/static-values-v1.kgr");
+
+#[rstest]
+#[case::source(false)]
+#[case::decoded_artifact(true)]
+fn persistent_static_callbacks_and_interfaces_call_current_helpers(#[case] decoded: bool) {
+    let source = STATIC_SOURCE;
     // Initializer expressions stay fixed; retained values call current helpers.
     // Explicit assignment still replaces cells without changing their saved aliases.
-    let replacement = format!(
-        "{}\nstruct UpdatedReader {{}}\nimpl Read for UpdatedReader {{ fn read(self) -> i32 {{ 30 + STATE }} }}",
-        source
-            .replace("fn version() -> i32 { 10 }", "fn version() -> i32 { 20 }")
-            .replace(
-                "CALLBACK = make_callback(); VIEW = Reader {};",
-                "CALLBACK = || 30 + STATE; VIEW = UpdatedReader {};",
-            )
-    );
-    for decoded in [false, true] {
-        let engine = KagariEngine::default();
-        let first = prepare_static_program(&engine, source, decoded);
-        let second = prepare_static_program(&engine, &replacement, decoded);
-        let mut runtime = engine.runtime(Default::default());
-        let old = runtime.load_program(&first, Default::default()).unwrap();
-        assert_eq!(static_call(&runtime, &old, "init"), Value::Bool(true));
-        // Force the aliases before replacing their original cells.
-        assert_eq!(static_call(&runtime, &old, "saved"), Value::I32(22));
-        assert_eq!(static_call(&runtime, &old, "function"), Value::I32(10));
-        runtime
-            .reload_program(&old, &second, Default::default())
-            .unwrap();
-        let current = old.clone();
-        static_call(&runtime, &current, "set_state");
+    let replacement =
+        include_str!("../../../../tests/fixtures/embedding/reload/static-callbacks-v2.kgr");
+    let engine = KagariEngine::default();
+    let first = prepare_static_program(&engine, source, decoded);
+    let second = prepare_static_program(&engine, replacement, decoded);
+    let mut runtime = engine.runtime(Default::default());
+    let old = runtime.load_program(&first, Default::default()).unwrap();
+    assert_eq!(static_call(&runtime, &old, "init"), Value::Bool(true));
+    // Force the aliases before replacing their original cells.
+    assert_eq!(static_call(&runtime, &old, "saved"), Value::I32(22));
+    assert_eq!(static_call(&runtime, &old, "function"), Value::I32(10));
+    runtime
+        .reload_program(&old, &second, Default::default())
+        .unwrap();
+    let current = old.clone();
+    static_call(&runtime, &current, "set_state");
 
-        assert_eq!(
-            static_call(&runtime, &current, "fresh_lookup"),
-            Value::Bool(true)
-        );
-        assert_eq!(static_call(&runtime, &current, "current"), Value::I32(50));
-        assert_eq!(static_call(&runtime, &current, "function"), Value::I32(20));
-        static_call(&runtime, &current, "replace");
-        assert_eq!(static_call(&runtime, &current, "current"), Value::I32(70));
-        assert_eq!(static_call(&runtime, &current, "saved"), Value::I32(50));
-        assert_eq!(static_call(&runtime, &old, "current"), Value::I32(70));
-    }
+    assert_eq!(
+        static_call(&runtime, &current, "fresh_lookup"),
+        Value::Bool(true)
+    );
+    assert_eq!(static_call(&runtime, &current, "current"), Value::I32(50));
+    assert_eq!(static_call(&runtime, &current, "function"), Value::I32(20));
+    static_call(&runtime, &current, "replace");
+    assert_eq!(static_call(&runtime, &current, "current"), Value::I32(70));
+    assert_eq!(static_call(&runtime, &current, "saved"), Value::I32(50));
+    assert_eq!(static_call(&runtime, &old, "current"), Value::I32(70));
 }
 
-#[test]
-fn persistent_static_hash_comparators_use_current_bodies_and_helpers() {
-    let source = STATIC_PINNING_SOURCE;
-    let bodies = source
-        .replace("HASH_BODY = 1;", "HASH_BODY = 2;")
-        .replace("EQ_BODY = 1;", "EQ_BODY = 2;");
-    let helpers = bodies
-        .replace(
-            "fn hash_marker() -> i32 { 3 }",
-            "fn hash_marker() -> i32 { 4 }",
-        )
-        .replace("fn eq_marker() -> i32 { 3 }", "fn eq_marker() -> i32 { 4 }");
-    for decoded in [false, true] {
-        let engine = KagariEngine::default();
-        let first = prepare_static_program(&engine, source, decoded);
-        let mut runtime = engine.runtime(Default::default());
-        let old = runtime.load_program(&first, Default::default()).unwrap();
-        for entry in ["map_lookup", "set_lookup"] {
-            assert_eq!(static_call(&runtime, &old, entry), Value::Bool(true));
-        }
-        assert_eq!(
-            static_call(&runtime, &old, "compare_contents"),
-            Value::I32(15)
-        );
-        for (updated, expected) in [(&bodies, 2323), (&helpers, 2424)] {
-            let candidate = prepare_static_program(&engine, updated, decoded);
-            runtime
-                .reload_program(&old, &candidate, Default::default())
-                .unwrap();
-            for entry in ["map_lookup", "set_lookup"] {
-                static_call(&runtime, &old, "reset_markers");
-                assert_eq!(static_call(&runtime, &old, entry), Value::Bool(true));
-                assert_eq!(static_call(&runtime, &old, "markers"), Value::I32(expected));
-            }
-        }
-        let current = old.clone();
-        assert_eq!(
-            static_call(&runtime, &current, "compare_contents"),
-            Value::I32(15)
-        );
-        assert_eq!(
-            static_call(&runtime, &current, "content_hashes"),
-            Value::Bool(true)
-        );
-        assert_eq!(
-            static_call(&runtime, &current, "fresh_lookup"),
-            Value::Bool(true)
-        );
-        for entry in ["map_lookup", "set_lookup", "mutate_keys"] {
-            assert_eq!(static_call(&runtime, &current, entry), Value::Bool(true));
-        }
-        let changed_hash = helpers
-            .replace("HASH_BODY = 2;", "HASH_BODY = 3;")
-            .replace("hash_marker(); 1i64", "hash_marker(); 2i64");
-        let candidate = prepare_static_program(&engine, &changed_hash, decoded);
+#[rstest]
+#[case::source(false)]
+#[case::decoded_artifact(true)]
+fn persistent_static_hash_comparators_use_current_bodies_and_helpers(#[case] decoded: bool) {
+    let source = STATIC_SOURCE;
+    let bodies =
+        include_str!("../../../../tests/fixtures/embedding/reload/static-hash-bodies-v2.kgr");
+    let helpers =
+        include_str!("../../../../tests/fixtures/embedding/reload/static-hash-helpers-v3.kgr");
+    let engine = KagariEngine::default();
+    let first = prepare_static_program(&engine, source, decoded);
+    let mut runtime = engine.runtime(Default::default());
+    let old = runtime.load_program(&first, Default::default()).unwrap();
+    for entry in ["map_lookup", "set_lookup"] {
+        assert_eq!(static_call(&runtime, &old, entry), Value::Bool(true));
+    }
+    assert_eq!(
+        static_call(&runtime, &old, "compare_contents"),
+        Value::I32(15)
+    );
+    for (updated, expected) in [(bodies, 2323), (helpers, 2424)] {
+        let candidate = prepare_static_program(&engine, updated, decoded);
         runtime
             .reload_program(&old, &candidate, Default::default())
             .unwrap();
         for entry in ["map_lookup", "set_lookup"] {
             static_call(&runtime, &old, "reset_markers");
-            // Changed hashes need not find old entries. Only current dispatch is asserted.
-            let _ = static_call(&runtime, &old, entry);
-            assert_eq!(static_call(&runtime, &old, "hash_observed"), Value::I32(34));
+            assert_eq!(static_call(&runtime, &old, entry), Value::Bool(true));
+            assert_eq!(static_call(&runtime, &old, "markers"), Value::I32(expected));
         }
+    }
+    let current = old.clone();
+    assert_eq!(
+        static_call(&runtime, &current, "compare_contents"),
+        Value::I32(15)
+    );
+    assert_eq!(
+        static_call(&runtime, &current, "content_hashes"),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        static_call(&runtime, &current, "fresh_lookup"),
+        Value::Bool(true)
+    );
+    for entry in ["map_lookup", "set_lookup", "mutate_keys"] {
+        assert_eq!(static_call(&runtime, &current, entry), Value::Bool(true));
+    }
+    let changed_hash =
+        include_str!("../../../../tests/fixtures/embedding/reload/static-hash-change-v4.kgr");
+    let candidate = prepare_static_program(&engine, changed_hash, decoded);
+    runtime
+        .reload_program(&old, &candidate, Default::default())
+        .unwrap();
+    for entry in ["map_lookup", "set_lookup"] {
+        static_call(&runtime, &old, "reset_markers");
+        // Changed hashes need not find old entries. Only current dispatch is asserted.
+        let _ = static_call(&runtime, &old, entry);
+        assert_eq!(static_call(&runtime, &old, "hash_observed"), Value::I32(34));
     }
 }
 
@@ -420,37 +285,13 @@ fn decode_program(
 
 #[test]
 fn retained_local_function_values_call_current_bodies_and_clean_up_all_exits() {
-    let source = r#"
-trait Run { fn run(self, mode: i32) -> i32; }
-struct Saved { val callback: fn(i32) -> i32 }
-impl Run for Saved { fn run(self, mode: i32) -> i32 { (self.callback)(mode) } }
-trait Keep {
-    fn keep<F: Fn(i32) -> i32>(self, callback: F) -> Run {
-        Saved { callback: |mode| {
-            val boxed: Fn<(i32,), Output=i32> = callback;
-            boxed.call((mode,))
-        } }
-    }
-}
-impl Keep for i32 {}
-pub fn make() -> Run {
-    fn local(mode: i32) -> i32 {
-        val items = Vec::from([mode]);
-        fn work(items: Vec<i32>) -> i32 {
-            if items[0] == 0 { 42 }
-            else if items[0] == 1 { val zero = items[0] - 1; 1 / zero }
-            else if items[0] == 2 { work(items) }
-            else { loop {} }
-        }
-        work(items)
-    }
-    val keeper: Keep = 0;
-    keeper.keep(local)
-}
-"#;
+    let source = include_str!("../../../../tests/fixtures/embedding/reload/local-functions-v1.kgr");
     let engine = KagariEngine::default();
     let program = prepare(&engine, source);
-    let replacement = prepare(&engine, &source.replace("{ 42 }", "{ 43 }"));
+    let replacement = prepare(
+        &engine,
+        include_str!("../../../../tests/fixtures/embedding/reload/local-functions-v2.kgr"),
+    );
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
     config.limits.max_call_depth = Some(32);
@@ -519,190 +360,124 @@ pub fn make() -> Run {
     );
 }
 
-#[test]
-fn retained_generic_default_and_override_closures_use_current_operations_after_reload() {
-    let method = "fn keep<T: Ord + Default + Read>(self, a: T, b: T) -> fn(i32) -> bool { val early: Read = a; |mode| if mode == 1 { T::default() == a } else if mode == 2 { early.read() } else if mode == 3 { val late: Read = a; late.read() } else { a.cmp(b) == Ordering::Less } }";
-    for implementation in [String::new(), method.to_owned()] {
-        let source = format!(
-            r#"use std::cmp::{{Ordering}};
-
-trait Read {{ fn read(self) -> bool; }}
-trait Keep {{ {method} }}
-impl Keep for i32 {{ {implementation} }}
-struct Rank {{ val value: i32 }}
-impl Read for Rank {{ fn read(self) -> bool {{ true }} }}
-impl Default for Rank {{ fn default() -> Self {{ Rank {{ value: 1 }} }} }}
-impl PartialEq for Rank {{ fn eq(self, other: Self) -> bool {{ self.value == other.value }} }}
-impl Eq for Rank {{}}
-impl PartialOrd for Rank {{ fn partial_cmp(self, other: Self) -> Option<Ordering> {{ self.value.partial_cmp(other.value) }} }}
-impl Ord for Rank {{ fn cmp(self, other: Self) -> Ordering {{ self.value.cmp(other.value) }} }}
-trait Run {{ fn run(self) -> bool; fn selected_default(self) -> bool; fn constructed(self) -> bool; fn late_constructed(self) -> bool; }}
-struct Saved {{ val callback: fn(i32) -> bool }}
-impl Run for Saved {{
-    fn run(self) -> bool {{ (self.callback)(0) }}
-    fn selected_default(self) -> bool {{ (self.callback)(1) }}
-    fn constructed(self) -> bool {{ (self.callback)(2) }}
-    fn late_constructed(self) -> bool {{ (self.callback)(3) }}
-}}
-pub fn make() -> Run {{
-    val keeper: Keep = 0;
-    Saved {{ callback: keeper.keep(Rank {{ value: 1 }}, Rank {{ value: 2 }}) }}
-}}
-"#
-        );
-        let engine = KagariEngine::default();
-        let program = prepare(&engine, &source);
-        let replacement = prepare(
-            &engine,
-            &source
-                .replace("self.value.cmp(other.value)", "other.value.cmp(self.value)")
-                .replace(
-                    "fn read(self) -> bool { true }",
-                    "fn read(self) -> bool { false }",
-                )
-                .replace(
-                    "fn default() -> Self { Rank { value: 1 } }",
-                    "fn default() -> Self { Rank { value: 2 } }",
-                ),
-        );
-        let mut config = RuntimeConfig::default();
-        config.gc.collection_threshold = Some(1);
-        let mut runtime = {
-            let mut registered = CoreRuntime::new(config);
-            kagari_runtime::native::module::NativeModule::install_all(
-                &kagari_stdlib::modules().unwrap(),
-                &mut registered,
-            )
-            .unwrap();
-            registered
-        };
-        let old = runtime.load_program("generic-reload", program).unwrap();
-        let _old_program = old;
-        let old = runtime.select_program(&_old_program).unwrap();
-        let contract = old
-            .bytecode
-            .trait_contracts
-            .iter()
-            .find(|contract| contract.abi.name == "Run")
-            .unwrap();
-        let run = ModuleDecl::method_id(contract.declaration, "run", old.definitions()).unwrap();
-        let selected_default =
-            ModuleDecl::method_id(contract.declaration, "selected_default", old.definitions())
-                .unwrap();
-        let constructed =
-            ModuleDecl::method_id(contract.declaration, "constructed", old.definitions()).unwrap();
-        let late_constructed =
-            ModuleDecl::method_id(contract.declaration, "late_constructed", old.definitions())
-                .unwrap();
-        let old_key = old.key();
-        let vm = Vm::new(runtime);
-        let saved = vm
-            .execute(&old, "make")
-            .unwrap()
-            .return_value
-            .value(vm.runtime().gc())
-            .expect("retained execution result");
-        let root = vm.runtime().root_value(saved).unwrap();
-        vm.reload_program(&_old_program, Some("generic-reload".into()), replacement)
-            .unwrap();
-        let _current_program = _old_program.clone();
-        let current = vm.runtime().select_program(&_current_program).unwrap();
-        drop(old);
-        vm.runtime().collect_garbage().unwrap();
-        assert!(vm.runtime().modules().loaded(old_key).is_some());
-        let fresh = vm
-            .execute(&current, "make")
-            .unwrap()
-            .return_value
-            .value(vm.runtime().gc())
-            .expect("retained execution result");
-        let fresh_root = vm.runtime().root_value(fresh).unwrap();
-        assert_eq!(
-            vm.invoke_interface_method(&saved, &run, &[]).unwrap(),
-            Value::Bool(false)
-        );
-        assert_eq!(
-            vm.invoke_interface_method(&fresh, &run, &[]).unwrap(),
-            Value::Bool(false)
-        );
-        assert_eq!(
-            vm.invoke_interface_method(&saved, &selected_default, &[])
-                .unwrap(),
-            Value::Bool(false)
-        );
-        assert_eq!(
-            vm.invoke_interface_method(&fresh, &selected_default, &[])
-                .unwrap(),
-            Value::Bool(false)
-        );
-        assert_eq!(
-            vm.invoke_interface_method(&saved, &constructed, &[])
-                .unwrap(),
-            Value::Bool(false)
-        );
-        assert_eq!(
-            vm.invoke_interface_method(&fresh, &constructed, &[])
-                .unwrap(),
-            Value::Bool(false)
-        );
-        assert_eq!(
-            vm.invoke_interface_method(&saved, &late_constructed, &[])
-                .unwrap(),
-            Value::Bool(false)
-        );
-        assert_eq!(
-            vm.invoke_interface_method(&fresh, &late_constructed, &[])
-                .unwrap(),
-            Value::Bool(false)
-        );
-        drop((root, fresh_root));
-        assert_eq!(vm.runtime().gc().active_roots(), 0);
-        assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
-        assert_eq!(
-            vm.runtime()
-                .modules()
-                .retention_counts(old_key)
-                .runtime_values,
-            0
-        );
-    }
+#[rstest]
+#[case::default(include_str!("../../../../tests/fixtures/embedding/reload/generic-default-v1.kgr"), include_str!("../../../../tests/fixtures/embedding/reload/generic-default-v2.kgr"))]
+#[case::explicit_override(include_str!("../../../../tests/fixtures/embedding/reload/generic-override-v1.kgr"), include_str!("../../../../tests/fixtures/embedding/reload/generic-override-v2.kgr"))]
+fn retained_generic_default_and_override_closures_use_current_operations_after_reload(
+    #[case] source: &str,
+    #[case] replacement: &str,
+) {
+    let engine = KagariEngine::default();
+    let program = prepare(&engine, source);
+    let replacement = prepare(&engine, replacement);
+    let mut config = RuntimeConfig::default();
+    config.gc.collection_threshold = Some(1);
+    let mut runtime = {
+        let mut registered = CoreRuntime::new(config);
+        kagari_runtime::native::module::NativeModule::install_all(
+            &kagari_stdlib::modules().unwrap(),
+            &mut registered,
+        )
+        .unwrap();
+        registered
+    };
+    let old = runtime.load_program("generic-reload", program).unwrap();
+    let _old_program = old;
+    let old = runtime.select_program(&_old_program).unwrap();
+    let contract = old
+        .bytecode
+        .trait_contracts
+        .iter()
+        .find(|contract| contract.abi.name == "Run")
+        .unwrap();
+    let run = ModuleDecl::method_id(contract.declaration, "run", old.definitions()).unwrap();
+    let selected_default =
+        ModuleDecl::method_id(contract.declaration, "selected_default", old.definitions()).unwrap();
+    let constructed =
+        ModuleDecl::method_id(contract.declaration, "constructed", old.definitions()).unwrap();
+    let late_constructed =
+        ModuleDecl::method_id(contract.declaration, "late_constructed", old.definitions()).unwrap();
+    let old_key = old.key();
+    let vm = Vm::new(runtime);
+    let saved = vm
+        .execute(&old, "make")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
+    let root = vm.runtime().root_value(saved).unwrap();
+    vm.reload_program(&_old_program, Some("generic-reload".into()), replacement)
+        .unwrap();
+    let _current_program = _old_program.clone();
+    let current = vm.runtime().select_program(&_current_program).unwrap();
+    drop(old);
+    vm.runtime().collect_garbage().unwrap();
+    assert!(vm.runtime().modules().loaded(old_key).is_some());
+    let fresh = vm
+        .execute(&current, "make")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
+    let fresh_root = vm.runtime().root_value(fresh).unwrap();
+    assert_eq!(
+        vm.invoke_interface_method(&saved, &run, &[]).unwrap(),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        vm.invoke_interface_method(&fresh, &run, &[]).unwrap(),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        vm.invoke_interface_method(&saved, &selected_default, &[])
+            .unwrap(),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        vm.invoke_interface_method(&fresh, &selected_default, &[])
+            .unwrap(),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        vm.invoke_interface_method(&saved, &constructed, &[])
+            .unwrap(),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        vm.invoke_interface_method(&fresh, &constructed, &[])
+            .unwrap(),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        vm.invoke_interface_method(&saved, &late_constructed, &[])
+            .unwrap(),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        vm.invoke_interface_method(&fresh, &late_constructed, &[])
+            .unwrap(),
+        Value::Bool(false)
+    );
+    drop((root, fresh_root));
+    assert_eq!(vm.runtime().gc().active_roots(), 0);
+    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(
+        vm.runtime()
+            .modules()
+            .retention_counts(old_key)
+            .runtime_values,
+        0
+    );
 }
 
 #[test]
 fn retained_generic_try_calls_use_current_carrier_operations() {
-    let source = r#"
-use core::ops::{Try, FromResidual, ControlFlow};
-use core::convert::Infallible;
-enum Carrier { Value(i32), Stopped }
-impl FromResidual<Option<Infallible>> for Carrier {
-    fn from_residual(value:Option<Infallible>)->Self {Carrier::Stopped}
-}
-impl Try for Carrier {
-    type Output = i32;
-    type Residual = Option<Infallible>;
-    fn from_output(value:i32)->Self {Carrier::Value(value)}
-    fn branch(self)->ControlFlow<Option<Infallible>,i32> {
-        match self { Carrier::Value(value) => ControlFlow::Continue(value), Carrier::Stopped => ControlFlow::Break(None) }
-    }
-}
-trait Keep {
-    fn keep<A: Try<Output = i32>, R: FromResidual<A::Residual>>(self, value:A, wrap:fn(i32)->R)->fn()->R { || wrap(value?) }
-}
-impl Keep for i32 {}
-trait Run { fn run(self)->i32; }
-struct Saved { val callback:fn()->Option<i32> }
-impl Run for Saved { fn run(self)->i32 { match (self.callback)() {Some(value)=>value,None=>0} } }
-pub fn make()->Run {val keeper:Keep=0; Saved {callback:keeper.keep(Carrier::Value(20),|value| Some(value+22))}}
-pub fn make_stopped()->Run {val keeper:Keep=0; Saved {callback:keeper.keep(Carrier::Stopped,|value| Some(value+22))}}
-"#;
+    let source = include_str!("../../../../tests/fixtures/embedding/reload/try-carrier-v1.kgr");
     let engine = KagariEngine::default();
     let program = prepare(&engine, source);
     let replacement = prepare(
         &engine,
-        &source.replace(
-            "ControlFlow::Continue(value)",
-            "ControlFlow::Continue(value + 1)",
-        ),
+        include_str!("../../../../tests/fixtures/embedding/reload/try-carrier-v2.kgr"),
     );
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
@@ -787,33 +562,13 @@ pub fn make_stopped()->Run {val keeper:Keep=0; Saved {callback:keeper.keep(Carri
 
 #[test]
 fn content_helper_uses_current_interface_iteration_for_retained_values() {
-    let source = r#"
-use std::collections::{List, list_content_equal};
-use std::iter::CollectionCursor;
-use std::ops::Index;
-struct Bag { val value: f32 }
-impl Index<u64> for Bag { type Output = f32; fn index(self, index: u64) -> f32 { self.value } }
-impl Iterable for Bag {
-    type Item = f32;
-    type Iter = CollectionCursor<f32>;
-    fn iter(self) -> CollectionCursor<f32> { Vec::from([self.value]).iter() }
-}
-impl List<f32> for Bag {
-    fn len(self) -> u64 { 1u64 }
-    fn is_empty(self) -> bool { false }
-    fn get(self, index: u64) -> Option<f32> { Some(self.value) }
-}
-trait Probe { fn same(self, a: List<f32>, b: List<f32>) -> bool; }
-struct Checker {}
-impl Probe for Checker { fn same(self, a: List<f32>, b: List<f32>) -> bool { list_content_equal(a, b) } }
-pub fn make() -> List<f32> { Bag { value: 42.0f32 } }
-pub fn probe() -> Probe { Checker {} }
-"#;
+    let source =
+        include_str!("../../../../tests/fixtures/embedding/reload/interface-iteration-v1.kgr");
     let engine = KagariEngine::default();
     let original = prepare(&engine, source);
     let replacement = prepare(
         &engine,
-        &source.replace("Vec::from([self.value])", "Vec::from([0.0f32 / 0.0f32])"),
+        include_str!("../../../../tests/fixtures/embedding/reload/interface-iteration-v2.kgr"),
     );
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
@@ -866,159 +621,6 @@ pub fn probe() -> Probe { Checker {} }
     );
 }
 
-#[test]
-fn shared_collection_comparison_uses_current_nominal_operations() {
-    assert_shared_collection_comparison_reloading(
-        SHARED_COLLECTION_SOURCE,
-        false,
-        ReloadPreparation::BodyOnlyArtifact,
-        |source| source.replace("bool { true }", "bool { false }"),
-    );
-}
-
-#[test]
-fn shared_collection_comparison_accepts_new_primitive_applications_after_reload() {
-    assert_shared_collection_comparison_reloading(
-        SHARED_COLLECTION_SOURCE,
-        false,
-        ReloadPreparation::ExpandRetainedApplications,
-        |source| {
-            source
-                .replace("Item { value: 1 }", "0.0f32 / 0.0f32")
-                .replace("Item { value: 2 }", "0.0f32 / 0.0f32")
-        },
-    );
-}
-
-#[test]
-fn content_helper_selects_current_element_operations() {
-    let source = mixed_generation_collection_source();
-    // Retained views preserve type evidence, not the bodies used by iteration or Eq.
-    assert_shared_collection_comparison_reloading(
-        &source,
-        false,
-        ReloadPreparation::BodyOnlyArtifact,
-        |source| {
-            source.replace(
-                "impl PartialEq for Local { fn eq(self, other: Self) -> bool { true } }",
-                "impl PartialEq for Local { fn eq(self, other: Self) -> bool { false } }",
-            )
-        },
-    );
-}
-
-#[test]
-fn shared_collection_comparison_composes_the_new_argument_operation() {
-    let source = mixed_generation_collection_source();
-    assert_shared_collection_comparison_reloading(
-        &source,
-        false,
-        ReloadPreparation::BodyOnlyArtifact,
-        |source| source.replace("bool { true }", "bool { false }"),
-    );
-    let same_nominal = source
-        .replace("Item { value: 1 }", "Local {}")
-        .replace("Item { value: 2 }", "Local {}");
-    assert_shared_collection_comparison_reloading(
-        &same_nominal,
-        false,
-        ReloadPreparation::BodyOnlyArtifact,
-        |source| source.replace("bool { true }", "bool { false }"),
-    );
-}
-
-#[test]
-fn shared_tuple_adapter_uses_current_operations_for_each_argument() {
-    let source = r#"
-use std::collections::list_content_equal;
-fn same<T: PartialEq>(left: T, right: T) -> bool { left == right }
-struct Local {}
-impl PartialEq for Local { fn eq(self, other: Self) -> bool { true } }
-struct Item { val value: i32 }
-impl PartialEq for Item { fn eq(self, other: Self) -> bool { true } }
-trait Boxer {
-    fn one<T: PartialEq>(self, left: T, right: T) -> bool {
-        val a = (Local {}, left);
-        val b = (Local {}, right);
-        val direct = a == b;
-        val forwarded = same(a, b);
-        val native = list_content_equal(Vec::from([a]), Vec::from([b]));
-        val collection = same(Vec::from([a]), Vec::from([b]));
-        if direct != forwarded || direct != native || direct != collection { val zero = 0; 1 / zero; }
-        direct
-    }
-}
-struct Factory {}
-impl Boxer for Factory {}
-trait Probe { fn check(self, factory: Boxer) -> bool; }
-struct Checker {}
-impl Probe for Checker {
-    fn check(self, factory: Boxer) -> bool {
-        factory.one(Item { value: 1 }, Item { value: 2 })
-    }
-}
-pub fn make() -> Boxer { Factory {} }
-pub fn probe() -> Probe { Checker {} }
-"#;
-    assert_shared_collection_comparison_reloading(
-        source,
-        false,
-        ReloadPreparation::BodyOnlyArtifact,
-        |source| {
-            source.replace(
-                "impl PartialEq for Local { fn eq(self, other: Self) -> bool { true } }",
-                "impl PartialEq for Local { fn eq(self, other: Self) -> bool { false } }",
-            )
-        },
-    );
-    assert_shared_collection_comparison_reloading(
-        source,
-        false,
-        ReloadPreparation::BodyOnlyArtifact,
-        |source| source.replace("bool { true }", "bool { false }"),
-    );
-    let same_nominal = source
-        .replace("Item { value: 1 }", "Local {}")
-        .replace("Item { value: 2 }", "Local {}");
-    assert_shared_collection_comparison_reloading(
-        &same_nominal,
-        false,
-        ReloadPreparation::BodyOnlyArtifact,
-        |source| source.replace("bool { true }", "bool { false }"),
-    );
-}
-
-fn mixed_generation_collection_source() -> String {
-    SHARED_COLLECTION_SOURCE
-        .replace("struct Item", "struct Local {}\nimpl PartialEq for Local { fn eq(self, other: Self) -> bool { true } }\nstruct Item")
-        .replace("List<T>", "List<(Local, T)>")
-        .replace("Vec::from([value])", "Vec::from([(Local {}, value)])")
-}
-
-const SHARED_COLLECTION_SOURCE: &str = r#"
-use std::collections::{List, list_content_equal};
-struct Item { val value: i32 }
-impl PartialEq for Item { fn eq(self, other: Self) -> bool { true } }
-fn pack<T>(value: T) -> List<T> { Vec::from([value]) }
-trait Boxer {
-    fn one<T>(self, value: T) -> List<T> {
-        val make = || pack(value);
-        make()
-    }
-}
-struct Factory {}
-impl Boxer for Factory {}
-trait Probe { fn check(self, factory: Boxer) -> bool; }
-struct Checker {}
-impl Probe for Checker {
-    fn check(self, factory: Boxer) -> bool {
-        list_content_equal(factory.one(Item { value: 1 }), factory.one(Item { value: 2 }))
-    }
-}
-pub fn make() -> Boxer { Factory {} }
-pub fn probe() -> Probe { Checker {} }
-"#;
-
 enum ReloadPreparation {
     /// Preserve the application inventory and test independently compiled artifacts.
     BodyOnlyArtifact,
@@ -1026,15 +628,23 @@ enum ReloadPreparation {
     ExpandRetainedApplications,
 }
 
-fn assert_shared_collection_comparison_reloading(
-    source: &str,
-    new_expected: bool,
-    preparation: ReloadPreparation,
-    replacement: impl FnOnce(&str) -> String,
+#[rstest]
+#[case::nominal(include_str!("../../../../tests/fixtures/embedding/reload/collection-nominal-v1.kgr"), include_str!("../../../../tests/fixtures/embedding/reload/collection-nominal-v2.kgr"), ReloadPreparation::BodyOnlyArtifact)]
+#[case::new_primitive(include_str!("../../../../tests/fixtures/embedding/reload/collection-nominal-v1.kgr"), include_str!("../../../../tests/fixtures/embedding/reload/collection-new_primitive-v2.kgr"), ReloadPreparation::ExpandRetainedApplications)]
+#[case::retained_local_element(include_str!("../../../../tests/fixtures/embedding/reload/collection-retained_local_element-v1.kgr"), include_str!("../../../../tests/fixtures/embedding/reload/collection-retained_local_element-v2.kgr"), ReloadPreparation::BodyOnlyArtifact)]
+#[case::new_argument(include_str!("../../../../tests/fixtures/embedding/reload/collection-retained_local_element-v1.kgr"), include_str!("../../../../tests/fixtures/embedding/reload/collection-new_argument-v2.kgr"), ReloadPreparation::BodyOnlyArtifact)]
+#[case::same_nominal_argument(include_str!("../../../../tests/fixtures/embedding/reload/collection-same_nominal_argument-v1.kgr"), include_str!("../../../../tests/fixtures/embedding/reload/collection-same_nominal_argument-v2.kgr"), ReloadPreparation::BodyOnlyArtifact)]
+#[case::tuple_local_element(include_str!("../../../../tests/fixtures/embedding/reload/collection-tuple_local_element-v1.kgr"), include_str!("../../../../tests/fixtures/embedding/reload/collection-tuple_local_element-v2.kgr"), ReloadPreparation::BodyOnlyArtifact)]
+#[case::tuple_new_argument(include_str!("../../../../tests/fixtures/embedding/reload/collection-tuple_local_element-v1.kgr"), include_str!("../../../../tests/fixtures/embedding/reload/collection-tuple_new_argument-v2.kgr"), ReloadPreparation::BodyOnlyArtifact)]
+#[case::tuple_same_nominal(include_str!("../../../../tests/fixtures/embedding/reload/collection-tuple_same_nominal-v1.kgr"), include_str!("../../../../tests/fixtures/embedding/reload/collection-tuple_same_nominal-v2.kgr"), ReloadPreparation::BodyOnlyArtifact)]
+#[case::bound_construction(include_str!("../../../../tests/fixtures/embedding/reload/collection-bound_construction-v1.kgr"), include_str!("../../../../tests/fixtures/embedding/reload/collection-bound_construction-v2.kgr"), ReloadPreparation::BodyOnlyArtifact)]
+fn shared_collection_comparison_selects_current_operations(
+    #[case] source: &str,
+    #[case] replacement_source: &str,
+    #[case] preparation: ReloadPreparation,
 ) {
     let engine = KagariEngine::default();
     let original = prepare(&engine, source);
-    let replacement_source = replacement(source);
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
     let mut runtime = CoreRuntime::new(config);
@@ -1046,9 +656,9 @@ fn assert_shared_collection_comparison_reloading(
     let old = runtime.select_program(&_old_program).unwrap();
     let old_key = old.key();
     let replacement = match preparation {
-        ReloadPreparation::BodyOnlyArtifact => prepare(&engine, &replacement_source),
+        ReloadPreparation::BodyOnlyArtifact => prepare(&engine, replacement_source),
         ReloadPreparation::ExpandRetainedApplications => {
-            prepare_with_demands(&engine, &replacement_source, &old)
+            prepare_with_demands(&engine, replacement_source, &old)
         }
     };
     let vm = Vm::new(runtime);
@@ -1073,7 +683,7 @@ fn assert_shared_collection_comparison_reloading(
         .unwrap();
     let method =
         ModuleDecl::method_id(contract.declaration, "check", current.definitions()).unwrap();
-    for (probe, expected) in [(&old_probe, new_expected), (&fresh_probe, new_expected)] {
+    for (probe, expected) in [(&old_probe, false), (&fresh_probe, false)] {
         assert_eq!(
             vm.invoke_interface_method(
                 &probe.value(vm.runtime().gc()).unwrap(),
@@ -1093,36 +703,5 @@ fn assert_shared_collection_comparison_reloading(
             .retention_counts(old_key)
             .runtime_values,
         0,
-    );
-}
-
-#[test]
-fn bound_construction_uses_current_operations_with_an_old_shared_provider() {
-    let source = r#"
-trait Read { fn read(self) -> bool; }
-struct Item { val value: i32 }
-impl Read for Item { fn read(self) -> bool { true } }
-trait Source { type Item: Read; }
-struct Tag {}
-impl Source for Tag { type Item = Item; }
-fn erase<T: Read>(value: T) -> Read { value }
-trait Boxer {
-    fn one<S: Source>(self, source: S, value: S::Item) -> Read { erase(value) }
-}
-struct Factory {}
-impl Boxer for Factory {}
-trait Probe { fn check(self, factory: Boxer) -> bool; }
-struct Checker {}
-impl Probe for Checker {
-    fn check(self, factory: Boxer) -> bool { factory.one(Tag {}, Item { value: 42 }).read() }
-}
-pub fn make() -> Boxer { Factory {} }
-pub fn probe() -> Probe { Checker {} }
-"#;
-    assert_shared_collection_comparison_reloading(
-        source,
-        false,
-        ReloadPreparation::BodyOnlyArtifact,
-        |source| source.replace("bool { true }", "bool { false }"),
     );
 }

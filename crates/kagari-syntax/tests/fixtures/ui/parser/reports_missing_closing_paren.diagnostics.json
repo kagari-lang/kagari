@@ -1,0 +1,15 @@
+[
+  {
+    "code": "KG_PARSE_EXPECTED_FUNCTION_PARAMETER_LIST_END",
+    "severity": "error",
+    "primary": { "path": "test.kg", "start": 16, "end": 17 },
+    "message": "expected `)` after parameters",
+    "labels": [
+      {
+        "span": { "path": "test.kg", "start": 16, "end": 17 },
+        "message": "primary"
+      }
+    ],
+    "notes": []
+  }
+]
