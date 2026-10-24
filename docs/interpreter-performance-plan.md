@@ -42,7 +42,7 @@ transport, and bounded collection check/commit ownership. It does not activate:
 - Per-session storage segmentation or abandoned-owner notification queues.
 - Further [object storage work](implementation-roadmap.md#object-storage-overhead),
   [native collection migration](native-collections-plan.md) or
-  [host API](host-api-refactor.md) plans.
+  [host API follow-ups](implementation-roadmap.md#host-api-and-update-execution).
 - Unrelated compiler/language changes, including the roadmap's shared-generic Add
   lowering follow-up. The generic identity benchmark does not prove that feature.
 

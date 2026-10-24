@@ -102,9 +102,10 @@ Borrowed `Call` drives its invocation without a separate pump; submitted `Pendin
 receives results while the host drives Runtime separately. Managed Tasks can continue
 under that external driver after a handler returns. See the
 [embedding contract](spec/embedding-api.md#typed-async-calls-scheduling-and-native-waits).
-Package distribution, explicit state replacement, typed generic public-path binding
-(HM03) and broader async composition remain separate work. Public generic declaration
-lookup for source updates does not implement typed generic host calls.
+Package distribution, explicit state replacement and broader async composition
+remain separate work. [Public-path binding](spec/embedding-api.md#installed-programs-and-public-paths)
+is module-relative; generic declaration discovery for source updates still requires
+separate executable evidence for typed calls, never runtime specialization.
 
 ## Document authority
 

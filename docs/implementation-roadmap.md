@@ -117,8 +117,8 @@ The current workspace product names are:
 The SDK package and directory are `kagari`, imported as `kagari`; the CLI package
 remains `kagari-cli` and provides only the `kg` binary. Consumers, feature checks,
 examples and current documentation use these names. No forwarding SDK package or
-compatibility command is retained. The [Host API plan](host-api-refactor.md) owns
-API evolution independently; naming changes do not activate that refactor.
+compatibility command is retained. The [embedding specification](spec/embedding-api.md#installed-programs-and-public-paths)
+owns the installed Program/live Module API independently of product naming.
 
 Focused rename validation passed: SDK typed-call and Cranelift preparation cases,
 CLI parsing/artifact execution, and the standalone source-free async consumer
@@ -745,22 +745,12 @@ asset consistency. The native Node test rerun is blocked by a missing Windows
 addon for Node 24.15.0; passing CLI checks do not establish that suite or CI passed.
 
 Remaining scope stays separate: native JIT/AOT suspension, Rust async-closure
-registration, dynamic/race/timeout combinators, arbitrary Object-to-trait casts,
-generated host views, and the [confirmed current-call update migration](update-model-design.md#calls-retained-objects-and-new-trait-implementations).
-That migration retains existing Future/closure/resume bodies, but selects current
-implementations for subsequent ordinary calls; it is not implemented by the completed
-async work. The [Host Program/Module plan](host-api-refactor.md) scopes HM00-HM04 to
-stable Program/Module handles, relative public lookup, checked type exports and
-reload compatibility. Existing handles must query the latest published contents of
-their installation; existing function bindings call current implementations without
-reacquisition/rebinding. HM00 must settle representation, internal version retention
-and the UP handoff. The user-prioritized
-[alias prerequisite](host-api-refactor.md#transparent-generic-alias-prerequisite)
-is locally complete. The user reauthorized the full phased sequence on 2026-10-24;
-HM00/UP00 design closure is complete. The user confirmed protected Hash/Eq and
-static initializer dependency contracts rather than a pinned-call exception.
-HM01 is the next implementation phase; no dispatch behavior is claimed yet.
-Broader preparation/tooling remains deferred.
+registration, dynamic/race/timeout combinators, arbitrary Object-to-trait casts and
+generated host views. [Current-call publication](spec/module-activation.md#live-installations-and-call-selection)
+is implemented: existing Future/closure/resume bodies retain their selected code,
+while ordinary inner calls use current implementations. Installed Program/live
+Module relative binding is also implemented; remaining preparation/tooling and
+state-replacement work stays with [host/update follow-ups](#host-api-and-update-execution).
 
 ## Text literals and String traversal
 
@@ -796,79 +786,57 @@ remain outside this delivered scope.
 
 ## Host API and update execution
 
-HM/UP implementation and phased commits are authorized on 2026-10-23. The user
-subsequently prioritized transparent generic type aliases first; that prerequisite
-is now locally complete. The user reauthorized the full sequence on 2026-10-24.
-The order remains joint HM00 + UP00, followed by HM01, UP01, HM02, UP02, HM03,
-HM04, UP03, UP04 and UP05. Joint HM00+UP00 was committed as `bbfc0af6`.
-**HM01 is committed as `3523c4c8`, UP01 as `cd79fc80`, HM02 as `f0e1917d`,
-UP02 as `4d9f2afa`. HM03 is locally complete; HM04 is next.**
-Type exports, alias/layout demand and reload comparison include validated
-`private_types: Vec<TypeDeclaration>` separate from public authority. The
-[HM01 ledger](host-api-refactor.md#hm01-integration-and-up01-handoff) owns its
-completed repair and validation evidence; no HM01 errors remain.
-UP01 implements frozen inventory, semantic impl identity, directional public graph
-additions, mandatory checked source/body evidence, protected transitive dependencies
-and monotonic retained-demand metadata with runtime staging/compiler expansion.
-The final compiler shared-arithmetic case and 11 related focused tests passed on
-the repaired tree; no carried UP01 errors remain. Detailed repair and validation
-evidence stays in the [UP01 ledger](update-model-design.md#up01-implementation-and-integration).
-HM02 has implemented live Program/Module metadata and canonical-alias/slotless
-module navigation, with exact-version `ExecutableModule` replacing `LoadedModule`
-directly. Unique installations isolate members, epochs, statics and caches even
-for equal names; load returns Program and reload targets it with unit success.
-Consumer migration and script-trait nominal source isolation are complete. Native
-shared-trait authority derives from actual installed imports, not references or
-same-name empty providers. Reviewer recheck and final focused tests/local checks
-passed; no carried errors remain. The
-[HM02 ledger](host-api-refactor.md#hm02-integration-and-up02hm03-handoff) owns the
-repair and validation evidence.
-UP02 integrates stable nonreused callable mapping/current selection, exact retained
-execution, global publication admission, detached source Update/capsules and exact
-source inspection, including compiled manifest anchors and optional artifact source.
-Its [single ledger](update-model-design.md#up02-implementation-and-integration)
-records all review findings closed, fresh source-enabled/source-free artifact passes,
-completed durable documentation/conformance migration and the passing parent check
-chain. Final conformance/example and correspondence follow-ups also passed, including
-both parent's and contract owner's final local checks. No carried UP02 errors or
-pending local validation remain. The default-environment identity defect is fixed:
-unchanged reload/identical replacement succeeds, while real protected body changes
-still reject. This does not establish full CI acceptance.
-HM03 has unified module/function/type lookup through one bounded supplied-namespace
-traversal. Sync/async leaf binding is relative without root fallback; function
-resolution stays in one publication, and supported declaration/closed-alias object
-types reuse verified layout demand while preserving typed errors and privacy.
-Its [ledger](host-api-refactor.md#hm03-integration-and-hm04-handoff) records selected
-runtime/contract/SDK/source-free tests and passing final local checks, with no carried
-failures. HM04 next owns lasting HM contracts, integration handoff and plan retirement;
-that work is not completed by HM03. Full CI remains unrun; MS remains unstarted.
-The [resolved transitive-selection policy](update-model-design.md#resumed-up00-audit-at-bbe30666)
-rejects changes to published Hash/Eq, static initializers and their transitive
-dependencies, independently of container liveness or initialization state; unknown
-dependencies conservatively freeze installation inventory. UP01 implements this
-protection without an alternate pinned-call domain, eager initialization or rehash.
-**Material delivery limit:** default standard-foundation `Unknown` dependencies can
-reject even a simple Engine body patch. This is intentional conservative protection;
-passing finite-environment update fixtures do not promise default-Engine patchability.
-The [Host API plan](host-api-refactor.md) and
-[update plan](update-model-design.md) retain their own ledgers and acceptance.
-HM owns live Program/Module lookup and verified type exports; UP owns stable
-current-call dispatch, source Update batches, exact-source inspection and later
-explicit state replacement. Existing public semantics remain unchanged until the
-owning migration. MS, wider native expansion and repair-program linking are separate.
+Installed Program/live Module navigation, relative sync/async and object-type
+binding, source-free type exports and exact executable ownership are implemented.
+Their lasting owners are the [embedding API](spec/embedding-api.md#installed-programs-and-public-paths),
+[public type exports](spec/artifacts.md#public-type-exports),
+[namespace continuity](spec/module-activation.md#public-namespace-continuity) and
+[runtime architecture](architecture.md#live-installations-and-publication).
+Transparent generic alias semantics belong to [syntax](spec/syntax.md#transparent-type-aliases)
+and [module names](spec/modules.md#transparent-alias-names), not a completed phase ledger.
 
-The first audit found the missing transparent-alias language capability; the user
-resolved that scope question by explicitly authorizing generic aliases before HM/UP.
-The [finite prerequisite ledger](host-api-refactor.md#transparent-generic-alias-prerequisite)
-is the single owner of scope, implementation progress, validation and compiler
-resource limits. Alias implementation, review repairs and local acceptance are
-complete. The later user instruction resumed HM00/UP00; alias work itself did not
-complete either phase.
-Alias language semantics alone did not implement host exports or dispatch. HM01
-now supplies the export schema and layout roots; HM02 live handles are locally
-complete, as is UP02 current-call dispatch/source Update with final local checks
-passed and no carried errors. HM03 relative binding is locally complete; HM04 is next.
-Detailed phase evidence stays in the owning plans, not a parallel roadmap progress queue.
+HM04's docs-only handoff retires the HM plan after HM03 `044b8e57` and UP02
+`4d9f2afa`. [Selected handoff evidence](update-model-design.md#hm04-documentation-and-integration-handoff)
+reuses unaffected local passes; historical HM progress remains in Git. No carried
+HM/UP02 implementation errors remain. Full workspace/feature/backend/platform CI
+is unrun, MS is unstarted, and this is not state-replacement acceptance.
+
+The active [update plan](update-model-design.md#review-choices-and-implementation-sequence)
+owns the next sequence: UP03 codec/envelope and restore/migration gates, UP04
+quiescence/routing/cutover gates, then UP05 final state-replacement integration.
+UP03/UP04 remain unstarted; source Update/current-call dispatch and exact-source
+inspection are already implemented, not prerequisites to repeat.
+**Material delivery limit:** [protected standard-foundation `Unknown` dependencies](spec/module-activation.md#protected-dependencies-and-conservative-rejection)
+can reject even a simple default-Engine body patch. Finite-environment fixtures do
+not prove unrestricted default-Engine patchability or waive those protections.
+
+Remaining host scope stays here or with existing owners, not a replacement HM queue:
+
+- Preparation/tooling coherence: unify text/file/artifact workflows where still
+  needed, keeping tooling snapshots explicit, editor overlays out of ordinary
+  compilation, multi-module diagnostics and source-free consumers intact. Direct
+  preparation already avoids mandatory encode/decode; do not reimplement it.
+  Shareable products require proven ownership, never unsafe Send/Sync additions;
+  [MS](multi-runtime-sharing-plan.md) owns frozen-product sharing and per-Runtime costs.
+- Host generic expansion: open-alias application, broader host type reflection and
+  missing executable application preparation are outside the finite
+  [object-binding contract](spec/embedding-api.md#public-object-types-and-binding-errors).
+  Any extension needs checked compiler-owned evidence, not a runtime type-expression
+  parser or specialization fallback.
+- Configuration/error/tooling cleanup: owner-scoped options and structured stage
+  causes must preserve nested execution protection and distinguish backend fallback
+  from invalid code/runtime failure. No generic permission matrix or new core scheduler.
+- Explicit unload policy is separate from compatible reload and the update plan's
+  state replacement. Handle drop implies neither cancellation nor state reset;
+  business rollback and cross-Actor atomicity remain host responsibilities.
+- [Temporary repair programs and cross-installation linking](review.md#runtime-loaded-programs-referencing-existing-installations)
+  still need versioned compilation contracts, explicit installation bindings and
+  lifetime validation. They remain outside the game's replacement inventory.
+- [R13](review.md#r13--type-and-layout-provenance-retains-retired-code),
+  [SA21 call costs](review.md#call-boundary-cost-follow-up),
+  [artifact reachability](review.md#artifact-reachability-follow-up) and
+  [native expansion](review.md#native-expansion-gates) keep their existing owners;
+  live lookup/current calls do not complete them or establish a speedup.
 
 ## Other queued designs
 

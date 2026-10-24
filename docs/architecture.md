@@ -206,7 +206,7 @@ Checked Programs also own the public namespace graph and canonical function
 declarations, plus a separate root `main` capability. Module aliases
 retain finite graph edges, including cycles; lookup bounds path length. Public generic
 source declarations remain discoverable without executable applications, including
-for source updates; typed generic public-path binding remains pending (HM03).
+for source updates; typed binding separately requires carried executable evidence.
 The compiler maps source references into the contract-owned `ProgramExports` graph.
 MIR owns root, modules and exports together, including when verification seals are
 discarded for editing or identities are imported into another context. Its portable
@@ -1565,6 +1565,60 @@ even from the same prepared product or display label. Installation identity owns
 statics, script type compatibility and current publication; shutdown retires its
 capabilities. Reload advances it and returns unit rather than replacing live handles.
 
+`ModuleStore` owns installations keyed by checked, nonreused Runtime-local
+`InstallationId`, paired with registry ownership for cross-Runtime admission.
+Members, epochs, static bindings and caches are installation-scoped, not keyed by
+diagnostic labels. `Program` shares the installation; `Module` adds a canonical
+logical `ModuleIdentity`, not a physical slot. `ExecutableModule` instead holds
+an immutable `ProgramDescriptor` publication and `ModuleRef` for exact execution.
+There is no legacy `LoadedModule` alias or implicit conversion between these roles.
+
+The installation's short `Mutex<Option<Arc<ProgramDescriptor>>>` metadata cell
+holds the current publication; `None` means closed. A query clones one descriptor
+under the lock and traverses it after releasing the guard. `ModuleSnapshot` uses
+one contract-owned bounded public-path traversal for module/function/type lookup;
+function declaration and target evidence come from that same captured publication.
+The cell is not a second namespace cache. HIR owns source resolution, compiler
+lowering owns export/layout demand, contract/MIR/bytecode verification owns portable
+public authority, and runtime consumes those checked facts without a frontend.
+See [public type exports](spec/artifacts.md#public-type-exports) and the
+[host path/error contract](spec/embedding-api.md#installed-programs-and-public-paths).
+
+Publication completes fallible staging, static/current-target bindings and source
+association before the metadata swap, with no fallible suffix or callbacks. Never
+hold the cell guard during execution, retention registration or descriptor destruction.
+Poisoned access reports `EngineFault`; close/drop may recover the guard only to clear
+the cell, dropping removed descriptors outside it. A query already holding a snapshot
+may finish metadata traversal but cannot thereby gain post-close execution authority.
+Metadata handles can be Send + Sync without making Runtime/GC concurrently accessible;
+the exclusive Runtime driver remains Send, not Sync.
+
+Binding validates registry ownership, exact installation registration/cell identity
+and liveness before selecting evidence. Layout/enum/type-argument admission preserves
+installation-qualified nominal identity. `LinkedProgramBindings.shared_traits`
+records actual native imports and immutable `ProgramLayouts` retains that authority;
+a same-named script trait or empty provider cannot substitute for it. Public export
+authority stays distinct from dependency-only private declaration/layout proof.
+Compatible publications reuse checked type authority; independent installations do
+not gain object/static interchange or cross-installation linking.
+
+Exact execution, object/type layouts and native products retain required leases;
+sharing a descriptor or live metadata cell is not an execution lease. Live handles
+never pin old publications. Type-only payload separation remains the unresolved
+[R13 finding](review.md#r13--type-and-layout-provenance-retains-retired-code): an
+ObjectType can still retain more executable payload than logically needed. Cleanup
+releases records after their actual owners end; namespace completion does not claim
+that split or the separate [multi-Runtime sharing work](multi-runtime-sharing-plan.md).
+
+The ownership precedents are [JVMS 25 §5.3](https://docs.oracle.com/javase/specs/jvms/se25/html/jvms-5.html#jvms-5.3)
+(defining owner plus name), the [Rust Reference's public aliases](https://doc.rust-lang.org/reference/items/use-declarations.html)
+(canonical item authority distinct from its containing path), and the stable
+[Rust Mutex contract](https://doc.rust-lang.org/std/sync/struct.Mutex.html)
+(scoped metadata access and explicit poison handling), reviewed on 2026-10-24.
+Kagari adopts neither loader delegation/initialization nor JVM concurrency or Rust's
+complete source-path rules. Its installation leases and exclusive publication
+boundary remain its own; no performance improvement is inferred from these precedents.
+
 `module::dispatch` owns installation-stable `CallRoute` identities, publication
 mapping and current target tables. Linking captures checked declaration/application
 routes once. Direct/shared/recursive calls, interface dispatch and native callbacks
@@ -2229,8 +2283,10 @@ ordinary named calls use current implementations. `call` returns typed results;
 `call_async` returns a borrowed driving `Call`, while `submit_async` returns a result-only `PendingCall`.
 Both async modes use one runtime-owned scheduler. `poll` supports external host
 integration, `close` acknowledges local cleanup, and `take_task_event` drains bounded
-managed-Task failures. Typed generic public-path binding and broader preparation
-workflow changes remain in the [host facade proposal](host-api-refactor.md).
+managed-Task failures. Public function/type binding is relative to live modules and
+requires checked executable evidence; it never specializes missing applications.
+Broader preparation/tooling follow-ups remain in the
+[roadmap](implementation-roadmap.md#host-api-and-update-execution).
 See [embedding](spec/embedding-api.md), [loading](spec/module-loading.md) and
 [activation](spec/module-activation.md).
 

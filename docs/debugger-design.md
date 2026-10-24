@@ -77,8 +77,9 @@ IDE <-> protocol/transport worker
   responses. It never calls into `Vm`, borrows runtime state or dereferences script
   values. Runtime remains Send, not Sync; no ownership transfer occurs while paused.
 - The SDK exposes a command endpoint for a host-selected debug session. Reconcile
-  it with the [queued host facade](host-api-refactor.md) at activation; concrete
-  public type names and crate placement are not fixed here.
+  it with [live host handles](spec/embedding-api.md#installed-programs-and-public-paths)
+  and [exact source inspection](spec/embedding-api.md#exact-source-inspection) at
+  activation; debug endpoint type names and crate placement are not fixed here.
 - DAP and CLI code own transport, protocol IDs, source presentation and launch or
   attach orchestration. Start with modules in existing owners; a new crate needs
   a concrete dependency or distribution reason, not an empty placeholder.

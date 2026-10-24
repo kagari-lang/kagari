@@ -15,7 +15,13 @@ diagnostic label. `Program` and its `Module` handles are live installation handl
 `ExecutableModule` is an exact executable-version owner. Reload and source update
 return `ReloadResult<()>` in the SDK, advancing the installation rather than
 returning a replacement handle. Runtime ownership, installation identity and
-retirement checks remain mandatory; labels confer no authority.
+retirement checks remain mandatory; labels confer no authority. Runtime owns the
+installation: dropping Program/Module handles does not unload it, cancel tasks or
+reset statics. Independently retained callable handles remain usable while it is
+live. Runtime close/drop clears live metadata and ends execution/object-access
+authority; a retained exact descriptor cannot revive it. `root()` can still construct
+an identity handle after close, but subsequent lookup/binding rejects it. Explicit
+unload remains separate from compatible publication.
 
 Ordinary direct, shared generic, recursive, interface and native-callback calls
 select the current implementation of their already checked declaration/application.
@@ -31,8 +37,38 @@ body's ordinary inner calls still use current implementations. For example, if a
 parked v1 Future resumes after v2 changes `helper`, it continues its v1 resume body
 but an ordinary `helper()` call enters v2. A named function value saved before the
 publication also enters current code when called; it is not a closure snapshot.
-Old executable payloads remain only while exact computation/explicit executable
-owners need them, not merely because source diagnostics or a named binding survive.
+Old executable payloads remain while exact computation, explicit executable owners
+or retained layout/native evidence need them, not merely because source diagnostics
+or a named binding survive. [Type-only retention separation](../review.md#r13--type-and-layout-provenance-retains-retired-code)
+remains deferred; releasing final actual owners is not proof that R13 is implemented.
+
+## Public namespace continuity
+
+Compatible publication preserves each previously public canonical namespace as a
+reachable query start, including namespaces retained through an earlier alias.
+Equivalent root path spellings alone do not justify removing a namespace held by
+an existing `Module`. Every query captures one latest publication; declaration
+lookup and executable-target lookup cannot mix publications. Failed publication
+leaves the same handles observing the old contents; success exposes additions
+without reacquisition.
+
+Existing public paths and signatures, nominal type applications and the separate
+root `main` contract remain checked. Bounded cyclic-graph comparison permits
+compatible additions and equivalent graph shapes, not removed/private paths.
+A function alias may retarget to another public declaration with the same checked
+signature: fresh binding chooses the new declaration, while retained bindings call
+the original declaration's current implementation. Type aliases instead preserve
+normalized nominal target and arguments; another same-shaped type is not equivalent.
+[Artifact type exports](artifacts.md#public-type-exports) owns that comparison's
+portable evidence. Frozen declarations and protected dependencies remain additional
+requirements, not exceptions to be bypassed through aliases.
+
+Type identities and trait implementation relationships are fixed within an
+installation; that does not freeze method bodies. Independently loaded copies do
+not share script nominal or trait authority merely because names/layouts match.
+Shared native-trait authority requires actual installed native imports, not a
+reference or an empty same-name provider. Dependency-only private-type evidence
+can prove layout/bound validity but grants no public name or private-member access.
 
 ## Publication boundary
 

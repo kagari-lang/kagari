@@ -39,9 +39,9 @@ remain required.
   the remaining lifecycle finding. Scalar storage, transition-owned parking and
   payload-independent version identity are implemented; bounded retention decisions
   and evidence are recorded below.
-- [Host Program and module lookup](#host-program-and-module-lookup): distinguish
-  installed programs from module handles and unify relative public-path binding
-  against the same installation's latest published contents.
+- [Runtime-loaded repair programs](#runtime-loaded-programs-referencing-existing-installations):
+  compile new maintenance code against versioned public contracts and explicitly
+  link existing installations without duplicating game objects or statics.
 - [Native expansion gates](#native-expansion-gates): requirements for future native
   coverage, not defects caused by the intentionally limited backend.
 - Historical timings, allocation data and reproduction details are retained under
@@ -986,145 +986,12 @@ collection contract and add a focused asymmetric/effect-order case before changi
 implementation or specification. This finding is source-derived, not a new executed
 reproduction; it does not activate a semantic change as part of static support.
 
-## Host Program and module lookup
+## Runtime-loaded programs referencing existing installations
 
-Recorded after AR06 at `26678b13`. This is a source-inspected API consistency
-finding and proposed direction, not authorization to implement or a finalized API.
-The [Host Program/Module execution plan](host-api-refactor.md) owns HM00-HM04:
-installed Program/module separation, relative public lookup, checked type exports
-and reload compatibility. Implementation is unstarted; reuse the completed
-typed-call/object facade and its safety boundaries. The current implementation is
-version-pinned. On 2026-10-23 the user confirmed a different target: ordinary
-Program/Module handles always query the latest published contents within the same
-installation, and existing function handles call the latest implementation without
-reacquisition or rebinding. The [update model](update-model-design.md) owns that UP
-migration; HM00 must resolve the identity/lifetime handoff, without adding full
-dispatch migration to HM01-HM04. Cross-installation repair linking
-below remains separate. Existing specifications stay truthful until migration.
-
-### Current behavior and ownership mismatch
-
-A project selects a package root; source acquisition discovers declared modules
-and dependencies, and preparation produces a complete Program. The host loads that
-Program once, not each source module separately. A source file defines a module;
-inline `mod` declarations introduce additional logical modules in the same file.
-See [source discovery](spec/module-loading.md#source-discovery-and-imports).
-
-[SDK load_program](../crates/kagari/src/runtime.rs) installs the whole Program but
-returns a root `LoadedModule`. Internally, [LoadedModule](../crates/kagari-runtime/src/module.rs)
-contains a shared Program descriptor and one member slot. `members()` and
-`member(slot)` produce handles into that same installation, not new installations.
-This mixes a whole-program entry handle with an individual-module handle in the
-ordinary host API.
-
-The binding rules also differ:
-
-- [Function binding](../crates/kagari-runtime/src/native/function_handle/cache.rs)
-  resolves a public path from the Program root, even if passed a dependency/member
-  handle. It supports module paths and public re-exports.
-- [Object type binding](../crates/kagari-runtime/src/native/objects/cache.rs)
-  interprets the name as one struct declaration in the supplied module. It does not
-  resolve `users::User` as a path or follow public type aliases/re-exports.
-- The [public export graph](../crates/kagari-contract/src/exports.rs) currently
-  records module and function entries, not type exports. There is no ordinary
-  public-path module lookup facade; callers should not have to enumerate `members()`
-  and compare internal identities merely to bind a type in another module.
-
-### Proposed lookup contract
-
-The user confirmed the target names on 2026-10-23: `PreparedProgram` for the
-preparation product, `Program` for one installed program and `Module` for one module
-within that installation. Ordinary Program/Module handles are live lookup handles,
-not immutable public version views: every query reads the installation's latest
-published contents, including queries through handles acquired before an update.
-Ordinary function handles identify stable declarations in that same installation
-and call the latest implementation without reacquisition or rebinding. These public
-semantics are confirmed, not an open HM00 decision. Update/reload return unit
-success through the appropriate existing Result error family, not replacement
-handles. Runtime owns installations; dropping cloneable Program/Module handles
-does not unload programs, cancel tasks or reset state. Runtime shutdown still ends
-execution/object-access authority. Binding resolves a path once to a stable
-declaration, not a string to resolve again on every call. Public object lookup is
-limited to structs, re-exports and supported closed struct aliases; open generics
-retain the existing advanced explicit-argument route, with no type-expression
-parser or new runtime specialization. HM00/UP still own handle representation,
-remaining signatures, internal lifetimes and sequencing, not these public policies.
-The current pinned runtime does not implement this target. Illustrative usage:
-
-```rust,ignore
-let program: Program = runtime.load_program(&prepared, Default::default())?;
-let root: Module = program.root();
-let users: Module = program.module("users")?;
-let profiles = users.module("profiles")?;
-// Equivalent module lookup from the program root:
-let same_profiles = program.module("users::profiles")?;
-
-let find_user = runtime.function::<(i32,), Object>(&users, "find_user")?;
-let user_type = runtime.object_type(&users, "User")?;
-// Equivalent type lookup from the root:
-let same_user_type = runtime.object_type(&root, "users::User")?;
-
-runtime.reload_program(&program, &replacement, Default::default())?;
-// Confirmed target, not current pinned behavior: reuse the existing handles.
-let current_users = program.module("users")?; // Latest published contents.
-let current_profiles = users.module("profiles")?; // Existing Module is live too.
-let user = runtime.call(&find_user, (42,))?; // Latest implementation; no rebind.
-```
-
-Program lookup starts at its root; module lookup and function/type binding start
-at the supplied module. A simple name and a multi-segment `::` path use the same
-resolver. This deliberately replaces the current function-binding behavior that
-silently resets a member lookup to the Program root. No separate `child`/`find`/
-`resolve` aliases are needed. Enumeration remains useful for diagnostics, not a
-required business workflow.
-
-Reuse and extend the verified public namespace graph, including type exports,
-rather than scanning all modules on each lookup or adding a second name resolver.
-Paths describe public namespaces, not physical files or concatenated canonical
-module identities: aliases and re-exports can lead to the same declaration through
-different paths. Lookup must preserve visibility and cannot expose a private
-module merely because one public item is re-exported. Ordinary lookup reads the
-latest published namespace and metadata in the handle's installation and preserves
-installation/type authority; it does not load code, execute script or perform new
-generic specialization. Retaining a Program/Module handle must not freeze lookup
-at an older publication or require reacquisition to observe an update. Explicit
-version-specific source/debug inspection is separate from ordinary live lookup;
-it may identify an older version without making ordinary handles version views.
-Callable identity is likewise distinct from internal selected body/resume/capture
-retention, native-product validity and type/layout retention. Repeated ordinary
-calls reuse checked declaration bindings; implementing their current-code selection
-belongs to UP, not the namespace resolver. Do not create parallel public
-legacy-pinned/current-code lookup or call entrypoints. No speedup is claimed.
-
-The confirmed target permits publication only at a single-threaded Actor-style
-Runtime host top-level boundary: no synchronous script stack is executing and a
-reentrant host callback cannot publish; async tasks may be suspended. No concurrent
-publication mechanism is required. Failure leaves the old published state intact;
-publication runs no script/code initialization or host handlers. Active/suspended
-computations retain their selected bodies/resume state, precreated Futures retain
-their selected computations, and closures retain capture-layout-compatible bodies.
-Ordinary function/method calls inside them use current implementations after
-publication, including calls from old resumed bodies. Existing type identity and
-trait relationships remain fixed, but method bodies are selected from current code.
-Roots, runtime/type/borrow checks, cancellation and cleanup remain mandatory.
-These are UP requirements, not claims about the current pinned runtime.
-
-When activated, validate direct versus nested relative lookup, module aliases and
-function/type re-exports, missing/private paths, foreign-runtime rejection and
-metadata/type authority across reload. Cover pre-update Program/Module handles
-querying the latest published contents in the same installation and pre-update
-function handles calling the latest implementation without reacquisition/rebinding;
-keep explicit version-specific source/debug inspection and retained computation
-bodies distinct. HM00 must identify which pinned tests cover the pre-UP
-implementation and hand live-lookup/current-call acceptance to UP; retaining an old
-computation must not become a permanent requirement to pin its callees. Reuse source
-and source-free artifact contract owners; any export-schema change must preserve
-independent verification. Review existing
-path-binding callers and specifications together, without compatibility aliases.
-This entry changes no implementation; focused behavior tests and performance
-measurements have not been run for the proposal.
-
-### Runtime-loaded programs referencing existing installations
+This unimplemented requirement is separate from the implemented
+[installed Program/live Module API](spec/embedding-api.md#installed-programs-and-public-paths)
+and [current-call publication](spec/module-activation.md#live-installations-and-call-selection).
+Public navigation alone does not link independently loaded installations.
 
 Related user requirement: execute newly supplied game-maintenance code against
 current player objects and game services, without reloading the game or creating a
@@ -1194,8 +1061,8 @@ absence relevant to its compatibility checks; that is not the proposed model.
 An ordinary Program is not automatically in the same update unit as every program
 that it references. Retaining selected old computations does not waive game v2's
 existing signature, layout, export or static compatibility requirements. This is
-the target behavior after UP plus explicit installation linking, not evidence that
-the current pinned implementation already updates retained repair calls.
+the target behavior with explicit installation linking, not evidence that ordinary
+current-call dispatch already supplies the missing cross-installation linker.
 
 When repair has finished and no code-bearing references remain, its code may be
 reclaimed according to ordinary ownership. Player mutations remain. A selected

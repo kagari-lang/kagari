@@ -46,8 +46,10 @@ Hot reload prepares and validates a candidate program, stages generation binding
 Public source functions may be generic templates. Source calls specialize them
 under ordinary type/bound checking. Public-path declaration discovery also records
 generic declarations without executable applications, including for source updates.
-This does not enable typed generic public-path binding (HM03 remains pending); ordinary
-typed host calls use concrete entries. Public re-export aliases retain canonical declarations. Checked
+Typed host binding separately requires existing executable evidence and never
+specializes missing applications at runtime; see the
+[relative host-path contract](embedding-api.md#installed-programs-and-public-paths).
+Public re-export aliases retain canonical declarations. Checked
 Programs keep a finite public namespace graph so cyclic module aliases do not require
 infinite path expansion. Private, package-restricted and implicit prelude names are
 absent from this graph. The root's zero-argument, non-generic `main` is recorded
@@ -95,9 +97,11 @@ visibility or bypass target/member privacy. A public target declared inside a
 private module may still be exposed through a valid public alias, under the same
 item-versus-containing-path distinction as ordinary re-exports.
 
-This source-language contract does not add host object-type lookup, a portable
-host type-export record or export-driven executable layout roots. Normalized
-source uses retain the target's existing lowering and runtime contracts.
+Normalized source uses retain the target's existing lowering and runtime contracts.
+[Public type exports](artifacts.md#public-type-exports) owns their portable host
+records and compiler-driven layout roots; [object binding](embedding-api.md#public-object-types-and-binding-errors)
+owns the finite supported host applications. Source alias support is not unrestricted
+host reflection or runtime specialization.
 
 ## Persistent module statics
 

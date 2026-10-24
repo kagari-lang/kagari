@@ -444,6 +444,111 @@ ExecutionContext
 
 The actual Rust API may split these objects across crates, but the same ownership boundaries must be preserved.
 
+## Installed programs and public paths
+
+`PreparedProgram` is a verified preparation product. `Runtime::load_program`
+returns a `Program` identifying one installation; loading the same product again
+creates independent state and authority, even with the same display label.
+`Program::root()` constructs its root `Module`. `Program::module(path)` starts at
+that root; `Module::module(path)` starts at the supplied logical namespace.
+Navigation reads the installation's latest published contents, not an immutable
+public snapshot. Aliases retain canonical namespace identity; a namespace need not
+have a physical executable slot. Retained handles need no reacquisition after reload.
+
+The SDK surface is:
+
+```text
+Runtime::load_program(&mut self, &PreparedProgram, LoadOptions) -> LoadResult<Program>
+Runtime::reload_program(&self, &Program, &PreparedProgram, ReloadOptions) -> ReloadResult<()>
+Program::root(&self) -> Module
+Program::module(&self, path: &str) -> Result<Module, RuntimeError>
+Module::module(&self, path: &str) -> Result<Module, RuntimeError>
+Runtime::object_type(&self, &Module, path: &str) -> RunResult<ObjectType>
+```
+
+`function` and `async_function` also bind relative to a supplied `Module`; neither
+falls back to the Program root. Whole-program `execute`, `execute_prepared` and
+native entry preparation instead take `Program` and explicitly select its current
+root. `ProgramEntry::Main` retains its separate private-root-entry capability.
+There is no implicit Program-to-Module conversion or legacy `LoadedModule` alias.
+`LoadOptions.program_name` and `ReloadOptions.program_name` are diagnostic labels,
+not compiled or installation identities; reload changes the label only on success.
+Source `update` and prepared reload target the same installation and return unit
+success, not replacement handles. See [source updates](#source-updates).
+
+Paths contain 1..64 nonempty ASCII identifier segments separated by `::`. The
+whole syntax is validated before graph traversal. Empty paths/components,
+leading/trailing separators, `crate`/`self`/`super`, filesystem paths and generic
+expressions are not accepted. `root()` is the explicit zero-segment operation.
+One bounded checked public-graph traversal serves module, function and type lookup;
+it follows aliases/cycles without flattening them or searching implicit packages.
+Type/module names share a namespace; a same-spelling function does not shadow them.
+
+A public leaf does not grant access to its private containing module. For example,
+`pub use internal::User as Player` permits binding `Player`, not navigating
+`internal` or accessing private fields. Binding does not execute script, initialize
+statics, invoke host handlers or compile a missing specialization. Function binding
+resolves the path once to installation + canonical declaration + checked application/
+signature. [Call selection](module-activation.md#live-installations-and-call-selection)
+owns invocation and retained-computation semantics; changing an alias affects fresh
+lookup, not the declaration of a retained binding.
+
+For a complete runnable example, see
+[host_objects](../../crates/kagari/examples/host_objects.rs): it navigates a
+namespace-only facade, binds relative functions/types, retains an object and reuses
+its handles after compatible publication. Simplified pseudocode:
+
+```text
+program = runtime.load_program(prepared, options)
+users = program.module("api::users")
+score = runtime.function(users, "score")
+player_type = runtime.object_type(users, "Avatar")
+runtime.reload_program(program, replacement, options)
+runtime.function(users, "selected")  // fresh lookup in the latest namespace
+runtime.call(score, ())              // original declaration's current implementation
+```
+
+### Public object types and binding errors
+
+SDK `object_type` accepts no explicit type arguments. It binds public nongeneric
+script structs, renamed exports and supported closed transparent aliases to script
+structs, including closed generic applications with verified layouts. Core
+`bind_type(&Module, path, &[TypeArgument])` also supports generic struct declarations
+with exact explicit arity and existing checked layout/template evidence. The
+advanced `bind_type_declaration` route remains installation-scoped and does not
+expose private namespaces. No route parses strings such as `Cell<i32>` or asks the
+runtime to synthesize missing applications.
+
+Closed aliases accept no additional host arguments. Open aliases, including
+`type Erased<T> = User`, are unsupported for host application even with arguments.
+Enum, trait, scalar, native/opaque and other non-script-struct targets never become
+`ObjectType` handles. [Public type exports](artifacts.md#public-type-exports) owns
+the source-free schema, declaration/binder proof and compiler-owned layout demand;
+valid unsupported exports still compile. Supported export-only closed layouts need
+no constructor/body use to become bindable.
+
+Binding first admits the runtime/installation and borrow scope, then resolves
+syntax, public visibility/kind, argument contract and executable evidence. Private
+and absent names are indistinguishable. Failures have no script effects:
+
+| Condition | Core error kind / diagnostic |
+| --- | --- |
+| Malformed or overlong path | `TypedPathValidation`: `invalid public path` |
+| Missing/private name | `TypedPathValidation`: `public path not found` |
+| Public name of another requested kind | `TypedPathValidation`: `public path has wrong target kind` |
+| Non-object type | `TypedPathValidation`: `type is not a script object` |
+| Open alias | `TypedPathValidation`: `open generic alias is not supported for host binding` |
+| Wrong arity or arguments on a closed alias | `TypedPathValidation`: `type argument count mismatch` |
+| Generic declaration without executable application | `ModuleValidation`: `missing executable function application` or `missing executable struct application` |
+| Foreign runtime, unknown installation or closed handle | `StaleHandle`, never same-name fallback |
+| Poisoned metadata cell or impossible verified target | `EngineFault`, never missing-path fallback |
+
+SDK mapping preserves `TypedPathValidation`, maps `StaleHandle` to
+`StaleModuleOrHostRoot` and module verification failures to `BytecodeVerification`.
+Artifact forgery rejects during verification through the existing contract/export
+validation family. Publication admission/errors remain owned by
+[module activation](module-activation.md#publication-boundary).
+
 ## Compile and Load Flow
 
 The host-visible pipeline is:
@@ -460,7 +565,7 @@ emit_artifact(checked_module, artifact_options) -> CompileResult<DefinitionMetad
 compile_to_artifact(source, artifact_options) -> CompileResult<DefinitionMetadata<BytecodeArtifact>>
 prepare_artifact(artifact, compatibility, cancellation) -> PreparedProgram
 load_program(prepared_program, load_options) -> LoadResult<Program>
-execute(module, entry, args, execution_context) -> RunResult<Value>
+execute(program, entry, args, execution_context) -> RunResult<Value>
 reload_program(program, prepared_candidate, reload_options) -> ReloadResult<()>
 update(program, update_batch) -> ReloadResult<()>
 ```
@@ -475,17 +580,12 @@ construction; live object roots and scoped host access belong to the runtime.
 following [module-activation.md](module-activation.md). Validation errors retain their
 reload codes.
 Reload preserves the existing module identities, public ABI and typed-path contracts.
-It also requires equivalent public namespace/function paths and an unchanged optional
-root-entry signature. Public aliases may select different canonical functions when
-parameter and result types match; parameter names and private implementation targets
-are not public-path identities. Nominal type identities still must match. Cyclic alias
-graphs are compared as finite graphs, so equivalent cycles may have different internal
-shapes. Removing/renaming a public path, changing its signature or changing the separate
-`main` entry contract fails with `KG_RELOAD_PUBLIC_EXPORT_MISMATCH` after the existing
-module checks. Previously bound ordinary calls keep their declaration/application
-identity but select its current implementation. Compatible additions are subject to
-frozen contracts, retained demands and protected dependency checks, not merely ABI
-signature equality.
+[Public namespace continuity](module-activation.md#public-namespace-continuity)
+defines compatible paths, canonical namespace identities, alias retargeting and the
+separate root-entry contract. Export mismatches report
+`KG_RELOAD_PUBLIC_EXPORT_MISMATCH` after the existing module checks. Compatible
+additions still require frozen contracts, retained demands and protected dependency
+checks, not merely ABI signature equality.
 
 At the runtime layer, `stage_reload_verified_program` (used by the SDK),
 `stage_reload_program` and `stage_reload_artifact` return an owned
@@ -689,13 +789,14 @@ names do not participate in selection. Ordinary typed paths can accept arguments
 the explicit root entry remains zero-argument.
 
 Core `kagari_runtime::Runtime::bind_function`, exposed by SDK `Runtime::function`,
-resolves verified public paths from the Program root, including re-exports into
-dependencies, and returns a typed `Function`.
-Passing a child `Module` handle does not change that lookup root. Private declarations
-and private `main` are absent from ordinary host lookup. Public generic declarations
-are valid public-path leaves for declaration/source-update lookup even without an
-executable application; this does **not** implement typed generic public-path binding
-(HM03 remains pending). Use a concrete public script wrapper for ordinary typed calls.
+resolves verified public paths relative to the supplied `Module`, including
+re-exports into dependencies, and returns a typed `Function`. Async binding uses
+the same [public-path contract](#installed-programs-and-public-paths), with no root
+fallback. Private declarations and private `main` are absent from ordinary lookup.
+Public generic declarations are discoverable for source updates without executable
+applications; declaration discovery alone grants no typed call authority. Binding
+requires an existing executable target and never specializes a template at runtime.
+A concrete public script wrapper can supply an ordinary typed entry.
 Explicit public declaration/application binding remains available for installed
 native entries and other existing checked executable evidence. Both binding routes
 validate the complete Rust signature. Named bindings retain a checked live route,

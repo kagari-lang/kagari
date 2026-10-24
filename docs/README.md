@@ -115,10 +115,11 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   separately scoped. Current source/source-free adapter and Worker contracts belong in
   the [browser guide](../crates/kagari-web/README.md); measured Playground costs and
   exact-product builds belong in the [site guide](../site/README.md).
-- [Host Program/Module and public-path execution plan](host-api-refactor.md):
-  live installation `Program`/`Module` handles and exact `ExecutableModule` owners
-  are implemented. Typed generic public-path binding remains pending HM03;
-  generic declaration lookup for source updates does not imply executable binding.
+- [Host API and update follow-ups](implementation-roadmap.md#host-api-and-update-execution):
+  installed Program/live Module relative binding is implemented; the
+  [embedding contract](spec/embedding-api.md#installed-programs-and-public-paths)
+  owns the API and finite generic/layout limits. Remaining preparation/tooling,
+  repair linking and state-replacement scope have separate existing owners.
 - [Editor follow-ups](implementation-roadmap.md#toolchain-distribution-and-modes):
   complete CI/platform acceptance, semantic IDE features, server-launch integration,
   marketplace publication and separately authorized old-repository administration.

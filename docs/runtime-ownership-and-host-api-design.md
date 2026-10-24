@@ -30,9 +30,13 @@ The SDK exposes typed `Function` bindings, current ordinary-call selection and
 shared async scheduling. `Program`/`Module` are live installation handles;
 `ExecutableModule` owns an exact version. Created closures/Futures and admitted
 frames/queues retain exact bodies, but their ordinary inner calls use current code.
-The [host facade proposal](host-api-refactor.md) owns further workflow redesign and
-typed generic public-path binding (HM03), not this implemented dispatch contract.
-The outer-tuple argument rule applies here.
+The [embedding contract](spec/embedding-api.md#installed-programs-and-public-paths)
+owns installed Program/live Module navigation and relative typed binding;
+[architecture](architecture.md#live-installations-and-publication) owns the metadata
+cell, exact executable leases and installation-qualified layout/trait admission.
+Dropping live handles does not unload/reset the Runtime-owned installation; shutdown
+ends authority even if handles survive. R13's type-only/code-retention split remains
+separate. The outer-tuple argument rule applies here.
 
 The [async](async-execution-design.md) and
 [task-scope](host-task-scope-design.md) contracts own implemented suspension and
@@ -741,20 +745,17 @@ let make = runtime.function::<(), Object>(&program.root(), "make_player")?;
 let player = runtime.call(&make, ())?;
 ```
 
-SDK `function` delegates to core `bind_function`, resolves a public path relative
-to the installed Program root and returns `Function<A, R>`. For
-`pub use internal::calculate as damage`, binding `damage` uses the verified target
-in `internal`; a dependency module handle does not
-change the lookup root or expose its private paths. Binding checks the complete Rust
-signature before execution and retains the checked declaration/application route
-through reload, selecting its current implementation at each ordinary admission.
-The export table survives artifact loading, so ordinary binding does not scan private
-function names or reconstruct declaration paths.
+SDK `function` delegates to core `bind_function` and returns `Function<A, R>`.
+Sync/async binding follows the supplied Module's current public namespace under the
+[relative path rules](spec/embedding-api.md#installed-programs-and-public-paths).
+For `pub use internal::calculate as damage`, binding `damage` in that namespace
+uses the verified target without exposing `internal`. Binding checks the complete
+Rust signature and retains a declaration/application route; invocation selects its
+current implementation. Source-free artifacts carry the same authority.
 
-Public source generic declarations are discoverable through public paths even
-without executable applications, notably for source updates. This is not typed
-generic public-path binding; HM03 remains pending. Ordinary typed calls can use
-concrete non-generic script wrappers. Explicit declaration APIs
+Public generic declarations remain discoverable without executable applications,
+notably for source updates, but binding needs checked executable evidence. Concrete
+public script wrappers can provide ordinary typed entries. Explicit declaration APIs
 (`bind_function_declaration` and `bind_function_application_declaration`) separately
 bind public installed declarations, including native entries and checked generic
 applications. They require existing executable evidence, preserve visibility and do
