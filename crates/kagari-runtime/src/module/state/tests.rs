@@ -148,12 +148,12 @@ fn array_type() -> Ty {
     Ty::Array(Box::new(scalar()))
 }
 
-fn cell(store: &ModuleStore, module: &LoadedModule, slot: usize) -> CellId {
+fn cell(store: &ModuleStore, module: &ExecutableModule, slot: usize) -> CellId {
     store.inner.borrow().resolve(module).unwrap().bindings[slot]
 }
 
 /// Seed only inside this internal test owner. There is no public initialization bypass.
-pub(crate) fn ready(runtime: &Runtime, module: &LoadedModule, slot: usize, value: Value) {
+pub(crate) fn ready(runtime: &Runtime, module: &ExecutableModule, slot: usize, value: Value) {
     runtime
         .validate_heap_payloads(slice::from_ref(&value))
         .unwrap();
@@ -174,7 +174,7 @@ pub(crate) fn ready(runtime: &Runtime, module: &LoadedModule, slot: usize, value
         .state = StaticState::Ready(value);
 }
 
-fn array(runtime: &Runtime, owner: &LoadedModule, value: i32) -> Value {
+fn array(runtime: &Runtime, owner: &ExecutableModule, value: i32) -> Value {
     Value::Array(
         runtime
             .alloc_array(owner, scalar(), vec![Value::I32(value)])
@@ -185,12 +185,14 @@ fn array(runtime: &Runtime, owner: &LoadedModule, value: i32) -> Value {
 #[test]
 fn checked_writes_preserve_cells_on_semantic_access_bounds_and_owner_errors() {
     let mut runtime = Runtime::default();
-    let module = runtime
+    let module_program = runtime
         .load_program("state", program(scalar(), true))
         .unwrap();
-    let readonly = runtime
+    let module = runtime.select_program(&module_program).unwrap();
+    let readonly_program = runtime
         .load_program("readonly", program(Ty::Builtin(BuiltinType::Unit), false))
         .unwrap();
+    let readonly = runtime.select_program(&readonly_program).unwrap();
     let slot = ModuleSlot::new(0);
     assert!(matches!(
         runtime
@@ -260,18 +262,20 @@ fn checked_writes_preserve_cells_on_semantic_access_bounds_and_owner_errors() {
 #[test]
 fn replacement_updates_gc_edges_and_rejects_foreign_stale_and_wrong_semantic_values() {
     let mut runtime = Runtime::default();
-    let module = runtime
+    let module_program = runtime
         .load_program("state", program(array_type(), true))
         .unwrap();
+    let module = runtime.select_program(&module_program).unwrap();
     let slot = ModuleSlot::new(0);
     let first = array(&runtime, &module, 7);
     ready(&runtime, &module, 0, first);
     runtime.collect_garbage().unwrap();
     assert!(runtime.gc().validate_value(&first));
     let mut other = Runtime::default();
-    let other_module = other
+    let other_module_program = other
         .load_program("state", program(array_type(), true))
         .unwrap();
+    let other_module = other.select_program(&other_module_program).unwrap();
     let foreign = array(&other, &other_module, 9);
     assert_eq!(
         runtime
@@ -313,10 +317,23 @@ fn replacement_updates_gc_edges_and_rejects_foreign_stale_and_wrong_semantic_val
 fn reload_shares_cells_preserves_recipe_and_isolates_candidate_and_new_installations() {
     let mut runtime = Runtime::default();
     let code = program(scalar(), true);
-    let baseline = runtime.load_program("state", code.clone()).unwrap();
-    let independent = runtime.load_program("independent", code.clone()).unwrap();
+    let prepared = VerifiedProgram::new(code.clone(), runtime.definition_context()).unwrap();
+    let baseline_program = runtime
+        .load_verified_program("state", prepared.clone())
+        .unwrap();
+    let baseline = runtime.select_program(&baseline_program).unwrap();
+    let independent_program = runtime.load_verified_program("state", prepared).unwrap();
+    let independent = runtime.select_program(&independent_program).unwrap();
+    assert_ne!(baseline.installation_id(), independent.installation_id());
+    assert!(
+        runtime
+            .modules
+            .bind_static_reload(&baseline, &independent)
+            .is_err()
+    );
     let other_runtime = &mut Runtime::default();
-    let foreign = other_runtime.load_program("state", code.clone()).unwrap();
+    let foreign_program = other_runtime.load_program("state", code.clone()).unwrap();
+    let foreign = other_runtime.select_program(&foreign_program).unwrap();
     let (definitions, mut updated) = code.into_parts();
     let module = &mut updated.modules[0];
     let mut initializer = module.functions[1].clone();
@@ -343,7 +360,7 @@ fn reload_shares_cells_preserves_recipe_and_isolates_candidate_and_new_installat
         .metadata(definitions, &Default::default())
         .unwrap();
     let candidate = runtime
-        .stage_reload_program(&baseline, "state", code.clone())
+        .stage_reload_program(&baseline_program, None, code.clone())
         .unwrap();
     assert_eq!(
         cell(&runtime.modules, &baseline, 0),
@@ -371,7 +388,8 @@ fn reload_shares_cells_preserves_recipe_and_isolates_candidate_and_new_installat
         );
     }
     drop(session);
-    let current = runtime.publish_staged_reload(candidate).unwrap();
+    let current = candidate.module().clone();
+    runtime.publish_staged_reload(candidate).unwrap();
     let StaticState::Uninitialized(recipe) = runtime
         .module_instance_snapshot(&current)
         .unwrap()
@@ -380,6 +398,7 @@ fn reload_shares_cells_preserves_recipe_and_isolates_candidate_and_new_installat
     else {
         panic!("uninitialized")
     };
+    assert_eq!(current.installation_id(), baseline.installation_id());
     assert_eq!(recipe.module.key(), baseline.key());
     assert_eq!(recipe.function, FunctionRef::new(1));
     assert_eq!(
@@ -420,7 +439,8 @@ fn reload_shares_cells_preserves_recipe_and_isolates_candidate_and_new_installat
             .reclaimed_modules
             .contains(&baseline.key())
     );
-    let fresh = runtime.load_program("state", code).unwrap();
+    let fresh_program = runtime.load_program("state", code).unwrap();
+    let fresh = runtime.select_program(&fresh_program).unwrap();
     let StaticState::Uninitialized(fresh_recipe) = runtime
         .module_instance_snapshot(&fresh)
         .unwrap()
@@ -429,6 +449,7 @@ fn reload_shares_cells_preserves_recipe_and_isolates_candidate_and_new_installat
     else {
         panic!("fresh recipe")
     };
+    assert_ne!(fresh.installation_id(), current.installation_id());
     assert_eq!(fresh_recipe.module.key(), fresh.key());
     assert_eq!(fresh_recipe.function, FunctionRef::new(2));
     assert!(
@@ -440,13 +461,20 @@ fn reload_shares_cells_preserves_recipe_and_isolates_candidate_and_new_installat
         cell(&runtime.modules, &current, 0),
         cell(&runtime.modules, &fresh, 0)
     );
+    assert_eq!(
+        runtime
+            .read_module_slot(&current, ModuleSlot::new(0))
+            .unwrap(),
+        Value::I32(101)
+    );
 }
 
 #[test]
 fn additions_reordering_and_stale_publication_are_transactional_and_deletion_is_rejected() {
     let mut runtime = Runtime::default();
     let original = program(scalar(), true);
-    let baseline = runtime.load_program("state", original.clone()).unwrap();
+    let baseline_program = runtime.load_program("state", original.clone()).unwrap();
+    let baseline = runtime.select_program(&baseline_program).unwrap();
     ready(&runtime, &baseline, 0, Value::I32(7));
     let context = DefinitionContext::new().unwrap();
     let mut updated = original
@@ -466,17 +494,18 @@ fn additions_reordering_and_stale_publication_are_transactional_and_deletion_is_
         .metadata(context.snapshot(), &Default::default())
         .unwrap();
     let abandoned = runtime
-        .stage_reload_program(&baseline, "state", updated.clone())
+        .stage_reload_program(&baseline_program, None, updated.clone())
         .unwrap();
     let stale = runtime
-        .stage_reload_program(&baseline, "state", updated.clone())
+        .stage_reload_program(&baseline_program, None, updated.clone())
         .unwrap();
     let candidate = runtime
-        .stage_reload_program(&baseline, "state", updated)
+        .stage_reload_program(&baseline_program, None, updated)
         .unwrap();
     let abandoned_key = abandoned.module().key();
     drop(abandoned);
-    let current = runtime.publish_staged_reload(candidate).unwrap();
+    let current = candidate.module().clone();
+    runtime.publish_staged_reload(candidate).unwrap();
     assert!(runtime.publish_staged_reload(stale).is_err());
     assert_eq!(
         runtime
@@ -491,7 +520,7 @@ fn additions_reordering_and_stale_publication_are_transactional_and_deletion_is_
     );
     assert!(
         runtime
-            .stage_reload_program(&current, "state", original)
+            .stage_reload_program(&baseline_program, None, original)
             .is_err()
     );
     assert!(
@@ -509,7 +538,8 @@ fn private_contract_changes_remain_rejected() {
     for mutation in 0..4 {
         let mut runtime = Runtime::default();
         let code = program(scalar(), true);
-        let baseline = runtime.load_program("state", code.clone()).unwrap();
+        let baseline_program = runtime.load_program("state", code.clone()).unwrap();
+        let baseline = runtime.select_program(&baseline_program).unwrap();
         ready(&runtime, &baseline, 0, Value::I32(7));
         let (definitions, mut candidate) = code.into_parts();
         match mutation {
@@ -528,8 +558,8 @@ fn private_contract_changes_remain_rejected() {
         assert!(
             runtime
                 .stage_reload_program(
-                    &baseline,
-                    "state",
+                    &baseline_program,
+                    None,
                     ProgramFixture::from(candidate)
                         .metadata(definitions, &Default::default())
                         .unwrap()
@@ -550,7 +580,8 @@ fn public_constant_additions_preserve_contracts_and_lazy_static_state_source_fre
     for initialized in [false, true] {
         let mut runtime = Runtime::default();
         let code = program(scalar(), true);
-        let baseline = runtime.load_program("state", code.clone()).unwrap();
+        let baseline_program = runtime.load_program("state", code.clone()).unwrap();
+        let baseline = runtime.select_program(&baseline_program).unwrap();
         if initialized {
             ready(&runtime, &baseline, 0, Value::I32(7));
         }
@@ -582,13 +613,14 @@ fn public_constant_additions_preserve_contracts_and_lazy_static_state_source_fre
         let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
         let staged = runtime
             .stage_reload_artifact(
-                &baseline,
-                "state",
+                &baseline_program,
+                None,
                 KbcArtifact::from_bytes(&bytes).unwrap(),
                 &Default::default(),
             )
             .unwrap();
-        let published = runtime.publish_staged_reload(staged).unwrap();
+        let published = staged.module().clone();
+        runtime.publish_staged_reload(staged).unwrap();
         assert!(published.bytecode.public_items.contains(&added));
         assert_eq!(published.bytecode.module_slots.len(), 1);
         assert_eq!(
@@ -615,11 +647,11 @@ fn public_constant_additions_preserve_contracts_and_lazy_static_state_source_fre
         // Once published, the added constant is an old contract, not disposable metadata.
         assert!(
             runtime
-                .stage_reload_program(&published, "state", code)
+                .stage_reload_program(&baseline_program, None, code)
                 .is_err()
         );
         assert_eq!(
-            runtime.modules().latest("state").unwrap().key(),
+            runtime.modules().current_for(&published).unwrap().key(),
             published.key()
         );
     }
@@ -632,9 +664,13 @@ fn failed_and_initializing_are_not_values_and_failed_state_releases_the_recipe()
     assert_eq!(diagnostic.origin(), Some(Span::default()));
     let mut runtime = Runtime::default();
     let code = program(Ty::Builtin(BuiltinType::Unit), false);
-    let old = runtime.load_program("state", code.clone()).unwrap();
-    let candidate = runtime.stage_reload_program(&old, "state", code).unwrap();
-    let current = runtime.publish_staged_reload(candidate).unwrap();
+    let old_program = runtime.load_program("state", code.clone()).unwrap();
+    let old = runtime.select_program(&old_program).unwrap();
+    let candidate = runtime
+        .stage_reload_program(&old_program, None, code)
+        .unwrap();
+    let current = candidate.module().clone();
+    runtime.publish_staged_reload(candidate).unwrap();
     let id = cell(&runtime.modules, &current, 0);
     let StaticState::Uninitialized(recipe) = runtime
         .modules
@@ -686,13 +722,15 @@ fn failed_and_initializing_are_not_values_and_failed_state_releases_the_recipe()
 fn corrupt_storage_quarantines_and_cleans_frame_resources() {
     for corruption in 0..4 {
         let mut runtime = Runtime::default();
-        let module = runtime
+        let module_program = runtime
             .load_program("state", program(scalar(), true))
             .unwrap();
+        let module = runtime.select_program(&module_program).unwrap();
         ready(&runtime, &module, 0, Value::I32(7));
-        let independent = runtime
+        let independent_program = runtime
             .load_program("independent", program(scalar(), true))
             .unwrap();
+        let independent = runtime.select_program(&independent_program).unwrap();
         ready(&runtime, &independent, 0, Value::I32(9));
         let other_cell = cell(&runtime.modules, &independent, 0);
         let stack = runtime.enter_execution_stack(&module).unwrap();
@@ -742,13 +780,15 @@ fn corrupt_storage_quarantines_and_cleans_frame_resources() {
 #[test]
 fn corrupted_collection_root_quarantines_the_runtime() {
     let mut runtime = Runtime::default();
-    let module = runtime
+    let module_program = runtime
         .load_program("state", program(array_type(), true))
         .unwrap();
+    let module = runtime.select_program(&module_program).unwrap();
     let mut foreign = Runtime::default();
-    let owner = foreign
+    let owner_program = foreign
         .load_program("foreign", program(array_type(), true))
         .unwrap();
+    let owner = foreign.select_program(&owner_program).unwrap();
     let value = array(&foreign, &owner, 7);
     let id = cell(&runtime.modules, &module, 0);
     runtime
@@ -771,9 +811,10 @@ fn corrupted_collection_root_quarantines_the_runtime() {
 #[test]
 fn borrowed_storage_rejects_writes_before_changing_edges() {
     let mut runtime = Runtime::default();
-    let module = runtime
+    let module_program = runtime
         .load_program("state", program(scalar(), true))
         .unwrap();
+    let module = runtime.select_program(&module_program).unwrap();
     ready(&runtime, &module, 0, Value::I32(7));
     let id = cell(&runtime.modules, &module, 0);
     let held = runtime.modules.inner.borrow_mut();

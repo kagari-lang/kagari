@@ -2,7 +2,7 @@
 use super::{Transformed, module, program_for_source};
 use kagari_runtime::{
     Runtime,
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
@@ -72,7 +72,7 @@ impl KagariSchema for Duplicate {
     }
 }
 
-fn fixture() -> (Runtime, LoadedModule) {
+fn fixture() -> (Runtime, ExecutableModule) {
     let module = module();
     let program = program_for_source(
         &module,
@@ -82,7 +82,8 @@ fn fixture() -> (Runtime, LoadedModule) {
     let mut modules = kagari_stdlib::modules().unwrap();
     modules.push(module);
     NativeModule::install_all(&modules, &mut runtime).unwrap();
-    let owner = runtime.load_program("serde", program).unwrap();
+    let owner_program = runtime.load_program("serde", program).unwrap();
+    let owner = runtime.select_program(&owner_program).unwrap();
     (runtime, owner)
 }
 

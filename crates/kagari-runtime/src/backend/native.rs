@@ -21,7 +21,7 @@ use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     error_trace::ErrorTrace,
     jit_abi::{NATIVE_HELPERS, decode_native_value},
-    module::{LoadedModule, ModuleEpochRetention, retention::ProgramLease},
+    module::{ExecutableModule, ModuleEpochRetention, retention::ProgramLease},
     value::Value,
 };
 
@@ -30,7 +30,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct InstalledNativeFunction {
     product: Arc<NativeCompilationProduct>,
-    module: LoadedModule,
+    module: ExecutableModule,
     _retention: ProgramLease,
 }
 
@@ -39,7 +39,7 @@ impl InstalledNativeFunction {
         &self.product.artifact
     }
 
-    pub fn module(&self) -> &LoadedModule {
+    pub fn module(&self) -> &ExecutableModule {
         &self.module
     }
 }
@@ -66,10 +66,10 @@ impl Runtime {
     /// Descriptor validation cannot establish these properties for arbitrary pointers.
     pub unsafe fn install_native_function(
         &self,
-        module: &LoadedModule,
+        module: &ExecutableModule,
         product: Arc<NativeCompilationProduct>,
     ) -> Result<InstalledNativeFunction, BackendInvocationError> {
-        self.validate_loaded_module(module)
+        self.validate_executable_module(module)
             .map_err(runtime_failure)?;
         self.resources()
             .ensure_execution_allowed()
@@ -99,7 +99,7 @@ impl Runtime {
             error,
             trace: self.capture_error_trace(),
         };
-        self.validate_loaded_module(&installed.module)
+        self.validate_executable_module(&installed.module)
             .map_err(runtime_failure)
             .map_err(failure)?;
         self.resources()
@@ -180,7 +180,7 @@ fn runtime_failure(error: RuntimeError) -> BackendInvocationError {
 }
 
 fn validate_product(
-    module: &LoadedModule,
+    module: &ExecutableModule,
     artifact: &ExecutableFunctionArtifact,
 ) -> Result<(), BackendInvocationError> {
     let unsupported = |reason: &str| BackendInvocationError::UnsupportedArtifact(reason.into());

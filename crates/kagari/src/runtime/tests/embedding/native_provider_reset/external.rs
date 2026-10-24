@@ -44,9 +44,10 @@ pub fn update() { STATE = 5; }
                 .unwrap()
         };
         assert_eq!(call(&old, "read"), Value::I32(13));
-        let current = runtime
+        runtime
             .reload_program(&old, &second, Default::default())
             .unwrap();
+        let current = old.clone();
         runtime
             .execute(&current, "update", &[], &Default::default())
             .unwrap();

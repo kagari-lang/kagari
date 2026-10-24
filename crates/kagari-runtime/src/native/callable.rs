@@ -127,7 +127,8 @@ impl<'call> CallableHandle<'call> {
         };
         let value = cx.argument(index)?;
         let closure = cx.runtime.resolve_closure(&value)?;
-        cx.runtime.validate_loaded_module(&closure.implementation)?;
+        cx.runtime
+            .validate_executable_module(&closure.implementation)?;
         let expected = cx.argument_type_view(index)?;
         let Ty::Function {
             params: expected_params,

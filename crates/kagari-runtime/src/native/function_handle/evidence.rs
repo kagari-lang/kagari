@@ -7,7 +7,7 @@ use crate::{
         arguments::{ScopedSignature, TypeArgument},
         compatibility::TypeView,
     },
-    module::{LoadedModule, ModuleKey},
+    module::{ExecutableModule, ModuleKey},
     native::{
         binding::NativeResult,
         context::{CallableOwner, LinkedCallable},
@@ -30,18 +30,18 @@ pub(super) struct EvidenceKey {
 }
 
 pub(super) struct EntryEvidence {
-    pub(super) owner: LoadedModule,
+    pub(super) owner: ExecutableModule,
     pub(super) key: EvidenceKey,
     pub(super) signature: Arc<ScopedSignature>,
     params: Vec<Ty>,
     result: Ty,
-    shared: Option<(LoadedModule, SharedCall)>,
+    shared: Option<(ExecutableModule, SharedCall)>,
 }
 
 impl EntryEvidence {
     pub(super) fn script(
         runtime: &Runtime,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         target: FunctionRef,
     ) -> NativeResult<Self> {
         let function = owner
@@ -76,14 +76,14 @@ impl EntryEvidence {
 
     pub(super) fn find(
         runtime: &Runtime,
-        root: &LoadedModule,
+        root: &ExecutableModule,
         declaration: DefinitionId,
         arguments: &[TypeArgument],
     ) -> NativeResult<Self> {
         root.definitions()
             .resolve(declaration)
             .map_err(|_| missing())?;
-        let same_arguments = |owner: &LoadedModule, types: &[Ty]| {
+        let same_arguments = |owner: &ExecutableModule, types: &[Ty]| {
             types.len() == arguments.len()
                 && types.iter().zip(arguments).all(|(ty, argument)| {
                     ty.is_concrete()
@@ -177,7 +177,7 @@ impl EntryEvidence {
 
     fn closed(
         runtime: &Runtime,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         target: CallableTarget,
         params: Vec<Ty>,
         result: Ty,

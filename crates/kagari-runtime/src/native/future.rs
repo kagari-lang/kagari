@@ -4,7 +4,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         binding::NativeResult,
         completion::{Completion, CompletionRegistry, Operation, OperationPoll},
@@ -107,7 +107,7 @@ where
 
 struct TypedPending<R> {
     operation: Operation<R>,
-    owner: LoadedModule,
+    owner: ExecutableModule,
     output: TypeArgument,
 }
 
@@ -142,7 +142,7 @@ impl<R: IntoKagari + Send + 'static> PendingNative for TypedPending<R> {
 
 #[derive(Debug)]
 pub(crate) struct NativeFuture {
-    owner: LoadedModule,
+    owner: ExecutableModule,
     parameters: Vec<TypeArgument>,
     output: TypeArgument,
     pub(crate) values: Vec<Value>,

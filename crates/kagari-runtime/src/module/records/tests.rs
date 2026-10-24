@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
-    module::{LinkedModule, ModuleEpochRetention, ProgramDescriptor, VerifiedProgram},
+    module::{LinkedModule, ModuleEpochRetention, Program, ProgramDescriptor, VerifiedProgram},
     native::{
         binding::{BindingEntry, Codec, NativeBinding},
         builder::ModuleBuilder,
@@ -26,7 +26,12 @@ use kagari_types::{
 };
 use std::{slice, thread};
 
-fn fixture() -> (Runtime, LoadedModule, DefinitionMetadata<BytecodeProgram>) {
+fn fixture() -> (
+    Runtime,
+    Program,
+    ExecutableModule,
+    DefinitionMetadata<BytecodeProgram>,
+) {
     let mut builder = ModuleBuilder::new("test::probe", &DeclarationCatalog::default()).unwrap();
     let function = builder
         .define_function(FunctionDecl::new("read").returns(Type::i32()))
@@ -69,11 +74,12 @@ fn fixture() -> (Runtime, LoadedModule, DefinitionMetadata<BytecodeProgram>) {
         .unwrap();
     let mut runtime = Runtime::default();
     provider.install(&mut runtime).unwrap();
-    let loaded = runtime.load_program("records", code.clone()).unwrap();
-    (runtime, loaded, code)
+    let loaded_program = runtime.load_program("records", code.clone()).unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
+    (runtime, loaded_program, loaded, code)
 }
 
-fn generic_structure(loaded: &LoadedModule) -> StructId {
+fn generic_structure(loaded: &ExecutableModule) -> StructId {
     StructId::new(
         loaded
             .bytecode
@@ -84,7 +90,7 @@ fn generic_structure(loaded: &LoadedModule) -> StructId {
     )
 }
 
-fn generic_enum(loaded: &LoadedModule) -> EnumId {
+fn generic_enum(loaded: &ExecutableModule) -> EnumId {
     EnumId::new(
         loaded
             .bytecode
@@ -95,17 +101,18 @@ fn generic_enum(loaded: &LoadedModule) -> EnumId {
     )
 }
 
-fn native_owner(loaded: &LoadedModule) -> LoadedModule {
+fn native_owner(loaded: &ExecutableModule) -> ExecutableModule {
     loaded
         .members()
         .find(|module| !module.bytecode.native_imports.is_empty())
         .unwrap()
 }
 
-fn detached_copy(loaded: &LoadedModule) -> LoadedModule {
-    LoadedModule {
+fn detached_copy(loaded: &ExecutableModule) -> ExecutableModule {
+    ExecutableModule {
         slot: loaded.slot,
         program: Arc::new(ProgramDescriptor {
+            installation: loaded.program.installation,
             code: loaded.program.code.clone(),
             retained_demands: loaded.program.retained_demands.clone(),
             layouts: loaded.program.layouts.clone(),
@@ -147,9 +154,9 @@ fn assert_layout_check(check: impl FnOnce() -> bool, expected: bool, comparisons
 #[test]
 fn immutable_descriptors_can_cross_threads_without_retaining_native_links_or_caches() {
     fn assert_send_sync<T: Send + Sync>() {}
-    assert_send_sync::<LoadedModule>();
+    assert_send_sync::<ExecutableModule>();
     assert_send_sync::<VerifiedProgram>();
-    let (runtime, loaded, _) = fixture();
+    let (runtime, _loaded_program, loaded, _) = fixture();
     let function = runtime
         .modules
         .native_binding(&native_owner(&loaded), NativeImportId::new(0))
@@ -192,7 +199,7 @@ fn immutable_descriptors_can_cross_threads_without_retaining_native_links_or_cac
 
 #[test]
 fn installed_layout_applications_reuse_caches_but_old_type_facts_survive_collection() {
-    let (runtime, loaded, code) = fixture();
+    let (runtime, loaded_program, loaded, code) = fixture();
     let args = [Ty::Builtin(BuiltinType::I32)];
     let id = generic_structure(&loaded);
     let enum_id = generic_enum(&loaded);
@@ -234,9 +241,11 @@ fn installed_layout_applications_reuse_caches_but_old_type_facts_survive_collect
     let probe = Arc::downgrade(&function);
     drop(function);
     let candidate = runtime
-        .stage_reload_program(&loaded, "records", code)
+        .stage_reload_program(&loaded_program, None, code)
         .unwrap();
-    let latest = runtime.publish_staged_reload(candidate).unwrap();
+    runtime.publish_staged_reload(candidate).unwrap();
+
+    let latest = runtime.select_program(&loaded_program).unwrap();
     let reclaimed = runtime.collect_garbage().unwrap().reclaimed_modules;
     assert!(
         loaded
@@ -251,10 +260,13 @@ fn installed_layout_applications_reuse_caches_but_old_type_facts_survive_collect
             .is_none()
     );
     assert_eq!(
-        runtime.validate_loaded_module(&loaded).unwrap_err().kind(),
+        runtime
+            .validate_executable_module(&loaded)
+            .unwrap_err()
+            .kind(),
         RuntimeErrorKind::ModuleValidation
     );
-    assert!(runtime.validate_loaded_module(&latest).is_ok());
+    assert!(runtime.validate_executable_module(&latest).is_ok());
     let retained = runtime
         .modules
         .applied_struct_layout(&loaded, id, &args, None)
@@ -269,7 +281,7 @@ fn installed_layout_applications_reuse_caches_but_old_type_facts_survive_collect
 
 #[test]
 fn layout_scopes_preserve_provenance_across_bounded_retention_and_retirement() {
-    let (runtime, loaded, code) = fixture();
+    let (runtime, loaded_program, loaded, code) = fixture();
     let id = generic_structure(&loaded);
     let declaration = loaded.bytecode.structures[id.index()].declaration;
     let parameter = GenericParam {
@@ -355,9 +367,11 @@ fn layout_scopes_preserve_provenance_across_bounded_retention_and_retirement() {
     assert_ne!(rebuilt.canonical, Some(initial_identity));
     assert_ne!(retained.id_for(&loaded), Some(initial_scope));
     let candidate = runtime
-        .stage_reload_program(&loaded, "records", code)
+        .stage_reload_program(&loaded_program, None, code)
         .unwrap();
-    let latest = runtime.publish_staged_reload(candidate).unwrap();
+    runtime.publish_staged_reload(candidate).unwrap();
+
+    let latest = runtime.select_program(&loaded_program).unwrap();
     let fresh = runtime
         .resolve_type_arguments(&latest, slice::from_ref(&ty))
         .unwrap();
@@ -377,7 +391,7 @@ fn layout_scopes_preserve_provenance_across_bounded_retention_and_retirement() {
             .members()
             .all(|member| collected.reclaimed_modules.contains(&member.key()))
     );
-    assert!(runtime.validate_loaded_module(&loaded).is_err());
+    assert!(runtime.validate_executable_module(&loaded).is_err());
     assert_eq!(
         retained.bindings().resolve(&parameter.as_type()).unwrap(),
         ty
@@ -398,7 +412,7 @@ fn layout_scopes_preserve_provenance_across_bounded_retention_and_retirement() {
         detached.bindings().resolve(&parameter.as_type()).unwrap(),
         ty
     );
-    let (foreign_runtime, foreign_owner, _) = fixture();
+    let (foreign_runtime, _foreign_owner_program, foreign_owner, _) = fixture();
     let foreign_ty = Ty::Struct(NominalTy {
         declaration: foreign_owner.bytecode.structures[generic_structure(&foreign_owner).index()]
             .declaration,
@@ -422,7 +436,7 @@ fn layout_scopes_preserve_provenance_across_bounded_retention_and_retirement() {
 
 #[test]
 fn equivalent_member_layouts_share_prepared_identity_without_aliasing_versions() {
-    let (runtime, previous, code) = fixture();
+    let (runtime, previous_program, _previous, code) = fixture();
     let (definitions, mut code) = code.into_parts();
     let args = [Ty::Builtin(BuiltinType::I32)];
     let source = code.root.index();
@@ -482,12 +496,14 @@ fn equivalent_member_layouts_share_prepared_identity_without_aliasing_versions()
     code.modules[target].enumerations.push(enum_template);
     let candidate = runtime
         .stage_reload_program(
-            &previous,
-            "records",
+            &previous_program,
+            None,
             DefinitionMetadata::checked(definitions, code, &Default::default()).unwrap(),
         )
         .unwrap();
-    let loaded = runtime.publish_staged_reload(candidate).unwrap();
+    runtime.publish_staged_reload(candidate).unwrap();
+
+    let loaded = runtime.select_program(&previous_program).unwrap();
     let other = loaded.members().nth(target).unwrap();
     let args = [Ty::Builtin(BuiltinType::I32)];
     let struct_id = generic_structure(&loaded);
@@ -614,9 +630,11 @@ fn equivalent_member_layouts_share_prepared_identity_without_aliasing_versions()
     assert_eq!(dynamic_enum.canonical, dynamic_enum_alias.canonical);
     assert!(dynamic_enum.matches_layout(&dynamic_enum_alias));
     let candidate = runtime
-        .stage_reload_verified_program(&loaded, "records", loaded.verified_program().clone())
+        .stage_reload_verified_program(&previous_program, None, loaded.verified_program().clone())
         .unwrap();
-    let latest = runtime.publish_staged_reload(candidate).unwrap();
+    runtime.publish_staged_reload(candidate).unwrap();
+
+    let latest = runtime.select_program(&previous_program).unwrap();
     let fresh = runtime
         .modules
         .applied_struct_layout(&latest, struct_id, &args, None)
@@ -662,7 +680,7 @@ fn equivalent_member_layouts_share_prepared_identity_without_aliasing_versions()
             .is_none()
     );
     runtime.collect_garbage().unwrap();
-    assert!(runtime.validate_loaded_module(&loaded).is_err());
+    assert!(runtime.validate_executable_module(&loaded).is_err());
     // Canonical type facts do not root executable instances and remain readable.
     assert!(enumeration.matches_layout(&enum_alias));
     assert!(dynamic.same_instance(&dynamic_alias));
@@ -672,11 +690,17 @@ fn equivalent_member_layouts_share_prepared_identity_without_aliasing_versions()
 
 #[test]
 fn layout_admission_is_bounded_and_does_not_retain_producer_programs() {
-    let (runtime, old, code) = fixture();
+    let (runtime, old_program, old, code) = fixture();
     let id = generic_structure(&old);
-    let latest = runtime
-        .publish_staged_reload(runtime.stage_reload_program(&old, "records", code).unwrap())
+    runtime
+        .publish_staged_reload(
+            runtime
+                .stage_reload_program(&old_program, None, code)
+                .unwrap(),
+        )
         .unwrap();
+
+    let latest = runtime.select_program(&old_program).unwrap();
     let arguments = [Ty::Builtin(BuiltinType::I32)];
     let producer = runtime
         .modules
@@ -720,7 +744,7 @@ fn layout_admission_is_bounded_and_does_not_retain_producer_programs() {
     })
     .join()
     .unwrap();
-    let (_, foreign, _) = fixture();
+    let (_, _foreign_program, foreign, _) = fixture();
     let foreign = foreign
         .applied_struct_layout(generic_structure(&foreign), &arguments)
         .unwrap();
@@ -735,8 +759,8 @@ fn layout_admission_is_bounded_and_does_not_retain_producer_programs() {
 
 #[test]
 fn link_lookup_checks_runtime_version_bounds_and_store_borrows() {
-    let (runtime, loaded, _) = fixture();
-    let (foreign, foreign_loaded, _) = fixture();
+    let (runtime, _loaded_program, loaded, _) = fixture();
+    let (foreign, _foreign_loaded_program, foreign_loaded, _) = fixture();
     let owner = native_owner(&loaded);
     let other = native_owner(&foreign_loaded);
     assert_eq!(owner.key(), other.key());
@@ -789,9 +813,9 @@ fn link_lookup_checks_runtime_version_bounds_and_store_borrows() {
 
 #[test]
 fn abandoned_candidates_release_links_even_when_their_descriptors_are_retained() {
-    let (runtime, loaded, code) = fixture();
+    let (runtime, loaded_program, _loaded, code) = fixture();
     let candidate = runtime
-        .stage_reload_program(&loaded, "records", code)
+        .stage_reload_program(&loaded_program, None, code)
         .unwrap();
     let owner = native_owner(candidate.module());
     let link = runtime
@@ -815,13 +839,16 @@ fn abandoned_candidates_release_links_even_when_their_descriptors_are_retained()
 
 #[test]
 fn matching_keys_and_copied_bindings_do_not_authorize_an_uninstalled_descriptor() {
-    let (runtime, loaded, _) = fixture();
+    let (runtime, _loaded_program, loaded, _) = fixture();
     let forged = detached_copy(&loaded);
     assert_eq!(loaded.key(), forged.key());
     assert!(forged.belongs_to(runtime.host.owner()));
     let before = runtime.modules.loaded_count();
     assert_eq!(
-        runtime.validate_loaded_module(&forged).unwrap_err().kind(),
+        runtime
+            .validate_executable_module(&forged)
+            .unwrap_err()
+            .kind(),
         RuntimeErrorKind::ModuleValidation
     );
     assert!(

@@ -62,7 +62,7 @@ impl<S> Interface<S> {
         runtime.gc().ensure_no_native_borrow()?;
         runtime.resources().ensure_execution_allowed()?;
         let member = &binding.record.member;
-        runtime.validate_loaded_module(&member.owner)?;
+        runtime.validate_executable_module(&member.owner)?;
         if self.owner.program_root().key() != member.owner.program_root().key()
             || !self
                 .argument
@@ -115,7 +115,7 @@ impl Runtime {
         options: ExecutionOptions,
     ) -> NativeResult<ExecutionSession<'_>> {
         let owner = method.implementation(self)?;
-        self.validate_loaded_module(&owner)?;
+        self.validate_executable_module(&owner)?;
         if !self.gc().validate_candidate_value(method.receiver())
             || self.resources().active_session().is_some_and(|session| {
                 session.options.phase == ExecutionPhase::CandidateInitialization

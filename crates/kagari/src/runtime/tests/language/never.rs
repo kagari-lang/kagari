@@ -368,7 +368,11 @@ pub fn healthy() -> i32 { 42 }
         assert!(runtime.runtime().execution_root().is_none());
         let limited = context.clone();
 
-        let cancellation = support::cancel_after(runtime.runtime(), &loaded, 20);
+        let cancellation = support::cancel_after(
+            runtime.runtime(),
+            &runtime.runtime().select_program(&loaded).unwrap(),
+            20,
+        );
         let error = runtime
             .execute(&loaded, "forever", &[], &limited)
             .unwrap_err();

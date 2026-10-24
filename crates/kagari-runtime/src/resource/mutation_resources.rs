@@ -1,13 +1,13 @@
 use crate::test_support::native::program::ProgramFixture;
-use crate::{Runtime, module::LoadedModule, value::Value};
+use crate::{Runtime, module::ExecutableModule, value::Value};
 use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
 use kagari_common::identity::map::DefinitionContext;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
-fn runtime_with_owner() -> (Runtime, LoadedModule) {
+fn runtime_with_owner() -> (Runtime, ExecutableModule) {
     let context = DefinitionContext::new().unwrap();
     let mut runtime = Runtime::default();
-    let owner = runtime
+    let owner_program = runtime
         .load_program(
             "allocations",
             ProgramFixture {
@@ -19,6 +19,7 @@ fn runtime_with_owner() -> (Runtime, LoadedModule) {
             .unwrap(),
         )
         .unwrap();
+    let owner = runtime.select_program(&owner_program).unwrap();
     (runtime, owner)
 }
 

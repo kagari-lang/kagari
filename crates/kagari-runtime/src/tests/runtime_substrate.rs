@@ -204,10 +204,10 @@ fn explicit_roots_trace_script_objects_without_crossing_host_boundaries() {
 }
 
 #[test]
-fn module_epochs_have_independent_runtime_instances() {
+fn same_name_loads_have_independent_installations_and_runtime_instances() {
     let context = DefinitionContext::new().unwrap();
     let mut runtime = Runtime::default();
-    let first = runtime
+    let first_program = runtime
         .load_program(
             "game.player",
             ProgramFixture {
@@ -219,7 +219,8 @@ fn module_epochs_have_independent_runtime_instances() {
             .unwrap(),
         )
         .unwrap();
-    let second = runtime
+    let first = runtime.select_program(&first_program).unwrap();
+    let second_program = runtime
         .load_program(
             "game.player",
             ProgramFixture {
@@ -231,15 +232,18 @@ fn module_epochs_have_independent_runtime_instances() {
             .unwrap(),
         )
         .unwrap();
+    let second = runtime.select_program(&second_program).unwrap();
 
-    assert_eq!(first.id, second.id);
-    assert_ne!(first.epoch, second.epoch);
+    assert_ne!(first.id, second.id);
+    assert_ne!(first.installation_id(), second.installation_id());
+    assert_eq!(first.epoch, second.epoch);
     assert_eq!(first.epoch.0, 1);
-    assert_eq!(second.epoch.0, 2);
+    assert_eq!(second.epoch.0, 1);
 
     let first_instance = runtime.module_instance_snapshot(&first).unwrap();
     let second_instance = runtime.module_instance_snapshot(&second).unwrap();
-    assert_ne!(first_instance.epoch, second_instance.epoch);
+    assert_eq!(first_instance.epoch, second_instance.epoch);
+    assert_ne!(first_instance.id, second_instance.id);
     assert!(first_instance.module_slots.is_empty());
     assert!(second_instance.module_slots.is_empty());
 }

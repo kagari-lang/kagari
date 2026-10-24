@@ -4,7 +4,7 @@ use crate::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
     gc::{HeapObjectId, custom_keys::KeyLookupGuard},
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         binding::NativeResult,
         context::{CallContext, LinkedCallable},
@@ -105,7 +105,7 @@ impl<'call> CallContext<'call> {
 /// Shared admission for rooted native arguments and closed primitive operands.
 pub(crate) fn check_sequence_argument(
     runtime: &Runtime,
-    owner: &LoadedModule,
+    owner: &ExecutableModule,
     expected: &TypeArgument,
     argument: impl FnOnce() -> NativeResult<Value>,
 ) -> NativeResult<HeapObjectId> {

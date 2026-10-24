@@ -12,7 +12,7 @@ use crate::{
         TypeEnvironment, arguments::TypeArgument, compatibility::TypeView,
         operations::OperationBindings,
     },
-    module::{LoadedModule, linked_execution::calls::LinkedCall},
+    module::{ExecutableModule, linked_execution::calls::LinkedCall},
 };
 use kagari_contract::{callable::interface::InterfaceCallContract, ids::FunctionRef};
 use kagari_types::ty::{NominalTy, Ty};
@@ -53,11 +53,11 @@ impl ScopedInterfaceCall {
 impl Runtime {
     pub(crate) fn prepare_scoped_interface_call(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         environment: TypeEnvironment,
         site: InterfaceCallSite,
     ) -> Result<Arc<ScopedInterfaceCall>, RuntimeError> {
-        self.validate_loaded_module(owner)?;
+        self.validate_executable_module(owner)?;
         let scope = environment.id;
         self.validate_environment(scope)?;
         if let Some(prepared) = self.modules.interface_call(owner, scope, site) {
@@ -78,7 +78,7 @@ impl Runtime {
 
     pub(crate) fn build_interface_call(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         environment: Option<TypeEnvironment>,
         contract: &InterfaceCallContract,
     ) -> Result<Arc<ScopedInterfaceCall>, RuntimeError> {

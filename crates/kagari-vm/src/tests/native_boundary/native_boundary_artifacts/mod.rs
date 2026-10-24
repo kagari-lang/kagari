@@ -108,6 +108,8 @@ fn direct_native_imports_run_from_source_and_decoded_artifacts() {
         let mut runtime = Runtime::default();
         NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
         let loaded = runtime.load_program("native-imports", program).unwrap();
+        let _loaded_program = loaded;
+        let loaded = runtime.select_program(&_loaded_program).unwrap();
         let vm = Vm::new(runtime);
         assert_eq!(
             vm.execute(&loaded, ProgramEntry::Main)
@@ -261,6 +263,8 @@ fn concrete_collection_native_signatures_preserve_element_types() {
         let mut runtime = Runtime::default();
         NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
         let loaded = runtime.load_program("native-collections", program).unwrap();
+        let _loaded_program = loaded;
+        let loaded = runtime.select_program(&_loaded_program).unwrap();
         let vm = Vm::new(runtime);
         assert_eq!(
             vm.execute(&loaded, ProgramEntry::Main)
@@ -330,6 +334,8 @@ pub fn answer() -> i32 {
     let mut runtime = Runtime::default();
     NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
     let loaded = runtime.load_program("native-witnesses", decoded).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)

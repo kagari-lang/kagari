@@ -1,5 +1,5 @@
 //! Runtime-local constant values are edges of the installed module version.
-use crate::{Runtime, error::RuntimeError, module::LoadedModule, value::Value};
+use crate::{Runtime, error::RuntimeError, module::ExecutableModule, value::Value};
 use kagari_bytecode::instruction::{ConstantId, ConstantOperand};
 use std::sync::OnceLock;
 
@@ -31,7 +31,7 @@ impl ConstantPool {
     pub(crate) fn materialize(
         &self,
         runtime: &Runtime,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         constant: ConstantId,
     ) -> Result<Value, RuntimeError> {
         let cell = self
@@ -73,10 +73,10 @@ impl Runtime {
     /// callers root an escaped value independently before releasing that version.
     pub fn read_constant(
         &self,
-        module: &LoadedModule,
+        module: &ExecutableModule,
         constant: ConstantId,
     ) -> Result<Value, RuntimeError> {
-        self.validate_loaded_module(module)?;
+        self.validate_executable_module(module)?;
         let records = self.modules.inner.try_borrow_mut().map_err(|_| {
             self.resources()
                 .quarantine("constant storage borrowed across execution")

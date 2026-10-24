@@ -2,7 +2,7 @@
 
 use crate::{
     Runtime,
-    module::{LoadedModule, ModuleEpochRetention, VerifiedProgram, state::StaticState},
+    module::{ExecutableModule, ModuleEpochRetention, VerifiedProgram, state::StaticState},
     reload::{
         ReloadValidationError, validate_reload_artifact_candidate, validate_reload_candidate,
     },
@@ -34,7 +34,8 @@ fn code(value: i32) -> VerifiedProgram {
 #[test]
 fn member_counts_distinguish_local_and_whole_program_leases() {
     let mut runtime = Runtime::default();
-    let root = runtime.load_verified_program("exports", code(7)).unwrap();
+    let root_program = runtime.load_verified_program("exports", code(7)).unwrap();
+    let root = runtime.select_program(&root_program).unwrap();
     let member = root
         .members()
         .find(|member| member.key() != root.key())
@@ -87,12 +88,14 @@ fn public_paths_remain_rooted_and_generation_pinned_after_identity_import() {
     assert!(original.entry_function().is_some());
     let mut first = Runtime::default();
     let mut second = Runtime::default();
-    let loaded = first
+    let loaded_program = first
         .load_verified_program("exports", original.clone())
         .unwrap();
-    let foreign = second
+    let loaded = first.select_program(&loaded_program).unwrap();
+    let foreign_program = second
         .load_verified_program("exports", original.clone())
         .unwrap();
+    let foreign = second.select_program(&foreign_program).unwrap();
     assert_ne!(loaded.definitions().id(), foreign.definitions().id());
     assert!(
         loaded
@@ -128,9 +131,11 @@ fn public_paths_remain_rooted_and_generation_pinned_after_identity_import() {
         .retain_module(&old_target, ModuleEpochRetention::ActiveCall)
         .unwrap();
     let staged = first
-        .stage_reload_verified_program(&loaded, "exports", code(9))
+        .stage_reload_verified_program(&loaded_program, None, code(9))
         .unwrap();
-    let published = first.publish_staged_reload(staged).unwrap();
+    first.publish_staged_reload(staged).unwrap();
+
+    let published = first.select_program(&loaded_program).unwrap();
     let (new_target, new_function) = published.exported_function("damage").unwrap();
     assert_ne!(old_target.key(), new_target.key());
     assert_ne!(
@@ -155,9 +160,9 @@ fn public_paths_remain_rooted_and_generation_pinned_after_identity_import() {
             Value::I32(expected)
         );
     }
-    first.validate_loaded_module(&old_target).unwrap();
-    first.validate_loaded_module(&new_target).unwrap();
-    assert!(second.validate_loaded_module(&old_target).is_err());
+    first.validate_executable_module(&old_target).unwrap();
+    first.validate_executable_module(&new_target).unwrap();
+    assert!(second.validate_executable_module(&old_target).is_err());
 }
 
 fn type_reload_source(object: &str, cell: &str, open: &str) -> String {
@@ -202,17 +207,20 @@ fn reload_normalizes_type_aliases_and_reexports_before_publication() {
         "OtherOpen",
     );
     let mut runtime = Runtime::default();
-    let loaded = runtime
+    let loaded_program = runtime
         .load_verified_program("exports", source_code(&original))
         .unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     assert_source_free_reload(&loaded, &equivalent, true);
     let candidate = runtime
-        .stage_reload_verified_program(&loaded, "exports", source_code(&equivalent))
+        .stage_reload_verified_program(&loaded_program, None, source_code(&equivalent))
         .unwrap();
-    let published = runtime.publish_staged_reload(candidate).unwrap();
+    runtime.publish_staged_reload(candidate).unwrap();
+
+    let published = runtime.select_program(&loaded_program).unwrap();
     assert_ne!(published.key(), loaded.key());
     assert_eq!(
-        runtime.modules().latest("exports").unwrap().key(),
+        runtime.select_program(&loaded_program).unwrap().key(),
         published.key()
     );
     assert!(matches!(
@@ -234,7 +242,7 @@ fn reload_normalizes_type_aliases_and_reexports_before_publication() {
     let preserved =
         equivalent.replace("crate::implementation::Alias;", "crate::implementation::A;");
     let candidate = runtime
-        .stage_reload_verified_program(&published, "exports", source_code(&preserved))
+        .stage_reload_verified_program(&loaded_program, None, source_code(&preserved))
         .unwrap();
     runtime.publish_staged_reload(candidate).unwrap();
 }
@@ -247,9 +255,10 @@ fn reload_rejects_changed_type_targets_arguments_and_marker_classes_without_effe
         "Open",
     );
     let mut runtime = Runtime::default();
-    let loaded = runtime
+    let loaded_program = runtime
         .load_verified_program("exports", source_code(&original))
         .unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     let (owner, function) = loaded.exported_function("value").unwrap();
     for source in [
         // Structurally identical nominal declarations are not interchangeable.
@@ -268,10 +277,10 @@ fn reload_rejects_changed_type_targets_arguments_and_marker_classes_without_effe
     ] {
         assert_source_free_reload(&loaded, &source, false);
         assert!(matches!(
-            runtime.stage_reload_verified_program(&loaded, "exports", source_code(&source)),
+            runtime.stage_reload_verified_program(&loaded_program, None, source_code(&source)),
             Err(ReloadValidationError::PublicExportMismatch)
         ));
-        let latest = runtime.modules().latest("exports").unwrap();
+        let latest = runtime.select_program(&loaded_program).unwrap();
         assert_eq!(latest.key(), loaded.key());
         assert_eq!(latest.program_fingerprint(), loaded.program_fingerprint());
         let (still_owner, still_function) = latest.exported_function("value").unwrap();
@@ -322,7 +331,8 @@ fn reload_compares_public_path_contracts_without_expanding_alias_cycles() {
         "fn main() {}",
     ));
     let mut runtime = Runtime::default();
-    let loaded = runtime.load_verified_program("exports", original).unwrap();
+    let loaded_program = runtime.load_verified_program("exports", original).unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     for source in [
         reload_source("one", "integer", "renamed", "a", "fn main() {}"),
         reload_source("one", "boolean", "value", "a", "fn main() {}"),
@@ -333,7 +343,7 @@ fn reload_compares_public_path_contracts_without_expanding_alias_cycles() {
             .replace("as api", "as renamed"),
     ] {
         assert!(matches!(
-            runtime.stage_reload_verified_program(&loaded, "exports", source_code(&source)),
+            runtime.stage_reload_verified_program(&loaded_program, None, source_code(&source)),
             Err(ReloadValidationError::PublicExportMismatch)
         ));
     }
@@ -351,9 +361,11 @@ fn reload_compares_public_path_contracts_without_expanding_alias_cycles() {
         .retain_module(&old, ModuleEpochRetention::ActiveCall)
         .unwrap();
     let staged = runtime
-        .stage_reload_verified_program(&loaded, "exports", candidate)
+        .stage_reload_verified_program(&loaded_program, None, candidate)
         .unwrap();
-    let published = runtime.publish_staged_reload(staged).unwrap();
+    runtime.publish_staged_reload(staged).unwrap();
+
+    let published = runtime.select_program(&loaded_program).unwrap();
     assert_eq!(old.bytecode.identity.path, ["one"]);
     assert_eq!(
         published
@@ -376,7 +388,7 @@ fn reload_compares_public_path_contracts_without_expanding_alias_cycles() {
     );
 }
 
-fn assert_source_free_reload(loaded: &LoadedModule, source: &str, compatible: bool) {
+fn assert_source_free_reload(loaded: &ExecutableModule, source: &str, compatible: bool) {
     let [raw, artifact] = source_free_reload_results(loaded, source);
     if compatible {
         raw.unwrap();
@@ -402,15 +414,18 @@ fn reload_accepts_added_public_paths_but_preserves_old_paths() {
         fn main() {}
     "#;
     let mut runtime = Runtime::default();
-    let loaded = runtime
+    let loaded_program = runtime
         .load_verified_program("exports", source_code(source))
         .unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     let addition = format!("{source} pub use crate::two as extra;");
     assert_source_free_reload(&loaded, &addition, true);
     let staged = runtime
-        .stage_reload_verified_program(&loaded, "exports", source_code(&addition))
+        .stage_reload_verified_program(&loaded_program, None, source_code(&addition))
         .unwrap();
-    let published = runtime.publish_staged_reload(staged).unwrap();
+    runtime.publish_staged_reload(staged).unwrap();
+
+    let published = runtime.select_program(&loaded_program).unwrap();
     assert!(published.exported_function("extra::run").is_some());
     assert!(published.exported_function("api::run").is_some());
 
@@ -419,7 +434,7 @@ fn reload_accepts_added_public_paths_but_preserves_old_paths() {
     let removed = addition.replace("pub use crate::one as api;", "");
     assert_source_free_reload(&loaded, &removed, false);
     assert!(matches!(
-        runtime.stage_reload_verified_program(&published, "exports", source_code(&removed),),
+        runtime.stage_reload_verified_program(&loaded_program, None, source_code(&removed),),
         Err(ReloadValidationError::PublicExportMismatch)
     ));
 }
@@ -434,9 +449,10 @@ fn reload_preserves_unused_private_nominal_and_trait_contracts_source_free() {
         fn main() {}
     "#;
     let mut runtime = Runtime::default();
-    let loaded = runtime
+    let loaded_program = runtime
         .load_verified_program("exports", source_code(source))
         .unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     let root = loaded.bytecode.as_ref();
     assert_eq!(root.private_types.len(), 2);
     assert_eq!(root.trait_contracts.len(), 1);
@@ -478,7 +494,7 @@ fn reload_preserves_unused_private_nominal_and_trait_contracts_source_free() {
         for result in source_free_reload_results(&loaded, &candidate)
             .into_iter()
             .chain([runtime
-                .stage_reload_verified_program(&loaded, "exports", source_code(&candidate))
+                .stage_reload_verified_program(&loaded_program, None, source_code(&candidate))
                 .map(|_| ())])
         {
             let Err(ReloadValidationError::DeclarationContractMismatch { declaration }) = result
@@ -487,7 +503,7 @@ fn reload_preserves_unused_private_nominal_and_trait_contracts_source_free() {
             };
             assert!(declaration.ends_with(name), "{declaration}");
         }
-        let latest = runtime.modules().latest("exports").unwrap();
+        let latest = runtime.select_program(&loaded_program).unwrap();
         assert_eq!(latest.key(), loaded.key());
         assert_eq!(latest.program_fingerprint(), loaded.program_fingerprint());
         assert_eq!(runtime.resources().counters().peak_call_depth, 0);
@@ -506,7 +522,7 @@ fn reload_preserves_unused_private_nominal_and_trait_contracts_source_free() {
     "#;
     assert_source_free_reload(&loaded, candidate, true);
     let staged = runtime
-        .stage_reload_verified_program(&loaded, "exports", source_code(candidate))
+        .stage_reload_verified_program(&loaded_program, None, source_code(candidate))
         .unwrap();
     runtime.publish_staged_reload(staged).unwrap();
 }
@@ -530,9 +546,10 @@ const NAMED_RELOAD_SOURCE: &str = r#"
 #[test]
 fn named_inventory_allows_additions_and_matches_semantic_impl_owners() {
     let mut runtime = Runtime::default();
-    let loaded = runtime
+    let loaded_program = runtime
         .load_verified_program("exports", source_code(NAMED_RELOAD_SOURCE))
         .unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     let candidate = NAMED_RELOAD_SOURCE
         .replace("impl Tag for Old {}", "")
         .replace("impl Old {", "impl Tag for Old {} impl Old {")
@@ -555,9 +572,11 @@ fn named_inventory_allows_additions_and_matches_semantic_impl_owners() {
         result.unwrap();
     }
     let staged = runtime
-        .stage_reload_verified_program(&loaded, "exports", source_code(&candidate))
+        .stage_reload_verified_program(&loaded_program, None, source_code(&candidate))
         .unwrap();
-    let published = runtime.publish_staged_reload(staged).unwrap();
+    runtime.publish_staged_reload(staged).unwrap();
+
+    let published = runtime.select_program(&loaded_program).unwrap();
     assert!(published.exported_function("extra::added").is_some());
     assert!(loaded.exported_function("extra::added").is_none());
     assert!(published.members().count() > loaded.members().count());
@@ -566,9 +585,10 @@ fn named_inventory_allows_additions_and_matches_semantic_impl_owners() {
 #[test]
 fn named_inventory_freezes_unused_declarations_and_restricts_new_impl_domains() {
     let mut runtime = Runtime::default();
-    let loaded = runtime
+    let loaded_program = runtime
         .load_verified_program("exports", source_code(NAMED_RELOAD_SOURCE))
         .unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     for candidate in [
         NAMED_RELOAD_SOURCE.replace("fn unused<T>(x: T) -> T { x }", ""),
         NAMED_RELOAD_SOURCE.replace(
@@ -591,7 +611,7 @@ fn named_inventory_freezes_unused_declarations_and_restricts_new_impl_domains() 
         for result in source_free_reload_results(&loaded, &candidate)
             .into_iter()
             .chain([runtime
-                .stage_reload_verified_program(&loaded, "exports", source_code(&candidate))
+                .stage_reload_verified_program(&loaded_program, None, source_code(&candidate))
                 .map(|_| ())])
         {
             assert!(
@@ -603,7 +623,7 @@ fn named_inventory_freezes_unused_declarations_and_restricts_new_impl_domains() 
             );
         }
         assert_eq!(
-            runtime.modules().latest("exports").unwrap().key(),
+            runtime.select_program(&loaded_program).unwrap().key(),
             loaded.key()
         );
         assert_eq!(runtime.resources().counters().peak_call_depth, 0);
@@ -698,9 +718,10 @@ fn ambiguous_named_locals_require_unchanged_enclosing_source_and_executable_evid
         fn main() -> i32 { enclosing(true) }
     "#;
     let mut runtime = Runtime::default();
-    let loaded = runtime
+    let loaded_program = runtime
         .load_verified_program("exports", source_code(source))
         .unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     for result in source_free_reload_results(&loaded, source) {
         result.unwrap();
     }
@@ -719,7 +740,7 @@ fn ambiguous_named_locals_require_unchanged_enclosing_source_and_executable_evid
         }
     }
     assert_eq!(
-        runtime.modules().latest("exports").unwrap().key(),
+        runtime.select_program(&loaded_program).unwrap().key(),
         loaded.key()
     );
 }
@@ -734,7 +755,8 @@ fn source_free_reload_validators_use_the_same_public_contract() {
         "fn main() {}",
     ));
     let mut runtime = Runtime::default();
-    let loaded = runtime.load_verified_program("exports", original).unwrap();
+    let loaded_program = runtime.load_verified_program("exports", original).unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     for compatible in [true, false] {
         let alias = if compatible { "value" } else { "renamed" };
         assert_source_free_reload(

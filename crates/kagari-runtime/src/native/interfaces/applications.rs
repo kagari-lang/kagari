@@ -11,7 +11,7 @@ use crate::{
         operations::OperationBindings,
     },
     gc::roots::RootSet,
-    module::{LoadedModule, ModuleKey},
+    module::{ExecutableModule, ModuleKey},
     native::{binding::NativeResult, interfaces::binding::InterfaceMember},
 };
 use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
@@ -24,7 +24,7 @@ pub(super) struct ApplicationKey(ModuleKey, FunctionRef, usize);
 
 pub(super) struct ApplicationEvidence {
     pub(super) key: ApplicationKey,
-    owner: LoadedModule,
+    owner: ExecutableModule,
     contract: InterfaceCallContract,
 }
 

@@ -92,6 +92,8 @@ fn finalized_code_and_installed_runtimes_move_execute_and_release_on_other_threa
         let loaded = runtime
             .load_program("threaded-native", bytecode.clone())
             .unwrap();
+        let _loaded_program = loaded;
+        let loaded = runtime.select_program(&_loaded_program).unwrap();
         // SAFETY: this product was compiled from this exact bytecode's MIR;
         // the finalized owner retains immutable pages through invocation.
         let installed = unsafe { runtime.install_native_function(&loaded, product) }.unwrap();
@@ -166,6 +168,8 @@ fn cranelift_backend_compiles_scalar_mir_and_products_outlive_the_backend() {
                     .unwrap(),
             )
             .unwrap();
+        let _module_program = module;
+        let module = runtime.select_program(&_module_program).unwrap();
         let installed = unsafe { runtime.install_native_function(&module, code.clone()) }.unwrap();
         drop(code);
         assert_eq!(
@@ -250,6 +254,8 @@ fn checked_i32_traps_keep_the_exact_mir_point() {
                 &bytecode.records().modules[bytecode.records().root.index()].functions[0];
             let origin = function.metadata.origins[overflow_offset].clone();
             let module = runtime.load_program("native", bytecode).unwrap();
+            let _module_program = module;
+            let module = runtime.select_program(&_module_program).unwrap();
             let installed =
                 unsafe { runtime.install_native_function(&module, code.clone()) }.unwrap();
             let failure = runtime.invoke_native_function(&installed).unwrap_err();

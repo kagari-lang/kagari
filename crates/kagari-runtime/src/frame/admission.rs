@@ -11,7 +11,7 @@ use crate::{
         ReturnDestination, arguments::FrameArguments, driver::ExecutionAction,
         values::FrameMetadata,
     },
-    module::LoadedModule,
+    module::ExecutableModule,
 };
 use kagari_bytecode::{instruction::Slot, module::CallableTarget};
 
@@ -20,7 +20,7 @@ impl ExecutionStack<'_> {
     pub(super) fn push_admitted_arguments(
         &self,
         runtime: &Runtime,
-        loaded: LoadedModule,
+        loaded: ExecutableModule,
         target: CallableTarget,
         args: FrameArguments<'_>,
         return_dst: Option<Slot>,

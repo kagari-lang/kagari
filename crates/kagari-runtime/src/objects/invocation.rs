@@ -42,7 +42,7 @@ impl MethodInvocation {
                 "interface method unavailable",
             ));
         }
-        runtime.validate_loaded_module(&view.description.implementation)?;
+        runtime.validate_executable_module(&view.description.implementation)?;
         Ok(Self {
             selection: MethodSelection::Interface { snapshot, slot },
             application: None,
@@ -54,7 +54,7 @@ impl MethodInvocation {
             .gc
             .bound_operation(id)
             .ok_or_else(|| RuntimeError::module_validation("invalid selected method operation"))?;
-        runtime.validate_loaded_module(&operation.owner)?;
+        runtime.validate_executable_module(&operation.owner)?;
         Ok(Self {
             selection: MethodSelection::Operation(id),
             application: operation.application,

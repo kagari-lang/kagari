@@ -168,6 +168,8 @@ fn callback_depth_failure_precedes_effects_and_cleans_native_roots() {
             let loaded = runtime
                 .load_program("native-control", route(&program, encoded))
                 .unwrap();
+            let _loaded_program = loaded;
+            let loaded = runtime.select_program(&_loaded_program).unwrap();
             let vm = Vm::new(runtime);
             let result = vm.execute(&loaded, ProgramEntry::Main);
             if fails {
@@ -211,6 +213,8 @@ fn cancellation_in_callback_keeps_the_effect_and_is_sticky_only_in_its_session()
         let loaded = runtime
             .load_program("native-control", route(&program, encoded))
             .unwrap();
+        let _loaded_program = loaded;
+        let loaded = runtime.select_program(&_loaded_program).unwrap();
         let mut options = runtime.execution_options();
         options.cancellation = token;
         let vm = Vm::new(runtime);
@@ -233,7 +237,7 @@ fn cancellation_in_callback_keeps_the_effect_and_is_sticky_only_in_its_session()
             Value::I32(7)
         );
         // Check a fresh session on the same version before retiring its constants.
-        publish_unused_version(&vm, &loaded);
+        publish_unused_version(&vm, &_loaded_program);
         assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     }
 }
@@ -272,6 +276,8 @@ fn callback_trap_preserves_the_public_caller_origin_and_debug_frames() {
         let loaded = runtime
             .load_program("native-control", route(&program, encoded))
             .unwrap();
+        let _loaded_program = loaded;
+        let loaded = runtime.select_program(&_loaded_program).unwrap();
         let mut debug = DebugSession::new(&runtime).unwrap();
         let breakpoint = debug
             .add_breakpoint(SourceBreakpoint::at_source_offset(
@@ -383,6 +389,8 @@ fn fail() -> i32 { boundary::choose(true, || { val n = 2147483647; n + 1 }) }
         let loaded = runtime
             .load_program("native-control", route(&program, encoded))
             .unwrap();
+        let _loaded_program = loaded;
+        let loaded = runtime.select_program(&_loaded_program).unwrap();
         let vm = Vm::new(runtime);
         assert_eq!(
             vm.execute(&loaded, ProgramEntry::Main)
@@ -437,6 +445,8 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
         let old = runtime
             .load_program("native-control", route(&old_program, encoded))
             .unwrap();
+        let _old_program = old;
+        let old = runtime.select_program(&_old_program).unwrap();
         let old_key = old.key();
         let vm = Vm::new(runtime);
         let closure = vm
@@ -447,9 +457,14 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
             .expect("retained execution result");
         let rooted = vm.runtime().root_value(closure).unwrap();
         *retained.lock().unwrap() = Some(closure);
-        let new = vm
-            .reload_program(&old, "native-control", route(&new_program, encoded))
-            .unwrap();
+        vm.reload_program(
+            &_old_program,
+            Some("native-control".into()),
+            route(&new_program, encoded),
+        )
+        .unwrap();
+        let _new_program = _old_program.clone();
+        let new = vm.runtime().select_program(&_new_program).unwrap();
         drop(old);
         vm.runtime().collect_garbage().unwrap();
         assert_eq!(
@@ -473,7 +488,7 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
         retained.lock().unwrap().take();
         drop(rooted);
         assert_clean(&vm);
-        publish_unused_version(&vm, &new);
+        publish_unused_version(&vm, &_new_program);
         vm.runtime().collect_garbage().unwrap();
         assert_eq!(vm.runtime().gc().allocated_objects(), 0);
     }
@@ -499,6 +514,8 @@ fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
             let loaded = runtime
                 .load_program("native-control", route(&program, encoded))
                 .unwrap();
+            let _loaded_program = loaded;
+            let loaded = runtime.select_program(&_loaded_program).unwrap();
             let options = runtime.execution_options();
             runtime
                 .set_execution_observer(crate::tests::native_boundary::support::CancelAt {
@@ -541,7 +558,7 @@ fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
                     .expect("retained execution result"),
                 Value::I32(7)
             );
-            publish_unused_version(&vm, &loaded);
+            publish_unused_version(&vm, &_loaded_program);
             assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
             if vm
                 .runtime()
@@ -602,6 +619,8 @@ fn native_poll_observes_cancellation_and_return_cannot_swallow_it() {
         .unwrap();
         native.install(&mut runtime).unwrap();
         let loaded = runtime.load_program("native-poll", program).unwrap();
+        let _loaded_program = loaded;
+        let loaded = runtime.select_program(&_loaded_program).unwrap();
         let mut options = runtime.execution_options();
         options.cancellation = token;
         let vm = Vm::new(runtime);

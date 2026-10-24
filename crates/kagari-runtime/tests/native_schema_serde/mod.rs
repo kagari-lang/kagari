@@ -105,7 +105,8 @@ fn serde_schema_roundtrips_renames_skips_composites_and_all_variant_shapes() {
     let mut modules = kagari_stdlib::modules().unwrap();
     modules.push(module);
     NativeModule::install_all(&modules, &mut runtime).unwrap();
-    let owner = runtime.load_program("serde", program).unwrap();
+    let owner_program = runtime.load_program("serde", program).unwrap();
+    let owner = runtime.select_program(&owner_program).unwrap();
     let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
     for (maybe, result, nested) in [
         (
@@ -204,7 +205,8 @@ fn serde_uses_conversion_limits_and_reports_nested_error_paths() {
     let mut modules = kagari_stdlib::modules().unwrap();
     modules.push(module);
     NativeModule::install_all(&modules, &mut runtime).unwrap();
-    let owner = runtime.load_program("serde", program).unwrap();
+    let owner_program = runtime.load_program("serde", program).unwrap();
+    let owner = runtime.select_program(&owner_program).unwrap();
     let mut cx = ConversionContext::with_limits(
         &runtime,
         &owner,

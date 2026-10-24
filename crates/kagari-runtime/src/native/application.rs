@@ -4,14 +4,14 @@ use crate::diagnostics::{self, Event};
 
 use crate::{
     Runtime, error::RuntimeError, execution_metadata::MetadataEdge, frame::types::TypeEnvironment,
-    module::LoadedModule, native::binding::LinkedNativeFunction,
+    module::ExecutableModule, native::binding::LinkedNativeFunction,
 };
 use kagari_bytecode::instruction::NativeImportId;
 use std::sync::Arc;
 
 #[derive(Debug)]
 pub(crate) struct NativeApplication {
-    pub(crate) owner: LoadedModule,
+    pub(crate) owner: ExecutableModule,
     pub(crate) environment: TypeEnvironment,
     pub(crate) function: LinkedNativeFunction,
 }
@@ -31,11 +31,11 @@ impl NativeApplication {
 impl Runtime {
     pub(crate) fn prepare_native_application(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         import: NativeImportId,
         environment: TypeEnvironment,
     ) -> Result<Arc<NativeApplication>, RuntimeError> {
-        self.validate_loaded_module(owner)?;
+        self.validate_executable_module(owner)?;
         if self.gc.environment(environment.id).is_none() {
             return Err(RuntimeError::module_validation(
                 "invalid native application environment",

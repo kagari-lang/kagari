@@ -11,7 +11,7 @@ use crate::{
     error::RuntimeError,
     frame::types::arguments::ScopedSignature,
     gc::roots::RootedValue,
-    module::{LoadedModule, retention::ProgramLease},
+    module::{ExecutableModule, retention::ProgramLease},
     native::{
         binding::NativeResult,
         callable::PreparedClosure,
@@ -31,7 +31,7 @@ use std::{marker::PhantomData, sync::Arc};
 /// owning runtime, live generation and candidate isolation.
 #[derive(Debug)]
 pub struct PreparedFunction {
-    owner: LoadedModule,
+    owner: ExecutableModule,
     signature: Arc<ScopedSignature>,
     target: Target,
     _program: ProgramLease,
@@ -63,7 +63,7 @@ impl<A, R> Clone for PinnedFunction<A, R> {
 }
 
 impl<A, R> PinnedFunction<A, R> {
-    pub fn owner(&self) -> &LoadedModule {
+    pub fn owner(&self) -> &ExecutableModule {
         &self.prepared.owner
     }
 }

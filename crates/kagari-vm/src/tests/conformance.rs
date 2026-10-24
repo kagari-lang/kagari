@@ -42,6 +42,8 @@ fn main() -> i32 {
 }
 "#,
     );
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let report = vm
         .execute(&loaded, ProgramEntry::Main)
@@ -68,6 +70,8 @@ fn missing_entry_is_rejected_before_execution() {
         };
         let mut runtime = standard_runtime(Default::default());
         let loaded = runtime.load_program("missing-entry.kgr", program).unwrap();
+        let _loaded_program = loaded;
+        let loaded = runtime.select_program(&_loaded_program).unwrap();
         let vm = Vm::new(runtime);
         for jit in [false, true] {
             let error = if jit {
@@ -111,6 +115,8 @@ fn public_entries_use_verified_identity_despite_duplicate_display_names() {
         let loaded = runtime
             .load_program("ambiguous-entry.kgr", program)
             .unwrap();
+        let _loaded_program = loaded;
+        let loaded = runtime.select_program(&_loaded_program).unwrap();
         let vm = Vm::new(runtime);
         for jit in [false, true] {
             for (path, expected) in [("first", 1), ("second", 2)] {
@@ -135,6 +141,8 @@ fn public_entries_use_verified_identity_despite_duplicate_display_names() {
 #[test]
 fn interpreter_conformance_classifies_failure_paths() {
     let (runtime, loaded) = load_test_module("fn main() -> i32 { val values = [1]; values[3] }");
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let error = vm
         .execute(&loaded, ProgramEntry::Main)
@@ -158,6 +166,8 @@ fn interpreter_conformance_classifies_failure_paths() {
     let loaded = runtime
         .load_program("resource_limit.kgr", bytecode)
         .expect("module should load");
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let error = vm
         .execute(&loaded, ProgramEntry::Main)
@@ -186,6 +196,8 @@ fn machine_boundaries_preserve_wide_indices_and_repeat_resource_errors() {
         }
     "#,
     );
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut vm = Vm::new(runtime);
     assert_eq!(
         vm.execute_typed::<_, i32>(&loaded, "read", (0_u64,))
@@ -243,7 +255,7 @@ fn machine_boundaries_preserve_wide_indices_and_repeat_resource_errors() {
             .with_host_scope(|scope| {
                 Vm::execute_scoped(
                     scope,
-                    &loaded,
+                    &_loaded_program,
                     "write_order",
                     &[value, Value::U64(index)],
                     Default::default(),
@@ -285,6 +297,8 @@ fn main() -> i32 {
     let loaded = runtime
         .load_program("debug_conformance.kgr", compile_test_bytecode(source))
         .expect("module should load");
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut session = DebugSession::new(&runtime).expect("debug session should be allowed");
     let breakpoint = session
         .add_breakpoint(SourceBreakpoint::at_source_offset(
@@ -400,6 +414,8 @@ fn main() -> i32 {
     let loaded = runtime
         .load_program("debug_steps.kgr", compile_test_bytecode(source))
         .expect("module should load");
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut session = DebugSession::new(&runtime).expect("debug session should be allowed");
     let cursor = session
         .run_to_cursor(

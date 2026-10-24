@@ -7,7 +7,7 @@ use crate::{
     frame::types::{arguments::TypeArgument, compatibility::TypeView},
     gc::roots::RootSet,
     host::{HostBorrowTable, scoped::ScopedHostView},
-    module::{LoadedModule, StructLayoutRef},
+    module::{ExecutableModule, StructLayoutRef},
     native::{
         binding::NativeResult, conversion::context::ConversionContext, projection::GeneratedField,
     },
@@ -18,7 +18,7 @@ use kagari_types::{reference::ReferenceAccess, ty::Ty};
 
 pub(super) struct ScopedField {
     pub(super) parent: TypeArgument,
-    pub(super) owner: LoadedModule,
+    pub(super) owner: ExecutableModule,
     pub(super) declaration: DefinitionId,
     pub(super) projector: GeneratedField,
     pub(super) target: TypeArgument,

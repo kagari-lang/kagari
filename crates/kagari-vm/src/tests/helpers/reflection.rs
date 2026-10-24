@@ -76,6 +76,8 @@ fn runtime_reflection_helpers_use_declared_metadata() {
             vec![ConstantOperand::I32(7)],
         ),
     );
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
 
     let vm = Vm::new(runtime);
     assert!(
@@ -128,6 +130,8 @@ fn declared_reflection_reads_are_available() {
             )),
         )
         .unwrap();
+    let _loaded_program = loaded;
+    let loaded = metadata_only.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(metadata_only);
     assert_eq!(
         vm.execute_fixture(&loaded, FunctionRef::new(0))
@@ -184,6 +188,8 @@ fn declared_reflection_writes_are_available() {
             )),
         )
         .unwrap();
+    let _loaded_program = loaded;
+    let loaded = read_only.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(read_only);
     vm.execute_fixture(&loaded, FunctionRef::new(0)).unwrap();
 }
@@ -419,6 +425,8 @@ fn main() -> i32 {
 }
 "#,
     );
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let report = vm
         .execute(&loaded, ProgramEntry::Main)

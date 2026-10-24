@@ -6,7 +6,7 @@ pub(crate) mod initialization;
 use crate::{
     Runtime,
     error::RuntimeError,
-    module::{LoadedModule, ModuleInstance, ModuleStore},
+    module::{ExecutableModule, ModuleInstance, ModuleStore},
     value::Value,
 };
 use kagari_bytecode::instruction::ModuleSlot;
@@ -17,7 +17,7 @@ use std::{fmt, slice};
 /// A fixed introducing-generation recipe. A copy grants no initialization authority.
 #[derive(Debug, Clone)]
 pub struct StaticRecipe {
-    pub module: LoadedModule,
+    pub module: ExecutableModule,
     pub function: FunctionRef,
 }
 
@@ -70,10 +70,10 @@ impl fmt::Display for StaticFailure {
 impl Runtime {
     pub(in crate::module) fn validate_module_state_access(
         &self,
-        module: &LoadedModule,
+        module: &ExecutableModule,
     ) -> Result<(), RuntimeError> {
         self.gc.ensure_execution_allowed()?;
-        self.validate_loaded_module(module)?;
+        self.validate_executable_module(module)?;
         if self.is_candidate_initialization() || self.modules.is_staged(module) {
             return Err(RuntimeError::execution_phase_violation(
                 "candidate cannot access static state",
@@ -83,7 +83,7 @@ impl Runtime {
     }
 
     /// Inspect without forcing initialization. Editing the copy cannot change state.
-    pub fn module_instance_snapshot(&self, module: &LoadedModule) -> Option<ModuleInstance> {
+    pub fn module_instance_snapshot(&self, module: &ExecutableModule) -> Option<ModuleInstance> {
         self.validate_module_state_access(module).ok()?;
         self.modules.instance_snapshot(module.key())
     }
@@ -92,7 +92,7 @@ impl Runtime {
     /// Drivers must root the result across safepoints.
     pub fn read_module_slot(
         &self,
-        module: &LoadedModule,
+        module: &ExecutableModule,
         slot: ModuleSlot,
     ) -> Result<Value, RuntimeError> {
         self.validate_module_state_access(module)?;
@@ -134,7 +134,7 @@ impl Runtime {
     /// This is not an initialization API, including for mutable declarations.
     pub fn write_module_slot(
         &self,
-        module: &LoadedModule,
+        module: &ExecutableModule,
         slot: ModuleSlot,
         value: Value,
     ) -> Result<(), RuntimeError> {
@@ -165,13 +165,18 @@ impl Runtime {
 }
 
 impl ModuleStore {
-    fn static_state(&self, module: &LoadedModule, slot: ModuleSlot) -> Option<StaticState> {
+    fn static_state(&self, module: &ExecutableModule, slot: ModuleSlot) -> Option<StaticState> {
         let store = self.inner.try_borrow().ok()?;
         let record = store.resolve(module)?;
         Some(store.bound_cell(record, slot.index())?.snapshot())
     }
 
-    fn replace_static(&self, module: &LoadedModule, slot: ModuleSlot, value: Value) -> Option<()> {
+    fn replace_static(
+        &self,
+        module: &ExecutableModule,
+        slot: ModuleSlot,
+        value: Value,
+    ) -> Option<()> {
         let mut store = self.inner.try_borrow_mut().ok()?;
         let record = store.resolve(module)?;
         store.bound_cell(record, slot.index())?;

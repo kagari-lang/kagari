@@ -3,7 +3,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::arguments::{TypeArgument, variants::PreparedEnumMember},
-    module::{EnumVariantRef, LoadedModule},
+    module::{EnumVariantRef, ExecutableModule},
     native::{
         binding::NativeResult,
         context::CallContext,
@@ -17,11 +17,11 @@ use std::{cell::Ref, slice};
 impl Runtime {
     fn declared_enum_member<'a>(
         &self,
-        fallback: &LoadedModule,
+        fallback: &ExecutableModule,
         applied: &'a TypeArgument,
         member: &str,
     ) -> NativeResult<&'a PreparedEnumMember> {
-        self.validate_loaded_module(fallback)?;
+        self.validate_executable_module(fallback)?;
         applied.validate(self)?;
         applied
             .prepared_variants(|| self.prepare_enum_variants(fallback, applied))?
@@ -32,7 +32,7 @@ impl Runtime {
 
     pub(crate) fn declared_enum_variant(
         &self,
-        fallback: &LoadedModule,
+        fallback: &ExecutableModule,
         applied: &TypeArgument,
         member: &str,
     ) -> NativeResult<EnumVariantRef> {
@@ -42,7 +42,7 @@ impl Runtime {
 
     pub(crate) fn native_type_argument(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         ty: &Type,
     ) -> NativeResult<TypeArgument> {
         let ty = ty.adopt(self.definition_context())?;
@@ -56,7 +56,7 @@ impl Runtime {
     /// another allocation or reentry. Native bindings normally use VariantRef.
     pub fn make_enum_member(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         applied: &TypeArgument,
         member: &str,
         fields: Vec<Value>,
@@ -70,7 +70,7 @@ impl Runtime {
 impl Runtime {
     pub(crate) fn checked_enum_variant(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         applied: &TypeArgument,
         variant: &VariantRef,
     ) -> NativeResult<EnumVariantRef> {

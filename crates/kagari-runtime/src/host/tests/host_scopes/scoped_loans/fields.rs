@@ -34,7 +34,7 @@ fn scoped_generated_fields_check_prefix_loans_and_resolve_replacements() {
     let mut runtime = Runtime::default();
     module.install(&mut runtime).unwrap();
     let context = DefinitionContext::new().unwrap();
-    let owner = runtime
+    let owner_program = runtime
         .load_program(
             "field-proof",
             ProgramFixture {
@@ -46,8 +46,13 @@ fn scoped_generated_fields_check_prefix_loans_and_resolve_replacements() {
             .unwrap(),
         )
         .unwrap();
-    let player_type = runtime.bind_rust_type::<Player>(&owner).unwrap();
-    let stats_type = runtime.bind_rust_type::<Stats>(&owner).unwrap();
+
+    let player_type = runtime
+        .bind_rust_type::<Player>(&owner_program.root())
+        .unwrap();
+    let stats_type = runtime
+        .bind_rust_type::<Stats>(&owner_program.root())
+        .unwrap();
     let stats_field = runtime
         .bind_rust_field::<Player, Stats>(&player_type, "stats")
         .unwrap();

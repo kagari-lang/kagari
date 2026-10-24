@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     error::RuntimeErrorKind,
     frame::types::EnvironmentRecord,
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         conversion::{FromKagari, context::ConversionContext},
         function_handle::PinnedFunction,
@@ -15,7 +15,7 @@ use kagari_hir::analysis::AnalysisDatabase;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::scalar::BuiltinType;
 
-fn fixture() -> (Runtime, LoadedModule, PreparedClosure) {
+fn fixture() -> (Runtime, ExecutableModule, PreparedClosure) {
     let mut sources = SourceDatabase::default();
     let root = sources
         .set(
@@ -34,7 +34,8 @@ fn fixture() -> (Runtime, LoadedModule, PreparedClosure) {
         .map(|program| program.into_unverified())
         .unwrap();
     let mut runtime = Runtime::default();
-    let loaded = runtime.load_program("callback", program).unwrap();
+    let loaded_program = runtime.load_program("callback", program).unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     assert_eq!(loaded.bytecode.functions.len(), 1);
     let environment = runtime
         .alloc_environment(

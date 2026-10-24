@@ -4,7 +4,7 @@ use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
     backend::{BackendInvocationError, native::InstalledNativeFunction},
     error::RuntimeError,
-    module::{LoadedModule, entry::ProgramEntry},
+    module::{ExecutableModule, entry::ProgramEntry},
     session::ExecutionSession,
 };
 
@@ -49,12 +49,12 @@ impl Vm {
     /// This method never compiles and never restarts a partially executed native call.
     pub fn execute_prepared<'a, 'p>(
         &self,
-        module: &LoadedModule,
+        module: &ExecutableModule,
         entry: impl Into<ProgramEntry<'a>>,
         prepared: impl Into<PreparedNativeExecution<'p>>,
     ) -> Result<ExecutionReport, VmError> {
         let session = self.begin_execution(module)?;
-        self.runtime.validate_loaded_module(module)?;
+        self.runtime.validate_executable_module(module)?;
         let entry = entry.into();
         let (owner, function) = entry
             .resolve(module)
@@ -64,7 +64,7 @@ impl Vm {
 
     pub(super) fn execute_prepared_selected<'p>(
         &self,
-        module: &LoadedModule,
+        module: &ExecutableModule,
         function: FunctionRef,
         label: &str,
         prepared: impl Into<PreparedNativeExecution<'p>>,
@@ -76,7 +76,8 @@ impl Vm {
         } = prepared.into();
         let (backend, artifact, mut diagnostics) = match prepared {
             PreparedNativeEntry::Native(installed) => {
-                self.runtime.validate_loaded_module(installed.module())?;
+                self.runtime
+                    .validate_executable_module(installed.module())?;
                 if installed.module().key() != module.key()
                     || installed.module().program_fingerprint() != module.program_fingerprint()
                     || installed.artifact().function != function

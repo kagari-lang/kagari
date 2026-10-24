@@ -58,12 +58,12 @@ pub fn main() {
     let prepared = prepare(&engine, 100);
     let mut runtime = engine.runtime(Default::default());
     let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
-    let player_type = runtime.object_type(&loaded, "Player").unwrap();
+    let player_type = runtime.object_type(&loaded.root(), "Player").unwrap();
     let new = runtime
         .associated_function::<(), Object>(&player_type, "new")
         .unwrap();
     let make = runtime
-        .async_function::<(), Object>(&loaded, "make")
+        .async_function::<(), Object>(&loaded.root(), "make")
         .unwrap();
     let hp = runtime.field::<i32>(&player_type, "hp").unwrap();
     let damage = runtime
@@ -76,10 +76,10 @@ pub fn main() {
         .async_associated_function::<(), Object>(&player_type, "fresh")
         .unwrap();
     let roundtrip = runtime
-        .function::<(Object,), Object>(&loaded, "roundtrip")
+        .function::<(Object,), Object>(&loaded.root(), "roundtrip")
         .unwrap();
     let reader = runtime
-        .function::<(Object,), Interface>(&loaded, "reader")
+        .function::<(Object,), Interface>(&loaded.root(), "reader")
         .unwrap();
     let player = runtime.call(&new, ()).unwrap();
     let alias = runtime.call(&roundtrip, (player.clone(),)).unwrap();
@@ -115,7 +115,7 @@ pub fn main() {
 
     // Submitted arguments and callable authority are retained before publication.
     let echo = runtime
-        .async_function::<(Object,), Object>(&loaded, "roundtrip_async")
+        .async_function::<(Object,), Object>(&loaded.root(), "roundtrip_async")
         .unwrap();
     let argument = runtime.call(&new, ()).unwrap();
     let mut pending = runtime.submit_async(&echo, (argument.clone(),)).unwrap();
@@ -123,11 +123,12 @@ pub fn main() {
     drop(argument);
     runtime.runtime().collect_garbage().unwrap();
     let replacement = prepare(&engine, 200);
-    let reloaded = runtime
+    runtime
         .reload_program(&loaded, &replacement, Default::default())
         .unwrap();
+    let reloaded = loaded.clone();
     let current = runtime
-        .async_function::<(), Object>(&reloaded, "make")
+        .async_function::<(), Object>(&reloaded.root(), "make")
         .unwrap();
     let new_player = executor
         .block_on(runtime.call_async(&current, ()).unwrap())

@@ -18,7 +18,11 @@ fn foreign_loaded_module_is_rejected_before_execution() {
     let mut first = standard_runtime(Default::default());
     let mut second = standard_runtime(Default::default());
     let foreign = first.load_program("same", bytecode.clone()).unwrap();
+    let _foreign_program = foreign;
+    let foreign = first.select_program(&_foreign_program).unwrap();
     let local = second.load_program("same", bytecode).unwrap();
+    let _local_program = local;
+    let local = second.select_program(&_local_program).unwrap();
     assert_eq!(foreign.key(), local.key());
     let vm = Vm::new(second);
     assert!(
@@ -37,6 +41,8 @@ fn foreign_loaded_module_is_rejected_before_execution() {
 #[test]
 fn executes_simple_arithmetic_function() {
     let (runtime, loaded) = load_test_module("fn main() -> i32 { val value = 1 + 2; value }");
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let report = vm
         .execute(&loaded, ProgramEntry::Main)
@@ -212,6 +218,8 @@ fn unsupported_dynamic_invocation_is_rejected() {
 #[test]
 fn executes_if_control_flow() {
     let (runtime, loaded) = load_test_module("fn main() -> i32 { if true { 1 } else { 2 } }");
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let report = vm
         .execute(&loaded, ProgramEntry::Main)
@@ -234,6 +242,8 @@ fn callee() -> i32 { 7 }
 fn main() -> i32 { callee() }
 "#,
     );
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let report = vm
         .execute(&loaded, ProgramEntry::Main)
@@ -264,6 +274,8 @@ fn main() -> i32 {
 }
 "#,
     );
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let report = vm
         .execute(&loaded, ProgramEntry::Main)
@@ -297,6 +309,8 @@ fn main() -> i32 { middle() }
     let loaded = runtime
         .load_program("call_depth.kgr", bytecode)
         .expect("module should load");
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
 
     let vm = Vm::new(runtime);
     let error = vm
@@ -339,6 +353,8 @@ fn unreachable_instruction_is_a_script_trap() {
             .unwrap(),
         )
         .expect("module should load");
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
 
     let vm = Vm::new(runtime);
     let error = vm
@@ -353,6 +369,8 @@ fn unreachable_instruction_is_a_script_trap() {
 fn executes_array_index_access() {
     let (runtime, loaded) =
         load_test_module("fn main() -> i32 { val values = [1, 2, 3]; values[1] }");
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let report = vm
         .execute(&loaded, ProgramEntry::Main)
@@ -379,6 +397,8 @@ fn main() -> i32 {
 }
 "#,
     );
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let report = vm
         .execute(&loaded, ProgramEntry::Main)
@@ -396,6 +416,8 @@ fn main() -> i32 {
 #[test]
 fn executes_tuple_literal_return() {
     let (runtime, loaded) = load_test_module("fn main() -> (bool, bool) { (true, false) }");
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let report = vm
         .execute(&loaded, ProgramEntry::Main)
@@ -428,6 +450,8 @@ fn main() -> Point {
 }
 "#,
     );
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let report = vm
         .execute(&loaded, ProgramEntry::Main)
@@ -475,6 +499,8 @@ fn lazy_static_driver_enters_hidden_initializer_but_stores_cannot_initialize() {
             .unwrap(),
         )
         .unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     assert!(vm.execute_fixture(&loaded, FunctionRef::new(0)).is_err());
     assert!(
@@ -526,14 +552,16 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
             .unwrap(),
         )
         .expect("first module epoch should load");
+    let _first_loaded_program = first_loaded;
+    let first_loaded = runtime.select_program(&_first_loaded_program).unwrap();
     let retention = runtime
         .retain_module(&first_loaded, ModuleEpochRetention::ActiveCall)
         .unwrap();
 
     let second_loaded = runtime
         .stage_reload_program(
-            &first_loaded,
-            "hot_reload.kgr",
+            &_first_loaded_program,
+            Some("hot_reload.kgr".into()),
             ProgramFixture {
                 exports: Default::default(),
                 root: ModuleRef::new(0),
@@ -546,7 +574,10 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
             .unwrap(),
         )
         .expect("compatible reload should publish a new epoch");
-    let second_loaded = runtime.publish_staged_reload(second_loaded).unwrap();
+    let staged = second_loaded;
+    let second_loaded = staged.module().clone();
+    runtime.publish_staged_reload(staged).unwrap();
+    let _second_loaded_program = _first_loaded_program.clone();
 
     assert_eq!(
         runtime.collect_garbage().unwrap().reclaimed_modules,
@@ -560,8 +591,7 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
         .expect("old active epoch should remain executable");
     let latest = vm
         .runtime()
-        .modules()
-        .latest("hot_reload.kgr")
+        .select_program(&_first_loaded_program)
         .expect("latest module epoch should be visible");
     let latest_report = vm
         .execute_fixture(&latest, FunctionRef::new(0))

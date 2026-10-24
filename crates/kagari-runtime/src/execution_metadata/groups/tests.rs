@@ -8,7 +8,7 @@ use crate::{
         application_key::{ApplicationArguments, ApplicationKey, MethodIdentity},
     },
     frame::types::{EnvironmentRecord, compatibility::TypeView, construction::ConstructionScope},
-    module::LoadedModule,
+    module::{ExecutableModule, Program},
     value::Value,
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
@@ -103,7 +103,7 @@ fn borrowed_group_views_reject_allocation_and_sweeping_before_detachment() {
     assert!(runtime.gc.operation_group(id).is_some());
 }
 
-fn load() -> (Runtime, LoadedModule) {
+fn load() -> (Runtime, Program, ExecutableModule) {
     let source = r#"
         trait Read { fn read(self) -> i32; fn second(self) -> i32; }
         impl Read for i32 { fn read(self) -> i32 { self } fn second(self) -> i32 { 2 } }
@@ -112,7 +112,7 @@ fn load() -> (Runtime, LoadedModule) {
     load_source(source)
 }
 
-fn load_source(source: &str) -> (Runtime, LoadedModule) {
+fn load_source(source: &str) -> (Runtime, Program, ExecutableModule) {
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("group.kgr", source.into(), SourceLayer::Base)
@@ -127,14 +127,15 @@ fn load_source(source: &str) -> (Runtime, LoadedModule) {
         .map(|program| program.into_unverified())
         .unwrap();
     let mut runtime = Runtime::default();
-    let loaded = runtime.load_program("group", code).unwrap();
-    (runtime, loaded)
+    let loaded_program = runtime.load_program("group", code).unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
+    (runtime, loaded_program, loaded)
 }
 
 #[test]
 fn operation_application_environment_cycles_release_the_actual_metadata_records() {
     for selected in [false, true] {
-        let (runtime, loaded) = load();
+        let (runtime, loaded_program, loaded) = load();
         let table = loaded
             .bytecode
             .interface_tables
@@ -208,7 +209,7 @@ fn operation_application_environment_cycles_release_the_actual_metadata_records(
             .unwrap();
         drop((environment, operation, snapshot));
         let candidate = runtime
-            .stage_reload_verified_program(&loaded, "group", loaded.verified_program().clone())
+            .stage_reload_verified_program(&loaded_program, None, loaded.verified_program().clone())
             .unwrap();
         runtime.publish_staged_reload(candidate).unwrap();
         runtime.collect_garbage().unwrap();
@@ -230,8 +231,8 @@ fn operation_application_environment_cycles_release_the_actual_metadata_records(
     }
 }
 
-fn selections() -> (Runtime, LoadedModule, Vec<OperationId>) {
-    let (runtime, loaded) = load();
+fn selections() -> (Runtime, Program, ExecutableModule, Vec<OperationId>) {
+    let (runtime, loaded_program, loaded) = load();
     let table = loaded
         .bytecode
         .interface_tables
@@ -278,12 +279,12 @@ fn selections() -> (Runtime, LoadedModule, Vec<OperationId>) {
         })
         .collect();
     drop(snapshot);
-    (runtime, loaded, operations)
+    (runtime, loaded_program, loaded, operations)
 }
 
 #[test]
 fn selected_witnesses_keep_the_group_without_exposing_siblings() {
-    let (runtime, _loaded, ids) = selections();
+    let (runtime, _loaded_program, _loaded, ids) = selections();
     assert_eq!(ids.len(), 2);
     let first = (*runtime.gc.bound_operation(ids[0]).unwrap()).clone();
     let sibling = (*runtime.gc.bound_operation(ids[1]).unwrap()).clone();
@@ -360,7 +361,7 @@ fn selected_witnesses_keep_the_group_without_exposing_siblings() {
 
 #[test]
 fn operation_access_checks_owner_generation_and_member_bounds() {
-    let (runtime, _loaded, ids) = selections();
+    let (runtime, _loaded_program, _loaded, ids) = selections();
     let id = ids[0];
     let descriptor = (*runtime.gc.bound_operation(id).unwrap()).clone();
     let foreign = Runtime::default();
@@ -404,7 +405,7 @@ fn operation_access_checks_owner_generation_and_member_bounds() {
 
 #[test]
 fn invalid_operation_metadata_aborts_before_detaching_any_groups() {
-    let (runtime, _loaded, ids) = selections();
+    let (runtime, _loaded_program, _loaded, ids) = selections();
     let invalid = OperationId {
         group: ids[0].group,
         member: usize::MAX,
@@ -429,7 +430,7 @@ fn invalid_operation_metadata_aborts_before_detaching_any_groups() {
 
 #[test]
 fn associated_type_snapshots_survive_selection_collection_without_owning_environments() {
-    let (runtime, loaded) = load_source(
+    let (runtime, _loaded_program, loaded) = load_source(
         r#"
         trait Reader { type Item; fn read(self) -> Self::Item; }
         impl Reader for i32 { type Item = i32; fn read(self) -> i32 { self } }

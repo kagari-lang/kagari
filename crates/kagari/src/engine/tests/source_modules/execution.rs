@@ -57,6 +57,7 @@ fn execution_report_records_code_inputs_and_ordered_host_results() {
         let loaded = runtime
             .load_program(&loaded_program, Default::default())
             .unwrap();
+        let _selected_loaded = runtime.runtime().select_program(&loaded).unwrap();
         let report = runtime
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap();
@@ -68,7 +69,10 @@ fn execution_report_records_code_inputs_and_ordered_host_results() {
             Value::I32(42)
         );
         let trace = report.trace.unwrap();
-        assert_eq!(trace.code_fingerprint, loaded.program_fingerprint());
+        assert_eq!(
+            trace.code_fingerprint,
+            _selected_loaded.program_fingerprint()
+        );
         assert_eq!(trace.inputs, context.inputs);
         assert_eq!(trace.host_calls.len(), 4);
         let observed = trace
@@ -124,7 +128,8 @@ fn dependency_bindings_are_checked_before_execution() {
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
-    assert_eq!(loaded.epoch.0, 1);
+    let _selected_loaded = runtime.runtime().select_program(&loaded).unwrap();
+    assert_eq!(_selected_loaded.epoch.0, 1);
     assert_eq!(
         runtime
             .execute(
@@ -221,7 +226,8 @@ fn old_program_calls_keep_their_dependency_versions_after_reload() {
     let old = runtime
         .load_program(&old_program, Default::default())
         .unwrap();
-    let dependency = old
+    let _selected_old = runtime.runtime().select_program(&old).unwrap();
+    let dependency = _selected_old
         .members()
         .find(|module| {
             module.bytecode.identity
@@ -235,9 +241,14 @@ fn old_program_calls_keep_their_dependency_versions_after_reload() {
         .runtime()
         .retain_module(&dependency, ModuleEpochRetention::ActiveCall)
         .unwrap();
-    let new = runtime
+    let stale = runtime
+        .runtime()
+        .stage_reload_verified_program(&old, None, second.bytecode().clone())
+        .unwrap();
+    runtime
         .reload_program(&old, &second.clone(), Default::default())
         .unwrap();
+    let new = old.clone();
     assert!(
         runtime
             .runtime()
@@ -246,10 +257,16 @@ fn old_program_calls_keep_their_dependency_versions_after_reload() {
             .reclaimed_modules
             .is_empty()
     );
-    for (module, value) in [(&old, 1), (&new, 2), (&old, 1)] {
+    let selected_new = runtime.runtime().select_program(&new).unwrap();
+    for (module, value) in [(&_selected_old, 1), (&selected_new, 2), (&_selected_old, 1)] {
+        let _session = runtime
+            .runtime()
+            .begin_execution(module, context.runtime_options())
+            .unwrap();
         assert_eq!(
             runtime
-                .execute(module, ProgramEntry::Main, &[], &context)
+                .backend()
+                .execute(module, ProgramEntry::Main)
                 .unwrap()
                 .return_value
                 .value(runtime.runtime().gc())
@@ -257,11 +274,7 @@ fn old_program_calls_keep_their_dependency_versions_after_reload() {
             Value::I32(value)
         );
     }
-    assert!(
-        runtime
-            .reload_program(&old, &second, Default::default())
-            .is_err()
-    );
+    assert!(runtime.runtime().publish_staged_reload(stale).is_err());
     drop(retention);
     let collected: HashSet<_> = runtime
         .runtime()
@@ -270,7 +283,7 @@ fn old_program_calls_keep_their_dependency_versions_after_reload() {
         .reclaimed_modules
         .into_iter()
         .collect();
-    let old_members: HashSet<_> = old.members().map(|module| module.key()).collect();
+    let old_members: HashSet<_> = _selected_old.members().map(|module| module.key()).collect();
     assert_eq!(collected, old_members);
     assert_eq!(
         runtime
@@ -392,13 +405,17 @@ fn malformed_programs_are_rejected_before_any_member_is_published() {
         );
         assert_eq!(runtime.runtime().modules().loaded_count(), 0);
     }
+    let installed = runtime
+        .load_program(
+            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap(),
+            Default::default(),
+        )
+        .unwrap();
     assert_eq!(
         runtime
-            .load_program(
-                &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                    .unwrap(),
-                Default::default()
-            )
+            .runtime()
+            .select_program(&installed)
             .unwrap()
             .epoch
             .0,

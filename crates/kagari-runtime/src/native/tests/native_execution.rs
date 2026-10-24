@@ -165,7 +165,8 @@ fn product(entry: JitCompiledFunction, dropped: Arc<AtomicUsize>) -> Arc<NativeC
 }
 
 fn install(runtime: &mut Runtime, entry: JitCompiledFunction) -> InstalledNativeFunction {
-    let module = runtime.load_program("native", program()).unwrap();
+    let module_program = runtime.load_program("native", program()).unwrap();
+    let module = runtime.select_program(&module_program).unwrap();
     // Static fixtures implement the current ABI; fault probes intentionally test
     // malformed status/results without violating Rust memory safety.
     unsafe { runtime.install_native_function(&module, product(entry, Arc::default())) }.unwrap()
@@ -205,16 +206,19 @@ fn native_traps_capture_the_frame_before_cleanup_and_never_request_fallback() {
 #[test]
 fn installed_handles_retain_code_and_old_versions_until_the_last_clone_drops() {
     let mut runtime = runtime();
-    let module = runtime.load_program("native", program()).unwrap();
+    let module_program = runtime.load_program("native", program()).unwrap();
+    let module = runtime.select_program(&module_program).unwrap();
     let dropped = Arc::new(AtomicUsize::new(0));
     let code = product(execute, dropped.clone());
     let installed = unsafe { runtime.install_native_function(&module, code.clone()) }.unwrap();
     let clone = installed.clone();
     drop(code);
     let candidate = runtime
-        .stage_reload_program(&module, "native", program())
+        .stage_reload_program(&module_program, None, program())
         .unwrap();
-    let new = runtime.publish_staged_reload(candidate).unwrap();
+    runtime.publish_staged_reload(candidate).unwrap();
+
+    let new = runtime.select_program(&module_program).unwrap();
     assert_ne!(new.key(), module.key());
     assert_eq!(
         runtime
@@ -275,7 +279,8 @@ fn malformed_native_results_quarantine_and_clean_up() {
 #[test]
 fn unresolved_entries_are_rejected_before_retaining_versions_or_running_code() {
     let mut runtime = runtime();
-    let module = runtime.load_program("native", program()).unwrap();
+    let module_program = runtime.load_program("native", program()).unwrap();
+    let module = runtime.select_program(&module_program).unwrap();
     let mut code = product(execute, Arc::default());
     Arc::get_mut(&mut code).unwrap().artifact.code.entry = ExecutableEntryPoint::Unresolved;
     assert!(matches!(
@@ -294,7 +299,8 @@ fn unresolved_entries_are_rejected_before_retaining_versions_or_running_code() {
 #[test]
 fn installation_retains_descriptors_and_rejects_unknown_functions_without_leaking_owners() {
     let mut runtime = runtime();
-    let module = runtime.load_program("native", program()).unwrap();
+    let module_program = runtime.load_program("native", program()).unwrap();
+    let module = runtime.select_program(&module_program).unwrap();
     let dropped = Arc::new(AtomicUsize::new(0));
     let mut code = product(execute, dropped.clone());
     Arc::get_mut(&mut code)
@@ -356,7 +362,8 @@ fn installation_retains_descriptors_and_rejects_unknown_functions_without_leakin
 #[test]
 fn failed_reload_keeps_installed_code_callable_and_its_version_retained() {
     let mut runtime = runtime();
-    let module = runtime.load_program("native", program()).unwrap();
+    let module_program = runtime.load_program("native", program()).unwrap();
+    let module = runtime.select_program(&module_program).unwrap();
     let dropped = Arc::new(AtomicUsize::new(0));
     let installed =
         unsafe { runtime.install_native_function(&module, product(execute, dropped.clone())) }
@@ -374,11 +381,11 @@ fn failed_reload_keeps_installed_code_callable_and_its_version_retained() {
         DefinitionMetadata::checked(definitions.snapshot(), candidate, &Default::default())
             .unwrap();
     assert!(matches!(
-        runtime.stage_reload_artifact(&module, "native", candidate, &Default::default()),
+        runtime.stage_reload_artifact(&module_program, None, candidate, &Default::default()),
         Err(ReloadValidationError::Artifact(_))
     ));
     assert_eq!(
-        runtime.modules().latest("native").unwrap().key(),
+        runtime.select_program(&module_program).unwrap().key(),
         module.key()
     );
     assert_eq!(
@@ -453,8 +460,10 @@ fn cancellation_of_an_active_session_prevents_native_progress() {
 fn executable_memory_can_be_shared_without_sharing_runtime_instances() {
     let mut first = runtime();
     let mut second = runtime();
-    let a = first.load_program("native", program()).unwrap();
-    let b = second.load_program("native", program()).unwrap();
+    let a_program = first.load_program("native", program()).unwrap();
+    let a = first.select_program(&a_program).unwrap();
+    let b_program = second.load_program("native", program()).unwrap();
+    let b = second.select_program(&b_program).unwrap();
     let dropped = Arc::new(AtomicUsize::new(0));
     let code = product(execute, dropped.clone());
     let x = unsafe { first.install_native_function(&a, code.clone()) }.unwrap();
@@ -474,7 +483,8 @@ fn executable_memory_can_be_shared_without_sharing_runtime_instances() {
 fn incompatible_native_abis_are_rejected_before_installation() {
     for helper in [false, true] {
         let mut runtime = runtime();
-        let module = runtime.load_program("native", program()).unwrap();
+        let module_program = runtime.load_program("native", program()).unwrap();
+        let module = runtime.select_program(&module_program).unwrap();
         let mut code = product(execute, Arc::default());
         let artifact = &mut Arc::get_mut(&mut code).unwrap().artifact;
         if helper {
@@ -512,15 +522,18 @@ fn native_handles_pin_the_entire_dependency_program_across_reload() {
         .metadata(definitions, &Default::default())
         .unwrap();
     let mut runtime = runtime();
-    let module = runtime.load_program("native", graph.clone()).unwrap();
+    let module_program = runtime.load_program("native", graph.clone()).unwrap();
+    let module = runtime.select_program(&module_program).unwrap();
     let old_dependency = module.member(ModuleRef::new(0)).unwrap();
     let installed =
         unsafe { runtime.install_native_function(&module, product(execute, Arc::default())) }
             .unwrap();
     let candidate = runtime
-        .stage_reload_program(&module, "native", graph)
+        .stage_reload_program(&module_program, None, graph)
         .unwrap();
-    let new = runtime.publish_staged_reload(candidate).unwrap();
+    runtime.publish_staged_reload(candidate).unwrap();
+
+    let new = runtime.select_program(&module_program).unwrap();
     runtime.collect_garbage().unwrap();
     assert_eq!(
         runtime
@@ -591,22 +604,25 @@ fn shared_verified_program_identity_survives_independent_runtime_linking() {
     let original = Arc::downgrade(&verified.modules()[0]);
     let mut first = runtime();
     let mut second = runtime();
-    let a = first
+    let a_program = first
         .load_verified_program("first", verified.clone())
         .unwrap();
-    let b = second
+    let a = first.select_program(&a_program).unwrap();
+    let b_program = second
         .load_verified_program("second", verified.clone())
         .unwrap();
-    let c = second
+    let b = second.select_program(&b_program).unwrap();
+    let c_program = second
         .load_verified_program("separate", separate.clone())
         .unwrap();
+    let c = second.select_program(&c_program).unwrap();
     assert!(a.verified_program().same_version(&verified));
     assert!(a.verified_program().same_version(b.verified_program()));
     assert!(Arc::ptr_eq(&a.bytecode, &b.bytecode));
     assert_eq!(a.program_fingerprint(), c.program_fingerprint());
     assert!(!a.verified_program().same_version(c.verified_program()));
-    assert!(first.validate_loaded_module(&b).is_err());
-    assert!(second.validate_loaded_module(&a).is_err());
+    assert!(first.validate_executable_module(&b).is_err());
+    assert!(second.validate_executable_module(&a).is_err());
     drop(verified);
     assert!(a.verified_program().same_version(b.verified_program()));
     // Reference-free normalization intentionally shares the current payload.
@@ -639,12 +655,14 @@ fn scoped_programs_import_exact_identities_without_replacing_versions_or_epochs(
     let source_id = verified.modules()[0].structures[0].declaration;
     let mut first = runtime();
     let mut second = runtime();
-    let a = first
+    let a_program = first
         .load_verified_program("scoped", verified.clone())
         .unwrap();
-    let b = second
+    let a = first.select_program(&a_program).unwrap();
+    let b_program = second
         .load_verified_program("scoped", verified.clone())
         .unwrap();
+    let b = second.select_program(&b_program).unwrap();
     let a_id = a.bytecode.structures[0].declaration;
     let b_id = b.bytecode.structures[0].declaration;
     assert_ne!(source_id, a_id);
@@ -653,9 +671,10 @@ fn scoped_programs_import_exact_identities_without_replacing_versions_or_epochs(
     assert_eq!(b.definitions().resolve(b_id).unwrap().to_path(), path);
     assert!(a.verified_program().same_version(b.verified_program()));
     assert!(a.verified_program().same_version(&verified));
-    let imported = second
+    let imported_program = second
         .load_verified_program("already_normalized", a.verified_program().clone())
         .unwrap();
+    let imported = second.select_program(&imported_program).unwrap();
     assert_eq!(imported.bytecode.structures[0].declaration, b_id);
     assert!(imported.verified_program().same_version(&verified));
     let foreign = Ty::Struct(NominalTy {
@@ -664,8 +683,10 @@ fn scoped_programs_import_exact_identities_without_replacing_versions_or_epochs(
         associated_types: Default::default(),
     });
     assert!(second.resolve_type_arguments(&b, &[foreign]).is_err());
-    let candidate = first.stage_reload_program(&a, "scoped", raw).unwrap();
-    let current = first.publish_staged_reload(candidate).unwrap();
+    let candidate = first.stage_reload_program(&a_program, None, raw).unwrap();
+    first.publish_staged_reload(candidate).unwrap();
+
+    let current = first.select_program(&a_program).unwrap();
     assert_eq!(current.bytecode.structures[0].declaration, a_id);
     assert_ne!(current.key(), a.key());
     assert!(

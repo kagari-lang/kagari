@@ -1,7 +1,7 @@
 //! Runtime-local links and caches are owned with the installed module instance.
 use crate::{
     module::{
-        LoadedModule, ModuleKey, ModuleStore, ModuleStoreInner,
+        ExecutableModule, InstallationId, ModuleKey, ModuleStore, ModuleStoreInner,
         constants::ConstantPool,
         descriptors::LinkedDescriptors,
         layouts::{LayoutCache, ProgramLayoutCache},
@@ -19,9 +19,9 @@ use std::{
 
 #[derive(Debug)]
 pub(super) struct ModuleRecord {
-    pub(super) module: LoadedModule,
+    pub(super) module: ExecutableModule,
     pub(super) bindings: Vec<CellId>,
-    pub(super) static_lineage: ModuleKey,
+    pub(super) static_lineage: InstallationId,
     pub(super) layouts: LayoutCache,
     pub(super) constants: Arc<ConstantPool>,
     pub(super) descriptors: LinkedDescriptors,
@@ -31,10 +31,10 @@ pub(super) struct ModuleRecord {
 }
 
 impl ModuleRecord {
-    pub(super) fn new(module: LoadedModule, native: Vec<Arc<LinkedNativeFunction>>) -> Self {
+    pub(super) fn new(module: ExecutableModule, native: Vec<Arc<LinkedNativeFunction>>) -> Self {
         Self {
             bindings: Vec::new(),
-            static_lineage: module.program_key(),
+            static_lineage: module.installation_id(),
             constants: Arc::new(ConstantPool::new(module.bytecode.constants.len())),
             layouts: LayoutCache::default(),
             program_layouts: None,
@@ -56,13 +56,13 @@ impl ModuleRecord {
         )
     }
 
-    pub(super) fn matches(&self, module: &LoadedModule) -> bool {
+    pub(super) fn matches(&self, module: &ExecutableModule) -> bool {
         self.module.slot == module.slot && Arc::ptr_eq(&self.module.program, &module.program)
     }
 }
 
 impl ModuleStoreInner {
-    pub(super) fn available(&self, key: ModuleKey) -> Option<&LoadedModule> {
+    pub(super) fn available(&self, key: ModuleKey) -> Option<&ExecutableModule> {
         self.available_record(key).map(|record| &record.module)
     }
 
@@ -71,12 +71,12 @@ impl ModuleStoreInner {
         candidate_available(&self.staged, &record.module).then_some(record)
     }
 
-    pub(super) fn resolve(&self, module: &LoadedModule) -> Option<&ModuleRecord> {
+    pub(super) fn resolve(&self, module: &ExecutableModule) -> Option<&ModuleRecord> {
         self.available_record(module.key())
             .filter(|record| record.matches(module))
     }
 
-    pub(super) fn resolve_mut(&mut self, module: &LoadedModule) -> Option<&mut ModuleRecord> {
+    pub(super) fn resolve_mut(&mut self, module: &ExecutableModule) -> Option<&mut ModuleRecord> {
         let record = self.records.get_mut(&module.key())?;
         (candidate_available(&self.staged, &record.module) && record.matches(module))
             .then_some(record)
@@ -87,7 +87,7 @@ impl ModuleStoreInner {
 /// whose immutable descriptors still exist outside the runtime.
 fn candidate_available(
     staged: &HashMap<ModuleKey, Weak<CandidateLease>>,
-    module: &LoadedModule,
+    module: &ExecutableModule,
 ) -> bool {
     staged
         .get(&module.program_key())
@@ -98,7 +98,7 @@ impl ModuleStore {
     /// Clone only for the synchronous invocation; no module-store borrow crosses Rust code.
     pub(crate) fn native_binding(
         &self,
-        module: &LoadedModule,
+        module: &ExecutableModule,
         import: NativeImportId,
     ) -> Option<Arc<LinkedNativeFunction>> {
         let records = self.inner.try_borrow().ok()?;

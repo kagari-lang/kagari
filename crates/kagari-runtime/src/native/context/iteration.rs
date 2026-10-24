@@ -27,7 +27,7 @@ impl CallContext<'_> {
     ) -> NativeResult<Value> {
         let value = self.argument(index)?;
         let source = self.argument_type_argument(index)?;
-        self.runtime.validate_loaded_module(self.owner)?;
+        self.runtime.validate_executable_module(self.owner)?;
         source.validate(self.runtime)?;
         self.runtime
             .check_iterator_contract(self.owner, &value, &source)?;

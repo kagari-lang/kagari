@@ -10,7 +10,7 @@ use crate::{
         arguments::ScopedSignature,
         compatibility::{TypeIdentity, TypeView},
     },
-    module::LoadedModule,
+    module::ExecutableModule,
     objects::calls::resolve_requirement,
 };
 use kagari_bytecode::module::{BytecodeFunction, CallableTarget};
@@ -27,7 +27,7 @@ pub(super) struct AdapterApplication {
 impl Runtime {
     pub(super) fn bind_shared_adapter(
         &self,
-        caller: &LoadedModule,
+        caller: &ExecutableModule,
         environment: Option<TypeEnvironment>,
         adapter: &SharedAdapterWitness,
     ) -> Result<OperationId, RuntimeError> {
@@ -94,7 +94,7 @@ impl Runtime {
     /// operations. The caller has authenticated every supplied component.
     pub(super) fn bind_adapter_application(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         target: &BytecodeFunction,
         application: AdapterApplication,
     ) -> Result<OperationId, RuntimeError> {

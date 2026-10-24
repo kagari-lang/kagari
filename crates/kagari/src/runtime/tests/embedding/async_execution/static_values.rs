@@ -46,7 +46,11 @@ pub fn state() -> i32 { STATE }
         let scope = f
             .runtime
             .runtime()
-            .create_task_scope(&f.module, Default::default(), Arc::new(|_| Ok(())))
+            .create_task_scope(
+                &f.runtime.runtime().select_program(&f.module).unwrap(),
+                Default::default(),
+                Arc::new(|_| Ok(())),
+            )
             .unwrap();
         let factory = f.invoke("factory", &[]);
         let task = f
@@ -63,8 +67,7 @@ pub fn state() -> i32 { STATE }
             0,
             "storing does not start async work"
         );
-        f.module = f
-            .runtime
+        f.runtime
             .reload_program(&f.module, &replacement, Default::default())
             .unwrap();
         let _ = f.invoke("set_state", &[Value::I32(5)]);

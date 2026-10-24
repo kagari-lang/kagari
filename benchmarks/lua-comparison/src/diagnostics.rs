@@ -2,7 +2,7 @@
 use kagari::{context::ExecutionContext, runtime::Runtime};
 use kagari_runtime::{
     diagnostics::{self, allocations},
-    module::{LoadedModule, entry::ProgramEntry},
+    module::{Program, entry::ProgramEntry},
     value::Value,
 };
 
@@ -11,7 +11,7 @@ static ALLOCATOR: allocations::Allocator = allocations::Allocator;
 
 pub(super) fn measure(
     runtime: &Runtime,
-    module: &LoadedModule,
+    module: &Program,
     context: &ExecutionContext,
     entry: ProgramEntry<'_>,
     args: &[Value],
@@ -30,7 +30,7 @@ pub(super) fn measure(
 
 fn count(
     runtime: &Runtime,
-    module: &LoadedModule,
+    module: &Program,
     context: &ExecutionContext,
     entry: ProgramEntry<'_>,
     args: &[Value],

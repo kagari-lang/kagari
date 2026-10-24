@@ -59,25 +59,41 @@ fn shared_formal_arguments_cannot_forward_mutable_capabilities() {
         "#,
         &module,
     );
-    let ty = vm.runtime().bind_rust_type::<Player>(&owner).unwrap();
+    let _owner_program = owner;
+    let ty = vm
+        .runtime()
+        .bind_rust_type::<Player>(&_owner_program.root())
+        .unwrap();
     let mut player = Player { hp: 40 };
     vm.runtime_mut()
         .with_host_scope(|scope| {
             let player = scope.borrow_mut(&ty, &mut player)?;
             for entry in ["attempt", "via_shared"] {
                 assert!(
-                    Vm::execute_scoped(scope, &owner, entry, &[player.value()], Default::default())
-                        .is_err()
+                    Vm::execute_scoped(
+                        scope,
+                        &_owner_program,
+                        entry,
+                        &[player.value()],
+                        Default::default()
+                    )
+                    .is_err()
                 );
             }
             assert_eq!(
-                Vm::execute_scoped(scope, &owner, "read", &[player.value()], Default::default())?,
+                Vm::execute_scoped(
+                    scope,
+                    &_owner_program,
+                    "read",
+                    &[player.value()],
+                    Default::default()
+                )?,
                 Value::I32(40)
             );
             assert_eq!(
                 Vm::execute_scoped(
                     scope,
-                    &owner,
+                    &_owner_program,
                     "direct",
                     &[player.value()],
                     Default::default()

@@ -93,7 +93,11 @@ fn scoped_task_handler_contract() {
     let scope = f
         .runtime
         .runtime()
-        .create_task_scope(&f.module, Default::default(), Arc::new(|_| Ok(())))
+        .create_task_scope(
+            &f.runtime.runtime().select_program(&f.module).unwrap(),
+            Default::default(),
+            Arc::new(|_| Ok(())),
+        )
         .unwrap();
     let capability = f.value(scope.capability());
     let events = f.invoke("events", &[]);
@@ -230,7 +234,7 @@ fn scoped_task_handler_contract() {
         .runtime
         .runtime()
         .create_task_scope(
-            &f.module,
+            &f.runtime.runtime().select_program(&f.module).unwrap(),
             Default::default(),
             Arc::new(|_| Err(DispatchUnavailable)),
         )

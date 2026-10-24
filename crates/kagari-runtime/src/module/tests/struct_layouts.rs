@@ -40,7 +40,7 @@ fn slot_access_checks_nominal_owner_schema_permission_and_representation() {
     for field in &mut foreign.structures[0].fields {
         field.declaration = relocate(field.declaration);
     }
-    let foreign = runtime
+    let foreign_program = runtime
         .load_program(
             "other",
             ProgramFixture {
@@ -51,6 +51,9 @@ fn slot_access_checks_nominal_owner_schema_permission_and_representation() {
             .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
+        .unwrap();
+    let foreign = runtime
+        .select_program(&foreign_program)
         .unwrap()
         .struct_layout(StructId::new(0))
         .unwrap();
@@ -146,6 +149,14 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
         "Point",
         &[("x", Ty::Builtin(BuiltinType::I32), true)],
     );
+    let program = runtime
+        .load_verified_program("Point", original.module().verified_program().clone())
+        .unwrap();
+    let original = runtime
+        .select_program(&program)
+        .unwrap()
+        .struct_layout(StructId::new(0))
+        .unwrap();
     let object = runtime
         .alloc_struct(original.clone(), vec![Value::I32(1)])
         .unwrap();
@@ -157,8 +168,8 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
         .into_parts();
     let next = runtime
         .stage_reload_program(
-            original.module(),
-            "Point",
+            &program,
+            None,
             ProgramFixture {
                 exports: Default::default(),
                 root: ModuleRef::new(0),
@@ -168,7 +179,8 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
             .unwrap(),
         )
         .unwrap();
-    let next = runtime.publish_staged_reload(next).unwrap();
+    runtime.publish_staged_reload(next).unwrap();
+    let next = runtime.select_program(&program).unwrap();
     let compatible = next.struct_layout(StructId::new(0)).unwrap();
     assert_ne!(original.module().key(), compatible.module().key());
     runtime
@@ -263,7 +275,7 @@ fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
         }),
         Ty::Builtin(BuiltinType::Bool),
     ])));
-    let module = runtime
+    let module_program = runtime
         .load_program(
             "concrete",
             ProgramFixture {
@@ -275,6 +287,7 @@ fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
             .unwrap(),
         )
         .unwrap();
+    let module = runtime.select_program(&module_program).unwrap();
     let wrapper = module.struct_layout(StructId::new(0)).unwrap();
     let leaf = module.struct_layout(StructId::new(1)).unwrap();
     let valid = Value::Struct(runtime.alloc_struct(leaf, vec![Value::I32(42)]).unwrap());

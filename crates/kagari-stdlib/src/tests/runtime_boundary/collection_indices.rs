@@ -5,7 +5,7 @@ use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     Runtime,
     error::RuntimeErrorKind,
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{conversion::context::ConversionContext, module::NativeModule},
     value::Value,
 };
@@ -13,7 +13,7 @@ use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::{collections::BTreeMap, sync::Arc};
 
-fn fixture() -> (Runtime, LoadedModule, BTreeMap<String, usize>) {
+fn fixture() -> (Runtime, ExecutableModule, BTreeMap<String, usize>) {
     let modules = crate::modules().unwrap();
     let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(
@@ -68,6 +68,8 @@ fn slice(value: String, start: u64, end: u64) -> String { value.slice(start, end
     let mut runtime = Runtime::default();
     NativeModule::install_all(&modules, &mut runtime).unwrap();
     let owner = runtime.load_program("collection_indices", program).unwrap();
+    let _owner_program = owner;
+    let owner = runtime.select_program(&_owner_program).unwrap();
     (runtime, owner, slots)
 }
 

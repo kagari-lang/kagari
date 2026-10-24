@@ -7,7 +7,7 @@ use crate::{
         cursor::kernel::{CursorExit, RegionError, RegionExit},
         values::operands::OperandWindow,
     },
-    module::{LoadedModule, execution::ExecutionFunction, linked_execution::LinkedFunction},
+    module::{ExecutableModule, execution::ExecutionFunction, linked_execution::LinkedFunction},
     native::context::ScriptInvoker,
     session::SessionState,
 };
@@ -26,7 +26,7 @@ mod transitions;
 /// All references live inside execute_region. No caller callback or supplied Value
 /// can intervene while admission is reused; exits release the frame and bank borrows.
 struct ExecutionCursor<'a> {
-    loaded: &'a LoadedModule,
+    loaded: &'a ExecutableModule,
     function: &'a ExecutionFunction,
     links: Option<&'a LinkedFunction>,
     ip: &'a mut usize,

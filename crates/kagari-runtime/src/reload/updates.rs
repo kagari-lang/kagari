@@ -3,7 +3,7 @@ pub(crate) mod coverage;
 mod proofs;
 
 use crate::{
-    module::{LoadedModule, ModuleKey, VerifiedProgram},
+    module::{ExecutableModule, ModuleKey, VerifiedProgram},
     reload::{ReloadValidationError, contracts, updates::coverage::CoverageFacts},
 };
 use kagari_bytecode::program::verified::VerifiedBytecodeProgram;
@@ -101,7 +101,7 @@ impl RetainedDemands {
 /// Prepare the next snapshot using the installation's history, never candidate history.
 /// The caller must first validate old declaration/public contracts and candidate code.
 pub(crate) fn prepare(
-    previous: &LoadedModule,
+    previous: &ExecutableModule,
     candidate: &VerifiedProgram,
 ) -> Result<Arc<RetainedDemands>, ReloadValidationError> {
     prepare_records(
@@ -116,7 +116,7 @@ pub(crate) fn prepare(
 }
 
 pub(super) fn validate_bytecode(
-    previous: &LoadedModule,
+    previous: &ExecutableModule,
     candidate: &VerifiedBytecodeProgram,
 ) -> Result<(), ReloadValidationError> {
     let coverage = CoverageFacts::from_checked(
@@ -146,7 +146,7 @@ struct Candidate<'a> {
 }
 
 fn prepare_records(
-    previous: &LoadedModule,
+    previous: &ExecutableModule,
     candidate: Candidate<'_>,
 ) -> Result<Arc<RetainedDemands>, ReloadValidationError> {
     let cancel = CancellationToken::default();

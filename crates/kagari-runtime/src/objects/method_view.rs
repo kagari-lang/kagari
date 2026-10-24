@@ -13,7 +13,7 @@ use crate::{
         types::{TypeEnvironment, arguments::ScopedSignature},
     },
     gc::interfaces::{InterfaceResultBinding, InterfaceValueSnapshot},
-    module::LoadedModule,
+    module::ExecutableModule,
     value::Value,
 };
 use kagari_bytecode::module::CallableTarget;
@@ -93,7 +93,7 @@ impl MethodView<'_> {
             .and_then(|application| application.environment.as_ref())
     }
 
-    pub(crate) fn implementation(&self) -> &LoadedModule {
+    pub(crate) fn implementation(&self) -> &ExecutableModule {
         match &self.selection {
             SelectionView::Interface { snapshot, .. } => &snapshot.description.implementation,
             SelectionView::Operation { operation, .. } => &operation.owner,

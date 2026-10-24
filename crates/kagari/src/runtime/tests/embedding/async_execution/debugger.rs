@@ -39,7 +39,12 @@ fn async_debugger_drive_contract() {
     let mut debug = DebugSession::new(f.runtime.runtime()).unwrap();
     let breakpoint = debug
         .add_breakpoint(SourceBreakpoint::at_source_offset(
-            f.module.name.clone(),
+            f.runtime
+                .runtime()
+                .select_program(&f.module)
+                .unwrap()
+                .name
+                .clone(),
             SOURCE.find("val reply").unwrap(),
         ))
         .unwrap();
@@ -153,7 +158,12 @@ fn async_debugger_drive_contract() {
     let mut replacement = DebugSession::new(f.runtime.runtime()).unwrap();
     let after = replacement
         .add_breakpoint(SourceBreakpoint::at_source_offset(
-            f.module.name.clone(),
+            f.runtime
+                .runtime()
+                .select_program(&f.module)
+                .unwrap()
+                .name
+                .clone(),
             SOURCE.find("reply + 1").unwrap(),
         ))
         .unwrap();

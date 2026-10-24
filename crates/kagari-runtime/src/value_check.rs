@@ -3,14 +3,19 @@
 use crate::{
     frame::types::{bindings::TypeBindings, compatibility::TypeView},
     gc::GcHeap,
-    module::LoadedModule,
+    module::ExecutableModule,
     numeric,
     value::{EnumTag, Value},
 };
 use kagari_contract::representation::semantic_representation;
 use kagari_types::ty::Ty;
 
-pub(crate) fn matches_type(heap: &GcHeap, value: &Value, ty: &Ty, owner: &LoadedModule) -> bool {
+pub(crate) fn matches_type(
+    heap: &GcHeap,
+    value: &Value,
+    ty: &Ty,
+    owner: &ExecutableModule,
+) -> bool {
     matches_view(heap, value, TypeView::new(ty, owner, None))
 }
 
@@ -18,7 +23,7 @@ pub(crate) fn matches_type_in(
     heap: &GcHeap,
     value: &Value,
     ty: &Ty,
-    owner: &LoadedModule,
+    owner: &ExecutableModule,
     environment: Option<&TypeBindings>,
 ) -> bool {
     matches_view(heap, value, TypeView::new(ty, owner, environment))

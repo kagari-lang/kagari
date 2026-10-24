@@ -226,14 +226,19 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
             &Default::default(),
         )
         .unwrap();
+    let selected_old = runtime.runtime().select_program(&old).unwrap();
     let outer = runtime
         .runtime()
-        .begin_execution(&old, runtime.runtime().execution_options())
+        .begin_execution(&selected_old, context.runtime_options())
         .unwrap();
-    let current = runtime
+    runtime
         .reload_program(&old, &candidate, Default::default())
         .unwrap();
-    assert_eq!(runtime.runtime().execution_root().unwrap().key(), old.key());
+    let current = old.clone();
+    assert_eq!(
+        runtime.runtime().execution_root().unwrap().key(),
+        selected_old.key()
+    );
     let current_native = runtime
         .prepare_native(
             &candidate,
@@ -248,7 +253,8 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
     drop(candidate);
     // Publication and later compilation must not replace the old function's pages.
     let report = runtime
-        .execute_prepared(&old, ProgramEntry::Main, &[], &context, &old_native)
+        .backend()
+        .execute_prepared(&selected_old, ProgramEntry::Main, &old_native)
         .unwrap();
     assert_eq!(
         report
@@ -260,14 +266,23 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
     assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
     drop(report.return_value);
     drop(outer);
-    for (module, native, value) in [(&old, &old_native, 42), (&current, &current_native, 43)] {
+    let selected_current = runtime.runtime().select_program(&current).unwrap();
+    for (module, native, value) in [
+        (&selected_old, &old_native, 42),
+        (&selected_current, &current_native, 43),
+    ] {
+        let _session = runtime
+            .runtime()
+            .begin_execution(module, context.runtime_options())
+            .unwrap();
         let dead = runtime
             .runtime()
             .alloc_array(module, Ty::Builtin(BuiltinType::I32), vec![Value::I32(9)])
             .unwrap();
         let collections = runtime.runtime().gc().stats().collections;
         let report = runtime
-            .execute_prepared(module, ProgramEntry::Main, &[], &context, native)
+            .backend()
+            .execute_prepared(module, ProgramEntry::Main, native)
             .unwrap();
         assert_eq!(
             report

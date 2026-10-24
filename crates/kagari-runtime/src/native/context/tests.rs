@@ -2,7 +2,7 @@ use crate::{
     Runtime,
     error::RuntimeErrorKind,
     frame::driver::ReturnAction,
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
@@ -24,7 +24,7 @@ use std::sync::{
 
 fn invoke_stored(
     runtime: &Runtime,
-    owner: &LoadedModule,
+    owner: &ExecutableModule,
     target: ScriptCall<'_>,
     arguments: &[Value],
 ) -> NativeResult<Value> {
@@ -128,7 +128,8 @@ fn stored_hash_selections_reenter_their_generation_with_frame_roots_and_checked_
         let code = free_function_program(&native.to_declaration());
         let mut runtime = Runtime::default();
         native.install(&mut runtime).unwrap();
-        let old = runtime.load_program("stored", code.clone()).unwrap();
+        let old_program = runtime.load_program("stored", code.clone()).unwrap();
+        let old = runtime.select_program(&old_program).unwrap();
         let import = |name: &str| {
             NativeImportId::new(
                 old.bytecode
@@ -185,9 +186,11 @@ fn stored_hash_selections_reenter_their_generation_with_frame_roots_and_checked_
         };
         let root = runtime.root_value(value).unwrap();
         let staged = runtime
-            .stage_reload_program(&old, "stored", code.clone())
+            .stage_reload_program(&old_program, None, code.clone())
             .unwrap();
-        let current = runtime.publish_staged_reload(staged).unwrap();
+        runtime.publish_staged_reload(staged).unwrap();
+
+        let current = runtime.select_program(&old_program).unwrap();
         assert!(
             !runtime
                 .collect_garbage()
@@ -198,7 +201,7 @@ fn stored_hash_selections_reenter_their_generation_with_frame_roots_and_checked_
 
         // A candidate must not use a stored edge to enter a published generation.
         let candidate = runtime
-            .stage_reload_program(&current, "stored", code.clone())
+            .stage_reload_program(&old_program, None, code.clone())
             .unwrap();
         {
             let _session = runtime.begin_candidate_initialization(&candidate).unwrap();
@@ -222,7 +225,8 @@ fn stored_hash_selections_reenter_their_generation_with_frame_roots_and_checked_
 
         let mut foreign = Runtime::default();
         native.install(&mut foreign).unwrap();
-        let foreign_owner = foreign.load_program("stored", code).unwrap();
+        let foreign_owner_program = foreign.load_program("stored", code).unwrap();
+        let foreign_owner = foreign.select_program(&foreign_owner_program).unwrap();
         {
             let stack = foreign.enter_execution_stack(&foreign_owner).unwrap();
             assert!(

@@ -1,6 +1,7 @@
 //! Source-independent public paths and the separate root entry capability.
 
 mod mapping;
+pub mod path;
 pub mod type_validation;
 pub mod wire;
 

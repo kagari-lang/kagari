@@ -29,8 +29,12 @@ const PLAYER: &str = r#"
 #[test]
 fn prepared_methods_and_associated_functions_enforce_receiver_and_access() {
     let (vm, owner) = fixture(PLAYER, None);
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let runtime = vm.runtime();
-    let player_type = runtime.bind_type(&owner, "Player", &[]).unwrap();
+    let player_type = runtime
+        .bind_type(&_owner_program.root(), "Player", &[])
+        .unwrap();
     let declaration = player_type.method("damage").unwrap();
     let query = declaration
         .definitions()
@@ -106,6 +110,11 @@ fn prepared_methods_and_associated_functions_enforce_receiver_and_access() {
     assert_eq!(aliased.get(&mut cx, &hp).unwrap(), 69);
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
     let (foreign, foreign_owner) = fixture(PLAYER, None);
+    let _foreign_owner_program = foreign_owner;
+    let foreign_owner = foreign
+        .runtime()
+        .select_program(&_foreign_owner_program)
+        .unwrap();
     assert!(
         player
             .call(&mut foreign.context(&foreign_owner).unwrap(), &damage, (1,))
@@ -145,7 +154,12 @@ fn object_method_reentry_collects_and_retains_returned_aliases() {
     );
     let source = format!("use example::methods::collect;\n{source}");
     let (vm, owner) = fixture(&source, Some(&builder.finish().unwrap()));
-    let player_type = vm.runtime().bind_type(&owner, "Player", &[]).unwrap();
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
+    let player_type = vm
+        .runtime()
+        .bind_type(&_owner_program.root(), "Player", &[])
+        .unwrap();
     let create = vm
         .runtime()
         .bind_associated_function::<(i32,), Object>(&player_type, "create")
@@ -174,7 +188,12 @@ fn object_method_reentry_collects_and_retains_returned_aliases() {
 #[test]
 fn prepared_methods_pin_old_code_and_reject_new_generation_receivers() {
     let (vm, old) = fixture(PLAYER, None);
-    let old_type = vm.runtime().bind_type(&old, "Player", &[]).unwrap();
+    let _old_program = old;
+    let old = vm.runtime().select_program(&_old_program).unwrap();
+    let old_type = vm
+        .runtime()
+        .bind_type(&_old_program.root(), "Player", &[])
+        .unwrap();
     let old_damage = vm
         .runtime()
         .bind_method::<(i32,), i32>(&old_type, "damage")
@@ -185,10 +204,18 @@ fn prepared_methods_pin_old_code_and_reject_new_generation_receivers() {
         .unwrap();
     let player = vm.call(&old_create, (100,)).unwrap();
     let source = PLAYER.replace("self.hp - amount", "self.hp - amount - 1");
-    let new = vm
-        .reload_program(&old, "functions", compile_program(&source, None))
+    vm.reload_program(
+        &_old_program,
+        Some("functions".into()),
+        compile_program(&source, None),
+    )
+    .unwrap();
+    let _new_program = _old_program.clone();
+    let new = vm.runtime().select_program(&_new_program).unwrap();
+    let new_type = vm
+        .runtime()
+        .bind_type(&_new_program.root(), "Player", &[])
         .unwrap();
-    let new_type = vm.runtime().bind_type(&new, "Player", &[]).unwrap();
     let new_damage = vm
         .runtime()
         .bind_method::<(i32,), i32>(&new_type, "damage")

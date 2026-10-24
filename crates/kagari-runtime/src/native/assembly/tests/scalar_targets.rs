@@ -2,7 +2,7 @@
 use crate::{
     Runtime,
     frame::driver::ReturnAction,
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         assembly::{ModuleAssembly, ModuleDefinition, ModuleSetBuilder},
         binding::{Codec, NativeBinding, NativeResult},
@@ -64,7 +64,7 @@ fn assembly(invalid_second_codec: bool) -> ModuleAssembly {
 
 fn no_script_reentry(
     _: &Runtime,
-    _: &LoadedModule,
+    _: &ExecutableModule,
     _: ScriptCall<'_>,
     _: &[Value],
 ) -> NativeResult<Value> {
@@ -115,7 +115,8 @@ fn distinct_scalar_impls_reuse_one_algorithm_without_merging_checked_or_applied_
         .unwrap();
     let mut runtime = Runtime::default();
     NativeModule::install_all(&modules, &mut runtime).unwrap();
-    let loaded = runtime.load_program("scalar-targets", bytecode).unwrap();
+    let loaded_program = runtime.load_program("scalar-targets", bytecode).unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     let mut applied = vec![];
     for (declaration, value) in declarations.iter().zip([Value::I32(7), Value::I64(9)]) {
         let matches = loaded

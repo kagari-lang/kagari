@@ -125,17 +125,9 @@ fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
         .load_program(&program, LoadOptions::default())
         .expect("compatible artifact should load");
 
-    assert_eq!(loaded.name, source_name);
-    assert_eq!(loaded.epoch.0, 1);
-    assert_eq!(
-        runtime
-            .runtime()
-            .modules()
-            .latest(source_name)
-            .expect("loaded module should be visible by source uri")
-            .id,
-        loaded.id
-    );
+    let selected = runtime.runtime().select_program(&loaded).unwrap();
+    assert_eq!(selected.name, source_name);
+    assert_eq!(selected.epoch.0, 1);
 }
 
 #[test]
@@ -198,7 +190,7 @@ fn main() -> (u64, u64, u64, bool, i32) {
             &PreparedProgram::from_artifact(artifact, &Default::default(), &context.cancellation)
                 .unwrap(),
             LoadOptions {
-                module_name: Some("builtins".to_owned()),
+                program_name: Some("builtins".to_owned()),
             },
         )
         .expect("builtin artifact should load");
@@ -272,22 +264,23 @@ pub fn main() -> u64 {
             &PreparedProgram::from_artifact(first, &Default::default(), &context.cancellation)
                 .unwrap(),
             LoadOptions {
-                module_name: Some("stdlib_reload".to_owned()),
+                program_name: Some("stdlib_reload".to_owned()),
             },
         )
         .expect("first standard artifact should load");
-    let reloaded = runtime
+    runtime
         .reload_program(
             &loaded,
             &PreparedProgram::from_artifact(second, &Default::default(), &context.cancellation)
                 .unwrap(),
             ReloadOptions {
-                module_name: Some("stdlib_reload".to_owned()),
+                program_name: Some("stdlib_reload".to_owned()),
             },
         )
         .expect("compatible standard artifact should reload");
+    let reloaded = runtime.runtime().select_program(&loaded).unwrap();
     let report = runtime
-        .execute(&reloaded, ProgramEntry::Main, &[], &context)
+        .execute(&loaded, ProgramEntry::Main, &[], &context)
         .expect("reloaded standard artifact should execute");
     assert_eq!(
         report
@@ -306,8 +299,7 @@ pub fn main() -> u64 {
     assert_eq!(
         runtime
             .runtime()
-            .modules()
-            .latest("stdlib_reload")
+            .select_program(&loaded)
             .expect("latest module should remain published")
             .epoch,
         reloaded.epoch

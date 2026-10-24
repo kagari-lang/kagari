@@ -5,7 +5,7 @@ use kagari_contract::updates::{BodyRecord, CallRequirement, RootKind};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     Runtime,
-    module::{LoadedModule, VerifiedProgram, state::StaticState},
+    module::{ExecutableModule, Program, VerifiedProgram, state::StaticState},
     native::module::NativeModule,
     reload::{
         ReloadValidationError, validate_reload_artifact_candidate, validate_reload_candidate,
@@ -22,23 +22,24 @@ use std::sync::Arc;
 #[path = "support/update_programs.rs"]
 mod programs;
 
-fn rejected_without_effects(runtime: &Runtime, loaded: &LoadedModule, candidate: &str) {
+fn rejected_without_effects(runtime: &Runtime, loaded_program: &Program, candidate: &str) {
+    let loaded = runtime.select_program(loaded_program).unwrap();
     let history = loaded.retained_demands().metadata().records().clone();
     let count = runtime.modules().loaded_count();
     let code = bytecode(candidate, None);
     let artifact = source_free_artifact(code.clone());
     let verified = VerifiedProgram::new(code.clone(), &DefinitionContext::new().unwrap()).unwrap();
-    for result in source_free_reload_results(loaded, candidate)
+    for result in source_free_reload_results(&loaded, candidate)
         .into_iter()
         .chain([
             runtime
-                .stage_reload_program(loaded, "exports", code)
+                .stage_reload_program(loaded_program, None, code)
                 .map(|_| ()),
             runtime
-                .stage_reload_artifact(loaded, "exports", artifact, &Default::default())
+                .stage_reload_artifact(loaded_program, None, artifact, &Default::default())
                 .map(|_| ()),
             runtime
-                .stage_reload_verified_program(loaded, "exports", verified)
+                .stage_reload_verified_program(loaded_program, None, verified)
                 .map(|_| ()),
         ])
     {
@@ -47,7 +48,7 @@ fn rejected_without_effects(runtime: &Runtime, loaded: &LoadedModule, candidate:
             "{result:?}"
         );
     }
-    let current = runtime.modules().latest("exports").unwrap();
+    let current = runtime.select_program(loaded_program).unwrap();
     assert_eq!(current.key(), loaded.key());
     assert_eq!(current.retained_demands().metadata().records(), &history);
     assert_eq!(runtime.modules().loaded_count(), count);
@@ -75,9 +76,10 @@ fn protected_lazy_initializer_freezes_expression_and_transitive_helper_before_us
         fn main() {}
     "#;
     let mut runtime = Runtime::default();
-    let loaded = runtime
+    let loaded_program = runtime
         .load_verified_program("exports", source_code(source))
         .unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     assert!(
         loaded
             .verified_program()
@@ -90,7 +92,7 @@ fn protected_lazy_initializer_freezes_expression_and_transitive_helper_before_us
         source.replace("leaf() -> i32 { 3 }", "leaf() -> i32 { 4 }"),
         source.replace("helper() + (1 + 2)", "helper() + 3"),
     ] {
-        rejected_without_effects(&runtime, &loaded, &candidate);
+        rejected_without_effects(&runtime, &loaded_program, &candidate);
     }
     // A genuinely unrelated change is allowed when the protected closure is known.
     let candidate = source
@@ -100,9 +102,11 @@ fn protected_lazy_initializer_freezes_expression_and_transitive_helper_before_us
             "helper() /* unchanged tokens */ + ( 1 + 2 )",
         );
     let staged = runtime
-        .stage_reload_verified_program(&loaded, "exports", source_code(&candidate))
+        .stage_reload_verified_program(&loaded_program, None, source_code(&candidate))
         .unwrap();
-    let published = runtime.publish_staged_reload(staged).unwrap();
+    runtime.publish_staged_reload(staged).unwrap();
+
+    let published = runtime.select_program(&loaded_program).unwrap();
     assert!(
         runtime
             .module_instance_snapshot(&published)
@@ -122,12 +126,12 @@ fn protected_unknown_function_value_rejects_executable_additions() {
         fn main() {}
     "#;
     let mut runtime = Runtime::default();
-    let loaded = runtime
+    let loaded_program = runtime
         .load_verified_program("exports", source_code(source))
         .unwrap();
     rejected_without_effects(
         &runtime,
-        &loaded,
+        &loaded_program,
         &format!("{source} fn added() -> i32 {{ 9 }}"),
     );
 }
@@ -136,9 +140,10 @@ fn protected_unknown_function_value_rejects_executable_additions() {
 fn historical_demands_survive_old_code_collection_and_failed_candidates() {
     let source = "pub fn helper() -> i32 { 1 } pub fn run() -> i32 { helper() } fn main() {}";
     let mut runtime = Runtime::default();
-    let old = runtime
+    let old_program = runtime
         .load_verified_program("exports", source_code(source))
         .unwrap();
+    let old = runtime.select_program(&old_program).unwrap();
     let old_key = old.key();
     let code = old
         .verified_program()
@@ -148,9 +153,11 @@ fn historical_demands_survive_old_code_collection_and_failed_candidates() {
         .collect::<Vec<_>>();
     let replacement = source.replace("run() -> i32 { helper() }", "run() -> i32 { 2 }");
     let staged = runtime
-        .stage_reload_verified_program(&old, "exports", source_code(&replacement))
+        .stage_reload_verified_program(&old_program, None, source_code(&replacement))
         .unwrap();
-    let current = runtime.publish_staged_reload(staged).unwrap();
+    runtime.publish_staged_reload(staged).unwrap();
+
+    let current = runtime.select_program(&old_program).unwrap();
     drop(old);
     runtime.collect_garbage().unwrap();
     assert!(runtime.modules().loaded(old_key).is_none());
@@ -158,19 +165,21 @@ fn historical_demands_survive_old_code_collection_and_failed_candidates() {
     let baseline = current.retained_demands().metadata().records().clone();
     let abandoned_source = format!("{replacement} pub fn abandoned_only() -> i32 {{ helper() }}");
     let abandoned = runtime
-        .stage_reload_verified_program(&current, "exports", source_code(&abandoned_source))
+        .stage_reload_verified_program(&old_program, None, source_code(&abandoned_source))
         .unwrap();
     drop(abandoned);
     assert_eq!(current.retained_demands().metadata().records(), &baseline);
     let stale_source = format!("{replacement} pub fn stale_only() -> i32 {{ helper() }}");
     let stale = runtime
-        .stage_reload_verified_program(&current, "exports", source_code(&stale_source))
+        .stage_reload_verified_program(&old_program, None, source_code(&stale_source))
         .unwrap();
     let next = replacement.replace("run() -> i32 { 2 }", "run() -> i32 { 3 }");
     let staged = runtime
-        .stage_reload_verified_program(&current, "exports", source_code(&next))
+        .stage_reload_verified_program(&old_program, None, source_code(&next))
         .unwrap();
-    let latest = runtime.publish_staged_reload(staged).unwrap();
+    runtime.publish_staged_reload(staged).unwrap();
+
+    let latest = runtime.select_program(&old_program).unwrap();
     assert!(matches!(
         runtime.publish_staged_reload(stale),
         Err(ReloadValidationError::ModuleNotActive { .. })
@@ -194,13 +203,12 @@ fn historical_demands_survive_old_code_collection_and_failed_candidates() {
         .replace("{ 1 }", "{ 1i64 }");
     assert!(
         runtime
-            .stage_reload_verified_program(&latest, "exports", source_code(&incompatible))
+            .stage_reload_verified_program(&old_program, None, source_code(&incompatible))
             .is_err()
     );
     assert_eq!(
         runtime
-            .modules()
-            .latest("exports")
+            .select_program(&old_program)
             .unwrap()
             .retained_demands()
             .metadata()
@@ -208,12 +216,18 @@ fn historical_demands_survive_old_code_collection_and_failed_candidates() {
         &baseline
     );
     assert_eq!(
-        runtime.modules().latest("exports").unwrap().key(),
+        runtime.select_program(&old_program).unwrap().key(),
         latest.key()
     );
-    let fresh = runtime
+    let fresh_program = runtime
         .load_verified_program("exports", source_code(&next))
         .unwrap();
+    let fresh = runtime.select_program(&fresh_program).unwrap();
+    assert_ne!(fresh.installation_id(), latest.installation_id());
+    assert_eq!(
+        runtime.select_program(&old_program).unwrap().key(),
+        latest.key()
+    );
     let history = fresh.retained_demands().metadata();
     assert!(!history.records().bodies.iter().any(|body| body.calls.iter().any(|call| {
         matches!(call, CallRequirement::Direct(target) if history.definitions().resolve(target.declaration)
@@ -244,7 +258,7 @@ fn specialization(program: &VerifiedProgram) -> &BodyRecord {
         .expect("the candidate must materialize the retained concrete application")
 }
 
-fn retained_candidate(baseline: &LoadedModule, source: &str) -> VerifiedProgram {
+fn retained_candidate(baseline: &ExecutableModule, source: &str) -> VerifiedProgram {
     let code = bytecode(source, Some(baseline));
     for result in source_free_program_results(baseline, code.clone()) {
         result.unwrap();
@@ -262,9 +276,10 @@ fn source_free_candidates_require_historical_specializations_after_code_collecti
     let source =
         "fn generic<T>(value: T) -> i32 { 11 } pub fn run() -> i32 { generic(7) } fn main() {}";
     let mut runtime = Runtime::default();
-    let first = runtime
+    let first_program = runtime
         .load_verified_program("exports", source_code(source))
         .unwrap();
+    let first = runtime.select_program(&first_program).unwrap();
     let first_key = first.key();
     let old_code = first
         .verified_program()
@@ -278,7 +293,7 @@ fn source_free_candidates_require_historical_specializations_after_code_collecti
     let second_source = source
         .replace("run() -> i32 { generic(7) }", "run() -> i32 { 9 }")
         .replace("-> i32 { 11 }", "-> i32 { 12 }");
-    rejected_without_effects(&runtime, &first, &second_source);
+    rejected_without_effects(&runtime, &first_program, &second_source);
     let second_code = retained_candidate(&first, &second_source);
     assert_ne!(
         specialization(&second_code).instructions,
@@ -287,9 +302,11 @@ fn source_free_candidates_require_historical_specializations_after_code_collecti
     );
     let second_instructions = specialization(&second_code).instructions.clone();
     let staged = runtime
-        .stage_reload_verified_program(&first, "exports", second_code)
+        .stage_reload_verified_program(&first_program, None, second_code)
         .unwrap();
-    let second = runtime.publish_staged_reload(staged).unwrap();
+    runtime.publish_staged_reload(staged).unwrap();
+
+    let second = runtime.select_program(&first_program).unwrap();
     drop(first);
     runtime.collect_garbage().unwrap();
     assert!(runtime.modules().loaded(first_key).is_none());
@@ -298,14 +315,14 @@ fn source_free_candidates_require_historical_specializations_after_code_collecti
     // Generation two has no source call to generic<i32>, and generation one's
     // executable graph has gone. Only the installation envelope can retain it.
     let third_source = second_source.replace("-> i32 { 12 }", "-> i32 { 13 }");
-    rejected_without_effects(&runtime, &second, &third_source);
+    rejected_without_effects(&runtime, &first_program, &third_source);
     let third_code = retained_candidate(&second, &third_source);
     assert_ne!(
         specialization(&third_code).instructions,
         second_instructions
     );
     let staged = runtime
-        .stage_reload_verified_program(&second, "exports", third_code)
+        .stage_reload_verified_program(&first_program, None, third_code)
         .unwrap();
     runtime.publish_staged_reload(staged).unwrap();
 }
@@ -339,9 +356,10 @@ fn standard_runtime() -> Runtime {
 fn protected_native_unknown_accepts_unchanged_inventory_but_not_additions() {
     let source = "use std::hash::Hash; static var STATE: i64 = 7.hash(); fn main() {}";
     let mut runtime = standard_runtime();
-    let loaded = runtime
+    let loaded_program = runtime
         .load_verified_program("exports", standard_code(source))
         .unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     assert!(
         loaded
             .verified_program()
@@ -350,19 +368,21 @@ fn protected_native_unknown_accepts_unchanged_inventory_but_not_additions() {
             .any(|module| !module.native_imports.is_empty())
     );
     let staged = runtime
-        .stage_reload_verified_program(&loaded, "exports", loaded.verified_program().clone())
+        .stage_reload_verified_program(&loaded_program, None, loaded.verified_program().clone())
         .unwrap();
-    let current = runtime.publish_staged_reload(staged).unwrap();
+    runtime.publish_staged_reload(staged).unwrap();
+
+    let current = runtime.select_program(&loaded_program).unwrap();
     let history = current.retained_demands().metadata().records().clone();
     let source = format!("{source} pub fn added() -> i32 {{ 1 }}");
     let error = runtime
-        .stage_reload_verified_program(&current, "exports", standard_code(&source))
+        .stage_reload_verified_program(&loaded_program, None, standard_code(&source))
         .unwrap_err();
     assert!(
         matches!(&error, ReloadValidationError::UpdateEvidence(message) if message.contains("unknown dependency edge")),
         "{error}"
     );
-    let latest = runtime.modules().latest("exports").unwrap();
+    let latest = runtime.select_program(&loaded_program).unwrap();
     assert_eq!(latest.key(), current.key());
     assert_eq!(latest.retained_demands().metadata().records(), &history);
     assert_eq!(runtime.resources().counters().peak_call_depth, 0);
@@ -388,9 +408,10 @@ fn unused_generic_key_protocols_are_protected_without_live_containers() {
         fn main() {}
     "#;
     let mut runtime = standard_runtime();
-    let loaded = runtime
+    let loaded_program = runtime
         .load_verified_program("exports", standard_code(source))
         .unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     let facts = loaded.verified_program();
     assert!(facts.update_evidence().roots.iter().any(|root| {
         root.kind == RootKind::KeyHash
@@ -407,13 +428,13 @@ fn unused_generic_key_protocols_are_protected_without_live_containers() {
         source.replace("-> bool { true }", "-> bool { false }"),
     ] {
         let result =
-            runtime.stage_reload_verified_program(&loaded, "exports", standard_code(&candidate));
+            runtime.stage_reload_verified_program(&loaded_program, None, standard_code(&candidate));
         assert!(
             matches!(result, Err(ReloadValidationError::UpdateEvidence(_))),
             "{result:?}"
         );
         assert_eq!(
-            runtime.modules().latest("exports").unwrap().key(),
+            runtime.select_program(&loaded_program).unwrap().key(),
             loaded.key()
         );
         assert_eq!(runtime.resources().counters().peak_call_depth, 0);

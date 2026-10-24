@@ -3,7 +3,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
-    module::{LoadedModule, ModuleEpochRetention, StructLayoutRef},
+    module::{ExecutableModule, Module, ModuleEpochRetention, StructLayoutRef},
     native::{
         binding::NativeResult,
         objects::{ObjectType, TypeRecord, fields::FieldRecord},
@@ -22,14 +22,18 @@ pub(crate) struct BindingCache {
 }
 
 impl Runtime {
-    /// Resolve a public script struct in this module once. Generic arguments
-    /// retain their original lexical scopes and require an executable layout.
+    /// Resolve a public script struct in the current root publication once.
+    /// Generic arguments retain their lexical scopes and require an executable
+    /// layout. Module-relative public type paths are introduced by HM03.
     pub fn bind_type(
         &self,
-        owner: &LoadedModule,
+        owner: &Module,
         name: &str,
         arguments: &[TypeArgument],
     ) -> NativeResult<ObjectType> {
+        self.gc().ensure_no_native_borrow()?;
+        let snapshot = self.capture_module(owner)?;
+        let owner = &snapshot.root;
         let declaration = DefinitionPath {
             module: owner.bytecode.identity.clone(),
             path: vec![DefinitionPathSegment {
@@ -38,19 +42,28 @@ impl Runtime {
                 occurrence: 0,
             }],
         };
-        self.bind_type_declaration(owner, &declaration, arguments)
+        self.prepare_object_type(owner, &declaration, arguments)
     }
 
-    /// Bind directly from a declaration identity, without a member-name search.
+    /// Bind a public declaration/application within the Module's installation.
+    /// This advanced route does not grant private namespace navigation.
     pub fn bind_type_declaration(
         &self,
-        owner: &LoadedModule,
+        owner: &Module,
         declaration: &DefinitionPath,
         arguments: &[TypeArgument],
     ) -> NativeResult<ObjectType> {
         self.gc().ensure_no_native_borrow()?;
-        self.resources().ensure_execution_allowed()?;
-        self.validate_loaded_module(owner)?;
+        let snapshot = self.capture_module(owner)?;
+        self.prepare_object_type(&snapshot.root, declaration, arguments)
+    }
+
+    fn prepare_object_type(
+        &self,
+        owner: &ExecutableModule,
+        declaration: &DefinitionPath,
+        arguments: &[TypeArgument],
+    ) -> NativeResult<ObjectType> {
         for argument in arguments {
             argument.validate(self)?;
         }
@@ -87,7 +100,7 @@ impl Runtime {
 
     /// Share the same retained layout owner with nominal DTO conversion.
     pub(crate) fn retain_object_type(&self, layout: StructLayoutRef) -> NativeResult<ObjectType> {
-        self.validate_loaded_module(layout.module())?;
+        self.validate_executable_module(layout.module())?;
         let mut cache = self
             .object_bindings
             .try_borrow_mut()

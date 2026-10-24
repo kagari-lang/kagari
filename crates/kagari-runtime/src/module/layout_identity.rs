@@ -6,9 +6,10 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::ModuleRef,
 };
+use kagari_common::identity::table::DefinitionId;
 use kagari_contract::layout::{EnumLayout, StructLayout};
 use std::{
-    collections::{HashMap, hash_map::DefaultHasher},
+    collections::{HashMap, HashSet, hash_map::DefaultHasher},
     hash::{Hash, Hasher},
     num::NonZeroUsize,
     sync::Arc,
@@ -96,11 +97,18 @@ impl LayoutTable {
 pub(super) struct ProgramLayouts {
     structures: LayoutTable,
     enumerations: LayoutTable,
+    // Captured from actual installed providers, never from names or trait references.
+    // Detached descriptions keep this authority even if the Runtime later changes.
+    shared_traits: HashSet<DefinitionId>,
 }
 
 impl ProgramLayouts {
-    pub(super) fn prepare(modules: &[Arc<BytecodeModule>]) -> Self {
+    pub(super) fn prepare(
+        modules: &[Arc<BytecodeModule>],
+        shared_traits: HashSet<DefinitionId>,
+    ) -> Self {
         Self {
+            shared_traits,
             structures: LayoutTable::prepare(
                 &modules
                     .iter()
@@ -114,6 +122,10 @@ impl ProgramLayouts {
                     .collect::<Vec<_>>(),
             ),
         }
+    }
+
+    pub(super) fn is_shared_native_trait(&self, declaration: DefinitionId) -> bool {
+        self.shared_traits.contains(&declaration)
     }
 
     pub(super) fn counts(&self) -> (usize, usize) {

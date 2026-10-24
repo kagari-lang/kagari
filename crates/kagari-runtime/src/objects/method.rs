@@ -4,7 +4,7 @@ use crate::{
     error::RuntimeError,
     execution_metadata::interfaces::InterfaceSnapshotId,
     gc::roots::RootedValue,
-    module::LoadedModule,
+    module::ExecutableModule,
     objects::{invocation::MethodInvocation, method_view::MethodView},
     value::Value,
 };
@@ -68,7 +68,7 @@ impl RootedInterfaceMethod {
         self.invocation.view(runtime)
     }
 
-    pub fn implementation(&self, runtime: &Runtime) -> Result<LoadedModule, RuntimeError> {
+    pub fn implementation(&self, runtime: &Runtime) -> Result<ExecutableModule, RuntimeError> {
         Ok(self.view(runtime)?.implementation().clone())
     }
 

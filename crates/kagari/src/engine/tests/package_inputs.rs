@@ -204,7 +204,7 @@ fn captured_packages_share_the_sdk_pipeline_and_retain_generations() {
         .unwrap();
     let pinned = runtime
         .runtime()
-        .bind_function::<(), i32>(&loaded, "answer")
+        .bind_function::<(), i32>(&loaded.root(), "answer")
         .unwrap();
     assert_eq!(
         runtime
@@ -223,9 +223,10 @@ fn captured_packages_share_the_sdk_pipeline_and_retain_generations() {
             .execute_typed::<(), i32>(&loaded, "rules::plain", (), &Default::default())
             .is_err()
     );
-    let reloaded = runtime
+    runtime
         .reload_program(&loaded, &new_program, Default::default())
         .unwrap();
+    let reloaded = loaded.clone();
     runtime.runtime().collect_garbage().unwrap();
     assert_eq!(
         runtime
@@ -270,9 +271,10 @@ fn captured_packages_share_the_sdk_pipeline_and_retain_generations() {
         )
         .unwrap();
     let generic_program = prepare(&engine, &generic);
-    let generic_loaded = runtime
+    runtime
         .reload_program(&reloaded, &generic_program, Default::default())
         .unwrap();
+    let generic_loaded = reloaded.clone();
     assert_eq!(
         runtime
             .execute_typed::<(), i32>(&generic_loaded, "answer", (), &Default::default())

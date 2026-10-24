@@ -70,6 +70,8 @@ fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
             .install(&mut runtime)
             .unwrap();
             let loaded = runtime.load_program("linked", module).unwrap();
+            let _loaded_program = loaded;
+            let loaded = runtime.select_program(&_loaded_program).unwrap();
             assert_eq!(loaded.bytecode.native_imports.len(), 1);
             let vm = Vm::new(runtime);
             let report = if jit {
@@ -107,6 +109,8 @@ fn jit_unsupported_preparation_falls_back_to_interpreter_with_diagnostics() {
     );
     let (runtime, loaded) =
         common::load_bytecode_module_with_runtime(jit_runtime(), "jit_fallback", module);
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let prepared = native_fixtures::unsupported();
 
@@ -144,6 +148,8 @@ fn main() -> (u64, u64, i32) {
     );
     let (runtime, loaded) =
         common::load_bytecode_program_with_runtime(jit_runtime(), "jit_stdlib_fallback", module);
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let prepared = native_fixtures::unsupported();
 
@@ -175,6 +181,8 @@ fn main() -> (u64, u64, i32) {
 fn remainder_uses_interpreter_fallback_with_identical_result() {
     let module = common::compile_test_bytecode("fn main() -> i32 { 42 % 5 }");
     let (runtime, loaded) = common::load_bytecode_program("jit_remainder", module.clone());
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let interpreted = vm
         .execute(&loaded, ProgramEntry::Main)
@@ -184,6 +192,8 @@ fn remainder_uses_interpreter_fallback_with_identical_result() {
         .expect("retained execution result");
     let (runtime, loaded) =
         common::load_bytecode_program_with_runtime(jit_runtime(), "jit_remainder", module);
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let prepared = native_fixtures::unsupported();
     let report = vm
@@ -222,6 +232,8 @@ fn main() -> i32 {
 "#,
     );
     let (runtime, loaded) = common::load_bytecode_program("jit_closure", module.clone());
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let interpreted = vm
         .execute(&loaded, ProgramEntry::Main)
@@ -231,6 +243,8 @@ fn main() -> i32 {
         .expect("retained execution result");
     let (runtime, loaded) =
         common::load_bytecode_program_with_runtime(jit_runtime(), "jit_closure", module);
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let prepared = native_fixtures::unsupported();
     let report = vm
@@ -266,6 +280,8 @@ fn ordinary_interpreter_execution_has_no_jit_report() {
         vec![],
     );
     let (runtime, loaded) = common::load_bytecode_module("interpreter_only", module);
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
 
     let report = vm
@@ -299,6 +315,8 @@ fn jit_native_execution_reports_installed_artifact() {
     );
     let (runtime, loaded) =
         common::load_bytecode_module_with_runtime(jit_runtime(), "jit_native", module);
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let prepared = PreparedNativeEntry::Native(native_fixtures::install_i32::<7>(
         vm.runtime(),
@@ -341,6 +359,8 @@ fn jit_policy_disablement_falls_back_before_native_entry() {
     );
     let (runtime, loaded) =
         common::load_bytecode_module_with_runtime(jit_runtime(), "jit_policy_disabled", module);
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let prepared = PreparedNativeEntry::Native(native_fixtures::install_i32::<7>(
         vm.runtime(),
@@ -372,6 +392,8 @@ fn jit_debug_session_falls_back_without_safe_debug_metadata() {
     let session = DebugSession::new(&runtime).expect("debug session should attach");
     let (runtime, loaded) =
         common::load_bytecode_module_with_runtime(runtime, "jit_debug_fallback", module);
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut vm = Vm::new(runtime);
     vm.attach_debug_session(session)
         .expect("debug session should attach to VM");
@@ -409,6 +431,8 @@ fn jit_debug_session_requires_callbacks_even_when_metadata_is_complete() {
     let session = DebugSession::new(&runtime).expect("debug session should attach");
     let (runtime, loaded) =
         common::load_bytecode_module_with_runtime(runtime, "jit_debug_native", module);
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut vm = Vm::new(runtime);
     vm.attach_debug_session(session)
         .expect("debug session should attach to VM");

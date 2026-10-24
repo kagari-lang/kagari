@@ -449,7 +449,11 @@ pub fn after()->i32 { 42 }
     assert!(format!("{error:?}").contains("division by zero"));
     assert_eq!(runtime.runtime().gc().active_roots(), 0);
     let limited = ExecutionContext::default();
-    let cancellation = support::cancel_after(runtime.runtime(), &loaded, 1);
+    let cancellation = support::cancel_after(
+        runtime.runtime(),
+        &runtime.runtime().select_program(&loaded).unwrap(),
+        1,
+    );
 
     assert_eq!(
         runtime

@@ -25,7 +25,7 @@ use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::{RuntimeError, RuntimeErrorKind},
     gc::roots::RootedValue,
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         adapter::Async,
         binding::NativeResult,
@@ -113,7 +113,7 @@ type PendingReplies = Vec<(i32, Completion<i32>)>;
 
 struct Fixture {
     vm: Vm,
-    module: LoadedModule,
+    module: ExecutableModule,
     sent: Arc<Mutex<PendingReplies>>,
     starts: Arc<AtomicUsize>,
     cancels: Arc<AtomicUsize>,
@@ -359,6 +359,8 @@ impl Fixture {
         vector.install(&mut runtime).unwrap();
         native.install(&mut runtime).unwrap();
         let module = runtime.load_program("native-wait", decoded).unwrap();
+        let _module_program = module;
+        let module = runtime.select_program(&_module_program).unwrap();
         Self {
             vm: Vm::new(runtime),
             module,

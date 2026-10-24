@@ -3,7 +3,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::{arguments::TypeArgument, compatibility::TypeView},
-    module::LoadedModule,
+    module::{ExecutableModule, Module},
     native::{
         binding::NativeResult,
         collections::{map::ScriptMap, set::ScriptSet},
@@ -24,7 +24,22 @@ impl Runtime {
     /// Hash/Eq operations. The returned callable can be cached and reused.
     pub fn bind_map_constructor<K: KagariType + 'static, V: KagariType + 'static>(
         &self,
-        owner: &LoadedModule,
+        owner: &Module,
+        key: &TypeArgument,
+        value: &TypeArgument,
+    ) -> NativeResult<PinnedFunction<(), ScriptMap<K, V>>> {
+        self.gc().ensure_no_native_borrow()?;
+        let snapshot = self.capture_module(owner)?;
+        self.bind_map_constructor_exact(&snapshot.root, key, value)
+    }
+
+    /// Preserve the conversion context's selected publication and Hash/Eq evidence.
+    pub(in crate::native) fn bind_map_constructor_exact<
+        K: KagariType + 'static,
+        V: KagariType + 'static,
+    >(
+        &self,
+        owner: &ExecutableModule,
         key: &TypeArgument,
         value: &TypeArgument,
     ) -> NativeResult<PinnedFunction<(), ScriptMap<K, V>>> {
@@ -42,7 +57,18 @@ impl Runtime {
     /// Prepare the installed public `new` application for an exact element scope.
     pub fn bind_set_constructor<T: KagariType + 'static>(
         &self,
-        owner: &LoadedModule,
+        owner: &Module,
+        element: &TypeArgument,
+    ) -> NativeResult<PinnedFunction<(), ScriptSet<T>>> {
+        self.gc().ensure_no_native_borrow()?;
+        let snapshot = self.capture_module(owner)?;
+        self.bind_set_constructor_exact(&snapshot.root, element)
+    }
+
+    /// Preserve the conversion context's selected publication and element scope.
+    pub(in crate::native) fn bind_set_constructor_exact<T: KagariType + 'static>(
+        &self,
+        owner: &ExecutableModule,
         element: &TypeArgument,
     ) -> NativeResult<PinnedFunction<(), ScriptSet<T>>> {
         self.bind_hash_constructor(
@@ -54,13 +80,13 @@ impl Runtime {
 
     fn bind_hash_constructor<R: KagariType + 'static>(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         receiver: Ty,
         arguments: &[TypeArgument],
     ) -> NativeResult<PinnedFunction<(), R>> {
         self.gc().ensure_no_native_borrow()?;
         self.resources().ensure_execution_allowed()?;
-        self.validate_loaded_module(owner)?;
+        self.validate_executable_module(owner)?;
         for argument in arguments {
             argument.validate(self)?;
         }
@@ -131,8 +157,8 @@ impl Runtime {
 fn constructor_arguments(
     table: &InherentTable,
     arguments: &[TypeArgument],
-    declaration_owner: &LoadedModule,
-    caller: &LoadedModule,
+    declaration_owner: &ExecutableModule,
+    caller: &ExecutableModule,
 ) -> NativeResult<Vec<TypeArgument>> {
     let parameters = match &table.for_type {
         Ty::Map { key, value, .. } => vec![key.as_ref(), value.as_ref()],

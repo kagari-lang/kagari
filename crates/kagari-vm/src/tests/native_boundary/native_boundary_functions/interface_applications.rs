@@ -34,6 +34,8 @@ const IDENTITY: &str = r#"
 #[test]
 fn inherited_generic_interface_bindings_require_checked_applications_and_keep_returns_alive() {
     let (vm, owner) = fixture(IDENTITY, None);
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let target: Interface = vm.execute_typed(&owner, "make", ()).unwrap();
     let item: Object = vm.execute_typed(&owner, "item", ()).unwrap();
     let cx = ConversionContext::new(vm.runtime(), &owner).unwrap();
@@ -137,6 +139,8 @@ fn generic_interface_constraints_keep_selected_operations_alive_through_gc_and_r
         pub fn evidence(target: Invoke, value: Key<i32>) -> i32 { target.invoke(value) }
     "#;
     let (vm, old) = fixture(source, Some(&module));
+    let _old_program = old;
+    let old = vm.runtime().select_program(&_old_program).unwrap();
     let target: Interface = vm.execute_typed(&old, "make", ()).unwrap();
     let key: Object = vm.execute_typed(&old, "key", ()).unwrap();
     let member = target.member(vm.runtime(), "invoke").unwrap();
@@ -163,16 +167,16 @@ fn generic_interface_constraints_keep_selected_operations_alive_through_gc_and_r
             .unwrap(),
         42
     );
-    let new = vm
-        .reload_program(
-            &old,
-            "functions",
-            compile_program(
-                &source.replace("collect(); self.value", "collect(); self.value + 1"),
-                Some(&module),
-            ),
-        )
-        .unwrap();
+    vm.reload_program(
+        &_old_program,
+        Some("functions".into()),
+        compile_program(
+            &source.replace("collect(); self.value", "collect(); self.value + 1"),
+            Some(&module),
+        ),
+    )
+    .unwrap();
+    let new = vm.runtime().select_program(&_old_program).unwrap();
     let new_target: Interface = vm.execute_typed(&new, "make", ()).unwrap();
     let new_key: Object = vm.execute_typed(&new, "key", ()).unwrap();
     let new_invoke = vm

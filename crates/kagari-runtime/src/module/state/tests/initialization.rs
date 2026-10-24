@@ -32,9 +32,13 @@ fn initializer_frame_drop_poison_survives_termination_and_releases_recipe_edges(
     for mode in 0..4 {
         let mut runtime = Runtime::default();
         let code = access_program();
-        let old = runtime.load_program("state", code.clone()).unwrap();
-        let staged = runtime.stage_reload_program(&old, "state", code).unwrap();
-        let current = runtime.publish_staged_reload(staged).unwrap();
+        let old_program = runtime.load_program("state", code.clone()).unwrap();
+        let old = runtime.select_program(&old_program).unwrap();
+        let staged = runtime
+            .stage_reload_program(&old_program, None, code)
+            .unwrap();
+        let current = staged.module().clone();
+        runtime.publish_staged_reload(staged).unwrap();
         let stack = runtime.enter_execution_stack(&current).unwrap();
         stack
             .push(&runtime, current.slot(), FunctionRef::new(0), &[], None)
@@ -122,7 +126,8 @@ fn pre_attempt_depth_rejection_leaves_cell_uninitialized() {
         },
         ..Default::default()
     });
-    let loaded = runtime.load_program("state", access_program()).unwrap();
+    let loaded_program = runtime.load_program("state", access_program()).unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     let stack = runtime.enter_execution_stack(&loaded).unwrap();
     stack
         .push(&runtime, loaded.slot(), FunctionRef::new(0), &[], None)
@@ -146,9 +151,10 @@ fn pre_attempt_depth_rejection_leaves_cell_uninitialized() {
 fn swallowed_cycle_cannot_commit_and_candidate_switch_cannot_escape_marker() {
     let mut runtime = Runtime::default();
     let code = access_program();
-    let loaded = runtime.load_program("state", code.clone()).unwrap();
+    let loaded_program = runtime.load_program("state", code.clone()).unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     let candidate = runtime
-        .stage_reload_program(&loaded, "state", code)
+        .stage_reload_program(&loaded_program, None, code)
         .unwrap();
     let stack = runtime.enter_execution_stack(&loaded).unwrap();
     stack
@@ -185,7 +191,8 @@ fn swallowed_cycle_cannot_commit_and_candidate_switch_cannot_escape_marker() {
 #[test]
 fn initializer_return_failure_after_retirement_poison_is_owned_by_the_attempt() {
     let mut runtime = Runtime::default();
-    let loaded = runtime.load_program("state", access_program()).unwrap();
+    let loaded_program = runtime.load_program("state", access_program()).unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     let stack = runtime.enter_execution_stack(&loaded).unwrap();
     stack
         .push(&runtime, loaded.slot(), FunctionRef::new(0), &[], None)
@@ -223,7 +230,8 @@ fn initializer_return_failure_after_retirement_poison_is_owned_by_the_attempt() 
 fn initializer_return_checks_semantic_type_before_ready_and_retries_access_pc() {
     for valid in [false, true] {
         let mut runtime = Runtime::default();
-        let loaded = runtime.load_program("state", access_program()).unwrap();
+        let loaded_program = runtime.load_program("state", access_program()).unwrap();
+        let loaded = runtime.select_program(&loaded_program).unwrap();
         let stack = runtime.enter_execution_stack(&loaded).unwrap();
         stack
             .push(&runtime, loaded.slot(), FunctionRef::new(0), &[], None)

@@ -62,6 +62,8 @@ fn installed_function_needs_no_execution_permissions() {
     assert_eq!(runtime.modules().loaded_count(), 0);
     module.install(&mut runtime).unwrap();
     let loaded = runtime.load_program("installed", program).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     assert_eq!(invoke(&runtime, &loaded, 0, &[]).unwrap(), Value::I32(42));
 }
 
@@ -91,6 +93,8 @@ fn host_cancellation_is_sticky_even_when_the_handler_returns_success() {
     let mut runtime = Runtime::default();
     module.install(&mut runtime).unwrap();
     let loaded = runtime.load_program("cancel", program).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let session = runtime
         .begin_execution(
             &loaded,
@@ -169,6 +173,7 @@ fn ordinary_installed_traits_require_exact_contracts_without_calls() {
     let active = runtime
         .load_program("registered", program(contract.clone(), false))
         .unwrap();
+    let _active_program = active;
     runtime
         .load_program("private", program(contract.clone(), true))
         .unwrap();
@@ -180,7 +185,7 @@ fn ordinary_installed_traits_require_exact_contracts_without_calls() {
         assert!(runtime.load_program("forged", candidate.clone()).is_err());
         assert!(
             runtime
-                .stage_reload_program(&active, "registered", candidate)
+                .stage_reload_program(&_active_program, Some("registered".into()), candidate)
                 .is_err()
         );
     }
@@ -246,6 +251,7 @@ fn native_declarations_require_exact_installation_without_calls() {
     let active = runtime
         .load_program("registered", program(contract.clone()))
         .unwrap();
+    let _active_program = active;
     let mut forged = contract;
     forged.function.return_type = Type::bool().abi().clone();
     VerifiedProgram::new(program(forged.clone()), &context).unwrap();
@@ -256,7 +262,7 @@ fn native_declarations_require_exact_installation_without_calls() {
     );
     assert!(
         runtime
-            .stage_reload_program(&active, "registered", program(forged))
+            .stage_reload_program(&_active_program, Some("registered".into()), program(forged))
             .is_err()
     );
 }
@@ -377,6 +383,7 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
     let active = runtime
         .load_program("public_core", program(base.clone()))
         .unwrap();
+    let _active_program = active;
     let mut forged = base;
     let contract = forged
         .public_items
@@ -401,7 +408,7 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
     );
     // Staging rejects the changed public ABI before installation validation.
     assert!(matches!(
-        runtime.stage_reload_program(&active, "public_core", forged),
+        runtime.stage_reload_program(&_active_program, Some("public_core".into()), forged),
         Err(ReloadValidationError::PublicAbiFingerprintMismatch)
     ));
     let root = context.intern_root(&format_module.identity).unwrap();

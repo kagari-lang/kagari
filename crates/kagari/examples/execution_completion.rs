@@ -9,7 +9,7 @@ use kagari_runtime::{
     Runtime as CoreRuntime,
     error::RuntimeError,
     frame::ExecutionFrame,
-    module::LoadedModule,
+    module::Program,
     session::{ExecutionEvent, ExecutionObserver, owned::OwnedExecution},
     value::Value,
 };
@@ -73,7 +73,7 @@ impl Route {
 
 struct Fixture {
     runtime: Runtime,
-    module: LoadedModule,
+    module: Program,
     context: ExecutionContext,
     instructions: usize,
 }
@@ -91,6 +91,7 @@ impl Fixture {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let module = runtime.load_program(&program, Default::default()).unwrap();
+        let _selected_module = runtime.runtime().select_program(&module).unwrap();
         let count = Arc::new(AtomicUsize::new(0));
         runtime
             .runtime()
@@ -99,7 +100,7 @@ impl Fixture {
         let owner = runtime
             .backend()
             .start(
-                &module,
+                &_selected_module,
                 "hold",
                 &[Value::I32(1)],
                 context.interpreter_options().unwrap(),
@@ -138,7 +139,7 @@ impl Fixture {
                 .runtime
                 .backend()
                 .start(
-                    &self.module,
+                    &self.runtime.runtime().select_program(&self.module).unwrap(),
                     "hold",
                     &[Value::I32(index as i32 + 1)],
                     self.context.interpreter_options().unwrap(),

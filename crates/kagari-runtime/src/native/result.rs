@@ -3,7 +3,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::{TypeEnvironment, arguments::TypeArgument},
-    module::{LoadedModule, VerifiedProgram},
+    module::{ExecutableModule, VerifiedProgram},
     native::binding::NativeResult,
     value::Value,
 };
@@ -47,7 +47,7 @@ impl LinkedResultAdapter {
     pub(crate) fn apply(
         &self,
         runtime: &Runtime,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         environment: TypeEnvironment,
     ) -> NativeResult<Self> {
         Ok(Self {
@@ -64,7 +64,7 @@ impl LinkedResultAdapter {
     pub(crate) fn convert(
         &self,
         runtime: &Runtime,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         value: Value,
     ) -> NativeResult<Value> {
         let _root = runtime

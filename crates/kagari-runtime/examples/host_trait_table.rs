@@ -86,10 +86,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let (snapshot, decoded) = decoded.into_parts();
     let mut runtime = Runtime::default();
     NativeModule::install_all(&modules, &mut runtime)?;
-    let loaded = runtime.load_program(
+    let loaded_program = runtime.load_program(
         "trait-table",
         DefinitionMetadata::checked(snapshot, decoded.program, &Default::default())?,
     )?;
+    let loaded = runtime.select_program(&loaded_program)?;
     let tables: usize = loaded
         .members()
         .map(|member| {
@@ -121,7 +122,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         unreachable!("registered Opaque type")
     };
     let descriptor = runtime.bind_native_type_declaration::<Counter>(
-        &loaded,
+        &loaded_program.root(),
         nominal.declaration,
         counter.definitions().expect("registered schema"),
         &[],

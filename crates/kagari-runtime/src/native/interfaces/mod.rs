@@ -4,11 +4,13 @@ pub mod asynchronous;
 pub mod binding;
 mod calls;
 mod formatting;
+#[cfg(test)]
+mod tests;
 use crate::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
     gc::roots::RootedValue,
-    module::{LoadedModule, ModuleEpochRetention, retention::ProgramLease},
+    module::{ExecutableModule, ModuleEpochRetention, retention::ProgramLease},
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
@@ -31,7 +33,7 @@ pub struct DynamicInterface;
 pub struct Interface<S = DynamicInterface> {
     root: RootedValue,
     argument: TypeArgument,
-    owner: LoadedModule,
+    owner: ExecutableModule,
     program: ProgramLease,
     schema: PhantomData<fn() -> S>,
 }
@@ -53,7 +55,7 @@ impl<S> Interface<S> {
         &self.argument
     }
 
-    pub fn owner(&self) -> &LoadedModule {
+    pub fn owner(&self) -> &ExecutableModule {
         &self.owner
     }
 }

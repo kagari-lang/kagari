@@ -4,6 +4,8 @@ use crate::value::Value;
 use kagari_types::visibility::Visibility;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
+use crate::host::HostRegistryId;
+use crate::reload::validate_verified_reload_candidate;
 use crate::resource::ResourceState;
 use crate::{Runtime, RuntimeConfig, error::RuntimeErrorKind, gc::GcHeap};
 use kagari_bytecode::instruction::{ConstantId, ConstantOperand};
@@ -55,7 +57,8 @@ fn version_token_preserves_root_identity_without_retaining_execution() {
     assert!(!code.same_version(&other_root));
     drop((same_context, other_root));
     let mut runtime = Runtime::default();
-    let old = runtime.load_verified_program("token", code).unwrap();
+    let old_program = runtime.load_verified_program("token", code).unwrap();
+    let old = runtime.select_program(&old_program).unwrap();
     let descriptor = Arc::downgrade(&old.program);
     let current_graph = old
         .verified_program()
@@ -63,17 +66,21 @@ fn version_token_preserves_root_identity_without_retaining_execution() {
         .iter()
         .map(Arc::downgrade)
         .collect::<Vec<_>>();
-    let next = runtime.stage_reload_program(&old, "token", input).unwrap();
-    let current = runtime.publish_staged_reload(next).unwrap();
+    let next = runtime
+        .stage_reload_program(&old_program, None, input)
+        .unwrap();
+    runtime.publish_staged_reload(next).unwrap();
+
+    let current = runtime.select_program(&old_program).unwrap();
     runtime.collect_garbage().unwrap();
     assert!(runtime.modules().loaded(old.key()).is_none());
-    assert!(runtime.validate_loaded_module(&old).is_err());
+    assert!(runtime.validate_executable_module(&old).is_err());
     assert!(
         runtime
             .retain_program(&old, ModuleEpochRetention::ActiveCall)
             .is_none()
     );
-    assert!(runtime.validate_loaded_module(&current).is_ok());
+    assert!(runtime.validate_executable_module(&current).is_ok());
     drop(old);
     assert!(original.iter().all(|weak| weak.upgrade().is_none()));
     assert!(current_graph.iter().all(|weak| weak.upgrade().is_none()));
@@ -139,12 +146,14 @@ fn verified_code_is_shared_but_runtime_linkage_and_instances_are_private() {
     .unwrap();
     let mut first_runtime = Runtime::new(RuntimeConfig::default());
     let mut second_runtime = Runtime::new(RuntimeConfig::default());
-    let first = first_runtime
+    let first_program = first_runtime
         .load_verified_program("shared", code.clone())
         .unwrap();
-    let second = second_runtime
+    let first = first_runtime.select_program(&first_program).unwrap();
+    let second_program = second_runtime
         .load_verified_program("shared", code)
         .unwrap();
+    let second = second_runtime.select_program(&second_program).unwrap();
 
     // Scoped definition IDs are runtime-local; immutable executable preparation
     // and the source revision remain shared across the identity adoption.
@@ -157,10 +166,10 @@ fn verified_code_is_shared_but_runtime_linkage_and_instances_are_private() {
         &second.program.code.version
     ));
     assert_ne!(first.definitions().id(), second.definitions().id());
-    assert!(first_runtime.validate_loaded_module(&first).is_ok());
-    assert!(second_runtime.validate_loaded_module(&second).is_ok());
-    assert!(first_runtime.validate_loaded_module(&second).is_err());
-    assert!(second_runtime.validate_loaded_module(&first).is_err());
+    assert!(first_runtime.validate_executable_module(&first).is_ok());
+    assert!(second_runtime.validate_executable_module(&second).is_ok());
+    assert!(first_runtime.validate_executable_module(&second).is_err());
+    assert!(second_runtime.validate_executable_module(&first).is_err());
     let shared = ConstantId::new(0);
     let escaped = first_runtime.read_constant(&first, shared).unwrap();
     let before = first_runtime.gc().stats();
@@ -216,8 +225,8 @@ fn verified_code_is_shared_but_runtime_linkage_and_instances_are_private() {
     replacement.constants.clear();
     let candidate = first_runtime
         .stage_reload_program(
-            &first,
-            "shared",
+            &first_program,
+            None,
             ProgramFixture {
                 exports: Default::default(),
                 root: ModuleRef::new(0),
@@ -253,7 +262,12 @@ fn verified_code_is_shared_but_runtime_linkage_and_instances_are_private() {
 #[test]
 fn staged_programs_keep_instances_alive_without_activating_them() {
     let context = DefinitionContext::new().unwrap();
-    let store = ModuleStore::default();
+    let mut store = ModuleStore::default();
+    let mut root_identity = BytecodeModule::default().identity;
+    root_identity.path.push("root".into());
+    let installation = store
+        .reserve_installation(HostRegistryId::default(), root_identity)
+        .unwrap();
     let stage = |epoch| {
         let mut dependency = BytecodeModule::default();
         add_static(
@@ -275,24 +289,32 @@ fn staged_programs_keep_instances_alive_without_activating_them() {
             true,
             Visibility::Private,
         );
+        let code = VerifiedProgram::new(
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(1),
+                modules: vec![dependency, root],
+            }
+            .metadata(context.snapshot(), &Default::default())
+            .unwrap(),
+            &context,
+        )
+        .unwrap();
+        let admission = installation
+            .capture_current()
+            .ok()
+            .map(|baseline| validate_verified_reload_candidate(&baseline, &code).unwrap());
         store
             .stage_verified_program(
+                installation.clone(),
                 "game.player",
                 ModuleEpoch(epoch),
-                VerifiedProgram::new(
-                    ProgramFixture {
-                        exports: Default::default(),
-                        root: ModuleRef::new(1),
-                        modules: vec![dependency, root],
-                    }
-                    .metadata(context.snapshot(), &Default::default())
-                    .unwrap(),
-                    &context,
-                )
-                .unwrap(),
-                crate::host::HostRegistryId::default(),
-                vec![LinkedHostBindings::default(), LinkedHostBindings::default()],
-                None,
+                code,
+                LinkedProgramBindings {
+                    members: vec![LinkedHostBindings::default(), LinkedHostBindings::default()],
+                    shared_traits: Default::default(),
+                },
+                admission,
             )
             .unwrap()
     };
@@ -311,7 +333,10 @@ fn staged_programs_keep_instances_alive_without_activating_them() {
         drop(inner);
         assert!(store.is_program_root(member.key()));
     }
-    assert_eq!(store.latest("game.player").unwrap().key(), baseline.key());
+    assert_eq!(
+        installation.capture_current().unwrap().key(),
+        baseline.key()
+    );
     assert_eq!(store.loaded_count(), 6);
     assert!(collect(&store).is_empty());
     assert_eq!(
@@ -328,14 +353,20 @@ fn staged_programs_keep_instances_alive_without_activating_them() {
         assert!(store.instance_snapshot(*key).is_none());
     }
     assert_eq!(store.loaded_count(), 4);
-    assert_eq!(store.latest("game.player").unwrap().key(), baseline.key());
+    assert_eq!(
+        installation.capture_current().unwrap().key(),
+        baseline.key()
+    );
     assert_eq!(
         collect(&store).into_iter().collect::<HashSet<_>>(),
         abandoned_keys.into_iter().collect()
     );
 
     let published = candidate.publish(&store).unwrap();
-    assert_eq!(store.latest("game.player").unwrap().key(), published.key());
+    assert_eq!(
+        installation.capture_current().unwrap().key(),
+        published.key()
+    );
     for member in published.members() {
         let instance = store.instance_snapshot(member.key()).unwrap();
         assert!(matches!(
@@ -357,10 +388,15 @@ fn staged_programs_keep_instances_alive_without_activating_them() {
 #[test]
 fn abandoning_candidates_invalidates_access_even_after_quarantine() {
     let context = DefinitionContext::new().unwrap();
-    let runtime = Runtime::default();
+    let mut runtime = Runtime::default();
+    let installation = runtime
+        .modules
+        .reserve_installation(runtime.host.owner(), BytecodeModule::default().identity)
+        .unwrap();
     let store = runtime.modules();
     let stage = |epoch| {
         store.stage_verified_program(
+            installation.clone(),
             "candidate",
             ModuleEpoch(epoch),
             VerifiedProgram::new(
@@ -374,14 +410,16 @@ fn abandoning_candidates_invalidates_access_even_after_quarantine() {
                 &context,
             )
             .unwrap(),
-            crate::host::HostRegistryId::default(),
-            vec![LinkedHostBindings::default()],
+            LinkedProgramBindings {
+                members: vec![LinkedHostBindings::default()],
+                shared_traits: Default::default(),
+            },
             None,
         )
     };
     let candidate = stage(1).unwrap();
     assert_eq!(store.loaded_count(), 1);
-    assert!(store.latest("candidate").is_none());
+    assert!(installation.capture_current().is_err());
     drop(candidate);
     assert_eq!(store.loaded_count(), 0);
     let candidate = stage(3).unwrap();
@@ -396,9 +434,16 @@ fn abandoning_candidates_invalidates_access_even_after_quarantine() {
 #[test]
 fn assigns_stable_module_ids_across_epochs() {
     let context = DefinitionContext::new().unwrap();
-    let store = ModuleStore::default();
+    let mut store = ModuleStore::default();
+    let installation = store
+        .reserve_installation(
+            HostRegistryId::default(),
+            BytecodeModule::default().identity,
+        )
+        .unwrap();
     let first = store
         .stage_verified_program(
+            installation.clone(),
             "game.player",
             ModuleEpoch(1),
             VerifiedProgram::new(
@@ -412,8 +457,10 @@ fn assigns_stable_module_ids_across_epochs() {
                 &context,
             )
             .unwrap(),
-            crate::host::HostRegistryId::default(),
-            vec![LinkedHostBindings::default()],
+            LinkedProgramBindings {
+                members: vec![LinkedHostBindings::default()],
+                shared_traits: Default::default(),
+            },
             None,
         )
         .unwrap()
@@ -421,6 +468,7 @@ fn assigns_stable_module_ids_across_epochs() {
         .unwrap();
     let second = store
         .stage_verified_program(
+            installation.clone(),
             "game.player",
             ModuleEpoch(2),
             VerifiedProgram::new(
@@ -434,15 +482,24 @@ fn assigns_stable_module_ids_across_epochs() {
                 &context,
             )
             .unwrap(),
-            crate::host::HostRegistryId::default(),
-            vec![LinkedHostBindings::default()],
-            None,
+            LinkedProgramBindings {
+                members: vec![LinkedHostBindings::default()],
+                shared_traits: Default::default(),
+            },
+            Some(validate_verified_reload_candidate(&first, first.verified_program()).unwrap()),
         )
         .unwrap()
         .publish(&store)
         .unwrap();
+    let other_installation = store
+        .reserve_installation(
+            HostRegistryId::default(),
+            BytecodeModule::default().identity,
+        )
+        .unwrap();
     let other = store
         .stage_verified_program(
+            other_installation,
             "game.world",
             ModuleEpoch(1),
             VerifiedProgram::new(
@@ -456,8 +513,10 @@ fn assigns_stable_module_ids_across_epochs() {
                 &context,
             )
             .unwrap(),
-            crate::host::HostRegistryId::default(),
-            vec![LinkedHostBindings::default()],
+            LinkedProgramBindings {
+                members: vec![LinkedHostBindings::default()],
+                shared_traits: Default::default(),
+            },
             None,
         )
         .unwrap()
@@ -469,15 +528,25 @@ fn assigns_stable_module_ids_across_epochs() {
     assert_eq!(first.id.index(), 0);
     assert_eq!(other.id.index(), 1);
     assert_eq!(store.loaded_count(), 3);
-    assert_eq!(store.latest("game.player").unwrap().epoch, ModuleEpoch(2));
+    assert_eq!(
+        installation.capture_current().unwrap().epoch,
+        ModuleEpoch(2)
+    );
 }
 
 #[test]
 fn snapshot_during_mutable_instance_borrow_does_not_panic() {
     let context = DefinitionContext::new().unwrap();
-    let store = ModuleStore::default();
+    let mut store = ModuleStore::default();
+    let installation = store
+        .reserve_installation(
+            HostRegistryId::default(),
+            BytecodeModule::default().identity,
+        )
+        .unwrap();
     let module = store
         .stage_verified_program(
+            installation.clone(),
             "game.snapshot",
             ModuleEpoch(1),
             VerifiedProgram::new(
@@ -491,8 +560,10 @@ fn snapshot_during_mutable_instance_borrow_does_not_panic() {
                 &context,
             )
             .unwrap(),
-            crate::host::HostRegistryId::default(),
-            vec![LinkedHostBindings::default()],
+            LinkedProgramBindings {
+                members: vec![LinkedHostBindings::default()],
+                shared_traits: Default::default(),
+            },
             None,
         )
         .unwrap()
@@ -507,9 +578,16 @@ fn snapshot_during_mutable_instance_borrow_does_not_panic() {
 #[test]
 fn keeps_latest_and_retained_old_epochs_reachable() {
     let context = DefinitionContext::new().unwrap();
-    let store = ModuleStore::default();
+    let mut store = ModuleStore::default();
+    let installation = store
+        .reserve_installation(
+            HostRegistryId::default(),
+            BytecodeModule::default().identity,
+        )
+        .unwrap();
     let first = store
         .stage_verified_program(
+            installation.clone(),
             "game.player",
             ModuleEpoch(1),
             VerifiedProgram::new(
@@ -523,8 +601,10 @@ fn keeps_latest_and_retained_old_epochs_reachable() {
                 &context,
             )
             .unwrap(),
-            crate::host::HostRegistryId::default(),
-            vec![LinkedHostBindings::default()],
+            LinkedProgramBindings {
+                members: vec![LinkedHostBindings::default()],
+                shared_traits: Default::default(),
+            },
             None,
         )
         .unwrap()
@@ -532,6 +612,7 @@ fn keeps_latest_and_retained_old_epochs_reachable() {
         .unwrap();
     let second = store
         .stage_verified_program(
+            installation.clone(),
             "game.player",
             ModuleEpoch(2),
             VerifiedProgram::new(
@@ -545,9 +626,11 @@ fn keeps_latest_and_retained_old_epochs_reachable() {
                 &context,
             )
             .unwrap(),
-            crate::host::HostRegistryId::default(),
-            vec![LinkedHostBindings::default()],
-            None,
+            LinkedProgramBindings {
+                members: vec![LinkedHostBindings::default()],
+                shared_traits: Default::default(),
+            },
+            Some(validate_verified_reload_candidate(&first, first.verified_program()).unwrap()),
         )
         .unwrap()
         .publish(&store)

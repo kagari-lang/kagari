@@ -154,10 +154,15 @@ fn selected_handles_retain_generic_default_and_static_calls_across_gc_and_reload
         pub fn run() -> i32 { val relay: Relay = 0; relay.relay(make()) }
     "#;
     let (vm, old) = fixture(source, Some(&module));
-    let run = vm.runtime().bind_function::<(), i32>(&old, "run").unwrap();
+    let _old_program = old;
+    let old = vm.runtime().select_program(&_old_program).unwrap();
+    let run = vm
+        .runtime()
+        .bind_function::<(), i32>(&_old_program.root(), "run")
+        .unwrap();
     let make = vm
         .runtime()
-        .bind_function::<(), Object>(&old, "make")
+        .bind_function::<(), Object>(&_old_program.root(), "make")
         .unwrap();
     assert_eq!(vm.call(&run, ()).unwrap(), 42);
     let (read, twice, base) = retained.lock().unwrap().take().unwrap();
@@ -174,7 +179,11 @@ fn selected_handles_retain_generic_default_and_static_calls_across_gc_and_reload
     let updated = source.replace("self.amount / divisor", "(self.amount + 1) / divisor");
     let staged = vm
         .runtime()
-        .stage_reload_program(&old, "functions", compile_program(&updated, Some(&module)))
+        .stage_reload_program(
+            &_old_program,
+            Some("functions".into()),
+            compile_program(&updated, Some(&module)),
+        )
         .unwrap();
     {
         let mut cx = vm.context(staged.module()).unwrap();
@@ -187,12 +196,17 @@ fn selected_handles_retain_generic_default_and_static_calls_across_gc_and_reload
         assert!(base.call_with_options(&mut cx, (), options).is_err());
     }
     drop(staged);
-    let published = vm
-        .reload_program(&old, "functions", compile_program(&updated, Some(&module)))
-        .unwrap();
+    vm.reload_program(
+        &_old_program,
+        Some("functions".into()),
+        compile_program(&updated, Some(&module)),
+    )
+    .unwrap();
+    let _published_program = _old_program.clone();
+    let published = vm.runtime().select_program(&_published_program).unwrap();
     let new_run = vm
         .runtime()
-        .bind_function::<(), i32>(&published, "run")
+        .bind_function::<(), i32>(&_published_program.root(), "run")
         .unwrap();
     assert_eq!(vm.call(&new_run, ()).unwrap(), 44);
     let (_, new_twice, _) = retained.lock().unwrap().take().unwrap();
@@ -206,6 +220,11 @@ fn selected_handles_retain_generic_default_and_static_calls_across_gc_and_reload
     assert!(new_twice.call(&mut cx, (wrong_receiver,)).is_err());
     assert_eq!(effects.load(Ordering::Relaxed), before);
     let (foreign, foreign_owner) = fixture("pub fn main() {}", None);
+    let _foreign_owner_program = foreign_owner;
+    let foreign_owner = foreign
+        .runtime()
+        .select_program(&_foreign_owner_program)
+        .unwrap();
     assert!(
         base.call(&mut foreign.context(&foreign_owner).unwrap(), ())
             .is_err()
@@ -308,17 +327,22 @@ fn typed_generic_native_selected_member_keeps_applied_object_results_and_rejects
     "#,
         Some(&module),
     );
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     {
         let run = vm
             .runtime()
-            .bind_function::<(), Object>(&owner, "run")
+            .bind_function::<(), Object>(&_owner_program.root(), "run")
             .unwrap();
         let wrong = vm
             .runtime()
-            .bind_function::<(), String>(&owner, "wrong")
+            .bind_function::<(), String>(&_owner_program.root(), "wrong")
             .unwrap();
         let item = vm.call(&run, ()).unwrap();
-        let ty = vm.runtime().bind_type(&owner, "Item", &[]).unwrap();
+        let ty = vm
+            .runtime()
+            .bind_type(&_owner_program.root(), "Item", &[])
+            .unwrap();
         let value = vm.runtime().bind_field::<i32>(&ty, "value").unwrap();
         vm.runtime().collect_garbage().unwrap();
         assert_eq!(
@@ -330,7 +354,7 @@ fn typed_generic_native_selected_member_keeps_applied_object_results_and_rejects
         assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
         drop(item);
     }
-    publish_unused_version(&vm, &owner);
+    publish_unused_version(&vm, &_owner_program);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
 }
 
@@ -371,6 +395,8 @@ fn selected_primitive_operations_use_checked_typed_arguments() {
     "#,
         Some(&module),
     );
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     assert!(vm.execute_typed::<_, bool>(&owner, "run", ()).unwrap());
     assert_eq!(vm.runtime().gc().active_roots(), 0);
 }

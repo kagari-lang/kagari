@@ -4,7 +4,7 @@ use crate::{
     error::RuntimeError,
     execution_metadata::{MetadataEdge, call_contracts::ScopedInterfaceCall},
     module::{
-        LoadedModule,
+        ExecutableModule,
         execution::{
             ExecutionFunction,
             calls::{PreparedCallTarget, PreparedClosureSignature},
@@ -42,7 +42,7 @@ impl LinkedCall {
 impl Runtime {
     pub(super) fn link_calls(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         function: &BytecodeFunction,
         prepared: &ExecutionFunction,
     ) -> Result<Arc<[LinkedCall]>, RuntimeError> {

@@ -3,7 +3,8 @@ use kagari_runtime::{
     Runtime,
     error::RuntimeError,
     frame::ExecutionFrame,
-    session::{ExecutionEvent, ExecutionObserver},
+    module::ExecutableModule,
+    session::{ExecutionEvent, ExecutionObserver, ExecutionSession},
 };
 use std::cell::Cell;
 
@@ -35,9 +36,9 @@ impl ExecutionObserver for CancelAt {
 
 pub fn cancel_after<'runtime>(
     runtime: &'runtime Runtime,
-    loaded: &kagari_runtime::module::LoadedModule,
+    loaded: &ExecutableModule,
     at: usize,
-) -> kagari_runtime::session::ExecutionSession<'runtime> {
+) -> ExecutionSession<'runtime> {
     let options = runtime.execution_options();
     runtime
         .set_execution_observer(CancelAt {

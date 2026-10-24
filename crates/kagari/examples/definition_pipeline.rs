@@ -157,12 +157,16 @@ fn main() {
             let loaded = runtime
                 .load_verified_program("identity-benchmark", verified.clone())
                 .unwrap();
+            let _loaded_program = loaded;
+            let loaded = runtime.select_program(&_loaded_program).unwrap();
             (runtime, loaded)
         });
     let mut second_runtime = standard_runtime();
     let second = second_runtime
         .load_verified_program("identity-benchmark", verified)
         .unwrap();
+    let _second_program = second;
+    let second = second_runtime.select_program(&_second_program).unwrap();
     println!(
         "independent_runtime_shared_module={}",
         Arc::ptr_eq(&first.bytecode, &second.bytecode)

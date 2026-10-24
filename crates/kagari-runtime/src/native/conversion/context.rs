@@ -4,7 +4,7 @@ use crate::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
     gc::{HeapObjectId, roots::RootedValue},
-    module::{LoadedModule, ModuleEpochRetention, retention::ProgramLease},
+    module::{ExecutableModule, ModuleEpochRetention, retention::ProgramLease},
     native::{
         binding::NativeResult,
         context::CallContext,
@@ -39,7 +39,7 @@ impl Default for ConversionLimits {
 /// `encode` have independent root leases; scratch roots expire on every exit.
 pub struct ConversionContext<'runtime> {
     runtime: &'runtime Runtime,
-    owner: &'runtime LoadedModule,
+    owner: &'runtime ExecutableModule,
     _program: Option<ProgramLease>,
     limits: ConversionLimits,
     depth: usize,
@@ -79,18 +79,21 @@ impl Drop for Frame<'_, '_> {
 }
 
 impl<'runtime> ConversionContext<'runtime> {
-    pub fn new(runtime: &'runtime Runtime, owner: &'runtime LoadedModule) -> NativeResult<Self> {
+    pub fn new(
+        runtime: &'runtime Runtime,
+        owner: &'runtime ExecutableModule,
+    ) -> NativeResult<Self> {
         Self::with_limits(runtime, owner, ConversionLimits::default())
     }
 
     pub fn with_limits(
         runtime: &'runtime Runtime,
-        owner: &'runtime LoadedModule,
+        owner: &'runtime ExecutableModule,
         limits: ConversionLimits,
     ) -> NativeResult<Self> {
         runtime.gc().ensure_no_native_borrow()?;
         runtime.resources().ensure_execution_allowed()?;
-        runtime.validate_loaded_module(owner)?;
+        runtime.validate_executable_module(owner)?;
         let program = runtime
             .retain_program(owner, ModuleEpochRetention::ActiveCall)
             .ok_or_else(|| RuntimeError::module_validation("conversion program retention"))?;
@@ -112,7 +115,7 @@ impl<'runtime> ConversionContext<'runtime> {
     pub(crate) fn in_native_call(call: &'runtime CallContext<'_>) -> NativeResult<Self> {
         call.heap().ensure_no_native_borrow()?;
         call.runtime.resources().ensure_execution_allowed()?;
-        call.runtime.validate_loaded_module(call.owner)?;
+        call.runtime.validate_executable_module(call.owner)?;
         Ok(Self {
             runtime: call.runtime,
             owner: call.owner,
@@ -130,7 +133,7 @@ impl<'runtime> ConversionContext<'runtime> {
         self.runtime
     }
 
-    pub fn owner(&self) -> &'runtime LoadedModule {
+    pub fn owner(&self) -> &'runtime ExecutableModule {
         self.owner
     }
 

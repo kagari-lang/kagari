@@ -1,6 +1,6 @@
 //! Closed builtin result contracts belong to the exact installed program member.
 use crate::{
-    Runtime, error::RuntimeError, frame::types::arguments::TypeArgument, module::LoadedModule,
+    Runtime, error::RuntimeError, frame::types::arguments::TypeArgument, module::ExecutableModule,
 };
 use kagari_types::{
     language::binding,
@@ -41,10 +41,10 @@ impl BuiltinResults {
 impl Runtime {
     pub(crate) fn builtin_result_type(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         result: BuiltinResult,
     ) -> Result<TypeArgument, RuntimeError> {
-        self.validate_loaded_module(owner)?;
+        self.validate_executable_module(owner)?;
         let invalid = || RuntimeError::module_validation("invalid builtin result owner");
         {
             let records = self.modules.inner.try_borrow().map_err(|_| invalid())?;

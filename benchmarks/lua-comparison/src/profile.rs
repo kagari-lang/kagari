@@ -16,7 +16,7 @@ use kagari_runtime::{
     Runtime as CoreRuntime,
     error::RuntimeError,
     frame::{ExecutionFrame, transfer::ReturnValue},
-    module::{LoadedModule, entry::ProgramEntry, execution::ExecutionInstruction},
+    module::{Program, entry::ProgramEntry, execution::ExecutionInstruction},
     session::{ExecutionEvent, ExecutionObserver},
     value::Value,
 };
@@ -82,7 +82,7 @@ impl ExecutionObserver for InstructionCounts {
 
 fn execute(
     runtime: &Runtime,
-    module: &LoadedModule,
+    module: &Program,
     context: &ExecutionContext,
     entry: ProgramEntry<'_>,
     expected: i32,
@@ -103,7 +103,7 @@ fn execute(
 
 pub(super) fn run(
     runtime: &Runtime,
-    module: &LoadedModule,
+    module: &Program,
     context: &ExecutionContext,
     entry: ProgramEntry<'_>,
     name: &str,
@@ -148,7 +148,7 @@ pub(super) fn run(
 
 pub(super) fn count(
     runtime: &Runtime,
-    module: &LoadedModule,
+    module: &Program,
     context: &ExecutionContext,
     entry: ProgramEntry<'_>,
     expected: i32,
@@ -158,9 +158,10 @@ pub(super) fn count(
         .set_execution_observer(InstructionCounts::default())
         .unwrap();
     {
+        let selected = runtime.runtime().select_program(module).unwrap();
         let session = runtime
             .runtime()
-            .begin_execution(module, Default::default())
+            .begin_execution(&selected, Default::default())
             .unwrap();
         runtime.runtime().attach_execution_observer().unwrap();
         let report = runtime.execute(module, entry, &[], context).unwrap();

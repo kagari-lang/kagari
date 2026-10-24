@@ -6,7 +6,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     gc::GcCollection,
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         binding::{Codec, LinkedNativeFunction, NativeBinding, NativeResult},
         context::{CallContext, ScriptInvoker},
@@ -30,7 +30,7 @@ pub struct NativeContext<'call> {
 
 impl<'call> NativeContext<'call> {
     /// Open a synchronous host access scope for a retained program version.
-    pub fn new(runtime: &'call Runtime, owner: &'call LoadedModule) -> NativeResult<Self> {
+    pub fn new(runtime: &'call Runtime, owner: &'call ExecutableModule) -> NativeResult<Self> {
         Ok(Self {
             conversion: ConversionContext::new(runtime, owner)?,
             invoke_script: None,
@@ -42,7 +42,7 @@ impl<'call> NativeContext<'call> {
     /// Native callbacks inherit this service from their invoking backend.
     pub fn with_invoker(
         runtime: &'call Runtime,
-        owner: &'call LoadedModule,
+        owner: &'call ExecutableModule,
         invoke_script: ScriptInvoker,
     ) -> NativeResult<Self> {
         Ok(Self {

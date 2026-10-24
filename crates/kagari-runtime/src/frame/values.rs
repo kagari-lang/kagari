@@ -20,7 +20,7 @@ use crate::{
     },
     gc::GcHeap,
     module::{
-        LoadedModule,
+        ExecutableModule,
         execution::{
             OperandSlot, ScalarSlot,
             layout::{FrameLayout, Location},
@@ -47,7 +47,7 @@ pub(crate) struct FrameSlots {
 
 /// Dependencies published atomically with the callee's parameter roots.
 pub(crate) struct FrameMetadata {
-    pub program: LoadedModule,
+    pub program: ExecutableModule,
     pub environment: Option<TypeEnvironment>,
     pub invocation: Option<MethodInvocation>,
 }
@@ -58,7 +58,7 @@ struct Window {
     invocation: Option<MethodInvocation>,
     generation: u64,
     ranges: WindowRanges,
-    program: LoadedModule,
+    program: ExecutableModule,
     environment: Option<TypeEnvironment>,
     slot_layout: Option<Arc<FrameLayout>>,
 }

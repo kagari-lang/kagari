@@ -4,7 +4,7 @@ use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::types::arguments::ScopedSignature,
     gc::GcHeap,
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         binding::{BindingEntry, Codec, LinkedNativeFunction, NativeBinding, NativeResult},
         context::operations::check_sequence_argument,
@@ -121,7 +121,7 @@ impl NativePrimitive {
     pub(crate) fn execute(
         self,
         runtime: &Runtime,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         signature: &ScopedSignature,
         argument: impl Fn(usize) -> NativeResult<Value>,
     ) -> PrimitiveResult {

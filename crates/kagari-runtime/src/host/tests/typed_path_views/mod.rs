@@ -8,7 +8,7 @@ use crate::{
         HostSchemaEpoch, PreparedHostPathWrite,
     },
     metadata::{AbiFingerprint, TypeId, TypeKind, TypeRegistration},
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{builder::ModuleBuilder, module::NativeModule},
     value::Value,
 };
@@ -34,9 +34,9 @@ use kagari_types::{
 };
 use std::sync::{Arc, Mutex};
 
-fn allocation_owner(runtime: &mut Runtime) -> LoadedModule {
+fn allocation_owner(runtime: &mut Runtime) -> ExecutableModule {
     let context = DefinitionContext::new().unwrap();
-    runtime
+    let program = runtime
         .load_program(
             "allocation-owner",
             ProgramFixture {
@@ -47,7 +47,8 @@ fn allocation_owner(runtime: &mut Runtime) -> LoadedModule {
             .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
-        .unwrap()
+        .unwrap();
+    runtime.select_program(&program).unwrap()
 }
 
 fn path_mutation_runtime() -> Runtime {

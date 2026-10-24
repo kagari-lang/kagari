@@ -1,6 +1,6 @@
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
-    error::RuntimeError, gc::roots::RootedValue, host::HostCallContext, module::LoadedModule,
+    error::RuntimeError, gc::roots::RootedValue, host::HostCallContext, module::ExecutableModule,
     value::Value,
 };
 
@@ -10,7 +10,7 @@ use crate::{error::VmError, executor::Executor};
 /// Host callbacks keep returned heap objects alive through this owned root.
 pub fn reenter(
     context: &HostCallContext<'_>,
-    loaded: &LoadedModule,
+    loaded: &ExecutableModule,
     function: FunctionRef,
     args: &[Value],
 ) -> Result<RootedValue, VmError> {

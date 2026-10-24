@@ -1,7 +1,7 @@
 //! Host entry conversion delegates to the VM's common runtime conversion scope.
 use crate::{RunResult, context::ExecutionContext, error::EmbeddingError, runtime::Runtime};
 use kagari_runtime::{
-    module::{LoadedModule, entry::ProgramEntry},
+    module::{ExecutableModule, Program, entry::ProgramEntry},
     native::{
         binding::NativeResult,
         conversion::{FromKagari, arguments::IntoKagariArguments},
@@ -17,7 +17,7 @@ impl Runtime {
     /// own values. Traps and unwinds release the execution session automatically.
     pub fn with_context<R>(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         context: &ExecutionContext,
         access: impl FnOnce(&mut NativeContext<'_>) -> NativeResult<R>,
     ) -> RunResult<R> {
@@ -67,20 +67,21 @@ impl Runtime {
 
     pub fn execute_typed<'a, A: IntoKagariArguments, R: FromKagari>(
         &self,
-        module: &LoadedModule,
+        program: &Program,
         entry: impl Into<ProgramEntry<'a>>,
         arguments: A,
         context: &ExecutionContext,
     ) -> RunResult<R> {
         let entry = entry.into();
         context.validate_for_execute(entry.label())?;
+        let module = self.runtime().select_program(program)?;
         let _session = self
             .vm
             .runtime()
-            .begin_execution(module, context.runtime_options())
+            .begin_execution(&module, context.runtime_options())
             .map_err(|error| EmbeddingError::vm(VmError::RuntimeError(error)))?;
         self.vm
-            .execute_typed(module, entry, arguments)
+            .execute_typed(&module, entry, arguments)
             .map_err(EmbeddingError::vm)
     }
 }

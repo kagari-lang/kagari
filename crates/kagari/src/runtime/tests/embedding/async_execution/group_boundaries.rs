@@ -16,7 +16,7 @@ use kagari_runtime::{
     error_trace::ErrorTrace,
     frame::ExecutionFrame,
     host::HostCallContext,
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         adapter::Async,
         binding::NativeResult,
@@ -44,7 +44,7 @@ use std::{
 struct FatalBranchEntry(Arc<Mutex<Option<Arc<ErrorTrace>>>>);
 
 impl ExecutionObserver for FatalBranchEntry {
-    fn begin(&mut self, runtime: &Runtime, _: &LoadedModule) -> NativeResult<()> {
+    fn begin(&mut self, runtime: &Runtime, _: &ExecutableModule) -> NativeResult<()> {
         let trace = runtime.capture_error_trace();
         *self.0.lock().unwrap() = Some(trace.clone());
         Err(RuntimeError::new(
@@ -396,7 +396,7 @@ pub async fn run() -> i32 { val (a,b)=core::task::join(branch(),branch()).await;
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let mut f = Fixture::configured_source(source, config);
-    let old = f.module.key();
+    let old = f.runtime.runtime().select_program(&f.module).unwrap().key();
     let cold = f.invoke("run", &[]);
     let mut waiting = scheduled(&f, "run", &[]);
     let host = HostLoop::new();
@@ -414,8 +414,7 @@ pub async fn run() -> i32 { val (a,b)=core::task::join(branch(),branch()).await;
             .unwrap();
     let program =
         PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
-    f.module = f
-        .runtime
+    f.runtime
         .reload_program(&f.module, &program, Default::default())
         .unwrap();
     f.program = program;

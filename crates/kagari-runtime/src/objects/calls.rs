@@ -13,7 +13,7 @@ use crate::{
         types::{TypeEnvironment, compatibility::TypeView, operations::OperationBindings},
     },
     gc::interfaces::InterfaceResultBinding,
-    module::LoadedModule,
+    module::ExecutableModule,
     native::registry::callable_primitive,
     objects::{invocation::MethodInvocation, method_view::SelectionView},
     value::Value,
@@ -31,7 +31,7 @@ use kagari_types::{
 };
 
 pub(super) fn interface_binding(
-    implementation: &LoadedModule,
+    implementation: &ExecutableModule,
     application: &ConcreteFunctionIdentity,
     environment: Option<TypeEnvironment>,
 ) -> Result<InterfaceResultBinding, RuntimeError> {
@@ -64,7 +64,7 @@ pub(super) fn interface_binding(
 }
 
 struct OperationScope<'a> {
-    owner: &'a LoadedModule,
+    owner: &'a ExecutableModule,
     environment: Option<TypeEnvironment>,
 }
 
@@ -136,14 +136,14 @@ impl Runtime {
     /// bindings use this same path without manufacturing an execution frame.
     pub(crate) fn bind_operations_in(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         environment: Option<TypeEnvironment>,
         witnesses: &[OperationWitness],
     ) -> Result<OperationBindings, RuntimeError> {
         if witnesses.is_empty() {
             return Ok(OperationBindings::default());
         }
-        self.validate_loaded_module(owner)?;
+        self.validate_executable_module(owner)?;
         let environment_id = environment.as_ref().map(|environment| environment.id);
         if let Some(id) = environment_id
             && self.gc.environment(id).is_none()

@@ -103,6 +103,8 @@ fn runtime_primitives_follow_installed_bodies_and_exact_signatures() {
         let owner = runtime
             .load_verified_program("primitives", verified.clone())
             .unwrap();
+        let _owner_program = owner;
+        let owner = runtime.select_program(&_owner_program).unwrap();
         let vm = Vm::new(runtime);
         let report = vm.execute(&owner, ProgramEntry::Main).unwrap();
         assert_eq!(
@@ -111,7 +113,7 @@ fn runtime_primitives_follow_installed_bodies_and_exact_signatures() {
         );
         let bound = vm
             .runtime()
-            .bind_function_declaration::<(String,), usize>(&owner, function)
+            .bind_function_declaration::<(String,), usize>(&_owner_program.root(), function)
             .unwrap();
         assert_eq!(
             vm.call(&bound, ("aé文".to_owned(),)).unwrap(),
@@ -226,6 +228,8 @@ fn vector_primitives_preserve_element_access_aliases_and_bounds() {
     "#,
         Some(&module),
     );
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let values: ScriptVec<i32> = vm.execute_typed(&owner, "make", ()).unwrap();
     assert_eq!(
         vm.execute_typed::<_, i32>(&owner, "update", (values.clone(),))

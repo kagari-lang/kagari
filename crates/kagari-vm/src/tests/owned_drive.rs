@@ -77,6 +77,8 @@ fn async_owned_drive_contract() {
     .install(&mut runtime)
     .unwrap();
     let loaded = runtime.load_program("owned", program).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let synchronous = vm.execute(&loaded, ProgramEntry::Main).unwrap();
     let Value::Array(expected) = synchronous.return_value.value(vm.runtime().gc()).unwrap() else {
@@ -270,6 +272,8 @@ fn async_owned_drive_contract_iterator_invalidation() {
     .install(&mut runtime)
     .unwrap();
     let loaded = runtime.load_program("owned-iteration", artifact).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let slice = NonZeroUsize::new(1).unwrap();
     // Each case parks an actual collection loop after its first item. Normal

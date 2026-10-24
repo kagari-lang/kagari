@@ -23,7 +23,7 @@ use kagari_contract::{
     },
 };
 use kagari_runtime::{
-    module::LoadedModule,
+    module::Program,
     native::{
         adapter::Async,
         builder::ModuleBuilder,
@@ -112,7 +112,7 @@ pub(super) struct Fixture {
     #[cfg(feature = "source")]
     pub(super) engine: KagariEngine,
     pub(super) runtime: Runtime,
-    pub(super) module: LoadedModule,
+    pub(super) module: Program,
     pub(super) program: PreparedProgram,
     pub(super) starts: Arc<AtomicUsize>,
     pub(super) cancels: Arc<AtomicUsize>,

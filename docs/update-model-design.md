@@ -6,9 +6,11 @@ reauthorized the complete phased sequence on 2026-10-24. UP00's design is frozen
 the user resolved transitive selection by protecting published key protocols,
 initializer expressions and their dependencies, with no pinned-call exception.
 The joint HM00/UP00 design checkpoint was committed as `bbfc0af6`; HM01 is locally
-complete and committed as `3523c4c8`. UP01 is locally complete with no carried
-errors; HM02 is next. The [UP01 ledger](#up01-implementation-and-integration)
-records acceptance evidence; full CI remains unrun. The user explicitly prioritized
+complete and committed as `3523c4c8`. UP01 is locally complete and committed as
+`cd79fc80`; the [UP01 ledger](#up01-implementation-and-integration) retains evidence.
+[HM02 integration](host-api-refactor.md#hm02-integration-and-up02hm03-handoff) is
+locally complete with no carried errors; UP02 is next and dispatch is not yet
+migrated. Full CI remains unrun. The user explicitly prioritized
 transparent generic type aliases first; the authorized prerequisite and its sole
 progress ledger are in the [host API plan](host-api-refactor.md#transparent-generic-alias-prerequisite).
 This design defines two deliberately
@@ -1179,7 +1181,9 @@ linking remain separate.
   rejection policy in UP01. Keep existing dispatch until UP02 coherently migrates
   it; no ignored validation or execution stubs. Locally complete with no carried
   errors; the [UP01 ledger](#up01-implementation-and-integration) records acceptance
-  evidence. HM02 is next; full CI remains unrun.
+  evidence. Committed as `cd79fc80`; HM02 is locally complete and UP02 is next.
+  HM02 acceptance is recorded in the [HM ledger](host-api-refactor.md#hm02-integration-and-up02hm03-handoff).
+  Full CI remains unrun.
 - [ ] UP02: Replace whole-dependency-pinned ordinary dispatch with current-call
   selection across runtime/VM/host/interface/native owners; retain selected
   Future/closure/frame bodies and cleanup. Integrate one-shot Update and prepared
@@ -1301,9 +1305,12 @@ or success result is invented by this proposal.
 
 ### UP01 implementation and integration
 
-**Status: locally complete; no carried errors.** HM01 is committed as `3523c4c8`.
-The compiler owner confirmed the final focused case and 11 related tests pass on
-the repaired tree. HM02 is next. Full CI remains unrun.
+**Status: locally complete; committed as `cd79fc80`, no carried UP01 errors.**
+HM01 is committed as `3523c4c8`. The compiler owner confirmed the final focused
+case and 11 related tests pass on the repaired tree. HM02 is now locally complete;
+its evidence stays in the [HM ledger](host-api-refactor.md#hm02-integration-and-up02hm03-handoff).
+UP02 is next.
+Full CI remains unrun.
 
 Implemented scope:
 
@@ -1352,10 +1359,11 @@ backend/contract adapter-classification repairs prevent generated adapters from
 entering source shared-method requests. No current blocker remains.
 
 Full-workspace tests and the complete feature/backend/platform matrix remain
-CI-only and unrun. Public loading still uses `LoadedModule`
-and ordinary calls remain pinned; live Program/Module handles, current dispatch,
-source Update integration and state replacement are not delivered by this phase.
-HM02/UP02 own the installation/dispatch handoff; MS remains unstarted.
+CI-only and unrun. UP01 did not deliver live handles or dispatch. Subsequent HM02
+work implements live Program/Module metadata and navigation with separate exact
+`ExecutableModule` ownership and has passed local acceptance. Ordinary calls remain
+pinned; UP02 owns dispatch/source Update integration, and HM03 unifies relative
+function/type leaf binding. State replacement and MS remain unstarted.
 
 ### Joint HM00/UP00 audit at 3b898e80
 

@@ -24,7 +24,7 @@ use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
     jit_abi::jit_poll_execution,
-    module::{LoadedModule, entry::ProgramEntry},
+    module::{ExecutableModule, Program, entry::ProgramEntry},
     native::module::NativeModule,
     resource::RuntimeLimits,
     value::Value,
@@ -55,7 +55,7 @@ fn compile(source: &str, optimize: bool) -> DefinitionMetadata<BytecodeProgram> 
         .unwrap()
 }
 
-fn setup(bytecode: DefinitionMetadata<BytecodeProgram>) -> (Vm, LoadedModule) {
+fn setup(bytecode: DefinitionMetadata<BytecodeProgram>) -> (Vm, Program) {
     let mut runtime = Runtime::new(RuntimeConfig {
         limits: RuntimeLimits {
             ..Default::default()
@@ -97,7 +97,7 @@ unsafe extern "C" fn native_trap(runtime: *const NativeInvocationContext, _: *mu
     }
 }
 
-fn prepared(vm: &Vm, module: &LoadedModule, entry: JitCompiledFunction) -> PreparedNativeEntry {
+fn prepared(vm: &Vm, module: &ExecutableModule, entry: JitCompiledFunction) -> PreparedNativeEntry {
     let mut artifact = ExecutableFunctionArtifact::new(
         BackendId::new("fixture"),
         BackendTarget::new("host", usize::BITS as u8),
@@ -120,6 +120,8 @@ fn prepared(vm: &Vm, module: &LoadedModule, entry: JitCompiledFunction) -> Prepa
 #[test]
 fn prepared_native_execution_reports_the_installed_descriptor_and_cleans_frames() {
     let (vm, module) = setup(compile("fn main() {}", false));
+    let _module_program = module;
+    let module = vm.runtime().select_program(&_module_program).unwrap();
     assert_eq!(module.bytecode.functions[0].instructions.len(), 2);
     let preparation = prepared(&vm, &module, native_unit);
     let report = vm
@@ -143,6 +145,8 @@ fn prepared_native_execution_reports_the_installed_descriptor_and_cleans_frames(
 #[test]
 fn unsupported_preparation_runs_the_interpreter_with_an_honest_report() {
     let (vm, module) = setup(compile("fn main() -> i32 { 40 + 2 }", false));
+    let _module_program = module;
+    let module = vm.runtime().select_program(&_module_program).unwrap();
     let preparation = PreparedNativeEntry::Unsupported {
         backend: BackendId::new("fixture"),
         diagnostics: vec!["unsupported operation".into()],
@@ -166,6 +170,8 @@ fn unsupported_preparation_runs_the_interpreter_with_an_honest_report() {
 #[test]
 fn native_errors_never_restart_in_the_interpreter_and_keep_the_trace() {
     let (vm, module) = setup(compile("fn main() {}", false));
+    let _module_program = module;
+    let module = vm.runtime().select_program(&_module_program).unwrap();
     let preparation = prepared(&vm, &module, native_trap);
     let error = vm
         .execute_prepared(&module, ProgramEntry::Main, &preparation)
@@ -183,6 +189,8 @@ fn native_errors_never_restart_in_the_interpreter_and_keep_the_trace() {
 fn prepared_function_identity_must_match_the_requested_entry() {
     let bytecode = compile("fn main() {} pub fn other() {}", false);
     let (vm, module) = setup(bytecode);
+    let _module_program = module;
+    let module = vm.runtime().select_program(&_module_program).unwrap();
     let preparation = prepared(&vm, &module, native_unit);
     let error = vm
         .execute_prepared(&module, "other", &preparation)
@@ -208,7 +216,11 @@ fn optimized_execution_preserves_results_traps_and_source_origins() {
         let optimized = compile(source, true);
         {
             let (before, a) = setup(original.clone());
+            let _a_program = a;
+            let a = before.runtime().select_program(&_a_program).unwrap();
             let (after, b) = setup(optimized.clone());
+            let _b_program = b;
+            let b = after.runtime().select_program(&_b_program).unwrap();
             let a = before.execute(&a, ProgramEntry::Main);
             let b = after.execute(&b, ProgramEntry::Main);
             match (a, b) {
@@ -256,6 +268,8 @@ fn optimized_execution_preserves_results_traps_and_source_origins() {
 fn debugging_selects_interpreter_before_entering_native_code() {
     use crate::debug::DebugSession;
     let (mut vm, module) = setup(compile("fn main() {}", false));
+    let _module_program = module;
+    let module = vm.runtime().select_program(&_module_program).unwrap();
     let preparation = prepared(&vm, &module, native_trap);
 
     vm.attach_debug_session(DebugSession::new(vm.runtime()).unwrap())
@@ -273,8 +287,13 @@ fn debugging_selects_interpreter_before_entering_native_code() {
 fn preparation_from_an_old_version_cannot_execute_as_a_new_version() {
     let program = compile("fn main() {}", false);
     let (vm, module) = setup(program.clone());
+    let _module_program = module;
+    let module = vm.runtime().select_program(&_module_program).unwrap();
     let preparation = prepared(&vm, &module, native_unit);
-    let new = vm.reload_program(&module, "test", program).unwrap();
+    vm.reload_program(&_module_program, Some("test".into()), program)
+        .unwrap();
+    let _new_program = _module_program.clone();
+    let new = vm.runtime().select_program(&_new_program).unwrap();
     let error = vm
         .execute_prepared(&new, ProgramEntry::Main, &preparation)
         .unwrap_err();

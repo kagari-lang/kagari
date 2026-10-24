@@ -2,7 +2,7 @@
 //! Run: cargo run -p kagari --example persistent_static --no-default-features --features source
 
 use kagari::{engine::KagariEngine, runtime::Runtime};
-use kagari_runtime::module::LoadedModule;
+use kagari_runtime::module::Program;
 use kagari_source::source::SourceFile;
 
 const V1: &str = r#"
@@ -21,7 +21,7 @@ pub fn current_code() -> i32 { version() + COUNT }
 pub fn late() -> i32 { LATE }
 "#;
 
-fn call(runtime: &Runtime, module: &LoadedModule, entry: &str) -> i32 {
+fn call(runtime: &Runtime, module: &Program, entry: &str) -> i32 {
     runtime
         .execute_typed(module, entry, (), &Default::default())
         .unwrap()
@@ -37,6 +37,9 @@ fn main() {
         .unwrap();
     let mut runtime = engine.runtime(Default::default());
     let old = runtime.load_program(&first, Default::default()).unwrap();
+    let old_current_code = runtime
+        .function::<(), i32>(&old.root(), "current_code")
+        .unwrap();
 
     assert_eq!(call(&runtime, &old, "next"), 1);
     let before = (
@@ -61,9 +64,10 @@ fn main() {
             Default::default(),
         )
         .unwrap();
-    let current = runtime
+    runtime
         .reload_program(&old, &second, Default::default())
         .unwrap();
+    let current = old.clone();
 
     // Reload neither resets COUNT nor replaces BOX. A val binding still permits
     // mutation of the object's var field; old and new code share the same object.
@@ -76,7 +80,8 @@ fn main() {
     );
     assert_eq!(after, (3, 3, 13, 23));
     assert_eq!(call(&runtime, &old, "object"), 3);
-    assert_eq!(call(&runtime, &old, "current_code"), 13);
+    assert_eq!(call(&runtime, &old, "current_code"), 23);
+    assert_eq!(runtime.call(&old_current_code, ()).unwrap(), 13);
     println!(
         "After reload: counter={}, object={}, retained V1 callback={}, V2 code={}",
         after.0, after.1, after.2, after.3

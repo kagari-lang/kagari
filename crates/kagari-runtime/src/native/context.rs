@@ -19,7 +19,7 @@ use crate::{
         values::FrameSlots,
     },
     gc::{GcCollection, GcHeap, HeapObjectId, custom_keys::KeyLookupRoots, roots::RootSet},
-    module::{LoadedModule, execution::layout::Location},
+    module::{ExecutableModule, execution::layout::Location},
     native::{
         arguments::CallArguments,
         binding::{LinkedNativeFunction, NativeResult},
@@ -138,14 +138,14 @@ pub struct LinkedCallable {
 pub(crate) enum CallableOwner {
     Program(ModuleRef),
     /// An executable edge retained by a descriptor or active execution window.
-    Resolved(LoadedModule),
-    Pinned(LoadedModule, RootSet),
+    Resolved(ExecutableModule),
+    Pinned(ExecutableModule, RootSet),
 }
 
 impl LinkedCallable {
     pub(crate) fn trace<'a>(
         &'a self,
-        caller: &'a LoadedModule,
+        caller: &'a ExecutableModule,
         pending: &mut Vec<MetadataEdge<'a>>,
     ) {
         let owner = match &self.owner {
@@ -158,7 +158,7 @@ impl LinkedCallable {
         }
     }
 
-    pub(crate) fn owner(&self, caller: &LoadedModule) -> NativeResult<LoadedModule> {
+    pub(crate) fn owner(&self, caller: &ExecutableModule) -> NativeResult<ExecutableModule> {
         match &self.owner {
             CallableOwner::Program(module) => caller
                 .member(*module)
@@ -196,11 +196,11 @@ pub enum ScriptCall<'target> {
 }
 
 pub type ScriptInvoker =
-    fn(&Runtime, &LoadedModule, ScriptCall<'_>, &[Value]) -> NativeResult<Value>;
+    fn(&Runtime, &ExecutableModule, ScriptCall<'_>, &[Value]) -> NativeResult<Value>;
 
 pub struct CallContext<'call> {
     pub(crate) runtime: &'call Runtime,
-    pub(crate) owner: &'call LoadedModule,
+    pub(crate) owner: &'call ExecutableModule,
     pub(crate) function: &'call LinkedNativeFunction,
     pub(crate) arguments: ArgumentView<'call>,
     pub(crate) invoke_script: ScriptInvoker,
@@ -277,7 +277,7 @@ impl<'call> CallContext<'call> {
             _ => self.heap().default_storage(ty),
         }
         .ok_or_else(|| RuntimeError::module_validation("native result storage is not installed"))?;
-        self.runtime.validate_loaded_module(self.owner)?;
+        self.runtime.validate_executable_module(self.owner)?;
         let object = storage.create(&StorageContext {
             runtime: self.runtime,
             owner: self.owner,
@@ -313,7 +313,7 @@ impl<'call> CallContext<'call> {
             .storage
             .get_id(nominal.declaration)
             .ok_or_else(|| RuntimeError::module_validation("native storage is not installed"))?;
-        self.runtime.validate_loaded_module(self.owner)?;
+        self.runtime.validate_executable_module(self.owner)?;
         let mut object = storage.prepare_payload(self.heap(), ty, payload, self.owner)?;
         object.scope = Some(self.function.type_signature()?.result.clone());
         object.selected = slots
@@ -462,7 +462,7 @@ impl<'call> CallContext<'call> {
             .allocate_sequence(self.owner, &applied, elements)
     }
 
-    pub fn owner(&self) -> &LoadedModule {
+    pub fn owner(&self) -> &ExecutableModule {
         self.owner
     }
 

@@ -85,6 +85,8 @@ pub(crate) struct NativeRegistry {
     pub(crate) catalog: DeclarationCatalog,
     pub(crate) path_bindings: DefinitionMap<Vec<HostPathAdapter>>,
     pub(crate) trait_references: DefinitionMap<BTreeMap<DefinitionId, TraitDef>>,
+    // Only declarations published by providers, never their foreign requirements.
+    pub(crate) owned_traits: HashSet<DefinitionId>,
 }
 
 impl Default for NativeRegistry {
@@ -93,6 +95,7 @@ impl Default for NativeRegistry {
         let context = catalog.types.context().clone();
         Self {
             metadata: MetadataSnapshot::default(),
+            owned_traits: HashSet::new(),
             entries: DefinitionMap::new(context.clone()),
             storage: DefinitionMap::new(context.clone()),
             trait_references: DefinitionMap::new(context.clone()),

@@ -94,7 +94,12 @@ impl Registrations {
 mod tests {
     use super::*;
     use crate::test_support::native::program::ProgramFixture;
-    use crate::{Runtime, error::RuntimeErrorKind, module::LoadedModule, value::Value};
+    use crate::{
+        Runtime,
+        error::RuntimeErrorKind,
+        module::{ExecutableModule, Program},
+        value::Value,
+    };
     use kagari_bytecode::{
         instruction::ModuleSlot,
         module::BytecodeModule,
@@ -116,16 +121,18 @@ mod tests {
         .unwrap()
     }
 
-    fn load(runtime: &mut Runtime) -> LoadedModule {
-        runtime.load_program("retention", program()).unwrap()
+    fn load(runtime: &mut Runtime) -> (Program, ExecutableModule) {
+        let program = runtime.load_program("retention", program()).unwrap();
+        let executable = runtime.select_program(&program).unwrap();
+        (program, executable)
     }
 
     #[test]
     fn foreign_and_released_modules_cannot_register_retention() {
         let mut runtime = Runtime::default();
-        let own = load(&mut runtime);
+        let (target, own) = load(&mut runtime);
         let mut foreign_runtime = Runtime::default();
-        let foreign = load(&mut foreign_runtime);
+        let (_foreign_program, foreign) = load(&mut foreign_runtime);
         assert_eq!(own.key(), foreign.key());
         assert!(
             runtime
@@ -139,7 +146,7 @@ mod tests {
         );
         assert_eq!(runtime.modules().retention_counts(own.key()).total(), 0);
         let candidate = runtime
-            .stage_reload_program(&own, "retention", program())
+            .stage_reload_program(&target, None, program())
             .unwrap();
         runtime.publish_staged_reload(candidate).unwrap();
         assert_eq!(
@@ -161,7 +168,7 @@ mod tests {
     #[test]
     fn cloned_leases_pin_one_registration_until_the_last_cross_thread_drop() {
         let mut runtime = Runtime::default();
-        let first = load(&mut runtime);
+        let (target, first) = load(&mut runtime);
         let lease = runtime
             .retain_program(&first, ModuleEpochRetention::CompiledArtifact)
             .unwrap();
@@ -175,7 +182,7 @@ mod tests {
             1
         );
         let candidate = runtime
-            .stage_reload_program(&first, "retention", program())
+            .stage_reload_program(&target, None, program())
             .unwrap();
         runtime.publish_staged_reload(candidate).unwrap();
         drop(lease);
@@ -198,7 +205,7 @@ mod tests {
     #[test]
     fn lease_release_needs_no_store_borrow_and_leases_do_not_own_storage() {
         let mut runtime = Runtime::default();
-        let module = load(&mut runtime);
+        let (_program, module) = load(&mut runtime);
         let lease = runtime
             .retain_module(&module, ModuleEpochRetention::ActiveCall)
             .unwrap();
@@ -226,7 +233,7 @@ mod tests {
     fn retention_during_collection_cannot_resurrect_programs() {
         for whole_program in [false, true] {
             let mut runtime = Runtime::default();
-            let module = load(&mut runtime);
+            let (_program, module) = load(&mut runtime);
             let error = runtime
                 .resources()
                 .collect_operation(|| {
@@ -247,9 +254,9 @@ mod tests {
     #[test]
     fn quarantine_blocks_state_access_retention_and_publication() {
         let mut runtime = Runtime::default();
-        let baseline = load(&mut runtime);
+        let (target, baseline) = load(&mut runtime);
         let candidate = runtime
-            .stage_reload_program(&baseline, "retention", program())
+            .stage_reload_program(&target, None, program())
             .unwrap();
         runtime.resources().quarantine("test execution fault");
         assert!(runtime.module_instance_snapshot(&baseline).is_none());
@@ -270,11 +277,7 @@ mod tests {
             runtime.load_program("new", program()).unwrap_err().kind(),
             RuntimeErrorKind::EngineFault
         );
-        assert!(runtime.modules().latest("new").is_none());
-        assert_eq!(
-            runtime.modules().latest("retention").unwrap().key(),
-            baseline.key()
-        );
+        assert_eq!(target.capture_current().unwrap().key(), baseline.key());
         assert_eq!(runtime.modules().loaded_count(), 1);
     }
 }

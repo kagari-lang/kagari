@@ -196,6 +196,8 @@ fn native_operation_guards_release_on_unwind() {
         "use fixture::transfer::{new, guarded}; fn main() -> i32 { val counter = new(); guarded(counter) + guarded(counter) }",
         Some(&native),
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
@@ -225,6 +227,8 @@ fn live_runtime_moves_with_send_only_payloads_observer_and_pinned_closure() {
         pub fn run() -> i32 { invoke(1) }
     "#;
     let (vm, loaded) = compile(source, Some(&native));
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     vm.runtime()
         .set_execution_observer(Observer {
             count: Cell::new(0),
@@ -240,13 +244,14 @@ fn live_runtime_moves_with_send_only_payloads_observer_and_pinned_closure() {
         Value::I32(42)
     );
     let old_key = loaded.key();
-    let replacement = vm
-        .reload_program(
-            &loaded,
-            "boundary",
-            compile_program(&source.replace("[40]", "[99]"), Some(&native)),
-        )
-        .unwrap();
+    vm.reload_program(
+        &_loaded_program,
+        Some("boundary".into()),
+        compile_program(&source.replace("[40]", "[99]"), Some(&native)),
+    )
+    .unwrap();
+    let _replacement_program = _loaded_program.clone();
+    let replacement = vm.runtime().select_program(&_replacement_program).unwrap();
     drop(loaded);
     drop(native);
     let first = thread::spawn(move || {

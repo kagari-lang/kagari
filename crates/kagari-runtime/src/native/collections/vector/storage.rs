@@ -1,6 +1,6 @@
 //! Nominal Vec identity and allocation for the Rust collection adapter.
 use crate::{
-    Runtime, error::RuntimeError, frame::types::arguments::TypeArgument, module::LoadedModule,
+    Runtime, error::RuntimeError, frame::types::arguments::TypeArgument, module::ExecutableModule,
     native::binding::NativeResult,
 };
 use kagari_common::identity::{
@@ -25,7 +25,7 @@ pub(crate) fn declaration() -> DefinitionPath {
 impl Runtime {
     pub(crate) fn vec_type(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         element: &TypeArgument,
     ) -> NativeResult<TypeArgument> {
         let id = self

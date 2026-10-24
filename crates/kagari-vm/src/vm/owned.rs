@@ -8,7 +8,7 @@ use kagari_runtime::{
     Runtime,
     error::RuntimeError,
     gc::roots::RootedValue,
-    module::{LoadedModule, entry::ProgramEntry},
+    module::{ExecutableModule, entry::ProgramEntry},
     native::binding::NativeResult,
     session::{ExecutionOptions, owned::OwnedExecution},
     value::Value,
@@ -25,12 +25,12 @@ pub enum DriveResult {
 impl Vm {
     pub fn start<'a>(
         &self,
-        module: &LoadedModule,
+        module: &ExecutableModule,
         entry: impl Into<ProgramEntry<'a>>,
         arguments: &[Value],
         options: ExecutionOptions,
     ) -> Result<OwnedExecution, VmError> {
-        self.runtime.validate_loaded_module(module)?;
+        self.runtime.validate_executable_module(module)?;
         let entry = entry.into();
         let (module, function) = entry
             .resolve(module)

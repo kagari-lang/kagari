@@ -8,7 +8,7 @@ use kagari_contract::types::PublicItem;
 use kagari_runtime::{
     Runtime,
     host::{HostCallContext, HostError, HostObjectId, HostRootHandle, HostSchemaEpoch},
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         builder::ModuleBuilder,
         declarations::FunctionDecl,
@@ -211,7 +211,7 @@ impl Fixture {
         runtime
     }
 
-    pub fn table_owner(&self, loaded: &LoadedModule) -> LoadedModule {
+    pub fn table_owner(&self, loaded: &ExecutableModule) -> ExecutableModule {
         let slot = loaded
             .verified_program()
             .modules()
@@ -221,7 +221,7 @@ impl Fixture {
         loaded.member(ModuleRef::new(slot)).unwrap()
     }
 
-    pub fn method(&self, loaded: &LoadedModule) -> DefinitionId {
+    pub fn method(&self, loaded: &ExecutableModule) -> DefinitionId {
         loaded.definitions().lookup(&self.method).unwrap()
     }
 }

@@ -225,7 +225,8 @@ fn shared_host_callbacks_can_retain_checked_root_leases() {
     let module = builder.finish().unwrap();
     let program = free_function_program(&module.to_declaration());
     module.install(&mut runtime).unwrap();
-    let loaded = runtime.load_program("retained", program).unwrap();
+    let loaded_program = runtime.load_program("retained", program).unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);
     assert_eq!(
         invoke(&runtime, &loaded, 0, &[]).unwrap(),

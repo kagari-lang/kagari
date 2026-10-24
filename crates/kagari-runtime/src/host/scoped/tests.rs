@@ -38,7 +38,7 @@ fn atomic_generated_path_packs_release_conflicts_errors_and_unwinds() {
     let mut runtime = Runtime::default();
     module.install(&mut runtime).unwrap();
     let context = DefinitionContext::new().unwrap();
-    let owner = runtime
+    let owner_program = runtime
         .load_program(
             "pack-proof",
             ProgramFixture {
@@ -50,7 +50,10 @@ fn atomic_generated_path_packs_release_conflicts_errors_and_unwinds() {
             .unwrap(),
         )
         .unwrap();
-    let player_type = runtime.bind_rust_type::<Player>(&owner).unwrap();
+
+    let player_type = runtime
+        .bind_rust_type::<Player>(&owner_program.root())
+        .unwrap();
     let stats_field = runtime
         .bind_rust_field::<Player, Stats>(&player_type, "stats")
         .unwrap();

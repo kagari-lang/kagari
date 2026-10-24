@@ -6,7 +6,7 @@ use crate::{
     error::RuntimeErrorKind,
     gc::roots::RootedValue,
     host::{HostCallContext, HostPathDescriptorId},
-    module::LoadedModule,
+    module::Program,
     native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
     reload::ReloadValidationError,
     session::{DeterministicInputs, ExecutionPhase},
@@ -26,7 +26,7 @@ use std::sync::{
 };
 use support::native::{invoke::invoke, program::free_function_program};
 
-fn load(runtime: &mut Runtime, name: &str) -> LoadedModule {
+fn load(runtime: &mut Runtime, name: &str) -> Program {
     let context = DefinitionContext::new().unwrap();
     runtime
         .load_program(
@@ -47,7 +47,8 @@ fn load(runtime: &mut Runtime, name: &str) -> LoadedModule {
 #[test]
 fn deterministic_inputs_and_random_stream_belong_to_the_root_session() {
     let mut runtime = Runtime::default();
-    let module = load(&mut runtime, "inputs");
+    let module_program = load(&mut runtime, "inputs");
+    let module = runtime.select_program(&module_program).unwrap();
     assert!(runtime.execution_time_millis().is_err());
     assert!(runtime.next_execution_random_u64().is_err());
     let mut options = runtime.execution_options();
@@ -86,7 +87,8 @@ fn deterministic_inputs_and_random_stream_belong_to_the_root_session() {
 #[test]
 fn nested_scopes_share_cancellation_and_lifetime_even_if_outer_drops_first() {
     let mut runtime = Runtime::default();
-    let module = load(&mut runtime, "main");
+    let module_program = load(&mut runtime, "main");
+    let module = runtime.select_program(&module_program).unwrap();
     let options = runtime.execution_options();
 
     let token = options.cancellation.clone();
@@ -129,10 +131,13 @@ fn nested_scopes_share_cancellation_and_lifetime_even_if_outer_drops_first() {
 #[test]
 fn nested_execution_rejects_an_unpinned_program_or_foreign_runtime() {
     let mut runtime = Runtime::default();
-    let module = load(&mut runtime, "main");
-    let other = load(&mut runtime, "other");
+    let module_program = load(&mut runtime, "main");
+    let module = runtime.select_program(&module_program).unwrap();
+    let other_program = load(&mut runtime, "other");
+    let other = runtime.select_program(&other_program).unwrap();
     let mut foreign = Runtime::default();
-    let foreign_module = load(&mut foreign, "main");
+    let foreign_module_program = load(&mut foreign, "main");
+    let foreign_module = foreign.select_program(&foreign_module_program).unwrap();
     let session = runtime
         .begin_execution(&module, runtime.execution_options())
         .unwrap();
@@ -156,7 +161,8 @@ fn nested_execution_rejects_an_unpinned_program_or_foreign_runtime() {
 #[test]
 fn cancellation_is_sticky_until_all_scopes_exit_and_next_root_can_run() {
     let mut runtime = Runtime::default();
-    let module = load(&mut runtime, "main");
+    let module_program = load(&mut runtime, "main");
+    let module = runtime.select_program(&module_program).unwrap();
     let token = CancellationToken::default();
     let mut options = runtime.execution_options();
     options.cancellation = token.clone();
@@ -203,7 +209,8 @@ fn cancellation_is_sticky_until_all_scopes_exit_and_next_root_can_run() {
 #[test]
 fn root_heap_peak_counters_do_not_reuse_a_previous_roots_peak() {
     let mut runtime = Runtime::default();
-    let module = load(&mut runtime, "main");
+    let module_program = load(&mut runtime, "main");
+    let module = runtime.select_program(&module_program).unwrap();
     for depth in [2, 1] {
         let session = runtime
             .begin_execution(&module, runtime.execution_options())
@@ -285,7 +292,8 @@ fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session()
     let declarations = builder.finish().unwrap();
     let program = free_function_program(&declarations.to_declaration());
     declarations.install(&mut runtime).unwrap();
-    let module = runtime.load_program("main", program).unwrap();
+    let module_program = runtime.load_program("main", program).unwrap();
+    let module = runtime.select_program(&module_program).unwrap();
     let mut options = runtime.execution_options();
     options.phase = ExecutionPhase::CandidateInitialization;
     let outer = runtime.begin_execution(&module, options).unwrap();
@@ -334,7 +342,8 @@ fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session()
 #[test]
 fn candidate_initialization_cannot_silently_join_an_ordinary_session() {
     let mut runtime = Runtime::default();
-    let module = load(&mut runtime, "main");
+    let module_program = load(&mut runtime, "main");
+    let module = runtime.select_program(&module_program).unwrap();
     let _session = runtime
         .begin_execution(&module, runtime.execution_options())
         .unwrap();
@@ -415,7 +424,8 @@ fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocat
     let declarations = builder.finish().unwrap();
     let program = free_function_program(&declarations.to_declaration());
     declarations.install(&mut runtime).unwrap();
-    let baseline = runtime.load_program("main", program).unwrap();
+    let baseline_program = runtime.load_program("main", program).unwrap();
+    let baseline = runtime.select_program(&baseline_program).unwrap();
     let old_object = runtime
         .alloc_array(
             &baseline,
@@ -433,7 +443,7 @@ fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocat
     let root = runtime.root_value(Value::Array(old_object)).unwrap();
     *retained.lock().unwrap() = Some(root.clone());
     let candidate = runtime
-        .stage_reload_program(&baseline, "main", {
+        .stage_reload_program(&baseline_program, None, {
             let (definitions, module) = baseline
                 .to_unverified(&Default::default())
                 .unwrap()
@@ -468,17 +478,20 @@ fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocat
             .validate_value(&root.value(runtime.gc()).unwrap())
     );
     drop(session);
-    let current = runtime.publish_staged_reload(candidate).unwrap();
+    runtime.publish_staged_reload(candidate).unwrap();
+    let current = runtime.select_program(&baseline_program).unwrap();
     assert!(invoke(&runtime, &current, 0, &[]).is_ok());
 }
 
 #[test]
 fn candidate_module_state_access_is_denied_for_every_program() {
     let mut runtime = Runtime::default();
-    let old = load(&mut runtime, "main");
-    let other = load(&mut runtime, "other");
+    let old_program = load(&mut runtime, "main");
+    let old = runtime.select_program(&old_program).unwrap();
+    let other_program = load(&mut runtime, "other");
+    let other = runtime.select_program(&other_program).unwrap();
     let candidate = runtime
-        .stage_reload_program(&old, "main", {
+        .stage_reload_program(&old_program, None, {
             let (definitions, module) =
                 old.to_unverified(&Default::default()).unwrap().into_parts();
             ProgramFixture {
@@ -521,15 +534,16 @@ fn candidate_module_state_access_is_denied_for_every_program() {
 #[test]
 fn candidate_cannot_publish_static_values_between_initialization_and_publication() {
     let mut runtime = Runtime::default();
-    let baseline = load(&mut runtime, "main");
+    let baseline_program = load(&mut runtime, "main");
+    let baseline = runtime.select_program(&baseline_program).unwrap();
     let (definitions, module) = baseline
         .to_unverified(&Default::default())
         .unwrap()
         .into_parts();
     let candidate = runtime
         .stage_reload_program(
-            &baseline,
-            "main",
+            &baseline_program,
+            None,
             ProgramFixture {
                 exports: Default::default(),
                 root: ModuleRef::new(0),
@@ -549,7 +563,8 @@ fn candidate_cannot_publish_static_values_between_initialization_and_publication
             .kind(),
         RuntimeErrorKind::ExecutionPhaseViolation
     );
-    let current = runtime.publish_staged_reload(candidate).unwrap();
+    runtime.publish_staged_reload(candidate).unwrap();
+    let current = runtime.select_program(&baseline_program).unwrap();
     assert!(
         runtime
             .module_instance_snapshot(&current)
@@ -564,9 +579,10 @@ fn candidate_cannot_publish_static_values_between_initialization_and_publication
 fn candidate_termination_is_cached_after_the_session_is_dropped() {
     for mode in 0..2 {
         let mut runtime = Runtime::default();
-        let baseline = load(&mut runtime, "main");
+        let baseline_program = load(&mut runtime, "main");
+        let baseline = runtime.select_program(&baseline_program).unwrap();
         let candidate = runtime
-            .stage_reload_program(&baseline, "main", {
+            .stage_reload_program(&baseline_program, None, {
                 let (definitions, module) = baseline
                     .to_unverified(&Default::default())
                     .unwrap()
@@ -605,7 +621,7 @@ fn candidate_termination_is_cached_after_the_session_is_dropped() {
         let error = runtime.publish_staged_reload(candidate).unwrap_err();
         assert!(matches!(error, ReloadValidationError::Runtime(error) if error.kind() == expected));
         assert_eq!(
-            runtime.modules().latest("main").unwrap().key(),
+            runtime.select_program(&baseline_program).unwrap().key(),
             baseline.key()
         );
         assert_eq!(runtime.modules().loaded_count(), 1);

@@ -2,7 +2,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::{arguments::TypeArgument, bindings::TypeBindings, compatibility::TypeView},
-    module::{LoadedModule, ModuleEpochRetention},
+    module::{Module, ModuleEpochRetention},
     native::{
         binding::NativeResult,
         conversion::{arguments::KagariArguments, context::ConversionContext},
@@ -20,12 +20,12 @@ use std::{marker::PhantomData, slice, sync::Arc};
 impl Runtime {
     pub fn bind_enum_type(
         &self,
-        owner: &LoadedModule,
+        owner: &Module,
         name: &str,
         arguments: &[TypeArgument],
     ) -> NativeResult<EnumType> {
         let declaration = DefinitionPath {
-            module: owner.bytecode.identity.clone(),
+            module: owner.namespace.clone(),
             path: vec![DefinitionPathSegment {
                 kind: DefinitionKind::Enum,
                 name: name.into(),
@@ -37,13 +37,13 @@ impl Runtime {
 
     pub fn bind_enum_type_declaration(
         &self,
-        owner: &LoadedModule,
+        owner: &Module,
         declaration: &DefinitionPath,
         arguments: &[TypeArgument],
     ) -> NativeResult<EnumType> {
         self.gc().ensure_no_native_borrow()?;
-        self.resources().ensure_execution_allowed()?;
-        self.validate_loaded_module(owner)?;
+        let snapshot = self.capture_module(owner)?;
+        let owner = &snapshot.root;
         for argument in arguments {
             argument.validate(self)?;
         }
@@ -147,7 +147,7 @@ impl Runtime {
     ) -> NativeResult<EnumVariant<A>> {
         self.gc().ensure_no_native_borrow()?;
         self.resources().ensure_execution_allowed()?;
-        self.validate_loaded_module(member.enum_type.owner())?;
+        self.validate_executable_module(member.enum_type.owner())?;
         let mut payload = Vec::new();
         for index in 0..member.layout.variant().payload.len() {
             let (ty, _) = member.layout.payload_type(index).ok_or_else(invalid)?;

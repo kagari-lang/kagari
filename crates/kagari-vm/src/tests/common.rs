@@ -16,7 +16,7 @@ use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     host::{HostCallContext, HostError},
-    module::{LoadedModule, VerifiedProgram},
+    module::{Program, VerifiedProgram},
     native::{builder::ModuleBuilder, module::NativeModule},
     value::Value,
 };
@@ -31,7 +31,7 @@ use std::{iter, sync::Arc};
 pub fn load_bytecode_module(
     name: &str,
     bytecode: DefinitionMetadata<BytecodeModule>,
-) -> (Runtime, LoadedModule) {
+) -> (Runtime, Program) {
     load_bytecode_module_with_runtime(standard_runtime(Default::default()), name, bytecode)
 }
 
@@ -39,7 +39,7 @@ pub fn load_bytecode_module_with_runtime(
     mut runtime: Runtime,
     name: &str,
     bytecode: DefinitionMetadata<BytecodeModule>,
-) -> (Runtime, LoadedModule) {
+) -> (Runtime, Program) {
     let loaded = runtime
         .load_program(name, module_program(bytecode))
         .expect("test module should load");
@@ -88,7 +88,7 @@ pub fn round_trip_bytecode(
 pub fn load_bytecode_program(
     name: &str,
     program: DefinitionMetadata<BytecodeProgram>,
-) -> (Runtime, LoadedModule) {
+) -> (Runtime, Program) {
     load_bytecode_program_with_runtime(standard_runtime(Default::default()), name, program)
 }
 
@@ -96,14 +96,14 @@ pub fn load_bytecode_program_with_runtime(
     mut runtime: Runtime,
     name: &str,
     program: DefinitionMetadata<BytecodeProgram>,
-) -> (Runtime, LoadedModule) {
+) -> (Runtime, Program) {
     let loaded = runtime
         .load_program(name, program)
         .expect("test program should load");
     (runtime, loaded)
 }
 
-pub fn load_test_module(source_text: &str) -> (Runtime, LoadedModule) {
+pub fn load_test_module(source_text: &str) -> (Runtime, Program) {
     let program = compile_native_test_bytecode_with_options(source_text, &[], &Default::default());
     let mut runtime = standard_runtime(Default::default());
     let loaded = runtime

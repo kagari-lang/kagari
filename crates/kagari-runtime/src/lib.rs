@@ -19,8 +19,8 @@ use crate::{
     host_scope::HostResourceScope,
     metadata::{TypeId, TypeRegistry},
     module::{
-        LoadedModule, ModuleEpochRetention, ModuleKey, ModuleStore, VerifiedProgram,
-        staging::StagedProgram,
+        ExecutableModule, Installation, ModuleEpochRetention, ModuleKey, ModuleStore,
+        VerifiedProgram, staging::StagedProgram,
     },
     native::{
         callable::PreparedClosure, completion::CompletionRegistry,
@@ -85,8 +85,9 @@ pub mod value_semantics;
 
 /// Verified and linked reload data that has not changed any runtime entry.
 struct PreparedReload {
+    installation: Arc<Installation>,
     admission: ReloadAdmission,
-    baseline: LoadedModule,
+    baseline: ExecutableModule,
     name: String,
     program: VerifiedProgram,
     bindings: Vec<module::LinkedHostBindings>,
@@ -96,7 +97,7 @@ struct PreparedReload {
 #[derive(Debug)]
 pub struct StagedReload {
     initialization_error: RefCell<Option<RuntimeError>>,
-    baseline: LoadedModule,
+    baseline: ExecutableModule,
     program: StagedProgram,
 }
 
@@ -109,7 +110,7 @@ impl StagedReload {
         self.initialization_error.borrow_mut().get_or_insert(error);
     }
 
-    pub fn module(&self) -> &LoadedModule {
+    pub fn module(&self) -> &ExecutableModule {
         self.program.module()
     }
 }
@@ -209,7 +210,7 @@ impl Runtime {
         self.resources().quarantine(reason)
     }
 
-    pub fn execution_root(&self) -> Option<LoadedModule> {
+    pub fn execution_root(&self) -> Option<ExecutableModule> {
         self.resources()
             .active_session()
             .map(|session| session.root.clone())
@@ -217,7 +218,7 @@ impl Runtime {
 
     pub fn enter_execution_stack(
         &self,
-        module: &LoadedModule,
+        module: &ExecutableModule,
     ) -> Result<ExecutionStack<'_>, RuntimeError> {
         self.gc.ensure_no_native_borrow()?;
         let session = self.begin_execution(module, self.execution_options())?;
@@ -283,7 +284,7 @@ impl Runtime {
         if let Some(error) = candidate.initialization_error() {
             return Err(error);
         }
-        self.validate_loaded_module(candidate.module())?;
+        self.validate_executable_module(candidate.module())?;
         if self.is_candidate_initialization() {
             return Err(RuntimeError::execution_phase_violation(
                 "nested candidate initialization",
@@ -310,7 +311,7 @@ impl Runtime {
 
     pub fn begin_execution(
         &self,
-        module: &LoadedModule,
+        module: &ExecutableModule,
         options: ExecutionOptions,
     ) -> Result<ExecutionSession<'_>, RuntimeError> {
         self.begin_execution_inner(module, options, ExecutionEntry::Program)
@@ -318,7 +319,7 @@ impl Runtime {
 
     fn begin_execution_inner(
         &self,
-        module: &LoadedModule,
+        module: &ExecutableModule,
         options: ExecutionOptions,
         entry: ExecutionEntry,
     ) -> Result<ExecutionSession<'_>, RuntimeError> {
@@ -332,7 +333,7 @@ impl Runtime {
                 "staged modules require the candidate session entry",
             ));
         }
-        self.validate_loaded_module(module)?;
+        self.validate_executable_module(module)?;
         let phase = self
             .resources()
             .active_session()
@@ -592,11 +593,13 @@ impl Runtime {
         function: Option<FunctionRef>,
         dependencies: ReloadDependencySnapshot,
     ) -> Option<InterpreterCacheId> {
-        self.modules.loaded(module)?;
-        Some(
-            self.interpreter_caches
-                .register(module, function, dependencies),
-        )
+        let executable = self.modules.loaded(module)?;
+        Some(self.interpreter_caches.register(
+            executable.installation_id(),
+            module,
+            function,
+            dependencies,
+        ))
     }
 
     pub fn interpreter_cache(&self, id: InterpreterCacheId) -> Option<InterpreterCacheRecord> {
@@ -690,7 +693,7 @@ impl Runtime {
     /// Invoke a checked primitive value operation.
     pub fn invoke_standard_builtin(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         intrinsic: RuntimePrimitive,
         args: &[value::Value],
     ) -> Result<value::Value, BuiltinError> {

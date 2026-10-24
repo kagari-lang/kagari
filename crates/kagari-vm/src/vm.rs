@@ -15,7 +15,7 @@ use kagari_runtime::{
     error::RuntimeError,
     error_trace::ResultFailure,
     gc::roots::RootedValue,
-    module::{LoadedModule, entry::ProgramEntry},
+    module::{ExecutableModule, Program, entry::ProgramEntry},
     reload::ReloadValidationError,
     session::{ExecutionSession, ExecutionTrace},
     value::Value,
@@ -76,10 +76,10 @@ impl Vm {
 
     pub fn reload_program(
         &self,
-        active: &LoadedModule,
-        name: impl Into<String>,
+        active: &Program,
+        name: Option<String>,
         program: DefinitionMetadata<BytecodeProgram>,
-    ) -> Result<LoadedModule, ReloadError> {
+    ) -> Result<(), ReloadError> {
         let candidate = self
             .runtime
             .stage_reload_program(active, name, program)
@@ -91,11 +91,11 @@ impl Vm {
 
     pub fn reload_artifact(
         &self,
-        active: &LoadedModule,
-        name: impl Into<String>,
+        active: &Program,
+        name: Option<String>,
         artifact: DefinitionMetadata<KbcArtifact>,
         compatibility: &ArtifactCompatibility,
-    ) -> Result<LoadedModule, ReloadError> {
+    ) -> Result<(), ReloadError> {
         let candidate = self
             .runtime
             .stage_reload_artifact(active, name, artifact, compatibility)
@@ -126,7 +126,7 @@ impl Vm {
         self.runtime.execution_observer_mut::<DebugSession>()
     }
 
-    fn begin_execution(&self, module: &LoadedModule) -> Result<ExecutionSession<'_>, VmError> {
+    fn begin_execution(&self, module: &ExecutableModule) -> Result<ExecutionSession<'_>, VmError> {
         let session = self
             .runtime
             .begin_execution(module, self.runtime.execution_options())?;
@@ -139,13 +139,13 @@ impl Vm {
     /// Execute a public path or the explicitly selected zero-argument root entry.
     pub fn execute<'a>(
         &self,
-        module: &LoadedModule,
+        module: &ExecutableModule,
         entry: impl Into<ProgramEntry<'a>>,
     ) -> Result<ExecutionReport, VmError> {
         let entry = entry.into();
         let _session = self.begin_execution(module)?;
         self.runtime
-            .validate_loaded_module(module)
+            .validate_executable_module(module)
             .map_err(VmError::RuntimeError)?;
         let entry_name = entry.label().to_owned();
         let (module, function) = entry
@@ -156,7 +156,7 @@ impl Vm {
 
     fn execute_selected(
         &self,
-        module: &LoadedModule,
+        module: &ExecutableModule,
         function: FunctionRef,
         label: &str,
         session: &ExecutionSession<'_>,
@@ -204,7 +204,7 @@ impl Vm {
             .ok_or(VmError::TypeMismatch("invalid interface method argument"))?;
         let _session = self.begin_execution(&loaded)?;
         self.runtime
-            .validate_loaded_module(&loaded)
+            .validate_executable_module(&loaded)
             .map_err(VmError::RuntimeError)?;
         Executor::new_interface(&self.runtime, resolved, &args)?.run()
     }

@@ -628,6 +628,8 @@ pub fn make()->(Test,HashSet<Key>) {
     let program =
         DefinitionMetadata::checked(definitions, artifact.program, &Default::default()).unwrap();
     let loaded = runtime.load_program("callback-cleanup", program).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let declaration = loaded.definitions().lookup(&query).unwrap();
     let method = |name: &str| {
         loaded

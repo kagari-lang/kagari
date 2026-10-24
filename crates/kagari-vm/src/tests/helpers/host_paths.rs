@@ -60,6 +60,8 @@ fn executes_runtime_host_helper_call() {
             ),
         )
         .expect("helper module should load");
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
 
     let vm = Vm::new(runtime);
     let report = vm
@@ -107,6 +109,8 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
                     compile_test_bytecode("fn main() -> i32 { 42 }"),
                 )
                 .unwrap();
+            let _scalar_program = scalar;
+            let scalar = runtime.select_program(&_scalar_program).unwrap();
             let prepared = native_fixtures::unsupported();
             let native = native_fixtures::install_i32::<42>(&runtime, &scalar, false);
             let scalar_entry = PreparedNativeEntry::Native(native.clone());
@@ -139,6 +143,8 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
                 program
             };
             let loaded = runtime.load_program("fault.kgr", program).unwrap();
+            let _loaded_program = loaded;
+            let loaded = runtime.select_program(&_loaded_program).unwrap();
             let vm = Vm::new(runtime);
             let error = if jit {
                 vm.execute_fixture_prepared(&loaded, FunctionRef::new(0), &prepared)
@@ -262,6 +268,8 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
                 program = round_trip_bytecode(program);
             }
             let loaded = runtime.load_program("path-reentry.kgr", program).unwrap();
+            let _loaded_program = loaded;
+            let loaded = runtime.select_program(&_loaded_program).unwrap();
             let vm = Vm::new(runtime);
             let scope = vm
                 .runtime()
@@ -291,8 +299,8 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
             let replacement = vm
                 .runtime()
                 .stage_reload_verified_program(
-                    &loaded,
-                    loaded.name.clone(),
+                    &_loaded_program,
+                    None,
                     loaded.verified_program().clone(),
                 )
                 .unwrap();
@@ -359,6 +367,8 @@ fn executes_typed_path_read_set_modify_and_view_instructions() {
             )),
         )
         .unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
 
     let vm = Vm::new(runtime);
     let report = vm.execute_fixture(&loaded, FunctionRef::new(0)).unwrap();
@@ -436,6 +446,8 @@ fn installed_typed_path_helpers_need_no_permission_flags() {
             )),
         )
         .unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
 
     let vm = Vm::new(runtime);
     assert_eq!(
@@ -535,6 +547,8 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
                 program
             };
             let loaded = runtime.load_program("linked", program.clone()).unwrap();
+            let _loaded_program = loaded;
+            let loaded = runtime.select_program(&_loaded_program).unwrap();
             assert_eq!(loaded.path_binding(PathId::new(0)), Some(target));
             // Later registrations cannot retarget an already linked version.
             runtime.register_host_path_descriptor(registration).unwrap();
@@ -667,7 +681,8 @@ fn path_linking_checks_dynamic_arguments_for_every_path_operation() {
             let result =
                 runtime.load_program(format!("operation{operation}"), module_program(module));
             if valid {
-                assert_eq!(result.unwrap().path_binding(PathId::new(0)), Some(target));
+                let selected = runtime.select_program(&result.unwrap()).unwrap();
+                assert_eq!(selected.path_binding(PathId::new(0)), Some(target));
             } else {
                 assert_eq!(
                     result.unwrap_err().kind(),

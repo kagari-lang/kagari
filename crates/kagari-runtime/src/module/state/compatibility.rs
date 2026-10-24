@@ -1,6 +1,6 @@
 //! Compare the applied storage closure, not a generation's specialization inventory.
 //! Values (including empty variants) never substitute for declared schema evidence.
-use crate::{frame::types::compatibility::TypeView, module::LoadedModule};
+use crate::{frame::types::compatibility::TypeView, module::ExecutableModule};
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::types::{trait_contract, type_contract};
 use kagari_types::{
@@ -19,7 +19,7 @@ struct Schema {
     interface: Option<TraitDef>,
 }
 
-fn schema(program: &LoadedModule, id: DefinitionId) -> Option<Schema> {
+fn schema(program: &ExecutableModule, id: DefinitionId) -> Option<Schema> {
     let identity = program.definitions().resolve(id).ok()?.module().clone();
     let module = program
         .members()
@@ -136,8 +136,8 @@ impl Schema {
 fn applied_aggregate(
     ty: &Ty,
     nominal: &NominalTy,
-    old: &LoadedModule,
-    new: &LoadedModule,
+    old: &ExecutableModule,
+    new: &ExecutableModule,
     schema: &Schema,
     pending: &mut Vec<Ty>,
 ) -> Option<()> {
@@ -193,14 +193,14 @@ fn applied_aggregate(
     Some(())
 }
 
-pub(super) fn compatible(ty: &Ty, old: &LoadedModule, new: &LoadedModule) -> bool {
+pub(super) fn compatible(ty: &Ty, old: &ExecutableModule, new: &ExecutableModule) -> bool {
     if !TypeView::new(ty, old, None).compatible(TypeView::new(ty, new, None)) {
         return false;
     }
     applied_closure(ty, old, new).is_some()
 }
 
-fn applied_closure(ty: &Ty, old: &LoadedModule, new: &LoadedModule) -> Option<()> {
+fn applied_closure(ty: &Ty, old: &ExecutableModule, new: &ExecutableModule) -> Option<()> {
     let mut pending = vec![ty.clone()];
     let mut seen = HashSet::new();
     while let Some(ty) = pending.pop() {

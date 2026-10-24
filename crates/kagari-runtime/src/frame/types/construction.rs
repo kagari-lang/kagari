@@ -8,7 +8,7 @@ use crate::{
         compatibility::TypeIdentity,
     },
     gc::interfaces::InterfaceResultBinding,
-    module::{LoadedModule, ModuleKey},
+    module::{ExecutableModule, ModuleKey},
 };
 use std::sync::Arc;
 
@@ -23,7 +23,7 @@ pub(crate) struct ConstructionKey {
 pub(crate) struct ConstructionBinding {
     pub(crate) key: ConstructionKey,
     pub(crate) interface: TypeArgument,
-    pub(crate) owner: LoadedModule,
+    pub(crate) owner: ExecutableModule,
     pub(crate) selection: Option<InterfaceResultBinding>,
     pub(crate) associated: AssociatedInterface,
 }
@@ -38,25 +38,25 @@ pub(crate) struct ConstructionIdentity {
 /// authorize a bound construction; mere program membership never grants one.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ConstructionScope {
-    programs: Arc<Vec<LoadedModule>>,
+    programs: Arc<Vec<ExecutableModule>>,
     selections: Arc<Vec<ConstructionBinding>>,
 }
 
 impl ConstructionScope {
-    pub(crate) fn new(owner: &LoadedModule) -> Self {
+    pub(crate) fn new(owner: &ExecutableModule) -> Self {
         Self {
             programs: Arc::new(vec![owner.program_root()]),
             selections: Arc::default(),
         }
     }
 
-    pub(crate) fn programs(&self) -> &[LoadedModule] {
+    pub(crate) fn programs(&self) -> &[ExecutableModule] {
         &self.programs
     }
 
     pub(crate) fn identity(&self) -> ConstructionIdentity {
         ConstructionIdentity {
-            programs: self.programs.iter().map(LoadedModule::key).collect(),
+            programs: self.programs.iter().map(ExecutableModule::key).collect(),
             selections: self
                 .selections
                 .iter()
@@ -123,10 +123,10 @@ impl ConstructionScope {
 impl Runtime {
     pub(crate) fn construction_scope(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         environment: Option<&TypeEnvironment>,
     ) -> Result<ConstructionScope, RuntimeError> {
-        self.validate_loaded_module(owner)?;
+        self.validate_executable_module(owner)?;
         let mut scope = ConstructionScope::new(owner);
         if let Some(environment) = environment {
             let environment = self

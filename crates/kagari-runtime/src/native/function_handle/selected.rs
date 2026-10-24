@@ -4,7 +4,7 @@ use crate::{
     error::RuntimeError,
     frame::types::arguments::ScopedSignature,
     gc::roots::RootedValue,
-    module::{LoadedModule, ModuleEpochRetention},
+    module::{ExecutableModule, ModuleEpochRetention},
     native::{
         binding::NativeResult,
         context::{LinkedCallable, ScriptCall},
@@ -20,7 +20,7 @@ use std::{marker::PhantomData, slice, sync::Arc};
 impl<A: KagariArguments, R: KagariType> PinnedFunction<A, R> {
     pub(crate) fn from_selected(
         runtime: &Runtime,
-        caller: &LoadedModule,
+        caller: &ExecutableModule,
         target: &LinkedCallable,
     ) -> NativeResult<Self> {
         let target = StoredSelection::new(caller, target)?.retain(runtime)?;
@@ -38,11 +38,11 @@ impl<A: KagariArguments, R: KagariType> PinnedFunction<A, R> {
 impl PreparedFunction {
     pub(crate) fn selected(
         runtime: &Runtime,
-        caller: &LoadedModule,
+        caller: &ExecutableModule,
         target: LinkedCallable,
     ) -> NativeResult<Self> {
         let owner = target.owner(caller)?;
-        runtime.validate_loaded_module(&owner)?;
+        runtime.validate_executable_module(&owner)?;
         let signature = match &target.scoped_signature {
             Some(signature) => signature.clone(),
             None => Arc::new(ScopedSignature {

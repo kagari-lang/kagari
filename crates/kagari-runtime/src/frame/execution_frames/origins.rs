@@ -83,12 +83,13 @@ fn selected_fault_origin_survives_stripped_source_free_execution() {
         .into_records()
         .into_verified(&Default::default(), &context, &Default::default())
         .unwrap();
-    let loaded = runtime
+    let loaded_program = runtime
         .load_verified_program(
             "selected-origin",
             VerifiedProgram::from_bytecode(verified.into_bytecode()),
         )
         .unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     let stack = runtime.enter_execution_stack(&loaded).unwrap();
     stack
         .push(
@@ -116,7 +117,7 @@ fn selected_fault_origin_survives_stripped_source_free_execution() {
 #[test]
 fn native_origin_does_not_borrow_missing_coordinates_from_another_origin() {
     let mut runtime = Runtime::default();
-    let module = loaded_function(
+    let (_module_program, module) = loaded_function(
         &mut runtime,
         BytecodeFunction {
             name: "main".into(),

@@ -55,18 +55,35 @@ fn interface_roots_trace_data_and_retain_old_dependency_versions() {
     let array = runtime
         .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
         .unwrap();
-    let interface = crate::test_support::layouts::interface_value_with(
+    let template = crate::test_support::layouts::interface_value_with(
         &mut runtime,
         Ty::Array(Box::new(Ty::Builtin(
             kagari_types::scalar::BuiltinType::I32,
         ))),
         Value::Array(array),
     );
+    let Value::Interface(template_id) = template else {
+        panic!("verified interface allocation");
+    };
+    let code = runtime
+        .gc()
+        .interface_snapshot(template_id)
+        .unwrap()
+        .description
+        .implementation
+        .verified_program()
+        .clone();
+    let program = runtime
+        .load_verified_program("interface-fixture", code.clone())
+        .unwrap();
+    let loaded = runtime.select_program(&program).unwrap();
+    let old = loaded.key();
+    let interface = runtime
+        .make_interface(&loaded, 0, Value::Array(array))
+        .unwrap();
     let Value::Interface(id) = interface else {
         panic!("verified interface allocation");
     };
-    let old = runtime.modules().latest("interface-fixture").unwrap().key();
-    let loaded = runtime.modules().latest("interface-fixture").unwrap();
     assert!(
         runtime
             .make_interface(&loaded, 0, Value::Bool(true))
@@ -82,11 +99,11 @@ fn interface_roots_trace_data_and_retain_old_dependency_versions() {
     assert!(runtime.gc().interface_snapshot(id).is_some());
     assert!(!crate::Runtime::default().gc().validate_value(&interface));
 
-    let _new = crate::test_support::layouts::interface_value(&mut runtime);
-    assert_ne!(
-        runtime.modules().latest("interface-fixture").unwrap().key(),
-        old
-    );
+    let staged = runtime
+        .stage_reload_verified_program(&program, None, code)
+        .unwrap();
+    runtime.publish_staged_reload(staged).unwrap();
+    assert_ne!(runtime.select_program(&program).unwrap().key(), old);
     runtime.collect_garbage().unwrap();
     assert_eq!(runtime.gc().object_kind(array), Some(GcObjectKind::Array));
     assert_eq!(

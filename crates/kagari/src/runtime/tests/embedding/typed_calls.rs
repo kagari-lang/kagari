@@ -58,13 +58,14 @@ fn bound_calls_use_the_sdk_execution_context_and_return_retained_values() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let _selected_loaded = runtime.runtime().select_program(&loaded).unwrap();
     let make = runtime
         .runtime()
-        .bind_function::<(), Object>(&loaded, "make")
+        .bind_function::<(), Object>(&loaded.root(), "make")
         .unwrap();
     let make_callback = runtime
         .runtime()
-        .bind_function::<(), PinnedFunction<(), i32>>(&loaded, "make_callback")
+        .bind_function::<(), PinnedFunction<(), i32>>(&loaded.root(), "make_callback")
         .unwrap();
     let player = runtime.call_with_context(&make, (), &context).unwrap();
     let callback = runtime
@@ -89,7 +90,7 @@ fn bound_calls_use_the_sdk_execution_context_and_return_retained_values() {
         .set_execution_observer(Observer(observations.clone()))
         .unwrap();
     let remaining = runtime
-        .with_context(&loaded, &context, |cx| {
+        .with_context(&_selected_loaded, &context, |cx| {
             assert_eq!(player.get(cx, &hp)?, 42);
             player.set(cx, &hp, 100)?;
             player.call(cx, &damage, (10,))
@@ -102,12 +103,12 @@ fn bound_calls_use_the_sdk_execution_context_and_return_retained_values() {
     assert!(runtime.call_with_context(&make, (), &cancelled).is_err());
     assert!(
         runtime
-            .with_context(&loaded, &cancelled, |cx| player.set(cx, &hp, 0))
+            .with_context(&_selected_loaded, &cancelled, |cx| player.set(cx, &hp, 0))
             .is_err()
     );
     assert_eq!(
         runtime
-            .with_context(&loaded, &context, |cx| player.get(cx, &hp))
+            .with_context(&_selected_loaded, &context, |cx| player.get(cx, &hp))
             .unwrap(),
         90
     );

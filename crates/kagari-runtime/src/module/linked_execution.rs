@@ -10,7 +10,7 @@ use crate::{
         MetadataEdge, call_contracts::ScopedInterfaceCall, environments::EnvironmentId,
     },
     module::{
-        LoadedModule, ModuleStore,
+        ExecutableModule, ModuleStore,
         constants::ConstantPool,
         descriptor_index::DescriptorIndex,
         execution::layout::Location,
@@ -96,7 +96,7 @@ impl LinkedExecution {
 }
 
 impl Runtime {
-    pub(crate) fn link_execution(&self, owner: &LoadedModule) -> Result<(), RuntimeError> {
+    pub(crate) fn link_execution(&self, owner: &ExecutableModule) -> Result<(), RuntimeError> {
         let constants = self
             .modules
             .inner
@@ -145,7 +145,7 @@ impl Runtime {
 impl ModuleStore {
     pub(crate) fn linked_function(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         function: FunctionRef,
         environment: Option<EnvironmentId>,
     ) -> Option<Arc<LinkedFunction>> {

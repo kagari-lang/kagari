@@ -23,9 +23,11 @@ fn take_moves_nonclone_payload_and_invalidates_host_and_script_aliases_across_sl
         pub fn aliases(counter: Counter) -> Vec<Counter> { Vec::from([counter, counter]) }
     "#;
     let (vm, owner) = fixture(&source, Some(&module));
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let runtime = vm.runtime();
     let ty = runtime
-        .bind_native_type::<Counter>(&owner, &declaration, &[])
+        .bind_native_type::<Counter>(&_owner_program.root(), &declaration, &[])
         .unwrap();
     let object: Opaque<Counter> = vm.execute_typed(&owner, "make", (42,)).unwrap();
     let alias = object.clone();
@@ -102,9 +104,11 @@ fn failed_take_preserves_payload_when_registration_does_not_grant_extraction() {
     let drops = Arc::new(AtomicUsize::new(0));
     let (module, _, other, _) = module(drops.clone());
     let (vm, owner) = fixture(SOURCE, Some(&module));
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let ty = vm
         .runtime()
-        .bind_native_type::<Counter>(&owner, &other, &[])
+        .bind_native_type::<Counter>(&_owner_program.root(), &other, &[])
         .unwrap();
     let mut cx = vm.context(&owner).unwrap();
     let object = ty

@@ -160,7 +160,7 @@ fn async_output_publication_contract() {
             .runtime
             .runtime()
             .create_task_scope(
-                &f.module,
+                &f.runtime.runtime().select_program(&f.module).unwrap(),
                 context.interpreter_options().unwrap(),
                 Arc::new(|_| Ok(())),
             )

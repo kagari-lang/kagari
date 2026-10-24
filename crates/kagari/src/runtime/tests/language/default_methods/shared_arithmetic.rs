@@ -230,6 +230,8 @@ pub fn make() -> Test {{ State {{ trace: 0, target: 7 }} }}
         let loaded = runtime
             .load_program("shared-arithmetic-trap", program)
             .unwrap();
+        let _loaded_program = loaded;
+        let loaded = runtime.select_program(&_loaded_program).unwrap();
         let declaration = loaded
             .bytecode
             .trait_contracts

@@ -40,10 +40,12 @@ fn builtin_hash_handles_preserve_aliases_access_and_retained_values() {
     "#,
         None,
     );
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     type Containers = (ScriptMap<String, ScriptVec<i32>>, ScriptSet<i32>);
     let make = vm
         .runtime()
-        .bind_function::<(), Containers>(&owner, "make")
+        .bind_function::<(), Containers>(&_owner_program.root(), "make")
         .unwrap();
     let (map, set) = vm.call(&make, ()).unwrap();
     let alias = map.clone();
@@ -62,7 +64,10 @@ fn builtin_hash_handles_preserve_aliases_access_and_retained_values() {
     assert!(set.read_only().insert(&cx, 9).is_err());
     let size = vm
         .runtime()
-        .bind_function::<(ScriptMap<String, ScriptVec<i32>>,), usize>(&owner, "size")
+        .bind_function::<(ScriptMap<String, ScriptVec<i32>>,), usize>(
+            &_owner_program.root(),
+            "size",
+        )
         .unwrap();
     assert!(vm.call(&size, (map.read_only(),)).is_err());
     assert_eq!(vm.call(&size, (map.clone(),)).unwrap(), 2);
@@ -71,9 +76,11 @@ fn builtin_hash_handles_preserve_aliases_access_and_retained_values() {
     cx.collect_garbage().unwrap();
     assert_eq!(removed.get(&mut cx, 0).unwrap(), Some(20));
     let (foreign, other) = fixture("pub fn main() {}", None);
+    let _other_program = other;
+    let other = foreign.runtime().select_program(&_other_program).unwrap();
     assert!(set.len(&foreign.context(&other).unwrap()).is_err());
     drop((removed, values, map, alias, set, make, size, cx));
-    publish_unused_version(&vm, &owner);
+    publish_unused_version(&vm, &_owner_program);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
 }
 
@@ -90,10 +97,12 @@ fn hash_snapshots_root_replaced_values_and_detect_structural_edits() {
     "#,
         None,
     );
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     type Containers = (ScriptMap<i32, ScriptVec<i32>>, ScriptSet<i32>);
     let make = vm
         .runtime()
-        .bind_function::<(), Containers>(&owner, "make")
+        .bind_function::<(), Containers>(&_owner_program.root(), "make")
         .unwrap();
     let (map, set) = vm.call(&make, ()).unwrap();
     let mut cx = vm.context(&owner).unwrap();
@@ -162,14 +171,16 @@ fn custom_hash_handles_use_selected_calls_with_gc_reentry_and_trap_cleanup() {
     }
     .unwrap();
     let (vm, owner) = fixture(CUSTOM, Some(&module.finish().unwrap()));
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     type Containers = (ScriptMap<Object, i32>, ScriptSet<Object>);
     let make = vm
         .runtime()
-        .bind_function::<(), Containers>(&owner, "make")
+        .bind_function::<(), Containers>(&_owner_program.root(), "make")
         .unwrap();
     let key = vm
         .runtime()
-        .bind_function::<(i32,), Object>(&owner, "key")
+        .bind_function::<(i32,), Object>(&_owner_program.root(), "key")
         .unwrap();
     let (map, set) = vm.call(&make, ()).unwrap();
     let first = vm.call(&key, (1,)).unwrap();
@@ -229,6 +240,8 @@ fn stored_key_protocol_keeps_old_code_until_last_value_root() {
     let mut runtime = Runtime::default();
     NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
     let old = runtime.load_program("hash-cycle", code(1)).unwrap();
+    let _old_program = old;
+    let old = runtime.select_program(&_old_program).unwrap();
     let vm = Vm::new(runtime);
     let result = vm.execute(&old, "make").unwrap().return_value;
     let value = result.value(vm.runtime().gc()).unwrap();
@@ -237,10 +250,13 @@ fn stored_key_protocol_keeps_old_code_until_last_value_root() {
     };
     assert!(matches!(
         vm.runtime()
-            .stage_reload_program(&old, "hash-cycle", code(100)),
+            .stage_reload_program(&_old_program, Some("hash-cycle".into()), code(100)),
         Err(ReloadValidationError::UpdateEvidence(_))
     ));
-    let new = vm.reload_program(&old, "hash-cycle", code(1)).unwrap();
+    vm.reload_program(&_old_program, Some("hash-cycle".into()), code(1))
+        .unwrap();
+    let _new_program = _old_program.clone();
+    let new = vm.runtime().select_program(&_new_program).unwrap();
     let collected = vm.runtime().collect_garbage().unwrap();
     assert!(!collected.reclaimed_modules.contains(&old.key()));
     // Only a raw rooted value survived reload. The map's stored evidence must
@@ -333,9 +349,10 @@ fn typed_native_hash_arguments_share_script_storage_and_return_handles() {
     "#,
         Some(&module.finish().unwrap()),
     );
+    let _owner_program = owner;
     let run = vm
         .runtime()
-        .bind_function::<(), i32>(&owner, "run")
+        .bind_function::<(), i32>(&_owner_program.root(), "run")
         .unwrap();
     assert_eq!(vm.call(&run, ()).unwrap(), 42);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
@@ -351,10 +368,12 @@ fn host_hash_traversals_detect_committed_edits_including_the_final_callback() {
         }"#,
         None,
     );
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     type Containers = (ScriptMap<i32, i32>, ScriptSet<i32>);
     let make = vm
         .runtime()
-        .bind_function::<(), Containers>(&owner, "make")
+        .bind_function::<(), Containers>(&_owner_program.root(), "make")
         .unwrap();
     let (map, set) = vm.call(&make, ()).unwrap();
     let mut cx = vm.context(&owner).unwrap();

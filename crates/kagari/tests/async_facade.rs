@@ -9,7 +9,7 @@ use kagari::{
 use kagari_runtime::{
     frame::types::arguments::TypeArgument,
     gc::roots::RootSet,
-    module::LoadedModule,
+    module::Program,
     native::{
         adapter::Async,
         binding::NativeResult,
@@ -76,7 +76,7 @@ pub fn launch(scope:TaskScope) {
 
 struct Fixture {
     runtime: Runtime,
-    module: LoadedModule,
+    module: Program,
     starts: Arc<AtomicUsize>,
     touches: Arc<AtomicUsize>,
     cancels: Arc<AtomicUsize>,
@@ -261,11 +261,11 @@ fn panicking_async_admission_retires_without_another_driver_turn() {
     let mut f = Fixture::new();
     let function = f
         .runtime
-        .async_function::<PanickingArguments, i32>(&f.module, "factory")
+        .async_function::<PanickingArguments, i32>(&f.module.root(), "factory")
         .unwrap();
     let make = f
         .runtime
-        .function::<(), Interface>(&f.module, "loader")
+        .function::<(), Interface>(&f.module.root(), "loader")
         .unwrap();
     let loader = f.runtime.call(&make, ()).unwrap();
     let method = f
@@ -309,7 +309,7 @@ fn typed_direct_await_drives_tasks_without_a_pump_and_preserves_context() {
     let mut f = Fixture::new();
     let function = f
         .runtime
-        .async_function::<(Input,), Output>(&f.module, "factory")
+        .async_function::<(Input,), Output>(&f.module.root(), "factory")
         .unwrap();
     let mut context = ExecutionContext::default();
     context.inputs.unix_time_millis = 123;
@@ -334,7 +334,7 @@ fn typed_direct_await_drives_tasks_without_a_pump_and_preserves_context() {
     let scope = f.runtime.create_task_scope(&f.module).unwrap();
     let scoped = f
         .runtime
-        .async_function::<(TaskScope,), i32>(&f.module, "scoped")
+        .async_function::<(TaskScope,), i32>(&f.module.root(), "scoped")
         .unwrap();
     assert_eq!(
         executor
@@ -350,7 +350,7 @@ fn typed_call_drop_cleans_up_without_another_poll() {
     let mut f = Fixture::new();
     let function = f
         .runtime
-        .async_function::<(i32,), i32>(&f.module, "factory")
+        .async_function::<(i32,), i32>(&f.module.root(), "factory")
         .unwrap();
     drop(f.runtime.call_async(&function, (10,)).unwrap());
     assert_eq!(f.touches.load(Ordering::SeqCst), 0);
@@ -368,7 +368,7 @@ fn typed_call_drop_cleans_up_without_another_poll() {
 
     let pair = f
         .runtime
-        .async_function::<(), (i32, i32)>(&f.module, "pair")
+        .async_function::<(), (i32, i32)>(&f.module.root(), "pair")
         .unwrap();
     let mut call = f.runtime.call_async(&pair, ()).unwrap();
     for _ in 0..100 {
@@ -398,7 +398,7 @@ fn typed_pending_lifetime_contract() {
     let mut f = Fixture::new();
     let factory = f
         .runtime
-        .async_function::<(i32,), Output>(&f.module, "factory")
+        .async_function::<(i32,), Output>(&f.module.root(), "factory")
         .unwrap();
     drop(f.runtime.submit_async(&factory, (10,)).unwrap());
     assert!(
@@ -452,17 +452,17 @@ fn typed_submission_teardown_and_external_driver_handoff() {
     let scope = f.runtime.create_task_scope(&f.module).unwrap();
     let launch = f
         .runtime
-        .function::<(TaskScope,), ()>(&f.module, "launch")
+        .function::<(TaskScope,), ()>(&f.module.root(), "launch")
         .unwrap();
     f.runtime.call(&launch, (scope.handle(),)).unwrap();
     let load = f
         .runtime
-        .async_function::<(i32,), i32>(&f.module, "load")
+        .async_function::<(i32,), i32>(&f.module.root(), "load")
         .unwrap();
     let mut submitted = f.runtime.submit_async(&load, (11,)).unwrap();
     let long = f
         .runtime
-        .async_function::<(), i32>(&f.module, "long")
+        .async_function::<(), i32>(&f.module.root(), "long")
         .unwrap();
     let executor = tokio::runtime::Builder::new_current_thread()
         .build()

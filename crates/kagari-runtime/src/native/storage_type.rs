@@ -3,7 +3,7 @@ use crate::{
     error::RuntimeError,
     frame::types::{arguments::TypeArgument, compatibility::TypeView},
     gc::GcHeap,
-    module::LoadedModule,
+    module::ExecutableModule,
     value::Value,
     value_check::matches_view,
 };
@@ -12,12 +12,12 @@ use kagari_types::ty::Ty;
 #[derive(Debug)]
 pub(crate) struct StorageType {
     pub(crate) ty: Ty,
-    pub(crate) owner: LoadedModule,
+    pub(crate) owner: ExecutableModule,
     scope: Option<TypeArgument>,
 }
 
 impl StorageType {
-    pub(crate) fn prepare(ty: Ty, owner: &LoadedModule) -> Result<Self, RuntimeError> {
+    pub(crate) fn prepare(ty: Ty, owner: &ExecutableModule) -> Result<Self, RuntimeError> {
         Self::checked(Self {
             ty,
             owner: owner.clone(),
@@ -27,7 +27,7 @@ impl StorageType {
 
     pub(crate) fn prepare_scoped(
         argument: TypeArgument,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
     ) -> Result<Self, RuntimeError> {
         Self::checked(Self {
             ty: argument.ty().clone(),

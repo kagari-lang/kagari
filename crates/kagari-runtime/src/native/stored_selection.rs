@@ -2,7 +2,7 @@
 use crate::{
     Runtime,
     execution_metadata::{MetadataEdge, MetadataRoot},
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         binding::NativeResult,
         context::{CallableOwner, LinkedCallable},
@@ -11,12 +11,12 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub(crate) struct StoredSelection {
-    owner: LoadedModule,
+    owner: ExecutableModule,
     callable: LinkedCallable,
 }
 
 impl StoredSelection {
-    pub(crate) fn new(caller: &LoadedModule, selected: &LinkedCallable) -> NativeResult<Self> {
+    pub(crate) fn new(caller: &ExecutableModule, selected: &LinkedCallable) -> NativeResult<Self> {
         let owner = selected.owner(caller)?;
         let mut callable = selected.clone();
         // The native object's metadata traversal retains this program and its

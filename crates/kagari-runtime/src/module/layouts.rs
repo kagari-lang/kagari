@@ -2,7 +2,7 @@
 use crate::{
     frame::types::{bindings::TypeBindings, compatibility::TypeView},
     module::{
-        EnumVariantRef, LoadedModule, ModuleStore, StructLayoutRef,
+        EnumVariantRef, ExecutableModule, ModuleStore, StructLayoutRef,
         applied_layout_identity::AppliedIdentities,
         descriptor_index::DescriptorIndex,
         layout_admission::{self, AggregateKind, LayoutEndpoint},
@@ -47,7 +47,7 @@ impl ProgramLayoutCache {
     }
 }
 
-impl LoadedModule {
+impl ExecutableModule {
     pub(crate) fn find_struct_layout(&self, nominal: &NominalTy) -> Option<StructLayoutRef> {
         let (owner, id) = self.find_struct_definition(nominal)?;
         owner.applied_struct_layout(id, &nominal.arguments)
@@ -56,7 +56,7 @@ impl LoadedModule {
     pub(crate) fn find_struct_definition(
         &self,
         nominal: &NominalTy,
-    ) -> Option<(LoadedModule, StructId)> {
+    ) -> Option<(ExecutableModule, StructId)> {
         self.members().find_map(|owner| {
             let id = owner
                 .bytecode
@@ -75,7 +75,7 @@ impl LoadedModule {
     pub(crate) fn find_enum_definition(
         &self,
         nominal: &NominalTy,
-    ) -> Option<(LoadedModule, EnumId)> {
+    ) -> Option<(ExecutableModule, EnumId)> {
         self.members().find_map(|owner| {
             let id = owner
                 .bytecode
@@ -162,7 +162,7 @@ impl LoadedModule {
 impl ModuleStore {
     pub(crate) fn applied_struct_layout(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         id: StructId,
         arguments: &[Ty],
         scope: Option<Arc<LayoutScope>>,
@@ -188,7 +188,7 @@ impl ModuleStore {
         let mut layout = owner.applied_struct_layout(id, arguments)?;
         if scope
             .as_ref()
-            .is_some_and(|scope| !scope.accepts(layout.layout().declaration, arguments))
+            .is_some_and(|scope| !scope.accepts(owner, layout.layout().declaration, arguments))
         {
             return None;
         }
@@ -236,7 +236,7 @@ impl ModuleStore {
 
     pub(crate) fn applied_enum_variant(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         id: EnumId,
         arguments: &[Ty],
         variant: u32,
@@ -270,7 +270,7 @@ impl ModuleStore {
         let mut layout = owner.applied_enum_variant(id, arguments, variant)?;
         if scope
             .as_ref()
-            .is_some_and(|scope| !scope.accepts(layout.layout().declaration, arguments))
+            .is_some_and(|scope| !scope.accepts(owner, layout.layout().declaration, arguments))
         {
             return None;
         }
@@ -341,7 +341,7 @@ impl StructLayoutRef {
     pub(crate) fn matches_type(
         &self,
         ty: &Ty,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         environment: Option<&TypeBindings>,
     ) -> bool {
         self.matches_view(TypeView::new(ty, owner, environment))
@@ -400,7 +400,7 @@ impl EnumVariantRef {
     pub(crate) fn matches_type(
         &self,
         ty: &Ty,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         environment: Option<&TypeBindings>,
     ) -> bool {
         self.matches_view(TypeView::new(ty, owner, environment))

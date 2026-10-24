@@ -8,7 +8,7 @@ use crate::{
     },
     gc::CollectionMutation,
     module::{
-        LoadedModule,
+        ExecutableModule,
         execution::{
             calls::PreparedCall,
             layout::{FrameLayout, Location},
@@ -211,7 +211,7 @@ impl<'runtime> ExecutionStack<'runtime> {
     ) -> Result<(), RuntimeError> {
         self.validate_runtime(runtime)?;
         let view = method.view(runtime)?;
-        runtime.validate_loaded_module(view.implementation())?;
+        runtime.validate_executable_module(view.implementation())?;
         let arguments = FrameArguments::plain(args);
         view.validate_arguments(runtime, arguments)?;
         let loaded = view.implementation().clone();
@@ -238,7 +238,7 @@ impl<'runtime> ExecutionStack<'runtime> {
     pub fn push_callable(
         &self,
         runtime: &Runtime,
-        loaded: LoadedModule,
+        loaded: ExecutableModule,
         target: CallableTarget,
         args: &[Value],
         return_dst: Option<Slot>,
@@ -261,7 +261,7 @@ impl<'runtime> ExecutionStack<'runtime> {
     fn push_arguments(
         &self,
         runtime: &Runtime,
-        loaded: LoadedModule,
+        loaded: ExecutableModule,
         target: CallableTarget,
         args: FrameArguments<'_>,
         return_dst: Option<Slot>,
@@ -350,7 +350,7 @@ enum NativeEntryState {
 pub struct ExecutionFrame {
     links: Option<Arc<LinkedFunction>>,
     environment: Option<TypeEnvironment>,
-    loaded: LoadedModule,
+    loaded: ExecutableModule,
     target: CallableTarget,
     native_entry: NativeEntryState,
     ip: usize,
@@ -531,7 +531,7 @@ impl ExecutionFrame {
         self.loaded.slot()
     }
 
-    pub fn loaded(&self) -> &LoadedModule {
+    pub fn loaded(&self) -> &ExecutableModule {
         &self.loaded
     }
 

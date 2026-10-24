@@ -107,6 +107,8 @@ fn source_free_closed_shared_application_retains_and_releases_its_environment() 
     NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
     module.install(&mut runtime).unwrap();
     let owner = runtime.load_program("shared-application", decoded).unwrap();
+    let _owner_program = owner;
+    let owner = runtime.select_program(&_owner_program).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute_typed::<(), i32>(&owner, "evidence", ()).unwrap(),
@@ -126,14 +128,18 @@ fn source_free_closed_shared_application_retains_and_releases_its_environment() 
     let identity = vm
         .runtime()
         .bind_function_application_declaration::<(i32,), i32>(
-            &owner,
+            &_owner_program.root(),
             &declaration,
             slice::from_ref(&argument),
         )
         .unwrap();
     let duplicate = vm
         .runtime()
-        .bind_function_application_declaration::<(i32,), i32>(&owner, &declaration, &[argument])
+        .bind_function_application_declaration::<(i32,), i32>(
+            &_owner_program.root(),
+            &declaration,
+            &[argument],
+        )
         .unwrap();
     vm.runtime().collect_garbage().unwrap();
     assert_eq!(
@@ -160,8 +166,8 @@ fn source_free_closed_shared_application_retains_and_releases_its_environment() 
     let candidate = vm
         .runtime()
         .stage_reload_verified_program(
-            &owner,
-            "shared-application",
+            &_owner_program,
+            Some("shared-application".into()),
             owner.verified_program().clone(),
         )
         .unwrap();

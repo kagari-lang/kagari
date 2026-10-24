@@ -8,7 +8,7 @@ use kagari_runtime::{
     Runtime,
     error::RuntimeError,
     gc::mutations::PreparedCollectionCommit,
-    module::{LoadedModule, entry::ProgramEntry},
+    module::{Program, entry::ProgramEntry},
     native::{
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
@@ -81,7 +81,7 @@ fn compile_program(
         .unwrap()
 }
 
-fn compile(text: &str, module: Option<&NativeModule>) -> (Vm, LoadedModule) {
+fn compile(text: &str, module: Option<&NativeModule>) -> (Vm, Program) {
     let program = compile_program(text, module);
     let mut runtime = Runtime::default();
     NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
@@ -94,14 +94,11 @@ fn compile(text: &str, module: Option<&NativeModule>) -> (Vm, LoadedModule) {
 
 // Constant caches belong to a published/pinned program, independently of host
 // value roots. Finish version-specific checks and drop bindings before retiring it.
-fn publish_unused_version(vm: &Vm, active: &LoadedModule) {
+fn publish_unused_version(vm: &Vm, active: &Program) {
+    let selected = vm.runtime().select_program(active).unwrap();
     let candidate = vm
         .runtime()
-        .stage_reload_verified_program(
-            active,
-            active.name.clone(),
-            active.verified_program().clone(),
-        )
+        .stage_reload_verified_program(active, None, selected.verified_program().clone())
         .unwrap();
     vm.runtime().publish_staged_reload(candidate).unwrap();
 }
@@ -134,6 +131,8 @@ fn scalar_function_executes_through_the_checked_registration() {
         "use example::math::add; fn main() -> i32 { add(20, 22) }",
         Some(&module),
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
@@ -167,6 +166,8 @@ fn raw_result_contract_failure_releases_the_execution_scope() {
         "use example::bad::broken; fn main() -> i32 { broken() } pub fn healthy() -> i32 { 42 }",
         Some(&module),
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     assert!(vm.execute(&loaded, ProgramEntry::Main).is_err());
     assert_eq!(
         vm.execute(&loaded, "healthy")
@@ -195,6 +196,8 @@ fn foundation_defaults_execute_without_optional_modules() {
     "#,
         None,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
@@ -228,6 +231,8 @@ use std::hash::{Hash};
     "#,
         None,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
@@ -307,6 +312,8 @@ fn selected_script_callbacks_return_directly_to_a_rust_loop() {
     "#,
         Some(&module),
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     for entry in [ProgramEntry::Main, ProgramEntry::Export("shared")] {
         assert_eq!(
             vm.execute(&loaded, entry)
@@ -417,6 +424,8 @@ fn registered_nominal_payload_traces_children_and_drops_with_the_heap() {
         "use example::objects::{Counter, new, read}; fn main() -> Counter<i32> { new() } pub fn answer() -> i32 { read(new()) }",
         Some(&module),
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let value = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
@@ -483,6 +492,8 @@ fn default_array_literals_repeats_and_empty_arrays_use_contiguous_scalar_storage
     "#,
         Some(&module),
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
@@ -572,6 +583,8 @@ fn ordinary_sequence_parameters_borrow_roots_and_preserve_mutation_guards() {
     "#,
         Some(&module),
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
@@ -597,6 +610,8 @@ fn typed_sequence_bulk_changes_validate_before_committing_and_trace_reference_el
         "struct Node { val value: i32 } pub fn values() -> Vec<i32> { Vec::from([1, 2, 3, 4]) } pub fn nodes() -> Vec<Node> { Vec::from([Node { value: 42 }]) }",
         None,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let value = vm
         .execute(&loaded, "values")
         .unwrap()
@@ -776,6 +791,8 @@ fn every_scalar_layout_is_selected_from_the_declared_array_element() {
     let source =
         format!("use example::scalar_arrays::*; fn main() -> bool {{ {statements} true }}");
     let (vm, loaded) = compile(&source, Some(&module));
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
@@ -847,6 +864,8 @@ use std::hash::{Hash};
     "#,
         Some(&module),
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     assert!(vm.execute(&loaded, "failing").is_err());
     vm.runtime().collect_garbage().unwrap();
     assert_eq!(
@@ -879,6 +898,8 @@ use std::hash::{Hash};
     "#,
         None,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let map = vm
         .execute(&loaded, "empty_map")
         .unwrap()
@@ -977,6 +998,8 @@ fn native_cursor_keeps_its_source_alive_and_shares_position_across_calls() {
     "#,
         Some(&module),
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let value = vm
         .execute(&loaded, "cursor")
         .unwrap()
@@ -1092,6 +1115,8 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
     "#,
         Some(&module),
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let error = vm.execute(&loaded, "invalid").unwrap_err();
     let VmError::RuntimeError(error) = error.cause() else {
         panic!("expected storage allocation error");

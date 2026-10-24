@@ -84,6 +84,8 @@ pub fn make() -> Test {
     let loaded = runtime
         .load_program("collection-callbacks", program)
         .unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let declaration = loaded
         .bytecode
         .trait_contracts

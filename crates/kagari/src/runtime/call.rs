@@ -230,7 +230,7 @@ mod tests {
             let mut runtime = engine.runtime(Default::default());
             let module = runtime.load_program(&program, Default::default()).unwrap();
             let function = runtime
-                .async_function::<(bool,), HostileOutput>(&module, "run")
+                .async_function::<(bool,), HostileOutput>(&module.root(), "run")
                 .unwrap();
             let discarded = DISCARDED.load(Ordering::SeqCst);
             let pending = runtime.submit_async(&function, (fail,)).unwrap();

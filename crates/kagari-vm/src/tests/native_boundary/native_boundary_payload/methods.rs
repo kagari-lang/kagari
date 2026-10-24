@@ -250,9 +250,11 @@ fn scoped_members_reject_capability_forgery_and_unregistered_rust_traits() {
 fn native_inherent_members_support_prepared_calls_and_method_parameters() {
     let (module, declaration, damage_declaration) = registration();
     let (vm, owner) = fixture(SOURCE, Some(&module));
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let runtime = vm.runtime();
     let ty = runtime
-        .bind_native_type::<PlayerState>(&owner, &declaration, &[])
+        .bind_native_type::<PlayerState>(&_owner_program.root(), &declaration, &[])
         .unwrap();
     let member = ty
         .method_declaration(
@@ -305,11 +307,15 @@ fn native_inherent_members_support_prepared_calls_and_method_parameters() {
             Ok(())
         })
         .unwrap();
-    let newer = vm
-        .reload_program(&owner, "functions", compile_program(SOURCE, Some(&module)))
-        .unwrap();
+    vm.reload_program(
+        &_owner_program,
+        Some("functions".into()),
+        compile_program(SOURCE, Some(&module)),
+    )
+    .unwrap();
+    let _newer_program = _owner_program.clone();
     let newer_type = runtime
-        .bind_native_type::<PlayerState>(&newer, &declaration, &[])
+        .bind_native_type::<PlayerState>(&_newer_program.root(), &declaration, &[])
         .unwrap();
     let newer_damage = runtime
         .bind_method::<(i32,), i32>(&newer_type, "damage")
@@ -317,6 +323,11 @@ fn native_inherent_members_support_prepared_calls_and_method_parameters() {
     assert!(player.call(&mut cx, &newer_damage, (1,)).is_err());
     assert_eq!(player.call(&mut cx, &damage, (1,)).unwrap(), 69);
     let (foreign, foreign_owner) = fixture(SOURCE, Some(&module));
+    let _foreign_owner_program = foreign_owner;
+    let foreign_owner = foreign
+        .runtime()
+        .select_program(&_foreign_owner_program)
+        .unwrap();
     assert!(
         player
             .call(&mut foreign.context(&foreign_owner).unwrap(), &damage, (1,))
@@ -426,12 +437,14 @@ fn generic_native_impl_groups_preserve_receiver_and_local_binders() {
     "#,
         Some(&module),
     );
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let runtime = vm.runtime();
     let conversion = ConversionContext::new(runtime, &owner).unwrap();
     let i32_type = conversion.type_for::<i32>().unwrap();
     let string_type = conversion.type_for::<String>().unwrap();
     let ty = runtime
-        .bind_native_type::<PlayerState>(&owner, &holder, &[i32_type])
+        .bind_native_type::<PlayerState>(&_owner_program.root(), &holder, &[i32_type])
         .unwrap();
     let exchange = runtime.bind_method::<(i32,), i32>(&ty, "exchange").unwrap();
     let choose = runtime
@@ -473,7 +486,7 @@ fn generic_native_impl_groups_preserve_receiver_and_local_binders() {
             assert_eq!(
                 crate::vm::Vm::execute_scoped(
                     scope,
-                    &owner,
+                    &_owner_program,
                     "external",
                     &[view.value()],
                     Default::default()
@@ -555,10 +568,18 @@ fn native_method_requirements_use_selected_generic_evidence() {
     "#,
         Some(&module),
     );
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let runtime = vm.runtime();
-    let item_type = runtime.bind_type(&owner, "Item", &[]).unwrap();
+    let item_type = runtime
+        .bind_type(&_owner_program.root(), "Item", &[])
+        .unwrap();
     let ty = runtime
-        .bind_native_type::<PlayerState>(&owner, &holder, &[item_type.type_argument().clone()])
+        .bind_native_type::<PlayerState>(
+            &_owner_program.root(),
+            &holder,
+            &[item_type.type_argument().clone()],
+        )
         .unwrap();
     let read = runtime
         .bind_method::<(ScriptValue,), i32>(&ty, "read")
@@ -581,9 +602,11 @@ fn native_method_requirements_use_selected_generic_evidence() {
 fn taken_opaque_aliases_reject_edits_and_pinned_method_calls_after_reinsertion() {
     let (module, declaration, _) = registration();
     let (vm, owner) = fixture(SOURCE, Some(&module));
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let ty = vm
         .runtime()
-        .bind_native_type::<PlayerState>(&owner, &declaration, &[])
+        .bind_native_type::<PlayerState>(&_owner_program.root(), &declaration, &[])
         .unwrap();
     let damage = vm
         .runtime()

@@ -10,7 +10,7 @@ use crate::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
     gc::{HeapObjectId, roots::RootedValue},
-    module::{LoadedModule, StructLayoutRef, retention::ProgramLease},
+    module::{ExecutableModule, StructLayoutRef, retention::ProgramLease},
     native::{binding::NativeResult, typed::NativeContext},
     value::Value,
 };
@@ -68,12 +68,12 @@ impl ObjectType {
         &self.0.argument
     }
 
-    pub fn owner(&self) -> &LoadedModule {
+    pub fn owner(&self) -> &ExecutableModule {
         self.0.layout.module()
     }
 
     pub(crate) fn validate(&self, runtime: &Runtime) -> NativeResult<()> {
-        runtime.validate_loaded_module(self.owner())
+        runtime.validate_executable_module(self.owner())
     }
 }
 

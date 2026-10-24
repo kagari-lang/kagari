@@ -14,6 +14,7 @@ use kagari_runtime::{
     Runtime as CoreRuntime,
     error::RuntimeError,
     frame::ExecutionFrame,
+    module::ExecutableModule,
     session::{ExecutionEvent, ExecutionObserver},
     value::Value,
 };
@@ -106,9 +107,19 @@ fn native_context() -> ExecutionContext {
     }
 }
 
-fn result(runtime: &Runtime, loaded: &LoadedModule, prepared: &PreparedNativeEntry, expected: i32) {
+fn result(
+    runtime: &Runtime,
+    loaded: &ExecutableModule,
+    prepared: &PreparedNativeEntry,
+    expected: i32,
+) {
+    let _session = runtime
+        .runtime()
+        .begin_execution(loaded, native_context().runtime_options())
+        .unwrap();
     let report = runtime
-        .execute_prepared(loaded, ProgramEntry::Main, &[], &native_context(), prepared)
+        .backend()
+        .execute_prepared(loaded, ProgramEntry::Main, prepared)
         .unwrap();
     assert_eq!(
         report.jit.as_ref().unwrap().status,
@@ -147,9 +158,11 @@ fn installed_images_pin_versions_share_bindings_and_release_after_last_owner() {
     let old_native = old_bundle.install(&first, &old).unwrap();
     let other_native = old_bundle.install(&second, &other).unwrap();
     assert!(old_bundle.install(&second, &old).is_err());
-    let new = first
+    let old_selected = first.runtime().select_program(&old).unwrap();
+    first
         .reload_program(&old, new_bundle.program(), Default::default())
         .unwrap();
+    let new = old.clone();
     assert!(old_bundle.install(&first, &new).is_err());
     let new_native = new_bundle.install(&first, &new).unwrap();
     let incompatible = engine
@@ -167,9 +180,19 @@ fn installed_images_pin_versions_share_bindings_and_release_after_last_owner() {
             .is_err()
     );
     drop((old_bundle, new_bundle));
-    result(&first, &old, &old_native, 42);
-    result(&second, &other, &other_native, 42);
-    result(&first, &new, &new_native, 43);
+    result(&first, &old_selected, &old_native, 42);
+    result(
+        &second,
+        &second.runtime().select_program(&other).unwrap(),
+        &other_native,
+        42,
+    );
+    result(
+        &first,
+        &first.runtime().select_program(&new).unwrap(),
+        &new_native,
+        43,
+    );
     drop(old_native);
     assert!(old_owner.upgrade().is_some());
     drop(other_native);
@@ -275,14 +298,20 @@ fn deployed_failures_keep_origins_cleanup_and_pre_entry_observer_routing() {
         runtime.runtime().resources().counters().current_call_depth,
         0
     );
-    result(&runtime, &loaded, &prepared, 42);
+    result(
+        &runtime,
+        &runtime.runtime().select_program(&loaded).unwrap(),
+        &prepared,
+        42,
+    );
     runtime
         .runtime_mut()
         .set_execution_observer(Observer)
         .unwrap();
+    let selected = runtime.runtime().select_program(&loaded).unwrap();
     let session = runtime
         .runtime()
-        .begin_execution(&loaded, runtime.runtime().execution_options())
+        .begin_execution(&selected, runtime.runtime().execution_options())
         .unwrap();
     runtime.runtime().attach_execution_observer().unwrap();
     let report = runtime

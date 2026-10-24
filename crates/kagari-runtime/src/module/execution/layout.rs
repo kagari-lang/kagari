@@ -231,7 +231,7 @@ mod tests {
             arguments::FrameArguments,
             values::{ExecutionValues, FrameMetadata},
         },
-        module::LoadedModule,
+        module::ExecutableModule,
     };
     use kagari_bytecode::{
         instruction::{BytecodeInstruction as I, ConstantId, JumpTarget},
@@ -304,8 +304,8 @@ mod tests {
         function
     }
 
-    fn storage_module(runtime: &mut Runtime) -> LoadedModule {
-        runtime
+    fn storage_module(runtime: &mut Runtime) -> ExecutableModule {
+        let program = runtime
             .load_program(
                 "rl01",
                 ProgramFixture {
@@ -316,7 +316,8 @@ mod tests {
                 .metadata(runtime.host().definitions(), &Default::default())
                 .unwrap(),
             )
-            .unwrap()
+            .unwrap();
+        runtime.select_program(&program).unwrap()
     }
 
     #[test]

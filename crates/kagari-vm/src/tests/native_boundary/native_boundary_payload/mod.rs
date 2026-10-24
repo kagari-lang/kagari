@@ -115,6 +115,8 @@ fn checked_data_edits_preserve_writes_and_release_exclusive_borrows_on_failure()
     "#,
         Some(&module.finish().unwrap()),
     );
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let object: Opaque<PlayerState> = vm.execute_typed(&owner, "make", ()).unwrap();
     let alias = object.clone();
     let mut cx = vm.context(&owner).unwrap();
@@ -165,7 +167,7 @@ fn checked_data_edits_preserve_writes_and_release_exclusive_borrows_on_failure()
     assert_eq!(vm.runtime().gc().stats().current_heap_units, before);
     let no_edit = vm
         .runtime()
-        .bind_native_type::<PlayerState>(&owner, &no_edit, &[])
+        .bind_native_type::<PlayerState>(&_owner_program.root(), &no_edit, &[])
         .unwrap()
         .create(
             &mut cx,
@@ -293,21 +295,23 @@ fn retained_native_factories_share_aliases_and_check_nominal_and_runtime_identit
     let dropped = Arc::new(AtomicUsize::new(0));
     let (module, declaration, other, _) = module(dropped.clone());
     let (vm, owner) = fixture(SOURCE, Some(&module));
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let runtime = vm.runtime();
     let native = runtime
-        .bind_native_type::<Counter>(&owner, &declaration, &[])
+        .bind_native_type::<Counter>(&_owner_program.root(), &declaration, &[])
         .unwrap();
     assert!(
         runtime
-            .bind_native_type::<Edge>(&owner, &declaration, &[])
+            .bind_native_type::<Edge>(&_owner_program.root(), &declaration, &[])
             .is_err()
     );
     let read = runtime
-        .bind_function::<(Opaque<Counter>,), i32>(&owner, "value")
+        .bind_function::<(Opaque<Counter>,), i32>(&_owner_program.root(), "value")
         .unwrap();
     assert!(
         runtime
-            .bind_function::<(Opaque<Edge>,), i32>(&owner, "value")
+            .bind_function::<(Opaque<Edge>,), i32>(&_owner_program.root(), "value")
             .is_err()
     );
     let mut cx = vm.context(&owner).unwrap();
@@ -328,7 +332,7 @@ fn retained_native_factories_share_aliases_and_check_nominal_and_runtime_identit
     let returned: Opaque<Counter> = vm.execute_typed(&owner, "make", (43,)).unwrap();
     assert_eq!(vm.call(&read, (returned,)).unwrap(), 43);
     let wrong = runtime
-        .bind_native_type::<Counter>(&owner, &other, &[])
+        .bind_native_type::<Counter>(&_owner_program.root(), &other, &[])
         .unwrap()
         .create(
             &mut cx,
@@ -340,6 +344,11 @@ fn retained_native_factories_share_aliases_and_check_nominal_and_runtime_identit
         .unwrap();
     assert!(vm.call(&read, (wrong,)).is_err());
     let (foreign, foreign_owner) = fixture(SOURCE, Some(&module));
+    let _foreign_owner_program = foreign_owner;
+    let foreign_owner = foreign
+        .runtime()
+        .select_program(&_foreign_owner_program)
+        .unwrap();
     let mut foreign_cx = foreign.context(&foreign_owner).unwrap();
     assert!(alias.read(&foreign_cx, |_| Ok(())).is_err());
     assert!(foreign.call(&read, (alias.clone(),)).is_err());
@@ -364,6 +373,8 @@ fn retained_native_factories_share_aliases_and_check_nominal_and_runtime_identit
 fn native_borrows_reject_reentry_and_release_on_error_and_unwind() {
     let (module, _, _, _) = module(Arc::new(AtomicUsize::new(0)));
     let (vm, owner) = fixture(SOURCE, Some(&module));
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let object: Opaque<Counter> = vm.execute_typed(&owner, "make", (42,)).unwrap();
     let mut cx = vm.context(&owner).unwrap();
     assert!(
@@ -402,18 +413,25 @@ fn native_borrows_reject_reentry_and_release_on_error_and_unwind() {
 fn payload_factories_trace_children_and_reject_foreign_edges_before_publication() {
     let (module, _, _, edge) = module(Arc::new(AtomicUsize::new(0)));
     let (vm, owner) = fixture(SOURCE, Some(&module));
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let element = ConversionContext::new(vm.runtime(), &owner)
         .unwrap()
         .type_for::<i32>()
         .unwrap();
     assert!(
         vm.runtime()
-            .bind_native_type::<Edge>(&owner, &edge, &[])
+            .bind_native_type::<Edge>(&_owner_program.root(), &edge, &[])
             .is_err()
     );
     let native = vm
         .runtime()
-        .bind_native_type_declaration::<Edge>(&owner, edge.id(), edge.definitions(), &[element])
+        .bind_native_type_declaration::<Edge>(
+            &_owner_program.root(),
+            edge.id(),
+            edge.definitions(),
+            &[element],
+        )
         .unwrap();
     let mut cx = vm.context(&owner).unwrap();
     let child: Opaque<Counter> = vm.execute_typed(&owner, "make", (42,)).unwrap();
@@ -427,6 +445,11 @@ fn payload_factories_trace_children_and_reject_foreign_edges_before_publication(
     drop(child);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 2);
     let (foreign, foreign_owner) = fixture(SOURCE, Some(&module));
+    let _foreign_owner_program = foreign_owner;
+    let foreign_owner = foreign
+        .runtime()
+        .select_program(&_foreign_owner_program)
+        .unwrap();
     let child: Opaque<Counter> = foreign.execute_typed(&foreign_owner, "make", (0,)).unwrap();
     let foreign_value = ConversionContext::new(foreign.runtime(), &foreign_owner)
         .unwrap()
@@ -443,9 +466,11 @@ fn native_handles_pin_old_scopes_and_transfer_with_their_runtime() {
     let dropped = Arc::new(AtomicUsize::new(0));
     let (module, declaration, _, _) = module(dropped.clone());
     let (vm, old) = fixture(SOURCE, Some(&module));
+    let _old_program = old;
+    let old = vm.runtime().select_program(&_old_program).unwrap();
     let native = vm
         .runtime()
-        .bind_native_type::<Counter>(&old, &declaration, &[])
+        .bind_native_type::<Counter>(&_old_program.root(), &declaration, &[])
         .unwrap();
     let object = native
         .create(
@@ -456,9 +481,14 @@ fn native_handles_pin_old_scopes_and_transfer_with_their_runtime() {
             },
         )
         .unwrap();
-    let new = vm
-        .reload_program(&old, "functions", compile_program(SOURCE, Some(&module)))
-        .unwrap();
+    vm.reload_program(
+        &_old_program,
+        Some("functions".into()),
+        compile_program(SOURCE, Some(&module)),
+    )
+    .unwrap();
+    let _new_program = _old_program.clone();
+    let new = vm.runtime().select_program(&_new_program).unwrap();
     assert!(
         !vm.runtime()
             .collect_garbage()
@@ -505,7 +535,12 @@ fn applied_native_handles_preserve_the_supplied_nominal_layout_scope() {
         pub fn accept(value: Edge<Item>) -> i32 { 42 }
     "#;
     let (mut vm, old) = fixture(source, Some(&module));
-    let old_item = vm.runtime().bind_type(&old, "Item", &[]).unwrap();
+    let _old_program = old;
+    let old = vm.runtime().select_program(&_old_program).unwrap();
+    let old_item = vm
+        .runtime()
+        .bind_type(&_old_program.root(), "Item", &[])
+        .unwrap();
     let new = vm
         .runtime_mut()
         .load_program(
@@ -513,25 +548,36 @@ fn applied_native_handles_preserve_the_supplied_nominal_layout_scope() {
             compile_program(&source.replace("value: i32", "value: i64"), Some(&module)),
         )
         .unwrap();
+    let _new_program = new;
     let runtime = vm.runtime();
-    let new_item = runtime.bind_type(&new, "Item", &[]).unwrap();
+    let new_item = runtime
+        .bind_type(&_new_program.root(), "Item", &[])
+        .unwrap();
     assert_eq!(old_item.type_argument().ty(), new_item.type_argument().ty());
     let old_type = runtime
-        .bind_native_type::<Edge>(&old, &edge, slice::from_ref(old_item.type_argument()))
+        .bind_native_type::<Edge>(
+            &_old_program.root(),
+            &edge,
+            slice::from_ref(old_item.type_argument()),
+        )
         .unwrap();
     // The caller's selected owner must not flatten an argument supplied by a
     // different version. Opaque generic storage may carry either checked scope.
     let new_type = runtime
-        .bind_native_type::<Edge>(&old, &edge, slice::from_ref(new_item.type_argument()))
+        .bind_native_type::<Edge>(
+            &_old_program.root(),
+            &edge,
+            slice::from_ref(new_item.type_argument()),
+        )
         .unwrap();
     let mut cx = vm.context(&old).unwrap();
     let old_value = old_type.create(&mut cx, Edge(Value::Unit)).unwrap();
     let new_value = new_type.create(&mut cx, Edge(Value::Unit)).unwrap();
     let old_call = runtime
-        .bind_function::<(Opaque<Edge>,), i32>(&old, "accept")
+        .bind_function::<(Opaque<Edge>,), i32>(&_old_program.root(), "accept")
         .unwrap();
     let new_call = runtime
-        .bind_function::<(Opaque<Edge>,), i32>(&new, "accept")
+        .bind_function::<(Opaque<Edge>,), i32>(&_new_program.root(), "accept")
         .unwrap();
     assert_eq!(vm.call(&old_call, (old_value.clone(),)).unwrap(), 42);
     assert!(vm.call(&new_call, (old_value,)).is_err());

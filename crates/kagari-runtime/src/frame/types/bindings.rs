@@ -2,7 +2,7 @@
 use crate::{
     error::RuntimeError,
     frame::types::{arguments::TypeArgument, compatibility::TypeView},
-    module::LoadedModule,
+    module::ExecutableModule,
 };
 use kagari_common::identity::{map::DefinitionContext, table::DefinitionId};
 use kagari_contract::callable::generic::GenericBody;
@@ -20,7 +20,7 @@ use std::{collections::BTreeMap, sync::Arc};
 pub(crate) struct AssociatedInterface {
     pub(crate) receiver: Ty,
     pub(crate) interface: NominalTy,
-    pub(crate) owner: LoadedModule,
+    pub(crate) owner: ExecutableModule,
     pub(crate) outputs: BTreeMap<DefinitionId, TypeArgument>,
 }
 

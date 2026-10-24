@@ -1,6 +1,6 @@
 //! Shared source/artifact preparation for runtime unit and integration contracts.
 use super::{
-    LoadedModule, ReloadValidationError, VerifiedProgram, validate_reload_artifact_candidate,
+    ExecutableModule, ReloadValidationError, VerifiedProgram, validate_reload_artifact_candidate,
     validate_reload_candidate,
 };
 use kagari_bytecode::{artifact::KbcArtifact, program::BytecodeProgram};
@@ -18,7 +18,7 @@ pub(super) fn source_code(text: &str) -> VerifiedProgram {
 
 pub(super) fn bytecode(
     text: &str,
-    baseline: Option<&LoadedModule>,
+    baseline: Option<&ExecutableModule>,
 ) -> DefinitionMetadata<BytecodeProgram> {
     let mut source = SourceDatabase::default();
     let root = source
@@ -49,7 +49,7 @@ pub(super) fn bytecode(
 }
 
 pub(super) fn source_free_reload_results(
-    loaded: &LoadedModule,
+    loaded: &ExecutableModule,
     source: &str,
 ) -> [Result<(), ReloadValidationError>; 2] {
     source_free_program_results(loaded, bytecode(source, None))
@@ -71,7 +71,7 @@ pub(super) fn source_free_artifact(
 }
 
 pub(super) fn source_free_program_results(
-    loaded: &LoadedModule,
+    loaded: &ExecutableModule,
     input: DefinitionMetadata<BytecodeProgram>,
 ) -> [Result<(), ReloadValidationError>; 2] {
     let artifact = source_free_artifact(input.clone());
@@ -80,7 +80,7 @@ pub(super) fn source_free_program_results(
         .import_into(&context, &Default::default())
         .unwrap()
         .into_records();
-    let raw = validate_reload_candidate(loaded, "exports", program, Some(loaded), &context);
+    let raw = validate_reload_candidate(loaded, program, Some(loaded), &context);
     let decoded_context = DefinitionContext::new().unwrap();
     let decoded = artifact
         .import_into(&decoded_context, &Default::default())
@@ -88,7 +88,6 @@ pub(super) fn source_free_program_results(
         .into_records();
     let artifact = validate_reload_artifact_candidate(
         loaded,
-        "exports",
         decoded,
         &Default::default(),
         Some(loaded),

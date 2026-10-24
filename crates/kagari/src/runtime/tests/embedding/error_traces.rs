@@ -346,7 +346,7 @@ fn diagnostic_snapshots_survive_reload_without_retaining_script_values() {
         .unwrap();
     let root = report.return_value;
     let failure = report.failure.unwrap();
-    let new = runtime
+    runtime
         .reload_program(
             &old,
             &PreparedProgram::from_artifact(second, &Default::default(), &Default::default())
@@ -354,6 +354,7 @@ fn diagnostic_snapshots_survive_reload_without_retaining_script_values() {
             Default::default(),
         )
         .unwrap();
+    let new = old.clone();
     let new_report = runtime
         .execute(&new, ProgramEntry::Main, &[], &context)
         .unwrap()
@@ -413,7 +414,7 @@ fn utf8_crlf_and_minimal_artifact_locations_are_portable() {
         .load_program(
             &loaded_program,
             LoadOptions {
-                module_name: Some("unrelated-load-alias".into()),
+                program_name: Some("unrelated-load-alias".into()),
             },
         )
         .unwrap();
@@ -451,7 +452,11 @@ fn cancellation_keeps_the_failing_frame_and_releases_resources() {
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
-    let cancellation = support::cancel_after(runtime.runtime(), &loaded, 10);
+    let cancellation = support::cancel_after(
+        runtime.runtime(),
+        &runtime.runtime().select_program(&loaded).unwrap(),
+        10,
+    );
     let error = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap_err();

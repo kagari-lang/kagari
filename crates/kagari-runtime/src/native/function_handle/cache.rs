@@ -2,7 +2,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
-    module::{LoadedModule, ModuleEpochRetention},
+    module::{Module, ModuleEpochRetention},
     native::{
         binding::NativeResult,
         conversion::{KagariType, arguments::KagariArguments, context::ConversionContext},
@@ -39,14 +39,16 @@ impl Runtime {
     /// export slots, checks the Rust argument/result types and retains the target
     /// generation. Private paths, generic templates and missing exports fail
     /// before execution; concrete script wrappers can expose generic applications.
+    /// Module-relative function paths are introduced by HM03; this lookup still
+    /// starts at the current publication's root, not `owner`'s namespace.
     pub fn bind_function<A: KagariArguments + 'static, R: KagariType + 'static>(
         &self,
-        owner: &LoadedModule,
+        owner: &Module,
         path: &str,
     ) -> NativeResult<PinnedFunction<A, R>> {
         self.gc().ensure_no_native_borrow()?;
-        self.validate_loaded_module(owner)?;
-        let (target, function) = owner.exported_function(path).ok_or_else(|| {
+        let snapshot = self.capture_module(owner)?;
+        let (target, function) = snapshot.root.exported_function(path).ok_or_else(|| {
             RuntimeError::module_validation("public path has no checked executable entry")
         })?;
         self.cache_function(EntryEvidence::script(self, &target, function)?)
@@ -57,7 +59,7 @@ impl Runtime {
     /// native entries can be bound without adding a source wrapper or export alias.
     pub fn bind_function_declaration<A: KagariArguments + 'static, R: KagariType + 'static>(
         &self,
-        owner: &LoadedModule,
+        owner: &Module,
         declaration: &DefinitionPath,
     ) -> NativeResult<PinnedFunction<A, R>> {
         self.bind_function_application_declaration(owner, declaration, &[])
@@ -71,12 +73,13 @@ impl Runtime {
         R: KagariType + 'static,
     >(
         &self,
-        owner: &LoadedModule,
+        owner: &Module,
         declaration: &DefinitionPath,
         arguments: &[TypeArgument],
     ) -> NativeResult<PinnedFunction<A, R>> {
         self.gc().ensure_no_native_borrow()?;
-        self.validate_loaded_module(owner)?;
+        let snapshot = self.capture_module(owner)?;
+        let owner = &snapshot.root;
         for argument in arguments {
             argument.validate(self)?;
         }

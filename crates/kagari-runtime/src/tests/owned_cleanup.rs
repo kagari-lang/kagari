@@ -3,7 +3,7 @@ use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
     frame::{ExecutionStack, types::arguments::TypeArgument},
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         adapter::Async,
         binding::{Codec, NativeBinding, NativeResult},
@@ -159,7 +159,7 @@ fn owned_initializer_unwind_releases_session_and_cancellation_owner_immediately(
 
 struct Fixture {
     runtime: Runtime,
-    module: LoadedModule,
+    module: ExecutableModule,
     request: usize,
     probe: Arc<Probe>,
 }
@@ -335,13 +335,14 @@ impl Fixture {
         let mut runtime = NativeInstallation::prepare(&modules)
             .unwrap()
             .runtime(Default::default());
-        let module = runtime
+        let module_program = runtime
             .load_program(
                 "owned-cleanup",
                 DefinitionMetadata::checked(definitions.snapshot(), program, &Default::default())
                     .unwrap(),
             )
             .unwrap();
+        let module = runtime.select_program(&module_program).unwrap();
         Self {
             runtime,
             module,

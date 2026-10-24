@@ -4,7 +4,7 @@ use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeError,
     gc::roots::RootedValue,
-    module::{LoadedModule, entry::ProgramEntry},
+    module::{ExecutableModule, entry::ProgramEntry},
     native::{
         binding::NativeResult, builder::ModuleBuilder, context::CallContext,
         declarations::FunctionDecl, views::ValueHandle,
@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex};
 
 struct MutationFixture {
     vm: Vm,
-    loaded: LoadedModule,
+    loaded: ExecutableModule,
     retained: Arc<Mutex<Option<RootedValue>>>,
 }
 
@@ -67,6 +67,8 @@ impl MutationFixture {
         .unwrap();
         module.install(&mut runtime).unwrap();
         let loaded = runtime.load_program("removal", program).unwrap();
+        let _loaded_program = loaded;
+        let loaded = runtime.select_program(&_loaded_program).unwrap();
         let vm = Vm::new(runtime);
         Self {
             vm,

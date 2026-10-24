@@ -19,7 +19,7 @@ use kagari::{
 };
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_runtime::{
-    module::{LoadedModule, entry::ProgramEntry},
+    module::{Program, entry::ProgramEntry},
     value::Value,
 };
 use kagari_source::source::SourceFile;
@@ -150,7 +150,7 @@ impl Record<'_> {
 
 struct ExecutionRoutes {
     runtime: Runtime,
-    module: LoadedModule,
+    module: Program,
     context: ExecutionContext,
     native_context: ExecutionContext,
     lua_entry: Function,

@@ -1,7 +1,7 @@
 //! Retain the exact operation selected for a registered native requirement.
 use crate::{
     error::RuntimeError,
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         binding::NativeResult,
         context::LinkedOperation,
@@ -60,7 +60,7 @@ impl NativeContext<'_> {
 }
 
 impl<A, R> SelectedMethod<A, R> {
-    pub fn owner(&self) -> &LoadedModule {
+    pub fn owner(&self) -> &ExecutableModule {
         self.function.owner()
     }
 }

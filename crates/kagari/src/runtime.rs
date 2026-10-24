@@ -16,7 +16,7 @@ use crate::{
 
 use kagari_runtime::{
     Runtime as CoreRuntime,
-    module::{LoadedModule, entry::ProgramEntry},
+    module::{Program, entry::ProgramEntry},
     value::Value,
 };
 use kagari_vm::{
@@ -63,29 +63,32 @@ impl Runtime {
         &mut self,
         program: &PreparedProgram,
         options: LoadOptions,
-    ) -> LoadResult<LoadedModule> {
-        let module_name = options.module_name.unwrap_or_else(|| {
+    ) -> LoadResult<Program> {
+        let program_name = options.program_name.unwrap_or_else(|| {
             program.bytecode().modules()[program.bytecode().root().index()]
                 .source_name
                 .clone()
         });
         self.vm
             .runtime_mut()
-            .load_verified_program(module_name, program.bytecode().clone())
+            .load_verified_program(program_name, program.bytecode().clone())
             .map_err(EmbeddingError::load)
     }
 
     pub fn reload_program(
         &self,
-        previous: &LoadedModule,
+        previous: &Program,
         program: &PreparedProgram,
         options: ReloadOptions,
-    ) -> ReloadResult<LoadedModule> {
-        let module_name = options.module_name.unwrap_or_else(|| previous.name.clone());
+    ) -> ReloadResult<()> {
         let candidate = self
             .vm
             .runtime()
-            .stage_reload_verified_program(previous, module_name, program.bytecode().clone())
+            .stage_reload_verified_program(
+                previous,
+                options.program_name,
+                program.bytecode().clone(),
+            )
             .map_err(EmbeddingError::reload_validation)?;
         self.vm
             .runtime()
@@ -95,7 +98,7 @@ impl Runtime {
 
     pub fn execute<'a>(
         &self,
-        module: &LoadedModule,
+        program: &Program,
         entry: impl Into<ProgramEntry<'a>>,
         args: &[Value],
         context: &ExecutionContext,
@@ -112,17 +115,18 @@ impl Runtime {
             ));
         }
         context.validate_for_execute(entry.label())?;
+        let module = self.runtime().select_program(program)?;
         let _session = self
             .vm
             .runtime()
-            .begin_execution(module, context.runtime_options())
+            .begin_execution(&module, context.runtime_options())
             .map_err(|error| EmbeddingError::vm(VmError::RuntimeError(error)))?;
-        self.vm.execute(module, entry).map_err(EmbeddingError::vm)
+        self.vm.execute(&module, entry).map_err(EmbeddingError::vm)
     }
 
     pub fn execute_prepared<'a>(
         &self,
-        module: &LoadedModule,
+        program: &Program,
         entry: impl Into<ProgramEntry<'a>>,
         args: &[Value],
         context: &ExecutionContext,
@@ -140,14 +144,15 @@ impl Runtime {
             ));
         }
 
+        let module = self.runtime().select_program(program)?;
         let _session = self
             .vm
             .runtime()
-            .begin_execution(module, context.runtime_options())
+            .begin_execution(&module, context.runtime_options())
             .map_err(|error| EmbeddingError::vm(VmError::RuntimeError(error)))?;
         self.vm
             .execute_prepared(
-                module,
+                &module,
                 entry,
                 PreparedNativeExecution {
                     prepared,
@@ -160,12 +165,12 @@ impl Runtime {
 
 #[derive(Debug, Clone, Default)]
 pub struct LoadOptions {
-    pub module_name: Option<String>,
+    pub program_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct ReloadOptions {
-    pub module_name: Option<String>,
+    pub program_name: Option<String>,
 }
 
 #[cfg(all(test, feature = "source", feature = "native"))]

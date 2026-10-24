@@ -6,7 +6,7 @@ pub mod construction;
 use crate::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         binding::NativeResult,
         conversion::KagariType,
@@ -42,7 +42,7 @@ pub(crate) struct FieldType {
 pub(crate) struct AppliedSchema {
     declaration: Arc<ManagedSchema>,
     argument: TypeArgument,
-    owner: LoadedModule,
+    owner: ExecutableModule,
     pub(crate) fields: Vec<FieldType>,
 }
 

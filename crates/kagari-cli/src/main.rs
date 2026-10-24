@@ -30,7 +30,7 @@ use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::{
     error::RuntimeError,
     host::{HostCallContext, HostError},
-    module::{LoadedModule, entry::ProgramEntry},
+    module::{Program, entry::ProgramEntry},
     native::builder::ModuleBuilder,
     value::Value,
 };
@@ -151,7 +151,7 @@ fn run_source(path: &Path, jit: bool) -> Result<(), CliError> {
         &engine,
         &program,
         LoadOptions {
-            module_name: Some(path.display().to_string()),
+            program_name: Some(path.display().to_string()),
         },
         jit,
     )
@@ -214,7 +214,7 @@ fn run_prepared_program(
 fn execute_entry(
     runtime: &mut Runtime,
     program: &PreparedProgram,
-    loaded: &LoadedModule,
+    loaded: &Program,
     context: &ExecutionContext,
     jit: bool,
 ) -> Result<ExecutionReport, CliError> {
@@ -230,7 +230,7 @@ fn execute_entry(
 fn execute_entry_with_jit(
     runtime: &mut Runtime,
     program: &PreparedProgram,
-    loaded: &LoadedModule,
+    loaded: &Program,
     context: &ExecutionContext,
 ) -> Result<ExecutionReport, CliError> {
     let mut backend = CraneliftBackend::for_host()
@@ -253,7 +253,7 @@ fn execute_entry_with_jit(
 fn execute_entry_with_jit(
     _runtime: &mut Runtime,
     _program: &PreparedProgram,
-    _loaded: &LoadedModule,
+    _loaded: &Program,
     _context: &ExecutionContext,
 ) -> Result<ExecutionReport, CliError> {
     Err(CliError::message(

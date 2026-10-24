@@ -97,6 +97,8 @@ fn nominal_dtos_use_typed_callbacks_while_explicit_handles_keep_shared_identity(
         "#,
         &module.finish().unwrap(),
     );
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     assert_eq!(
         vm.execute_typed::<_, (i32, i32, usize)>(&owner, "main", ())
             .unwrap(),

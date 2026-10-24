@@ -50,7 +50,7 @@ pub fn trapped() -> fn()->Future<i32> { || { val zero=0; val bad=1/zero; request
         .runtime
         .runtime()
         .create_task_scope(
-            &f.module,
+            &f.runtime.runtime().select_program(&f.module).unwrap(),
             Default::default(),
             Arc::new(move |notice| {
                 seen.lock().unwrap().push(notice);
@@ -237,7 +237,7 @@ pub fn trapped() -> fn()->Future<i32> { || { val zero=0; val bad=1/zero; request
         .runtime
         .runtime()
         .create_task_scope(
-            &f.module,
+            &f.runtime.runtime().select_program(&f.module).unwrap(),
             Default::default(),
             Arc::new(|_| Err(DispatchUnavailable)),
         )
@@ -245,7 +245,11 @@ pub fn trapped() -> fn()->Future<i32> { || { val zero=0; val bad=1/zero; request
     assert!(
         f.runtime
             .runtime()
-            .create_task_scope(&f.module, Default::default(), Arc::new(|_| Ok(())))
+            .create_task_scope(
+                &f.runtime.runtime().select_program(&f.module).unwrap(),
+                Default::default(),
+                Arc::new(|_| Ok(()))
+            )
             .is_err()
     );
     assert!(
@@ -284,7 +288,11 @@ pub fn trapped() -> fn()->Future<i32> { || { val zero=0; val bad=1/zero; request
     let replacement = f
         .runtime
         .runtime()
-        .create_task_scope(&f.module, Default::default(), Arc::new(|_| Ok(())))
+        .create_task_scope(
+            &f.runtime.runtime().select_program(&f.module).unwrap(),
+            Default::default(),
+            Arc::new(|_| Ok(())),
+        )
         .unwrap();
     let admitted = spawn(&replacement, f.value(&simple));
     let admitted_id = runtime.task_id(&f.value(&admitted)).unwrap();
@@ -356,7 +364,7 @@ pub fn work() -> fn()->Future<i32> { async || request(10).await }
         .runtime
         .runtime()
         .create_task_scope(
-            &f.module,
+            &f.runtime.runtime().select_program(&f.module).unwrap(),
             Default::default(),
             Arc::new(|_| panic!("dispatcher fault")),
         )

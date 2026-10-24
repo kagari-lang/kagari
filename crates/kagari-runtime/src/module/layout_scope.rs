@@ -5,7 +5,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::{arguments::TypeArgument, bindings::TypeBindings, compatibility::TypeIdentity},
-    module::{LoadedModule, descriptor_index::DescriptorIndex},
+    module::{ExecutableModule, descriptor_index::DescriptorIndex},
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::{GenericParam, Ty};
@@ -13,7 +13,7 @@ use std::{num::NonZeroUsize, sync::Arc};
 
 #[derive(Debug)]
 pub(crate) struct LayoutScope {
-    owner: LoadedModule,
+    owner: ExecutableModule,
     id: Option<NonZeroUsize>,
     bindings: Arc<TypeBindings>,
     arguments: Arc<[Arc<TypeIdentity>]>,
@@ -24,18 +24,27 @@ impl LayoutScope {
         &self.bindings
     }
 
-    pub(super) fn id_for(&self, owner: &LoadedModule) -> Option<NonZeroUsize> {
+    pub(super) fn id_for(&self, owner: &ExecutableModule) -> Option<NonZeroUsize> {
         Arc::ptr_eq(&self.owner.program, &owner.program)
             .then_some(self.id)
             .flatten()
     }
 
-    pub(super) fn accepts(&self, declaration: DefinitionId, arguments: &[Ty]) -> bool {
-        self.arguments.len() == arguments.len()
+    pub(super) fn accepts(
+        &self,
+        owner: &ExecutableModule,
+        declaration: DefinitionId,
+        arguments: &[Ty],
+    ) -> bool {
+        self.owner.registry_owner == owner.registry_owner
+            && self.owner.installation_id() == owner.installation_id()
+            && self.arguments.len() == arguments.len()
             && arguments.iter().enumerate().all(|(position, ty)| {
                 self.bindings
                     .argument(&declaration, position)
-                    .is_some_and(|argument| argument.ty() == ty)
+                    .is_some_and(|argument| {
+                        argument.ty() == ty && argument.view(owner).belongs_to_installation(owner)
+                    })
             })
     }
 
@@ -55,7 +64,7 @@ impl Runtime {
     /// Retired provenance remains readable; it never grants executable admission.
     pub(crate) fn prepare_layout_scope(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         declaration: DefinitionId,
         arguments: &[TypeArgument],
     ) -> Result<Option<Arc<LayoutScope>>, RuntimeError> {
@@ -63,7 +72,7 @@ impl Runtime {
             return Err(RuntimeError::module_validation("foreign layout scope"));
         }
         for argument in arguments {
-            argument.validate(self)?;
+            argument.validate_for(self, owner)?;
             argument.prepare_admission(self, owner);
         }
         if !arguments.iter().any(TypeArgument::has_origin) {

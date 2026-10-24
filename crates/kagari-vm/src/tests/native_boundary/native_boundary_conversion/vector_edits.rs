@@ -16,8 +16,13 @@ fn typed_bulk_edits_keep_aliases_rooted_and_restore_completed_changes_on_failure
     "#,
         None,
     );
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let vector: ScriptVec<Object> = vm.execute_typed(&owner, "make", ()).unwrap();
-    let ty = vm.runtime().bind_type(&owner, "Item", &[]).unwrap();
+    let ty = vm
+        .runtime()
+        .bind_type(&_owner_program.root(), "Item", &[])
+        .unwrap();
     let field = vm.runtime().bind_field::<i32>(&ty, "value").unwrap();
     let mut cx = vm.context(&owner).unwrap();
     let alias = vector.clone();

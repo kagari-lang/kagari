@@ -119,7 +119,7 @@ fn reject_candidate_work(f: &Fixture, scope: &TaskScopeOwner, factory: &RootedVa
     let ready = runtime.ready_tasks(scope).unwrap();
     for entry in ["cold", "native_cold", "spawn"] {
         let candidate = runtime
-            .stage_reload_verified_program(&f.module, &f.module.name, f.program.bytecode().clone())
+            .stage_reload_verified_program(&f.module, None, f.program.bytecode().clone())
             .unwrap();
         let session = runtime.begin_candidate_initialization(&candidate).unwrap();
         if entry == "spawn" {
@@ -133,7 +133,9 @@ fn reject_candidate_work(f: &Fixture, scope: &TaskScopeOwner, factory: &RootedVa
         } else {
             let error = f
                 .runtime
-                .execute(candidate.module(), entry, &[], &Default::default())
+                .backend()
+                .execute(candidate.module(), entry)
+                .map_err(EmbeddingError::from)
                 .unwrap_err();
             assert!(
                 matches!(
@@ -224,9 +226,13 @@ fn lifecycle_reload_contract() {
     let scope = f
         .runtime
         .runtime()
-        .create_task_scope(&f.module, Default::default(), Arc::new(|_| Ok(())))
+        .create_task_scope(
+            &f.runtime.runtime().select_program(&f.module).unwrap(),
+            Default::default(),
+            Arc::new(|_| Ok(())),
+        )
         .unwrap();
-    let old_key = f.module.key();
+    let old_key = f.runtime.runtime().select_program(&f.module).unwrap().key();
     let factory = f.invoke("factory", &[]);
     let future = f.invoke("cold", &[]);
     let captured = f.invoke("captured", &[]);
@@ -242,12 +248,13 @@ fn lifecycle_reload_contract() {
             "pub fn version() -> i32 { 100 }",
         ),
     );
-    let current = f
-        .runtime
+    f.runtime
         .reload_program(&f.module, &replacement, Default::default())
         .unwrap();
-    assert_ne!(current.key(), old_key);
-    f.module = current;
+    assert_ne!(
+        f.runtime.runtime().select_program(&f.module).unwrap().key(),
+        old_key
+    );
     f.program = replacement;
     assert_eq!(f.value(&f.invoke("version", &[])), Value::I32(100));
     assert_eq!(

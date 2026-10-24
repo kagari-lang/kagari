@@ -25,7 +25,7 @@ use kagari_runtime::{
         HostCallContext, HostError, HostObjectId, HostPathAdapter, HostPathDescriptorRegistration,
         HostSchemaEpoch, PreparedHostPathWrite,
     },
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{builder::ModuleBuilder, declarations::FunctionDecl, module::NativeModule},
     value::Value,
 };
@@ -63,16 +63,21 @@ fn reflection_runtime() -> Runtime {
 fn load_reflection_bytecode_module(
     name: &str,
     bytecode: DefinitionMetadata<BytecodeModule>,
-) -> (Runtime, LoadedModule) {
-    load_bytecode_module_with_runtime(reflection_runtime(), name, bytecode)
+) -> (Runtime, ExecutableModule) {
+    let (runtime, program) =
+        load_bytecode_module_with_runtime(reflection_runtime(), name, bytecode);
+    let module = runtime.select_program(&program).unwrap();
+    (runtime, module)
 }
 
-fn load_reflection_test_module(source_text: &str) -> (Runtime, LoadedModule) {
-    load_bytecode_program_with_runtime(
+fn load_reflection_test_module(source_text: &str) -> (Runtime, ExecutableModule) {
+    let (runtime, program) = load_bytecode_program_with_runtime(
         reflection_runtime(),
         "test.kgr",
         compile_test_bytecode(source_text),
-    )
+    );
+    let module = runtime.select_program(&program).unwrap();
+    (runtime, module)
 }
 
 fn player_module() -> NativeModule {

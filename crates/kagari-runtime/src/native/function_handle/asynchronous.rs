@@ -6,7 +6,7 @@ use crate::{
         factory::{FactoryEntry, QueuedFactory},
         types::arguments::TypeArgument,
     },
-    module::LoadedModule,
+    module::{ExecutableModule, Module},
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
@@ -59,7 +59,7 @@ impl<R: KagariType> KagariType for FutureOutput<R> {
 impl Runtime {
     pub fn bind_async_function<A: KagariArguments + 'static, R: KagariType + 'static>(
         &self,
-        owner: &LoadedModule,
+        owner: &Module,
         path: &str,
     ) -> NativeResult<AsyncFunction<A, R>> {
         AsyncFunction::from_function(self, self.bind_function(owner, path)?)
@@ -79,7 +79,7 @@ impl<A, R> AsyncFunction<A, R> {
         Ok(Self { function, output })
     }
 
-    pub fn owner(&self) -> &LoadedModule {
+    pub fn owner(&self) -> &ExecutableModule {
         self.function.owner()
     }
 }

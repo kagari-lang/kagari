@@ -2,7 +2,7 @@
 use crate::{
     frame::types::{arguments::type_parameter, bindings::TypeBindings},
     host::HostRegistryId,
-    module::{LoadedModule, ModuleKey},
+    module::{ExecutableModule, InstallationId, ModuleKey},
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::{NominalTy, Ty, substitution::TypeSubstitution};
@@ -11,7 +11,7 @@ use std::{borrow::Cow, collections::HashSet, ptr};
 #[derive(Clone, Copy)]
 pub(crate) struct TypeView<'a> {
     pub(crate) ty: &'a Ty,
-    pub(crate) owner: &'a LoadedModule,
+    pub(crate) owner: &'a ExecutableModule,
     pub(crate) environment: Option<&'a TypeBindings>,
     application: Option<&'a Application<'a>>,
     prepared: Option<&'a Ty>,
@@ -25,13 +25,13 @@ struct Application<'a> {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct TypeIdentity {
     ty: Ty,
-    owners: Vec<(HostRegistryId, ModuleKey)>,
+    owners: Vec<(HostRegistryId, InstallationId, ModuleKey)>,
 }
 
 impl<'a> TypeView<'a> {
     pub(crate) fn new(
         ty: &'a Ty,
-        owner: &'a LoadedModule,
+        owner: &'a ExecutableModule,
         environment: Option<&'a TypeBindings>,
     ) -> Self {
         Self {
@@ -49,7 +49,7 @@ impl<'a> TypeView<'a> {
     pub(crate) fn prepared(
         expression: &'a Ty,
         closed: &'a Ty,
-        owner: &'a LoadedModule,
+        owner: &'a ExecutableModule,
         environment: Option<&'a TypeBindings>,
     ) -> Self {
         debug_assert!(closed.is_concrete());
@@ -166,15 +166,41 @@ impl<'a> TypeView<'a> {
         })
     }
 
-    fn collect_owners(self, owners: &mut Vec<(HostRegistryId, ModuleKey)>) -> bool {
+    fn installation_nominal(self) -> bool {
+        match self.ty {
+            Ty::Struct(_) | Ty::Enum(_) => true,
+            Ty::Trait(nominal) => !self.owner.is_shared_native_trait(nominal.declaration),
+            _ => false,
+        }
+    }
+
+    fn collect_owners(self, owners: &mut Vec<(HostRegistryId, InstallationId, ModuleKey)>) -> bool {
         let Some(view) = self.normalized() else {
             return false;
         };
-        if matches!(view.ty, Ty::Struct(_) | Ty::Enum(_)) {
-            owners.push(view.owner.program_identity());
+        if view.installation_nominal() {
+            let (registry, publication) = view.owner.program_identity();
+            owners.push((registry, view.owner.installation_id(), publication));
         }
         children_match(view.ty, view.ty, |a, _| {
             view.child(a).collect_owners(owners)
+        })
+    }
+
+    /// Only script nominal nodes carry installation authority; lexical parameters
+    /// are followed before checking, including those nested in shared native types.
+    pub(crate) fn belongs_to_installation(self, owner: &ExecutableModule) -> bool {
+        let Some(view) = self.normalized() else {
+            return false;
+        };
+        if view.installation_nominal()
+            && (view.owner.program_identity().0 != owner.program_identity().0
+                || view.owner.installation_id() != owner.installation_id())
+        {
+            return false;
+        }
+        children_match(view.ty, view.ty, |a, _| {
+            view.child(a).belongs_to_installation(owner)
         })
     }
 
@@ -192,7 +218,14 @@ impl<'a> TypeView<'a> {
         if a != b {
             return false;
         }
-        if left.owner.key() == right.owner.key()
+        if left.installation_nominal() != right.installation_nominal()
+            || (left.installation_nominal()
+                && (left.owner.program_identity().0 != right.owner.program_identity().0
+                    || left.owner.installation_id() != right.owner.installation_id()))
+        {
+            return false;
+        }
+        if left.owner.program_identity() == right.owner.program_identity()
             && left.ty == right.ty
             && match (left.environment, right.environment) {
                 (None, None) => true,
@@ -240,25 +273,26 @@ impl<'a> TypeView<'a> {
         let (Some(left), Some(right)) = (self.application(), other.application()) else {
             return false;
         };
-        let mut compare = |a: &Ty, a_owner: &LoadedModule, b: &Ty, b_owner: &LoadedModule| {
-            TypeView {
-                ty: a,
-                owner: a_owner,
-                environment: None,
-                application: Some(&left),
-                prepared: None,
-            }
-            .compare(
+        let mut compare =
+            |a: &Ty, a_owner: &ExecutableModule, b: &Ty, b_owner: &ExecutableModule| {
                 TypeView {
-                    ty: b,
-                    owner: b_owner,
+                    ty: a,
+                    owner: a_owner,
                     environment: None,
-                    application: Some(&right),
+                    application: Some(&left),
                     prepared: None,
-                },
-                visited,
-            )
-        };
+                }
+                .compare(
+                    TypeView {
+                        ty: b,
+                        owner: b_owner,
+                        environment: None,
+                        application: Some(&right),
+                        prepared: None,
+                    },
+                    visited,
+                )
+            };
         match closed {
             Ty::Struct(ty) => {
                 let (Some(a), Some(b)) = (
@@ -325,7 +359,7 @@ impl<'a> TypeView<'a> {
             let Some(application) = view.application() else {
                 return false;
             };
-            let mut check = |ty: &Ty, owner: &LoadedModule| {
+            let mut check = |ty: &Ty, owner: &ExecutableModule| {
                 TypeView {
                     ty,
                     owner,

@@ -3,7 +3,7 @@ use super::{owner, path};
 use crate::{
     Runtime,
     frame::driver::ReturnAction,
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         assembly::{
             ModuleDefinition, ModuleSetBuilder,
@@ -37,7 +37,7 @@ use std::{
 
 fn invoke_selected(
     runtime: &Runtime,
-    _: &LoadedModule,
+    _: &ExecutableModule,
     target: ScriptCall<'_>,
     arguments: &[Value],
 ) -> NativeResult<Value> {
@@ -169,7 +169,8 @@ fn same_batch_override_executes_its_compiler_selected_requirement_in_both_orders
             .unwrap();
         let mut runtime = Runtime::default();
         NativeModule::install_all(&modules, &mut runtime).unwrap();
-        let loaded = runtime.load_program("forward-call", bytecode).unwrap();
+        let loaded_program = runtime.load_program("forward-call", bytecode).unwrap();
+        let loaded = runtime.select_program(&loaded_program).unwrap();
         let (owner, slot) = loaded
             .members()
             .find_map(|owner| {

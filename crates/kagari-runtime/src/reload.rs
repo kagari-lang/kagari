@@ -20,7 +20,7 @@ use std::collections::HashMap;
 
 use crate::{
     error::RuntimeError,
-    module::{LoadedModule, ModuleId, VerifiedProgram},
+    module::{ExecutableModule, InstallationId, ModuleId, VerifiedProgram},
     reload::updates::ReloadAdmission,
 };
 
@@ -93,17 +93,16 @@ pub fn validate_load_candidate(
 }
 
 pub fn validate_reload_artifact_candidate(
-    active: &LoadedModule,
-    candidate_name: &str,
+    active: &ExecutableModule,
     artifact: KbcArtifact,
     compatibility: &ArtifactCompatibility,
-    active_latest: Option<&LoadedModule>,
+    active_latest: Option<&ExecutableModule>,
     context: &DefinitionContext,
 ) -> Result<VerifiedArtifact, ReloadValidationError> {
     let artifact = artifact
         .into_verified(compatibility, context, &Default::default())
         .map_err(ReloadValidationError::Artifact)?;
-    validate_reload_target(active, candidate_name, active_latest)?;
+    validate_reload_target(active, active_latest)?;
     let bytecode = artifact.bytecode();
     let program = bytecode.program();
     if active.bytecode.identity == program.modules[program.root.index()].identity {
@@ -120,13 +119,12 @@ pub fn validate_reload_artifact_candidate(
 }
 
 pub fn validate_reload_candidate(
-    active: &LoadedModule,
-    candidate_name: &str,
+    active: &ExecutableModule,
     candidate: BytecodeProgram,
-    active_latest: Option<&LoadedModule>,
+    active_latest: Option<&ExecutableModule>,
     context: &DefinitionContext,
 ) -> Result<VerifiedBytecodeProgram, ReloadValidationError> {
-    validate_reload_target(active, candidate_name, active_latest)?;
+    validate_reload_target(active, active_latest)?;
     let verified = validate_load_candidate(candidate, context)?;
     let program = verified.program();
     if active.bytecode.identity == program.modules[program.root.index()].identity {
@@ -143,12 +141,9 @@ pub fn validate_reload_candidate(
 }
 
 pub(crate) fn validate_verified_reload_candidate(
-    active: &LoadedModule,
-    candidate_name: &str,
+    active: &ExecutableModule,
     candidate: &VerifiedProgram,
-    active_latest: Option<&LoadedModule>,
 ) -> Result<ReloadAdmission, ReloadValidationError> {
-    validate_reload_target(active, candidate_name, active_latest)?;
     if active.bytecode.identity == candidate.modules()[candidate.root().index()].identity {
         exports::runtime(active.verified_program(), candidate)?;
     }
@@ -165,16 +160,9 @@ pub(crate) fn validate_verified_reload_candidate(
 }
 
 pub(crate) fn validate_reload_target(
-    active: &LoadedModule,
-    candidate_name: &str,
-    active_latest: Option<&LoadedModule>,
+    active: &ExecutableModule,
+    active_latest: Option<&ExecutableModule>,
 ) -> Result<(), ReloadValidationError> {
-    if candidate_name != active.name {
-        return Err(ReloadValidationError::ModuleIdentityMismatch {
-            expected: active.name.clone(),
-            found: candidate_name.to_owned(),
-        });
-    }
     let Some(latest) = active_latest else {
         return Err(ReloadValidationError::ModuleNotActive {
             module_name: active.name.clone(),
@@ -182,7 +170,10 @@ pub(crate) fn validate_reload_target(
             active: None,
         });
     };
-    if latest.id != active.id {
+    if latest.installation_id() != active.installation_id()
+        || latest.program_identity().0 != active.program_identity().0
+        || latest.id != active.id
+    {
         return Err(ReloadValidationError::ModuleIdChanged {
             expected: active.id,
             found: latest.id,
@@ -200,7 +191,7 @@ pub(crate) fn validate_reload_target(
 }
 
 fn validate_reload_contracts<'a>(
-    active: &LoadedModule,
+    active: &ExecutableModule,
     root: &BytecodeModule,
     modules: impl ExactSizeIterator<Item = &'a BytecodeModule>,
     definitions: &DefinitionTable,
@@ -254,17 +245,20 @@ pub fn path_fingerprints_for_module(module: &BytecodeModule) -> Vec<PathDescript
 /// leave gaps; an identity is never reused for a later candidate.
 #[derive(Debug, Default)]
 pub(crate) struct ModuleEpochAllocator {
-    epochs: HashMap<String, ModuleEpoch>,
+    epochs: HashMap<InstallationId, ModuleEpoch>,
 }
 
 impl ModuleEpochAllocator {
-    pub(crate) fn reserve(&mut self, module_name: &str) -> Result<ModuleEpoch, RuntimeError> {
-        let previous = self.epochs.get(module_name).map_or(0, |epoch| epoch.0);
+    pub(crate) fn reserve(
+        &mut self,
+        installation: InstallationId,
+    ) -> Result<ModuleEpoch, RuntimeError> {
+        let previous = self.epochs.get(&installation).map_or(0, |epoch| epoch.0);
         let next = previous
             .checked_add(1)
             .ok_or_else(|| RuntimeError::module_validation("module epoch space exhausted"))?;
         let epoch = ModuleEpoch(next);
-        self.epochs.insert(module_name.to_string(), epoch);
+        self.epochs.insert(installation, epoch);
         Ok(epoch)
     }
 }
@@ -295,13 +289,13 @@ mod epoch_tests {
     #[test]
     fn exhausted_epoch_space_is_rejected_without_reusing_an_identity() {
         let mut allocator = ModuleEpochAllocator::default();
-        assert_eq!(allocator.reserve("main").unwrap(), ModuleEpoch(1));
-        assert_eq!(allocator.reserve("main").unwrap(), ModuleEpoch(2));
-        allocator
-            .epochs
-            .insert("main".into(), ModuleEpoch(u64::MAX));
-        assert!(allocator.reserve("main").is_err());
-        assert_eq!(allocator.epochs["main"], ModuleEpoch(u64::MAX));
-        assert_eq!(allocator.reserve("other").unwrap(), ModuleEpoch(1));
+        let first = InstallationId(0);
+        let second = InstallationId(1);
+        assert_eq!(allocator.reserve(first).unwrap(), ModuleEpoch(1));
+        assert_eq!(allocator.reserve(first).unwrap(), ModuleEpoch(2));
+        allocator.epochs.insert(first, ModuleEpoch(u64::MAX));
+        assert!(allocator.reserve(first).is_err());
+        assert_eq!(allocator.epochs[&first], ModuleEpoch(u64::MAX));
+        assert_eq!(allocator.reserve(second).unwrap(), ModuleEpoch(1));
     }
 }

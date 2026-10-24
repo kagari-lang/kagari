@@ -3,14 +3,14 @@ use crate::{error::VmError, executor::Executor};
 use kagari_runtime::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{binding::NativeResult, context::ScriptCall},
     value::Value,
 };
 
 pub(crate) fn invoke_script(
     runtime: &Runtime,
-    owner: &LoadedModule,
+    owner: &ExecutableModule,
     target: ScriptCall<'_>,
     arguments: &[Value],
 ) -> NativeResult<Value> {

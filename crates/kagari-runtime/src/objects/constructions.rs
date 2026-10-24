@@ -9,7 +9,7 @@ use crate::{
         bindings::AssociatedInterface,
         construction::{ConstructionBinding, ConstructionKey, ConstructionScope},
     },
-    module::LoadedModule,
+    module::ExecutableModule,
     objects::calls::interface_binding,
     value::Value,
 };
@@ -27,7 +27,7 @@ fn invalid() -> RuntimeError {
 impl Runtime {
     pub(crate) fn bind_constructions_in(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         environment: Option<TypeEnvironment>,
         witnesses: &[ConstructionWitness],
     ) -> Result<ConstructionScope, RuntimeError> {
@@ -122,7 +122,7 @@ impl Runtime {
     /// Immutable parent type facts and explicit executable edges retain provenance.
     pub(super) fn construction_dependencies(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         parent: Option<TypeEnvironment>,
         operations: &[OperationWitness],
         constructions: &[ConstructionWitness],
@@ -143,12 +143,12 @@ impl Runtime {
     /// Returns an error for stale environments, foreign values or absent evidence.
     pub fn make_bound_interface(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         environment: &TypeEnvironment,
         required: &ConstructionRequirement,
         data: Value,
     ) -> Result<Value, RuntimeError> {
-        self.validate_loaded_module(owner)?;
+        self.validate_executable_module(owner)?;
         let types = self.type_arguments(
             owner,
             Some(environment.types.clone()),

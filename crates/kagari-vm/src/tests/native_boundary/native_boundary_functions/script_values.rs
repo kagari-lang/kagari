@@ -93,38 +93,40 @@ fn generic_value_handles_forward_selected_results_without_erasing_type_access_or
     "#,
         Some(&module),
     );
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     {
         let number = vm
             .runtime()
-            .bind_function::<(), ScriptValue>(&owner, "number")
+            .bind_function::<(), ScriptValue>(&_owner_program.root(), "number")
             .unwrap();
         let text = vm
             .runtime()
-            .bind_function::<(), ScriptValue>(&owner, "text")
+            .bind_function::<(), ScriptValue>(&_owner_program.root(), "text")
             .unwrap();
         let vector = vm
             .runtime()
-            .bind_function::<(), ScriptValue>(&owner, "vector")
+            .bind_function::<(), ScriptValue>(&_owner_program.root(), "vector")
             .unwrap();
         let closure = vm
             .runtime()
-            .bind_function::<(), ScriptValue>(&owner, "closure")
+            .bind_function::<(), ScriptValue>(&_owner_program.root(), "closure")
             .unwrap();
         let readonly = vm
             .runtime()
-            .bind_function::<(), ScriptValue>(&owner, "readonly")
+            .bind_function::<(), ScriptValue>(&_owner_program.root(), "readonly")
             .unwrap();
         let string_argument = vm
             .runtime()
-            .bind_function::<(ScriptValue,), String>(&owner, "string_argument")
+            .bind_function::<(ScriptValue,), String>(&_owner_program.root(), "string_argument")
             .unwrap();
         let read = vm
             .runtime()
-            .bind_function::<(ScriptValue,), i32>(&owner, "read")
+            .bind_function::<(ScriptValue,), i32>(&_owner_program.root(), "read")
             .unwrap();
         let write = vm
             .runtime()
-            .bind_function::<(ScriptValue,), ()>(&owner, "write")
+            .bind_function::<(ScriptValue,), ()>(&_owner_program.root(), "write")
             .unwrap();
         let number = vm.call(&number, ()).unwrap();
         let text = vm.call(&text, ()).unwrap();
@@ -163,15 +165,16 @@ fn generic_value_handles_forward_selected_results_without_erasing_type_access_or
         let result = callback.call(&mut cx, ()).unwrap();
         assert_eq!(result.get(&mut cx, &field).unwrap(), 42);
         let (foreign, foreign_owner) = fixture("pub fn number() -> i32 { 7 }", None);
+        let _foreign_owner_program = foreign_owner;
         let foreign_binding = foreign
             .runtime()
-            .bind_function::<(), ScriptValue>(&foreign_owner, "number")
+            .bind_function::<(), ScriptValue>(&_foreign_owner_program.root(), "number")
             .unwrap();
         let value = foreign.call(&foreign_binding, ()).unwrap();
         assert!(value.decode::<i32>(&mut cx).is_err());
         drop((callback, result, cx));
     }
-    publish_unused_version(&vm, &owner);
+    publish_unused_version(&vm, &_owner_program);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     assert_eq!(vm.runtime().gc().active_roots(), 0);
 }
@@ -237,9 +240,11 @@ fn selected_associated_collection_results_keep_their_supplying_scope() {
     "#,
         Some(&module),
     );
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let make = vm
         .runtime()
-        .bind_function::<(), ScriptVec<Object>>(&owner, "make")
+        .bind_function::<(), ScriptVec<Object>>(&_owner_program.root(), "make")
         .unwrap();
     let values = vm.call(&make, ()).unwrap();
     vm.runtime().collect_garbage().unwrap();

@@ -30,7 +30,7 @@ fn external_root_actual_pointer_loans_release_and_revoke_on_all_exits() {
     // This scope uses the real checked descriptor and heap/header owner. No
     // frontend, standard-library declarations or substitute borrow model is needed.
     let context = DefinitionContext::new().unwrap();
-    let owner = runtime
+    let owner_program = runtime
         .load_program(
             "scope-proof",
             ProgramFixture {
@@ -42,8 +42,9 @@ fn external_root_actual_pointer_loans_release_and_revoke_on_all_exits() {
             .unwrap(),
         )
         .unwrap();
+
     let descriptor = runtime
-        .bind_native_type::<State>(&owner, &declaration, &[])
+        .bind_native_type::<State>(&owner_program.root(), &declaration, &[])
         .unwrap();
     let mut external = State { count: 1 };
     let mut saved = Value::Unit;
@@ -139,7 +140,7 @@ fn distinct_zero_sized_host_roots_allow_independent_unique_loans() {
     let mut runtime = Runtime::default();
     module.install(&mut runtime).unwrap();
     let context = DefinitionContext::new().unwrap();
-    let owner = runtime
+    let owner_program = runtime
         .load_program(
             "scope-proof",
             ProgramFixture {
@@ -152,7 +153,7 @@ fn distinct_zero_sized_host_roots_allow_independent_unique_loans() {
         )
         .unwrap();
     let descriptor = runtime
-        .bind_native_type::<Marker>(&owner, &declaration, &[])
+        .bind_native_type::<Marker>(&owner_program.root(), &declaration, &[])
         .unwrap();
     let mut values = [Marker {}, Marker {}];
     let (first, second) = values.split_at_mut(1);

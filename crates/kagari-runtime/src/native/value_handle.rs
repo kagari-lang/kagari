@@ -3,7 +3,7 @@ use crate::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
     gc::roots::RootedValue,
-    module::{LoadedModule, ModuleEpochRetention, retention::ProgramLease},
+    module::{ExecutableModule, ModuleEpochRetention, retention::ProgramLease},
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
@@ -21,7 +21,7 @@ use crate::{
 pub struct ScriptValue {
     root: RootedValue,
     argument: TypeArgument,
-    owner: LoadedModule,
+    owner: ExecutableModule,
     _program: ProgramLease,
 }
 

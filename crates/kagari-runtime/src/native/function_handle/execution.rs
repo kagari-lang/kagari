@@ -14,7 +14,7 @@ impl PreparedFunction {
     pub(super) fn validate(&self, runtime: &Runtime) -> NativeResult<()> {
         runtime.gc().ensure_no_native_borrow()?;
         runtime.resources().ensure_execution_allowed()?;
-        runtime.validate_loaded_module(&self.owner)?;
+        runtime.validate_executable_module(&self.owner)?;
         match &self.target {
             Target::Closure { prepared, root } => {
                 if root.value(runtime.gc()).as_ref() != Some(prepared.value()) {

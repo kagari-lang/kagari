@@ -1,7 +1,7 @@
 //! Bind once using installed public, generation-pinned callable and member evidence.
 use crate::{RunResult, runtime::Runtime};
 use kagari_runtime::{
-    module::LoadedModule,
+    module::Module,
     native::{
         conversion::{KagariType, arguments::KagariArguments},
         function_handle::{PinnedFunction, asynchronous::AsyncFunction},
@@ -16,7 +16,7 @@ impl Runtime {
     /// The returned handle retains this generation, not the latest publication.
     pub fn function<A: KagariArguments + 'static, R: KagariType + 'static>(
         &self,
-        module: &LoadedModule,
+        module: &Module,
         name: &str,
     ) -> RunResult<PinnedFunction<A, R>> {
         self.runtime()
@@ -29,7 +29,7 @@ impl Runtime {
     /// script. `R` names the awaited output, not a Rust or script Future handle.
     pub fn async_function<A: KagariArguments + 'static, R: KagariType + 'static>(
         &self,
-        module: &LoadedModule,
+        module: &Module,
         name: &str,
     ) -> RunResult<AsyncFunction<A, R>> {
         self.runtime()
@@ -37,9 +37,9 @@ impl Runtime {
             .map_err(Into::into)
     }
 
-    /// Resolve a public, nongeneric object type in this pinned module.
+    /// Resolve a public, nongeneric object type in this live module.
     /// Applied generic types remain available through retained Object descriptors.
-    pub fn object_type(&self, module: &LoadedModule, name: &str) -> RunResult<ObjectType> {
+    pub fn object_type(&self, module: &Module, name: &str) -> RunResult<ObjectType> {
         self.runtime()
             .bind_type(module, name, &[])
             .map_err(Into::into)

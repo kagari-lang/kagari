@@ -77,6 +77,8 @@ fn wrapped_sources_commit_edits_then_fail_before_the_next_read() {
     let loaded = runtime
         .load_program("map", program(source, &[&library, &probe.module]))
         .unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let error = vm.execute(&loaded, ProgramEntry::Main).unwrap_err();
     assert!(format!("{error:?}").contains("invalid or structurally modified iterator"));
@@ -126,6 +128,8 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
     let loaded = runtime
         .load_program("map", program(source, &[&library, &probe.module]))
         .unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let iterator = vm
         .execute(&loaded, "make")
@@ -180,6 +184,8 @@ fn map_invokes_the_selected_custom_source_and_releases_its_roots() {
     )
     .unwrap();
     let loaded = runtime.load_program("map", program(r#"struct Source { var done: bool } impl Iterator for Source { type Item=i32; fn next(self)->Option<i32> { if self.done { None } else { self.done=true; Some(42) } } } pub fn make()->Iterator<Item=i32> { Source { done:false }.map(|item|item) }"#, &[&library])).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let iterator = vm
         .execute(&loaded, "make")
@@ -236,6 +242,8 @@ fn recursive_next_is_rejected_and_unreachable_capture_cycles_are_collected() {
     let loaded = runtime
         .load_program("map", program(source, &[&library]))
         .unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let error = vm.execute(&loaded, ProgramEntry::Main).unwrap_err();
     assert!(
@@ -280,6 +288,8 @@ pub fn make()->Iterator<Item=(i32,i32)> {
     let old = runtime
         .load_program("map", program(source, &[&library]))
         .unwrap();
+    let _old_program = old;
+    let old = runtime.select_program(&_old_program).unwrap();
     let old_key = old.key();
     let vm = Vm::new(runtime);
     let iterator = vm
@@ -289,18 +299,19 @@ pub fn make()->Iterator<Item=(i32,i32)> {
         .value(vm.runtime().gc())
         .expect("retained execution result");
     let root = vm.runtime().root_value(iterator).unwrap();
-    let replacement = vm
-        .reload_program(
-            &old,
-            "map",
-            program(
-                &source
-                    .replace("[1]", "[100]")
-                    .replace("fn bias()->i32{0}", "fn bias()->i32{100}"),
-                &[&library],
-            ),
-        )
-        .unwrap();
+    vm.reload_program(
+        &_old_program,
+        Some("map".into()),
+        program(
+            &source
+                .replace("[1]", "[100]")
+                .replace("fn bias()->i32{0}", "fn bias()->i32{100}"),
+            &[&library],
+        ),
+    )
+    .unwrap();
+    let _replacement_program = _old_program.clone();
+    let replacement = vm.runtime().select_program(&_replacement_program).unwrap();
     drop(old);
     vm.runtime().collect_garbage().unwrap();
     assert!(vm.runtime().modules().loaded(old_key).is_some());

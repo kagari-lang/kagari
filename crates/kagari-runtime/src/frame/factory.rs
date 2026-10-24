@@ -6,7 +6,7 @@ use crate::{
     error_trace::asynchronous::CallableOrigin,
     frame::{ExecutionStack, types::arguments::TypeArgument, waiting::QueuedFuture},
     gc::roots::{RootSet, RootedValue},
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{binding::NativeResult, function_handle::PreparedFunction},
     value::Value,
 };
@@ -19,7 +19,7 @@ use std::{slice, sync::Arc};
 
 #[derive(Debug)]
 pub(crate) struct QueuedFactory {
-    pub owner: LoadedModule,
+    pub owner: ExecutableModule,
     pub entry: FactoryEntry,
     pub future: TypeArgument,
 }

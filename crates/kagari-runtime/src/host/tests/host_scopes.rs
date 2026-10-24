@@ -103,7 +103,7 @@ fn unwinding_host_scopes_releases_roots_borrows_and_session_retention() {
     let context = DefinitionContext::new().unwrap();
     for with_session in [false, true] {
         let mut runtime = runtime();
-        let loaded = runtime
+        let loaded_program = runtime
             .load_program(
                 "unwind",
                 ProgramFixture {
@@ -115,6 +115,7 @@ fn unwinding_host_scopes_releases_roots_borrows_and_session_retention() {
                 .unwrap(),
             )
             .unwrap();
+        let loaded = runtime.select_program(&loaded_program).unwrap();
         let value = Value::Array(
             runtime
                 .alloc_array(&loaded, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
@@ -176,7 +177,7 @@ fn unwinding_host_scopes_releases_roots_borrows_and_session_retention() {
 fn host_scopes_keep_root_cancellation_until_all_resources_are_released() {
     let context = DefinitionContext::new().unwrap();
     let mut runtime = runtime();
-    let loaded = runtime
+    let loaded_program = runtime
         .load_program(
             "scope",
             ProgramFixture {
@@ -188,6 +189,7 @@ fn host_scopes_keep_root_cancellation_until_all_resources_are_released() {
             .unwrap(),
         )
         .unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     let options = runtime.execution_options();
 
     let cancel = options.cancellation.clone();
@@ -316,7 +318,8 @@ fn declared_borrows_conflict_during_callbacks_and_release_after_failure() {
         .register_host_root(HostObjectId(1), ty, HostSchemaEpoch::new(0))
         .unwrap();
     let object = runtime.gc().alloc_host_root(object).unwrap();
-    let loaded = runtime.load_program("borrows", program).unwrap();
+    let loaded_program = runtime.load_program("borrows", program).unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     assert_eq!(
         invoke(&runtime, &loaded, 0, std::slice::from_ref(&object))
             .unwrap_err()
@@ -366,7 +369,7 @@ fn declared_borrows_conflict_during_callbacks_and_release_after_failure() {
 fn quarantine_does_not_block_host_scope_cleanup() {
     let context = DefinitionContext::new().unwrap();
     let mut runtime = runtime();
-    let loaded = runtime
+    let loaded_program = runtime
         .load_program(
             "quarantine",
             ProgramFixture {
@@ -378,6 +381,7 @@ fn quarantine_does_not_block_host_scope_cleanup() {
             .unwrap(),
         )
         .unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     let session = runtime
         .begin_execution(&loaded, runtime.execution_options())
         .unwrap();
@@ -459,7 +463,8 @@ fn callback_temporaries_survive_nested_collection_and_drop_on_error() {
     let program = free_function_program(&module.to_declaration());
     let mut runtime = runtime();
     module.install(&mut runtime).unwrap();
-    let loaded = runtime.load_program("temporaries", program).unwrap();
+    let loaded_program = runtime.load_program("temporaries", program).unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     assert_eq!(
         invoke(&runtime, &loaded, 0, &[]).unwrap_err().kind(),
         RuntimeErrorKind::HostCallFailure
@@ -494,7 +499,8 @@ fn host_callbacks_observe_replayable_root_inputs() {
     let program = free_function_program(&module.to_declaration());
     let mut runtime = runtime();
     module.install(&mut runtime).unwrap();
-    let loaded = runtime.load_program("inputs", program).unwrap();
+    let loaded_program = runtime.load_program("inputs", program).unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     let mut options = runtime.execution_options();
     options.inputs.unix_time_millis = 987_654;
     options.inputs.random_seed = 52;
@@ -554,7 +560,8 @@ fn host_trace_keeps_invocation_order_across_reentry() {
     let program = free_function_program(&declarations.to_declaration());
     let mut runtime = runtime();
     declarations.install(&mut runtime).unwrap();
-    let module = runtime.load_program("trace", program).unwrap();
+    let module_program = runtime.load_program("trace", program).unwrap();
+    let module = runtime.select_program(&module_program).unwrap();
     let mut options = runtime.execution_options();
     options.record_host_calls = true;
     options.inputs.unix_time_millis = 10;

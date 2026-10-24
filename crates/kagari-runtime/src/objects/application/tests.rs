@@ -12,7 +12,7 @@ use crate::{
             operations::OperationBindings,
         },
     },
-    module::{LoadedModule, linked_execution::calls::LinkedCall},
+    module::{ExecutableModule, Program, linked_execution::calls::LinkedCall},
     native::{
         binding::{Codec, NativeBinding},
         builder::ModuleBuilder,
@@ -35,7 +35,10 @@ use kagari_types::{
 };
 use std::sync::Arc;
 
-fn load_source(source: &str, module: Option<&NativeModule>) -> (Runtime, LoadedModule) {
+fn load_source(
+    source: &str,
+    module: Option<&NativeModule>,
+) -> (Runtime, Program, ExecutableModule) {
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("group.kgr", source.into(), SourceLayer::Base)
@@ -56,8 +59,9 @@ fn load_source(source: &str, module: Option<&NativeModule>) -> (Runtime, LoadedM
     if let Some(module) = module {
         module.install(&mut runtime).unwrap();
     }
-    let loaded = runtime.load_program("group", code).unwrap();
-    (runtime, loaded)
+    let loaded_program = runtime.load_program("group", code).unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
+    (runtime, loaded_program, loaded)
 }
 
 #[test]
@@ -91,7 +95,7 @@ fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cy
             .unwrap();
         declaration.finish().unwrap();
         let module = module.finish().unwrap();
-        let (runtime, loaded) = load_source(
+        let (runtime, loaded_program, loaded) = load_source(
             r#"
         use example::defaults::Read;
         impl Read for i32 { fn read(self) -> i32 { self } }
@@ -214,7 +218,11 @@ fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cy
             drop(retained_root);
         } else {
             let candidate = runtime
-                .stage_reload_verified_program(&loaded, "group", loaded.verified_program().clone())
+                .stage_reload_verified_program(
+                    &loaded_program,
+                    None,
+                    loaded.verified_program().clone(),
+                )
                 .unwrap();
             runtime.publish_staged_reload(candidate).unwrap();
             // The retained method protects the old program/application cycle;
@@ -236,8 +244,8 @@ fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cy
     }
 }
 
-fn generic_fixture() -> (Runtime, LoadedModule, usize) {
-    let (runtime, loaded) = load_source(
+fn generic_fixture() -> (Runtime, Program, ExecutableModule, usize) {
+    let (runtime, loaded_program, loaded) = load_source(
         r#"
         struct Marker {}
         fn marker() -> Marker { Marker {} }
@@ -255,12 +263,12 @@ fn generic_fixture() -> (Runtime, LoadedModule, usize) {
         .iter()
         .position(|table| loaded.bytecode.public_items.iter().any(|item| matches!(item, PublicItem::InterfaceTable(template) if template.declaration == table.declaration && template.for_type == Ty::Builtin(BuiltinType::I32))))
         .unwrap();
-    (runtime, loaded, table)
+    (runtime, loaded_program, loaded, table)
 }
 
 fn apply_generic(
     runtime: &Runtime,
-    loaded: &LoadedModule,
+    loaded: &ExecutableModule,
     value: Value,
     ty: Ty,
 ) -> RootedInterfaceMethod {
@@ -282,7 +290,7 @@ fn apply_generic(
 
 #[test]
 fn applied_facts_reuse_receiver_independent_identity_and_distinguish_types_and_versions() {
-    let (runtime, loaded, table) = generic_fixture();
+    let (runtime, loaded_program, loaded, table) = generic_fixture();
     let first_value = runtime
         .make_interface(&loaded, table, Value::I32(1))
         .unwrap();
@@ -330,9 +338,11 @@ fn applied_facts_reuse_receiver_independent_identity_and_distinguish_types_and_v
     );
     assert_ne!(first.invocation.application, other.invocation.application);
     let candidate = runtime
-        .stage_reload_verified_program(&loaded, "group", loaded.verified_program().clone())
+        .stage_reload_verified_program(&loaded_program, None, loaded.verified_program().clone())
         .unwrap();
-    let latest = runtime.publish_staged_reload(candidate).unwrap();
+    runtime.publish_staged_reload(candidate).unwrap();
+
+    let latest = runtime.select_program(&loaded_program).unwrap();
     let fresh_value = runtime
         .make_interface(&latest, table, Value::I32(4))
         .unwrap();
@@ -381,7 +391,7 @@ fn applied_facts_reuse_receiver_independent_identity_and_distinguish_types_and_v
 
 #[test]
 fn polymorphic_retention_is_bounded_and_eviction_preserves_active_applications() {
-    let (runtime, loaded, table) = generic_fixture();
+    let (runtime, _loaded_program, loaded, table) = generic_fixture();
     let value = runtime
         .make_interface(&loaded, table, Value::I32(1))
         .unwrap();
@@ -433,13 +443,13 @@ fn polymorphic_retention_is_bounded_and_eviction_preserves_active_applications()
 #[test]
 fn optional_application_retention_expires_with_abandoned_witness_providers() {
     for publish in [false, true] {
-        let (runtime, loaded, table) = generic_fixture();
+        let (runtime, loaded_program, loaded, table) = generic_fixture();
         let value = runtime
             .make_interface(&loaded, table, Value::I32(1))
             .unwrap();
         let root = runtime.root_value(value).unwrap();
         let candidate = runtime
-            .stage_reload_verified_program(&loaded, "group", loaded.verified_program().clone())
+            .stage_reload_verified_program(&loaded_program, None, loaded.verified_program().clone())
             .unwrap();
         let supplier = candidate.module().clone();
         let Value::Interface(id) = runtime
@@ -510,7 +520,7 @@ fn optional_application_retention_expires_with_abandoned_witness_providers() {
 
 #[test]
 fn witness_preparation_reuses_checked_selections_and_retires_with_its_program() {
-    let (runtime, mut loaded) = load_source(
+    let (runtime, loaded_program, mut loaded) = load_source(
         r#"
         trait Read { fn read(self) -> i32; }
         impl Read for i32 { fn read(self) -> i32 { self } }
@@ -608,10 +618,11 @@ fn witness_preparation_reuses_checked_selections_and_retires_with_its_program() 
                 .is_err()
         );
         let candidate = runtime
-            .stage_reload_verified_program(&loaded, "group", loaded.verified_program().clone())
+            .stage_reload_verified_program(&loaded_program, None, loaded.verified_program().clone())
             .unwrap();
         let retired = loaded.clone();
-        loaded = runtime.publish_staged_reload(candidate).unwrap();
+        runtime.publish_staged_reload(candidate).unwrap();
+        loaded = runtime.select_program(&loaded_program).unwrap();
         runtime.collect_garbage().unwrap();
         assert!(first.validate(&runtime.gc));
         drop(root);

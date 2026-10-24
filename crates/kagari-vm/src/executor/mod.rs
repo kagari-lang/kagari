@@ -9,7 +9,7 @@ use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
     RootedInterfaceMethod, Runtime,
     frame::{ExecutionFrame, ExecutionStack},
-    module::LoadedModule,
+    module::ExecutableModule,
     session::owned::OwnedExecution,
     value::Value,
 };
@@ -34,7 +34,7 @@ pub(crate) enum DriveOutcome {
 impl<'a> Executor<'a> {
     pub(crate) fn new(
         runtime: &'a Runtime,
-        loaded: &'a LoadedModule,
+        loaded: &'a ExecutableModule,
         entry: FunctionRef,
         args: &[Value],
     ) -> Result<Self, VmError> {
@@ -123,7 +123,7 @@ impl<'a> Executor<'a> {
         self.stack.as_ref().expect("active executor")
     }
 
-    pub(crate) fn current_loaded(&self) -> Result<LoadedModule, VmError> {
+    pub(crate) fn current_loaded(&self) -> Result<ExecutableModule, VmError> {
         Ok(self.current_frame()?.loaded().clone())
     }
 

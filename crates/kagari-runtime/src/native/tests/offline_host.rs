@@ -125,8 +125,9 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
     .unwrap()
     .install(&mut runtime)
     .unwrap();
-    let loaded = runtime.load_program("host", bytecode).unwrap();
-    let shared = runtime.modules().latest("host").unwrap();
+    let loaded_program = runtime.load_program("host", bytecode).unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
+    let shared = runtime.select_program(&loaded_program).unwrap();
     assert!(std::ptr::eq(&loaded.bytecode, &shared.bytecode));
     assert!(std::ptr::eq(&loaded.bytecode, &loaded.clone().bytecode));
     let before = runtime.resources().counters();
@@ -140,21 +141,21 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
     let mismatch = free_function_program(&scoped(&definitions, mismatch));
     assert!(
         runtime
-            .stage_reload_program(&loaded, "host", mismatch.clone())
+            .stage_reload_program(&loaded_program, None, mismatch.clone())
             .is_err()
     );
     assert!(
         runtime
             .stage_reload_artifact(
-                &loaded,
-                "host",
+                &loaded_program,
+                None,
                 artifact(mismatch),
                 &ArtifactCompatibility::default()
             )
             .is_err()
     );
     assert_eq!(
-        runtime.modules().latest("host").unwrap().key(),
+        runtime.select_program(&loaded_program).unwrap().key(),
         loaded.key()
     );
     assert_eq!(runtime.resources().counters(), before);
@@ -169,25 +170,27 @@ fn bound_slots_and_loaded_handles_reject_another_runtime() {
     let mut second = Runtime::default();
     module.install(&mut first).unwrap();
     module.install(&mut second).unwrap();
-    let a = first
+    let a_program = first
         .load_program("same", free_function_program(&declaration))
         .unwrap();
-    let b = second
+    let a = first.select_program(&a_program).unwrap();
+    let b_program = second
         .load_program("same", free_function_program(&declaration))
         .unwrap();
+    let b = second.select_program(&b_program).unwrap();
     // Native import slot zero exists in both programs, but its owner is mandatory.
     assert_eq!(a.bytecode.native_imports.len(), 1);
     assert_eq!(b.bytecode.native_imports.len(), 1);
     assert_eq!(a.key(), b.key());
     assert!(invoke(&second, &a, 0, &[Value::I32(1)]).is_err());
-    assert!(second.validate_loaded_module(&a).is_err());
+    assert!(second.validate_executable_module(&a).is_err());
     assert!(second.module_instance_snapshot(&a).is_none());
     assert!(
         second
             .write_module_slot(&a, ModuleSlot::new(0), Value::Unit)
             .is_err()
     );
-    assert!(second.validate_loaded_module(&b).is_ok());
+    assert!(second.validate_executable_module(&b).is_ok());
     assert_eq!(
         invoke(&second, &b, 0, &[Value::I32(7)]).unwrap(),
         Value::I32(7)
@@ -207,9 +210,10 @@ fn callback_arguments_and_result_obey_the_declared_representation() {
     .unwrap();
     let mut runtime = Runtime::default();
     module.install(&mut runtime).unwrap();
-    let loaded = runtime
+    let loaded_program = runtime
         .load_program("host", free_function_program(&declaration))
         .unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     assert!(invoke(&runtime, &loaded, 0, &[]).is_err());
     assert!(invoke(&runtime, &loaded, 0, &[Value::Bool(true)]).is_err());
     assert_eq!(calls.load(Ordering::SeqCst), 0);
@@ -259,9 +263,10 @@ fn offline_roundtrip_and_binding_link_do_not_run_callbacks() {
     .install(&mut runtime)
     .unwrap();
     let (definitions, decoded) = imported.into_parts();
-    let loaded = runtime
+    let loaded_program = runtime
         .load_program("offline", scoped(&definitions, decoded.program))
         .unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     assert_ne!(
         loaded.bytecode.native_imports[0].instance.declaration,
@@ -399,9 +404,10 @@ fn invalid_registration_leaves_registry_unchanged() {
         .unwrap();
     let duplicate = bound(original.clone(), |_, _| Ok(Value::I32(9))).unwrap();
     assert!(duplicate.install(&mut runtime).is_err());
-    let loaded = runtime
+    let loaded_program = runtime
         .load_program("original", free_function_program(&original))
         .unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     assert_eq!(
         invoke(&runtime, &loaded, 0, &[Value::I32(1)]).unwrap(),
         Value::I32(7)

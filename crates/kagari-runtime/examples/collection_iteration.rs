@@ -11,7 +11,7 @@ use kagari_types::{scalar::BuiltinType, ty::Ty};
 fn main() {
     let mut runtime = Runtime::default();
     let context = DefinitionContext::new().unwrap();
-    let owner = runtime
+    let owner_program = runtime
         .load_program(
             "arrays",
             DefinitionMetadata::checked(
@@ -34,6 +34,7 @@ fn main() {
             .unwrap(),
         )
         .unwrap();
+    let owner = runtime.select_program(&owner_program).unwrap();
 
     let gc = runtime.gc();
     let id = runtime

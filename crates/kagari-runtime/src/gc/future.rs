@@ -5,7 +5,7 @@ use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::types::arguments::TypeArgument,
     gc::{GcHeap, HeapObjectId, collector::Visited, roots::RootSet, storage::append_value_edges},
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         binding::NativeResult,
         future::{ColdFuture, FuturePayload},
@@ -100,7 +100,7 @@ impl GcHeap {
     pub(crate) fn future_contract(
         &self,
         id: HeapObjectId,
-    ) -> NativeResult<(LoadedModule, Ty, Option<TypeArgument>)> {
+    ) -> NativeResult<(ExecutableModule, Ty, Option<TypeArgument>)> {
         self.ensure_no_native_borrow()?;
         self.ensure_execution_allowed()?;
         let objects = self

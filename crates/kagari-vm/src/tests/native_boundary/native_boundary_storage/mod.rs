@@ -132,6 +132,8 @@ fn declared_sequence_layout_selects_contiguous_i32_even_when_empty() {
         "use std::collections::{HashMap};\nuse example::buffers::{Buffer, push, sum}; fn main() -> i32 { val buffer: Buffer<i32> = Buffer::new(); val other: Buffer<i32> = Buffer::new(); if buffer != buffer || buffer == other { return -2; } val keys = HashMap::new(); keys.insert(buffer, 42); if !keys.contains_key(buffer) || keys.contains_key(other) { return -3; } if sum(buffer) != 0 { return -1; } push(buffer, 20); push(buffer, 22); sum(buffer) }",
         Some(&module),
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
@@ -155,6 +157,8 @@ fn index_bounds_validate_the_applied_type_even_without_a_payload() {
         "#,
         None,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let valid = vm.execute(&loaded, "valid").unwrap();
     assert_eq!(
         index_bound(
@@ -210,6 +214,8 @@ fn assigns_stable_object_identity_and_kind() {
     "#,
         None,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let Value::Tuple(values) = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
@@ -261,6 +267,8 @@ fn hash_map_replaces_duplicates_and_accounts_units() {
 fn main() -> HashMap<String,i32> { val map: HashMap<String,i32> = HashMap::new(); map.insert("b", 2); map.insert("a", 1); map.insert("b", 3); map }"#,
         None,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let value = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
@@ -305,7 +313,7 @@ fn main() -> HashMap<String,i32> { val map: HashMap<String,i32> = HashMap::new()
     // Empty container (1) plus two one-byte module constants (2 units each).
     assert_eq!(heap.stats().current_heap_units, 5);
     drop(root);
-    publish_unused_version(&vm, &loaded);
+    publish_unused_version(&vm, &_loaded_program);
     vm.runtime().collect_garbage().unwrap();
     assert_eq!(heap.stats().current_heap_units, 0);
 }
@@ -317,6 +325,8 @@ fn hash_set_replaces_duplicates_and_accounts_units() {
 fn main() -> HashSet<String> { val set: HashSet<String> = HashSet::new(); set.insert("b"); set.insert("a"); set.insert("b"); set }"#,
         None,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let value = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
@@ -352,7 +362,7 @@ fn main() -> HashSet<String> { val set: HashSet<String> = HashSet::new(); set.in
     // Empty container (1) plus two one-byte module constants (2 units each).
     assert_eq!(heap.stats().current_heap_units, 5);
     drop(root);
-    publish_unused_version(&vm, &loaded);
+    publish_unused_version(&vm, &_loaded_program);
     vm.runtime().collect_garbage().unwrap();
     assert_eq!(heap.stats().current_heap_units, 0);
 }
@@ -371,6 +381,8 @@ fn root_scanning_traces_only_gc_managed_boundaries() {
     "#,
         None,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let Value::Tuple(values) = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
@@ -434,6 +446,8 @@ fn root_scanning_handles_cycles_without_duplicate_identity() {
     "#,
         None,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let Value::GcHandle(array) = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
@@ -461,6 +475,8 @@ fn removal_results_distinguish_absence_from_stale_handle_errors() {
     "#,
         None,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let Value::Tuple(values) = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
@@ -538,6 +554,8 @@ fn native_array_helpers_mutate_and_return_options() {
     "#,
         None,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let Value::Tuple(values) = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
@@ -586,6 +604,8 @@ fn native_map_helpers_return_options_and_keep_declared_types() {
     "#,
         None,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let Value::Tuple(values) = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
@@ -637,6 +657,8 @@ fn collection_revisions_distinguish_replacements_from_structural_writes() {
     "#,
         None,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let Value::Tuple(values) = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
@@ -692,6 +714,8 @@ fn native_map_and_set_allocations_update_resource_counters() {
     "#,
         None,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let value = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
@@ -736,6 +760,8 @@ use std::hash::{Hash};
     "#,
         None,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     vm.execute(&loaded, ProgramEntry::Main).unwrap();
     assert_eq!(vm.runtime().gc().active_roots(), 0);
     vm.runtime().collect_garbage().unwrap();

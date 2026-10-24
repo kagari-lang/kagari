@@ -358,6 +358,8 @@ fn roots_and_borrows_match_nominal_declarations_instead_of_names_or_categories()
     assert_ne!(a_ty, b_ty);
     *wrong.lock().unwrap() = b_value;
     let loaded = runtime.load_program("nominal", program).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     invoke(&runtime, &loaded, 0, &[a_value]).unwrap();
     assert!(invoke(&runtime, &loaded, 0, &[b_value]).is_err());
     let scope = runtime.host_scope(&[]).unwrap();
@@ -455,6 +457,8 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
     assert_eq!(a.abi_fingerprint(), b.abi_fingerprint());
     assert_ne!(a, b);
     let loaded = local.load_program("owner", program).unwrap();
+    let _loaded_program = loaded;
+    let loaded = local.select_program(&_loaded_program).unwrap();
     invoke(
         &local,
         &loaded,

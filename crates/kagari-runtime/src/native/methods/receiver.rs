@@ -3,7 +3,7 @@ use crate::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
     gc::roots::RootedValue,
-    module::{LoadedModule, retention::ProgramLease},
+    module::{ExecutableModule, retention::ProgramLease},
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
@@ -16,13 +16,17 @@ use kagari_types::ty::Ty;
 
 #[derive(Debug, Clone)]
 pub(crate) struct AppliedReceiver {
-    owner: LoadedModule,
+    owner: ExecutableModule,
     argument: TypeArgument,
     _program: ProgramLease,
 }
 
 impl AppliedReceiver {
-    pub(crate) fn new(owner: LoadedModule, argument: TypeArgument, program: ProgramLease) -> Self {
+    pub(crate) fn new(
+        owner: ExecutableModule,
+        argument: TypeArgument,
+        program: ProgramLease,
+    ) -> Self {
         Self {
             owner,
             argument,
@@ -30,7 +34,7 @@ impl AppliedReceiver {
         }
     }
 
-    pub(crate) fn owner(&self) -> &LoadedModule {
+    pub(crate) fn owner(&self) -> &ExecutableModule {
         &self.owner
     }
 
@@ -39,7 +43,7 @@ impl AppliedReceiver {
     }
 
     pub(crate) fn validate(&self, runtime: &Runtime) -> NativeResult<()> {
-        runtime.validate_loaded_module(&self.owner)?;
+        runtime.validate_executable_module(&self.owner)?;
         self.argument.validate(runtime)
     }
 

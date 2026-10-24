@@ -801,7 +801,8 @@ subsequently prioritized transparent generic type aliases first; that prerequisi
 is now locally complete. The user reauthorized the full sequence on 2026-10-24.
 The order remains joint HM00 + UP00, followed by HM01, UP01, HM02, UP02, HM03,
 HM04, UP03, UP04 and UP05. Joint HM00+UP00 was committed as `bbfc0af6`.
-**HM01 is committed as `3523c4c8`; UP01 is locally complete. HM02 is next.**
+**HM01 is committed as `3523c4c8`; UP01 as `cd79fc80`. HM02 is locally complete;
+UP02 is next.**
 Type exports, alias/layout demand and reload comparison include validated
 `private_types: Vec<TypeDeclaration>` separate from public authority. The
 [HM01 ledger](host-api-refactor.md#hm01-integration-and-up01-handoff) owns its
@@ -812,9 +813,19 @@ and monotonic retained-demand metadata with runtime staging/compiler expansion.
 The final compiler shared-arithmetic case and 11 related focused tests passed on
 the repaired tree; no carried UP01 errors remain. Detailed repair and validation
 evidence stays in the [UP01 ledger](update-model-design.md#up01-implementation-and-integration).
-Full CI remains unrun.
-The public API still uses `LoadedModule` and pinned calls until HM02/UP02; no
-current-call dispatch migration is claimed.
+HM02 has implemented live Program/Module metadata and canonical-alias/slotless
+module navigation, with exact-version `ExecutableModule` replacing `LoadedModule`
+directly. Unique installations isolate members, epochs, statics and caches even
+for equal names; load returns Program and reload targets it with unit success.
+Consumer migration and script-trait nominal source isolation are complete. Native
+shared-trait authority derives from actual installed imports, not references or
+same-name empty providers. Reviewer recheck and final focused tests/local checks
+passed; no carried errors remain. The
+[HM02 ledger](host-api-refactor.md#hm02-integration-and-up02hm03-handoff) owns the
+repair and validation evidence.
+Calls remain pinned until UP02. HM03 reuses HM02 navigation to unify relative
+function/type leaf binding; current leaf lookup remains transitional and root-based.
+Full CI remains unrun; MS remains unstarted.
 The [resolved transitive-selection policy](update-model-design.md#resumed-up00-audit-at-bbe30666)
 rejects changes to published Hash/Eq, static initializers and their transitive
 dependencies, independently of container liveness or initialization state; unknown
@@ -835,9 +846,9 @@ resource limits. Alias implementation, review repairs and local acceptance are
 complete. The later user instruction resumed HM00/UP00; alias work itself did not
 complete either phase.
 Alias language semantics alone did not implement host exports or dispatch. HM01
-now supplies the export schema and layout roots; live handles/current-call dispatch
-remain with HM02/UP02. Detailed phase evidence stays in the owning plans, not a
-parallel roadmap progress queue.
+now supplies the export schema and layout roots; HM02 live handles are locally
+complete, while current-call dispatch remains UP02 work. Detailed phase evidence
+stays in the owning plans, not a parallel roadmap progress queue.
 
 ## Other queued designs
 

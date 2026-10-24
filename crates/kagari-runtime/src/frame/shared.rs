@@ -10,7 +10,7 @@ use crate::{
         arguments::FrameArguments,
         types::{EnvironmentRecord, TypeEnvironment},
     },
-    module::{LoadedModule, descriptors::SharedScope},
+    module::{ExecutableModule, descriptors::SharedScope},
     native::context::LinkedCallable,
     value::Value,
 };
@@ -21,12 +21,12 @@ impl ExecutionStack<'_> {
     pub fn push_selected_call(
         &self,
         runtime: &Runtime,
-        caller: &LoadedModule,
+        caller: &ExecutableModule,
         selected: &LinkedCallable,
         args: &[Value],
     ) -> Result<(), RuntimeError> {
         let owner = selected.owner(caller)?;
-        runtime.validate_loaded_module(&owner)?;
+        runtime.validate_executable_module(&owner)?;
         if args.len() != selected.params.len()
             || !args
                 .iter()
@@ -54,14 +54,14 @@ impl ExecutionStack<'_> {
 impl Runtime {
     pub(crate) fn prepare_shared_environment(
         &self,
-        caller: &LoadedModule,
+        caller: &ExecutableModule,
         caller_environment: Option<TypeEnvironment>,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         target: CallableTarget,
         contract: &SharedCall,
     ) -> Result<TypeEnvironment, RuntimeError> {
-        self.validate_loaded_module(caller)?;
-        self.validate_loaded_module(owner)?;
+        self.validate_executable_module(caller)?;
+        self.validate_executable_module(owner)?;
         let scope = SharedScope {
             environment: caller_environment
                 .as_ref()

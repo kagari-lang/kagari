@@ -22,7 +22,7 @@ use kagari_runtime::{
     frame::ExecutionFrame,
     gc::GcHeap,
     host::{HostCallContext, HostError},
-    module::{LoadedModule, entry::ProgramEntry},
+    module::{Program, entry::ProgramEntry},
     native::{
         builder::ModuleBuilder, conversion::context::ConversionContext, module::NativeModule,
         types::Type,
@@ -371,11 +371,12 @@ fn assert_outcome(
 fn execute_route(
     runtime: &Runtime,
     program: &PreparedProgram,
-    loaded: &LoadedModule,
+    loaded: &Program,
     case: &Case<'_>,
     route: Route,
     backend: &mut CraneliftBackend,
 ) -> Result<ExecutionReport, VmError> {
+    let selected = runtime.runtime().select_program(loaded)?;
     match route {
         Route::Jit | Route::ArtifactJit => {
             let prepared = runtime
@@ -398,7 +399,7 @@ fn execute_route(
             // matrix. Native preparation uses the public SDK's trusted handoff.
             let outcome = runtime
                 .vm
-                .execute_prepared(loaded, ProgramEntry::Main, &prepared);
+                .execute_prepared(&selected, ProgramEntry::Main, &prepared);
             if case.require_native
                 && let Ok(report) = &outcome
             {
@@ -409,7 +410,7 @@ fn execute_route(
             }
             outcome
         }
-        _ => runtime.vm.execute(loaded, ProgramEntry::Main),
+        _ => runtime.vm.execute(&selected, ProgramEntry::Main),
     }
 }
 
@@ -486,8 +487,9 @@ fn run(
     let loaded = runtime
         .load_verified_program(case.name, module.bytecode().clone())
         .unwrap_or_else(|error| panic!("{} ({route:?}): {error}", case.name));
+    let selected = runtime.select_program(&loaded).unwrap();
     let retained = case.vector.map(|(initial, _)| {
-        let mut conversion = ConversionContext::new(&runtime, &loaded).unwrap();
+        let mut conversion = ConversionContext::new(&runtime, &selected).unwrap();
         let rooted = conversion.encode(initial.to_vec()).unwrap();
         *observed_vector.lock().unwrap() = Some(rooted.value(runtime.gc()).unwrap());
         rooted
@@ -512,7 +514,7 @@ fn run(
     let session = (case.cancel_call.is_some() || case.cancel_at.is_some()).then(|| {
         let mut options = vm.runtime().execution_options();
         options.cancellation = cancellation.clone();
-        vm.runtime().begin_execution(&loaded, options).unwrap()
+        vm.runtime().begin_execution(&selected, options).unwrap()
     });
     if case.cancel_at.is_some() {
         vm.runtime().attach_execution_observer().unwrap();
@@ -524,29 +526,41 @@ fn run(
     }
     if let Some(candidate) = case.published_reload {
         let program = candidate_program.expect("published candidate must compile");
+        let old_native = matches!(route, Route::Jit | Route::ArtifactJit).then(|| {
+            vm.prepare_native(
+                module,
+                &loaded,
+                ProgramEntry::Main,
+                &mut backend,
+                &Default::default(),
+            )
+            .unwrap()
+        });
         let outer = vm
             .runtime()
-            .begin_execution(&loaded, vm.runtime().execution_options())
+            .begin_execution(&selected, vm.runtime().execution_options())
             .unwrap();
         let stale = vm
             .runtime()
-            .stage_reload_verified_program(&loaded, case.name, program.bytecode().clone())
+            .stage_reload_verified_program(&loaded, None, program.bytecode().clone())
             .unwrap();
-        let current = vm
-            .reload_program(&loaded, program, Default::default())
+        vm.reload_program(&loaded, program, Default::default())
             .unwrap();
-        assert_eq!(
-            vm.runtime().modules().latest(case.name).unwrap().key(),
-            current.key()
-        );
-        assert_ne!(current.key(), loaded.key());
-        assert_eq!(vm.runtime().execution_root().unwrap().key(), loaded.key());
+        let current = loaded.clone();
+        let current_selected = vm.runtime().select_program(&current).unwrap();
+        assert_ne!(current_selected.key(), selected.key());
+        assert_eq!(vm.runtime().execution_root().unwrap().key(), selected.key());
         assert_outcome(
             vm.runtime(),
             case,
             route,
             case.repeat,
-            execute_route(&vm, module, &loaded, case, route, &mut backend),
+            match &old_native {
+                Some(prepared) => vm
+                    .vm
+                    .execute_prepared(&selected, ProgramEntry::Main, prepared),
+                None => vm.vm.execute(&selected, ProgramEntry::Main),
+            },
         );
         drop(outer);
         assert_outcome(
@@ -563,8 +577,8 @@ fn run(
             Err(ReloadValidationError::ModuleNotActive { .. })
         ));
         assert_eq!(
-            vm.runtime().modules().latest(case.name).unwrap().key(),
-            current.key()
+            vm.runtime().select_program(&current).unwrap().key(),
+            current_selected.key()
         );
         assert_eq!(
             vm.runtime().modules().loaded_count(),

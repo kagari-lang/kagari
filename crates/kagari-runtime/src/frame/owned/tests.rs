@@ -4,7 +4,7 @@ use crate::{
     error::RuntimeErrorKind,
     frame::{ExecutionStack, NativeEntryState},
     gc::retention_probe::{measure, replace_cell},
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         binding::NativeResult,
         storage::{NativePayload, NativeStorage},
@@ -38,7 +38,7 @@ pub(in crate::frame) fn module(
     runtime: &mut Runtime,
     aliases: usize,
     scalar: bool,
-) -> LoadedModule {
+) -> ExecutableModule {
     let types = vec![
         if scalar {
             ValueType::I32
@@ -86,7 +86,8 @@ pub(in crate::frame) fn module(
     let program =
         DefinitionMetadata::checked(runtime.host().definitions(), program, &Default::default())
             .unwrap();
-    runtime.load_program("parking", program).unwrap()
+    let program = runtime.load_program("parking", program).unwrap();
+    runtime.select_program(&program).unwrap()
 }
 
 fn graph(runtime: &Runtime, size: usize, cyclic: bool) -> Value {
@@ -113,7 +114,7 @@ pub(in crate::frame) fn set_frame(runtime: &Runtime, stack: &ExecutionStack<'_>,
 
 fn fixture(
     runtime: &Runtime,
-    module: &LoadedModule,
+    module: &ExecutableModule,
     shape: &str,
     depth: usize,
     aliases: usize,

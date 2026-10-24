@@ -83,8 +83,16 @@ fn main() {
     let first_loaded = first_runtime
         .load_verified_program("baseline", verified.clone())
         .unwrap();
+    let _first_loaded_program = first_loaded;
+    let first_loaded = first_runtime
+        .select_program(&_first_loaded_program)
+        .unwrap();
     let second_loaded = second_runtime
         .load_verified_program("baseline", verified.clone())
+        .unwrap();
+    let _second_loaded_program = second_loaded;
+    let second_loaded = second_runtime
+        .select_program(&_second_loaded_program)
         .unwrap();
     let shared_code = Arc::ptr_eq(&first_loaded.bytecode, &second_loaded.bytecode);
     println!(

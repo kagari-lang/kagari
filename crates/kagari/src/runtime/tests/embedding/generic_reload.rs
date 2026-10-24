@@ -4,7 +4,7 @@ use crate::{BytecodeArtifact, engine::KagariEngine, program::PreparedProgram, ru
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::{
-    Runtime as CoreRuntime, RuntimeConfig, module::LoadedModule, native::module::NativeModule,
+    Runtime as CoreRuntime, RuntimeConfig, module::Program, native::module::NativeModule,
     value::Value,
 };
 use kagari_source::source::SourceFile;
@@ -32,7 +32,7 @@ pub(super) fn prepare_static_program(
     .unwrap()
 }
 
-fn static_call(runtime: &Runtime, module: &LoadedModule, entry: &str) -> Value {
+fn static_call(runtime: &Runtime, module: &Program, entry: &str) -> Value {
     runtime
         .execute(module, entry, &[], &Default::default())
         .unwrap()
@@ -75,9 +75,10 @@ pub fn write() { STATE = 128578u32; }
                 .code(),
             "KG_RELOAD_UPDATE_EVIDENCE"
         );
-        let current = runtime
+        runtime
             .reload_program(&old, &second, Default::default())
             .unwrap();
+        let current = old.clone();
         assert!(
             runtime
                 .reload_program(&current, &incompatible, Default::default())
@@ -145,9 +146,10 @@ pub fn distinct() -> bool { !(ROOT === ALIAS) }
                 .code(),
             "KG_RELOAD_UPDATE_EVIDENCE"
         );
-        let current = runtime
+        runtime
             .reload_program(&old, &second, Default::default())
             .unwrap();
+        let current = old.clone();
         static_call(&runtime, &current, "replace");
         for module in [&old, &current] {
             assert_eq!(static_call(&runtime, module, "check"), Value::Bool(true));
@@ -267,9 +269,10 @@ fn persistent_static_callbacks_and_interfaces_keep_generations() {
         // Force the aliases before replacing their original cells.
         assert_eq!(static_call(&runtime, &old, "saved"), Value::I32(22));
         assert_eq!(static_call(&runtime, &old, "function"), Value::I32(10));
-        let current = runtime
+        runtime
             .reload_program(&old, &second, Default::default())
             .unwrap();
+        let current = old.clone();
         static_call(&runtime, &current, "set_state");
 
         assert_eq!(
@@ -315,9 +318,10 @@ fn persistent_static_hash_comparators_reject_changes_and_preserve_values() {
                 .code(),
             "KG_RELOAD_UPDATE_EVIDENCE"
         );
-        let current = runtime
+        runtime
             .reload_program(&old, &first, Default::default())
             .unwrap();
+        let current = old.clone();
         assert_eq!(
             static_call(&runtime, &current, "compare_contents"),
             Value::I32(15)
@@ -395,6 +399,8 @@ pub fn make() -> Run {
     let mut runtime = CoreRuntime::new(config);
     NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
     let old = runtime.load_program("local-reload", program).unwrap();
+    let _old_program = old;
+    let old = runtime.select_program(&_old_program).unwrap();
     let contract = old
         .bytecode
         .trait_contracts
@@ -406,9 +412,10 @@ pub fn make() -> Run {
     let vm = Vm::new(runtime);
     let saved_root = vm.execute(&old, "make").unwrap().return_value;
     let saved = saved_root.value(vm.runtime().gc()).unwrap();
-    let current = vm
-        .reload_program(&old, "local-reload", replacement)
+    vm.reload_program(&_old_program, Some("local-reload".into()), replacement)
         .unwrap();
+    let _current_program = _old_program.clone();
+    let current = vm.runtime().select_program(&_current_program).unwrap();
     drop(old);
     vm.runtime().collect_garbage().unwrap();
     assert!(vm.runtime().modules().loaded(old_key).is_some());
@@ -512,6 +519,8 @@ pub fn make() -> Run {{
             registered
         };
         let old = runtime.load_program("generic-reload", program).unwrap();
+        let _old_program = old;
+        let old = runtime.select_program(&_old_program).unwrap();
         let contract = old
             .bytecode
             .trait_contracts
@@ -536,9 +545,10 @@ pub fn make() -> Run {{
             .value(vm.runtime().gc())
             .expect("retained execution result");
         let root = vm.runtime().root_value(saved).unwrap();
-        let current = vm
-            .reload_program(&old, "generic-reload", replacement)
+        vm.reload_program(&_old_program, Some("generic-reload".into()), replacement)
             .unwrap();
+        let _current_program = _old_program.clone();
+        let current = vm.runtime().select_program(&_current_program).unwrap();
         drop(old);
         vm.runtime().collect_garbage().unwrap();
         assert!(vm.runtime().modules().loaded(old_key).is_some());
@@ -645,6 +655,8 @@ pub fn make_stopped()->Run {val keeper:Keep=0; Saved {callback:keeper.keep(Carri
     )
     .unwrap();
     let old = runtime.load_program("try-reload", program).unwrap();
+    let _old_program = old;
+    let old = runtime.select_program(&_old_program).unwrap();
     let contract = old
         .bytecode
         .trait_contracts
@@ -668,7 +680,10 @@ pub fn make_stopped()->Run {val keeper:Keep=0; Saved {callback:keeper.keep(Carri
         .value(vm.runtime().gc())
         .expect("retained execution result");
     let stopped_root = vm.runtime().root_value(stopped).unwrap();
-    let current = vm.reload_program(&old, "try-reload", replacement).unwrap();
+    vm.reload_program(&_old_program, Some("try-reload".into()), replacement)
+        .unwrap();
+    let _current_program = _old_program.clone();
+    let current = vm.runtime().select_program(&_current_program).unwrap();
     drop(old);
     vm.runtime().collect_garbage().unwrap();
     assert!(vm.runtime().modules().loaded(old_key).is_some());
@@ -747,12 +762,15 @@ pub fn probe() -> Probe { Checker {} }
     let mut runtime = CoreRuntime::new(config);
     NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
     let old = runtime.load_program("receiver-reload", original).unwrap();
+    let _old_program = old;
+    let old = runtime.select_program(&_old_program).unwrap();
     let old_key = old.key();
     let vm = Vm::new(runtime);
     let saved = vm.execute(&old, "make").unwrap().return_value;
-    let current = vm
-        .reload_program(&old, "receiver-reload", replacement)
+    vm.reload_program(&_old_program, Some("receiver-reload".into()), replacement)
         .unwrap();
+    let _current_program = _old_program.clone();
+    let current = vm.runtime().select_program(&_current_program).unwrap();
     drop(old);
     vm.runtime().collect_garbage().unwrap();
     assert!(vm.runtime().modules().loaded(old_key).is_some());
@@ -928,13 +946,20 @@ fn assert_shared_collection_comparison_reloading(
     let old = runtime
         .load_program("shared-comparison-reload", original)
         .unwrap();
+    let _old_program = old;
+    let old = runtime.select_program(&_old_program).unwrap();
     let old_key = old.key();
     let vm = Vm::new(runtime);
     let factory = vm.execute(&old, "make").unwrap().return_value;
     let old_probe = vm.execute(&old, "probe").unwrap().return_value;
-    let current = vm
-        .reload_program(&old, "shared-comparison-reload", replacement)
-        .unwrap();
+    vm.reload_program(
+        &_old_program,
+        Some("shared-comparison-reload".into()),
+        replacement,
+    )
+    .unwrap();
+    let _current_program = _old_program.clone();
+    let current = vm.runtime().select_program(&_current_program).unwrap();
     drop(old);
     vm.runtime().collect_garbage().unwrap();
     let fresh_probe = vm.execute(&current, "probe").unwrap().return_value;

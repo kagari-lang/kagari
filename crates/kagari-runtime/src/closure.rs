@@ -7,7 +7,7 @@ use crate::{
         TypeEnvironment, arguments::ScopedSignature, bindings::TypeBindings,
         compatibility::TypeView,
     },
-    module::LoadedModule,
+    module::ExecutableModule,
     value::Value,
 };
 use kagari_abi::representation::ValueType;
@@ -36,7 +36,7 @@ pub struct NativeClosure {
 #[derive(Debug, Clone)]
 pub struct ClosureValueSnapshot {
     pub environment: Option<TypeEnvironment>,
-    pub implementation: LoadedModule,
+    pub implementation: ExecutableModule,
     pub target: ClosureTarget,
     pub captures: Vec<Value>,
 }
@@ -158,7 +158,7 @@ impl ClosureValueSnapshot {
         &self,
         params: &[Ty],
         result: &Ty,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         environment: Option<&TypeBindings>,
     ) -> bool {
         let function = match &self.target {

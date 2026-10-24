@@ -23,7 +23,7 @@ use crate::{
     },
     frame::types::{EnvironmentRecord, TypeEnvironment, operations::OperationBindings},
     gc::interfaces::{InterfaceDescription, InterfaceResultBinding, InterfaceValueSnapshot},
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{application::NativeApplication, stored_selection::StoredSelection},
     value::Value,
 };
@@ -39,7 +39,7 @@ impl Runtime {
     pub(crate) fn metadata_dependencies(
         &self,
         edge: MetadataEdge<'_>,
-    ) -> Result<Vec<LoadedModule>, RuntimeError> {
+    ) -> Result<Vec<ExecutableModule>, RuntimeError> {
         let mut dependencies = Vec::new();
         let mut seen = HashSet::new();
         self.inspect_metadata(edge, |owner| {
@@ -53,10 +53,10 @@ impl Runtime {
     fn inspect_metadata(
         &self,
         edge: MetadataEdge<'_>,
-        mut visit: impl FnMut(&LoadedModule),
+        mut visit: impl FnMut(&ExecutableModule),
     ) -> Result<(), RuntimeError> {
         if let MetadataEdge::Program(owner) = edge {
-            self.validate_loaded_module(owner)?;
+            self.validate_executable_module(owner)?;
             visit(owner);
             return Ok(());
         }
@@ -83,7 +83,7 @@ impl Runtime {
             .map_err(|_| RuntimeError::module_validation("environment store is borrowed"))?;
         MetadataTrace::new(&environments, &groups, &applications, &interfaces)
             .programs(edge, |owner| {
-                self.validate_loaded_module(owner)
+                self.validate_executable_module(owner)
                     .map(|()| visit(owner))
                     .map_err(|failure| error = Some(failure))
                     .ok()
@@ -101,7 +101,7 @@ impl Runtime {
 #[derive(Debug, Clone)]
 pub(crate) enum MetadataRoot {
     NativeApplication(Arc<NativeApplication>),
-    Program(LoadedModule),
+    Program(ExecutableModule),
     Environment(EnvironmentId),
     Operation(OperationId),
     Interface(InterfaceSnapshotId),
@@ -124,7 +124,7 @@ impl MetadataRoot {
 #[derive(Clone, Copy)]
 pub(crate) enum MetadataEdge<'a> {
     NativeApplication(&'a NativeApplication),
-    Program(&'a LoadedModule),
+    Program(&'a ExecutableModule),
     Environment(EnvironmentId),
     EnvironmentView(&'a EnvironmentRecord),
     InterfaceCall(&'a ScopedInterfaceCall),
@@ -222,7 +222,7 @@ impl<'a> MetadataTrace<'a> {
     pub(crate) fn programs(
         &mut self,
         edge: MetadataEdge<'a>,
-        mut visit: impl FnMut(&'a LoadedModule) -> Option<()>,
+        mut visit: impl FnMut(&'a ExecutableModule) -> Option<()>,
     ) -> Option<()> {
         self.pending.push(edge);
         while let Some(edge) = self.pending.pop() {

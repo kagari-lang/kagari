@@ -220,6 +220,8 @@ mod tests {
                     .unwrap(),
             )
             .unwrap();
+        let _owner_program = owner;
+        let owner = runtime.select_program(&_owner_program).unwrap();
         let executor = Executor::new(&runtime, &owner, FunctionRef::new(0), &[]).unwrap();
         let error = executor
             .report_operation::<()>(Err(VmError::from(RuntimeError::resource_limit(

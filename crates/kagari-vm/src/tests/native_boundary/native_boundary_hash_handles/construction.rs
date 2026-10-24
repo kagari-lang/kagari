@@ -22,17 +22,21 @@ fn factories_reuse_checked_constructors_and_return_independent_retained_collecti
     "#,
         None,
     );
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let runtime = vm.runtime();
     let conversion = ConversionContext::new(runtime, &owner).unwrap();
     let key = conversion.type_for::<String>().unwrap();
     let value = conversion.type_for::<i32>().unwrap();
     let factory = runtime
-        .bind_map_constructor::<String, i32>(&owner, &key, &value)
+        .bind_map_constructor::<String, i32>(&_owner_program.root(), &key, &value)
         .unwrap();
     let again = runtime
-        .bind_map_constructor::<String, i32>(&owner, &key, &value)
+        .bind_map_constructor::<String, i32>(&_owner_program.root(), &key, &value)
         .unwrap();
-    let set_factory = runtime.bind_set_constructor::<i32>(&owner, &value).unwrap();
+    let set_factory = runtime
+        .bind_set_constructor::<i32>(&_owner_program.root(), &value)
+        .unwrap();
     let mut cx = vm.context(&owner).unwrap();
     let map = factory.call(&mut cx, ()).unwrap();
     let other = again.call(&mut cx, ()).unwrap();
@@ -49,13 +53,13 @@ fn factories_reuse_checked_constructors_and_return_independent_retained_collecti
     assert!(convenience_set.is_empty(&cx).unwrap());
     assert!(
         runtime
-            .bind_map_constructor::<bool, i32>(&owner, &key, &value)
+            .bind_map_constructor::<bool, i32>(&_owner_program.root(), &key, &value)
             .is_err()
     );
     let missing = conversion.type_for::<i64>().unwrap();
     assert!(
         runtime
-            .bind_set_constructor::<i64>(&owner, &missing)
+            .bind_set_constructor::<i64>(&_owner_program.root(), &missing)
             .is_err()
     );
     drop((map, other, set, convenience, convenience_set));
@@ -85,22 +89,31 @@ fn custom_key_factories_pin_selected_operations_through_reentry_and_reload() {
     .unwrap();
     let module = module.finish().unwrap();
     let (vm, old) = fixture(CUSTOM, Some(&module));
-    let key_type = vm.runtime().bind_type(&old, "Key", &[]).unwrap();
+    let _old_program = old;
+    let old = vm.runtime().select_program(&_old_program).unwrap();
+    let key_type = vm
+        .runtime()
+        .bind_type(&_old_program.root(), "Key", &[])
+        .unwrap();
     let value_type = ConversionContext::new(vm.runtime(), &old)
         .unwrap()
         .type_for::<i32>()
         .unwrap();
     let factory = vm
         .runtime()
-        .bind_map_constructor::<Object, i32>(&old, key_type.type_argument(), &value_type)
+        .bind_map_constructor::<Object, i32>(
+            &_old_program.root(),
+            key_type.type_argument(),
+            &value_type,
+        )
         .unwrap();
     let set_factory = vm
         .runtime()
-        .bind_set_constructor::<Object>(&old, key_type.type_argument())
+        .bind_set_constructor::<Object>(&_old_program.root(), key_type.type_argument())
         .unwrap();
     let key = vm
         .runtime()
-        .bind_function::<(i32,), Object>(&old, "key")
+        .bind_function::<(i32,), Object>(&_old_program.root(), "key")
         .unwrap();
     let first = vm.call(&key, (1,)).unwrap();
     let equal = vm.call(&key, (1,)).unwrap();
@@ -125,28 +138,41 @@ fn custom_key_factories_pin_selected_operations_through_reentry_and_reload() {
     assert!(map.get(&mut cx, trap).is_err());
     assert_eq!(map.len(&cx).unwrap(), 1);
     let new_source = CUSTOM.replace("self.value == other.value", "false");
-    let new = vm
-        .reload_program(
-            &old,
-            "functions",
-            compile_program(&new_source, Some(&module)),
-        )
-        .unwrap();
+    vm.reload_program(
+        &_old_program,
+        Some("functions".into()),
+        compile_program(&new_source, Some(&module)),
+    )
+    .unwrap();
+    let _new_program = _old_program.clone();
+    let new = vm.runtime().select_program(&_new_program).unwrap();
     drop(cx);
     let mut cx = vm.context(&new).unwrap();
     let later = factory.call(&mut cx, ()).unwrap();
     later.insert(&cx, first.clone(), 43).unwrap();
     assert_eq!(later.get(&mut cx, equal.clone()).unwrap(), Some(43));
     assert_eq!(map.get(&mut cx, equal.clone()).unwrap(), Some(42));
-    let new_key_type = vm.runtime().bind_type(&new, "Key", &[]).unwrap();
+    let new_key_type = vm
+        .runtime()
+        .bind_type(&_new_program.root(), "Key", &[])
+        .unwrap();
     let new_factory = vm
         .runtime()
-        .bind_map_constructor::<Object, i32>(&new, new_key_type.type_argument(), &value_type)
+        .bind_map_constructor::<Object, i32>(
+            &_new_program.root(),
+            new_key_type.type_argument(),
+            &value_type,
+        )
         .unwrap();
     let replacement = new_factory.call(&mut cx, ()).unwrap();
     replacement.insert(&cx, first, 44).unwrap();
     assert_eq!(replacement.get(&mut cx, equal).unwrap(), None);
     let (foreign, foreign_owner) = fixture("pub fn main() {}", None);
+    let _foreign_owner_program = foreign_owner;
+    let foreign_owner = foreign
+        .runtime()
+        .select_program(&_foreign_owner_program)
+        .unwrap();
     assert!(
         factory
             .call(&mut foreign.context(&foreign_owner).unwrap(), ())
@@ -210,6 +236,8 @@ fn typed_native_callbacks_create_collections_with_the_same_checked_factory() {
     "#,
         Some(&module.finish().unwrap()),
     );
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     assert_eq!(vm.execute_typed::<(), i32>(&owner, "run", ()).unwrap(), 42);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     assert_eq!(vm.runtime().gc().active_roots(), 0);

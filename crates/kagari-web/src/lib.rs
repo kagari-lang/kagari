@@ -15,7 +15,7 @@ use kagari::{
     runtime::Runtime,
 };
 use kagari_runtime::{
-    module::{LoadedModule, entry::ProgramEntry},
+    module::{Program, entry::ProgramEntry},
     session::owned::OwnedExecution,
 };
 #[cfg(feature = "source")]
@@ -42,7 +42,7 @@ const MAX_SLICE: u32 = 100_000;
 pub struct BrowserSession {
     engine: KagariEngine,
     runtime: Runtime,
-    module: Option<LoadedModule>,
+    module: Option<Program>,
     active: Option<OwnedExecution>,
     output: Arc<Mutex<Output>>,
 }
@@ -140,12 +140,18 @@ impl BrowserSession {
         let Some(module) = &self.module else {
             return self.reject("WEB_NO_PROGRAM", "compile or load an artifact first");
         };
-        match self
+        let result = self
             .runtime
-            .backend()
-            .start(module, ProgramEntry::Main, &[], Default::default())
+            .runtime()
+            .select_program(module)
             .map_err(EmbeddingError::from)
-        {
+            .and_then(|module| {
+                self.runtime
+                    .backend()
+                    .start(&module, ProgramEntry::Main, &[], Default::default())
+                    .map_err(EmbeddingError::from)
+            });
+        match result {
             Ok(active) => {
                 self.active = Some(active);
                 self.respond(Response::new("runnable"))

@@ -15,7 +15,7 @@ fn main() {
     for repeat in 0..5 {
         let mut runtime = Runtime::default();
         let context = DefinitionContext::new().unwrap();
-        let owner = runtime
+        let owner_program = runtime
             .load_program(
                 "arrays",
                 DefinitionMetadata::checked(
@@ -38,6 +38,7 @@ fn main() {
                 .unwrap(),
             )
             .unwrap();
+        let owner = runtime.select_program(&owner_program).unwrap();
         // A typed array of scalar arrays makes the graph shape and storage cost explicit.
         let element = Ty::Builtin(BuiltinType::I32);
         let mut leaves = Vec::with_capacity(LEAVES);

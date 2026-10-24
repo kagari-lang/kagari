@@ -39,25 +39,23 @@ fn generic_function_binding_uses_closed_witnesses_and_rejects_missing_applicatio
     "#,
         Some(&module),
     );
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let conversion = ConversionContext::new(vm.runtime(), &owner).unwrap();
     let i32_type = conversion.type_for::<i32>().unwrap();
     let string_type = conversion.type_for::<String>().unwrap();
     let identity = vm
         .runtime()
         .bind_function_application_declaration::<(i32,), i32>(
-            &owner,
+            &_owner_program.root(),
             &declaration,
             slice::from_ref(&i32_type),
         )
         .unwrap();
     assert_eq!(vm.call(&identity, (42,)).unwrap(), 42);
-    let native = owner
-        .members()
-        .find(|member| member.bytecode.identity == declaration.module)
-        .unwrap();
     assert!(
         vm.runtime()
-            .bind_function::<(i32,), i32>(&native, "identity")
+            .bind_function::<(i32,), i32>(&_owner_program.root(), "identity")
             .is_err()
     );
     let hidden = DefinitionPath {
@@ -72,7 +70,7 @@ fn generic_function_binding_uses_closed_witnesses_and_rejects_missing_applicatio
     assert!(
         vm.runtime()
             .bind_function_application_declaration::<(String,), String>(
-                &owner,
+                &_owner_program.root(),
                 &declaration,
                 &[string_type]
             )
@@ -81,7 +79,7 @@ fn generic_function_binding_uses_closed_witnesses_and_rejects_missing_applicatio
     assert!(
         vm.runtime()
             .bind_function_application_declaration::<(i32,), i32>(
-                &owner,
+                &_owner_program.root(),
                 &hidden,
                 slice::from_ref(&i32_type)
             )
@@ -89,13 +87,17 @@ fn generic_function_binding_uses_closed_witnesses_and_rejects_missing_applicatio
     );
     assert!(
         vm.runtime()
-            .bind_function_application_declaration::<(i32,), i32>(&owner, &declaration, &[])
+            .bind_function_application_declaration::<(i32,), i32>(
+                &_owner_program.root(),
+                &declaration,
+                &[]
+            )
             .is_err()
     );
     assert!(
         vm.runtime()
             .bind_function_application_declaration::<(i32,), bool>(
-                &owner,
+                &_owner_program.root(),
                 &declaration,
                 &[i32_type]
             )
@@ -118,20 +120,25 @@ fn generic_native_calls_return_retained_objects_collections_and_closures() {
     "#,
         Some(&module),
     );
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let conversion = ConversionContext::new(vm.runtime(), &owner).unwrap();
     let i32_type = conversion.type_for::<i32>().unwrap();
-    let item = vm.runtime().bind_type(&owner, "Item", &[]).unwrap();
+    let item = vm
+        .runtime()
+        .bind_type(&_owner_program.root(), "Item", &[])
+        .unwrap();
     let identity = vm
         .runtime()
         .bind_function_application_declaration::<(Object,), Object>(
-            &owner,
+            &_owner_program.root(),
             &identity_id,
             slice::from_ref(item.type_argument()),
         )
         .unwrap();
     let make = vm
         .runtime()
-        .bind_function::<(), Object>(&owner, "make")
+        .bind_function::<(), Object>(&_owner_program.root(), "make")
         .unwrap();
     let object = vm.call(&identity, (vm.call(&make, ()).unwrap(),)).unwrap();
     vm.runtime().collect_garbage().unwrap();
@@ -145,7 +152,7 @@ fn generic_native_calls_return_retained_objects_collections_and_closures() {
     let singleton = vm
         .runtime()
         .bind_function_application_declaration::<(i32,), ScriptVec<i32>>(
-            &owner,
+            &_owner_program.root(),
             &singleton_id,
             &[i32_type],
         )
@@ -160,14 +167,14 @@ fn generic_native_calls_return_retained_objects_collections_and_closures() {
     let identity = vm
         .runtime()
         .bind_function_application_declaration::<(Callback,), Callback>(
-            &owner,
+            &_owner_program.root(),
             &identity_id,
             &[callback_type],
         )
         .unwrap();
     let closure = vm
         .runtime()
-        .bind_function::<(), Callback>(&owner, "closure")
+        .bind_function::<(), Callback>(&_owner_program.root(), "closure")
         .unwrap();
     let callback = vm
         .call(&identity, (vm.call(&closure, ()).unwrap(),))
@@ -186,12 +193,17 @@ fn generic_bindings_pin_their_program_and_weak_cache_releases_it() {
         pub fn make() -> Item { identity(Item { value: 41 }) }
     "#;
     let (vm, old) = fixture(source, Some(&module));
-    let item = vm.runtime().bind_type(&old, "Item", &[]).unwrap();
+    let _old_program = old;
+    let old = vm.runtime().select_program(&_old_program).unwrap();
+    let item = vm
+        .runtime()
+        .bind_type(&_old_program.root(), "Item", &[])
+        .unwrap();
     let argument = item.type_argument().clone();
     let identity = vm
         .runtime()
         .bind_function_application_declaration::<(Object,), Object>(
-            &old,
+            &_old_program.root(),
             &declaration,
             slice::from_ref(&argument),
         )
@@ -199,14 +211,14 @@ fn generic_bindings_pin_their_program_and_weak_cache_releases_it() {
     let duplicate = vm
         .runtime()
         .bind_function_application_declaration::<(Object,), Object>(
-            &old,
+            &_old_program.root(),
             &declaration,
             slice::from_ref(&argument),
         )
         .unwrap();
     let make = vm
         .runtime()
-        .bind_function::<(), Object>(&old, "make")
+        .bind_function::<(), Object>(&_old_program.root(), "make")
         .unwrap();
     let object = vm.call(&make, ()).unwrap();
     let new_source = source
@@ -217,8 +229,8 @@ fn generic_bindings_pin_their_program_and_weak_cache_releases_it() {
         .replace("value: 41", "value: 42, extra: true");
     assert!(
         vm.reload_program(
-            &old,
-            "functions",
+            &_old_program,
+            Some("functions".into()),
             compile_program(&new_source, Some(&module))
         )
         .is_err()
@@ -226,16 +238,17 @@ fn generic_bindings_pin_their_program_and_weak_cache_releases_it() {
     // A rejected schema publication leaves the retained generic application usable.
     assert!(vm.call(&identity, (object.clone(),)).is_ok());
     let new_source = source.replace("value: 41", "value: 42");
-    let new = vm
-        .reload_program(
-            &old,
-            "functions",
-            compile_program(&new_source, Some(&module)),
-        )
-        .unwrap();
+    vm.reload_program(
+        &_old_program,
+        Some("functions".into()),
+        compile_program(&new_source, Some(&module)),
+    )
+    .unwrap();
+    let _new_program = _old_program.clone();
+    let new = vm.runtime().select_program(&_new_program).unwrap();
     let current = vm
         .runtime()
-        .bind_function::<(), Object>(&new, "make")
+        .bind_function::<(), Object>(&_new_program.root(), "make")
         .unwrap();
     let current_object = vm.call(&current, ()).unwrap();
     let current_type = current_object.object_type();
@@ -329,11 +342,16 @@ fn bound_native_application_uses_the_compilers_selected_trait_operation() {
     "#,
         Some(&module),
     );
-    let counter = vm.runtime().bind_type(&owner, "Counter", &[]).unwrap();
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
+    let counter = vm
+        .runtime()
+        .bind_type(&_owner_program.root(), "Counter", &[])
+        .unwrap();
     let repeat = vm
         .runtime()
         .bind_function_application_declaration::<(Object,), i32>(
-            &owner,
+            &_owner_program.root(),
             &declaration,
             slice::from_ref(counter.type_argument()),
         )
@@ -344,13 +362,17 @@ fn bound_native_application_uses_the_compilers_selected_trait_operation() {
         .unwrap();
     assert!(
         vm.runtime()
-            .bind_function_application_declaration::<(i32,), i32>(&owner, &declaration, &[integer])
+            .bind_function_application_declaration::<(i32,), i32>(
+                &_owner_program.root(),
+                &declaration,
+                &[integer]
+            )
             .is_err()
     );
     assert_eq!(effects.load(Ordering::Relaxed), 0);
     let make = vm
         .runtime()
-        .bind_function::<(), Object>(&owner, "make")
+        .bind_function::<(), Object>(&_owner_program.root(), "make")
         .unwrap();
     assert_eq!(
         vm.call(&repeat, (vm.call(&make, ()).unwrap(),)).unwrap(),

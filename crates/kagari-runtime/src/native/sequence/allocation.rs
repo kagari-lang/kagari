@@ -3,7 +3,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{binding::NativeResult, sequence::SequencePayload, storage_type::StorageType},
     value::Value,
 };
@@ -13,12 +13,12 @@ use std::sync::Arc;
 impl Runtime {
     pub(crate) fn allocate_sequence(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         applied: &TypeArgument,
         elements: Vec<Value>,
     ) -> NativeResult<Value> {
         self.gc().ensure_no_native_borrow()?;
-        self.validate_loaded_module(owner)?;
+        self.validate_executable_module(owner)?;
         applied.validate(self)?;
         let Ty::NativeObject(nominal) = applied.ty() else {
             return Err(RuntimeError::module_validation(

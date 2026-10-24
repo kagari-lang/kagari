@@ -45,7 +45,7 @@ impl ExecutionStack<'_> {
         return_dst: Option<Slot>,
         prepared: Option<&PreparedCall>,
     ) -> Result<ExecutionAction, RuntimeError> {
-        runtime.validate_loaded_module(&closure.implementation)?;
+        runtime.validate_executable_module(&closure.implementation)?;
         let script_function = match &closure.target {
             ClosureTarget::Native(native) => {
                 if !closure.captures.is_empty()
