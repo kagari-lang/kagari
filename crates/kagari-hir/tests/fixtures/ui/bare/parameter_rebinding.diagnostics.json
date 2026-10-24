@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_TYPE_INVALID_ASSIGNMENT_TARGET",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 33,
+          "path": "test.kg",
+          "start": 28
+        }
+      }
+    ],
+    "message": "invalid assignment target: function parameters are `val` bindings and cannot be reassigned",
+    "notes": [],
+    "primary": {
+      "end": 33,
+      "path": "test.kg",
+      "start": 28
+    },
+    "severity": "error"
+  }
+]

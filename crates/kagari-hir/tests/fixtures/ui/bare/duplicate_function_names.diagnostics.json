@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_RESOLVE_DUPLICATE_DECLARATION",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 24,
+          "path": "test.kg",
+          "start": 13
+        }
+      }
+    ],
+    "message": "ambiguous declaration `foo`",
+    "notes": [],
+    "primary": {
+      "end": 24,
+      "path": "test.kg",
+      "start": 13
+    },
+    "severity": "error"
+  }
+]

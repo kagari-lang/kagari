@@ -1,0 +1,1 @@
+fn outer() { fn id<T>(x: T) -> T { x } val f = id::<i32, bool>; }

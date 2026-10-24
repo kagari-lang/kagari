@@ -1,0 +1,6 @@
+
+struct Point { var x: i32, var y: bool }
+
+fn foo() -> Point {
+    Point { x: true, z: 1, x: 2 }
+}

@@ -1,9 +1,9 @@
 //! Frozen compiler-UI expectations and projection of real producer records.
 //!
-//! `kagari-source` owns diagnostic records and retained source identities. TO03's
-//! syntax library harness imports this file with a narrow `#[path]`; TO04's HIR
-//! harness will use the same schema/projection for unknown parameter/return types
-//! and call-argument mismatches from its captured snapshot. Owners keep production,
+//! `kagari-source` owns diagnostic records and retained source identities. Syntax
+//! and HIR library harnesses share this schema/projection through narrow `#[path]`
+//! imports. HIR supplies final diagnostics from its captured snapshot, including
+//! unknown parameter/return types and call-argument mismatches. Owners keep production,
 //! fixture discovery, typed payloads and recovery assertions in their own harness.
 //! This is test-only data, not a serialization API, renderer or global UI runner.
 

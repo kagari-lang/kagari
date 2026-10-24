@@ -1,0 +1,65 @@
+[
+  {
+    "code": "KG_TYPE_CANNOT_INFER_GENERIC_ARGUMENT",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 20,
+          "path": "test.kg",
+          "start": 11
+        }
+      }
+    ],
+    "message": "cannot infer generic argument `T` for `push`",
+    "notes": [],
+    "primary": {
+      "end": 20,
+      "path": "test.kg",
+      "start": 11
+    },
+    "severity": "error"
+  },
+  {
+    "code": "KG_TYPE_CALL_ARITY_MISMATCH",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 20,
+          "path": "test.kg",
+          "start": 11
+        }
+      }
+    ],
+    "message": "call arity mismatch in `push`: expected 2 arguments, found 1",
+    "notes": [],
+    "primary": {
+      "end": 20,
+      "path": "test.kg",
+      "start": 11
+    },
+    "severity": "error"
+  },
+  {
+    "code": "KG_TYPE_ARGUMENT_TYPE_MISMATCH",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 24,
+          "path": "test.kg",
+          "start": 21
+        }
+      }
+    ],
+    "message": "argument type mismatch for parameter `self` in `push`: expected `Vec<<error>>`, found `[i32]`",
+    "notes": [],
+    "primary": {
+      "end": 24,
+      "path": "test.kg",
+      "start": 21
+    },
+    "severity": "error"
+  }
+]

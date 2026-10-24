@@ -1,0 +1,1 @@
+fn outer<T>(x: T) { fn inner(x: T) {} }

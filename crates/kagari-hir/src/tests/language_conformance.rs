@@ -1,17 +1,11 @@
 use kagari_common::identity::map::DefinitionContext;
 use kagari_source::diagnostic::DiagnosticKind;
+use rstest::rstest;
 
 use crate::{
     resolver::collect::resolve_names,
     tests::common::{self, check_module},
 };
-
-struct SemanticCase {
-    spec_section: &'static str,
-    feature: &'static str,
-    source: &'static str,
-    expected: DiagnosticKind,
-}
 
 #[test]
 fn semantic_spec_accepts_var_storage_mutation_without_rebinding_val_slots() {
@@ -43,77 +37,34 @@ fn main() -> i32 {
         .expect("spec-valid var field and index mutation should typeck");
 }
 
-#[test]
-fn semantic_spec_rejects_non_var_rebinding_and_val_field_assignment() {
+#[rstest]
+#[case::val_local("docs/spec/syntax.md#binding-and-field-writeability", "val local rebinding", "fn main() -> i32 { val x: i32 = 1; x = 2; x }", DiagnosticKind::InvalidAssignmentTarget { reason: "`val` binding cannot be reassigned".to_string() })]
+#[case::parameter("docs/spec/syntax.md#ordinary-parameter-semantics", "parameter rebinding", "fn main(value: i32) -> i32 { value = 1; value }", DiagnosticKind::InvalidAssignmentTarget { reason: "function parameters are `val` bindings and cannot be reassigned".to_string() })]
+#[case::const_item("docs/spec/syntax.md#rebinding-rules", "const item rebinding", include_str!("../../tests/fixtures/ui/bare/rejects_assignment_to_const.kgr"), DiagnosticKind::InvalidAssignmentTarget { reason: "`const` item cannot be reassigned".to_string() })]
+#[case::val_field("docs/spec/syntax.md#binding-and-field-writeability", "val field assignment", "\nstruct Point {\n    val x: i32,\n}\n\nfn main() -> i32 {\n    val point = Point { x: 1 };\n    point.x = 3;\n    point.x\n}\n", DiagnosticKind::InvalidAssignmentTarget { reason: "`val` field `x` cannot be assigned".to_string() })]
+fn semantic_spec_rejects_non_var_rebinding_and_val_field_assignment(
+    #[case] spec_section: &str,
+    #[case] feature: &str,
+    #[case] source: &str,
+    #[case] expected: DiagnosticKind,
+) {
     let context = DefinitionContext::new().unwrap();
-    let cases = [
-        SemanticCase {
-            spec_section: "docs/spec/syntax.md#binding-and-field-writeability",
-            feature: "val local rebinding",
-            source: "fn main() -> i32 { val x: i32 = 1; x = 2; x }",
-            expected: DiagnosticKind::InvalidAssignmentTarget {
-                reason: "`val` binding cannot be reassigned".to_string(),
-            },
-        },
-        SemanticCase {
-            spec_section: "docs/spec/syntax.md#ordinary-parameter-semantics",
-            feature: "parameter rebinding",
-            source: "fn main(value: i32) -> i32 { value = 1; value }",
-            expected: DiagnosticKind::InvalidAssignmentTarget {
-                reason: "function parameters are `val` bindings and cannot be reassigned"
-                    .to_string(),
-            },
-        },
-        SemanticCase {
-            spec_section: "docs/spec/syntax.md#rebinding-rules",
-            feature: "const item rebinding",
-            source: r#"
-const VERSION: i32 = 1;
-fn main() -> i32 { VERSION = 2; 0 }
-"#,
-            expected: DiagnosticKind::InvalidAssignmentTarget {
-                reason: "`const` item cannot be reassigned".to_string(),
-            },
-        },
-        SemanticCase {
-            spec_section: "docs/spec/syntax.md#binding-and-field-writeability",
-            feature: "val field assignment",
-            source: r#"
-struct Point {
-    val x: i32,
-}
-
-fn main() -> i32 {
-    val point = Point { x: 1 };
-    point.x = 3;
-    point.x
-}
-"#,
-            expected: DiagnosticKind::InvalidAssignmentTarget {
-                reason: "`val` field `x` cannot be assigned".to_string(),
-            },
-        },
-    ];
-
-    for case in cases {
-        let lowered = common::lower_ok(case.source);
-        let names = resolve_names(&lowered)
-            .unwrap()
-            .into_checked()
-            .expect("resolver should succeed");
-        let diagnostics = check_module(&context, &lowered, &names, None)
-            .into_checked()
-            .expect_err("type checker should reject source");
-
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.kind == case.expected),
-            "{} ({}) should reject with {:?}, got {:?}",
-            case.spec_section,
-            case.feature,
-            case.expected,
-            diagnostics
-        );
-    }
+    let lowered = common::lower_ok(source);
+    let names = resolve_names(&lowered)
+        .unwrap()
+        .into_checked()
+        .expect("resolver should succeed");
+    let diagnostics = check_module(&context, &lowered, &names, None)
+        .into_checked()
+        .expect_err("type checker should reject source");
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.kind == expected),
+        "{} ({}) should reject with {:?}, got {:?}",
+        spec_section,
+        feature,
+        expected,
+        diagnostics
+    );
 }

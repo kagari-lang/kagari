@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_RESOLVE_DUPLICATE_DECLARATION",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 40,
+          "path": "locals.kgr",
+          "start": 27
+        }
+      }
+    ],
+    "message": "ambiguous declaration `inner`",
+    "notes": [],
+    "primary": {
+      "end": 40,
+      "path": "locals.kgr",
+      "start": 27
+    },
+    "severity": "error"
+  }
+]

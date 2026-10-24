@@ -1,0 +1,1 @@
+fn outer(x: i32) { fn inner() -> i32 { x } }

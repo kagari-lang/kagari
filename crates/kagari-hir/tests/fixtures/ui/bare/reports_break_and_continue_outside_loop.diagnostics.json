@@ -1,0 +1,44 @@
+[
+  {
+    "code": "KG_TYPE_BREAK_OUTSIDE_LOOP",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 17,
+          "path": "test.kg",
+          "start": 11
+        }
+      }
+    ],
+    "message": "`break` used outside of a loop",
+    "notes": [],
+    "primary": {
+      "end": 17,
+      "path": "test.kg",
+      "start": 11
+    },
+    "severity": "error"
+  },
+  {
+    "code": "KG_TYPE_CONTINUE_OUTSIDE_LOOP",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 27,
+          "path": "test.kg",
+          "start": 18
+        }
+      }
+    ],
+    "message": "`continue` used outside of a loop",
+    "notes": [],
+    "primary": {
+      "end": 27,
+      "path": "test.kg",
+      "start": 18
+    },
+    "severity": "error"
+  }
+]

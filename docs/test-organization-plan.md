@@ -539,17 +539,17 @@ matching a golden is not a substitute for recovery assertions.
 
 Two separate owner checkpoints: HIR first, then package acquisition/composition.
 
-- [ ] Separate HIR ordinary rejection, recovery facts, import identities and
+- [x] Separate HIR ordinary rejection, recovery facts, import identities and
   incremental query sequences. Reuse existing analysis/lowering helpers and keep
   cache reuse, old snapshots and codegen eligibility assertions explicit.
-- [ ] Extend file-based UI expectations to ordinary HIR diagnostics using final
+- [x] Extend file-based UI expectations to ordinary HIR diagnostics using final
   producer records and captured source identities. Preserve healthy-neighbor,
   type/constant and codegen-rejection observations as explicit Rust assertions;
   do not replace them with matching diagnostic output.
-- [ ] Consolidate the repeated virtual-source conversion in existing package test
+- [x] Consolidate the repeated virtual-source conversion in existing package test
   support. Separate manifest policy, module-tree discovery and graph/lock cases;
   externalize fixed trees only when mutation remains legible in Rust.
-- [ ] Preserve cancellation, aliases, provider/environment identity, fingerprints,
+- [x] Preserve cancellation, aliases, provider/environment identity, fingerprints,
   retained captures and filesystem link/platform gates. Do not turn healthy-neighbor
   facts into a diagnostic-only golden.
 
@@ -730,8 +730,41 @@ fewer Rust strings, fewer binaries or a different test count is not speed eviden
 | TO01 | Complete locally: 59 ordinary inputs, 43 retained cases; focused validation passed |
 | TO02 | Complete locally: SDK language families reconciled; 463 selected cases discovered |
 | TO03 | Complete locally: parser UI pairs, lexer/parser ownership and spec rows |
-| TO04-TO10 | Planned, not started |
+| TO04 | Complete locally: HIR UI/recovery split and package input preparation |
+| TO05-TO10 | Planned, not started |
 | TO11 | Pending completion of owner phases |
+
+2026-10-24 TO04: HIR and package completed as separate serial owner checkpoints.
+HIR now has 47 exact-input UI pairs (26 bare, five installed-standard, 16 local
+functions), 59 ordered final records and 33 stronger typed-payload cases. Shared
+source-owned schema is reused, not duplicated; HIR checks captured source/revision
+and raw ranges before real record adaptation. Six recovery and six typed-success
+functions separate healthy-neighbor/inference/constant/codegen facts from ordinary
+diagnostics. Local-function codegen rejection, 12 accepted structural rows and
+four spec writeability rows remain explicit. Removed one parser-only HIR function
+containing three inputs already covered by TO03 with stronger severity assertions.
+All other HIR analysis/query/native/identity/owner/cache/import/solver/catalog,
+type/scalar/text/pattern and public-API families retain their distinct contracts;
+531 retained/moved bodies and 47 source values were compared to frozen originals.
+
+Package's four identical virtual-source wrappers and 22 callers now use existing
+test_support::sources. Manifest policy has its own 12-case owner; module rejection
+has four named rows. Graph/locks/capture, workspace inheritance/relocation/physical
+identity, analysis aliases/dependencies/exports and platform-link scenarios retain
+all 135 original assertion sites. Compact mutable trees stay inline, without a
+fixture-tree loader. All 36 original declarations map to 49 independently
+scheduled cases; no package coverage deletion or new binary.
+
+Local: 39 distinct permanent HIR tests passed (10 of 47 UI comparisons, 11 typed
+payloads, two contracts and 16 adjacent recovery/query/identity/solver/spec cases);
+24 selected package tests passed, including Windows links. Six deliberate HIR
+pair/malformed/message/order failures were detected and restored. A paired probe
+passed and discovery restored exact 26 -> 27 -> 26 names. All temporary captures
+were removed; generation of 47 records is not claimed as 47 passed comparisons.
+Workspace Clippy, format, structure (1,595 files, zero violations/exceptions) and
+diff checks passed. Initial capture compilation timeout was retried successfully;
+no carried errors. Remaining UI/typed cases, Unix and exhaustive matrices remain
+CI-owned. TO05 is next.
 
 2026-10-24 TO03: source literal/diagnostic/database/coordinate tables and transactions
 remain at their existing owners, byte-identical. Lexer token/span/lossless facts

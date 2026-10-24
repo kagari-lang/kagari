@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_TYPE_INVALID_ASSIGNMENT_TARGET",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 21,
+          "path": "test.kg",
+          "start": 18
+        }
+      }
+    ],
+    "message": "invalid assignment target: function item is not assignable",
+    "notes": [],
+    "primary": {
+      "end": 21,
+      "path": "test.kg",
+      "start": 18
+    },
+    "severity": "error"
+  }
+]

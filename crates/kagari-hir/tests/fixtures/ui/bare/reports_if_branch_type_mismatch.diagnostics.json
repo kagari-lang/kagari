@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_TYPE_IF_BRANCH_TYPE_MISMATCH",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 46,
+          "path": "test.kg",
+          "start": 37
+        }
+      }
+    ],
+    "message": "if branch type mismatch: expected `i32`, found `bool`; supply a result type for interface conversion",
+    "notes": [],
+    "primary": {
+      "end": 46,
+      "path": "test.kg",
+      "start": 37
+    },
+    "severity": "error"
+  }
+]

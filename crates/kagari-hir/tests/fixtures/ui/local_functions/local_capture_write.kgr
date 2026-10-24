@@ -1,0 +1,1 @@
+fn outer() { var x = 0; fn inner() { x = 1; } }

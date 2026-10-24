@@ -13,16 +13,6 @@ use kagari_common::cancellation::CancellationToken;
 use std::{collections::BTreeMap, fs, sync::Arc};
 use support::{link_directory, scratch};
 
-fn input(files: &[(&str, &str)]) -> VirtualSources {
-    VirtualSources::new(
-        files
-            .iter()
-            .map(|(name, text)| (name.to_string(), Arc::from(*text))),
-        &CancellationToken::default(),
-    )
-    .unwrap()
-}
-
 fn workspace(input: &VirtualSources) -> WorkspaceInputs {
     WorkspaceInputs::load(
         input,
@@ -36,7 +26,7 @@ fn workspace(input: &VirtualSources) -> WorkspaceInputs {
 }
 
 fn local_sources(shared_body: &str) -> VirtualSources {
-    input(&[
+    support::sources(&[
         (
             "Kagari.toml",
             "[workspace]\nnamespace = 'example/game'\nmembers = ['game', 'tool']",
@@ -83,7 +73,7 @@ fn host(namespace: &str, version: &str, revision: &str, body: &str) -> Arc<HostP
             PackageFamily::new(namespace, "", "rules").unwrap(),
             revision,
             &format!("[package]\nname = 'rules'\nversion = '{version}'"),
-            input(&[("src/lib.kgr", body)]),
+            support::sources(&[("src/lib.kgr", body)]),
             &CancellationToken::default(),
         )
         .unwrap(),
@@ -95,7 +85,7 @@ fn host_user(requirement: &str) -> VirtualSources {
 }
 
 fn host_user_version(requirement: &str, version: &str) -> VirtualSources {
-    input(&[
+    support::sources(&[
         (
             "Kagari.toml",
             &format!(
@@ -222,7 +212,7 @@ fn graph_rejects_dependency_cycles_name_version_mismatch_and_resource_exhaustion
         ("different = { path = '.' }", "package/version"),
         ("app = { path = '.', version = '2' }", "package/version"),
     ] {
-        let sources = input(&[(
+        let sources = support::sources(&[(
             "Kagari.toml",
             &format!(
                 "[package]\nname = 'app'\nversion = '1.0.0'\nnamespace = 'example/app'\n[dependencies]\n{dependency}"
@@ -409,7 +399,7 @@ fn immutable_host_revision_integrity_is_checked_against_catalog_and_lock() {
 
 #[test]
 fn disjoint_programs_can_select_different_revisions_but_one_program_cannot() {
-    let sources = input(&[
+    let sources = support::sources(&[
         (
             "Kagari.toml",
             "[workspace]\nnamespace = 'example/ws'\nmembers = ['a', 'b']",
@@ -450,7 +440,7 @@ fn disjoint_programs_can_select_different_revisions_but_one_program_cannot() {
             2
         );
     }
-    let combined = input(&[(
+    let combined = support::sources(&[(
         "Kagari.toml",
         "[package]\nname = 'app'\nversion = '1.0.0'\nnamespace = 'example/app'\n[dependencies]\none = { package = 'rules', host = 'old' }\ntwo = { package = 'rules', host = 'new' }",
     )]);
@@ -486,7 +476,7 @@ fn dependency_alias_only_changes_invalidate_program_inputs() {
     let cancel = CancellationToken::default();
     let mut fingerprints = Vec::new();
     for alias in ["one", "two"] {
-        let sources = input(&[
+        let sources = support::sources(&[
             (
                 "Kagari.toml",
                 &format!(
@@ -674,7 +664,7 @@ fn lock_decoder_rejects_duplicate_dangling_cyclic_and_inconsistent_graph_records
 
 #[test]
 fn diamond_dependencies_are_captured_once_and_same_named_other_sources_stay_distinct() {
-    let sources = input(&[
+    let sources = support::sources(&[
         (
             "Kagari.toml",
             "[package]\nname = 'app'\nversion = '1.0.0'\n[workspace]\nnamespace = 'example/diamond'\n[dependencies]\nleft = { path = 'left' }\nright = { path = 'right' }",
@@ -718,7 +708,7 @@ fn relocated_acquisition_roots_keep_identical_locks_and_program_fingerprints() {
     let cancel = CancellationToken::default();
     let mut results = Vec::new();
     for directory in ["checkout_a", "elsewhere/checkout_b"] {
-        let sources = input(&[
+        let sources = support::sources(&[
             (
                 &format!("{directory}/Kagari.toml"),
                 "[package]\nname = 'app'\nnamespace = 'example/portable'\nversion = '1.0.0'",

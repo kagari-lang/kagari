@@ -492,7 +492,8 @@ stateful/source-free/native boundaries. TO00 has frozen the full family catalogu
 UI expectation contract and first selected harness inventory. TO01 conversions and
 ordinary traits and TO02 remaining SDK language families are complete locally;
 focused behavior, fixture equivalence and discovery checks passed. TO03 parser
-UI/source ownership is complete locally; TO04 HIR/package organization is next. The user authorized implementation and phase commits. This creates no
+UI/source ownership and TO04 HIR/package organization are complete locally;
+TO05 executable-contract organization is next. The user authorized implementation and phase commits. This creates no
 new test binary/framework layer and does not replace the older measurement debt
 below; complete CI acceptance remains separate.
 

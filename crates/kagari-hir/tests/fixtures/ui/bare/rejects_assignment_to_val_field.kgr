@@ -1,0 +1,8 @@
+
+struct Point { val x: i32 }
+
+fn main() -> i32 {
+    val point = Point { x: 1 };
+    point.x = 3;
+    point.x
+}

@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_TYPE_INVALID_CALL_TARGET",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 68,
+          "path": "locals.kgr",
+          "start": 47
+        }
+      }
+    ],
+    "message": "value of type `local function values accept positional type arguments only` cannot be called",
+    "notes": [],
+    "primary": {
+      "end": 68,
+      "path": "locals.kgr",
+      "start": 47
+    },
+    "severity": "error"
+  }
+]

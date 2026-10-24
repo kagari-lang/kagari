@@ -1,0 +1,5 @@
+use std::collections::{HashMap};
+
+fn bad(values: HashMap<String, i32>) -> bool {
+    values.contains_key(1)
+}

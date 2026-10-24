@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_TYPE_INVALID_INTERFACE_TYPE",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 68,
+          "path": "test.kg",
+          "start": 63
+        }
+      }
+    ],
+    "message": "trait `Pair` cannot be used as an interface type: method `same` is not interface-compatible",
+    "notes": [],
+    "primary": {
+      "end": 68,
+      "path": "test.kg",
+      "start": 63
+    },
+    "severity": "error"
+  }
+]

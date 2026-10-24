@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_TYPE_UNKNOWN_TYPE",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 18,
+          "path": "test.kg",
+          "start": 11
+        }
+      }
+    ],
+    "message": "unknown return type `number` in function `foo`",
+    "notes": [],
+    "primary": {
+      "end": 18,
+      "path": "test.kg",
+      "start": 11
+    },
+    "severity": "error"
+  }
+]

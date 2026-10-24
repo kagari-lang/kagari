@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_TYPE_CONST_CYCLE",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 18,
+          "path": "test.kg",
+          "start": 1
+        }
+      }
+    ],
+    "message": "cyclic const dependency involving `A`",
+    "notes": [],
+    "primary": {
+      "end": 18,
+      "path": "test.kg",
+      "start": 1
+    },
+    "severity": "error"
+  }
+]

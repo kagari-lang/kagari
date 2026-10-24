@@ -1,0 +1,44 @@
+[
+  {
+    "code": "KG_TYPE_UNKNOWN_ANNOTATION",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 64,
+          "path": "locals.kgr",
+          "start": 51
+        }
+      }
+    ],
+    "message": "unknown type annotation `module<i32>`",
+    "notes": [],
+    "primary": {
+      "end": 64,
+      "path": "locals.kgr",
+      "start": 51
+    },
+    "severity": "error"
+  },
+  {
+    "code": "KG_TYPE_INVALID_VALUE_TARGET",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 64,
+          "path": "locals.kgr",
+          "start": 51
+        }
+      }
+    ],
+    "message": "`explicit enum constructor` is not a value expression",
+    "notes": [],
+    "primary": {
+      "end": 64,
+      "path": "locals.kgr",
+      "start": 51
+    },
+    "severity": "error"
+  }
+]

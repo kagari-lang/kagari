@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_TYPE_BINARY_OPERAND_TYPE_MISMATCH",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 26,
+          "path": "test.kg",
+          "start": 22
+        }
+      }
+    ],
+    "message": "binary operator `+` expects matching numeric operands, found `i32` and `bool`",
+    "notes": [],
+    "primary": {
+      "end": 26,
+      "path": "test.kg",
+      "start": 22
+    },
+    "severity": "error"
+  }
+]

@@ -1,0 +1,10 @@
+
+trait Display {
+    fn show(self) -> String;
+}
+
+struct Player {
+    val name: String,
+}
+
+impl Display for Player {}

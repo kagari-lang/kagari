@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_RESOLVE_UNKNOWN_NAME",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 36,
+          "path": "locals.kgr",
+          "start": 31
+        }
+      }
+    ],
+    "message": "unknown name `inner`",
+    "notes": [],
+    "primary": {
+      "end": 36,
+      "path": "locals.kgr",
+      "start": 31
+    },
+    "severity": "error"
+  }
+]

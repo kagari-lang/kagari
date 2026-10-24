@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_TYPE_TRAIT_METHOD_MISMATCH",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 160,
+          "path": "test.kg",
+          "start": 90
+        }
+      }
+    ],
+    "message": "trait method `Display.show` mismatch: return type expected `String`, found `i32`",
+    "notes": [],
+    "primary": {
+      "end": 160,
+      "path": "test.kg",
+      "start": 90
+    },
+    "severity": "error"
+  }
+]

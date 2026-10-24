@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_TYPE_CONDITION_TYPE_MISMATCH",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 22,
+          "path": "test.kg",
+          "start": 21
+        }
+      }
+    ],
+    "message": "if condition type mismatch: expected `bool`, found `i32`",
+    "notes": [],
+    "primary": {
+      "end": 22,
+      "path": "test.kg",
+      "start": 21
+    },
+    "severity": "error"
+  }
+]

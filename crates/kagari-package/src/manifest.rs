@@ -2,6 +2,9 @@
 
 mod normalize;
 
+#[cfg(test)]
+mod tests;
+
 use crate::error::PackageError;
 use kagari_common::cancellation::CancellationToken;
 use semver::{Version, VersionReq};

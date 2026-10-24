@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_TYPE_ASSIGNMENT_TYPE_MISMATCH",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 35,
+          "path": "test.kg",
+          "start": 34
+        }
+      }
+    ],
+    "message": "assignment type mismatch: expected `i32`, found `bool`",
+    "notes": [],
+    "primary": {
+      "end": 35,
+      "path": "test.kg",
+      "start": 34
+    },
+    "severity": "error"
+  }
+]

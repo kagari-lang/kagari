@@ -3,26 +3,15 @@ use crate::test_support as support;
 use crate::{
     filesystem::FilesystemSources,
     manifest::DependencySource,
-    modules::VirtualSources,
     workspace::{MemberSelection, WorkspaceInputs, WorkspaceLimits},
 };
 use kagari_common::cancellation::CancellationToken;
-use std::{fs, sync::Arc};
+use std::fs;
 use support::{link_directory, scratch};
-
-fn input(files: &[(&str, &str)]) -> VirtualSources {
-    VirtualSources::new(
-        files
-            .iter()
-            .map(|(name, text)| (name.to_string(), Arc::from(*text))),
-        &CancellationToken::default(),
-    )
-    .unwrap()
-}
 
 fn load(files: &[(&str, &str)], directory: &str) -> WorkspaceInputs {
     WorkspaceInputs::load(
-        &input(files),
+        &support::sources(files),
         directory,
         None,
         WorkspaceLimits::default(),
@@ -183,7 +172,7 @@ fn excluded_packages_can_be_standalone_but_unlisted_packages_cannot_inherit_memb
     ];
     assert_eq!(load(&files, "excluded").namespace, "example/excluded");
     let error = WorkspaceInputs::load(
-        &input(&files),
+        &support::sources(&files),
         "unlisted",
         None,
         WorkspaceLimits::default(),
@@ -241,7 +230,7 @@ fn nested_workspaces_are_not_merged_and_duplicate_member_names_are_rejected() {
         ),
     ] {
         let error = WorkspaceInputs::load(
-            &input(&files),
+            &support::sources(&files),
             "",
             None,
             WorkspaceLimits::default(),
@@ -270,7 +259,7 @@ fn whole_workspace_configuration_errors_block_single_member_selection() {
         ),
     ];
     let error = WorkspaceInputs::load(
-        &input(&files),
+        &support::sources(&files),
         "good",
         None,
         WorkspaceLimits::default(),
@@ -288,7 +277,7 @@ fn whole_workspace_configuration_errors_block_single_member_selection() {
 
 #[test]
 fn discovery_checks_namespace_input_bounds_and_cancellation() {
-    let sources = input(&[
+    let sources = support::sources(&[
         (
             "Kagari.toml",
             "[workspace]\nnamespace = 'example/root'\nmembers = ['packages/*']",
@@ -402,7 +391,7 @@ fn recursive_workspace_patterns_fail_at_depth_bounds_instead_of_publishing_parti
             "[package]\nname = 'member'\nversion = '1.0.0'",
         ),
     ];
-    let provider = input(&files);
+    let provider = support::sources(&files);
     let cancel = CancellationToken::default();
     let error = WorkspaceInputs::load(
         &provider,

@@ -40,33 +40,6 @@ fn standard_item_spellings_require_installed_declarations() {
 }
 
 #[test]
-fn reports_duplicate_function_names() {
-    let lowered = common::lower_ok(
-        r#"
-fn foo() {}
-fn foo() {}
-"#,
-    );
-
-    let diagnostics = resolve_names(&lowered)
-        .unwrap()
-        .into_checked()
-        .expect_err("resolver should reject duplicates");
-
-    assert_eq!(diagnostics.len(), 1);
-    assert_eq!(
-        diagnostics[0].kind,
-        DiagnosticKind::DuplicateDeclaration {
-            name: "foo".to_string(),
-        }
-    );
-    assert_eq!(
-        diagnostics[0].to_string(),
-        "Error: ambiguous declaration `foo` at 13..24"
-    );
-}
-
-#[test]
 fn resolves_params_and_locals_in_function_body() {
     let lowered = common::lower_ok("fn main(value: i32) -> i32 { val next: i32 = value; next }");
     let resolved = resolve_names(&lowered)

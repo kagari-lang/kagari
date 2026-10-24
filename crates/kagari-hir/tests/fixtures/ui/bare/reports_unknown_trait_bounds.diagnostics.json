@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_TYPE_UNKNOWN_TRAIT",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 43,
+          "path": "test.kg",
+          "start": 36
+        }
+      }
+    ],
+    "message": "unknown trait `Missing`",
+    "notes": [],
+    "primary": {
+      "end": 43,
+      "path": "test.kg",
+      "start": 36
+    },
+    "severity": "error"
+  }
+]

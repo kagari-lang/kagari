@@ -1,7 +1,12 @@
+use crate::modules::VirtualSources;
+use kagari_common::cancellation::CancellationToken;
 use std::{
     fs,
-    path::PathBuf,
-    sync::atomic::{AtomicU64, Ordering},
+    path::{Path, PathBuf},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -11,7 +16,15 @@ use std::{io, process::Command};
 #[cfg(unix)]
 use std::os::unix::fs::symlink;
 
-use std::path::Path;
+pub fn sources(files: &[(&str, &str)]) -> VirtualSources {
+    VirtualSources::new(
+        files
+            .iter()
+            .map(|(name, text)| (name.to_string(), Arc::from(*text))),
+        &CancellationToken::default(),
+    )
+    .unwrap()
+}
 
 pub fn scratch() -> PathBuf {
     static NEXT: AtomicU64 = AtomicU64::new(0);

@@ -1,0 +1,1 @@
+struct S {} impl S { fn outer(self) { fn inner() { self; } } }

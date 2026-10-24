@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_SYNTAX_UNSUPPORTED",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 30,
+          "path": "locals.kgr",
+          "start": 13
+        }
+      }
+    ],
+    "message": "cannot execute visibility on a local function yet",
+    "notes": [],
+    "primary": {
+      "end": 30,
+      "path": "locals.kgr",
+      "start": 13
+    },
+    "severity": "error"
+  }
+]

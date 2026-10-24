@@ -670,7 +670,9 @@ dependencies = [
  "kagari-stdlib",
  "kagari-syntax",
  "kagari-types",
+ "rstest",
  "serde",
+ "serde_json",
  "smallvec",
  "thiserror",
 ]
@@ -724,6 +726,7 @@ dependencies = [
  "kagari-hir",
  "kagari-source",
  "kagari-syntax",
+ "rstest",
  "semver",
  "serde",
  "thiserror",

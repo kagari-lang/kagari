@@ -75,12 +75,12 @@ ownership rules.
 ### Compiler UI diagnostic tests
 
 The [organization plan](test-organization-plan.md#file-based-ui-diagnostic-tests-planned)
-owns the remaining HIR/CLI UI migration. Here UI means user-facing compiler
-diagnostics, not graphical interfaces. The parser suite is implemented in the
-existing syntax library harness; HIR and real-process CLI suites follow separately.
+owns the remaining CLI UI migration. Here UI means user-facing compiler
+diagnostics, not graphical interfaces. Parser and HIR suites run in their existing
+library harnesses; real-process CLI presentation follows separately.
 
 Parser source inputs pair with ordered `.diagnostics.json` expectations for full
-producer records; HIR will use the same test-only source-owned schema. CLI cases
+producer records; HIR uses the same test-only source-owned schema. CLI cases
 will compare actual `.stdout`, `.stderr` and
 `.exit` output through the existing process harness. The plan owns the TO00-frozen
 schema, source/revision checks, narrow normalization and explicit update workflow.
@@ -107,6 +107,11 @@ Use the existing owners as templates, not a new universal runner:
   rejects malformed fields and validates captured identities/revisions and UTF-8
   ranges before projecting IDs to logical paths. Missing/orphan pairs fail the
   owner inventory; normal comparisons never update expectations.
+- [HIR UI cases](../crates/kagari-hir/src/tests/ui.rs) group bare, installed-standard
+  and local-function diagnostics without inferring policy from source comments.
+  They bind final records to captured sources before projection. Stronger typed
+  payloads, healthy-neighbor facts, query identity and codegen rejection remain
+  explicit in their semantic owners; matching a golden does not replace them.
 - SDK [syntax examples](../crates/kagari/src/runtime/tests/language/syntax_examples.rs)
   and [reload](../crates/kagari/src/runtime/tests/embedding/generic_reload.rs)
   load scripts from `kagari/tests/fixtures/test-fixtures`. Ordinary conversion,

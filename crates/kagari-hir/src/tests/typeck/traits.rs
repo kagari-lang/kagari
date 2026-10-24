@@ -451,34 +451,6 @@ where T: Display
 }
 
 #[test]
-fn reports_unknown_trait_bounds() {
-    let context = DefinitionContext::new().unwrap();
-    let lowered = common::lower_ok(
-        r#"
-fn show<T>(value: T) -> T
-where T: Missing
-{
-    value
-}
-"#,
-    );
-    let names = resolve_names(&lowered)
-        .unwrap()
-        .into_checked()
-        .expect("resolver should succeed");
-    let diagnostics = check_module(&context, &lowered, &names, None)
-        .into_checked()
-        .expect_err("type checker should reject unknown bound");
-
-    assert!(diagnostics.iter().any(|diagnostic| {
-        diagnostic.kind
-            == DiagnosticKind::UnknownTrait {
-                trait_name: "Missing".to_string(),
-            }
-    }));
-}
-
-#[test]
 fn accepts_interface_use_of_generic_trait_methods() {
     let lowered = common::lower_ok(
         r#"
@@ -495,86 +467,6 @@ fn use_mapper(value: Mapper) -> (i32, String) {
         .expect("installed declaration analysis")
         .into_checked()
         .expect("method arguments are inferred independently through the same interface");
-}
-
-#[test]
-fn rejects_interface_method_with_another_self_parameter() {
-    let context = DefinitionContext::new().unwrap();
-    let lowered = common::lower_ok(
-        "trait Pair { fn same(self, other: Self) -> bool; } fn use_pair(value: Pair) {}",
-    );
-    let names = resolve_names(&lowered).unwrap().into_checked().unwrap();
-    let diagnostics = check_module(&context, &lowered, &names, None)
-        .into_checked()
-        .expect_err("a second Self argument cannot be called through an interface value");
-    assert!(diagnostics.iter().any(|diagnostic| matches!(
-        &diagnostic.kind,
-        DiagnosticKind::InvalidInterfaceType { reason, .. }
-            if reason == "method `same` is not interface-compatible"
-    )));
-}
-
-#[test]
-fn rejects_invalid_trait_impls() {
-    let missing_method = common::lower_ok(
-        r#"
-trait Display {
-    fn show(self) -> String;
-}
-
-struct Player {
-    val name: String,
-}
-
-impl Display for Player {}
-"#,
-    );
-    let diagnostics = crate::analyze_source(
-        &missing_method.source,
-        foundation_catalog::shared().unwrap(),
-    )
-    .expect("installed declaration analysis")
-    .into_checked()
-    .expect_err("type checker should reject impl");
-    assert!(diagnostics.iter().any(|diagnostic| {
-        diagnostic.kind
-            == DiagnosticKind::TraitMethodMismatch {
-                trait_name: "Display".to_string(),
-                method_name: "show".to_string(),
-                reason: "missing impl method".to_string(),
-            }
-    }));
-
-    let wrong_return = common::lower_ok(
-        r#"
-trait Display {
-    fn show(self) -> String;
-}
-
-struct Player {
-    val name: String,
-}
-
-impl Display for Player {
-    fn show(self) -> i32 {
-        1
-    }
-}
-"#,
-    );
-    let diagnostics =
-        crate::analyze_source(&wrong_return.source, foundation_catalog::shared().unwrap())
-            .expect("installed declaration analysis")
-            .into_checked()
-            .expect_err("type checker should reject impl");
-    assert!(diagnostics.iter().any(|diagnostic| {
-        diagnostic.kind
-            == DiagnosticKind::TraitMethodMismatch {
-                trait_name: "Display".to_string(),
-                method_name: "show".to_string(),
-                reason: "return type expected `String`, found `i32`".to_string(),
-            }
-    }));
 }
 
 #[test]

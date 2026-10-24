@@ -1,0 +1,44 @@
+[
+  {
+    "code": "KG_SYNTAX_UNSUPPORTED",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 41,
+          "path": "locals.kgr",
+          "start": 17
+        }
+      }
+    ],
+    "message": "cannot execute function declarations in constant initializers yet",
+    "notes": [],
+    "primary": {
+      "end": 41,
+      "path": "locals.kgr",
+      "start": 17
+    },
+    "severity": "error"
+  },
+  {
+    "code": "KG_TYPE_INVALID_CONST_INITIALIZER",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 46,
+          "path": "locals.kgr",
+          "start": 15
+        }
+      }
+    ],
+    "message": "invalid const initializer in const `N`: unsupported const initializer expression",
+    "notes": [],
+    "primary": {
+      "end": 46,
+      "path": "locals.kgr",
+      "start": 15
+    },
+    "severity": "error"
+  }
+]

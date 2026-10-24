@@ -1,0 +1,44 @@
+[
+  {
+    "code": "KG_TYPE_INVALID_CONST_INITIALIZER",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 118,
+          "path": "test.kg",
+          "start": 64
+        }
+      }
+    ],
+    "message": "invalid const initializer in const `ROOT`: const type `Holder` is heap-backed; const supports value types only",
+    "notes": [],
+    "primary": {
+      "end": 118,
+      "path": "test.kg",
+      "start": 64
+    },
+    "severity": "error"
+  },
+  {
+    "code": "KG_TYPE_CONST_WRITE_NOT_ALLOWED",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 161,
+          "path": "test.kg",
+          "start": 151
+        }
+      }
+    ],
+    "message": "cannot perform write-like operation on const `ROOT`",
+    "notes": [],
+    "primary": {
+      "end": 161,
+      "path": "test.kg",
+      "start": 151
+    },
+    "severity": "error"
+  }
+]

@@ -1,0 +1,23 @@
+[
+  {
+    "code": "KG_TYPE_GENERIC_BOUND_NOT_SATISFIED",
+    "labels": [
+      {
+        "message": "primary",
+        "span": {
+          "end": 76,
+          "path": "locals.kgr",
+          "start": 74
+        }
+      }
+    ],
+    "message": "type `f32` does not satisfy `Hash`",
+    "notes": [],
+    "primary": {
+      "end": 76,
+      "path": "locals.kgr",
+      "start": 74
+    },
+    "severity": "error"
+  }
+]
