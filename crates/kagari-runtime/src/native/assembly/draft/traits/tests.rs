@@ -20,6 +20,7 @@ use kagari_types::{
     declaration::{AssociatedTypeDef, TypeDefKind, native::NativeStorageLayout},
     ty::{GenericBound, GenericParam, Ty},
 };
+use rstest::rstest;
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
@@ -321,46 +322,47 @@ fn same_batch_generic_override_facts_and_inherent_requirements_are_order_indepen
     }
 }
 
-#[test]
-fn override_and_inherent_facts_keep_all_existing_proof_obligations() {
-    for fault in [
-        Fault::ImplBound,
-        Fault::MethodBound,
-        Fault::ConcreteResult,
-        Fault::InherentBound,
-    ] {
-        let factories = Rc::new(Cell::new(0));
-        let error = assembly(true, fault, factories.clone())
-            .err()
-            .expect("missing proof must reject");
-        let expected = if matches!(fault, Fault::ConcreteResult) {
-            "native concrete result does not implement its return interface"
-        } else {
-            "selected calls differ from their declared contracts"
-        };
-        assert!(error.to_string().contains(expected), "{fault:?}: {error}");
-        assert_eq!(factories.get(), 0);
-    }
+#[rstest]
+#[case::impl_bound(Fault::ImplBound)]
+#[case::method_bound(Fault::MethodBound)]
+#[case::concrete_result(Fault::ConcreteResult)]
+#[case::inherent_bound(Fault::InherentBound)]
+fn override_and_inherent_facts_keep_all_existing_proof_obligations(#[case] fault: Fault) {
+    let factories = Rc::new(Cell::new(0));
+    let error = assembly(true, fault, factories.clone())
+        .err()
+        .expect("missing proof must reject");
+    let expected = if matches!(fault, Fault::ConcreteResult) {
+        "native concrete result does not implement its return interface"
+    } else {
+        "selected calls differ from their declared contracts"
+    };
+    assert!(error.to_string().contains(expected), "{fault:?}: {error}");
+    assert_eq!(factories.get(), 0);
 }
 
-#[test]
-fn unused_forward_members_still_check_existence_category_and_arity() {
-    for (name, associated, arity) in [("absent", false, 0), ("hash", true, 1), ("hash", false, 0)] {
-        let mut set = ModuleSetBuilder::new(&DeclarationCatalog::default()).unwrap();
-        set.add(ModuleDefinition::new(owner("references"), move |module| {
-            let hash =
-                module.reference_trait(path("contracts", DefinitionKind::Trait, "Hash"), 0)?;
-            if associated {
-                module.reference_associated_type(&hash, name, arity)?;
-            } else {
-                module.reference_method(&hash, name, arity)?;
-            }
-            Ok(())
-        }))
-        .unwrap();
-        set.add(contracts(Fault::None)).unwrap();
-        assert!(set.finish().is_err());
-    }
+#[rstest]
+#[case::missing_member("absent", false, 0)]
+#[case::wrong_category("hash", true, 1)]
+#[case::wrong_arity("hash", false, 0)]
+fn unused_forward_members_still_check_existence_category_and_arity(
+    #[case] name: &'static str,
+    #[case] associated: bool,
+    #[case] arity: usize,
+) {
+    let mut set = ModuleSetBuilder::new(&DeclarationCatalog::default()).unwrap();
+    set.add(ModuleDefinition::new(owner("references"), move |module| {
+        let hash = module.reference_trait(path("contracts", DefinitionKind::Trait, "Hash"), 0)?;
+        if associated {
+            module.reference_associated_type(&hash, name, arity)?;
+        } else {
+            module.reference_method(&hash, name, arity)?;
+        }
+        Ok(())
+    }))
+    .unwrap();
+    set.add(contracts(Fault::None)).unwrap();
+    assert!(set.finish().is_err());
 }
 
 #[test]

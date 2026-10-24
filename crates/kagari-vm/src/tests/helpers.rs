@@ -1,8 +1,7 @@
 use crate::{
     tests::common::{
-        compile_test_bytecode, load_bytecode_module, load_bytecode_module_with_runtime,
-        load_bytecode_program_with_runtime, load_test_module, standard_runtime,
-        test_function_module,
+        compile_test_bytecode, load_bytecode_module, load_bytecode_program, load_test_module,
+        standard_runtime, test_function_module,
     },
     vm::Vm,
 };
@@ -25,7 +24,6 @@ use kagari_runtime::{
         HostCallContext, HostError, HostObjectId, HostPathAdapter, HostPathDescriptorRegistration,
         HostSchemaEpoch, PreparedHostPathWrite,
     },
-    module::LoadedModule,
     native::{builder::ModuleBuilder, declarations::FunctionDecl, module::NativeModule},
     value::Value,
 };
@@ -47,33 +45,6 @@ use std::sync::{Arc, Mutex};
 
 // Share the cold declaration-to-program fixture with runtime boundary tests.
 use crate::tests::native_program;
-
-fn host_runtime() -> Runtime {
-    standard_runtime(RuntimeConfig {
-        ..RuntimeConfig::default()
-    })
-}
-
-fn reflection_runtime() -> Runtime {
-    standard_runtime(RuntimeConfig {
-        ..RuntimeConfig::default()
-    })
-}
-
-fn load_reflection_bytecode_module(
-    name: &str,
-    bytecode: DefinitionMetadata<BytecodeModule>,
-) -> (Runtime, LoadedModule) {
-    load_bytecode_module_with_runtime(reflection_runtime(), name, bytecode)
-}
-
-fn load_reflection_test_module(source_text: &str) -> (Runtime, LoadedModule) {
-    load_bytecode_program_with_runtime(
-        reflection_runtime(),
-        "test.kgr",
-        compile_test_bytecode(source_text),
-    )
-}
 
 fn player_module() -> NativeModule {
     let mut module = ModuleBuilder::new("game", &Default::default()).unwrap();
@@ -128,7 +99,7 @@ fn player_module() -> NativeModule {
 }
 
 fn register_vm_host_path_runtime(access: PathAccess) -> (Runtime, Arc<Mutex<i32>>) {
-    let mut runtime = host_runtime();
+    let mut runtime = standard_runtime(RuntimeConfig::default());
     let module = player_module();
     let declaration = module.to_declaration();
     let player = declaration

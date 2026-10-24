@@ -1,0 +1,11 @@
+
+fn callee(input: i32) -> i32 {
+    val local = input + 1;
+    local
+}
+
+fn main() -> i32 {
+    val local = 10;
+    val returned = callee(1);
+    local + returned
+}

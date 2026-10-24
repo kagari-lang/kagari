@@ -133,6 +133,11 @@ Use the existing owners as templates, not a new universal runner:
   after fresh provider installation; it does not load a discarded synthetic program
   before source preparation. The synthetic source-free constructor remains a
   separate public-consumer proof, not an interchangeable source route.
+- VM source data under `kagari-vm/tests/fixtures` keeps its original execution,
+  GC, native-boundary and owned-drive Rust observations. Standard runtime setup has
+  one owner, but reflection's unverified loader remains distinct from verified
+  module admission. Stdlib runtime-boundary support shares compilation only across
+  compatible identity/options consumers, not mutable runtimes or codec contexts.
 - Compiler compile-success programs use named fixture cases under
   `kagari-compiler/tests/fixtures/language_foundation`; typed lowering/emission and
   forged admission remain separate Rust owners. Compiler adoption uses existing

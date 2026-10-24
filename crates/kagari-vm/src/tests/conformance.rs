@@ -24,24 +24,9 @@ fn debug_runtime(_module_name: &str) -> Runtime {
 
 #[test]
 fn interpreter_conformance_executes_control_flow_match_arrays_and_structs() {
-    let (runtime, loaded) = load_test_module(
-        r#"
-struct Point { var x: i32, var y: i32 }
-
-fn main() -> i32 {
-    var total = 0;
-    var index = 0;
-    while index < 3 {
-        total = total + index;
-        index = index + 1;
-    }
-    val values = [total, 10];
-    val selected = match values[1] { 10 => values[1], _ => 0 };
-    val point = Point { x: values[0], y: selected };
-    point.x + point.y
-}
-"#,
-    );
+    let (runtime, loaded) = load_test_module(include_str!(
+        "../../tests/fixtures/execution/control-flow-aggregates.kgr"
+    ));
     let vm = Vm::new(runtime);
     let report = vm
         .execute(&loaded, ProgramEntry::Main)

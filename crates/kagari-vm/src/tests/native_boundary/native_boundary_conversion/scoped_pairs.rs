@@ -220,19 +220,7 @@ fn common_bind_accepts_free_borrowed_packs_and_rejects_overlap_before_callbacks(
         .unwrap();
     let module = builder.finish().unwrap();
     let (mut vm, owner) = source_free_vm(
-        r#"
-        use example::packs::{Player, Stats, Inventory, heal, read_hp, both};
-        pub fn tick(player: RefMut<Player>) -> i32 { heal(player.stats, player.inventory, 30) }
-        pub fn inspect(player: Ref<Player>) -> i32 { read_hp(player.stats) + player.stats.hp - player.stats.hp }
-        pub fn replace(player: RefMut<Player>) -> i32 { player.stats = Stats { hp: 5 }; player.stats.hp += 1; player.stats.hp }
-        pub fn once(first: RefMut<Player>, second: RefMut<Player>) -> i32 {
-            var current = first;
-            current.stats.hp += { current = second; first.stats = Stats { hp: 9 }; 2 };
-            first.stats.hp + second.stats.hp
-        }
-        pub fn rename(player: RefMut<Player>) -> String { player.name = "changed"; player.name }
-        pub fn duplicate(stats: RefMut<Stats>) -> i32 { both(stats, stats, 1) }
-    "#,
+        include_str!("../../../../tests/fixtures/native/scoped-borrow-packs.kgr"),
         &module,
     );
     let player_type = vm.runtime().bind_rust_type::<Player>(&owner).unwrap();

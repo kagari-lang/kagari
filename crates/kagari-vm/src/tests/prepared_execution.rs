@@ -31,6 +31,7 @@ use kagari_runtime::{
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib::catalog as foundation_catalog;
+use rstest::rstest;
 use std::sync::Arc;
 
 fn compile(source: &str, optimize: bool) -> DefinitionMetadata<BytecodeProgram> {
@@ -192,63 +193,64 @@ fn prepared_function_identity_must_match_the_requested_entry() {
     );
 }
 
-#[test]
-fn optimized_execution_preserves_results_traps_and_source_origins() {
-    for source in [
-        "fn main() -> i32 { if 1 + 2 == 3 { 42 } else { 0 } }",
-        "fn main() -> i8 { 127i8 + 1i8 }",
-        "fn main() -> u8 { 255u8 << 1 }",
-        "fn main() -> i32 { 1 / 0 }",
-        "fn main() -> i32 { var x = 0; while x < 3 { x += 1; } x }",
-        "fn main() -> i32 { var x = 1; val old = x; x = 2; old * 10 + x }",
-        "fn main() -> i32 { var x = 0; var sum = 0; while x < 20 { sum += x % 7; x += 1; } sum }",
-        "fn add(a: i32, b: i32, c: i32) -> i32 { a * 100 + b * 10 + c } fn main() -> i32 { var x = 2; val y = x; x = 3; add(x, y, x) }",
-    ] {
-        let original = compile(source, false);
-        let optimized = compile(source, true);
-        {
-            let (before, a) = setup(original.clone());
-            let (after, b) = setup(optimized.clone());
-            let a = before.execute(&a, ProgramEntry::Main);
-            let b = after.execute(&b, ProgramEntry::Main);
-            match (a, b) {
-                (Ok(a), Ok(b)) => {
-                    assert_eq!(
-                        a.return_value
-                            .value(before.runtime().gc())
-                            .expect("retained execution result"),
-                        b.return_value
-                            .value(after.runtime().gc())
-                            .expect("retained execution result"),
-                        "{source}"
-                    )
-                }
-                (Err(a), Err(b)) => {
-                    let describe = |error: &VmError| match error.cause() {
-                        VmError::RuntimeError(error) => (error.kind(), error.message().to_owned()),
-                        VmError::BuiltinError(error) => (error.kind(), error.message().to_owned()),
-                        error => panic!("unexpected error: {error:?}"),
-                    };
-                    assert_eq!(describe(&a), describe(&b), "{source}");
-                    let locations = |error: &VmError| {
-                        error
-                            .trace()
-                            .unwrap()
-                            .frames
-                            .iter()
-                            .map(|frame| frame.source_span)
-                            .collect::<Vec<_>>()
-                    };
-                    assert_eq!(locations(&a), locations(&b), "{source}");
-                }
-                (a, b) => panic!("execution differs for {source}: {a:?}, {b:?}"),
+#[rstest]
+#[case::folded_branch("fn main() -> i32 { if 1 + 2 == 3 { 42 } else { 0 } }")]
+#[case::signed_overflow("fn main() -> i8 { 127i8 + 1i8 }")]
+#[case::unsigned_shift("fn main() -> u8 { 255u8 << 1 }")]
+#[case::division_zero("fn main() -> i32 { 1 / 0 }")]
+#[case::while_loop("fn main() -> i32 { var x = 0; while x < 3 { x += 1; } x }")]
+#[case::snapshot_before_write("fn main() -> i32 { var x = 1; val old = x; x = 2; old * 10 + x }")]
+#[case::remainder_loop(
+    "fn main() -> i32 { var x = 0; var sum = 0; while x < 20 { sum += x % 7; x += 1; } sum }"
+)]
+#[case::argument_snapshots(
+    "fn add(a: i32, b: i32, c: i32) -> i32 { a * 100 + b * 10 + c } fn main() -> i32 { var x = 2; val y = x; x = 3; add(x, y, x) }"
+)]
+fn optimized_execution_preserves_results_traps_and_source_origins(#[case] source: &str) {
+    let original = compile(source, false);
+    let optimized = compile(source, true);
+    {
+        let (before, a) = setup(original.clone());
+        let (after, b) = setup(optimized.clone());
+        let a = before.execute(&a, ProgramEntry::Main);
+        let b = after.execute(&b, ProgramEntry::Main);
+        match (a, b) {
+            (Ok(a), Ok(b)) => {
+                assert_eq!(
+                    a.return_value
+                        .value(before.runtime().gc())
+                        .expect("retained execution result"),
+                    b.return_value
+                        .value(after.runtime().gc())
+                        .expect("retained execution result"),
+                    "{source}"
+                )
             }
-            assert_eq!(
-                before.runtime().resources().counters(),
-                after.runtime().resources().counters()
-            );
-            assert_eq!(after.runtime().gc().active_roots(), 0);
+            (Err(a), Err(b)) => {
+                let describe = |error: &VmError| match error.cause() {
+                    VmError::RuntimeError(error) => (error.kind(), error.message().to_owned()),
+                    VmError::BuiltinError(error) => (error.kind(), error.message().to_owned()),
+                    error => panic!("unexpected error: {error:?}"),
+                };
+                assert_eq!(describe(&a), describe(&b), "{source}");
+                let locations = |error: &VmError| {
+                    error
+                        .trace()
+                        .unwrap()
+                        .frames
+                        .iter()
+                        .map(|frame| frame.source_span)
+                        .collect::<Vec<_>>()
+                };
+                assert_eq!(locations(&a), locations(&b), "{source}");
+            }
+            (a, b) => panic!("execution differs for {source}: {a:?}, {b:?}"),
         }
+        assert_eq!(
+            before.runtime().resources().counters(),
+            after.runtime().resources().counters()
+        );
+        assert_eq!(after.runtime().gc().active_roots(), 0);
     }
 }
 

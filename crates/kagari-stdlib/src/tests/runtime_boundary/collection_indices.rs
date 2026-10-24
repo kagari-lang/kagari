@@ -1,7 +1,5 @@
 //! Native stdlib contracts keep wide script indices until the storage boundary.
-use crate::tests::runtime_boundary::support::native::invoke::invoke;
-use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_hir::analysis::AnalysisDatabase;
+use crate::tests::runtime_boundary::support::{compile_program, native::invoke::invoke};
 use kagari_runtime::{
     Runtime,
     error::RuntimeErrorKind,
@@ -9,24 +7,15 @@ use kagari_runtime::{
     native::{conversion::context::ConversionContext, module::NativeModule},
     value::Value,
 };
-use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
-use std::{collections::BTreeMap, sync::Arc};
+use std::collections::BTreeMap;
 
 fn fixture() -> (Runtime, LoadedModule, BTreeMap<String, usize>) {
     let modules = crate::modules().unwrap();
-    let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(
-        modules
-            .iter()
-            .map(|module| Arc::new(module.to_declaration()))
-            .collect(),
-    );
-    let mut sources = SourceDatabase::default();
-    let root = sources
-        .set(
-            "collection_indices.kgr",
-            r#"
+    let program = compile_program(
+        &modules,
+        "collection_indices.kgr",
+        r#"
 fn get(values: Vec<u64>, index: u64) -> Option<u64> { values.get(index) }
 fn remove(values: Vec<u64>, index: u64) -> Option<u64> { values.remove(index) }
 fn insert(values: Vec<u64>, index: u64) -> Vec<u64> { values.insert(index, 42u64) }
@@ -36,19 +25,8 @@ fn insert_mutable<T: std::collections::MutableList<u64>>(values: T, index: u64) 
 fn insert_unit(values: Vec<u64>, index: u64) { insert_mutable(values, index); }
 fn array_index(values: [u64], index: u64) -> u64 { values.index(index) }
 fn slice(value: String, start: u64, end: u64) -> String { value.slice(start, end) }
-"#
-            .into(),
-            SourceLayer::Base,
-        )
-        .unwrap();
-    let snapshot = analysis
-        .snapshot(sources.snapshot(), &Default::default())
-        .unwrap();
-    let checked = snapshot.check_program(root, &Default::default()).unwrap();
-    let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
-    let program = lower_program_to_bytecode(&mir, &Default::default())
-        .map(|program| program.into_unverified())
-        .unwrap();
+"#,
+    );
     let slots = program.records().modules[program.records().root.index()]
         .native_imports
         .iter()

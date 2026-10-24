@@ -494,7 +494,8 @@ ordinary traits and TO02 remaining SDK language families are complete locally;
 focused behavior, fixture equivalence and discovery checks passed. TO03 parser
 UI/source ownership and TO04 HIR/package organization are complete locally;
 TO05 executable-contract and TO06 SDK lifecycle/product organization are also
-complete locally; TO07 runtime/VM/stdlib is next. The user authorized implementation and phase commits. This creates no
+complete locally, as is TO07 runtime/VM/stdlib work; TO08 foundational/native
+consumers are next. The user authorized implementation and phase commits. This creates no
 new test binary/framework layer and does not replace the older measurement debt
 below; complete CI acceptance remains separate.
 

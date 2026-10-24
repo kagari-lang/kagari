@@ -1,0 +1,20 @@
+
+        struct Item { val value: i32 }
+        trait Capture {
+            fn identity<U>(self, value: U) -> U { value }
+            fn code(self) -> i32 { helper() }
+            fn capture<T>(self, value: T) -> fn() -> i32 {
+                || {
+                    val source: Capture = 1;
+                    val held: T = source.identity(value);
+                    source.code()
+                }
+            }
+        }
+        impl Capture for i32 {}
+        fn helper() -> i32 { 42 }
+        fn read(source: Capture) -> i32 { val get = source.capture(Item { value: 1 }); get() }
+        fn make() -> fn() -> i32 { val source: Capture = 7; source.capture(Item { value: 2 }) }
+        fn use_closure(call: fn() -> i32) -> i32 { call() }
+        fn main() -> i32 { read(7) }
+    

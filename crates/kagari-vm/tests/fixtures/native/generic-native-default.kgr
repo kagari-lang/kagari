@@ -1,0 +1,38 @@
+
+        use example::generic_defaults::Identity;
+        struct Number {}
+        struct Item { val value: i32 }
+        impl Identity<i32> for Number {}
+        fn main() -> i32 {
+            val source: Identity<i32> = Number {};
+            val value: Item = source.identity(Item { value: 21 });
+            value.value + source.identity(21)
+        }
+        pub fn overridden() -> i32 { val source: Identity<i32> = 1; source.identity(42) }
+        struct Holder<T> { val value: T }
+        impl<T> Identity<Option<T>> for Holder<T> {}
+        trait Relay {
+            fn relay<T>(self, value: T) -> T {
+                val concrete = Holder { value };
+                val first = concrete.identity(value);
+                val source: Identity<Option<T>> = concrete;
+                source.identity(first)
+            }
+        }
+        impl Relay for i32 {}
+        pub fn nested() -> i32 {
+            val relay: Relay = 0;
+            relay.relay(Item { value: 42 }).value
+        }
+        trait BoundedRelay {
+            fn invoke<S: Identity<i32>, T>(self, source: S, value: T) -> T {
+                source.identity(value)
+            }
+        }
+        impl BoundedRelay for i32 {}
+        pub fn bounded() -> i32 {
+            val relay: BoundedRelay = 0;
+            val value = relay.invoke(Number {}, Item { value: 21 });
+            relay.invoke(0, value).value * 2
+        }
+    

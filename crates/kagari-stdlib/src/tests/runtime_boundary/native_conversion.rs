@@ -1,8 +1,7 @@
+use crate::tests::runtime_boundary::support::compile_program;
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
 };
-use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::{RuntimeError, RuntimeErrorKind},
@@ -23,13 +22,11 @@ use kagari_runtime::{
     },
     value::Value,
 };
-use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::ty::Ty;
 use std::{
     cell::Cell,
     fmt::Debug,
     panic::{AssertUnwindSafe, catch_unwind},
-    sync::Arc,
 };
 
 fn fixture() -> (Runtime, LoadedModule) {
@@ -42,25 +39,7 @@ fn fixture() -> (Runtime, LoadedModule) {
 fn fixture_with(extra: Option<NativeModule>, source: &str) -> (Runtime, LoadedModule) {
     let mut modules = crate::modules().unwrap();
     modules.extend(extra);
-    let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(
-        modules
-            .iter()
-            .map(|module| Arc::new(module.to_declaration()))
-            .collect(),
-    );
-    let mut sources = SourceDatabase::default();
-    let root = sources
-        .set("conversion.kgr", source.into(), SourceLayer::Base)
-        .unwrap();
-    let snapshot = analysis
-        .snapshot(sources.snapshot(), &Default::default())
-        .unwrap();
-    let checked = snapshot.check_program(root, &Default::default()).unwrap();
-    let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
-    let program = lower_program_to_bytecode(&mir, &Default::default())
-        .map(|program| program.into_unverified())
-        .unwrap();
+    let program = compile_program(&modules, "conversion.kgr", source);
     let mut runtime = Runtime::new(RuntimeConfig {
         gc: GcHeapConfig {
             collection_threshold: Some(1),

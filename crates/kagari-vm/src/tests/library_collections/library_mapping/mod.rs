@@ -255,22 +255,7 @@ fn retained_zip_uses_both_original_custom_sources_and_callbacks_after_reload() {
             module.declaration().identity == kagari_stdlib::namespaces::module("core", "iter")
         })
         .unwrap();
-    let source = r#"
-fn bias()->i32{0}
-struct Source { val values: Vec<i32>, var position: u64 }
-impl Iterator for Source {
-    type Item=i32;
-    fn next(self)->Option<i32> {
-        val value=self.values.get(self.position); self.position+=1u64;
-        match value { Some(item)=>Some(item+bias()), None=>None }
-    }
-}
-pub fn make()->Iterator<Item=(i32,i32)> {
-    val offset=Vec::from([1]);
-    Source { values:Vec::from([10,20]),position:0u64 }.map(|item|item+offset[0])
-        .zip(Source {values:Vec::from([30,40]),position:0u64}.map(|item|item+offset[0]))
-}
-"#;
+    let source = include_str!("../../../../tests/fixtures/collections/retained-custom-zip.kgr");
     let mut runtime = Runtime::default();
     kagari_runtime::native::module::NativeModule::install_all(
         &kagari_stdlib::modules().unwrap(),

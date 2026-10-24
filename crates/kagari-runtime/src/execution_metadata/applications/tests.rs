@@ -8,6 +8,7 @@ use crate::{
 };
 use kagari_abi::representation::ValueType;
 use kagari_types::ty::Ty;
+use rstest::rstest;
 
 fn application() -> MethodApplication {
     MethodApplication {
@@ -89,30 +90,32 @@ fn rooted_application_keeps_its_environment_edges_until_last_lease() {
     assert!(!runtime.is_quarantined());
 }
 
-#[test]
-fn application_only_growth_is_collected_at_safepoints_unless_disabled() {
-    for threshold in [Some(4), None] {
-        let mut config = RuntimeConfig::default();
-        config.gc.collection_threshold = threshold;
-        let runtime = Runtime::new(config);
-        for _ in 0..64 {
-            runtime.gc.alloc_method_application(application()).unwrap();
-            runtime.gc_safepoint().unwrap();
-            if threshold.is_some() {
-                assert!(runtime.gc.stats().method_applications < 4);
-            }
+#[rstest]
+#[case::automatic(Some(4))]
+#[case::disabled(None)]
+fn application_only_growth_is_collected_at_safepoints_unless_disabled(
+    #[case] threshold: Option<usize>,
+) {
+    let mut config = RuntimeConfig::default();
+    config.gc.collection_threshold = threshold;
+    let runtime = Runtime::new(config);
+    for _ in 0..64 {
+        runtime.gc.alloc_method_application(application()).unwrap();
+        runtime.gc_safepoint().unwrap();
+        if threshold.is_some() {
+            assert!(runtime.gc.stats().method_applications < 4);
         }
-        let stats = runtime.gc.stats();
-        assert_eq!(stats.allocated_objects, 0);
-        assert_eq!(stats.operation_groups, 0);
-        assert_eq!(
-            stats.method_applications,
-            if threshold.is_some() { 0 } else { 64 }
-        );
-        assert_eq!(stats.collections, if threshold.is_some() { 16 } else { 0 });
-        runtime.collect_garbage().unwrap();
-        assert_eq!(runtime.gc.stats().method_applications, 0);
     }
+    let stats = runtime.gc.stats();
+    assert_eq!(stats.allocated_objects, 0);
+    assert_eq!(stats.operation_groups, 0);
+    assert_eq!(
+        stats.method_applications,
+        if threshold.is_some() { 0 } else { 64 }
+    );
+    assert_eq!(stats.collections, if threshold.is_some() { 16 } else { 0 });
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc.stats().method_applications, 0);
 }
 
 #[test]

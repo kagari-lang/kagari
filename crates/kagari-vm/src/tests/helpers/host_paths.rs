@@ -30,7 +30,7 @@ use std::sync::{Arc, Mutex};
 
 #[test]
 fn executes_runtime_host_helper_call() {
-    let mut runtime = host_runtime();
+    let mut runtime = standard_runtime(RuntimeConfig::default());
     logging_module(|_, _| Ok(Value::Unit))
         .install(&mut runtime)
         .unwrap();

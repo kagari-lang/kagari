@@ -13,7 +13,7 @@ use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[test]
 fn executes_runtime_reflect_type_of_helper() {
-    let (runtime, loaded) = load_reflection_bytecode_module(
+    let (runtime, loaded) = load_bytecode_module(
         "reflect_type.kbc",
         test_function_module(
             "main",
@@ -190,7 +190,7 @@ fn declared_reflection_writes_are_available() {
 
 #[test]
 fn executes_runtime_reflect_get_and_set_field_helpers() {
-    let (runtime, loaded) = load_reflection_bytecode_module(
+    let (runtime, loaded) = load_bytecode_module(
         "reflect_field.kbc",
         common::point_function_module(
             "main",
@@ -253,7 +253,7 @@ fn executes_runtime_reflect_get_and_set_field_helpers() {
 
 #[test]
 fn executes_runtime_reflect_set_index_helper() {
-    let (runtime, loaded) = load_reflection_bytecode_module(
+    let (runtime, loaded) = load_bytecode_module(
         "reflect_index.kbc",
         test_function_module(
             "main",
@@ -318,7 +318,10 @@ fn executes_runtime_reflect_set_index_helper() {
 
 #[test]
 fn executes_source_lowered_type_of_helper() {
-    let (runtime, loaded) = load_reflection_test_module("fn main() -> String { type_of(7) }");
+    let (runtime, loaded) = load_bytecode_program(
+        "test.kgr",
+        compile_test_bytecode("fn main() -> String { type_of(7) }"),
+    );
     let vm = Vm::new(runtime);
     let report = vm
         .execute(&loaded, ProgramEntry::Main)
@@ -339,8 +342,10 @@ fn executes_source_lowered_type_of_helper() {
 
 #[test]
 fn executes_source_lowered_reflection_field_helpers() {
-    let (runtime, loaded) = load_reflection_test_module(
-        r#"
+    let (runtime, loaded) = load_bytecode_program(
+        "test.kgr",
+        compile_test_bytecode(
+            r#"
 struct Point { var x: i32 }
 
 fn main() -> i32 {
@@ -349,6 +354,7 @@ fn main() -> i32 {
     get_field(next, "x")
 }
 "#,
+        ),
     );
     let vm = Vm::new(runtime);
     let report = vm
@@ -366,13 +372,16 @@ fn main() -> i32 {
 
 #[test]
 fn executes_source_lowered_set_index_helper() {
-    let (runtime, loaded) = load_reflection_test_module(
-        r#"
+    let (runtime, loaded) = load_bytecode_program(
+        "test.kgr",
+        compile_test_bytecode(
+            r#"
 fn main() -> [i32] {
     val values = [1, 2];
     set_index(values, 0, 9)
 }
 "#,
+        ),
     );
     let vm = Vm::new(runtime);
     let report = vm
@@ -424,8 +433,10 @@ fn main() -> i32 {
 
 #[test]
 fn standard_collection_reflection_metadata_reports_runtime_categories() {
-    let (runtime, loaded) = load_reflection_test_module(
-        r#"use std::collections::{HashMap, HashSet};
+    let (runtime, loaded) = load_bytecode_program(
+        "test.kgr",
+        compile_test_bytecode(
+            r#"use std::collections::{HashMap, HashSet};
 
         fn main() -> (String, String) {
             val map: HashMap<i32,i32> = HashMap::new();
@@ -433,6 +444,7 @@ fn standard_collection_reflection_metadata_reports_runtime_categories() {
             (type_of(map), type_of(set))
         }
     "#,
+        ),
     );
 
     let vm = Vm::new(runtime);

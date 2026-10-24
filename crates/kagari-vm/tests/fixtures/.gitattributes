@@ -1,0 +1,13 @@
+*.kgr text eol=lf
+# These extracted literals retain their original unterminated final indentation line.
+execution/generic-interface-capture.kgr whitespace=-blank-at-eof,-blank-at-eol
+execution/constraint-generation-capture.kgr whitespace=-blank-at-eof,-blank-at-eol
+execution/mixed-nominal-list-capture.kgr whitespace=-blank-at-eof,-blank-at-eol
+collections/selected-stable-order.kgr whitespace=-blank-at-eof,-blank-at-eol
+native/hash-gc-and-trap.kgr whitespace=-blank-at-eof,-blank-at-eol
+native/scoped-borrow-packs.kgr whitespace=-blank-at-eof,-blank-at-eol
+native/generic-script-value-handles.kgr whitespace=-blank-at-eof,-blank-at-eol
+native/selected-generic-object-results.kgr whitespace=-blank-at-eof,-blank-at-eol
+native/structural-and-identity-hash-keys.kgr whitespace=-blank-at-eof,-blank-at-eol
+native/generic-native-default.kgr whitespace=-blank-at-eof,-blank-at-eol
+owned/owned-drive-state.kgr whitespace=-blank-at-eof,-blank-at-eol

@@ -441,26 +441,7 @@ fn source_interface_dispatch_keeps_old_method_and_descendant_after_reload() {
 
 #[test]
 fn generic_interface_and_retained_closure_keep_their_environment_after_reload() {
-    let source = r#"
-        struct Item { val value: i32 }
-        trait Capture {
-            fn identity<U>(self, value: U) -> U { value }
-            fn code(self) -> i32 { helper() }
-            fn capture<T>(self, value: T) -> fn() -> i32 {
-                || {
-                    val source: Capture = 1;
-                    val held: T = source.identity(value);
-                    source.code()
-                }
-            }
-        }
-        impl Capture for i32 {}
-        fn helper() -> i32 { 42 }
-        fn read(source: Capture) -> i32 { val get = source.capture(Item { value: 1 }); get() }
-        fn make() -> fn() -> i32 { val source: Capture = 7; source.capture(Item { value: 2 }) }
-        fn use_closure(call: fn() -> i32) -> i32 { call() }
-        fn main() -> i32 { read(7) }
-    "#;
+    let source = include_str!("../../../tests/fixtures/execution/generic-interface-capture.kgr");
     let mut runtime = standard_runtime(Default::default());
     let old = runtime
         .load_program("shared-reload", compile_test_bytecode(source))
@@ -679,22 +660,8 @@ fn interface_instruction_uses_a_reachable_dependency_table() {
 
 #[test]
 fn a_retained_generic_closure_pins_the_callers_constraint_generation() {
-    let source = r#"
-        trait Capture {
-            fn capture<F: Fn() -> i32>(self, callback: F) -> fn() -> i32 { || callback() }
-        }
-        impl Capture for i32 {}
-        struct Callback {}
-        impl Fn<()> for Callback {
-            type Output = i32;
-            fn call(self, args: ()) -> i32 { helper() }
-        }
-        fn helper() -> i32 { 42 }
-        fn source() -> Capture { 7 }
-        fn make(source: Capture) -> fn() -> i32 { source.capture(Callback {}) }
-        fn use_closure(call: fn() -> i32) -> i32 { call() }
-        fn main() -> i32 { helper() }
-    "#;
+    let source =
+        include_str!("../../../tests/fixtures/execution/constraint-generation-capture.kgr");
     fn execute(runtime: &Runtime, module: &LoadedModule, name: &str, args: &[Value]) -> Value {
         let entry = module
             .bytecode
@@ -1080,36 +1047,9 @@ fn shared_closure_signatures_distinguish_nominal_generations() {
 
 #[test]
 fn shared_mutable_lists_preserve_mixed_nominal_scopes_and_parent_views() {
-    check_type_provenance_reload(
-        r#"use std::collections::{List, MutableList};
-
-        struct Item { val value: i32 }
-        struct Box<T> { val item: T }
-        enum Wrapped<T> { Some(T), None }
-        fn concrete() -> Box<Wrapped<Item>> { Box { item: Wrapped::Some(Item { value: 1 }) } }
-        fn keep<T>(value: T) -> T { value }
-        trait Capture {
-            fn capture<T>(self, value: T) -> fn() -> i32 {
-                val list: MutableList<(Item, Box<Wrapped<T>>)> = Vec::from([(Item { value: 1 }, Box { item: Wrapped::Some(value) })]);
-                list.push((Item { value: 1 }, Box { item: Wrapped::Some(value) }));
-                val view: List<(Item, Box<Wrapped<T>>)> = list;
-                var seen = 0;
-                for pair in view {
-                    val inner: T = match pair[1].item { Wrapped::Some(inner) => inner, Wrapped::None => value };
-                    seen = seen + 1;
-                }
-                || {
-                    val held: (Item, Box<Wrapped<T>>) = keep(view[1]);
-                    match held[1].item { Wrapped::Some(inner) => { val again: T = keep(inner); helper() + seen - 2 }, Wrapped::None => 0 }
-                }
-            }
-        }
-        impl Capture for i32 {}
-        fn helper() -> i32 { 42 }
-        fn make(source: Capture) -> fn() -> i32 { source.capture(Item { value: 1 }) }
-        fn use_closure(call: fn() -> i32) -> i32 { call() }
-    "#,
-    );
+    check_type_provenance_reload(include_str!(
+        "../../../tests/fixtures/execution/mixed-nominal-list-capture.kgr"
+    ));
 }
 
 #[test]

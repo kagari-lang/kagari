@@ -17,6 +17,7 @@ use kagari_runtime::{Runtime, native::module::NativeModule, value::Value};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib as foundation;
 use kagari_types::{callable::CallableImplementation, scalar::BuiltinType, ty::Ty};
+use rstest::rstest;
 use std::sync::Arc;
 
 fn fixture(dependency_source: &str) -> DefinitionMetadata<BytecodeProgram> {
@@ -121,8 +122,15 @@ fn direct_native_imports_run_from_source_and_decoded_artifacts() {
     }
 }
 
-#[test]
-fn forged_native_imports_reject_bindings_signatures_and_obligations() {
+#[rstest]
+#[case::binding(0)]
+#[case::parameter_arity(1)]
+#[case::result_type(2)]
+#[case::requirements(3)]
+#[case::instance_arguments(4)]
+#[case::declaration(5)]
+#[case::native_slot(6)]
+fn forged_native_imports_reject_bindings_signatures_and_obligations(#[case] corrupt: usize) {
     let program = fixture(
         "use std::collections::{HashSet};\npub fn answer() -> i32 { val set: HashSet<i32> = HashSet::new(); set.insert(42); if set.contains(42) { 42 } else { 0 } }",
     );
@@ -160,71 +168,70 @@ fn forged_native_imports_reject_bindings_signatures_and_obligations() {
             .arguments
             .is_empty()
     );
-    for corrupt in 0..7 {
-        let mut forged = program.clone();
-        let import = &mut forged.modules[member].native_imports[slot];
-        match corrupt {
-            0 => import.binding = renamed(&context, import.binding, "uninstalled"),
-            1 => {
-                import.signature.params.pop().unwrap();
-            }
-            2 => import.signature.result = Ty::Builtin(BuiltinType::I32),
-            3 => import.requirements.clear(),
-            4 => import.instance.arguments.clear(),
-            5 => {
-                import.instance.declaration =
-                    renamed(&context, import.instance.declaration, "unpublished")
-            }
-            6 => {
-                let instruction = forged.modules[member]
-                    .functions
-                    .iter_mut()
-                    .flat_map(|function| &mut function.instructions)
-                    .find(|instruction| {
-                        matches!(
-                            instruction,
-                            BytecodeInstruction::Call {
-                                callee: CallTarget::Native(_),
-                                ..
-                            }
-                        )
-                    })
-                    .unwrap();
-                let BytecodeInstruction::Call { callee, .. } = instruction else {
-                    unreachable!()
-                };
-                *callee = CallTarget::Native(NativeImportId::new(usize::MAX));
-            }
-            _ => unreachable!(),
+
+    let mut forged = program.clone();
+    let import = &mut forged.modules[member].native_imports[slot];
+    match corrupt {
+        0 => import.binding = renamed(&context, import.binding, "uninstalled"),
+        1 => {
+            import.signature.params.pop().unwrap();
         }
-        assert!(
-            verify_program(&forged, &context.snapshot(), &Default::default()).is_err(),
-            "accepted corruption {corrupt}"
-        );
-        assert!(
-            KbcArtifact::from_program(
-                forged.clone(),
-                Default::default(),
-                &context,
-                &Default::default()
+        2 => import.signature.result = Ty::Builtin(BuiltinType::I32),
+        3 => import.requirements.clear(),
+        4 => import.instance.arguments.clear(),
+        5 => {
+            import.instance.declaration =
+                renamed(&context, import.instance.declaration, "unpublished")
+        }
+        6 => {
+            let instruction = forged.modules[member]
+                .functions
+                .iter_mut()
+                .flat_map(|function| &mut function.instructions)
+                .find(|instruction| {
+                    matches!(
+                        instruction,
+                        BytecodeInstruction::Call {
+                            callee: CallTarget::Native(_),
+                            ..
+                        }
+                    )
+                })
+                .unwrap();
+            let BytecodeInstruction::Call { callee, .. } = instruction else {
+                unreachable!()
+            };
+            *callee = CallTarget::Native(NativeImportId::new(usize::MAX));
+        }
+        _ => unreachable!(),
+    }
+    assert!(
+        verify_program(&forged, &context.snapshot(), &Default::default()).is_err(),
+        "accepted corruption {corrupt}"
+    );
+    assert!(
+        KbcArtifact::from_program(
+            forged.clone(),
+            Default::default(),
+            &context,
+            &Default::default()
+        )
+        .is_err(),
+        "artifact accepted corruption {corrupt}"
+    );
+    let mut runtime = Runtime::default();
+    NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
+    assert!(
+        runtime
+            .load_program(
+                "forged-native",
+                DefinitionMetadata::checked(context.snapshot(), forged, &Default::default())
+                    .unwrap()
             )
             .is_err(),
-            "artifact accepted corruption {corrupt}"
-        );
-        let mut runtime = Runtime::default();
-        NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
-        assert!(
-            runtime
-                .load_program(
-                    "forged-native",
-                    DefinitionMetadata::checked(context.snapshot(), forged, &Default::default())
-                        .unwrap()
-                )
-                .is_err(),
-            "runtime accepted corruption {corrupt}"
-        );
-        assert_eq!(runtime.gc().active_roots(), 0);
-    }
+        "runtime accepted corruption {corrupt}"
+    );
+    assert_eq!(runtime.gc().active_roots(), 0);
 }
 
 #[test]

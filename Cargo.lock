@@ -750,6 +750,7 @@ dependencies = [
  "kagari-source",
  "kagari-stdlib",
  "kagari-types",
+ "rstest",
  "serde",
  "thiserror",
  "web-time",
@@ -817,6 +818,7 @@ dependencies = [
  "kagari-stdlib",
  "kagari-syntax",
  "kagari-types",
+ "rstest",
 ]
 
 [[package]]

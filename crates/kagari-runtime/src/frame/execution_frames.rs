@@ -22,6 +22,7 @@ use kagari_bytecode::{
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_contract::ids::FunctionRef;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
+use rstest::rstest;
 
 mod origins;
 mod slots;
@@ -113,8 +114,50 @@ fn loaded_function(runtime: &mut Runtime, function: BytecodeFunction) -> LoadedM
         .unwrap()
 }
 
-#[test]
-fn call_argument_admission_preserves_failure_precedence_and_atomicity() {
+#[rstest]
+#[case::foreign_heap(
+    false,
+    false,
+    None,
+    2,
+    RuntimeError::module_validation("invalid heap argument")
+)]
+#[case::arity_before_heap(
+    false,
+    false,
+    None,
+    1,
+    RuntimeError::module_validation("frame argument count does not match the linked function")
+)]
+#[case::cancel_before_heap(
+    false,
+    true,
+    None,
+    2,
+    RuntimeError::new(RuntimeErrorKind::Cancelled, "execution cancelled")
+)]
+#[case::depth_before_heap(false, false, Some(0), 2, RuntimeError::resource_limit("call depth"))]
+#[case::candidate_before_cancel(
+    true,
+    true,
+    None,
+    2,
+    RuntimeError::execution_phase_violation("external object in candidate call arguments")
+)]
+#[case::candidate_before_depth(
+    true,
+    false,
+    Some(0),
+    2,
+    RuntimeError::execution_phase_violation("external object in candidate call arguments")
+)]
+fn call_argument_admission_preserves_failure_precedence_and_atomicity(
+    #[case] candidate_phase: bool,
+    #[case] cancel: bool,
+    #[case] max_depth: Option<u32>,
+    #[case] argument_count: usize,
+    #[case] expected: RuntimeError,
+) {
     let mut foreign = Runtime::default();
     let foreign_module = loaded(&mut foreign);
     let foreign_value = Value::Array(
@@ -123,158 +166,111 @@ fn call_argument_admission_preserves_failure_precedence_and_atomicity() {
             .unwrap(),
     );
     let _foreign_root = foreign.root_value(foreign_value).unwrap();
-    for (candidate_phase, cancel, max_depth, argument_count, expected) in [
-        (
-            false,
-            false,
-            None,
-            2,
-            RuntimeError::module_validation("invalid heap argument"),
-        ),
-        (
-            false,
-            false,
-            None,
-            1,
-            RuntimeError::module_validation(
-                "frame argument count does not match the linked function",
-            ),
-        ),
-        (
-            false,
-            true,
-            None,
-            2,
-            RuntimeError::new(RuntimeErrorKind::Cancelled, "execution cancelled"),
-        ),
-        (
-            false,
-            false,
-            Some(0),
-            2,
-            RuntimeError::resource_limit("call depth"),
-        ),
-        (
-            true,
-            true,
-            None,
-            2,
-            RuntimeError::execution_phase_violation("external object in candidate call arguments"),
-        ),
-        (
-            true,
-            false,
-            Some(0),
-            2,
-            RuntimeError::execution_phase_violation("external object in candidate call arguments"),
-        ),
-    ] {
-        let mut runtime = Runtime::new(RuntimeConfig {
-            limits: RuntimeLimits {
-                max_call_depth: max_depth,
-            },
+
+    let mut runtime = Runtime::new(RuntimeConfig {
+        limits: RuntimeLimits {
+            max_call_depth: max_depth,
+        },
+        ..Default::default()
+    });
+    let params = vec![ValueType::HeapObject; 2];
+    let baseline = loaded_function(&mut runtime, {
+        let parameter_base: usize = 0;
+        let fixture_instructions = vec![BytecodeInstruction::Return(None)];
+        let mut fixture_metadata: kagari_bytecode::module::FunctionMetadata = FunctionMetadata {
+            roots: RootSlotLayout::from_types(&[[].to_vec(), params.to_vec()].concat()),
+            slots: [vec![], params.clone()].concat(),
+            params,
             ..Default::default()
-        });
-        let params = vec![ValueType::HeapObject; 2];
-        let baseline = loaded_function(&mut runtime, {
-            let parameter_base: usize = 0;
-            let fixture_instructions = vec![BytecodeInstruction::Return(None)];
-            let mut fixture_metadata: kagari_bytecode::module::FunctionMetadata =
-                FunctionMetadata {
-                    roots: RootSlotLayout::from_types(&[[].to_vec(), params.to_vec()].concat()),
-                    slots: [vec![], params.clone()].concat(),
-                    params,
-                    ..Default::default()
-                };
-            if fixture_metadata.parameter_slots.is_empty() {
-                fixture_metadata.parameter_slots =
-                    (0..2).map(|i| Slot::new(parameter_base + i)).collect();
-            }
-            if fixture_metadata.origins.is_empty() {
-                fixture_metadata.origins = (0..fixture_instructions.len())
-                    .map(|instruction| kagari_bytecode::module::InstructionOrigin {
-                        span: Default::default(),
-                        line: None,
-                        column: None,
-                        instruction,
-                    })
-                    .collect();
-            }
-            BytecodeFunction {
-                id: FunctionRef::new(0),
-                name: "main".into(),
-                parameter_count: 2,
-                slot_count: u32::try_from(fixture_metadata.slots.len()).unwrap(),
-                metadata: fixture_metadata,
-                instructions: fixture_instructions,
-                ..Default::default()
-            }
-        });
-        let candidate = candidate_phase.then(|| {
-            let (definitions, module) = baseline
-                .to_unverified(&Default::default())
-                .unwrap()
-                .into_parts();
-            runtime
-                .stage_reload_program(
-                    &baseline,
-                    "frames",
-                    DefinitionMetadata::checked(
-                        definitions,
-                        BytecodeProgram {
-                            exports: Default::default(),
-                            root: ModuleRef::new(0),
-                            modules: vec![module],
-                        },
-                        &Default::default(),
-                    )
-                    .unwrap(),
-                )
-                .unwrap()
-        });
-        let old_object = Value::Array(
-            runtime
-                .alloc_array(&baseline, Ty::Builtin(BuiltinType::I32), vec![])
-                .unwrap(),
-        );
-        let _old_root = runtime.root_value(old_object).unwrap();
-        let _initialization = candidate
-            .as_ref()
-            .map(|candidate| runtime.begin_candidate_initialization(candidate).unwrap());
-        let owner = candidate
-            .as_ref()
-            .map_or(&baseline, |candidate| candidate.module());
-        let options = runtime.execution_options();
-        let cancellation = options.cancellation.clone();
-        let _session = candidate
-            .is_none()
-            .then(|| runtime.begin_execution(owner, options).unwrap());
-        let stack = runtime.enter_execution_stack(owner).unwrap();
-        let roots_before = runtime.gc().active_roots();
-        if cancel {
-            cancellation.cancel();
-        }
-        let arguments = if candidate_phase {
-            [Value::Unit, old_object]
-        } else {
-            [foreign_value, Value::Unit]
         };
-        let error = stack
-            .push(
-                &runtime,
-                owner.slot(),
-                FunctionRef::new(0),
-                &arguments[..argument_count],
-                None,
+        if fixture_metadata.parameter_slots.is_empty() {
+            fixture_metadata.parameter_slots =
+                (0..2).map(|i| Slot::new(parameter_base + i)).collect();
+        }
+        if fixture_metadata.origins.is_empty() {
+            fixture_metadata.origins = (0..fixture_instructions.len())
+                .map(|instruction| kagari_bytecode::module::InstructionOrigin {
+                    span: Default::default(),
+                    line: None,
+                    column: None,
+                    instruction,
+                })
+                .collect();
+        }
+        BytecodeFunction {
+            id: FunctionRef::new(0),
+            name: "main".into(),
+            parameter_count: 2,
+            slot_count: u32::try_from(fixture_metadata.slots.len()).unwrap(),
+            metadata: fixture_metadata,
+            instructions: fixture_instructions,
+            ..Default::default()
+        }
+    });
+    let candidate = candidate_phase.then(|| {
+        let (definitions, module) = baseline
+            .to_unverified(&Default::default())
+            .unwrap()
+            .into_parts();
+        runtime
+            .stage_reload_program(
+                &baseline,
+                "frames",
+                DefinitionMetadata::checked(
+                    definitions,
+                    BytecodeProgram {
+                        exports: Default::default(),
+                        root: ModuleRef::new(0),
+                        modules: vec![module],
+                    },
+                    &Default::default(),
+                )
+                .unwrap(),
             )
-            .unwrap_err();
-        assert_eq!(error.kind(), expected.kind());
-        assert_eq!(error.message(), expected.message());
-        assert!(stack.is_empty().unwrap());
-        assert_eq!(runtime.resources().counters().current_call_depth, 0);
-        assert_eq!(runtime.gc().active_roots(), roots_before);
-        assert!(!runtime.is_quarantined());
+            .unwrap()
+    });
+    let old_object = Value::Array(
+        runtime
+            .alloc_array(&baseline, Ty::Builtin(BuiltinType::I32), vec![])
+            .unwrap(),
+    );
+    let _old_root = runtime.root_value(old_object).unwrap();
+    let _initialization = candidate
+        .as_ref()
+        .map(|candidate| runtime.begin_candidate_initialization(candidate).unwrap());
+    let owner = candidate
+        .as_ref()
+        .map_or(&baseline, |candidate| candidate.module());
+    let options = runtime.execution_options();
+    let cancellation = options.cancellation.clone();
+    let _session = candidate
+        .is_none()
+        .then(|| runtime.begin_execution(owner, options).unwrap());
+    let stack = runtime.enter_execution_stack(owner).unwrap();
+    let roots_before = runtime.gc().active_roots();
+    if cancel {
+        cancellation.cancel();
     }
+    let arguments = if candidate_phase {
+        [Value::Unit, old_object]
+    } else {
+        [foreign_value, Value::Unit]
+    };
+    let error = stack
+        .push(
+            &runtime,
+            owner.slot(),
+            FunctionRef::new(0),
+            &arguments[..argument_count],
+            None,
+        )
+        .unwrap_err();
+    assert_eq!(error.kind(), expected.kind());
+    assert_eq!(error.message(), expected.message());
+    assert!(stack.is_empty().unwrap());
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
+    assert_eq!(runtime.gc().active_roots(), roots_before);
+    assert!(!runtime.is_quarantined());
 }
 
 #[test]

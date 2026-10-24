@@ -1,0 +1,16 @@
+
+        trait Capture {
+            fn capture<F: Fn() -> i32>(self, callback: F) -> fn() -> i32 { || callback() }
+        }
+        impl Capture for i32 {}
+        struct Callback {}
+        impl Fn<()> for Callback {
+            type Output = i32;
+            fn call(self, args: ()) -> i32 { helper() }
+        }
+        fn helper() -> i32 { 42 }
+        fn source() -> Capture { 7 }
+        fn make(source: Capture) -> fn() -> i32 { source.capture(Callback {}) }
+        fn use_closure(call: fn() -> i32) -> i32 { call() }
+        fn main() -> i32 { helper() }
+    

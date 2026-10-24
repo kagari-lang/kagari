@@ -1,0 +1,17 @@
+
+fn make_reader() -> fn() -> i32 {
+    val values = [42];
+    || values[0]
+}
+fn make_counter() -> fn() -> i32 {
+    var count = 40;
+    || { count = count + 1; count }
+}
+fn main() -> i32 {
+    val reader = make_reader();
+    val counter = make_counter();
+    val garbage = [1, 2, 3];
+    val first = counter();
+    val second = counter();
+    reader() + second - first
+}

@@ -591,13 +591,13 @@ external consumer/producer boundaries and exact product identities remain covere
 
 Three owner checkpoints, preserving their existing dependency direction.
 
-- [ ] Review runtime GC/roots, frames/cleanup, host scopes/borrows, native registration,
+- [x] Review runtime GC/roots, frames/cleanup, host scopes/borrows, native registration,
   module initialization and reload families. Keep stale/foreign handles, rollback,
   generation guards and accounting facts; table only independent variations.
-- [ ] Review VM execution/native-boundary/debugger/owned-drive families. Consolidate
+- [x] Review VM execution/native-boundary/debugger/owned-drive families. Consolidate
   evidenced redundant wrappers, while retaining fresh codec identity contexts,
   callback effects, mutation commits, traps, cancellation and synchronous reentry.
-- [ ] Review stdlib assembly, documentation, bindings and runtime composition.
+- [x] Review stdlib assembly, documentation, bindings and runtime composition.
   Consolidate preparation only across compatible consumers; preserve analysis-only
   documentation aggregation and installed carrier/reentry/resource assertions.
 
@@ -733,8 +733,35 @@ fewer Rust strings, fewer binaries or a different test count is not speed eviden
 | TO04 | Complete locally: HIR UI/recovery split and package input preparation |
 | TO05 | Complete locally: lowering/admission split, adoption support and disassembly goldens |
 | TO06 | Complete locally: SDK lifecycle ownership, fixed sources and preparation cleanup |
-| TO07-TO10 | Planned, not started |
+| TO07 | Complete locally: runtime rows, VM sources/support and stdlib preparation |
+| TO08-TO10 | Planned, not started |
 | TO11 | Pending completion of owner phases |
+
+2026-10-24 TO07: runtime -> VM -> stdlib checkpoints completed serially. Seven
+runtime groups expose 23 independent admission/GC/ABI/proof/input rows; two VM
+groups expose 15 optimization/forgery rows. Sixteen VM scripts retain 13,212 exact
+bytes. Four proven VM wrappers and 17 consumers now use actual standard/preparation
+owners; reflection deliberately keeps its unverified load_program admission path,
+not the stronger load_test_module helper. Two stdlib fixture producers serving
+12 tests share compatible compilation only. All 38 row arguments match original
+tables; no test deletion, new target or semantic production change.
+
+All runtime/VM/stdlib families, 889 original static test definitions, 561 support/
+example bodies and 39 API fences are accounted for. GC roots/native resources,
+foreign/stale/generation checks, scoped borrows, frames, reentry, wake/session,
+mutation commits, source-free native registration/reload and installed stdlib
+composition keep their temporal/typed assertions. Dynamic documentation aggregation,
+external schemas/derive/Serde, ignored probes and allocator measurement processes
+retain their original roles; no lower-layer SDK dependency was added.
+
+Local selection passed 26 runtime, 51 VM and 18 stdlib tests, plus ten scoped-host/
+callback-loan compile-fail doctests. Two affected VM cases passed again after unused
+import cleanup; no new coverage is claimed for repeats. Exact source/body/row/EOL
+proofs, workspace Clippy, format, structure (1,597 files, zero violations/exceptions)
+and staged/new-file whitespace checks passed. Eleven exact fixture paths preserve
+inherited indentation through narrow attributes. No remaining errors. Other API
+fences, full matrices, Miri and measurements remain unrun CI/manual scope; pointer
+kernels were not changed. TO08 is next.
 
 2026-10-24 TO06: three serial SDK owner batches completed. Seventeen scripts
 (17,436 exact bytes) move to embedding fixtures; three existing aggregates expose

@@ -1,0 +1,14 @@
+
+fn descend(n: i32, kept: Vec<i32>) -> Vec<i32> {
+    if n == 0 { kept } else {
+        val inner = Vec::from([n]);
+        val returned = descend(n - 1, inner);
+        kept.push(returned[0]);
+        kept
+    }
+}
+fn main() -> i32 {
+    val original = Vec::from([42]);
+    val returned = descend(32, original);
+    returned[0] + returned[1]
+}
