@@ -834,7 +834,7 @@ and migration, UP04 `ActorState`/state replacement, and UP05's related integrati
 scope. These are cancelled, not deferred or prerequisites for another plan.
 Existing general [Serde conversion and `KagariSchema` registration](spec/embedding-api.md#typed-native-registration)
 remain; they do not provide special state-replacement support. MS remains an
-independent, unstarted plan; repair-program linking keeps its existing review owner.
+independent, unstarted plan; temporary-script linking keeps its existing review owner.
 
 **UP03/UP04 removal local validation (before the body-update adjustment below):**
 at that checkpoint, the crate tree matched the pre-UP03 HM/UP02 baseline (`89845df8`). The existing Serde/object-conversion contract target passed
@@ -949,20 +949,9 @@ Remaining host scope stays here or with existing owners, not a replacement HM qu
   preparation already avoids mandatory encode/decode; do not reimplement it.
   Shareable products require proven ownership, never unsafe Send/Sync additions;
   [MS](multi-runtime-sharing-plan.md) owns frozen-product sharing and per-Runtime costs.
-- Known source-update preparation gap (compiler planner/correspondence owner): retained
-  intrinsic tuple protocol bridges can fail `Compilation::lower_with_demands` with
-  `Identity(InvalidContract)`. Reproduction uses the source and body-only replacement
-  from `shared_tuple_adapter_uses_current_operations_for_each_argument` in
-  `crates/kagari/src/runtime/tests/embedding/generic_reload.rs`, but prepares the replacement
-  with `ExpandRetainedApplications` rather than its normal `BodyOnlyArtifact` mode.
-  That experiment failed before publication at `update_requests::import_retained`:
-  retained `Impl(4)::eq` is a generated bridge, absent from the candidate's pre-lowering
-  authored declaration inventory. Independent complete artifact preparation and all
-  existing tuple body-update assertions pass. Repair requires semantic bridge demand
-  reconstruction/correspondence after candidate generated owners exist, including bridges
-  no longer reached by current source. Do not copy occurrence numbers, discard demands
-  or weaken admission. This previously existing planner boundary is deferred, not fixed
-  or hidden by the body-update policy change; source updates are not universally accepted.
+- [Generated tuple bridges in source updates](review.md#generated-tuple-bridges-in-source-updates)
+  remain an unresolved compiler planner/correspondence defect. Review owns the cause,
+  reproduction, affected API and repair acceptance; implementation remains deferred.
 - Host generic expansion: open-alias application, broader host type reflection and
   missing executable application preparation are outside the finite
   [object-binding contract](spec/embedding-api.md#public-object-types-and-binding-errors).
@@ -974,7 +963,7 @@ Remaining host scope stays here or with existing owners, not a replacement HM qu
 - Explicit unload policy is separate from compatible reload. Handle drop implies
   neither cancellation nor state reset; business rollback and cross-Actor atomicity
   remain host responsibilities.
-- [Temporary repair programs and cross-installation linking](review.md#runtime-loaded-programs-referencing-existing-installations)
+- [Temporary scripts and cross-installation linking](review.md#temporary-scripts-referencing-existing-installations)
   still need versioned compilation contracts, explicit installation bindings and
   lifetime validation. Their declarations remain outside the game's compatible-update
   inventory.

@@ -37,8 +37,10 @@ lifetime safety remain required.
   the remaining lifecycle finding. Scalar storage, transition-owned parking and
   payload-independent version identity are implemented; bounded retention decisions
   and evidence are recorded below.
-- [Runtime-loaded repair programs](#runtime-loaded-programs-referencing-existing-installations):
-  compile new maintenance code against versioned public contracts and explicitly
+- [Generated tuple bridges in source updates](#generated-tuple-bridges-in-source-updates):
+  retained-demand identity mapping runs before candidate generated implementations exist.
+- [Temporary scripts](#temporary-scripts-referencing-existing-installations):
+  compile newly supplied code against versioned public contracts and explicitly
   link existing installations without duplicating game objects or statics.
 - [Native expansion gates](#native-expansion-gates): requirements for future native
   coverage, not defects caused by the intentionally limited backend.
@@ -986,25 +988,98 @@ collection contract and add a focused asymmetric/effect-order case before changi
 implementation or specification. This finding is source-derived, not a new executed
 reproduction; it does not activate a semantic change as part of static support.
 
-## Runtime-loaded programs referencing existing installations
+## Generated tuple bridges in source updates
+
+**Status:** unresolved compiler preparation defect, observed during the body-update
+policy adjustment committed in `47161be3`. Owner: compiler retained-demand planning
+and implementation correspondence. This entry records follow-up work; it does not
+activate implementation or introduce a language restriction on tuple hot updates.
+
+**Scenario and impact.** Passing a tuple to a generic `T: PartialEq` operation can
+require a compiler-generated protocol implementation that delegates comparison to
+its elements. For example, `same((local1, item1), (local2, item2))` needs tuple
+comparison without a user-authored tuple `impl`. Old execution demands can retain
+references to that generated implementation. Even changing only an element's `eq`
+body can then fail source-update preparation with `Identity(InvalidContract)`.
+
+The [SDK source-update path](../crates/kagari/src/runtime/update.rs) uses
+`Compilation::lower_with_demands`, so this gap affects `runtime.update(...)` when
+its retained demands contain the affected generated identities. Failure occurs
+before publication; the installed program remains unchanged. This is not the
+removed Hash/Eq protection graph or an intentional compatibility rejection.
+
+**Root cause.** The current sequence has an ordering and inventory mismatch:
+
+1. [Tuple bridge lowering](../crates/kagari-compiler/src/source/lower/instances/tuple_bridges.rs)
+   synthesizes implementation owners after authored implementations, using local
+   occurrence numbers. The observed old demand referenced `Impl(4)::eq`.
+2. [Runtime contract inventory](../crates/kagari-runtime/src/reload/contracts.rs)
+   includes generated bridge headers in retained metadata.
+3. [Program preparation](../crates/kagari-compiler/src/source/program.rs) calls
+   `import_retained` with the candidate's authored source declarations **before**
+   lowering creates its generated bridge owners.
+4. [Retained identity import](../crates/kagari-compiler/src/source/program/update_requests.rs)
+   cannot find the candidate implementation corresponding to that old generated
+   owner and rejects it. The missing owner need not have been removed by the user;
+   it may simply not have been generated yet.
+
+**Reproduction and evidence.** The original
+`shared_tuple_adapter_uses_current_operations_for_each_argument` scenarios now live
+in the named `tuple_local_element`, `tuple_new_argument` and `tuple_same_nominal`
+rows of `shared_collection_comparison_selects_current_operations` in the existing
+[generic reload tests](../crates/kagari/src/runtime/tests/embedding/generic_reload.rs).
+For a focused diagnostic reproduction, change only the `tuple_local_element`
+row's preparation mode from `ReloadPreparation::BodyOnlyArtifact` to
+`ReloadPreparation::ExpandRetainedApplications`, keeping its versioned source
+fixtures and assertions unchanged, then run:
+
+```text
+cargo test -p kagari --lib shared_collection_comparison_selects_current_operations::case_6_tuple_local_element -- --nocapture
+```
+
+That experiment failed in `update_requests::import_retained` during replacement
+preparation. The checked-in test retains its original independent artifact mode;
+it passes and is **not** a regression test proving demand-aware preparation works.
+Initial compilation/loading and complete-artifact body updates passed for the
+fixture, which combines tuple comparisons, generic trait methods, generic calls
+and collection comparisons. No claim is made that every tuple use fails or that
+independent compilation can omit historically required applications: strict
+runtime demand coverage remains mandatory. This documentation consolidation did
+not rerun the experiment.
+
+**Repair direction and acceptance.** Identify generated bridges by their semantic
+protocol/receiver contract, and reconcile old demands only when the corresponding
+candidate generated owners are available. When current source no longer reaches
+an old required bridge, materialize it through the normal checked planner before
+final coverage validation. Merely delaying lookup covers only the still-generated
+case. Do not copy old occurrence numbers, accept historical headers as candidate
+proof, drop demands or weaken executable/signature checks. Reuse the fixture to
+cover successful demand-aware body updates, changed generation order and bridges
+required only by retained execution; retain rejection of incompatible contracts
+and no-publication-on-failure assertions. Ordinary calls must still select current
+implementations. This is an engine responsibility, not a host-side workaround.
+
+## Temporary scripts referencing existing installations
 
 This unimplemented requirement is separate from the implemented
 [installed Program/live Module API](spec/embedding-api.md#installed-programs-and-public-paths)
 and [current-call publication](spec/module-activation.md#live-installations-and-call-selection).
 Public navigation alone does not link independently loaded installations.
 
-Related user requirement: execute newly supplied game-maintenance code against
+Related user requirement: execute newly supplied temporary scripts against
 current player objects and game services, without reloading the game or creating a
-second copy of its state. For example, a repair function accepts the retained
-Player object, updates its level through public methods and returns. The change
-must affect the original object; calls into game services must use the existing
-installation's static cells.
+second copy of its state. Uses include queries, diagnostics, administration and data
+changes; repairing player data is one example, not the capability's definition.
+For a mutation example, a script function accepts the retained Player object,
+updates its level through public methods and returns. The change must affect the
+original object; calls into game services must use the existing installation's
+static cells.
 
-Temporary use is a host lifetime choice, not another executable kind. The repair
-code should be an ordinary Program with the same verification, typed calls, GC,
+Temporary use is a host lifetime choice, not another executable kind. A temporary
+script should be an ordinary Program with the same verification, typed calls, GC,
 cancellation and async scheduler as long-lived programs. Do not introduce a
 TemporaryProgram, separate evaluator, privileged visibility mode or duplicate
-load/call surface. One-shot repair and persistent administration tools differ in
+load/call surface. One-shot scripts and persistent administration tools differ in
 how long the host retains and invokes their handles.
 
 Current [loading](../crates/kagari-runtime/src/loading.rs) installs a complete
@@ -1028,7 +1103,7 @@ explicit reference from new code to an existing installation:
 - Reuse ordinary function/object bindings and call/call_async after loading. Access
   remains public and checked. Execution is serialized by the existing runtime
   driver; suspension does not freeze shared game state. Completed mutations survive
-  later traps and program retirement. Transactional repair requires an explicit
+  later traps and program retirement. Transactional script operations require an explicit
   business transaction or validation/commit operation, not implicit rollback.
 
 As a comparative mechanism, [.NET AssemblyLoadContext shared dependencies](https://learn.microsoft.com/en-us/dotnet/core/dependency-loading/understanding-assemblyloadcontext#shared-dependencies)
@@ -1041,22 +1116,22 @@ without confusing those with pinning ordinary method bodies. Exact API and linke
 representation remain undecided; this capability is not implemented by the
 current source compilation and load_program entrypoints alone.
 
-### Reload boundary for independently loaded repair programs
+### Reload boundary for independently loaded temporary scripts
 
-A repair program references the game; it does not become part of the game's own
+A temporary script references the game; it does not become part of the game's own
 module/export inventory. Current [reload validation](../crates/kagari-runtime/src/reload.rs)
 compares the selected active Program with its candidate, not all code loaded in
 the Runtime. Preserve that boundary when adding installation references:
 
 ```text
-Target before: repair computation -> game declaration in installation A (v1 body)
-Update: compare game v1 with game v2, not (game v1 + repair) with game v2
-Target after: retained repair computation -> same game declaration (v2 body)
-Retained repair body/resume state is unchanged; its next ordinary call uses v2
+Target before: temporary script computation -> game declaration in installation A (v1 body)
+Update: compare game v1 with game v2, not (game v1 + temporary script) with game v2
+Target after: retained script computation -> same game declaration (v2 body)
+Retained script body/resume state is unchanged; its next ordinary call uses v2
 ```
 
-A later game update must not need the repair source or its function definitions.
-Injecting repair declarations into the game's own Program would instead make their
+A later game update must not need the temporary script's source or its function
+definitions. Injecting script declarations into the game's own Program would make their
 absence relevant to its compatibility checks; that is not the proposed model.
 An ordinary Program is not automatically in the same update unit as every program
 that it references. Retaining selected old computations does not waive game v2's
@@ -1064,12 +1139,13 @@ existing signature, layout, export or static compatibility requirements. This is
 the target behavior with explicit installation linking, not evidence that ordinary
 current-call dispatch already supplies the missing cross-installation linker.
 
-When repair has finished and no code-bearing references remain, its code may be
-reclaimed according to ordinary ownership. Player mutations remain. A selected
-repair computation, closure, precreated Future or task retains the body/resume/
-capture state it needs, plus required type/native evidence; do not require the next
-game artifact to reproduce repair code or unload reachable code. A captured callback
-stored in game state may therefore keep its repair body alive. Ordinary calls from
+When temporary script execution has finished and no code-bearing references remain,
+its code may be reclaimed according to ordinary ownership. Completed mutations
+remain. A selected script computation, closure, precreated Future or task retains
+the body/resume/capture state it needs, plus required type/native evidence; do not
+require the next game artifact to reproduce temporary script code or unload reachable
+code. A captured callback stored in game state may therefore keep its script body
+alive. Ordinary calls from
 that body into the game select the current implementation through stable identity,
 without preparing/binding again merely to observe game v2. This does not migrate
 the callback's capture layout or substitute a new body into a precreated Future.
@@ -1077,7 +1153,7 @@ Exact cross-installation lifetime/linker representation remains deferred.
 
 On activation, cover shared object identity and static state, rejected dependency
 identity/version mismatches, source-free metadata limits, game reload without any
-repair declarations, suspended/retained repair across reload calling current game
+temporary script declarations, suspended/retained scripts across reload calling current game
 methods, escaped callbacks retaining capture-compatible bodies, fixed trait/type
 relationships with current method bodies, and cleanup after final owners end.
 Persistent REPL environments remain separate; this linking requirement does not

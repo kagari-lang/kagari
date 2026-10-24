@@ -43,7 +43,7 @@ In scope:
 - Preservation of implemented installation identities and publication selection.
 
 Out of scope: cross-Runtime GC or object sharing; automatic global updates; Actor
-frameworks; new unload/state-migration semantics; source-free repair-program linking;
+frameworks; new unload/state-migration semantics; source-free temporary-script linking;
 artifact pruning; general native expansion; a new identity interner/domain lifetime
 project; blanket lazy initialization or sparse-cache rewrites; the full R13 type/code
 retention split; SA21 conversion optimizations; unrelated BO/IP performance repairs.

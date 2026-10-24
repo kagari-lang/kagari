@@ -994,7 +994,7 @@ foundation does not impose a global `Unknown` body freeze. Hash/Eq bodies and
 ordinary helpers called by static initializers are eligible for normal body updates;
 their callers' user-level semantic obligations remain the application's responsibility.
 Retained compiler-generated tuple protocol bridges currently have a source-demand
-preparation limitation; see the [known preparation gap](../implementation-roadmap.md#host-api-and-update-execution).
+preparation limitation; see the [review finding](../review.md#generated-tuple-bridges-in-source-updates).
 A compatible body change may still fail preparation there without publishing anything.
 
 One batch is atomic and limited to 1,024 edits and 64 MiB of replacement UTF-8.
