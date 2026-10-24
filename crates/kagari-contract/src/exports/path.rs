@@ -259,6 +259,10 @@ mod tests {
             graph.resolve_public_path(&root, "api", PublicPathKind::Function),
             Ok(PublicPathTarget::Function(function))
         );
+        assert_eq!(graph.function(&root, "api"), Some(function));
+        for path in ["api::", "absent::bad-name", "users", "missing"] {
+            assert_eq!(graph.function(&root, path), None);
+        }
         assert_eq!(
             graph.resolve_public_path(&root, "Count", PublicPathKind::Type),
             Ok(PublicPathTarget::Type(&TypeExport::Closed(Ty::Builtin(

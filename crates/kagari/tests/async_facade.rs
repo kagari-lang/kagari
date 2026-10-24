@@ -52,7 +52,7 @@ use std::{
 mod objects_example;
 
 #[test]
-fn typed_members_and_current_reload_workflow() {
+fn relative_typed_members_and_current_reload_workflow() {
     objects_example::main();
 }
 

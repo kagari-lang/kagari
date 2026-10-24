@@ -7,10 +7,19 @@ mod alias_model {
     pub type IntCell = Cell<i32>;
     pub enum Event<T> { Data(T), Empty }
     pub type CellEvent = Event<IntCell>;
+    // This application is rooted only by its public alias, never a source value.
+    pub struct HostOnly<T> { pub var value: T }
+    pub type UnusedCell = HostOnly<i32>;
+    pub fn answer() -> i32 { 42 }
+    pub async fn answer_async() -> i32 { 42 }
+    pub fn make_cell() -> IntCell { IntCell { value: 42 } }
 }
-mod alias_facade {
-    pub use super::alias_model::{IntCell as SharedCell, CellEvent as SharedEvent};
+pub mod alias_facade {
+    pub use super::alias_model::{Cell, IntCell as SharedCell, CellEvent as SharedEvent, UnusedCell, answer, answer_async, make_cell};
 }
+pub mod host_api { pub use crate::alias_facade as cells; }
+pub fn answer() -> i32 { -1 }
+pub async fn answer_async() -> i32 { -1 }
 use self::alias_facade::{SharedCell, SharedEvent};
 
 fn alias_roundtrip(value: SharedCell) -> alias_model::Cell<i32> { value }

@@ -6,6 +6,7 @@ pub mod type_validation;
 pub mod wire;
 
 use crate::{
+    exports::path::{PublicPathKind, PublicPathTarget},
     slots::FunctionTypeFacts,
     types::{
         PublicItem,
@@ -15,7 +16,7 @@ use crate::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind, DefinitionPath, MAX_IDENTITY_PATH_SEGMENTS, ModuleIdentity,
+        DefinitionKind, DefinitionPath, ModuleIdentity,
         mapping::{DefinitionMappingError, check_cancel},
         scoped::DefinitionReferences,
         table::{DefinitionId, DefinitionTable},
@@ -73,22 +74,15 @@ pub struct ProgramExports {
 
 impl ProgramExports {
     /// Resolve a relative public path in a verified graph without expanding aliases.
-    /// Empty components, private names and paths over the identity bound return `None`.
+    /// Invalid, private, missing and wrong-kind paths return `None`.
     pub fn function(&self, root: &ModuleIdentity, path: &str) -> Option<DefinitionId> {
-        let mut parts = path.split("::").peekable();
-        let mut current = root;
-        for _ in 0..MAX_IDENTITY_PATH_SEGMENTS {
-            let name = parts.next()?;
-            if name.is_empty() {
-                return None;
-            }
-            let namespace = self.namespaces.get(current)?;
-            if parts.peek().is_none() {
-                return namespace.functions.get(name).copied();
-            }
-            current = namespace.modules.get(name)?;
+        match self
+            .resolve_public_path(root, path, PublicPathKind::Function)
+            .ok()?
+        {
+            PublicPathTarget::Function(declaration) => Some(declaration),
+            _ => None,
         }
-        None
     }
 
     /// Check graph bounds, reachability and structural function/type leaf validity.

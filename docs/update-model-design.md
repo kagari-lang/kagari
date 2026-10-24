@@ -10,7 +10,8 @@ complete and committed as `3523c4c8`. UP01 is locally complete and committed as
 `cd79fc80`; the [UP01 ledger](#up01-implementation-and-integration) retains evidence.
 [HM02 integration](host-api-refactor.md#hm02-integration-and-up02hm03-handoff) is
 locally complete and committed as `f0e1917d`. [UP02 integration](#up02-implementation-and-integration)
-is locally complete with no carried errors or pending local checks; HM03 is next.
+is committed as `4d9f2afa`, with no carried errors. [HM03](host-api-refactor.md#hm03-integration-and-hm04-handoff)
+is locally complete; HM04 is next for lasting HM contracts and plan retirement.
 Full CI remains unrun. The default-foundation `Unknown` protection described in
 the ledger is a material delivery limit, not a promise of unrestricted body patches.
 The user explicitly prioritized
@@ -1194,7 +1195,7 @@ linking remain separate.
   rejection policy in UP01. Keep existing dispatch until UP02 coherently migrates
   it; no ignored validation or execution stubs. Locally complete with no carried
   errors; the [UP01 ledger](#up01-implementation-and-integration) records acceptance
-  evidence. Committed as `cd79fc80`; HM02 is committed as `f0e1917d` and UP02 is locally complete.
+  evidence. Committed as `cd79fc80`; HM02 is committed as `f0e1917d` and UP02 as `4d9f2afa`.
   HM02 acceptance is recorded in the [HM ledger](host-api-refactor.md#hm02-integration-and-up02hm03-handoff).
   Full CI remains unrun.
 - [x] UP02: Replace whole-dependency-pinned ordinary dispatch with current-call
@@ -1207,8 +1208,9 @@ linking remain separate.
   current selection from retained/historical bodies. Migrate affected specifications,
   examples, repository invariants and tests in this checkpoint; do not leave two
   public semantic modes or assert that the old pinned suite is final acceptance.
-  No new trait relationships for old types. Implementation is locally complete;
-  HM03 is next. The [UP02 ledger](#up02-implementation-and-integration) records closed
+  No new trait relationships for old types. Locally complete, committed as `4d9f2afa`;
+  HM03 is also locally complete and HM04 is next. The
+  [UP02 ledger](#up02-implementation-and-integration) records closed
   reviews, fresh artifacts and final passing checks. No carried errors or pending
   local validation remain. Full CI remains unrun.
 - [ ] UP03: At phase entry freeze the codec/envelope format, exact export/restore and
@@ -1321,7 +1323,9 @@ or success result is invented by this proposal.
 
 ### UP02 implementation and integration
 
-**Status: locally complete; no carried errors or pending local checks. HM03 next.**
+**Status: locally complete; committed as `4d9f2afa`, no carried errors.**
+[HM03 acceptance](host-api-refactor.md#hm03-integration-and-hm04-handoff) is complete
+locally; HM04 is next. Its lasting-contract/plan-retirement work is not claimed here.
 Started from HM02 commit `f0e1917d`. Dispatch, publication, SDK Update, exact-source
 work, artifact regeneration, review closure and durable specification/conformance
 migration are complete, including final local validation. Full CI remains unrun.
@@ -1474,8 +1478,9 @@ protection test passed. This separates the repaired identity defect from the mat
 patchability limit above, rather than treating every rejection as intended.
 
 Full-workspace tests and the complete feature/backend/platform matrix remain
-CI-only and unrun. HM03 is next for unified relative leaf binding; state replacement
-and MS remain unstarted. No performance or complete CI claim.
+CI-only and unrun. HM03 has completed unified relative leaf binding; HM04 is next
+for HM integration/documentation handoff. State replacement and MS remain unstarted.
+No performance or complete CI claim.
 
 ### UP01 implementation and integration
 
@@ -1483,8 +1488,8 @@ and MS remain unstarted. No performance or complete CI claim.
 HM01 is committed as `3523c4c8`. The compiler owner confirmed the final focused
 case and 11 related tests pass on the repaired tree. HM02 is committed as `f0e1917d`;
 its evidence stays in the [HM ledger](host-api-refactor.md#hm02-integration-and-up02hm03-handoff).
-UP02 is locally complete with final local checks passed and no carried errors;
-its evidence is in the ledger above. HM03 is next.
+UP02 is committed as `4d9f2afa` with final local checks passed and no carried errors;
+its evidence is in the ledger above. HM03 is locally complete; HM04 is next.
 Full CI remains unrun.
 
 Implemented scope:
@@ -1538,8 +1543,8 @@ CI-only and unrun. UP01 did not deliver live handles or dispatch. Subsequent HM0
 work implements live Program/Module metadata and navigation with separate exact
 `ExecutableModule` ownership and has passed local acceptance. UP02 now integrates
 current dispatch/source Update with local acceptance complete; its final passing
-checks are recorded above. HM03 next unifies relative
-function/type leaf binding. State replacement and MS remain unstarted.
+checks are recorded above. HM03 has completed relative function/type leaf binding;
+HM04 is next. State replacement and MS remain unstarted.
 
 ### Joint HM00/UP00 audit at 3b898e80
 

@@ -2,13 +2,15 @@
 
 use crate::{
     Runtime,
+    error::RuntimeErrorKind,
     module::{ExecutableModule, ModuleEpochRetention, VerifiedProgram, state::StaticState},
+    native::function_handle::Function,
     reload::{
         ReloadValidationError, validate_reload_artifact_candidate, validate_reload_candidate,
     },
     value::Value,
 };
-use kagari_bytecode::instruction::BytecodeInstruction;
+use kagari_bytecode::{instruction::BytecodeInstruction, module::CallableTarget};
 use kagari_common::identity::{
     DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata,
 };
@@ -163,6 +165,241 @@ fn public_paths_remain_rooted_and_generation_pinned_after_identity_import() {
     first.validate_executable_module(&old_target).unwrap();
     first.validate_executable_module(&new_target).unwrap();
     assert!(second.validate_executable_module(&old_target).is_err());
+}
+
+const RELATIVE_BINDINGS: &str = r#"
+    static var STATE: i32 = initialize();
+    fn initialize() -> i32 { 7 }
+    pub fn value() -> i32 { 7 }
+    pub struct Object { pub val root: bool }
+    mod implementation {
+        pub struct Object { pub var value: i32 }
+        pub struct Cell<T> { pub var value: T }
+        pub struct Unused<T> { pub val value: T }
+        pub type IntCell = Cell<i32>;
+        pub type Open<T> = Cell<T>;
+        pub type Scalar = i32;
+        pub enum Event { Empty }
+        pub trait Reader { fn read(self) -> i32; }
+        pub fn value() -> i32 { 13 }
+        pub fn other() -> i32 { 19 }
+        fn secret() -> i32 { 99 }
+    }
+    pub mod api {
+        pub use crate::implementation::{Object, Cell, Unused, IntCell, Open, Scalar, Event, Reader, value, other};
+        pub use crate::implementation::Object as Reexport;
+        pub type Alias = crate::implementation::Object;
+        pub use crate::implementation::value as selected;
+        pub use crate::api as again;
+    }
+    pub mod facade { pub use crate::api as nested; }
+    fn main() { STATE = 99; }
+"#;
+
+fn relative_binding_code(source: &str) -> VerifiedProgram {
+    let (definitions, mut code) = bytecode(source, None).into_parts();
+    let root = code.modules[code.root.index()].identity.clone();
+    let mut slotless = root.clone();
+    slotless.path.push("slotless".into());
+    let api = code.exports.namespaces[&root].modules["api"].clone();
+    // Source lowering currently emits slots even for re-export-only modules.
+    // Add a legal graph-only namespace while retaining all executable evidence;
+    // normal verification must admit it before either binder sees the fixture.
+    code.exports
+        .namespaces
+        .insert(slotless.clone(), code.exports.namespaces[&api].clone());
+    code.exports
+        .namespaces
+        .get_mut(&root)
+        .unwrap()
+        .modules
+        .insert("slotless".into(), slotless);
+    let metadata = DefinitionMetadata::checked(definitions, code, &Default::default()).unwrap();
+    VerifiedProgram::new(metadata, &DefinitionContext::new().unwrap()).unwrap()
+}
+
+#[test]
+fn retained_namespace_bindings_follow_current_declarations_not_retargeted_aliases() {
+    let mut runtime = Runtime::default();
+    let program = runtime
+        .load_verified_program("relative", relative_binding_code(RELATIVE_BINDINGS))
+        .unwrap();
+    let root = program.root();
+    let api = program.module("slotless").unwrap();
+    let selected = runtime.bind_function::<(), i32>(&api, "selected").unwrap();
+    let child = runtime
+        .bind_function::<(), i32>(&api, "again::value")
+        .unwrap();
+    let root_value = runtime.bind_function::<(), i32>(&root, "value").unwrap();
+    let declaration = |function: &Function<(), i32>| {
+        function
+            .call_route()
+            .unwrap()
+            .declaration()
+            .unwrap()
+            .unwrap()
+    };
+    assert_eq!(declaration(&selected), declaration(&child));
+    assert_ne!(declaration(&root_value), declaration(&child));
+    assert_eq!(
+        declaration(
+            &runtime
+                .bind_function::<(), i32>(&root, "facade::nested::value")
+                .unwrap()
+        ),
+        declaration(&child)
+    );
+    // Exporting an item never grants a Module for its private implementation owner.
+    for path in ["implementation", "facade::nested::implementation"] {
+        let error = root.module(path).unwrap_err();
+        assert_eq!(error.kind(), RuntimeErrorKind::TypedPathValidation);
+        assert!(error.message().contains("public path not found"));
+    }
+    let replacement = RELATIVE_BINDINGS.replace("{ 13 }", "{ 17 }").replace(
+        "implementation::value as selected",
+        "implementation::other as selected",
+    );
+    let staged = runtime
+        .stage_reload_verified_program(&program, None, relative_binding_code(&replacement))
+        .unwrap();
+    runtime.publish_staged_reload(staged).unwrap();
+    let fresh = runtime.bind_function::<(), i32>(&api, "selected").unwrap();
+    assert_ne!(declaration(&selected), declaration(&fresh));
+    assert_eq!(declaration(&child), declaration(&selected));
+    for (function, expected) in [(&selected, 17), (&fresh, 19), (&root_value, 7)] {
+        let target = runtime
+            .select_call_route(function.call_route().unwrap())
+            .unwrap();
+        let CallableTarget::Script(function) = target.target() else {
+            panic!("script fixture");
+        };
+        let BytecodeInstruction::LoadConst { constant, .. } =
+            target.owner().bytecode.functions[function.index()].instructions[0]
+        else {
+            panic!("constant-return fixture");
+        };
+        assert_eq!(
+            runtime.read_constant(target.owner(), constant).unwrap(),
+            Value::I32(expected)
+        );
+    }
+}
+
+#[test]
+fn relative_object_aliases_share_exact_layout_and_reject_unsupported_leaves_without_effects() {
+    let mut runtime = Runtime::default();
+    let program = runtime
+        .load_verified_program("relative", relative_binding_code(RELATIVE_BINDINGS))
+        .unwrap();
+    let root = program.root();
+    let api = program.module("slotless").unwrap();
+    let executable = runtime.select_program(&program).unwrap();
+    assert!(
+        !executable
+            .members()
+            .any(|member| member.bytecode.identity.path == ["slotless"])
+    );
+    let object = runtime.bind_type(&api, "Object", &[]).unwrap();
+    runtime.bind_field::<i32>(&object, "value").unwrap();
+    let root_object = runtime.bind_type(&root, "Object", &[]).unwrap();
+    runtime.bind_field::<bool>(&root_object, "root").unwrap();
+    assert_ne!(
+        object.type_argument().ty(),
+        root_object.type_argument().ty()
+    );
+    let nested = program.module("facade").unwrap().module("nested").unwrap();
+    let nested_object = runtime.bind_type(&nested, "Object", &[]).unwrap();
+    assert_eq!(
+        nested_object.type_argument().ty(),
+        object.type_argument().ty()
+    );
+    for path in ["Reexport", "Alias", "again::Object"] {
+        let alias = runtime.bind_type(&api, path, &[]).unwrap();
+        assert_eq!(alias.type_argument().ty(), object.type_argument().ty());
+        assert_eq!(alias.owner().key(), object.owner().key());
+        runtime.bind_field::<i32>(&alias, "value").unwrap();
+    }
+    // No source expression constructs Cell<i32>; the closed export roots its layout.
+    let closed = runtime.bind_type(&api, "IntCell", &[]).unwrap();
+    runtime.bind_field::<i32>(&closed, "value").unwrap();
+    let arguments = runtime
+        .type_arguments(&executable, None, &[Ty::Builtin(BuiltinType::I32)])
+        .unwrap();
+    let direct = runtime.bind_type(&api, "Cell", &arguments).unwrap();
+    assert_eq!(closed.type_argument().ty(), direct.type_argument().ty());
+    assert_eq!(closed.owner().key(), direct.owner().key());
+    let Ty::Struct(nominal) = closed.type_argument().ty() else {
+        panic!("closed object alias");
+    };
+    let declaration = closed
+        .owner()
+        .definition(nominal.declaration)
+        .unwrap()
+        .to_path();
+    let advanced = runtime
+        .bind_type_declaration(&api, &declaration, &arguments)
+        .unwrap();
+    assert_eq!(closed.type_argument().ty(), advanced.type_argument().ty());
+    assert_eq!(closed.owner().key(), advanced.owner().key());
+    for (path, arguments, detail) in [
+        ("Object::", &[][..], "invalid public path"),
+        ("secret", &[][..], "public path not found"),
+        ("missing", &[][..], "public path not found"),
+        ("value", &[][..], "public path has wrong target kind"),
+        ("again", &[][..], "public path has wrong target kind"),
+        ("Scalar", &[][..], "type is not a script object"),
+        ("Event", &[][..], "type is not a script object"),
+        ("Reader", &[][..], "type is not a script object"),
+        (
+            "Open",
+            &[][..],
+            "open generic alias is not supported for host binding",
+        ),
+        (
+            "Open",
+            arguments.as_slice(),
+            "open generic alias is not supported for host binding",
+        ),
+        ("Cell", &[][..], "type argument count mismatch"),
+        (
+            "IntCell",
+            arguments.as_slice(),
+            "type argument count mismatch",
+        ),
+        (
+            "Object",
+            arguments.as_slice(),
+            "type argument count mismatch",
+        ),
+    ] {
+        let error = runtime.bind_type(&api, path, arguments).unwrap_err();
+        assert_eq!(
+            error.kind(),
+            RuntimeErrorKind::TypedPathValidation,
+            "{path}: {error}"
+        );
+        assert!(error.message().contains(detail), "{path}: {error}");
+    }
+    let error = runtime.bind_type(&api, "Unused", &arguments).unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
+    assert!(
+        error
+            .message()
+            .contains("missing executable struct application")
+    );
+    for member in executable.members() {
+        assert!(
+            runtime
+                .module_instance_snapshot(&member)
+                .unwrap()
+                .module_slots
+                .iter()
+                .all(|state| matches!(state, StaticState::Uninitialized(_)))
+        );
+    }
+    assert_eq!(runtime.resources().counters().peak_call_depth, 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
 }
 
 fn type_reload_source(object: &str, cell: &str, open: &str) -> String {

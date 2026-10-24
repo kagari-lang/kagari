@@ -12,8 +12,11 @@ use kagari_runtime::{
 };
 
 impl Runtime {
-    /// Bind a public callable and validate its argument/result types once.
-    /// Calls select the current implementation of the originally bound declaration.
+    /// Bind a public callable relative to `module` in its latest publication.
+    /// `name` is a public `::`-separated path, including module and item aliases.
+    /// Argument/result types are checked without executing script. Calls select the
+    /// current implementation of the originally bound declaration; retargeting an
+    /// alias affects fresh lookup, not a retained `Function`.
     pub fn function<A: KagariArguments + 'static, R: KagariType + 'static>(
         &self,
         module: &Module,
@@ -24,7 +27,8 @@ impl Runtime {
             .map_err(Into::into)
     }
 
-    /// Bind a callable returning exactly one installed `Future<R>` layer.
+    /// Bind a public callable relative to `module`, returning one `Future<R>` layer.
+    /// Public paths and retained declaration identity follow [`Self::function`].
     /// Rejects a mismatched signature or missing executable evidence without running
     /// script. `R` names the awaited output, not a Rust or script Future handle.
     pub fn async_function<A: KagariArguments + 'static, R: KagariType + 'static>(
@@ -37,8 +41,13 @@ impl Runtime {
             .map_err(Into::into)
     }
 
-    /// Resolve a public, nongeneric object type in this live module.
-    /// Applied generic types remain available through retained Object descriptors.
+    /// Resolve a public script object path relative to this live module.
+    /// Supports nongeneric structs, re-exports and closed aliases (including aliases
+    /// to concrete generic applications). The returned descriptor retains the exact
+    /// layout selected from the latest publication; it does not run initialization.
+    /// Open aliases and types requiring arguments are rejected. Explicit generic
+    /// applications remain available through core `Runtime::bind_type` and
+    /// `Runtime::bind_type_declaration`; non-object type leaves are not object types.
     pub fn object_type(&self, module: &Module, name: &str) -> RunResult<ObjectType> {
         self.runtime()
             .bind_type(module, name, &[])

@@ -20,11 +20,11 @@ private-type evidence repair and post-repair validation; no HM01 errors remain.
 locally complete and committed as `cd79fc80`. HM02 is committed as `f0e1917d`;
 [integration evidence](#hm02-integration-and-up02hm03-handoff) records its acceptance.
 [UP02 integration](update-model-design.md#up02-implementation-and-integration) is
-locally complete with no carried errors, open reviews or pending local checks;
-HM03 is next. Final validation is recorded in that ledger. Live
-Program/Module metadata and navigation use separate exact `ExecutableModule`
-ownership, without a `LoadedModule` alias. HM03-HM04 and UP03-UP05 remain unstarted;
-MS remains unstarted. Full CI remains unrun.
+committed as `4d9f2afa`. [HM03](#hm03-integration-and-hm04-handoff) is locally complete
+with no carried errors; HM04 is next for lasting contracts, integration handoff and
+plan retirement. Live Program/Module metadata and relative binding use separate
+exact `ExecutableModule` ownership, without a `LoadedModule` alias. HM04 and
+UP03-UP05 remain unstarted; MS remains unstarted. Full CI remains unrun.
 Originally requested against `67d9e36f`, this document owns HM00-HM04, decisions,
 acceptance and progress for the [Host Program and module lookup finding](review.md#host-program-and-module-lookup).
 
@@ -157,7 +157,7 @@ contents of the supplying installation, not code acquisition or version selectio
 Function/type binding continues through Runtime with a `Module`, not a new
 polymorphic owner trait or duplicate Program-specific binding methods.
 
-Target usage sketch; unified relative function/type binding still requires HM03:
+Usage sketch for the implemented relative binding contract (setup omitted):
 
 ```rust,ignore
 let program: Program = runtime.load_program(&prepared, Default::default())?;
@@ -763,7 +763,8 @@ is locally complete. The newly reauthorized order is joint HM00 + UP00, then HM0
 UP01, HM02, UP02, HM03, HM04, UP03, UP04 and UP05. The joint design checkpoint is
 committed as `bbfc0af6`; HM01 is locally complete and committed as `3523c4c8` after
 private-type evidence integration and validation. UP01 is committed as `cd79fc80`;
-HM02 is committed as `f0e1917d`; UP02 is locally complete and HM03 is next.
+HM02 is committed as `f0e1917d`; UP02 is committed as `4d9f2afa`.
+HM03 is locally complete; HM04 is next.
 
 The joint design commit has both Plan-Phase trailers; subsequent phases retain separate
 coherent commit boundaries. MS remains unstarted.
@@ -835,9 +836,9 @@ Existing function exports/private main behavior remains unchanged in this phase.
 
 Status: locally complete and committed as `f0e1917d`, including trait-isolation
 repair and final local checks. The [HM02 ledger](#hm02-integration-and-up02hm03-handoff)
-owns acceptance evidence; full CI remains unrun. UP02 is locally complete, with
-HM03 next. Module navigation is included here;
-HM03 retains unified relative function/type leaf binding after UP02.
+owns acceptance evidence; full CI remains unrun. UP02 is committed as `4d9f2afa`.
+HM02 delivered module navigation; HM03 has since completed unified relative
+function/type leaf binding. HM04 is next.
 
 - Introduce stable installed `Program` and live `Module` handles using HM00's
   reviewed ownership representation; replace the current `LoadedModule` public
@@ -866,6 +867,11 @@ migration, existing function handles use the latest implementation without rebin
 Program main/native entry behavior remains root-scoped.
 
 ### HM03 — Relative public lookup and binding
+
+Status: locally complete, with no carried errors. The
+[HM03 ledger](#hm03-integration-and-hm04-handoff) records implementation and selected
+validation. HM04 owns the remaining lasting-documentation/plan-retirement work;
+that work is not claimed complete here. Full CI remains unrun.
 
 - Reuse HM02's implemented Program/Module `module(path)` traversal of the latest
   published public graph, including canonical aliases and slotless namespaces.
@@ -1059,9 +1065,11 @@ retain their existing review/plan owners.
   and committed as `cd79fc80` in its own ledger. Full CI remains unrun.
 - [x] HM02 — Installed Program/module capabilities, module navigation and consumer
   migration locally complete and committed as `f0e1917d`, including trait isolation
-  and final local checks. No HM02 errors; UP02 locally complete, HM03 next.
+  and final local checks. No HM02 errors; UP02 committed as `4d9f2afa`.
   Full CI remains unrun.
-- [ ] HM03 — Relative module/function/type binding and ordinary examples.
+- [x] HM03 — Unified relative module/function/type binding and ordinary examples
+  locally complete. Focused tests and local checks passed; no carried errors.
+  HM04 is next; full CI remains unrun.
 - [ ] HM04 — Integration, lasting documentation and handoff.
 
 HM00/UP00 design is committed; HM01 is locally complete as recorded below.
@@ -1069,18 +1077,56 @@ UP01 is committed as `cd79fc80`; its
 [integration ledger](update-model-design.md#up01-implementation-and-integration)
 retains acceptance evidence. HM02 now supplies live Program/Module metadata and
 navigation, with exact executable ownership separate; local acceptance is complete
-below. UP02 current-call dispatch/source Update implementation is locally complete;
+below. UP02 current-call dispatch/source Update is committed as `4d9f2afa`;
 its [single ledger](update-model-design.md#up02-implementation-and-integration) owns
 closed reviews and final passing results, with no carried errors or pending local
-checks. HM03 next owns unified relative leaf binding.
+checks. HM03 has completed unified relative leaf binding; HM04 next owns lasting
+contract updates and plan retirement.
 MS remains unstarted. Older audits and the alias ledger are historical evidence,
 not current pauses or authorization gates.
+
+### HM03 integration and HM04 handoff
+
+**Status: locally complete; no carried errors. HM04 next.** UP02 is committed as
+`4d9f2afa`. Implemented relative binding reuses its current-call route rather than
+adding a second dispatch model.
+
+- `ModuleSnapshot::resolve_public_path` resolves module/function/type paths in the
+  supplying namespace through one bounded traversal. `ProgramExports::function`
+  delegates to that traversal; `function_target` uses the same publication as
+  declaration lookup. A declared generic without an executable slot reports
+  `ModuleValidation`, rather than falling back to another namespace or publication.
+- Sync/async binding is module-relative with no root fallback. Retained bindings
+  keep canonical current-route identity; a same-signature alias retarget affects
+  fresh lookup, not existing bindings.
+- Object-type binding supports script structs from `Decl` and `Closed` exports,
+  including closed generic aliases whose export-only layout demand has no body
+  use. Open aliases, non-object exports and wrong arity report typed errors.
+  Advanced declaration binding remains distinct, with private-field boundaries
+  preserved. Ordinary consumers/examples now use relative leaf paths.
+
+Reported focused evidence (not a full suite or additive coverage total): shared
+module exports: 3 passed; contract path traversal: 3; advanced object/private-field
+case: 1. Selected `package_exports` cases passed; the owner corrected a physical-slot
+assumption and reran the 2 affected cases successfully. SDK async facade
+`relative_typed_members_and_current_reload_workflow`: 1 passed. The portable
+`artifact_features` case passed source-enabled with the fixture regenerated, then
+source-free: 1 each. Parent's workspace
+`cargo clippy --workspace --all-targets -- -D warnings`, formatting, structure
+(1627 files) and diff checks all passed.
+
+This selection exercises the shared traversal, relative sync/async binding,
+classification/privacy and source-free closed-layout contract without a workspace
+sweep. Full workspace/feature/backend/platform CI remains unrun. HM04 next updates
+lasting contracts and completes integration handoff/plan retirement; it is not
+performed by this phase. MS remains unstarted.
 
 ### HM02 integration and UP02/HM03 handoff
 
 **Status: locally complete; committed as `f0e1917d`, no carried HM02 errors.**
 Trait-isolation repair, reviewer recheck and final local checks are complete.
-UP01 is committed as `cd79fc80`; UP02 is locally complete and HM03 is next.
+UP01 is committed as `cd79fc80`; UP02 as `4d9f2afa`. HM03 is locally complete;
+HM04 is next.
 Full CI remains unrun.
 
 Implemented scope reported by the implementation owners:
@@ -1095,9 +1141,9 @@ Implemented scope reported by the implementation owners:
   poisoned-cell access reports an error rather than recovering unchecked state.
 - Program/Module navigation follows canonical aliases and supports slotless public
   namespaces. This is HM02's live capability work, not HM03 leaf-binding acceptance.
-  Function/type binding still uses transitional root lookup; HM03 unifies relative
-  function/type paths with navigation after UP02. Dispatch was still pinned at the
-  HM02 checkpoint; the active UP02 ledger records its subsequent replacement.
+  At the HM02 checkpoint, function/type binding still used transitional root lookup
+  and dispatch was pinned. UP02 subsequently replaced dispatch; HM03 has completed
+  unified relative leaf binding using the same navigation contract.
 
 Review closure: closed-binding error precedence and script `Trait` nominal source
 isolation are repaired. Shared native-trait authority comes from actual native
@@ -1128,10 +1174,10 @@ Reported local evidence:
 - Temporary unit-test `LNK2019` and a 120-second timeout were followed by successful
   completion; no carried linker failure remains.
 
-UP02 has locally completed current-call dispatch and source Update; HM03 next
-consumes that surface for unified relative leaf binding. Final local checks passed;
-no carried UP02 errors remain. The default
-foundation can conservatively reject even simple body patches through protected
+UP02 current-call dispatch/source Update is committed as `4d9f2afa`; HM03 has
+completed relative leaf binding on that surface. Final local checks passed;
+no carried errors remain. HM04 owns the next integration/documentation handoff.
+The default foundation can conservatively reject even simple body patches through protected
 `Unknown` dependencies; finite-environment passing fixtures do not remove this
 [delivery limit](update-model-design.md#up02-implementation-and-integration).
 Full workspace/feature/backend/platform CI remains unrun;

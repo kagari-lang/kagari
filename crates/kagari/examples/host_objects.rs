@@ -1,4 +1,4 @@
-//! Bind once, retain objects, await or submit, and call current implementations.
+//! Navigate a public namespace, bind once, retain objects and call current code.
 //! This uses an explicitly finite source environment, not the default foundation's
 //! unknown protected callback closure, which can reject otherwise valid body updates.
 //! Run with `cargo run -p kagari --example host_objects`.
@@ -19,8 +19,12 @@ use std::{
 use tokio::runtime::Builder;
 
 const SOURCE: &str = r#"
+pub fn score() -> i32 { -1 }
+pub mod api { pub use crate::players as users; }
+pub mod players {
 use core::future::Future;
 pub struct Player { pub var hp: i32 }
+pub type Avatar = Player;
 impl Player {
     pub fn new() -> Player { Player { hp: 100 } }
     pub fn damage(self, amount: i32) -> i32 { self.hp -= amount; self.hp }
@@ -37,6 +41,9 @@ impl Reader for Player {
     fn read(self) -> i32 { self.hp }
     fn later(self) -> Future<Player> { async { self } }
 }
+pub fn score() -> i32 { Player::new().hp }
+pub fn alternate() -> i32 { Player::new().hp + 1 }
+pub use self::score as selected;
 pub fn reader(player: Player) -> Reader<Item = Player> { player }
 pub fn roundtrip(player: Player) -> Player { player }
 pub async fn roundtrip_async(player: Player) -> Player { player }
@@ -46,6 +53,7 @@ pub async fn evidence() -> i32 {
     val p = Player::fresh().await;
     val q = p.heal(1).await;
     q.damage(1)
+}
 }
 "#;
 
@@ -57,7 +65,14 @@ fn prepare(hp: i32) -> PreparedProgram {
     let root = sources
         .set(
             "player.kgr",
-            SOURCE.replace("hp: 100", &format!("hp: {hp}")),
+            SOURCE.replace("hp: 100", &format!("hp: {hp}")).replace(
+                "score as selected",
+                if hp == 100 {
+                    "score as selected"
+                } else {
+                    "alternate as selected"
+                },
+            ),
             SourceLayer::Base,
         )
         .unwrap();
@@ -85,12 +100,22 @@ pub fn main() {
     let prepared = prepare(100);
     let mut runtime = engine.runtime(Default::default());
     let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
-    let player_type = runtime.object_type(&loaded.root(), "Player").unwrap();
+    // `api` is a namespace-only facade. Keep its canonical child across reload.
+    let users = loaded.module("api").unwrap().module("users").unwrap();
+    let player_type = runtime.object_type(&users, "Avatar").unwrap();
+    let root_score = runtime
+        .function::<(), i32>(&loaded.root(), "score")
+        .unwrap();
+    let score = runtime.function::<(), i32>(&users, "score").unwrap();
+    let selected = runtime.function::<(), i32>(&users, "selected").unwrap();
+    assert_eq!(runtime.call(&root_score, ()).unwrap(), -1);
+    assert_eq!(runtime.call(&score, ()).unwrap(), 100);
+    assert_eq!(runtime.call(&selected, ()).unwrap(), 100);
     let new = runtime
         .associated_function::<(), Object>(&player_type, "new")
         .unwrap();
     let make = runtime
-        .async_function::<(), Object>(&loaded.root(), "make")
+        .async_function::<(), Object>(&users, "make")
         .unwrap();
     let hp = runtime.field::<i32>(&player_type, "hp").unwrap();
     let damage = runtime
@@ -103,10 +128,10 @@ pub fn main() {
         .async_associated_function::<(), Object>(&player_type, "fresh")
         .unwrap();
     let roundtrip = runtime
-        .function::<(Object,), Object>(&loaded.root(), "roundtrip")
+        .function::<(Object,), Object>(&users, "roundtrip")
         .unwrap();
     let reader = runtime
-        .function::<(Object,), Interface>(&loaded.root(), "reader")
+        .function::<(Object,), Interface>(&users, "reader")
         .unwrap();
     let player = runtime.call(&new, ()).unwrap();
     let alias = runtime.call(&roundtrip, (player.clone(),)).unwrap();
@@ -142,7 +167,7 @@ pub fn main() {
 
     // Submitted arguments and callable authority are retained before publication.
     let echo = runtime
-        .async_function::<(Object,), Object>(&loaded.root(), "roundtrip_async")
+        .async_function::<(Object,), Object>(&users, "roundtrip_async")
         .unwrap();
     let argument = runtime.call(&new, ()).unwrap();
     let mut pending = runtime.submit_async(&echo, (argument.clone(),)).unwrap();
@@ -153,8 +178,14 @@ pub fn main() {
     runtime
         .reload_program(&loaded, &replacement, Default::default())
         .unwrap();
+    // The retained binding still means `score`, now with its current body.
+    // Only a fresh lookup through the retained Module follows the retargeted alias.
+    assert_eq!(runtime.call(&score, ()).unwrap(), 200);
+    assert_eq!(runtime.call(&selected, ()).unwrap(), 200);
+    let retargeted = runtime.function::<(), i32>(&users, "selected").unwrap();
+    assert_eq!(runtime.call(&retargeted, ()).unwrap(), 201);
     let current = runtime
-        .async_function::<(), Object>(&loaded.root(), "make")
+        .async_function::<(), Object>(&users, "make")
         .unwrap();
     let new_player = executor
         .block_on(runtime.call_async(&current, ()).unwrap())

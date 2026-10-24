@@ -32,15 +32,14 @@ struct CacheEntry {
 }
 
 impl Runtime {
-    /// Bind a public function path relative to the installed Program root.
+    /// Bind a public function path relative to the supplied live Module.
     ///
-    /// For example, `pub use internal::calculate as damage` exposes `damage`,
-    /// including when `owner` is a dependency member. Binding consumes verified
-    /// export slots and checks the Rust argument/result types. Calls select the
-    /// current implementation of that declaration. Private paths, generic templates and missing exports fail
-    /// before execution; concrete script wrappers can expose generic applications.
-    /// Module-relative function paths are introduced by HM03; this lookup still
-    /// starts at the current publication's root, not `owner`'s namespace.
+    /// For example, `pub use internal::calculate as damage` exposes `damage` in
+    /// that namespace without granting navigation to `internal`. Binding consumes
+    /// one publication's verified declaration/slot mapping and checks Rust types.
+    /// Calls select the current implementation of the originally bound declaration;
+    /// later alias retargets affect only fresh bindings. Invalid/private paths and
+    /// generic declarations without a closed entry fail before execution.
     pub fn bind_function<A: KagariArguments + 'static, R: KagariType + 'static>(
         &self,
         owner: &Module,
@@ -48,14 +47,12 @@ impl Runtime {
     ) -> NativeResult<Function<A, R>> {
         self.gc().ensure_no_native_borrow()?;
         let snapshot = self.capture_module(owner)?;
-        let (target, function) = snapshot.root.exported_function(path).ok_or_else(|| {
-            RuntimeError::module_validation("public path has no checked executable entry")
-        })?;
+        let (target, function) = snapshot.function_target(path)?;
         self.cache_function(EntryEvidence::script(self, &target, function)?)
     }
 
     /// Bind an explicit public declaration with an already installed closed entry.
-    /// This declaration capability is independent of Program-root path lookup;
+    /// This declaration capability is independent of relative public-path lookup;
     /// native entries can be bound without adding a source wrapper or export alias.
     pub fn bind_function_declaration<A: KagariArguments + 'static, R: KagariType + 'static>(
         &self,
