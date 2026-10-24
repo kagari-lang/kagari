@@ -296,6 +296,32 @@ def test_files(sources: dict[str, Source], roots: dict[str, set[bool]]) -> set[s
     return {path for path, flags in states.items() if flags == {True}}
 
 
+def is_parameter_attribute_recovery(node: Node) -> bool:
+    """Recognize only complete attributes displaced by the pinned Rust grammar."""
+    # tree-sitter-rust 0.24.2 / tree-sitter 0.25.2 can wrap leading parameter
+    # attributes in ERROR, leaving the final attribute and parameter as siblings.
+    # Inspect all children (including tokens), never arbitrary recovery contents.
+    if not node.is_error or node.parent is None or node.parent.type != "parameters":
+        return False
+    children = node.children
+    if not any(child.type == "attribute_item" for child in children):
+        return False
+    if any(child.type not in COMMENTS | {"attribute_item"}
+           or child.has_error or child.is_missing for child in children):
+        return False
+    sibling = node.next_sibling
+    final_attribute = False
+    while sibling is not None and sibling.type in COMMENTS | {"attribute_item"}:
+        if sibling.has_error or sibling.is_missing:
+            return False
+        final_attribute |= sibling.type == "attribute_item"
+        sibling = sibling.next_sibling
+    return (final_attribute and sibling is not None and sibling.type == "parameter"
+            and not sibling.has_error and not sibling.is_missing
+            and sibling.child_by_field_name("pattern") is not None
+            and sibling.child_by_field_name("type") is not None)
+
+
 def inspect(source: Source, test_only: bool) -> list[dict]:
     findings = []
 
@@ -358,7 +384,7 @@ def inspect(source: Source, test_only: bool) -> list[dict]:
 
     root = source.tree.root_node
     for node in descendants(root):
-        if node.is_error or node.is_missing:
+        if node.is_missing or (node.is_error and not is_parameter_attribute_recovery(node)):
             emit("parse-error", node, "Rust syntax could not be checked; fix or investigate the syntax")
     visit(root, test_only)
     loc = effective_loc(source.data, root)

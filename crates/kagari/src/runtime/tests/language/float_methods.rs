@@ -3,6 +3,7 @@ use crate::{
     context::{ExecutionContext, JitPolicy},
     engine::{EngineConfig, KagariEngine},
     program::PreparedProgram,
+    runtime::tests::language::numeric_checks::NumericChecks,
 };
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
@@ -108,36 +109,15 @@ fn programs(source: &str) -> [(&'static str, PreparedProgram); 2] {
     [("source", direct), ("encoded", encoded)]
 }
 
-fn check_source(checks: Vec<String>) -> String {
-    // Bound per-function MIR work without raising compiler resource limits.
-    let mut source = String::new();
-    let mut main = String::from("fn main() -> i32 {\n");
-    for (group, checks) in checks.chunks(6).enumerate() {
-        source.push_str(&format!("fn checks{group}() -> i32 {{\n"));
-        for (offset, check) in checks.iter().enumerate() {
-            let index = group * 6 + offset + 1;
-            source.push_str(&format!(
-                "{{ val passed = {check}; if !passed {{ return {index}; }} }}\n"
-            ));
-        }
-        source.push_str("0 }\n");
-        main.push_str(&format!(
-            "{{ val result = checks{group}(); if result != 0 {{ return result; }} }}\n"
-        ));
-    }
-    source.push_str(&main);
-    source.push_str("0 }\n");
-    source
-}
-
 fn execute_checks(checks: Vec<String>) {
-    let source = check_source(checks);
+    let checks = NumericChecks::new(checks);
+    let source = checks.source();
     for (route, program) in programs(&source) {
-        assert_checks(&program, route, &source);
+        assert_checks(&program, route, &source, &checks);
     }
 }
 
-fn assert_checks(program: &PreparedProgram, route: &str, source: &str) {
+fn assert_checks(program: &PreparedProgram, route: &str, source: &str, checks: &NumericChecks) {
     let consumer = engine();
     let context = context();
     let mut runtime = consumer.runtime(context.clone());
@@ -145,11 +125,11 @@ fn assert_checks(program: &PreparedProgram, route: &str, source: &str) {
     let result = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap_or_else(|error| panic!("{route}: {error:?}\n{source}"));
-    assert_eq!(
-        result.return_value.value(runtime.runtime().gc()).unwrap(),
-        Value::I32(0),
-        "{route}: nonzero result identifies the failing check (one-based)\n{source}"
-    );
+    let value = result.return_value.value(runtime.runtime().gc()).unwrap();
+    let Value::I32(marker) = value else {
+        panic!("{route}: expected numeric check marker, got {value:?}\n{source}");
+    };
+    checks.assert_result(marker, route, source);
     drop(result);
     assert_eq!(runtime.runtime().gc().active_roots(), 0, "{route}");
     assert_eq!(

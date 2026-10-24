@@ -3,6 +3,7 @@ use crate::{
     context::{ExecutionContext, JitPolicy},
     engine::{EngineConfig, KagariEngine},
     program::PreparedProgram,
+    runtime::tests::language::numeric_checks::NumericChecks,
 };
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
@@ -49,15 +50,23 @@ fn compile(source: &str) -> PreparedProgram {
 }
 
 fn execute_checks(checks: Vec<String>) {
-    // Keep generated cases below the source checker's expression-depth limit.
-    let body = checks
-        .iter()
-        .map(|check| format!("if !({check}) {{ return false; }}\n"))
-        .collect::<String>();
-    execute(&format!("fn main() -> bool {{\n{body}true\n}}"));
+    let checks = NumericChecks::new(checks);
+    let source = checks.source();
+    execute_with(&source, |value| {
+        let Value::I32(marker) = value else {
+            panic!("encoded: expected numeric check marker, got {value:?}\n{source}");
+        };
+        checks.assert_result(marker, "encoded", &source);
+    });
 }
 
 fn execute(source: &str) {
+    execute_with(source, |value| {
+        assert_eq!(value, Value::Bool(true), "{source}")
+    });
+}
+
+fn execute_with(source: &str, assert_value: impl FnOnce(Value)) {
     let program = compile(source);
     let context = context();
     let consumer = engine();
@@ -66,11 +75,7 @@ fn execute(source: &str) {
     let result = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap_or_else(|error| panic!("{error:?}\n{source}"));
-    assert_eq!(
-        result.return_value.value(runtime.runtime().gc()).unwrap(),
-        Value::Bool(true),
-        "{source}"
-    );
+    assert_value(result.return_value.value(runtime.runtime().gc()).unwrap());
     drop(result);
     assert_eq!(runtime.runtime().gc().active_roots(), 0);
     assert_eq!(

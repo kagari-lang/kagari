@@ -78,40 +78,9 @@ pub fn write() { STATE = 128578u32; }
 
 #[test]
 fn persistent_static_objects_and_recursive_nominal_collections_preserve_aliases() {
-    let source = r#"
-use std::collections::{HashMap, HashSet};
-struct Node { var value: i32, val children: Vec<Node> }
-enum Envelope { Kept(Option<Result<(String, [Node]), i32>>) }
-static var ROOT: Node = Node { value: 1, children: Vec::new() };
-static val ALIAS: Node = ROOT;
-static val ITEMS: Vec<Option<Node>> = Vec::from([Some(ROOT)]);
-static val TABLE: HashMap<String, Vec<Node>> = {
-    val map: HashMap<String, Vec<Node>> = HashMap::new();
-    map.insert("root", Vec::from([ROOT]));
-    map
-};
-static val KEYS: HashSet<String> = HashSet::from(["root"]);
-static val PACKED: Envelope = Envelope::Kept(Some(Ok(("root", [ROOT]))));
-static val UNIT: () = ();
-pub fn check() -> bool {
-    UNIT;
-    val item = match ITEMS[0] { Some(node) => node, None => { return false; } };
-    val nodes = match TABLE.get("root") { Some(nodes) => nodes, None => { return false; } };
-    val packed = match PACKED {
-        Envelope::Kept(Some(Ok(pair))) => pair,
-        _ => { return false; },
-    };
-    item === ALIAS && nodes[0] === ALIAS && packed[1][0] === ALIAS
-        && KEYS.contains(packed[0])
-}
-pub fn replace() {
-    ROOT = Node { value: 90, children: Vec::new() };
-    ALIAS.value = 7;
-    ALIAS.children.push(ROOT);
-}
-pub fn read() -> i32 { ALIAS.value * 100 + ALIAS.children[0].value }
-pub fn distinct() -> bool { !(ROOT === ALIAS) }
-"#;
+    let source = include_str!(
+        "../../../../tests/fixtures/test-fixtures/embedding/persistent-static-objects.kgr"
+    );
     for decoded in [false, true] {
         let engine = KagariEngine::default();
         let first = prepare_static_program(&engine, source, decoded);

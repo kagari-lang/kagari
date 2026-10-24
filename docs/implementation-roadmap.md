@@ -483,6 +483,21 @@ implemented host registration and scoped borrowing contracts.
 
 ## Test execution cost
 
+Bounded contract-owned fixture pilots are implemented: formatter input/expected
+pairs, parser recovery/diagnostic inputs, ordinary SDK source cases, shared bounded
+numeric predicate generation and two stateful source extractions. The
+[testing guide](testing.md#existing-file-backed-patterns) owns current examples,
+classification and format rules. Cases retain independent names in existing library
+harnesses. Named `rstest` cases now replace the custom formatter/source-example
+registrars and same-flow parser/default-method wrappers. Homogeneous syntax
+examples use `rstest` file discovery with explicit different-contract exclusions;
+Cargo tracks directory additions/removals. The framework is dev-only;
+no integration target or production dependency was added. Focused local acceptance
+covers migrated cases and representative source examples; exhaustive
+feature/backend/platform tests remain CI-owned.
+There is no measured speed/memory claim or automatic whole-repository conversion.
+This does not replace the older preparation/performance acceptance below.
+
 [The test preparation task](test-preparation-plan.md) has implemented reusable
 native preparation, isolated source sessions and three SDK pilot migrations.
 TP04 consolidates six more ordinary scalar SDK runners and removes invariant

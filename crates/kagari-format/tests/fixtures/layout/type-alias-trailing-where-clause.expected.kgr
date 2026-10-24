@@ -1,0 +1,1 @@
+type Items<T> = [T] where T: Copy;

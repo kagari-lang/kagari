@@ -1,0 +1,1 @@
+use std::{collections::*}; fn main() -> i32 { var total=0;for value in Vec::from([22,20]).map(|value|value){total+=value;}total }

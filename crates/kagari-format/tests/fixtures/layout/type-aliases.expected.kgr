@@ -1,0 +1,4 @@
+#[tag]
+pub type Pair<T> = (T, T);
+
+type Count = i32;

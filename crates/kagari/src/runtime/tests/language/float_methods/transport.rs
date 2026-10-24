@@ -1,5 +1,8 @@
-use super::{FLOATS, assert_checks, check_source, context, engine, programs};
-use crate::{BytecodeArtifact, program::PreparedProgram};
+use super::{FLOATS, assert_checks, context, engine, programs};
+use crate::{
+    BytecodeArtifact, program::PreparedProgram,
+    runtime::tests::language::numeric_checks::NumericChecks,
+};
 use kagari_bytecode::instruction::ConstantOperand;
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_runtime::module::entry::ProgramEntry;
@@ -21,6 +24,7 @@ fn exact_bits_survive_locals_gc_fields_native_methods_and_typed_host_entries() {
             ));
         }
     }
+    let checks = NumericChecks::new(checks);
     let source = format!(
         "struct Storef32 {{ val value: f32 }}\n\
          struct Storef64 {{ val value: f64 }}\n\
@@ -29,7 +33,7 @@ fn exact_bits_survive_locals_gc_fields_native_methods_and_typed_host_entries() {
          pub fn from64(bits: u64) -> f64 {{ f64::from_bits(bits) }}\n\
          pub fn to64(value: f64) -> u64 {{ value.to_bits() }}\n\
          {}",
-        check_source(checks)
+        checks.source()
     );
     for (route, program) in programs(&source) {
         let consumer = engine();
@@ -39,7 +43,7 @@ fn exact_bits_survive_locals_gc_fields_native_methods_and_typed_host_entries() {
         let result: i32 = runtime
             .execute_typed(&loaded, ProgramEntry::Main, (), &context)
             .unwrap();
-        assert_eq!(result, 0, "{route}: one-based failed check\n{source}");
+        checks.assert_result(result, route, &source);
         assert!(runtime.runtime().gc().stats().collections > 0, "{route}");
         for bits in FLOATS[0].patterns() {
             let value: f32 = runtime
@@ -88,7 +92,8 @@ fn serialized_float_constants_reach_installed_to_bits_without_payload_changes() 
             checks.push(format!("constant{index}() == {bits}{uint}"));
             replacements.push((float.bits(placeholder as f64), *bits));
         }
-        source.push_str(&check_source(checks));
+        let checks = NumericChecks::new(checks);
+        source.push_str(&checks.source());
         let compiler = engine();
         let context = DefinitionContext::new().unwrap();
         let mut artifact = compiler
@@ -157,7 +162,7 @@ fn serialized_float_constants_reach_installed_to_bits_without_payload_changes() 
             let program =
                 PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
                     .unwrap();
-            assert_checks(&program, route, &source);
+            assert_checks(&program, route, &source, &checks);
         }
     }
 }

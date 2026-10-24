@@ -1,6 +1,7 @@
 use crate::{FormatError, Newline, Options, format};
 use kagari_common::cancellation::CancellationToken;
 use kagari_source::source::SourceFile;
+use rstest::rstest;
 use std::{fs, path::Path};
 
 fn formatted(text: &str, width: usize) -> String {
@@ -13,6 +14,93 @@ fn formatted(text: &str, width: usize) -> String {
         &Default::default(),
     )
     .unwrap()
+}
+
+#[rstest]
+#[case::type_aliases(
+    "type-aliases",
+    include_str!("../tests/fixtures/layout/type-aliases.input.kgr"),
+    include_str!("../tests/fixtures/layout/type-aliases.expected.kgr"),
+    100,
+    true,
+    Some(30)
+)]
+#[case::module_where_clause(
+    "type-alias-module-where-clause",
+    include_str!("../tests/fixtures/layout/type-alias-module-where-clause.input.kgr"),
+    include_str!("../tests/fixtures/layout/type-alias-module-where-clause.expected.kgr"),
+    100,
+    true,
+    Some(30)
+)]
+#[case::commented_callback(
+    "type-alias-commented-callback",
+    include_str!("../tests/fixtures/layout/type-alias-commented-callback.input.kgr"),
+    include_str!("../tests/fixtures/layout/type-alias-commented-callback.expected.kgr"),
+    100,
+    true,
+    Some(30)
+)]
+#[case::trailing_where_clause(
+    "type-alias-trailing-where-clause",
+    include_str!("../tests/fixtures/layout/type-alias-trailing-where-clause.input.kgr"),
+    include_str!("../tests/fixtures/layout/type-alias-trailing-where-clause.expected.kgr"),
+    100,
+    true,
+    Some(30)
+)]
+#[case::function_bindings(
+    "function-bindings",
+    include_str!("../tests/fixtures/layout/function-bindings.input.kgr"),
+    include_str!("../tests/fixtures/layout/function-bindings.expected.kgr"),
+    100,
+    true,
+    None
+)]
+#[case::async_blocks_comments_postfix(
+    "async-blocks-comments-postfix",
+    include_str!("../tests/fixtures/layout/async-blocks-comments-postfix.input.kgr"),
+    include_str!("../tests/fixtures/layout/async-blocks-comments-postfix.expected.kgr"),
+    100,
+    true,
+    None
+)]
+#[case::narrow_call(
+    "narrow-call",
+    include_str!("../tests/fixtures/layout/narrow-call.input.kgr"),
+    include_str!("../tests/fixtures/layout/narrow-call.expected.kgr"),
+    25,
+    false,
+    None
+)]
+fn layout_fixtures(
+    #[case] fixture: &str,
+    #[case] input: &str,
+    #[case] expected: &str,
+    #[case] width: usize,
+    #[case] check_idempotence: bool,
+    #[case] narrow_width: Option<usize>,
+) {
+    assert_eq!(
+        formatted(input, width),
+        expected,
+        "fixture=tests/fixtures/layout/{fixture}; width={width}"
+    );
+    if check_idempotence {
+        assert_eq!(
+            formatted(expected, width),
+            expected,
+            "fixture=tests/fixtures/layout/{fixture}; width={width}; idempotence"
+        );
+    }
+    if let Some(width) = narrow_width {
+        let narrow = formatted(input, width);
+        assert_eq!(
+            formatted(&narrow, width),
+            narrow,
+            "fixture=tests/fixtures/layout/{fixture}; width={width}; narrow idempotence"
+        );
+    }
 }
 
 #[test]
@@ -46,33 +134,6 @@ fn static_declarations_preserve_layout_comments_and_structure() {
 }
 
 #[test]
-fn type_aliases_preserve_layout_comments_and_where_clauses() {
-    for (input, expected) in [
-        (
-            "#[tag]pub type Pair<T> =(T,T);type Count=i32;",
-            "#[tag]\npub type Pair<T> = (T, T);\n\ntype Count = i32;\n",
-        ),
-        (
-            "mod model{pub(super) type Items<T> where T:Show=[T];}",
-            "mod model {\n    pub (super) type Items<T> where T: Show = [T];\n}\n",
-        ),
-        (
-            "type /* name */ Callback<T> =fn(T)->T;",
-            "type /* name */ Callback<T> = fn(T) -> T;\n",
-        ),
-        (
-            "type Items<T> =[T] where T:Copy;",
-            "type Items<T> = [T] where T: Copy;\n",
-        ),
-    ] {
-        assert_eq!(formatted(input, 100), expected);
-        assert_eq!(formatted(expected, 100), expected);
-        let narrow = formatted(input, 30);
-        assert_eq!(formatted(&narrow, 30), narrow);
-    }
-}
-
-#[test]
 fn static_invalid_declarations_are_not_formatted() {
     for input in [
         "static val count = 0;",
@@ -94,32 +155,15 @@ fn static_invalid_declarations_are_not_formatted() {
     }
 }
 
-#[test]
-fn functions_bindings_and_width_have_expected_layout() {
-    let text = "fn add(a:i32,b:i32)->i32{val sum=a+b;sum}";
-    let expected = "fn add(a: i32, b: i32) -> i32 {\n    val sum = a + b;\n    sum\n}\n";
-    assert_eq!(formatted(text, 100), expected);
-    assert_eq!(formatted(expected, 100), expected);
-    assert_eq!(
-        formatted("fn call(){consume(first,second,third);}", 25),
-        "fn call() {\n    consume(\n        first,\n        second,\n        third\n    );\n}\n"
-    );
-}
-
-#[test]
-fn async_blocks_preserve_layout_comments_and_postfix() {
-    let input = "async fn f(){val pending=async{42};async /* body */ {pending.await}.await}";
-    let expected = "async fn f() {\n    val pending = async {\n        42\n    };\n    async /* body */ {\n        pending.await\n    }.await\n}\n";
-    assert_eq!(formatted(input, 100), expected);
-    assert_eq!(formatted(expected, 100), expected);
-    for input in [
-        "fn f(){async{async{42}}}",
-        "async fn f(){async // body\n{request().await?}.await;}",
-        "fn f(){val pending=async{42};val text=\"before {pending} after\";}",
-    ] {
-        let once = formatted(input, 30);
-        assert_eq!(formatted(&once, 30), once);
-    }
+#[rstest]
+#[case::nested_async_blocks("fn f(){async{async{42}}}")]
+#[case::commented_body_await_postfix("async fn f(){async // body\n{request().await?}.await;}")]
+#[case::pending_in_interpolation(
+    "fn f(){val pending=async{42};val text=\"before {pending} after\";}"
+)]
+fn async_blocks_preserve_layout_comments_and_postfix(#[case] input: &str) {
+    let once = formatted(input, 30);
+    assert_eq!(formatted(&once, 30), once, "input={input:?}; width=30");
 }
 
 #[test]

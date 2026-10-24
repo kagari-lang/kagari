@@ -1,11 +1,10 @@
-use super::{WIDTHS, execute, execute_checks};
+use super::{WIDTHS, execute_checks};
 
 #[test]
 fn all_integer_widths_expose_the_finite_policy_inventory() {
-    let mut source = String::new();
+    let mut checks = Vec::new();
     for (ty, _) in WIDTHS {
         let literal = |value| format!("{value}{ty}");
-        let mut body = String::new();
         // Small exact inputs prove concrete method/result ownership, not kernels.
         for (method, receiver, rhs, expected) in [
             ("wrapping_add", 5, 3, 8),
@@ -15,9 +14,8 @@ fn all_integer_widths_expose_the_finite_policy_inventory() {
             ("saturating_sub", 5, 3, 2),
             ("saturating_mul", 5, 3, 15),
         ] {
-            body.push_str(&format!(
-                "val {method}: {ty} = ({}).{method}({});\n\
-                 if {method} != {} {{ return false; }}\n",
+            checks.push(format!(
+                "{{ val result: {ty} = ({}).{method}({}); result == {} }}",
                 literal(receiver),
                 literal(rhs),
                 literal(expected),
@@ -30,10 +28,9 @@ fn all_integer_widths_expose_the_finite_policy_inventory() {
             ("checked_div", 1),
             ("checked_rem", 2),
         ] {
-            body.push_str(&format!(
-                "val {method}: Option<{ty}> = (5{ty}).{method}(3{ty});\n\
-                 if !(match {method} {{ Some(value) => value == {}, None => false }}) \
-                 {{ return false; }}\n",
+            checks.push(format!(
+                "{{ val result: Option<{ty}> = (5{ty}).{method}(3{ty}); \
+                 match result {{ Some(value) => value == {}, None => false }} }}",
                 literal(expected),
             ));
         }
@@ -42,36 +39,27 @@ fn all_integer_widths_expose_the_finite_policy_inventory() {
             ("overflowing_sub", 2),
             ("overflowing_mul", 15),
         ] {
-            body.push_str(&format!(
-                "val {method}: ({ty}, bool) = (5{ty}).{method}(3{ty});\n\
-                 val (value_{method}, flag_{method}) = {method};\n\
-                 if value_{method} != {} || flag_{method} {{ return false; }}\n",
+            checks.push(format!(
+                "{{ val result: ({ty}, bool) = (5{ty}).{method}(3{ty}); \
+                 val (value, flag) = result; value == {} && !flag }}",
                 literal(expected),
             ));
         }
         for (method, receiver, expected) in [("rotate_left", 5, 10), ("rotate_right", 4, 2)] {
-            body.push_str(&format!(
-                "val {method}: {ty} = ({}).{method}(1u32);\n\
-                 if {method} != {} {{ return false; }}\n",
+            checks.push(format!(
+                "{{ val result: {ty} = ({}).{method}(1u32); result == {} }}",
                 literal(receiver),
                 literal(expected),
             ));
         }
         if let Some(signed) = ty.strip_prefix('u') {
-            body.push_str(&format!(
-                "val offset: {ty} = (0{ty}).wrapping_add_signed(-1i{signed});\n\
-                 if offset != !0{ty} {{ return false; }}\n"
+            checks.push(format!(
+                "{{ val offset: {ty} = (0{ty}).wrapping_add_signed(-1i{signed}); \
+                 offset == !0{ty} }}"
             ));
         }
-        source.push_str(&format!("fn check_{ty}() -> bool {{\n{body}true\n}}\n"));
     }
-    let calls = WIDTHS
-        .iter()
-        .map(|(ty, _)| format!("check_{ty}()"))
-        .collect::<Vec<_>>()
-        .join(" && ");
-    source.push_str(&format!("fn main() -> bool {{ {calls} }}"));
-    execute(&source);
+    execute_checks(checks);
 }
 
 #[test]

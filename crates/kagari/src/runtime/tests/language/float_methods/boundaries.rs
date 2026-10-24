@@ -1,4 +1,5 @@
-use super::{FLOATS, assert_checks, check_source, context, engine, programs};
+use super::{FLOATS, assert_checks, context, engine, programs};
+use crate::runtime::tests::language::numeric_checks::NumericChecks;
 use kagari_runtime::{module::entry::ProgramEntry, native::objects::Object};
 
 #[test]
@@ -39,9 +40,10 @@ fn receivers_and_arguments_run_once_in_left_to_right_order() {
             ));
         }
     }
-    source.push_str(&check_source(checks));
+    let checks = NumericChecks::new(checks);
+    source.push_str(&checks.source());
     for (route, program) in programs(&source) {
-        assert_checks(&program, route, &source);
+        assert_checks(&program, route, &source, &checks);
     }
 }
 

@@ -3,12 +3,20 @@
 These files show syntax that currently passes semantic checking and executes.
 From the repository root, run any standalone `.kgr` file with
 `cargo run -p kagari-cli -- run <path>`. The CLI exits successfully when its
-assertions pass; the `syntax_examples` integration test also checks return values
-through source and encoded-artifact loading:
+assertions pass. Ordinary `syntax/*.kgr` programs returning `42` are discovered as
+independent SDK library tests, which check source and encoded-artifact execution.
+Use a filename filter for a focused run, or `--list` to inspect the group:
 
 ```sh
-cargo test -p kagari --test syntax_examples
+cargo test -p kagari --lib -- runtime::tests::language::syntax_examples::source_examples::path_01__UP__UP_examples_syntax_array_operations_kgr
+cargo test -p kagari --lib -- --list runtime::tests::language::syntax_examples::source_examples::
 ```
+
+The [testing guide](../docs/testing.md#directory-discovered-syntax-examples) defines
+admission, the five different-contract exclusions and the small explicit group for
+root examples/special execution routes. Add ordinary syntax examples without a
+Rust registration row; do not assume declaration-only, async, grammar-witness or
+different-result files share this execution contract.
 
 Source tools can inspect an example without executing it:
 

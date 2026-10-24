@@ -9,3 +9,6 @@ kagari-source.workspace = true
 kagari-common.workspace = true
 rowan = "0.17.0"
 smallvec.workspace = true
+
+[dev-dependencies]
+rstest.workspace = true

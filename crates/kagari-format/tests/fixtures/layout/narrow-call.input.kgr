@@ -1,0 +1,1 @@
+fn call(){consume(first,second,third);}

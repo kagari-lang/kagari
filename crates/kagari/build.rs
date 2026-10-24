@@ -1,11 +1,10 @@
-//! Conservative unpublished-workspace contract identity for persisted native code.
+//! Track example discovery and unpublished-workspace contracts for persisted native code.
 #[cfg(feature = "aot-load")]
 use blake3::Hasher;
+#[cfg(any(feature = "aot-load", all(feature = "source", feature = "native")))]
+use std::{env, path::PathBuf};
 #[cfg(feature = "aot-load")]
-use std::{
-    env, fs,
-    path::{Path, PathBuf},
-};
+use std::{fs, path::Path};
 
 #[cfg(feature = "aot-load")]
 fn collect(path: &Path, paths: &mut Vec<PathBuf>) {
@@ -21,6 +20,16 @@ fn collect(path: &Path, paths: &mut Vec<PathBuf>) {
 }
 
 fn main() {
+    #[cfg(all(feature = "source", feature = "native"))]
+    {
+        let manifest = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("manifest"));
+        let examples = manifest.join("../../examples/syntax");
+        if examples.is_dir() {
+            // Explicit rerun rules replace Cargo's default package scan; rustc tracks Rust sources.
+            println!("cargo:rerun-if-changed=build.rs");
+            println!("cargo:rerun-if-changed={}", examples.display());
+        }
+    }
     #[cfg(feature = "aot-load")]
     fingerprint();
 }

@@ -1,5 +1,16 @@
 # SDK feature-boundary artifact
 
+Ordinary file-backed language and stateful scenario inputs also live under
+[`test-fixtures/language`](test-fixtures/language) and
+[`test-fixtures/embedding`](test-fixtures/embedding). They are source data loaded
+by the existing library test harness, not additional integration targets. Rust
+owns expected values, route/GC configuration, traps, publication, alias checks and
+resource cleanup. Preserve logical source names and exact fixture bytes, including
+leading newlines and intentionally missing final newlines. Local attributes keep
+these `.kgr` inputs LF-only on Windows. See the [testing guide](../../../../docs/testing.md#existing-file-backed-patterns).
+
+## Feature-boundary artifact
+
 `target/fixtures/feature_artifact.kbc` is the disposable current-format artifact emitted from the exact
 `feature_artifact.kgr` text with source name `memory://feature-artifact.kgr`.
 It contains bytecode, carried declarations/dependencies and portable MIR, without

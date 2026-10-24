@@ -18,6 +18,7 @@ use kagari_runtime::value::Value;
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_stdlib::identity as library;
 use kagari_types::{callable::CallableImplementation, scalar::BuiltinType, ty::Ty};
+use rstest::rstest;
 
 use crate::test_support::execution;
 
@@ -71,30 +72,15 @@ fn main() -> i32 { val dynamic: Read = Number {}; Number {}.read() + dynamic.rea
     );
 }
 
-#[test]
-fn generic_implementations_and_default_local_binders_are_specialized() {
-    execute(
-        r#"
-trait Read<T> {
-    fn read(self) -> T;
-    fn again(self) -> T { self.read() }
-}
-
-struct Holder<T> { val value: T }
-impl<T> Read<T> for Holder<T> { fn read(self) -> T { self.value } }
-fn boxed<T>(x: Holder<T>) -> Read<T> { x }
-fn main() -> i32 { boxed(Holder { value: 20 }).again() + Holder { value: 22 }.again() }
-"#,
-    );
-    execute(
-        r#"
-trait Identity { fn identity<T>(self, value: T) -> T { value } fn same(self) -> Self { self } }
-struct Number { val value: i32 }
-impl Identity for Number {}
-fn generic<T: Identity>(x: T) -> i32 { x.identity(42) }
-fn main() -> i32 { val n = Number { value: 42 }.same(); generic(n) }
-"#,
-    );
+#[rstest]
+#[case::generic_implementations(include_str!(
+    "../../../../tests/fixtures/test-fixtures/language/default-methods-generic-implementations.kgr"
+))]
+#[case::local_binders(include_str!(
+    "../../../../tests/fixtures/test-fixtures/language/default-methods-local-binders.kgr"
+))]
+fn generic_implementations_and_default_local_binders_are_specialized(#[case] source: &str) {
+    execute(source);
 }
 
 #[test]

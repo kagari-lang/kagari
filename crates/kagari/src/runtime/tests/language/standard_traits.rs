@@ -37,20 +37,9 @@ fn execute(source: &str) {
 
 #[test]
 fn standard_trait_methods_and_generic_bounds_execute() {
-    execute(
-        r#"use std::fmt::{Debug, Display};
-use std::hash::{Hash};
-
-fn same<T: Eq>(a:T, b:T)->bool { a.eq(b) && a == b }
-fn hash<T: Eq + Hash>(a:T)->i64 { a.hash() }
-fn format<T: Debug>(a:T)->String { a.debug() }
-fn show<T: Display>(a:T)->String { a.display() }
-fn main()->i32 {
-    val x = (20, "key");
-    if same(x, (20, "key")) && hash(x) == hash((20, "key")) && format(x) == "(20, \"key\")" && show(42) == "42" { 42 } else { 0 }
-}
-"#,
-    );
+    execute(include_str!(
+        "../../../../tests/fixtures/test-fixtures/language/standard-traits.kgr"
+    ));
 }
 
 #[test]

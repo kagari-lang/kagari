@@ -35,7 +35,8 @@ below; the public Pages site has not been activated by this work.
   forward references, sealed declarations and one-shot binding preparation.
 - [Generic interface construction](spec/traits.md#current-interface-conversion-boundary)
   and its [proof/execution owners](architecture.md#interface-dispatch).
-- [Test preparation and execution](testing.md).
+- [Test preparation, contract classification and execution](testing.md), including
+  [file-backed fixtures, golden pairs and bounded numeric cases](testing.md#existing-file-backed-patterns).
 - [Editor tooling and installation](../editors/README.md): standalone Zed/VS Code
   syntax adapters and the separate [stdio analyzer foundation](architecture.md#language-server-foundation).
 - [Performance measurements](performance-baseline.md), including the completed
@@ -126,6 +127,7 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   [offline command and selection contract](spec/toolchain-tools.md#kbc-disassembly)
   is implemented; full workspace and feature/backend/platform acceptance remains
   pending CI.
+
 - [Script testing](script-testing-design.md): proposed `kg test`, source-owned
   `#[test]` functions and host-orchestrated fixtures; design only, separate from
   formatter/checker/linter implementation.
