@@ -2,7 +2,10 @@ use crate::{FormatError, Newline, Options, format};
 use kagari_common::cancellation::CancellationToken;
 use kagari_source::source::SourceFile;
 use rstest::rstest;
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 fn formatted(text: &str, width: usize) -> String {
     format(
@@ -73,6 +76,17 @@ fn formatted(text: &str, width: usize) -> String {
     false,
     None
 )]
+#[case::static_attributes_and_bindings("static-attributes-and-bindings", include_str!("../tests/fixtures/layout/static-attributes-and-bindings.input.kgr"), include_str!("../tests/fixtures/layout/static-attributes-and-bindings.expected.kgr"), 100, true, Some(30))]
+#[case::static_inline_module_and_block("static-inline-module-and-block", include_str!("../tests/fixtures/layout/static-inline-module-and-block.input.kgr"), include_str!("../tests/fixtures/layout/static-inline-module-and-block.expected.kgr"), 100, true, Some(30))]
+#[case::static_binding_comment("static-binding-comment", include_str!("../tests/fixtures/layout/static-binding-comment.input.kgr"), include_str!("../tests/fixtures/layout/static-binding-comment.expected.kgr"), 100, true, Some(30))]
+#[case::attributed_generic_struct("attributed-generic-struct", include_str!("../tests/fixtures/layout/attributed-generic-struct.input.kgr"), include_str!("../tests/fixtures/layout/attributed-generic-struct.expected.kgr"), 100, true, None)]
+#[case::enum_variants("enum-variants", include_str!("../tests/fixtures/layout/enum-variants.input.kgr"), include_str!("../tests/fixtures/layout/enum-variants.expected.kgr"), 100, true, None)]
+#[case::trait_associated_items("trait-associated-items", include_str!("../tests/fixtures/layout/trait-associated-items.input.kgr"), include_str!("../tests/fixtures/layout/trait-associated-items.expected.kgr"), 100, true, None)]
+#[case::grouped_use_alias("grouped-use-alias", include_str!("../tests/fixtures/layout/grouped-use-alias.input.kgr"), include_str!("../tests/fixtures/layout/grouped-use-alias.expected.kgr"), 100, true, None)]
+#[case::match_enum_pattern("match-enum-pattern", include_str!("../tests/fixtures/layout/match-enum-pattern.input.kgr"), include_str!("../tests/fixtures/layout/match-enum-pattern.expected.kgr"), 100, true, None)]
+#[case::match_struct_rest_pattern("match-struct-rest-pattern", include_str!("../tests/fixtures/layout/match-struct-rest-pattern.input.kgr"), include_str!("../tests/fixtures/layout/match-struct-rest-pattern.expected.kgr"), 100, true, None)]
+#[case::tuple_binding_pattern("tuple-binding-pattern", include_str!("../tests/fixtures/layout/tuple-binding-pattern.input.kgr"), include_str!("../tests/fixtures/layout/tuple-binding-pattern.expected.kgr"), 100, true, None)]
+#[case::callable_array_tuple_types("callable-array-tuple-types", include_str!("../tests/fixtures/layout/callable-array-tuple-types.input.kgr"), include_str!("../tests/fixtures/layout/callable-array-tuple-types.expected.kgr"), 100, true, None)]
 fn layout_fixtures(
     #[case] fixture: &str,
     #[case] input: &str,
@@ -103,56 +117,33 @@ fn layout_fixtures(
     }
 }
 
-#[test]
-fn static_declarations_preserve_layout_comments_and_structure() {
-    for (input, expected) in [
-        (
-            "#[tag]pub static val cache:Vec<i32> =make(1,2);static var count:i32=0;",
-            "#[tag]\npub static val cache: Vec<i32> = make(1, 2);\n\nstatic var count: i32 = 0;\n",
-        ),
-        (
-            "mod state{static var count:i32=0;static val seed:i32={val x=1;x};}",
-            "mod state {\n    static var count: i32 = 0;\n    static val seed: i32 = {\n        val x = 1;\n        x\n    };\n}\n",
-        ),
-        (
-            "static /* binding */ val value:i32=make(first,second,third);",
-            "static /* binding */ val value: i32 = make(first, second, third);\n",
-        ),
-    ] {
-        assert_eq!(formatted(input, 100), expected);
-        assert_eq!(formatted(expected, 100), expected);
-        let narrow = formatted(input, 30);
-        assert_eq!(formatted(&narrow, 30), narrow);
-    }
-    for input in [
-        "#[tag] pub(crate) static val cache: Vec<i32> = make(); // retained\n",
-        "mod state { pub(super) static var count: i32 = 0; }",
-    ] {
-        let once = formatted(input, 40);
-        assert_eq!(formatted(&once, 40), once);
-    }
+#[rstest]
+#[case::crate_visible_static_trailing_comment(
+    "#[tag] pub(crate) static val cache: Vec<i32> = make(); // retained\n"
+)]
+#[case::parent_visible_static_in_module("mod state { pub(super) static var count: i32 = 0; }")]
+fn static_visibility_is_idempotent(#[case] input: &str) {
+    let once = formatted(input, 40);
+    assert_eq!(formatted(&once, 40), once);
 }
 
-#[test]
-fn static_invalid_declarations_are_not_formatted() {
-    for input in [
-        "static val count = 0;",
-        "static var count: i32;",
-        "fn f() { static val count: i32 = 0; }",
-        "impl S { static var count: i32 = 0; }",
-    ] {
-        assert!(
-            matches!(
-                format(
-                    &SourceFile::new("bad", input),
-                    Options::default(),
-                    &Default::default()
-                ),
-                Err(FormatError::Diagnostics(_))
+#[rstest]
+#[case::missing_type("static val count = 0;")]
+#[case::missing_initializer("static var count: i32;")]
+#[case::local_static("fn f() { static val count: i32 = 0; }")]
+#[case::impl_static("impl S { static var count: i32 = 0; }")]
+fn static_invalid_declarations_are_not_formatted(#[case] input: &str) {
+    assert!(
+        matches!(
+            format(
+                &SourceFile::new("bad", input),
+                Options::default(),
+                &Default::default()
             ),
-            "{input}"
-        );
-    }
+            Err(FormatError::Diagnostics(_))
+        ),
+        "{input}"
+    );
 }
 
 #[rstest]
@@ -189,34 +180,31 @@ fn char_literals_preserve_spelling_and_structure() {
     }
 }
 
-#[test]
-fn char_literals_with_invalid_decoded_values_are_not_formatted() {
-    for literal in [
-        "''",
-        "'ab'",
-        "'e\u{301}'",
-        "'\t'",
-        "'\n'",
-        "'\r'",
-        r"'\x80'",
-        r"'\u{_41}'",
-        r"'\u{0000000}'",
-        r"'\u{D800}'",
-        r"'\u{110000}'",
-    ] {
-        let text = format!("fn f() {{ val c = {literal}; }}");
-        assert!(
-            matches!(
-                format(
-                    &SourceFile::new("bad.kgr", text),
-                    Options::default(),
-                    &Default::default()
-                ),
-                Err(FormatError::Diagnostics(_))
+#[rstest]
+#[case::empty("''")]
+#[case::multiple_scalars("'ab'")]
+#[case::combining_sequence("'e\u{301}'")]
+#[case::physical_tab("'\t'")]
+#[case::physical_lf("'\n'")]
+#[case::physical_cr("'\r'")]
+#[case::non_ascii_hex_escape(r"'\x80'")]
+#[case::leading_underscore_unicode_escape(r"'\u{_41}'")]
+#[case::overlong_unicode_escape(r"'\u{0000000}'")]
+#[case::surrogate(r"'\u{D800}'")]
+#[case::above_unicode_max(r"'\u{110000}'")]
+fn char_literals_with_invalid_decoded_values_are_not_formatted(#[case] literal: &str) {
+    let text = format!("fn f() {{ val c = {literal}; }}");
+    assert!(
+        matches!(
+            format(
+                &SourceFile::new("bad.kgr", text),
+                Options::default(),
+                &Default::default()
             ),
-            "{literal:?}"
-        );
-    }
+            Err(FormatError::Diagnostics(_))
+        ),
+        "{literal:?}"
+    );
 }
 
 #[test]
@@ -276,77 +264,91 @@ fn text_literals_preserve_multiline_bytes_and_hole_boundaries() {
     }
 }
 
-#[test]
-fn malformed_text_literals_are_not_formatted() {
-    for literal in [
-        r#"f"old""#,
-        r#""{name + 1}""#,
-        r#""{name.value}""#,
-        r#""{name }""#,
-        r#""{ name}""#,
-        r#""{name: ?}""#,
-        r#""{name:/* comment */?}""#,
-        r#""{name:x}""#,
-        r#""}""#,
-        r#""\x80""#,
-        r#""\u{_41}""#,
-        r#""\u{D800}""#,
-        "\"standalone\rcarriage\"",
-        "r\"standalone\rcarriage\"",
-        "r#\"unclosed\"",
-        "b'é'",
-        "b''",
-        "b'ab'",
-        "b'\t'",
-        r"b'\u{41}'",
-        r#"b"\u{41}""#,
-        r#"b"\xFG""#,
-        "b\"é\"",
-        "br\"é\"",
-        "b\"standalone\rcarriage\"",
-        "br\"standalone\rcarriage\"",
-        "br#\"unclosed\"",
-    ] {
-        let input = format!("fn f(){{{literal}}}");
-        assert!(
-            matches!(
-                format(
-                    &SourceFile::new("bad.kgr", input),
-                    Options::default(),
-                    &Default::default()
-                ),
-                Err(FormatError::Diagnostics(_))
+#[rstest]
+#[case::obsolete_f_prefix(r#"f"old""#)]
+#[case::hole_expression(r#""{name + 1}""#)]
+#[case::hole_member(r#""{name.value}""#)]
+#[case::hole_trailing_space(r#""{name }""#)]
+#[case::hole_leading_space(r#""{ name}""#)]
+#[case::hole_debug_space(r#""{name: ?}""#)]
+#[case::hole_debug_comment(r#""{name:/* comment */?}""#)]
+#[case::hole_unknown_format(r#""{name:x}""#)]
+#[case::unmatched_close_brace(r#""}""#)]
+#[case::string_non_ascii_hex_escape(r#""\x80""#)]
+#[case::string_leading_underscore_unicode(r#""\u{_41}""#)]
+#[case::string_surrogate(r#""\u{D800}""#)]
+#[case::cooked_bare_cr("\"standalone\rcarriage\"")]
+#[case::raw_bare_cr("r\"standalone\rcarriage\"")]
+#[case::raw_unclosed_hash("r#\"unclosed\"")]
+#[case::byte_non_ascii_scalar("b'é'")]
+#[case::byte_empty("b''")]
+#[case::byte_multiple("b'ab'")]
+#[case::byte_physical_tab("b'\t'")]
+#[case::byte_unicode_escape(r"b'\u{41}'")]
+#[case::bytes_unicode_escape(r#"b"\u{41}""#)]
+#[case::bytes_bad_hex(r#"b"\xFG""#)]
+#[case::bytes_non_ascii("b\"é\"")]
+#[case::raw_bytes_non_ascii("br\"é\"")]
+#[case::bytes_bare_cr("b\"standalone\rcarriage\"")]
+#[case::raw_bytes_bare_cr("br\"standalone\rcarriage\"")]
+#[case::raw_bytes_unclosed_hash("br#\"unclosed\"")]
+fn malformed_text_literals_are_not_formatted(#[case] literal: &str) {
+    let input = format!("fn f(){{{literal}}}");
+    assert!(
+        matches!(
+            format(
+                &SourceFile::new("bad.kgr", input),
+                Options::default(),
+                &Default::default()
             ),
-            "{literal}"
-        );
-    }
+            Err(FormatError::Diagnostics(_))
+        ),
+        "{literal}"
+    );
+}
+
+#[rstest]
+#[case::shift_adjacency("fn f(x:i32)->i32{x>>2<<1}")]
+#[case::struct_update_block_comment(
+    "fn f(){val copy=Point{x:1,/* base */..make()};val all=Point{..base};}"
+)]
+#[case::struct_update_line_comment("fn f(){val x=Point{x:1,.. // base\nmake()};}")]
+#[case::nested_generic_closers("fn f(x:Outer<Inner<i32>>){val y=x;}")]
+#[case::unicode_interpolation_escaped_braces(
+    "fn f(){val sum=1+2;val s=\"π {sum} literal {{brace}}\";}"
+)]
+#[case::operator_line_comment("fn f(){val sum=1 // comment\n + 2;val s=\"{sum}\";}")]
+#[case::nested_dangling_and_trailing_comments(
+    "// heading\nfn f(){/* dangling /* nested */ */}// trailing  "
+)]
+#[case::binding_trailing_comment("fn f(){val x=1;// trailing\nconsume(x);}")]
+#[case::binding_surrounding_comments("fn f(){/* before */ val x=1; /* after */}")]
+#[case::generic_local_function_value(
+    "fn f(){fn id<T>(x:T)->T{x}val callback=id::<i32>;callback(42);}"
+)]
+#[case::local_function_body_and_tail_comments(
+    "fn outer()->i32{val result=inner(41);/* helper */ fn inner(value:i32)->i32{// body\nvalue+1}/* tail */result}"
+)]
+#[case::local_function_attribute_and_async_closure(
+    "fn outer(){#[tool::allow(\"unused_parameter\")] async fn inner(value:i32)->i32{value}val closure=async || 42;}"
+)]
+#[case::crlf_source("fn f(){}\r\n")]
+#[case::empty_source("")]
+#[case::whitespace_only("  \n\t")]
+#[case::semantic_error_is_formattable("fn f()->i32{true}")]
+fn adjacency_interpolation_comments_and_boundaries_are_idempotent(#[case] text: &str) {
+    let once = formatted(text, 40);
+    assert_eq!(formatted(&once, 40), once, "{text}");
 }
 
 #[test]
-fn adjacency_interpolation_comments_and_boundaries_are_idempotent() {
-    for text in [
-        "fn f(x:i32)->i32{x>>2<<1}",
-        "fn f(){val copy=Point{x:1,/* base */..make()};val all=Point{..base};}",
-        "fn f(){val x=Point{x:1,.. // base\nmake()};}",
-        "fn f(x:Outer<Inner<i32>>){val y=x;}",
-        "fn f(){val sum=1+2;val s=\"π {sum} literal {{brace}}\";}",
-        "fn f(){val sum=1 // comment\n + 2;val s=\"{sum}\";}",
-        "// heading\nfn f(){/* dangling /* nested */ */}// trailing  ",
-        "fn f(){val x=1;// trailing\nconsume(x);}",
-        "fn f(){/* before */ val x=1; /* after */}",
-        "fn f(){fn id<T>(x:T)->T{x}val callback=id::<i32>;callback(42);}",
-        "fn outer()->i32{val result=inner(41);/* helper */ fn inner(value:i32)->i32{// body\nvalue+1}/* tail */result}",
-        "fn outer(){#[tool::allow(\"unused_parameter\")] async fn inner(value:i32)->i32{value}val closure=async || 42;}",
-        "fn f(){}\r\n",
-        "",
-        "  \n\t",
-        "fn f()->i32{true}",
-    ] {
-        let once = formatted(text, 40);
-        assert_eq!(formatted(&once, 40), once, "{text}");
-    }
+fn preserves_crlf_and_canonical_empty_output() {
     assert_eq!(formatted("fn f(){}\r\n", 100), "fn f() {}\r\n");
     assert_eq!(formatted("", 100), "\n");
+}
+
+#[test]
+fn rejects_malformed_source() {
     assert!(matches!(
         format(
             &SourceFile::new("bad", "fn broken("),
@@ -355,6 +357,10 @@ fn adjacency_interpolation_comments_and_boundaries_are_idempotent() {
         ),
         Err(FormatError::Diagnostics(_))
     ));
+}
+
+#[test]
+fn pre_cancelled_formatting_returns_no_output() {
     let cancel = CancellationToken::default();
     cancel.cancel();
     assert!(matches!(
@@ -378,117 +384,26 @@ fn check_fixture(name: &str) {
     assert_eq!(formatted(&once, 100), once, "{}", path.display());
 }
 
-#[test]
-fn representative_grammar_preserves_structure_and_is_idempotent() {
-    for name in [
-        "grammar-witnesses.kgr",
-        "closures.kgr",
-        "binding-patterns.kgr",
-        "struct-update.kgr",
-        "string-interpolation.kgr",
-        "generic-associated-types.kgr",
-        "async.kgr",
-        "attributes.kgr",
-        "inline-modules.kgr",
-    ] {
-        check_fixture(name);
-    }
+#[rstest]
+#[case::grammar_witnesses("grammar-witnesses.kgr")]
+#[case::closures("closures.kgr")]
+#[case::binding_patterns("binding-patterns.kgr")]
+#[case::struct_update("struct-update.kgr")]
+#[case::string_interpolation("string-interpolation.kgr")]
+#[case::generic_associated_types("generic-associated-types.kgr")]
+#[case::async_declarations("async.kgr")]
+#[case::attributes("attributes.kgr")]
+#[case::inline_modules("inline-modules.kgr")]
+fn representative_grammar_preserves_structure_and_is_idempotent(#[case] name: &str) {
+    check_fixture(name);
 }
 
-#[test]
+#[rstest]
 #[ignore = "complete grammar fixture matrix runs in CI"]
-fn complete_grammar_fixture_inventory() {
-    for name in [
-        "array-operations.kgr",
-        "associated-constants.kgr",
-        "associated-types.kgr",
-        "async.kgr",
-        "attributes.kgr",
-        "binding-conditions.kgr",
-        "binding-patterns.kgr",
-        "bitwise.kgr",
-        "blocks.kgr",
-        "byte-literals.kgr",
-        "callables.kgr",
-        "char-literals.kgr",
-        "closures.kgr",
-        "collection-access.kgr",
-        "collection-pipelines.kgr",
-        "control-flow.kgr",
-        "conversions.kgr",
-        "data-model.kgr",
-        "default-methods.kgr",
-        "error-conversion.kgr",
-        "expressions.kgr",
-        "for-collections.kgr",
-        "generic-associated-types.kgr",
-        "generic-interfaces.kgr",
-        "grammar-witnesses.kgr",
-        "import-alias.kgr",
-        "index.kgr",
-        "inline-modules.kgr",
-        "iterator-extensions.kgr",
-        "iterators.kgr",
-        "literals-and-comments.kgr",
-        "match-guards.kgr",
-        "match.kgr",
-        "numeric-conversions.kgr",
-        "operators.kgr",
-        "ordering.kgr",
-        "pattern-alternatives.kgr",
-        "ranges.kgr",
-        "result-option.kgr",
-        "standard-traits.kgr",
-        "struct-update.kgr",
-        "string-interpolation.kgr",
-        "trait-inheritance.kgr",
-        "try-protocols.kgr",
-        "tuple-types.kgr",
-        "type-inference.kgr",
-        "visibility.kgr",
-        "where-bounds.kgr",
-    ] {
-        check_fixture(name);
-    }
-}
-
-#[test]
-fn declarations_types_attributes_and_patterns_have_canonical_layout() {
-    for (input, expected) in [
-        (
-            "#[tool::allow(\"unused_parameter\")]struct Boxed<T>{var value:T}",
-            "#[tool::allow(\"unused_parameter\")]\nstruct Boxed<T> {\n    var value: T\n}\n",
-        ),
-        (
-            "enum Value{Empty,Number(i32),}",
-            "enum Value {\n    Empty,\n    Number(i32),\n}\n",
-        ),
-        (
-            "trait Item{type Value;const LIMIT:i32;fn get(self)->i32;}",
-            "trait Item {\n    type Value;\n    const LIMIT: i32;\n    fn get(self) -> i32;\n}\n",
-        ),
-        (
-            "use thing::{name,other as alias};",
-            "use thing::{ name, other as alias };\n",
-        ),
-        (
-            "fn f(value:Option<i32>)->i32{match value{Some(x)=>x+1,None=>0}}",
-            "fn f(value: Option<i32>) -> i32 {\n    match value {\n        Some(x) => x + 1,\n        None => 0\n    }\n}\n",
-        ),
-        (
-            "fn f(value:Point)->i32{match value{Point{x,..}=>x}}",
-            "fn f(value: Point) -> i32 {\n    match value {\n        Point { x, .. } => x\n    }\n}\n",
-        ),
-        (
-            "fn f(pair:(i32,i32)){var(x,y):(i32,i32)=pair;val _=x+y;}",
-            "fn f(pair: (i32, i32)) {\n    var (x, y): (i32, i32) = pair;\n    val _ = x + y;\n}\n",
-        ),
-        (
-            "fn f(x:fn((i32,bool),[i32])->i32){val values=[1,2,3];val pair=(1,true);}",
-            "fn f(x: fn((i32, bool), [i32]) -> i32) {\n    val values = [1, 2, 3];\n    val pair = (1, true);\n}\n",
-        ),
-    ] {
-        assert_eq!(formatted(input, 100), expected, "{input}");
-        assert_eq!(formatted(expected, 100), expected);
-    }
+fn complete_grammar_fixture_inventory(
+    #[files("../../examples/syntax/*.kgr")]
+    #[base_dir = "../../examples/syntax"]
+    path: PathBuf,
+) {
+    check_fixture(path.file_name().unwrap().to_str().unwrap());
 }

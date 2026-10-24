@@ -621,17 +621,17 @@ frontend/SDK dependencies into foundational crates.
 
 ### TO09 — Rust tooling and web adapter tests
 
-- [ ] Extend formatter golden organization and review its manual full-grammar list
+- [x] Extend formatter golden organization and review its manual full-grammar list
   for discovery. Retain a small local selection; if discovery changes the ignored
   full matrix, update its CI selector and prove it remains CI-owned.
-- [ ] Organize lint rule, level/reuse and partial-fact tests; parameterize ordinary
+- [x] Organize lint rule, level/reuse and partial-fact tests; parameterize ordinary
   CLI arguments and analyzer URI variants. Keep filesystem mutation, document-edit
   histories, real command/LSP process transport and cleanup explicit.
-- [ ] Add file-based CLI UI expectations for selected existing human/JSON diagnostic
+- [x] Add file-based CLI UI expectations for selected existing human/JSON diagnostic
   cases via the actual process harness. Compare stdout/stderr, summary/JSON-line
   structure and exit status using only the declared normalization. Keep LSP
   transport/GUI/browser scenarios distinct from compiler UI diagnostics.
-- [ ] Review portable web adapter families and its artifact producer. Preserve
+- [x] Review portable web adapter families and its artifact producer. Preserve
   source-free adapter graphs, root/depth cleanup and exact producer entrypoints;
   do not treat these as substitutes for browser/Worker tests.
 
@@ -735,8 +735,45 @@ fewer Rust strings, fewer binaries or a different test count is not speed eviden
 | TO06 | Complete locally: SDK lifecycle ownership, fixed sources and preparation cleanup |
 | TO07 | Complete locally: runtime rows, VM sources/support and stdlib preparation |
 | TO08 | Complete locally: common/types/native rows and public consumer review |
-| TO09-TO10 | Planned, not started |
+| TO09 | Complete locally: formatter/lint/tooling rows and real-process CLI UI |
+| TO10 | Planned, not started |
 | TO11 | Pending completion of owner phases |
+
+2026-10-24 TO09: formatter -> lint -> CLI -> analyzer -> web checkpoints complete.
+Eleven formatter pairs and seven lint sources are byte-exact fixtures; meaningful
+short option/rejection/URI rows are named. Formatter's manual 48-file full inventory
+is now ignored directory discovery with the exact CI selector updated; nine local
+representatives retain their original policies. An unchanged target mirror proved
+48 -> 49 -> 48 discovery, selected execution and default ignore; real inventory
+listing confirmed all 48 ignored cases without locally running that CI matrix.
+
+Six real kg process rows cover warning, denied warning and required error in both
+human/JSON modes from two existing source programs. All 18 stdout/stderr/exit
+expectations include empty streams. Revision 1 was verified, not scrubbed. Human
+path mapping touches only recognized location slices; JSON mapping touches only
+reviewed primary/label path fields. Full records/summary, stderr error footer,
+source coordinates, revision, messages/notes/excerpts and order remain exact.
+Strict shape/required/duplicate/unknown/type/range/status admission rejects malformed
+expectations. Parent review reproduced nested object-as-array acceptance and fixed
+the test-only map visitor; raw duplicate discriminator/record fields remain rejected.
+The existing process helper now owns exclusive temp roots, bounded concurrent pipe
+capture, deadlines and kill/wait cleanup; no production process policy changed.
+
+All 80 original functions/21 families map to their retained or parameterized owners.
+Renderer Unicode/CRLF/retained/missing-location checks, filesystem mutation/locking,
+LSP framed transport/edit history/cleanup and all ten web adapter/producer tests
+remain distinct. Web's exact browser producer and absent product are untouched.
+Two CI selectors changed (ignored formatter inventory and separated JIT/AOT argv
+rejection); only three dev rstest edges added, no target/production graph change.
+
+Local selection passed 71 distinct permanent cases initially, then six new strict
+shape/duplicate cases (77 distinct total); the focused repair rerun passed 24
+negative/JSON-process/normalization checks. Real wrong-exit/wrong-stderr/reordered
+record probes failed and restored comparisons passed. Original fixture/source/
+body/config/selector proofs, workspace Clippy, format, structure (1,603 files,
+zero violations/exceptions) and diff checks passed. No remaining reproduced errors.
+Full suites, ignored grammar execution, JIT/AOT/platform matrices, standalone graphs
+and actual browser/Worker/products remain CI/manual scope. TO10 is next.
 
 2026-10-24 TO08: common -> types -> Cranelift checkpoints complete. Four original
 functions expose 12 capacity workloads, six valid/eight invalid character inputs,

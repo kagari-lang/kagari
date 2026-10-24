@@ -416,6 +416,7 @@ mod tests {
     use super::{Cli, Command, run_cli};
     use crate::{args::DisassemblyMode, disassembly};
     use kagari::BytecodeArtifact;
+    use rstest::rstest;
     use std::{
         fs,
         path::PathBuf,
@@ -427,46 +428,25 @@ mod tests {
         Cli::parse(args.iter().map(|arg| arg.to_string())).expect("args should parse")
     }
 
-    #[test]
-    fn parses_pipeline_commands() {
+    #[rstest]
+    #[case::build_aot_output(&["build-aot", "main.kgr", "-o", "release.aot"], Command::BuildAot {source: "main.kgr".into(), output: "release.aot".into()})]
+    #[case::run_aot_bundle(&["run-aot", "release.aot"], Command::RunAot {bundle: "release.aot".into()})]
+    #[case::parse_source(&["parse", "main.kgr"], Command::Parse {source: "main.kgr".into()})]
+    #[case::check_source(&["check", "main.kgr"], Command::Check {format: Default::default(), source: "main.kgr".into()})]
+    #[case::emit_output_before_source(&["emit", "-o", "main.kbc", "main.kgr"], Command::Emit {source: "main.kgr".into(), output: "main.kbc".into()})]
+    fn parses_pipeline_commands(#[case] args: &[&str], #[case] command: Command) {
         assert_eq!(
-            parse(&["build-aot", "main.kgr", "-o", "release.aot"]).command,
-            Command::BuildAot {
-                source: PathBuf::from("main.kgr"),
-                output: PathBuf::from("release.aot")
-            }
-        );
-        assert_eq!(
-            parse(&["run-aot", "release.aot"]).command,
-            Command::RunAot {
-                bundle: PathBuf::from("release.aot")
-            }
-        );
-        assert!(Cli::parse(["run-aot", "release.aot", "--jit"].map(str::to_owned)).is_err());
-        assert_eq!(
-            parse(&["parse", "main.kgr"]),
+            parse(args),
             Cli {
-                command: Command::Parse {
-                    source: PathBuf::from("main.kgr"),
-                },
+                command,
+                jit: false
+            }
+        );
+    }
 
-                jit: false,
-            }
-        );
-        assert_eq!(
-            parse(&["check", "main.kgr"]).command,
-            Command::Check {
-                format: Default::default(),
-                source: PathBuf::from("main.kgr"),
-            }
-        );
-        assert_eq!(
-            parse(&["emit", "-o", "main.kbc", "main.kgr"]).command,
-            Command::Emit {
-                source: PathBuf::from("main.kgr"),
-                output: PathBuf::from("main.kbc"),
-            }
-        );
+    #[test]
+    fn rejects_jit_for_aot_bundle() {
+        assert!(Cli::parse(["run-aot", "release.aot", "--jit"].map(str::to_owned)).is_err());
     }
 
     #[test]
@@ -483,30 +463,16 @@ mod tests {
         );
     }
 
-    #[test]
-    fn parses_source_artifact_and_jit_run_modes() {
-        assert_eq!(
-            parse(&["run", "--jit", "main.kgr"]),
-            Cli {
-                command: Command::RunSource {
-                    source: PathBuf::from("main.kgr"),
-                },
-
-                jit: true,
-            }
-        );
-        assert_eq!(
-            parse(&["run-artifact", "main.kbc"]).command,
-            Command::RunArtifact {
-                artifact: PathBuf::from("main.kbc"),
-            }
-        );
-        assert_eq!(
-            parse(&["main.kbc"]).command,
-            Command::RunArtifact {
-                artifact: PathBuf::from("main.kbc"),
-            }
-        );
+    #[rstest]
+    #[case::source_with_jit(&["run", "--jit", "main.kgr"], Command::RunSource {source: "main.kgr".into()}, true)]
+    #[case::explicit_artifact(&["run-artifact", "main.kbc"], Command::RunArtifact {artifact: "main.kbc".into()}, false)]
+    #[case::implicit_artifact(&["main.kbc"], Command::RunArtifact {artifact: "main.kbc".into()}, false)]
+    fn parses_source_artifact_and_jit_run_modes(
+        #[case] args: &[&str],
+        #[case] command: Command,
+        #[case] jit: bool,
+    ) {
+        assert_eq!(parse(args), Cli { command, jit });
     }
 
     #[test]

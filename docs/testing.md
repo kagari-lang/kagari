@@ -75,14 +75,14 @@ ownership rules.
 ### Compiler UI diagnostic tests
 
 The [organization plan](test-organization-plan.md#file-based-ui-diagnostic-tests-planned)
-owns the remaining CLI UI migration. Here UI means user-facing compiler
+records the repository-wide migration. Here UI means user-facing compiler
 diagnostics, not graphical interfaces. Parser and HIR suites run in their existing
-library harnesses; real-process CLI presentation follows separately.
+library harnesses; CLI presentation runs through the existing real-process target.
 
 Parser source inputs pair with ordered `.diagnostics.json` expectations for full
 producer records; HIR uses the same test-only source-owned schema. CLI cases
-will compare actual `.stdout`, `.stderr` and
-`.exit` output through the existing process harness. The plan owns the TO00-frozen
+compare actual `.stdout`, `.stderr` and `.exit` output through the existing process
+harness, including empty streams and failed-command stderr footers. The plan owns the TO00-frozen
 schema, source/revision checks, narrow normalization and explicit update workflow.
 Default test/CI runs must not rewrite expectations. Recovery trees, stronger typed
 errors, healthy-neighbor facts and codegen eligibility remain explicit assertions;
@@ -97,7 +97,9 @@ Use the existing owners as templates, not a new universal runner:
   cases for input/expected pairs with explicit width/idempotence settings. The
   parameterized test compares exact output and second-format/narrow-width results
   directly, without a custom registrar or single-caller assertion helper. Data
-  lives under `kagari-format/tests/fixtures/layout`.
+  lives under `kagari-format/tests/fixtures/layout`. Full grammar inventory uses
+  ignored directory discovery and remains CI-owned; local checks select a small
+  representative set rather than executing the whole ignored group.
 - [Parser error cases](../crates/kagari-syntax/src/tests/parser/errors.rs) retain
   typed delimiter kind/count/severity and separate partial-tree recovery checks.
   [Parser UI cases](../crates/kagari-syntax/src/tests/parser/ui.rs) discover paired
@@ -107,6 +109,12 @@ Use the existing owners as templates, not a new universal runner:
   rejects malformed fields and validates captured identities/revisions and UTF-8
   ranges before projecting IDs to logical paths. Missing/orphan pairs fail the
   owner inventory; normal comparisons never update expectations.
+- [CLI UI cases](../crates/kagari-cli/tests/ui/mod.rs) run six explicit human/JSON
+  modes through the actual `kg` process. Source revisions and coordinates, complete
+  records/summary, exact streams and status are asserted. Only reviewed location
+  path fields map the owned temp root to `$FIXTURE`; arbitrary message/excerpt text
+  and CRLF are not rewritten. The existing toolchain target owns bounded pipe
+  capture, process deadlines, kill/wait cleanup and exclusive temporary directories.
 - [HIR UI cases](../crates/kagari-hir/src/tests/ui.rs) group bare, installed-standard
   and local-function diagnostics without inferring policy from source comments.
   They bind final records to captured sources before projection. Stronger typed

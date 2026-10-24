@@ -1,0 +1,1 @@
+fn f(pair:(i32,i32)){var(x,y):(i32,i32)=pair;val _=x+y;}

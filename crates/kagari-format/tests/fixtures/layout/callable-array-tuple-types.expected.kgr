@@ -1,0 +1,4 @@
+fn f(x: fn((i32, bool), [i32]) -> i32) {
+    val values = [1, 2, 3];
+    val pair = (1, true);
+}

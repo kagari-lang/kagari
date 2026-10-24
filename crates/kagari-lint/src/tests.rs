@@ -7,6 +7,7 @@ use kagari_source::{
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_stdlib::catalog;
+use rstest::rstest;
 use std::sync::Arc;
 
 fn analyze(
@@ -45,132 +46,12 @@ fn analyze(
     (database, sources, snapshot, root.unwrap())
 }
 
-fn findings(snapshot: &AnalysisSnapshot, root: FileId, policy: &Policy) -> Vec<DiagnosticRecord> {
-    lint(snapshot, root, policy, &Default::default()).unwrap()
-}
-
 fn codes(records: &[DiagnosticRecord], code: &str) -> usize {
     records.iter().filter(|record| record.code == code).count()
 }
 
 #[test]
-fn usage_tracks_reads_shadowing_captures_and_places() {
-    let (_, _, snapshot, root) = analyze(
-        &[(
-            "root",
-            r#"
-        fn compute(parameter:i32, _intent:i32)->i32 {
-            val shadow=1; val shadow=2;
-            var rebound=0; rebound=1; rebound+=1;
-            var object=[1]; object[0]=2;
-            var captured=3; val closure=|argument:i32| captured+argument;
-            val deferred=4;
-            var stable=5;
-            var write_only=0; val writer=|| {write_only=1;}; writer();
-            shadow+rebound+object[0]+closure(deferred)+stable
-        }
-    "#,
-        )],
-        100,
-    );
-    snapshot.check_program(root, &Default::default()).unwrap();
-    let records = findings(&snapshot, root, &Policy::default());
-    assert_eq!(codes(&records, "unused_binding"), 2, "{records:?}");
-    assert_eq!(codes(&records, "unused_parameter"), 1, "{records:?}");
-    assert_eq!(codes(&records, "unnecessary_var"), 2, "{records:?}");
-
-    let (_, _, snapshot, root) = analyze(
-        &[(
-            "root",
-            "struct Point { val n:i32 } fn read()->i32 { var (changed, stable)=(1,2); val read=||changed; changed=3; val (_, unused)=(4,5); val base=Point{n:1}; val copy=||Point{..base}; read()+stable+copy().n }",
-        )],
-        100,
-    );
-    snapshot.check_program(root, &Default::default()).unwrap();
-    let records = findings(&snapshot, root, &Policy::default());
-    assert_eq!(codes(&records, "unused_binding"), 1, "{records:?}");
-    assert_eq!(codes(&records, "unnecessary_var"), 1, "{records:?}");
-}
-
-#[test]
-fn async_block_captures_and_unused_future_bindings_use_existing_rules() {
-    let (_, _, snapshot, root) = analyze(
-        &[(
-            "root",
-            r#"
-        fn cold(value: i32) -> Future<i32> {
-            var captured = value;
-            val pending = async { captured += 1; captured };
-            val unused = async { 99 };
-            pending
-        }
-    "#,
-        )],
-        100,
-    );
-    snapshot.check_program(root, &Default::default()).unwrap();
-    let records = findings(&snapshot, root, &Policy::default());
-    assert_eq!(codes(&records, "unused_binding"), 1, "{records:?}");
-    assert_eq!(codes(&records, "unused_parameter"), 0, "{records:?}");
-    assert_eq!(codes(&records, "unnecessary_var"), 0, "{records:?}");
-}
-
-#[test]
-fn naming_rules_cover_declarations_and_preserve_trait_contracts() {
-    let (_, _, snapshot, root) = analyze(
-        &[(
-            "root",
-            r#"
-        struct bad_type { val BadField:i32 }
-        enum bad_enum { bad_variant }
-        trait bad_trait { fn BadMethod(self, parameter:i32)->i32; }
-        impl bad_trait for bad_type { fn BadMethod(self, parameter:i32)->i32 { parameter } }
-        const bad_global:i32=1;
-        type bad_alias<bad_alias_param> = [bad_alias_param];
-        #[tool::allow("non_upper_camel_case")]
-        type quiet_alias<quiet_param> = (quiet_param,);
-        fn BadFunction<bad_generic>(BadParameter:bad_generic) { val BadLocal=BadParameter; }
-    "#,
-        )],
-        100,
-    );
-    snapshot.check_program(root, &Default::default()).unwrap();
-    let records = findings(&snapshot, root, &Policy::default());
-    assert_eq!(codes(&records, "non_upper_camel_case"), 7, "{records:?}");
-    assert_eq!(codes(&records, "KG_LINT_POLICY"), 0, "{records:?}");
-    assert_eq!(codes(&records, "non_upper_case_globals"), 1, "{records:?}");
-    assert_eq!(codes(&records, "non_snake_case"), 5, "{records:?}");
-    assert_eq!(codes(&records, "unused_parameter"), 0, "{records:?}");
-}
-
-#[test]
-fn static_initializers_use_eligible_body_facts_and_declaration_policy() {
-    let (_, _, snapshot, root) = analyze(
-        &[(
-            "root",
-            r#"
-            static var bad_global: i32 = { var BadLocal = 1; val unused = 2; BadLocal };
-            #[tool::allow("non_upper_case_globals", "unused_binding", "unnecessary_var")]
-            static val quiet_global: i32 = { var unused = 2; 3 };
-            static val CAPTURED: i32 = {
-                var changed = 1;
-                val update = || { changed += 1; };
-                update();
-                val read = |argument: i32| changed + argument;
-                read(2)
-            };
-        "#,
-        )],
-        100,
-    );
-    snapshot.check_program(root, &Default::default()).unwrap();
-    let records = findings(&snapshot, root, &Policy::default());
-    assert_eq!(codes(&records, "non_upper_case_globals"), 1, "{records:?}");
-    assert_eq!(codes(&records, "non_snake_case"), 1, "{records:?}");
-    assert_eq!(codes(&records, "unused_binding"), 1, "{records:?}");
-    assert_eq!(codes(&records, "unnecessary_var"), 1, "{records:?}");
-    assert_eq!(codes(&records, "KG_LINT_POLICY"), 0, "{records:?}");
-
+fn static_partial_facts_exclude_broken_initializers() {
     let (_, _, snapshot, root) = analyze(
         &[(
             "root",
@@ -179,30 +60,36 @@ fn static_initializers_use_eligible_body_facts_and_declaration_policy() {
         100,
     );
     assert!(snapshot.check_program(root, &Default::default()).is_err());
-    let records = findings(&snapshot, root, &Policy::default());
+    let records = lint(&snapshot, root, &Policy::default(), &Default::default()).unwrap();
     assert_eq!(codes(&records, "unused_binding"), 1, "{records:?}");
 }
 
+#[rstest]
+#[case::body_error_limit_zero(0, "fn broken()->i32{true}", 1)]
+#[case::body_error_limit_one(1, "fn broken()->i32{true}", 1)]
+#[case::body_error_limit_hundred(100, "fn broken()->i32{true}", 1)]
+#[case::shared_type_error_limit_zero(0, "fn broken(value:Missing){}", 0)]
+#[case::shared_type_error_limit_one(1, "fn broken(value:Missing){}", 0)]
+#[case::shared_type_error_limit_hundred(100, "fn broken(value:Missing){}", 0)]
+fn partial_facts_and_truncation_do_not_authorize_semantic_rules(
+    #[case] limit: usize,
+    #[case] broken: &str,
+    #[case] expected: usize,
+) {
+    let text = format!("{broken} fn healthy()->i32{{val unused=1;42}} struct bad_type {{}}");
+    let (_, _, snapshot, root) = analyze(&[("root", &text)], limit);
+    assert!(snapshot.check_program(root, &Default::default()).is_err());
+    let records = lint(&snapshot, root, &Policy::default(), &Default::default()).unwrap();
+    assert_eq!(codes(&records, "unused_binding"), expected, "{records:?}");
+    assert_eq!(
+        codes(&records, "non_upper_camel_case"),
+        1,
+        "syntax rules remain available"
+    );
+}
+
 #[test]
-fn partial_facts_and_truncation_do_not_authorize_semantic_rules() {
-    for limit in [0, 1, 100] {
-        for (broken, expected) in [
-            ("fn broken()->i32{true}", 1),
-            ("fn broken(value:Missing){}", 0),
-        ] {
-            let text =
-                format!("{broken} fn healthy()->i32{{val unused=1;42}} struct bad_type {{}}");
-            let (_, _, snapshot, root) = analyze(&[("root", &text)], limit);
-            assert!(snapshot.check_program(root, &Default::default()).is_err());
-            let records = findings(&snapshot, root, &Policy::default());
-            assert_eq!(codes(&records, "unused_binding"), expected, "{records:?}");
-            assert_eq!(
-                codes(&records, "non_upper_camel_case"),
-                1,
-                "syntax rules remain available"
-            );
-        }
-    }
+fn invalid_child_facts_do_not_authorize_semantic_rules() {
     let (_, _, snapshot, root) = analyze(
         &[
             ("root", "mod child; fn healthy(){val unused=1;}"),
@@ -213,35 +100,11 @@ fn partial_facts_and_truncation_do_not_authorize_semantic_rules() {
     assert!(snapshot.check_program(root, &Default::default()).is_err());
     assert_eq!(
         codes(
-            &findings(&snapshot, root, &Policy::default()),
+            &lint(&snapshot, root, &Policy::default(), &Default::default()).unwrap(),
             "unused_binding"
         ),
         0
     );
-}
-
-#[test]
-fn local_functions_keep_independent_usage_and_lexical_lint_policy() {
-    let (_, _, snapshot, root) = analyze(
-        &[(
-            "root",
-            r#"
-fn outer(unused: i32) -> i32 {
-    val abandoned = 0;
-    #[tool::allow("non_snake_case", "unused_parameter")]
-    fn QuietHelper(Unused: i32) -> i32 { 40 }
-    fn LoudHelper(value: i32, unused: i32) -> i32 { value + 2 }
-    LoudHelper(QuietHelper(0), 0)
-}
-"#,
-        )],
-        100,
-    );
-    snapshot.check_program(root, &Default::default()).unwrap();
-    let records = findings(&snapshot, root, &Policy::default());
-    assert_eq!(codes(&records, "unused_binding"), 1, "{records:?}");
-    assert_eq!(codes(&records, "unused_parameter"), 2, "{records:?}");
-    assert_eq!(codes(&records, "non_snake_case"), 1, "{records:?}");
 }
 
 #[test]
@@ -261,7 +124,7 @@ fn policy_inherits_external_and_inline_modules_and_validates_even_when_allowed()
     );
     // Ordinary language checking treats tool metadata as opaque.
     snapshot.check_program(root, &Default::default()).unwrap();
-    let records = findings(&snapshot, root, &Policy::default());
+    let records = lint(&snapshot, root, &Policy::default(), &Default::default()).unwrap();
     assert_eq!(codes(&records, "unused_parameter"), 2, "{records:?}");
     assert_eq!(codes(&records, "KG_LINT_POLICY"), 1, "{records:?}");
     let mut policy = Policy {
@@ -271,7 +134,7 @@ fn policy_inherits_external_and_inline_modules_and_validates_even_when_allowed()
     policy
         .overrides
         .insert(LintId::UnusedParameter, Level::Allow);
-    let records = findings(&snapshot, root, &policy);
+    let records = lint(&snapshot, root, &policy, &Default::default()).unwrap();
     assert_eq!(records.len(), 1, "{records:?}");
     assert_eq!(records[0].severity, Severity::Error);
 }
@@ -283,16 +146,20 @@ fn levels_reuse_the_same_analysis_and_do_not_suppress_language_errors() {
         100,
     );
     let mut policy = Policy::default();
-    let warn = findings(&snapshot, root, &policy);
+    let warn = lint(&snapshot, root, &policy, &Default::default()).unwrap();
     assert_eq!(warn.len(), 1);
     assert_eq!(warn[0].severity, Severity::Warning);
     policy.deny_warnings = true;
     assert_eq!(
-        findings(&snapshot, root, &policy)[0].severity,
+        lint(&snapshot, root, &policy, &Default::default()).unwrap()[0].severity,
         Severity::Error
     );
     policy.overrides.insert(LintId::UnusedBinding, Level::Allow);
-    assert!(findings(&snapshot, root, &policy).is_empty());
+    assert!(
+        lint(&snapshot, root, &policy, &Default::default())
+            .unwrap()
+            .is_empty()
+    );
     assert!(snapshot.check_program(root, &Default::default()).is_err());
     let next = database
         .snapshot(sources.snapshot(), &Default::default())
@@ -304,36 +171,33 @@ fn levels_reuse_the_same_analysis_and_do_not_suppress_language_errors() {
 }
 
 #[test]
-fn valid_names_malformed_policy_and_pattern_parameters_have_distinct_contracts() {
+fn pre_cancelled_lint_returns_no_findings() {
     let (_, _, snapshot, root) = analyze(
         &[(
             "root",
-            r#"
-        struct HTTPServer { val _field:i32 }
-        trait Contract { type Item; const LIMIT:i32; fn method(self, BadParameter:i32); }
-        const _MAX_COUNT:i32=1;
-        fn choose<T>(value:T)->i32 {
-            val _intent=value;
-            val closure=|unused:i32| 1;
-            match (1,2) { (first, second) => first+closure(1) }
-        }
-        #[tool::allow()] fn empty(){}
-        #[tool::allow(rule="unused_binding")] fn named(){}
-        #[tool::allow(1)] fn number(){}
-        #[tool::allow="unused_binding"] fn assigned(){}
-    "#,
+            include_str!("../tests/fixtures/rules/valid-names-and-malformed-policy.kgr"),
         )],
         100,
     );
     snapshot.check_program(root, &Default::default()).unwrap();
-    let records = findings(&snapshot, root, &Policy::default());
-    assert_eq!(codes(&records, "KG_LINT_POLICY"), 4, "{records:?}");
-    assert_eq!(codes(&records, "non_upper_camel_case"), 0, "{records:?}");
-    assert_eq!(codes(&records, "non_upper_case_globals"), 0, "{records:?}");
-    assert_eq!(codes(&records, "non_snake_case"), 1, "{records:?}");
-    assert_eq!(codes(&records, "unused_parameter"), 1, "{records:?}");
-    assert_eq!(codes(&records, "unused_binding"), 1, "{records:?}");
     let cancel = CancellationToken::default();
     cancel.cancel();
     assert!(lint(&snapshot, root, &Policy::default(), &cancel).is_err());
+}
+
+#[rstest]
+#[case::reads_shadowing_captures_places(include_str!("../tests/fixtures/rules/reads-shadowing-captures-places.kgr"), &[("unused_binding", 2), ("unused_parameter", 1), ("unnecessary_var", 2)])]
+#[case::patterns_and_struct_update_capture(include_str!("../tests/fixtures/rules/patterns-and-struct-update-capture.kgr"), &[("unused_binding", 1), ("unnecessary_var", 1)])]
+#[case::async_block_capture(include_str!("../tests/fixtures/rules/async-block-capture.kgr"), &[("unused_binding", 1), ("unused_parameter", 0), ("unnecessary_var", 0)])]
+#[case::declaration_naming_and_trait_contracts(include_str!("../tests/fixtures/rules/declaration-naming-and-trait-contracts.kgr"), &[("non_upper_camel_case", 7), ("KG_LINT_POLICY", 0), ("non_upper_case_globals", 1), ("non_snake_case", 5), ("unused_parameter", 0)])]
+#[case::local_function_usage_and_lexical_policy(include_str!("../tests/fixtures/rules/local-function-usage-and-lexical-policy.kgr"), &[("unused_binding", 1), ("unused_parameter", 2), ("non_snake_case", 1)])]
+#[case::eligible_static_initializers(include_str!("../tests/fixtures/rules/eligible-static-initializers.kgr"), &[("non_upper_case_globals", 1), ("non_snake_case", 1), ("unused_binding", 1), ("unnecessary_var", 1), ("KG_LINT_POLICY", 0)])]
+#[case::valid_names_and_malformed_policy(include_str!("../tests/fixtures/rules/valid-names-and-malformed-policy.kgr"), &[("KG_LINT_POLICY", 4), ("non_upper_camel_case", 0), ("non_upper_case_globals", 0), ("non_snake_case", 1), ("unused_parameter", 1), ("unused_binding", 1)])]
+fn ordinary_rules(#[case] source: &str, #[case] expected: &[(&str, usize)]) {
+    let (_, _, snapshot, root) = analyze(&[("root", source)], 100);
+    snapshot.check_program(root, &Default::default()).unwrap();
+    let records = lint(&snapshot, root, &Policy::default(), &Default::default()).unwrap();
+    for &(code, count) in expected {
+        assert_eq!(codes(&records, code), count, "{records:?}");
+    }
 }

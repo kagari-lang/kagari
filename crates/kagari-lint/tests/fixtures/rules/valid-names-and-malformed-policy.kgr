@@ -1,0 +1,14 @@
+
+        struct HTTPServer { val _field:i32 }
+        trait Contract { type Item; const LIMIT:i32; fn method(self, BadParameter:i32); }
+        const _MAX_COUNT:i32=1;
+        fn choose<T>(value:T)->i32 {
+            val _intent=value;
+            val closure=|unused:i32| 1;
+            match (1,2) { (first, second) => first+closure(1) }
+        }
+        #[tool::allow()] fn empty(){}
+        #[tool::allow(rule="unused_binding")] fn named(){}
+        #[tool::allow(1)] fn number(){}
+        #[tool::allow="unused_binding"] fn assigned(){}
+    

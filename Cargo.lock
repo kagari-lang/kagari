@@ -521,6 +521,7 @@ dependencies = [
  "kagari-source",
  "lsp-server",
  "lsp-types",
+ "rstest",
  "serde",
  "serde_json",
 ]
@@ -557,6 +558,7 @@ dependencies = [
  "kagari-syntax",
  "kagari-types",
  "kagari-vm",
+ "rstest",
  "serde",
  "serde_json",
  "thiserror",
@@ -689,6 +691,7 @@ dependencies = [
  "kagari-source",
  "kagari-stdlib",
  "kagari-syntax",
+ "rstest",
  "serde",
 ]
 

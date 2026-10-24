@@ -1,0 +1,6 @@
+error[KG_TYPE_RETURN_TYPE_MISMATCH]: return type mismatch in function `broken`: expected `i32`, found `bool` (script.kgr)
+  --> $FIXTURE/script.kgr:1:1
+   | fn broken()->i32{true} fn good(){val unused=1;}
+   | ^ primary
+lint: 0 succeeded, 1 failed, 0 incomplete
+diagnostics emitted: return type mismatch in function `broken`: expected `i32`, found `bool`

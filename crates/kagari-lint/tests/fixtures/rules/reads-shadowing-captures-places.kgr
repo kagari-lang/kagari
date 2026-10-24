@@ -1,0 +1,12 @@
+
+        fn compute(parameter:i32, _intent:i32)->i32 {
+            val shadow=1; val shadow=2;
+            var rebound=0; rebound=1; rebound+=1;
+            var object=[1]; object[0]=2;
+            var captured=3; val closure=|argument:i32| captured+argument;
+            val deferred=4;
+            var stable=5;
+            var write_only=0; val writer=|| {write_only=1;}; writer();
+            shadow+rebound+object[0]+closure(deferred)+stable
+        }
+    

@@ -1,0 +1,7 @@
+error[unused_binding]: `unused` is never read (script.kgr)
+  --> $FIXTURE/script.kgr:1:15
+   | fn good(){val unused=1;}
+   |               ^ primary
+  = The initializer may have effects. No deletion or executable edit is suggested. Writes alone are not reads.
+lint: 0 succeeded, 1 failed, 0 incomplete
+diagnostics emitted: `unused` is never read

@@ -1,0 +1,2 @@
+{"type":"diagnostic","context":"script.kgr","code":"unused_binding","severity":"warning","message":"`unused` is never read","location":{"path":"$FIXTURE/script.kgr","revision":1,"byte_start":14,"byte_end":20,"start":{"line":0,"column":14},"end":{"line":0,"column":20}},"labels":[],"notes":["The initializer may have effects. No deletion or executable edit is suggested. Writes alone are not reads."]}
+{"type":"summary","command":"lint","succeeded":1,"failed":0,"incomplete":0,"exit_code":0}
