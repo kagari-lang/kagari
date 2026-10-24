@@ -2,7 +2,7 @@ mod attributes;
 mod cancellation;
 mod common;
 mod declarations;
-// Shared only with the planned TO04 HIR UI consumer; source owns the schema.
+// Source owns the diagnostic schema/projection shared only with the HIR harness.
 #[path = "../../../kagari-source/tests/support/diagnostics.rs"]
 mod diagnostics;
 mod grammar_coverage;

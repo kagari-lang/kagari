@@ -36,7 +36,10 @@ below; the public Pages site has not been activated by this work.
 - [Generic interface construction](spec/traits.md#current-interface-conversion-boundary)
   and its [proof/execution owners](architecture.md#interface-dispatch).
 - [Test preparation, contract classification and execution](testing.md), including
-  [file-backed fixtures, golden pairs and bounded numeric cases](testing.md#existing-file-backed-patterns).
+  [compiler UI diagnostics](testing.md#compiler-ui-diagnostic-tests),
+  [file-backed fixtures, golden pairs and bounded numeric cases](testing.md#existing-file-backed-patterns),
+  and native ecosystem/product boundaries. Repository-wide organization is complete;
+  remaining CI/manual and performance acceptance stays in the roadmap.
 - [Editor tooling and installation](../editors/README.md): standalone Zed/VS Code
   syntax adapters and the separate [stdio analyzer foundation](architecture.md#language-server-foundation).
 - [Performance measurements](performance-baseline.md), including the completed
@@ -128,15 +131,7 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   is implemented; full workspace and feature/backend/platform acceptance remains
   pending CI.
 
-- [Repository-wide test organization](test-organization-plan.md): TO00-TO11 plan
-  semantic grouping, evidence-backed consolidation and fixture/parameterization
-  work across Rust and existing non-Rust runners. TO00 classification/UI-contract
-  freeze, TO01-TO02 SDK language organization and TO03 source/parser/UI work are
-  complete locally, as are TO04 HIR/package and TO05 executable-contract
-  organization, TO06 SDK lifecycle/product and TO07 runtime/VM/stdlib work;
-  TO08 foundational/native consumers and TO09 tooling/UI are complete locally;
-  TO10 native ecosystems/workflows are complete locally; TO11 reconciliation remains. The pilot and lasting rules remain in
-  the [testing guide](testing.md), with previous performance debt kept separate.
+
 - [Script testing](script-testing-design.md): proposed `kg test`, source-owned
   `#[test]` functions and host-orchestrated fixtures; design only, separate from
   formatter/checker/linter implementation.

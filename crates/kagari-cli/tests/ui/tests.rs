@@ -23,6 +23,7 @@ enum Fault {
     InvalidExit,
     InvalidUtf8,
     PositionalObject(&'static str, &'static [&'static str]),
+    PositionalRecord(usize, &'static [&'static str]),
     DuplicateType,
     DuplicateSummaryField,
     UnknownSummaryField,
@@ -54,6 +55,14 @@ enum Fault {
 #[case::duplicate_type(Fault::DuplicateType)]
 #[case::duplicate_summary_field(Fault::DuplicateSummaryField)]
 #[case::unknown_summary_field(Fault::UnknownSummaryField)]
+#[case::positional_diagnostic_record(Fault::PositionalRecord(
+    0,
+    &["type", "context", "code", "severity", "message", "location", "labels", "notes"]
+))]
+#[case::positional_summary_record(Fault::PositionalRecord(
+    1,
+    &["type", "command", "succeeded", "failed", "incomplete", "exit_code"]
+))]
 fn rejects_invalid_expectations(#[case] fault: Fault) {
     let project = Project::new();
     for entry in fs::read_dir(fixture_root()).unwrap() {
@@ -91,25 +100,51 @@ fn rejects_invalid_expectations(#[case] fault: Fault) {
             // Inject duplicates into raw JSON: Value parsing would collapse equal keys.
             fs::write(&path, text.replacen(field, duplicate, 1)).unwrap();
         }
-        Fault::PositionalObject(pointer, fields) => {
+        Fault::PositionalObject(..) | Fault::PositionalRecord(..) => {
+            let (record, pointer, fields) = match fault {
+                Fault::PositionalObject(pointer, fields) => (0, pointer, fields),
+                Fault::PositionalRecord(record, fields) => (record, "", fields),
+                _ => unreachable!(),
+            };
             let path = project.0.join("required-error.json.stdout");
             let text = fs::read_to_string(&path).unwrap();
             let mut values: Vec<Value> = text
                 .lines()
                 .map(|line| serde_json::from_str(line).unwrap())
                 .collect();
+            let expected = encode(&values);
             let mut actual = values.clone();
             actual[0]["location"]["path"] = json!("/root/script.kgr");
             actual[0]["labels"][0]["location"]["path"] = json!("/root/script.kgr");
-            let object = values[0].pointer_mut(pointer).unwrap();
-            let positional = fields.iter().map(|field| object[*field].clone()).collect();
-            *object = Value::Array(positional);
+            let make_positional = |values: &mut [Value]| {
+                let object = values[record].pointer_mut(pointer).unwrap();
+                let positional = fields.iter().map(|field| object[*field].clone()).collect();
+                *object = Value::Array(positional);
+            };
+            make_positional(&mut values);
             let malformed = encode(&values);
+            let mut malformed_actual = actual.clone();
+            make_positional(&mut malformed_actual);
             fs::write(path, &malformed).unwrap();
             let source = fs::read_to_string(project.0.join("required-error.kgr")).unwrap();
+            let rejected = [
+                (
+                    "expected admission",
+                    wire::expected(&malformed, &source, 1).is_err(),
+                ),
+                (
+                    "malformed expected comparison",
+                    wire::compare(&encode(&actual), &malformed, "/root", &source, 1).is_err(),
+                ),
+                (
+                    "malformed actual comparison",
+                    wire::compare(&encode(&malformed_actual), &expected, "/root", &source, 1)
+                        .is_err(),
+                ),
+            ];
             assert!(
-                wire::compare(&encode(&actual), &malformed, "/root", &source, 1).is_err(),
-                "accepted {fault:?} as equal to valid object-shaped producer records"
+                rejected.iter().all(|(_, rejected)| *rejected),
+                "accepted {fault:?}: {rejected:?}"
             );
         }
         Fault::BlankLine => fs::write(&path, [bytes.as_slice(), b"\n"].concat()).unwrap(),

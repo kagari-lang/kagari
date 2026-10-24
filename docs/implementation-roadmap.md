@@ -159,6 +159,16 @@ installation and broader editor/platform matrix remain pending CI. Windows local
 acceptance does not establish those results. Semantic IDE features, editor
 server-launch integration and marketplace publication remain deferred.
 
+Before the next actual-editor acceptance, reconcile the pre-existing single-quote
+oracle drift: `editors/tests/vscode-host/index.cjs` expects no apostrophe autoclose,
+while `editors/vscode/language-configuration.json` enables character-quote pairing.
+The VS Code host README and Zed manual checklist also retain the old no-single-quote
+wording despite current pairing configuration. Resolve those oracles/checklists
+against the current character-literal contract, then run the real host checks;
+this source-level mismatch is not a reproduced current-host failure. It was not
+silently fixed or counted as passing by the test-organization migration. Zed's
+actual-host probe exit 2 remains incomplete even after successful grammar loading.
+
 Old analyzer repository retirement remains a separately authorized administrative
 action. Its public tree at `4a05bc564dd56c5e32f68c7f0138ddc83840cec2` and public
 issue/PR/release metadata were audited: only skeletons/design intent were present,
@@ -483,37 +493,22 @@ implemented host registration and scoped borrowing contracts.
 
 ## Test execution cost
 
-The [repository-wide test organization plan](test-organization-plan.md) is the
-authorized phased follow-up to the committed fixture pilot. TO00-TO11 cover all 24 workspace
-members and the existing Node/Python/editor/browser/product families: semantic
-ownership, proven duplicate cleanup, suitable parameterization/discovery,
-file-based compiler UI diagnostics in TO03/TO04/TO09, and explicit retention of
-stateful/source-free/native boundaries. TO00 has frozen the full family catalogue,
-UI expectation contract and first selected harness inventory. TO01 conversions and
-ordinary traits and TO02 remaining SDK language families are complete locally;
-focused behavior, fixture equivalence and discovery checks passed. TO03 parser
-UI/source ownership and TO04 HIR/package organization are complete locally;
-TO05 executable-contract and TO06 SDK lifecycle/product organization are also
-complete locally, as are TO07 runtime/VM/stdlib and TO08 foundational/native
-consumers, TO09 tooling/UI and TO10 native ecosystems/workflows. Final TO11
-reconciliation remains. The user authorized implementation and phase commits. This creates no
-new test binary/framework layer and does not replace the older measurement debt
-below; complete CI acceptance remains separate.
+Repository-wide test organization is implemented and reconciled across all 24
+workspace members and the existing Node/Python/editor/browser/product/benchmark
+families. The [testing guide](testing.md) owns semantic classification, named cases,
+directory discovery, exact fixtures/goldens, strict parser/HIR/real-process CLI UI
+expectations and explicit ownership/lifecycle assertions. Existing library harnesses
+and eight integration targets remain; framework/parsing dependencies are dev-only.
+The completed phase plan was retired; Git history owns its mappings and command logs.
 
-Bounded contract-owned fixture pilots are implemented: formatter input/expected
-pairs, parser recovery/diagnostic inputs, ordinary SDK source cases, shared bounded
-numeric predicate generation and two stateful source extractions. The
-[testing guide](testing.md#existing-file-backed-patterns) owns current examples,
-classification and format rules. Cases retain independent names in existing library
-harnesses. Named `rstest` cases now replace the custom formatter/source-example
-registrars and same-flow parser/default-method wrappers. Homogeneous syntax
-examples use `rstest` file discovery with explicit different-contract exclusions;
-Cargo tracks directory additions/removals. The framework is dev-only;
-no integration target or production dependency was added. Focused local acceptance
-covers migrated cases and representative source examples; exhaustive
-feature/backend/platform tests remain CI-owned.
-There is no measured speed/memory claim or automatic whole-repository conversion.
-This does not replace the older preparation/performance acceptance below.
+Focused local behavior, exact-input/assertion preservation, discovery and deliberate
+mismatch checks passed, as did required structural/format/Clippy checks. This is
+not execution of every migrated case or complete CI acceptance. Full workspace,
+ignored grammar, backend/feature/platform and independent artifact/AOT deployment
+matrices remain CI-owned. Actual browser/Worker/UI and editor/WASI acceptance still
+need their documented dependencies, fresh products and host/manual checks; native
+adapter/provenance tests do not substitute for them. There is no measured speed or
+memory-reduction claim. The older preparation/performance debt below is unchanged.
 
 [The test preparation task](test-preparation-plan.md) has implemented reusable
 native preparation, isolated source sessions and three SDK pilot migrations.

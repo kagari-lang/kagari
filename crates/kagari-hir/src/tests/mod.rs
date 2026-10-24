@@ -9,8 +9,8 @@ mod text_literals;
 mod typeck;
 mod ui;
 
-// TO03 owns the strict record schema and source projection; both library
-// harnesses consume it without exposing test serialization in kagari-source.
+// Source owns the strict schema/projection shared with syntax, without a
+// production test-serialization API or an extra test-support crate.
 #[path = "../../../kagari-source/tests/support/diagnostics.rs"]
 mod ui_diagnostics;
 

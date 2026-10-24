@@ -5,8 +5,8 @@ use serde::{
 };
 use std::{fmt, marker::PhantomData};
 
-// Serde structs also accept positional sequences. CLI wire locations and labels are objects;
-// delegate their fields through MapAccess to keep derive's duplicate/unknown/required checks.
+// Serde structs and internally tagged enums also accept positional sequences. CLI
+// records, locations and labels are objects; MapAccess preserves derive's field checks.
 struct Object<T>(T);
 
 impl<'de, T: Deserialize<'de>> Deserialize<'de> for Object<T> {
@@ -104,7 +104,9 @@ fn decode(bytes: &[u8]) -> Result<Vec<Record>, String> {
             if line.is_empty() {
                 return Err("blank JSON record".into());
             }
-            serde_json::from_str(line).map_err(|e| e.to_string())
+            serde_json::from_str::<Object<Record>>(line)
+                .map(|record| record.0)
+                .map_err(|e| e.to_string())
         })
         .collect()
 }

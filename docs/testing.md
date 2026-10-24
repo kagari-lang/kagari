@@ -4,9 +4,11 @@
 affected contract tests locally; CI owns complete workspace tests and exhaustive
 feature/backend validation. Full-workspace Clippy runs locally for implementation
 acceptance: `cargo clippy --workspace --all-targets -- -D warnings`.
-This page defines source ownership, justified integration targets and reusable test setup.
-The [repository-wide organization plan](test-organization-plan.md) owns the finite
-follow-up phases and ledger; it does not replace these lasting contracts.
+This page defines source ownership, fixture formats, justified integration targets
+and reusable test setup. The repository-wide organization migration is complete;
+Git history owns its phase ledger and command logs. Remaining performance
+measurement work belongs to the existing [preparation plan](test-preparation-plan.md),
+not a second test-organization queue.
 
 ## Match the test to its semantic owner
 
@@ -74,20 +76,76 @@ ownership rules.
 
 ### Compiler UI diagnostic tests
 
-The [organization plan](test-organization-plan.md#file-based-ui-diagnostic-tests-planned)
-records the repository-wide migration. Here UI means user-facing compiler
-diagnostics, not graphical interfaces. Parser and HIR suites run in their existing
-library harnesses; CLI presentation runs through the existing real-process target.
-
-Parser source inputs pair with ordered `.diagnostics.json` expectations for full
-producer records; HIR uses the same test-only source-owned schema. CLI cases
-compare actual `.stdout`, `.stderr` and `.exit` output through the existing process
-harness, including empty streams and failed-command stderr footers. The plan owns the TO00-frozen
-schema, source/revision checks, narrow normalization and explicit update workflow.
-Default test/CI runs must not rewrite expectations. Recovery trees, stronger typed
+Here UI means user-facing compiler diagnostics, not graphical interfaces. The
+source/expectation separation follows [rustc UI tests](https://rustc-dev-guide.rust-lang.org/tests/ui.html)
+(reference review: 2026-10-24), without adopting compiletest's directive system.
+Parser and HIR suites run in their existing library harnesses; CLI presentation
+runs through the existing real-process target. Recovery trees, stronger typed
 errors, healthy-neighbor facts and codegen eligibility remain explicit assertions;
-a matching diagnostic snapshot cannot replace them. No separate compiletest
-framework or production diagnostic renderer is planned.
+a matching golden cannot replace them. No new test binary, source directive DSL,
+production serialization API or test renderer is required.
+
+#### Parser/HIR expectations
+
+Each owner keeps homogeneous groups under `tests/fixtures/ui/<family>/`.
+One independently discovered `<case>.kgr` pairs with the same-stem
+`<case>.diagnostics.json`; the expectation is not discovered by a second glob.
+Owner inventory checks reject missing, malformed or orphaned expectations and
+unexpected files. Logical source names stay independent of physical fixture paths.
+
+The JSON root is an **ordered array** of full producer records:
+
+| Object | Required fields |
+| --- | --- |
+| Diagnostic | `code` (string), `severity` (`error` or `warning`), `primary` (span object or explicit `null`), `message` (string), `labels` (ordered label array), `notes` (ordered string array) |
+| Span | `path` (logical source name), `start`, `end` (nonnegative zero-based, end-exclusive UTF-8 byte offsets) |
+| Label | `span` (span object), `message` (string) |
+
+All fields are required, including nullable `primary` and empty arrays. Unknown or
+duplicate fields, wrong/null types, positional arrays in place of objects, trailing
+JSON and invalid UTF-8/source ranges fail. An empty root array means no diagnostics,
+not a missing expectation. Do not sort, deduplicate, trim, discard warnings or
+compare just the first matching code. Positive owners must separately establish
+their successful result; an operational failure cannot become an expected diagnostic.
+
+The [shared test-only schema](../crates/kagari-source/tests/support/diagnostics.rs)
+belongs to the diagnostic/source owner and is shared narrowly by syntax and HIR.
+Owners supply real `DiagnosticRecord` values; message generation, resolution and
+line indexing remain production responsibilities. Validate every present raw span,
+file identity, revision and captured-source membership **before** adaptation can
+turn invalid ranges into anonymous locations. Projection to logical paths must
+reject lost/stale/foreign/ambiguous locations, not normalize them into matching
+`null` spans. Offsets are bytes, not display columns or UTF-16 units.
+
+#### CLI streams and normalization
+
+CLI sources pair with explicit mode-specific `.stdout`, `.stderr` and `.exit`
+expectations, including empty streams and failed-command stderr footers. Tests run
+the actual `kg` binary. Compare human streams byte-for-byte. JSON mode validates
+one complete object per line, with all public fields, ordered diagnostics/labels,
+terminal summary and process status; it is not reduced to the parser/HIR schema.
+Object key order is not a field-value contract, while separate serialization tests
+may deliberately assert exact bytes. Top-level and nested positional substitutes,
+unknown/duplicate/missing fields and malformed summaries fail.
+
+Normalization is deny-by-default. The existing lint family maps only its known
+owned physical-root location path to `$FIXTURE/script.kgr`: recognized human
+location-line path slices, or JSON primary/label `location.path` fields. It rejects
+neighboring/unreviewed paths. Never globally replace backslashes, messages, notes,
+excerpts, whitespace, CRLF, offsets, source revisions or record/label order. Source
+revision 1 is an explicit observed fixture assertion, not scrubbed process identity.
+Other presentation/identity scenarios retain their direct source-bound assertions.
+
+#### Compare, review, verify
+
+Normal test/CI runs only read tracked expectations. For an intentional diagnostic
+change, select affected cases, inspect received outputs (temporary artifacts under
+`target/test-organization/ui/`), and update only reviewed expectations. No automatic
+bless mode is provided. Rerun normal comparison afterward; generation alone is not
+acceptance. Pair/admission tests and deliberate message/span/count/order/status
+mismatches must detect broken expectations independently of the language producer.
+Keep Unicode/CRLF coordinate coverage at its existing owner rather than normalizing
+it away. Use selected nonempty filters; full UI and feature matrices remain CI-owned.
 
 ### Existing file-backed patterns
 
