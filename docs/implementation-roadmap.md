@@ -483,6 +483,17 @@ implemented host registration and scoped borrowing contracts.
 
 ## Test execution cost
 
+The [repository-wide test organization plan](test-organization-plan.md) is the
+authorized phased follow-up to the committed fixture pilot. TO00-TO11 cover all 24 workspace
+members and the existing Node/Python/editor/browser/product families: semantic
+ownership, proven duplicate cleanup, suitable parameterization/discovery,
+file-based compiler UI diagnostics in TO03/TO04/TO09, and explicit retention of
+stateful/source-free/native boundaries. TO00 has frozen the full family catalogue,
+UI expectation contract and first selected harness inventory; TO01 implementation
+is next. The user authorized implementation and phase commits. This creates no
+new test binary/framework layer and does not replace the older measurement debt
+below; complete CI acceptance remains separate.
+
 Bounded contract-owned fixture pilots are implemented: formatter input/expected
 pairs, parser recovery/diagnostic inputs, ordinary SDK source cases, shared bounded
 numeric predicate generation and two stateful source extractions. The

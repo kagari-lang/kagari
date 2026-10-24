@@ -5,6 +5,8 @@ affected contract tests locally; CI owns complete workspace tests and exhaustive
 feature/backend validation. Full-workspace Clippy runs locally for implementation
 acceptance: `cargo clippy --workspace --all-targets -- -D warnings`.
 This page defines source ownership, justified integration targets and reusable test setup.
+The [repository-wide organization plan](test-organization-plan.md) owns the finite
+follow-up phases and ledger; it does not replace these lasting contracts.
 
 ## Match the test to its semantic owner
 
@@ -69,6 +71,22 @@ compilation/execution cost. Avoid uncontrolled operation/type/backend Cartesian
 products and one serial test that walks an entire fixture directory. A custom
 discovery harness needs a concrete justification for departing from ordinary
 ownership rules.
+
+### Planned compiler UI diagnostic tests
+
+The [organization plan](test-organization-plan.md#file-based-ui-diagnostic-tests-planned)
+defines the proposed file-based UI suites for TO03/TO04/TO09. Here UI means
+user-facing compiler diagnostics, not graphical interfaces. These suites are not
+implemented by the committed fixture pilot.
+
+Parser/HIR source inputs will pair with ordered `.diagnostics.json` expectations
+for full producer records; CLI cases will compare actual `.stdout`, `.stderr` and
+`.exit` output through the existing process harness. The plan owns the TO00-frozen
+schema, source/revision checks, narrow normalization and explicit update workflow.
+Default test/CI runs must not rewrite expectations. Recovery trees, stronger typed
+errors, healthy-neighbor facts and codegen eligibility remain explicit assertions;
+a matching diagnostic snapshot cannot replace them. No separate compiletest
+framework or production diagnostic renderer is planned.
 
 ### Existing file-backed patterns
 
