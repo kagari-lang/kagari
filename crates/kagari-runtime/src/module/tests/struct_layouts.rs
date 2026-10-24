@@ -1,9 +1,7 @@
+use crate::test_support::native::program::ProgramFixture;
 use crate::{Runtime, error::RuntimeErrorKind, reflection, value::Value};
-use kagari_bytecode::{
-    instruction::StructId,
-    program::{BytecodeProgram, ModuleRef},
-};
-use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_bytecode::{instruction::StructId, program::ModuleRef};
+use kagari_common::identity::map::DefinitionContext;
 use kagari_types::{
     scalar::BuiltinType,
     ty::{NominalTy, Ty},
@@ -45,15 +43,12 @@ fn slot_access_checks_nominal_owner_schema_permission_and_representation() {
     let foreign = runtime
         .load_program(
             "other",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![foreign],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![foreign],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap()
@@ -164,15 +159,12 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
         .stage_reload_program(
             original.module(),
             "Point",
-            DefinitionMetadata::checked(
-                definitions,
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![bytecode],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![bytecode],
+            }
+            .metadata(definitions, &Default::default())
             .unwrap(),
         )
         .unwrap();
@@ -274,15 +266,12 @@ fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
     let module = runtime
         .load_program(
             "concrete",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![bytecode],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![bytecode],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap();

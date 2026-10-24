@@ -1,3 +1,4 @@
+use crate::test_support::native::program::ProgramFixture;
 mod scoped_loans;
 use crate::test_support as support;
 
@@ -10,11 +11,8 @@ use crate::{
     session::TraceValue,
     value::Value,
 };
-use kagari_bytecode::{
-    module::BytecodeModule,
-    program::{BytecodeProgram, ModuleRef},
-};
-use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
+use kagari_common::identity::map::DefinitionContext;
 use kagari_contract::ids::FunctionRef;
 use kagari_types::{
     declaration::host::{
@@ -108,15 +106,12 @@ fn unwinding_host_scopes_releases_roots_borrows_and_session_retention() {
         let loaded = runtime
             .load_program(
                 "unwind",
-                DefinitionMetadata::checked(
-                    context.snapshot(),
-                    BytecodeProgram {
-                        exports: Default::default(),
-                        root: ModuleRef::new(0),
-                        modules: vec![BytecodeModule::default()],
-                    },
-                    &Default::default(),
-                )
+                ProgramFixture {
+                    exports: Default::default(),
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                }
+                .metadata(context.snapshot(), &Default::default())
                 .unwrap(),
             )
             .unwrap();
@@ -184,15 +179,12 @@ fn host_scopes_keep_root_cancellation_until_all_resources_are_released() {
     let loaded = runtime
         .load_program(
             "scope",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap();
@@ -377,15 +369,12 @@ fn quarantine_does_not_block_host_scope_cleanup() {
     let loaded = runtime
         .load_program(
             "quarantine",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap();

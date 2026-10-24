@@ -800,6 +800,33 @@ impl Declarations {
         &self.imported_types
     }
 
+    /// Return the authored enclosing owner when a named local has an ambiguous
+    /// same-name sibling. Only declarations in this analysis participate; stale
+    /// entries in the append-only definition context do not create ambiguity.
+    pub fn ambiguous_local_owner(&self, name: ResolvedName) -> Option<DefinitionId> {
+        let id = *self.definition(name)?;
+        let view = self.definitions.resolve(id).ok()?;
+        let member = view.last()?;
+        if member.kind != DefinitionKind::Function {
+            return None;
+        }
+        let owner = self.definitions.parent(id).ok()??;
+        let parent = self.definitions.resolve(owner).ok()?.last()?;
+        if !matches!(
+            parent.kind,
+            DefinitionKind::Function
+                | DefinitionKind::Method
+                | DefinitionKind::Const
+                | DefinitionKind::Static
+        ) {
+            return None;
+        }
+        let duplicate =
+            self.definitions
+                .lookup_child(owner, DefinitionKind::Function, member.name, 1)?;
+        self.definition_target(&duplicate).map(|_| owner)
+    }
+
     pub(crate) fn definition(&self, name: ResolvedName) -> Option<&DefinitionId> {
         match &self.target(name)?.id {
             DeclarationId::Definition(id) => Some(id),

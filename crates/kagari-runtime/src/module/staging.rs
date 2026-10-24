@@ -48,12 +48,16 @@ impl StagedProgram {
     }
 
     pub(crate) fn bind_reload(
-        mut self,
+        self,
         store: &ModuleStore,
         baseline: &LoadedModule,
     ) -> Result<Self, RuntimeError> {
+        if self.expected_base != Some(baseline.key()) {
+            return Err(RuntimeError::module_validation(
+                "reload demand history belongs to a different baseline",
+            ));
+        }
         store.bind_static_reload(baseline, &self.module)?;
-        self.expected_base = Some(baseline.key());
         Ok(self)
     }
 

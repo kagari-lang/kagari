@@ -4,23 +4,25 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         DefinitionPath, map::DefinitionContext, mapping::DefinitionMappingError,
-        metadata::DefinitionMetadata,
+        metadata::DefinitionMetadata, table::DefinitionId,
     },
 };
 use kagari_contract::{
     host as module_host,
     types::{ConcreteFunctionIdentity, ModuleContract, identity},
+    updates::{BodyClassification, DemandRequests, limits::UpdateError},
 };
 use kagari_hir::{
     AnalyzedModule, CheckedAnalysis,
     aggregates::{AggregateCatalog, implementations::ImplementationSearchError},
+    declarations::DeclarationId,
     hir::{
         ids::{ExprId, FunctionId, LocalId, PlaceId},
         item::function::FunctionKind,
     },
     native::NativeBinding,
+    resolver::resolved::ResolvedName,
     typeck::FunctionImplementation,
-    types::semantic::raise_type,
 };
 use kagari_mir::{
     function::MirModule,
@@ -28,7 +30,7 @@ use kagari_mir::{
     verify::{MirVerificationError, MirVerificationErrorKind, VerifiedMirModule, verify_mir},
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
-use kagari_types::ty::Ty;
+
 use std::{collections::HashSet, iter, slice};
 
 mod abi;
@@ -54,6 +56,7 @@ pub enum MirLoweringError {
     /// Candidate or recursive requirement limits exhausted implementation selection.
     ImplementationSearchLimitExceeded,
     Identity(DefinitionMappingError),
+    Update(UpdateError),
     MissingTypedFunction(FunctionId),
     MissingExprType(ExprId),
     MissingLocalType(LocalId),
@@ -78,6 +81,12 @@ impl From<ImplementationSearchError> for MirLoweringError {
             ImplementationSearchError::Cancelled => Self::Cancelled,
             ImplementationSearchError::LimitExceeded => Self::ImplementationSearchLimitExceeded,
         }
+    }
+}
+
+impl From<MirVerificationError> for MirLoweringError {
+    fn from(error: MirVerificationError) -> Self {
+        verification_error(error)
     }
 }
 
@@ -115,32 +124,34 @@ pub fn lower_to_mir(
     lower_to_mir_with_requests(
         &module,
         options,
-        &[],
-        &[],
+        &DemandRequests::default(),
         slice::from_ref(&module),
         &module.aggregates,
         &context,
     )
+    .and_then(|lowered| optimize_module(lowered.module, options))
+}
+
+/// Verified lowering before optional simplification. Publication evidence must be
+/// extracted from this module before `optimize_module` consumes it.
+pub(crate) struct LoweredModule {
+    pub module: VerifiedMirModule,
+    pub classifications: Vec<(ConcreteFunctionIdentity, BodyClassification)>,
+    pub source_bodies: Vec<(DefinitionId, ConcreteFunctionIdentity)>,
 }
 
 pub(crate) fn lower_to_mir_with_requests<'a>(
     module: &'a AnalyzedModule,
     options: &'a MirLoweringOptions,
-    requests: &[ConcreteFunctionIdentity],
-    layout_requests: &[Ty],
+    requests: &DemandRequests,
     modules: &'a [AnalyzedModule],
     catalog: &'a AggregateCatalog,
     context: &'a DefinitionContext,
-) -> Result<VerifiedMirModule, MirLoweringError> {
+) -> Result<LoweredModule, MirLoweringError> {
     identity::collect_language(context, &options.cancel)?;
     let mut planner = InstancePlanner::new(module, options, modules, catalog, context);
     planner.check()?;
-    for ty in layout_requests {
-        planner.check()?;
-        planner
-            .layout_roots
-            .push((raise_type(ty), Default::default()));
-    }
+
     planner.enqueue_statics()?;
     for function in &module.typed.functions {
         if matches!(
@@ -208,42 +219,37 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
     for implementation in implementations {
         planner.record_interface(&implementation.id, &[], Default::default())?;
     }
-    for request in requests {
-        planner.check()?;
-        if planner.module_handle(request.declaration) != planner.owner_handle() {
-            return Err(MirLoweringError::MissingBinding("requested instance owner"));
-        }
-        if planner
-            .catalog
-            .implementation_signature(&request.declaration)
-            .is_some()
-        {
-            planner.record_interface(
-                &request.declaration,
-                &request.arguments.iter().map(raise_type).collect::<Vec<_>>(),
-                Default::default(),
-            )?;
-            continue;
-        }
-        if request.arguments.iter().all(Ty::is_concrete)
-            && planner.prepare_native_target(
-                &request.declaration,
-                &request.arguments.iter().map(raise_type).collect::<Vec<_>>(),
-                Default::default(),
-            )?
-        {
-            continue;
-        }
-        planner.enqueue_interface_method(
-            &request.declaration,
-            &request.arguments.iter().map(raise_type).collect::<Vec<_>>(),
-            Default::default(),
-        )?;
-    }
+    planner.request_products(requests)?;
     let mut functions = Vec::new();
+    let mut classifications = Vec::new();
+    let mut source_bodies = Vec::new();
     while let Some(instance) = planner.instances.get(functions.len()).cloned() {
         planner.check()?;
         let origin = planner.origin(&instance);
+        let identity = instance.lower(
+            planner.catalog,
+            planner.options,
+            &planner.definitions(),
+            instance.body.span(origin),
+        )?;
+        classifications.push((identity.clone(), instance.classification.lower(&identity)));
+        let authored = match instance.body {
+            InstanceBody::Function(id) => ResolvedName::Function(id),
+            InstanceBody::Static(id) => ResolvedName::Static(id),
+        };
+        let DeclarationId::Definition(source) = origin
+            .declarations
+            .target(authored)
+            .ok_or(MirLoweringError::MissingBinding(
+                "emitted body source owner",
+            ))?
+            .id
+        else {
+            return Err(MirLoweringError::MissingBinding(
+                "emitted body source identity",
+            ));
+        };
+        source_bodies.push((source, identity));
         functions.push(if instance.callable.is_some() {
             function::lower_callable(origin, instance, &mut planner)?
         } else if instance.protocol.is_some() {
@@ -274,7 +280,14 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
         enumerations,
     } = layouts::collect(module, &mut planner, &functions)?;
     let mut abi = abi::collect_module_abi(module);
-    interface_bridges::collect(&mut planner, module, &mut abi, &mut functions)?;
+    interface_bridges::collect(
+        &mut planner,
+        module,
+        &mut abi,
+        &mut functions,
+        &mut classifications,
+    )?;
+    abi.function_origins = planner.function_origins();
     planner.host_types.extend(
         module_host::references(
             &abi.public_items,
@@ -361,16 +374,33 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
     )?;
     let metadata = DefinitionMetadata::checked(context.snapshot(), mir, &options.cancel)?;
     verify_mir(metadata, &options.cancel)
-        .and_then(|module| match &options.optimization {
-            Some(passes) => optimize(module, passes, &options.cancel).map(|result| result.module),
-            None => Ok(module),
+        .map_err(verification_error)
+        .map(|module| LoweredModule {
+            module,
+            classifications,
+            source_bodies,
         })
-        .map_err(|error| match error.kind {
-            MirVerificationErrorKind::Cancelled => MirLoweringError::Cancelled,
-            MirVerificationErrorKind::Limit { resource, limit } => MirLoweringError::diagnostic(
-                Diagnostic::error(DiagnosticKind::CompileLimitExceeded { resource, limit })
-                    .with_span(error.span.unwrap_or_default()),
-            ),
-            _ => MirLoweringError::Verification(error),
-        })
+}
+
+pub(crate) fn optimize_module(
+    module: VerifiedMirModule,
+    options: &MirLoweringOptions,
+) -> Result<VerifiedMirModule, MirLoweringError> {
+    match &options.optimization {
+        Some(passes) => optimize(module, passes, &options.cancel)
+            .map(|result| result.module)
+            .map_err(verification_error),
+        None => Ok(module),
+    }
+}
+
+fn verification_error(error: MirVerificationError) -> MirLoweringError {
+    match error.kind {
+        MirVerificationErrorKind::Cancelled => MirLoweringError::Cancelled,
+        MirVerificationErrorKind::Limit { resource, limit } => MirLoweringError::diagnostic(
+            Diagnostic::error(DiagnosticKind::CompileLimitExceeded { resource, limit })
+                .with_span(error.span.unwrap_or_default()),
+        ),
+        _ => MirLoweringError::Verification(error),
+    }
 }

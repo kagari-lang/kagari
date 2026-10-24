@@ -5,8 +5,10 @@ HM00/UP00 audit started at `3b898e80` and resumed at `bbe30666` after the user
 reauthorized the complete phased sequence on 2026-10-24. UP00's design is frozen:
 the user resolved transitive selection by protecting published key protocols,
 initializer expressions and their dependencies, with no pinned-call exception.
-The joint HM00/UP00 design checkpoint is complete and the roadmap is aligned;
-no implementation phase or behavioral acceptance is claimed. The user explicitly prioritized
+The joint HM00/UP00 design checkpoint was committed as `bbfc0af6`; HM01 is locally
+complete and committed as `3523c4c8`. UP01 is locally complete with no carried
+errors; HM02 is next. The [UP01 ledger](#up01-implementation-and-integration)
+records acceptance evidence; full CI remains unrun. The user explicitly prioritized
 transparent generic type aliases first; the authorized prerequisite and its sole
 progress ledger are in the [host API plan](host-api-refactor.md#transparent-generic-alias-prerequisite).
 This design defines two deliberately
@@ -1170,12 +1172,14 @@ linking remain separate.
   for supported generic applications reachable from retained code. Resolve batch
   overlap rules, in-process source ownership, native preparation timing and source
   query/retention contracts. No new scheduling tiers or AOT patch delivery.
-- [ ] UP01: Implement frozen-contract/addition validation and checked stable-callable
+- [x] UP01: Implement frozen-contract/addition validation and checked stable-callable
   target evidence, including impl-domain restrictions, generic application coverage,
   compiler/verifier/artifact changes, protected-dependency rejection and legal
   dependency invalidation. Migrate validation expectations affected by the new
   rejection policy in UP01. Keep existing dispatch until UP02 coherently migrates
-  it; no ignored validation or execution stubs.
+  it; no ignored validation or execution stubs. Locally complete with no carried
+  errors; the [UP01 ledger](#up01-implementation-and-integration) records acceptance
+  evidence. HM02 is next; full CI remains unrun.
 - [ ] UP02: Replace whole-dependency-pinned ordinary dispatch with current-call
   selection across runtime/VM/host/interface/native owners; retain selected
   Future/closure/frame bodies and cleanup. Integrate one-shot Update and prepared
@@ -1244,7 +1248,7 @@ selection contract. Failed native preparation must not install an invalid produc
 or retry effects after native entry.
 Reuse existing backend contract tests; wider JIT coverage and AOT patch delivery are
 not acceptance prerequisites. These are required future acceptance cases, not
-executed results; phased implementation is authorized but has not started.
+executed results; UP01 evidence below does not establish UP02 dispatch acceptance.
 
 Exercise a rooted mutable trait collection containing old implementations, insert
 a new-type implementation after publication, remove the buggy element explicitly,
@@ -1294,6 +1298,64 @@ features, default Cargo parallelism, cache state and workload. No latency target
 or success result is invented by this proposal.
 
 ## Execution ledger
+
+### UP01 implementation and integration
+
+**Status: locally complete; no carried errors.** HM01 is committed as `3523c4c8`.
+The compiler owner confirmed the final focused case and 11 related tests pass on
+the repaired tree. HM02 is next. Full CI remains unrun.
+
+Implemented scope:
+
+- Frozen named declaration inventory, semantic impl identity/correspondence and
+  directional public namespace graph additions; occurrence/placement identity is
+  not declaration identity.
+- Mandatory checked preoptimization canonical body, actual emitted body and source
+  template evidence, including unused declarations, with bounded MIR/KBC codecs
+  and independent validation.
+- Protected static initializer expressions, published Hash/Eq and their transitive
+  dependencies, regardless of live containers or initialized state. `Unknown`
+  dependencies conservatively freeze installation inventory; no old-version call
+  domain, eager initialization or automatic rehash is introduced.
+- Monotonic retained-demand metadata, not executable leases. Runtime candidate
+  staging isolates prospective history so rejected candidates do not advance the
+  current history. Compiler expansion covers five queues: functions, shared,
+  interfaces, constructions and layouts. Historical demands do not grant candidate
+  proof authority.
+
+Resolved integration repairs: backend-generated interface adapters are classified
+accurately; native application validation checks every placement/witness variant,
+not an arbitrary representative. Another placement with the same application
+identity cannot substitute for an exact historical native import. Strengthened
+named-bound forgery validation is repaired.
+
+Local evidence reported by the implementation/validation owners (overlapping
+selections are not totals):
+
+- `cargo test -p kagari-contract --lib updates:: --no-fail-fast`: 24 passed.
+- SDK `portable_artifact_executes_without_source_compilation` passed with source
+  enabled and again source-free (`--no-default-features`); the fixture is fresh.
+- Existing runtime `update_admission`: 6 passed; `named_inventory`: 3; VM static: 4.
+- Compiler focused selection: 8 passed (earlier selection: 14); MIR updates: 5;
+  KBC: 4; named bound: 4 after the bound-forgery repair; proof derivation: 7
+  (earlier selected run: 22); examples: 3.
+- Final compiler verification: 12 focused tests passed on the repaired tree:
+  `shared_arithmetic_preserves_source_width_and_checks_callable_evidence` passed
+  independently, plus 11 related numeric, retained-request, shared-binder,
+  cross-module, generic, default and interface cases. No further code change was
+  needed for this rerun.
+- Latest agent-reported `cargo clippy --workspace --all-targets -- -D warnings`,
+  structure, formatting and diff checks passed.
+
+The former `MissingBinding("shared method declaration")` failure is resolved:
+backend/contract adapter-classification repairs prevent generated adapters from
+entering source shared-method requests. No current blocker remains.
+
+Full-workspace tests and the complete feature/backend/platform matrix remain
+CI-only and unrun. Public loading still uses `LoadedModule`
+and ordinary calls remain pinned; live Program/Module handles, current dispatch,
+source Update integration and state replacement are not delivered by this phase.
+HM02/UP02 own the installation/dispatch handoff; MS remains unstarted.
 
 ### Joint HM00/UP00 audit at 3b898e80
 
@@ -1379,7 +1441,7 @@ closure on resumption is recorded in the UP00 freeze below. Full CI is unrun.
 
 ### Resumed UP00 audit at bbe30666
 
-**UP00 design freeze: complete; joint design commit pending.**
+**UP00 design freeze: complete; joint HM00/UP00 committed as `bbfc0af6`.**
 
 On 2026-10-24 the user reauthorized the full phased sequence and resolved the last
 semantic blocker: no pinned-call domain; reject changes to published key Hash/Eq,
@@ -1387,9 +1449,10 @@ static initializer expressions and their transitive dependencies regardless of l
 containers or initialized cells. Unknown dependencies conservatively prevent unproved
 changes. Keep lazy initialization and author responsibility for mutable/external state.
 The preceding frozen representation, evidence limits, source/batch/query APIs, native
-timing and publication protocol close UP00. Implementation and local/CI behavioral
-acceptance remain pending. The next commit is the joint HM00/UP00 design checkpoint,
-with both Plan-Phase trailers; this document does not claim that commit already exists.
+timing and publication protocol close UP00. The joint HM00/UP00 design checkpoint
+was committed as `bbfc0af6` with both Plan-Phase trailers. This historical design
+audit does not establish implementation acceptance; current UP01 status is recorded
+in the [implementation ledger](#up01-implementation-and-integration).
 
 **Audit and ownership evidence:**
 

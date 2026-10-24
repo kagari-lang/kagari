@@ -1,9 +1,7 @@
+use crate::test_support::native::program::ProgramFixture;
 use crate::{Runtime, module::LoadedModule, value::Value};
-use kagari_bytecode::{
-    module::BytecodeModule,
-    program::{BytecodeProgram, ModuleRef},
-};
-use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
+use kagari_common::identity::map::DefinitionContext;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn runtime_with_owner() -> (Runtime, LoadedModule) {
@@ -12,15 +10,12 @@ fn runtime_with_owner() -> (Runtime, LoadedModule) {
     let owner = runtime
         .load_program(
             "allocations",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap();

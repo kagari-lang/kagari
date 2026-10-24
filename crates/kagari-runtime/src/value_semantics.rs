@@ -297,11 +297,8 @@ pub fn builtin_order(gc: &GcHeap, a: &Value, b: &Value) -> Result<Option<Orderin
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kagari_bytecode::{
-        instruction::EnumId,
-        module::BytecodeModule,
-        program::{BytecodeProgram, ModuleRef},
-    };
+    use crate::test_support::native::program::ProgramFixture;
+    use kagari_bytecode::{instruction::EnumId, module::BytecodeModule, program::ModuleRef};
     use kagari_common::identity::{
         DefinitionKind, ModuleIdentity, map::DefinitionContext, metadata::DefinitionMetadata,
     };
@@ -352,7 +349,7 @@ mod tests {
             payload,
         };
         let program = |extra_variant: bool| {
-            let program = BytecodeProgram {
+            let program = ProgramFixture {
                 exports: Default::default(),
                 root: ModuleRef::new(0),
                 modules: vec![BytecodeModule {
@@ -389,7 +386,8 @@ mod tests {
                     ],
                     ..Default::default()
                 }],
-            };
+            }
+            .build(&context);
             DefinitionMetadata::checked(context.snapshot(), program, &Default::default()).unwrap()
         };
         let mut runtime = crate::Runtime::default();

@@ -224,6 +224,7 @@ pub(crate) fn scalar_type(ty: ValueType) -> Option<BuiltinType> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::native::program::ProgramFixture;
     use crate::{
         Runtime,
         frame::{
@@ -235,9 +236,9 @@ mod tests {
     use kagari_bytecode::{
         instruction::{BytecodeInstruction as I, ConstantId, JumpTarget},
         module::{BytecodeModule, FunctionMetadata, LocalLiveRange},
-        program::{BytecodeProgram, ModuleRef},
+        program::ModuleRef,
     };
-    use kagari_common::identity::metadata::DefinitionMetadata;
+
     use std::sync::Arc;
 
     fn storage_control(types: Vec<ValueType>, debug: bool) -> BytecodeFunction {
@@ -307,15 +308,12 @@ mod tests {
         runtime
             .load_program(
                 "rl01",
-                DefinitionMetadata::checked(
-                    runtime.host().definitions(),
-                    BytecodeProgram {
-                        root: ModuleRef::new(0),
-                        modules: vec![BytecodeModule::default()],
-                        exports: Default::default(),
-                    },
-                    &Default::default(),
-                )
+                ProgramFixture {
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                    exports: Default::default(),
+                }
+                .metadata(runtime.host().definitions(), &Default::default())
                 .unwrap(),
             )
             .unwrap()

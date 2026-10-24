@@ -109,11 +109,15 @@ impl NativeRegistry {
         let expected = definitions
             .lookup_root(&module.identity)
             .and_then(|root| self.trait_references.get_id(root));
-        if expected.map_or(0, BTreeMap::len) != module.trait_references.len()
-            || module.trait_references.iter().any(|reference| {
-                expected.and_then(|expected| expected.get(&reference.declaration))
-                    != Some(&reference.abi)
-            })
+        // Every installed module has a registry entry, including an empty set.
+        // Source-owned modules instead carry requirements proved against their
+        // verified executable dependency closure; they are not native contracts.
+        if let Some(expected) = expected
+            && (expected.len() != module.trait_references.len()
+                || module
+                    .trait_references
+                    .iter()
+                    .any(|reference| expected.get(&reference.declaration) != Some(&reference.abi)))
         {
             return Err(RuntimeError::module_validation(
                 "source trait references differ from their installed module contracts",

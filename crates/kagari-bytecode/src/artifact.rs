@@ -5,7 +5,7 @@ use crate::{
     module::{BytecodeDebugMetadata, BytecodeModule, RootSlotLayout},
     native_input::PortableMir,
     program::{
-        BytecodeProgram, identity,
+        BytecodeProgram, identity, updates as program_updates,
         verified::{ProgramVerification, VerifiedBytecodeProgram},
         verify_graph,
     },
@@ -30,12 +30,13 @@ use kagari_contract::{
     effects::EffectSet,
     ids::FunctionRef,
     types::{PublicItem, wire::PublicItemRecord},
+    updates::limits::{Budget, Limits},
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, io, io::Write};
 
 mod limits;
-mod wire;
+pub(crate) mod wire;
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
 pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 116;
@@ -70,6 +71,10 @@ pub fn validate_program_resource_limits(
     if let Some(reason) = program_count_limit(program, definitions) {
         return Err(ArtifactValidationError::ResourceLimit(reason));
     }
+    let mut budget =
+        Budget::new(Limits::default(), cancel).map_err(program_updates::mapping_error)?;
+    program_updates::preflight(&program.update_evidence, definitions, cancel, &mut budget)
+        .map_err(program_updates::mapping_error)?;
     let portable = wire::encode_program(program, definitions, cancel)?;
     if exceeds_encoded_size(&portable) {
         return Err(ArtifactValidationError::ResourceLimit(

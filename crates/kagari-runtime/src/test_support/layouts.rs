@@ -1,3 +1,4 @@
+use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
     gc::GcHeap,
@@ -9,7 +10,7 @@ use crate::{
 use kagari_bytecode::{
     instruction::StructId,
     module::{BytecodeModule, InterfaceTableRecord},
-    program::{BytecodeProgram, ModuleRef},
+    program::ModuleRef,
 };
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, map::DefinitionContext, metadata::DefinitionMetadata,
@@ -126,53 +127,50 @@ pub fn interface_value_with(runtime: &mut Runtime, concrete_type: Ty, data: Valu
     let module = runtime
         .load_program(
             "interface-fixture",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule {
-                        identity,
-                        public_items: vec![
-                            PublicItem::Trait(TraitDef {
-                                conversion_adapter: None,
-                                associated_consts: Vec::new(),
-                                supertraits: Vec::new(),
-                                associated_types: Vec::new(),
-                                name: "Tag".into(),
-                                generic_params: vec![],
-                                bounds: vec![],
-                                methods: vec![],
-                            }),
-                            PublicItem::InterfaceTable(Box::new(InterfaceTable {
-                                associated_type_families: Vec::new(),
-                                associated_consts: Vec::new(),
-                                bridge: None,
-                                declaration: impl_id,
-                                name: String::new(),
-                                generic_params: vec![],
-                                bounds: vec![],
-                                trait_type: Ty::Trait(NominalTy {
-                                    associated_types: Default::default(),
-                                    declaration: trait_id,
-                                    arguments: vec![],
-                                }),
-                                for_type: concrete_type,
-                                methods: vec![],
-                            })),
-                        ],
-                        interface_tables: vec![InterfaceTableRecord {
-                            parents: vec![],
-                            view: None,
-                            arguments: Vec::new(),
-                            declaration: impl_id,
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule {
+                    identity,
+                    public_items: vec![
+                        PublicItem::Trait(TraitDef {
+                            conversion_adapter: None,
+                            associated_consts: Vec::new(),
+                            supertraits: Vec::new(),
+                            associated_types: Vec::new(),
+                            name: "Tag".into(),
+                            generic_params: vec![],
+                            bounds: vec![],
                             methods: vec![],
-                        }],
-                        ..Default::default()
+                        }),
+                        PublicItem::InterfaceTable(Box::new(InterfaceTable {
+                            associated_type_families: Vec::new(),
+                            associated_consts: Vec::new(),
+                            bridge: None,
+                            declaration: impl_id,
+                            name: String::new(),
+                            generic_params: vec![],
+                            bounds: vec![],
+                            trait_type: Ty::Trait(NominalTy {
+                                associated_types: Default::default(),
+                                declaration: trait_id,
+                                arguments: vec![],
+                            }),
+                            for_type: concrete_type,
+                            methods: vec![],
+                        })),
+                    ],
+                    interface_tables: vec![InterfaceTableRecord {
+                        parents: vec![],
+                        view: None,
+                        arguments: Vec::new(),
+                        declaration: impl_id,
+                        methods: vec![],
                     }],
-                },
-                &Default::default(),
-            )
+                    ..Default::default()
+                }],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap();
@@ -209,22 +207,19 @@ pub fn layout(runtime: &mut Runtime, name: &str, fields: &[(&str, Ty, bool)]) ->
     let module = runtime
         .load_program(
             name,
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule {
-                        structures: vec![StructLayout {
-                            arguments: Vec::new(),
-                            declaration,
-                            fields,
-                        }],
-                        ..Default::default()
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule {
+                    structures: vec![StructLayout {
+                        arguments: Vec::new(),
+                        declaration,
+                        fields,
                     }],
-                },
-                &Default::default(),
-            )
+                    ..Default::default()
+                }],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap();
@@ -237,15 +232,12 @@ pub fn allocation_owner(runtime: &mut Runtime) -> LoadedModule {
     runtime
         .load_program(
             "allocation-owner",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap()
@@ -280,19 +272,16 @@ pub fn enum_owner(runtime: &mut Runtime, payloads: Vec<Ty>) -> LoadedModule {
     runtime
         .load_program(
             "enum-fixture",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule {
-                        identity,
-                        enumerations,
-                        ..Default::default()
-                    }],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule {
+                    identity,
+                    enumerations,
+                    ..Default::default()
+                }],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap()
@@ -317,24 +306,21 @@ pub fn sequence_owner(runtime: &mut Runtime) -> LoadedModule {
     runtime
         .load_program(
             "sequence-fixture",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule {
-                        identity: declaration.identity.clone(),
-                        public_items: declaration
-                            .types
-                            .iter()
-                            .cloned()
-                            .map(PublicItem::Type)
-                            .collect(),
-                        ..Default::default()
-                    }],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule {
+                    identity: declaration.identity.clone(),
+                    public_items: declaration
+                        .types
+                        .iter()
+                        .cloned()
+                        .map(PublicItem::Type)
+                        .collect(),
+                    ..Default::default()
+                }],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap()

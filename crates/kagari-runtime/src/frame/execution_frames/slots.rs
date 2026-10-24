@@ -1,4 +1,5 @@
 //! Public frame access cannot turn a previous physical alias into a logical value.
+use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
@@ -14,7 +15,7 @@ use kagari_bytecode::{
         BytecodeDebugMetadata, BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord,
         InstructionOrigin, LocalLiveRange,
     },
-    program::{BytecodeProgram, ModuleRef},
+    program::ModuleRef,
 };
 use kagari_common::{identity::map::DefinitionContext, span::Span};
 use kagari_contract::ids::FunctionRef;
@@ -69,7 +70,7 @@ fn reused_bindings(runtime: &mut Runtime) -> LoadedModule {
         ..Default::default()
     };
     let artifact = KbcArtifact::from_program(
-        BytecodeProgram {
+        ProgramFixture {
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule {
                 types: vec![ValueType::Unit, ValueType::I32],
@@ -86,7 +87,8 @@ fn reused_bindings(runtime: &mut Runtime) -> LoadedModule {
                 ..Default::default()
             }],
             exports: Default::default(),
-        },
+        }
+        .build(&context),
         Default::default(),
         &context,
         &Default::default(),

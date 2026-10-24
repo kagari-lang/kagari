@@ -12,7 +12,7 @@ use kagari_common::{
 };
 use kagari_contract::{
     native_import::NativeImport, representation::semantic_representation,
-    statics::StaticDescriptor, types::ConcreteFunctionIdentity,
+    statics::StaticDescriptor, types::ConcreteFunctionIdentity, updates::BodyClassification,
 };
 use kagari_hir::{
     AnalyzedModule,
@@ -20,7 +20,10 @@ use kagari_hir::{
         AggregateCatalog, implementations::ImplementationSearchLimits, traits::MethodDefault,
     },
     declarations::DeclarationId,
-    hir::ids::{BodyOwner, ExprId, FunctionId, StaticId},
+    hir::{
+        expr::ExprKind,
+        ids::{BodyOwner, ExprId, FunctionId, StaticId},
+    },
     resolver::resolved::ResolvedName,
     typeck::{FunctionImplementation, GenericBounds, TypedFunction, scalar::ScalarValue},
     types::{
@@ -44,8 +47,10 @@ mod callables;
 mod calls;
 mod constructions;
 mod defaults;
+mod locals;
 mod native;
 mod operation_dependencies;
+mod requests;
 mod results;
 mod shared;
 mod statics;
@@ -86,6 +91,7 @@ pub(super) struct InstanceKey {
 
 #[derive(Debug, Clone)]
 pub(super) struct Instance {
+    pub classification: InstanceClassification,
     pub callable: Option<CallableInstance>,
     pub resume: bool,
     pub origin: ModuleHandle,
@@ -95,6 +101,30 @@ pub(super) struct Instance {
     pub substitution: TypeSubstitution,
     pub closure: Option<ExprId>,
     pub protocol: Option<(Protocol, TypeId)>,
+}
+
+/// Chosen at source/planner creation, never from capture count or generated spelling.
+#[derive(Debug, Clone)]
+pub(super) enum InstanceClassification {
+    Named(DefinitionId),
+    Closure(ConcreteFunctionIdentity),
+    Async(ConcreteFunctionIdentity),
+    Resume(ConcreteFunctionIdentity),
+    Adapter,
+    StaticInitializer(DefinitionId),
+}
+
+impl InstanceClassification {
+    pub fn lower(&self, identity: &ConcreteFunctionIdentity) -> BodyClassification {
+        match self {
+            Self::Named(id) => BodyClassification::Named(*id),
+            Self::Closure(owner) => BodyClassification::Closure(owner.clone()),
+            Self::Async(owner) => BodyClassification::Async(owner.clone()),
+            Self::Resume(owner) => BodyClassification::Resume(owner.clone()),
+            Self::Adapter => BodyClassification::Adapter(identity.clone()),
+            Self::StaticInitializer(id) => BodyClassification::StaticInitializer(*id),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -261,6 +291,12 @@ impl<'a> InstancePlanner<'a> {
         resume.id = InstanceId::new(self.instances.len());
         resume.key = key.clone();
         resume.resume = true;
+        resume.classification = InstanceClassification::Resume(parent.lower(
+            self.catalog,
+            self.options,
+            &self.definitions(),
+            span,
+        )?);
         self.keys.insert(key, resume.id);
         self.instances.push(resume);
         Ok(InstanceId::new(self.instances.len() - 1))
@@ -307,6 +343,7 @@ impl<'a> InstancePlanner<'a> {
         let id = InstanceId::new(self.instances.len());
         self.keys.insert(key.clone(), id);
         self.instances.push(Instance {
+            classification: InstanceClassification::Adapter,
             resume: false,
             callable: Some(body),
             origin: parent.origin,
@@ -530,6 +567,7 @@ impl<'a> InstancePlanner<'a> {
         let id = InstanceId::new(self.instances.len());
         self.keys.insert(key.clone(), id);
         self.instances.push(Instance {
+            classification: InstanceClassification::Adapter,
             resume: false,
             callable: None,
             origin,
@@ -644,6 +682,7 @@ impl<'a> InstancePlanner<'a> {
         let id = InstanceId::new(self.instances.len());
         self.keys.insert(key.clone(), id);
         self.instances.push(Instance {
+            classification: InstanceClassification::Named(*declaration),
             resume: false,
             callable: None,
             origin,
@@ -901,50 +940,6 @@ impl<'a> InstancePlanner<'a> {
         self.enqueue_script(self.module, function, arguments, None, span)
     }
 
-    /// Places a callable value beside its receiving instance, retaining authored body ownership.
-    pub(super) fn enqueue_local_function_value(
-        &mut self,
-        parent: &Instance,
-        source: &'a AnalyzedModule,
-        function: FunctionId,
-        arguments: Vec<TypeId>,
-        span: Span,
-    ) -> Result<InstanceId, MirLoweringError> {
-        let target = source
-            .declarations
-            .target(ResolvedName::Function(function))
-            .ok_or(MirLoweringError::MissingBinding(
-                "local function definition",
-            ))?;
-        let DeclarationId::Definition(declaration) = &target.id else {
-            return Err(MirLoweringError::MissingBinding("local callable identity"));
-        };
-        let placement = if self.module_handle(*declaration) == self.owner_handle() {
-            None
-        } else if let Some(placement) = self.local_function_placements.get(declaration) {
-            Some(*placement)
-        } else {
-            // Imported default bodies already execute under the implementation's
-            // identity. Their local callable values follow the same placement as
-            // nested closures; source IDs and generic binders remain authored.
-            let placement = self
-                .context
-                .intern_child(
-                    parent.key.declaration,
-                    DefinitionKind::Function,
-                    &format!("$local_{}", function.index()),
-                    0,
-                )
-                .map_err(DefinitionMappingError::from)?;
-            // Recursive function-value references must reuse this identity. Locals
-            // inherit no caller substitution, including across default methods.
-            self.local_function_placements
-                .insert(*declaration, placement);
-            Some(placement)
-        };
-        self.enqueue_script(source, function, arguments, placement, span)
-    }
-
     /// Instantiates a checked script callable from its owning source module.
     fn enqueue_script(
         &mut self,
@@ -1016,6 +1011,7 @@ impl<'a> InstancePlanner<'a> {
             .collect();
         self.keys.insert(key.clone(), id);
         self.instances.push(Instance {
+            classification: InstanceClassification::Named(*declaration),
             resume: false,
             callable: None,
             origin: self.module_handle(*declaration),
@@ -1062,7 +1058,18 @@ impl<'a> InstancePlanner<'a> {
         }
         let id = InstanceId::new(self.instances.len());
         self.keys.insert(key.clone(), id);
+        let owner = parent.lower(self.catalog, self.options, &self.definitions(), span)?;
+        let classification = if resume
+            || matches!(
+                self.origin(parent).lowered.module.expr(closure).kind,
+                ExprKind::Closure { is_async: true, .. }
+            ) {
+            InstanceClassification::Async(owner)
+        } else {
+            InstanceClassification::Closure(owner)
+        };
         self.instances.push(Instance {
+            classification,
             resume,
             callable: None,
             origin: parent.origin,

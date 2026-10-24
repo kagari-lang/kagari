@@ -17,6 +17,7 @@ use kagari_runtime::{
         objects::Object,
         typed::NativeContext,
     },
+    reload::ReloadValidationError,
     value::Value,
 };
 use kagari_stdlib::declarations::StandardDeclarations;
@@ -234,7 +235,12 @@ fn stored_key_protocol_keeps_old_code_until_last_value_root() {
     let Value::Tuple(_) = &value else {
         panic!("tuple");
     };
-    let new = vm.reload_program(&old, "hash-cycle", code(100)).unwrap();
+    assert!(matches!(
+        vm.runtime()
+            .stage_reload_program(&old, "hash-cycle", code(100)),
+        Err(ReloadValidationError::UpdateEvidence(_))
+    ));
+    let new = vm.reload_program(&old, "hash-cycle", code(1)).unwrap();
     let collected = vm.runtime().collect_garbage().unwrap();
     assert!(!collected.reclaimed_modules.contains(&old.key()));
     // Only a raw rooted value survived reload. The map's stored evidence must

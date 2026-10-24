@@ -1,4 +1,5 @@
 use crate::module::state::tests::{add_static, program as static_program, ready};
+use crate::test_support::native::program::ProgramFixture;
 use crate::value::Value;
 use kagari_types::visibility::Visibility;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
@@ -31,15 +32,12 @@ fn slot_values(store: &ModuleStore) -> Vec<Value> {
 #[test]
 fn version_token_preserves_root_identity_without_retaining_execution() {
     let context = DefinitionContext::new().unwrap();
-    let input = DefinitionMetadata::checked(
-        context.snapshot(),
-        BytecodeProgram {
-            exports: Default::default(),
-            root: ModuleRef::new(0),
-            modules: vec![BytecodeModule::default()],
-        },
-        &Default::default(),
-    )
+    let input = ProgramFixture {
+        exports: Default::default(),
+        root: ModuleRef::new(0),
+        modules: vec![BytecodeModule::default()],
+    }
+    .metadata(context.snapshot(), &Default::default())
     .unwrap();
     let code = VerifiedProgram::new(input.clone(), &context).unwrap();
     let token = code.version.clone();
@@ -87,11 +85,12 @@ fn version_token_preserves_root_identity_without_retaining_execution() {
 #[test]
 fn invalid_code_cannot_become_a_shared_verified_program() {
     let context = DefinitionContext::new().unwrap();
-    let invalid = BytecodeProgram {
+    let invalid = ProgramFixture {
         exports: Default::default(),
         root: ModuleRef::new(1),
         modules: vec![BytecodeModule::default()],
-    };
+    }
+    .build(&context);
     assert!(
         VerifiedProgram::new(
             DefinitionMetadata::checked(context.snapshot(), invalid, &Default::default()).unwrap(),
@@ -104,11 +103,12 @@ fn invalid_code_cannot_become_a_shared_verified_program() {
 #[test]
 fn shared_verification_rejects_in_memory_resource_exhaustion() {
     let context = DefinitionContext::new().unwrap();
-    let oversized = BytecodeProgram {
+    let oversized = ProgramFixture {
         exports: Default::default(),
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default(); 1_025],
-    };
+    }
+    .build(&context);
     assert_eq!(
         VerifiedProgram::new(
             DefinitionMetadata::checked(context.snapshot(), oversized, &Default::default())
@@ -218,15 +218,12 @@ fn verified_code_is_shared_but_runtime_linkage_and_instances_are_private() {
         .stage_reload_program(
             &first,
             "shared",
-            DefinitionMetadata::checked(
-                definitions,
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![replacement],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![replacement],
+            }
+            .metadata(definitions, &Default::default())
             .unwrap(),
         )
         .unwrap();
@@ -283,21 +280,19 @@ fn staged_programs_keep_instances_alive_without_activating_them() {
                 "game.player",
                 ModuleEpoch(epoch),
                 VerifiedProgram::new(
-                    DefinitionMetadata::checked(
-                        context.snapshot(),
-                        BytecodeProgram {
-                            exports: Default::default(),
-                            root: ModuleRef::new(1),
-                            modules: vec![dependency, root],
-                        },
-                        &Default::default(),
-                    )
+                    ProgramFixture {
+                        exports: Default::default(),
+                        root: ModuleRef::new(1),
+                        modules: vec![dependency, root],
+                    }
+                    .metadata(context.snapshot(), &Default::default())
                     .unwrap(),
                     &context,
                 )
                 .unwrap(),
                 crate::host::HostRegistryId::default(),
                 vec![LinkedHostBindings::default(), LinkedHostBindings::default()],
+                None,
             )
             .unwrap()
     };
@@ -369,21 +364,19 @@ fn abandoning_candidates_invalidates_access_even_after_quarantine() {
             "candidate",
             ModuleEpoch(epoch),
             VerifiedProgram::new(
-                DefinitionMetadata::checked(
-                    context.snapshot(),
-                    BytecodeProgram {
-                        exports: Default::default(),
-                        root: ModuleRef::new(0),
-                        modules: vec![BytecodeModule::default()],
-                    },
-                    &Default::default(),
-                )
+                ProgramFixture {
+                    exports: Default::default(),
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                }
+                .metadata(context.snapshot(), &Default::default())
                 .unwrap(),
                 &context,
             )
             .unwrap(),
             crate::host::HostRegistryId::default(),
             vec![LinkedHostBindings::default()],
+            None,
         )
     };
     let candidate = stage(1).unwrap();
@@ -409,21 +402,19 @@ fn assigns_stable_module_ids_across_epochs() {
             "game.player",
             ModuleEpoch(1),
             VerifiedProgram::new(
-                DefinitionMetadata::checked(
-                    context.snapshot(),
-                    BytecodeProgram {
-                        exports: Default::default(),
-                        root: ModuleRef::new(0),
-                        modules: vec![BytecodeModule::default()],
-                    },
-                    &Default::default(),
-                )
+                ProgramFixture {
+                    exports: Default::default(),
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                }
+                .metadata(context.snapshot(), &Default::default())
                 .unwrap(),
                 &context,
             )
             .unwrap(),
             crate::host::HostRegistryId::default(),
             vec![LinkedHostBindings::default()],
+            None,
         )
         .unwrap()
         .publish(&store)
@@ -433,21 +424,19 @@ fn assigns_stable_module_ids_across_epochs() {
             "game.player",
             ModuleEpoch(2),
             VerifiedProgram::new(
-                DefinitionMetadata::checked(
-                    context.snapshot(),
-                    BytecodeProgram {
-                        exports: Default::default(),
-                        root: ModuleRef::new(0),
-                        modules: vec![BytecodeModule::default()],
-                    },
-                    &Default::default(),
-                )
+                ProgramFixture {
+                    exports: Default::default(),
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                }
+                .metadata(context.snapshot(), &Default::default())
                 .unwrap(),
                 &context,
             )
             .unwrap(),
             crate::host::HostRegistryId::default(),
             vec![LinkedHostBindings::default()],
+            None,
         )
         .unwrap()
         .publish(&store)
@@ -457,21 +446,19 @@ fn assigns_stable_module_ids_across_epochs() {
             "game.world",
             ModuleEpoch(1),
             VerifiedProgram::new(
-                DefinitionMetadata::checked(
-                    context.snapshot(),
-                    BytecodeProgram {
-                        exports: Default::default(),
-                        root: ModuleRef::new(0),
-                        modules: vec![BytecodeModule::default()],
-                    },
-                    &Default::default(),
-                )
+                ProgramFixture {
+                    exports: Default::default(),
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                }
+                .metadata(context.snapshot(), &Default::default())
                 .unwrap(),
                 &context,
             )
             .unwrap(),
             crate::host::HostRegistryId::default(),
             vec![LinkedHostBindings::default()],
+            None,
         )
         .unwrap()
         .publish(&store)
@@ -494,21 +481,19 @@ fn snapshot_during_mutable_instance_borrow_does_not_panic() {
             "game.snapshot",
             ModuleEpoch(1),
             VerifiedProgram::new(
-                DefinitionMetadata::checked(
-                    context.snapshot(),
-                    BytecodeProgram {
-                        exports: Default::default(),
-                        root: ModuleRef::new(0),
-                        modules: vec![BytecodeModule::default()],
-                    },
-                    &Default::default(),
-                )
+                ProgramFixture {
+                    exports: Default::default(),
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                }
+                .metadata(context.snapshot(), &Default::default())
                 .unwrap(),
                 &context,
             )
             .unwrap(),
             crate::host::HostRegistryId::default(),
             vec![LinkedHostBindings::default()],
+            None,
         )
         .unwrap()
         .publish(&store)
@@ -528,21 +513,19 @@ fn keeps_latest_and_retained_old_epochs_reachable() {
             "game.player",
             ModuleEpoch(1),
             VerifiedProgram::new(
-                DefinitionMetadata::checked(
-                    context.snapshot(),
-                    BytecodeProgram {
-                        exports: Default::default(),
-                        root: ModuleRef::new(0),
-                        modules: vec![BytecodeModule::default()],
-                    },
-                    &Default::default(),
-                )
+                ProgramFixture {
+                    exports: Default::default(),
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                }
+                .metadata(context.snapshot(), &Default::default())
                 .unwrap(),
                 &context,
             )
             .unwrap(),
             crate::host::HostRegistryId::default(),
             vec![LinkedHostBindings::default()],
+            None,
         )
         .unwrap()
         .publish(&store)
@@ -552,21 +535,19 @@ fn keeps_latest_and_retained_old_epochs_reachable() {
             "game.player",
             ModuleEpoch(2),
             VerifiedProgram::new(
-                DefinitionMetadata::checked(
-                    context.snapshot(),
-                    BytecodeProgram {
-                        exports: Default::default(),
-                        root: ModuleRef::new(0),
-                        modules: vec![BytecodeModule::default()],
-                    },
-                    &Default::default(),
-                )
+                ProgramFixture {
+                    exports: Default::default(),
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                }
+                .metadata(context.snapshot(), &Default::default())
                 .unwrap(),
                 &context,
             )
             .unwrap(),
             crate::host::HostRegistryId::default(),
             vec![LinkedHostBindings::default()],
+            None,
         )
         .unwrap()
         .publish(&store)

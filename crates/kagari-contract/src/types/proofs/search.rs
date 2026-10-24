@@ -1,6 +1,9 @@
 use crate::{
     language::primitive as intrinsic,
-    types::proofs::{Budget, ProofCatalog, satisfies, validate_references},
+    types::{
+        ConcreteFunctionIdentity,
+        proofs::{Budget, ProofCatalog, satisfies, validate_references},
+    },
 };
 use kagari_common::cancellation::CancellationToken;
 use kagari_types::{
@@ -118,7 +121,7 @@ impl ProofCatalog<'_> {
         )?))
     }
 
-    fn preflight(
+    pub(super) fn preflight(
         &self,
         interface: &NominalTy,
         receiver: &Ty,
@@ -328,13 +331,29 @@ impl ProofCatalog<'_> {
         budget: &Budget<'_>,
         depth: usize,
     ) -> Result<usize, TypeTransformError> {
+        Ok(self
+            .explicit_applications(interface, receiver, assumptions, search, budget, depth)?
+            .len())
+    }
+
+    // This is the same applicable-table traversal used by conformance, stopped
+    // after two matches. Bridges never participate in explicit impl selection.
+    pub(super) fn explicit_applications(
+        &self,
+        interface: &NominalTy,
+        receiver: &Ty,
+        assumptions: &[GenericBound],
+        search: &mut Search,
+        budget: &Budget<'_>,
+        depth: usize,
+    ) -> Result<Vec<ConcreteFunctionIdentity>, TypeTransformError> {
         budget.step(depth)?;
         let key = (interface.clone(), receiver.clone());
         if !search.visiting.insert(key.clone()) {
-            return Ok(0);
+            return Ok(vec![]);
         }
         let result = (|| {
-            let mut count = 0;
+            let mut applications = vec![];
             for implementation in self.implementations.iter() {
                 budget.step(depth)?;
                 let Some(substitution) = match_pattern(
@@ -361,14 +380,26 @@ impl ProofCatalog<'_> {
                     budget.cancel,
                 )?;
                 if self.obligations(&obligations, assumptions, search, budget, depth + 1)? {
-                    count += 1;
+                    applications.push(ConcreteFunctionIdentity {
+                        declaration: *implementation.declaration(),
+                        arguments: implementation
+                            .parameters()
+                            .iter()
+                            .map(|parameter| {
+                                substitution
+                                    .parameter(&parameter.owner, parameter.position)
+                                    .expect("complete application checked above")
+                                    .clone()
+                            })
+                            .collect(),
+                    });
                 }
-                if count >= 2 {
-                    return Ok(2);
+                if applications.len() >= 2 {
+                    break;
                 }
             }
 
-            Ok(count)
+            Ok(applications)
         })();
         search.visiting.remove(&key);
         result

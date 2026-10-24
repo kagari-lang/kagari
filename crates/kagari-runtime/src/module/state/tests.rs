@@ -1,3 +1,4 @@
+use crate::test_support::native::program::ProgramFixture;
 mod compatibility;
 mod contracts;
 mod initialization;
@@ -9,7 +10,8 @@ use crate::{
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
-    instruction::{BytecodeInstruction, ConstantId, ConstantOperand, Slot},
+    artifact::KbcArtifact,
+    instruction::{BytecodeInstruction, Slot},
     module::{
         BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, InstructionOrigin,
         RootSlotLayout,
@@ -129,15 +131,12 @@ pub(crate) fn program(ty: Ty, mutable: bool) -> DefinitionMetadata<BytecodeProgr
         mutable,
         Visibility::Private,
     );
-    DefinitionMetadata::checked(
-        context.snapshot(),
-        BytecodeProgram {
-            exports: Default::default(),
-            root: ModuleRef::new(0),
-            modules: vec![module],
-        },
-        &Default::default(),
-    )
+    ProgramFixture {
+        exports: Default::default(),
+        root: ModuleRef::new(0),
+        modules: vec![module],
+    }
+    .metadata(context.snapshot(), &Default::default())
     .unwrap()
 }
 
@@ -322,31 +321,27 @@ fn reload_shares_cells_preserves_recipe_and_isolates_candidate_and_new_installat
     let module = &mut updated.modules[0];
     let mut initializer = module.functions[1].clone();
     initializer.id = FunctionRef::new(2);
-    initializer.name = "replacement_initializer".into();
-    initializer.slot_count = 1;
-    initializer.metadata.slots = vec![ValueType::I32];
-    initializer.metadata.semantic.slots.insert(0, scalar());
-    initializer.instructions = vec![
-        BytecodeInstruction::LoadConst {
-            dst: Slot::new(0),
-            constant: ConstantId::new(0),
-        },
-        BytecodeInstruction::Return(Some(Slot::new(0))),
-    ];
-    initializer.metadata.origins.push(InstructionOrigin {
-        instruction: 1,
-        span: Default::default(),
-        line: None,
-        column: None,
-    });
+    // Relocate the same protected recipe; compatible publication may not
+    // replace its expression. The old installation still retains slot 1.
+    let mut filler = module.functions[0].clone();
+    filler.id = FunctionRef::new(1);
+    filler.name = "unrelated".into();
+    filler.identity = None;
+    let mut filler_record = module.function_table[0].clone();
+    filler_record.id = filler.id;
+    filler_record.name = filler.name.clone();
+    filler_record.identity = None;
     let mut record = module.function_table[1].clone();
     record.id = initializer.id;
     record.name = initializer.name.clone();
     module.module_slots[0].initializer = initializer.id;
+    module.functions[1] = filler;
+    module.function_table[1] = filler_record;
     module.functions.push(initializer);
     module.function_table.push(record);
-    module.constants.push(ConstantOperand::I32(42));
-    let code = DefinitionMetadata::checked(definitions, updated, &Default::default()).unwrap();
+    let code = ProgramFixture::from(updated)
+        .metadata(definitions, &Default::default())
+        .unwrap();
     let candidate = runtime
         .stage_reload_program(&baseline, "state", code.clone())
         .unwrap();
@@ -467,8 +462,9 @@ fn additions_reordering_and_stale_publication_are_transactional_and_deletion_is_
         Visibility::Public,
     );
     updated.modules[0].module_slots.swap(0, 1);
-    let updated =
-        DefinitionMetadata::checked(context.snapshot(), updated, &Default::default()).unwrap();
+    let updated = ProgramFixture::from(updated)
+        .metadata(context.snapshot(), &Default::default())
+        .unwrap();
     let abandoned = runtime
         .stage_reload_program(&baseline, "state", updated.clone())
         .unwrap();
@@ -509,8 +505,8 @@ fn additions_reordering_and_stale_publication_are_transactional_and_deletion_is_
 }
 
 #[test]
-fn private_contract_changes_and_nonstatic_public_additions_remain_rejected() {
-    for mutation in 0..5 {
+fn private_contract_changes_remain_rejected() {
+    for mutation in 0..4 {
         let mut runtime = Runtime::default();
         let code = program(scalar(), true);
         let baseline = runtime.load_program("state", code.clone()).unwrap();
@@ -520,7 +516,7 @@ fn private_contract_changes_and_nonstatic_public_additions_remain_rejected() {
             0 => candidate.modules[0].module_slots.clear(),
             1 => candidate.modules[0].module_slots[0].contract.mutable = false,
             2 => candidate.modules[0].module_slots[0].contract.visibility = Visibility::PublicCrate,
-            3 => {
+            _ => {
                 candidate.modules[0].module_slots[0].contract.ty = Ty::Builtin(BuiltinType::I64);
                 candidate.modules[0].functions[1].metadata.semantic.result =
                     Some(Ty::Builtin(BuiltinType::I64));
@@ -528,65 +524,14 @@ fn private_contract_changes_and_nonstatic_public_additions_remain_rejected() {
                 candidate.modules[0].function_table[1].return_type = ValueType::I64;
                 candidate.modules[0].types.push(ValueType::I64);
             }
-            _ => {
-                let context = DefinitionContext::new().unwrap();
-                let mut candidate =
-                    DefinitionMetadata::checked(definitions, candidate, &Default::default())
-                        .unwrap()
-                        .import_into(&context, &Default::default())
-                        .unwrap()
-                        .into_records();
-                let root = context.intern_root(&candidate.modules[0].identity).unwrap();
-                context
-                    .intern_child(root, DefinitionKind::Const, "added_constant", 0)
-                    .unwrap();
-                candidate.modules[0]
-                    .public_items
-                    .push(PublicItem::Const(ConstDef {
-                        name: "added_constant".into(),
-                        ty: scalar(),
-                        value: "7".into(),
-                    }));
-                // This is a valid constant addition, not malformed executable metadata.
-                VerifiedProgram::new(
-                    DefinitionMetadata::checked(
-                        context.snapshot(),
-                        candidate.clone(),
-                        &Default::default(),
-                    )
-                    .unwrap(),
-                    &context,
-                )
-                .unwrap();
-                assert!(
-                    runtime
-                        .stage_reload_program(
-                            &baseline,
-                            "state",
-                            DefinitionMetadata::checked(
-                                context.snapshot(),
-                                candidate,
-                                &Default::default()
-                            )
-                            .unwrap()
-                        )
-                        .is_err()
-                );
-                assert_eq!(
-                    runtime
-                        .read_module_slot(&baseline, ModuleSlot::new(0))
-                        .unwrap(),
-                    Value::I32(7)
-                );
-                continue;
-            }
         }
         assert!(
             runtime
                 .stage_reload_program(
                     &baseline,
                     "state",
-                    DefinitionMetadata::checked(definitions, candidate, &Default::default())
+                    ProgramFixture::from(candidate)
+                        .metadata(definitions, &Default::default())
                         .unwrap()
                 )
                 .is_err()
@@ -596,6 +541,86 @@ fn private_contract_changes_and_nonstatic_public_additions_remain_rejected() {
                 .read_module_slot(&baseline, ModuleSlot::new(0))
                 .unwrap(),
             Value::I32(7)
+        );
+    }
+}
+
+#[test]
+fn public_constant_additions_preserve_contracts_and_lazy_static_state_source_free() {
+    for initialized in [false, true] {
+        let mut runtime = Runtime::default();
+        let code = program(scalar(), true);
+        let baseline = runtime.load_program("state", code.clone()).unwrap();
+        if initialized {
+            ready(&runtime, &baseline, 0, Value::I32(7));
+        }
+        let context = DefinitionContext::new().unwrap();
+        let mut candidate = code
+            .import_into(&context, &Default::default())
+            .unwrap()
+            .into_records();
+        let root = context.intern_root(&candidate.modules[0].identity).unwrap();
+        context
+            .intern_child(root, DefinitionKind::Const, "added_constant", 0)
+            .unwrap();
+        let added = PublicItem::Const(ConstDef {
+            name: "added_constant".into(),
+            ty: scalar(),
+            value: "7".into(),
+        });
+        candidate.modules[0].public_items.push(added.clone());
+        let candidate = ProgramFixture::from(candidate).build(&context);
+        VerifiedProgram::new(
+            DefinitionMetadata::checked(context.snapshot(), candidate.clone(), &Default::default())
+                .unwrap(),
+            &context,
+        )
+        .unwrap();
+        let artifact =
+            KbcArtifact::from_program(candidate, Default::default(), &context, &Default::default())
+                .unwrap();
+        let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
+        let staged = runtime
+            .stage_reload_artifact(
+                &baseline,
+                "state",
+                KbcArtifact::from_bytes(&bytes).unwrap(),
+                &Default::default(),
+            )
+            .unwrap();
+        let published = runtime.publish_staged_reload(staged).unwrap();
+        assert!(published.bytecode.public_items.contains(&added));
+        assert_eq!(published.bytecode.module_slots.len(), 1);
+        assert_eq!(
+            cell(&runtime.modules, &baseline, 0),
+            cell(&runtime.modules, &published, 0)
+        );
+        if initialized {
+            assert_eq!(
+                runtime
+                    .read_module_slot(&published, ModuleSlot::new(0))
+                    .unwrap(),
+                Value::I32(7)
+            );
+        } else {
+            assert!(matches!(
+                runtime
+                    .modules
+                    .static_state(&published, ModuleSlot::new(0))
+                    .unwrap(),
+                StaticState::Uninitialized(_)
+            ));
+        }
+        assert_eq!(runtime.resources().counters().peak_call_depth, 0);
+        // Once published, the added constant is an old contract, not disposable metadata.
+        assert!(
+            runtime
+                .stage_reload_program(&published, "state", code)
+                .is_err()
+        );
+        assert_eq!(
+            runtime.modules().latest("state").unwrap().key(),
+            published.key()
         );
     }
 }

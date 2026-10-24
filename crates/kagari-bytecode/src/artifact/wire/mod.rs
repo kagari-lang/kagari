@@ -2,7 +2,7 @@
 mod calls;
 mod envelope;
 mod function;
-mod instruction;
+pub(crate) mod instruction;
 mod interface;
 mod module;
 

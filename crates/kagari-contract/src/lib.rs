@@ -19,3 +19,4 @@ pub mod slots;
 pub mod standard;
 pub mod statics;
 pub mod types;
+pub mod updates;

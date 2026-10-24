@@ -12,12 +12,15 @@ use kagari_common::{
         table::{DefinitionId, DefinitionTable},
     },
 };
-use kagari_contract::exports::{ProgramExports, TypeExport};
-use kagari_types::callable::Signature;
-use std::{
-    collections::{BTreeMap, HashMap},
-    mem,
+use kagari_contract::{
+    decode_limits::MAX_TABLE_RECORDS,
+    exports::{ProgramExports, TypeExport},
 };
+use kagari_types::callable::Signature;
+use std::collections::{BTreeMap, HashMap, HashSet};
+
+#[cfg(test)]
+mod tests;
 
 #[derive(Default)]
 struct Namespace<'a> {
@@ -29,6 +32,7 @@ struct Namespace<'a> {
 struct Contract {
     root: usize,
     entry: Option<usize>,
+    canonical: BTreeMap<ModuleIdentity, usize>,
 }
 
 struct Comparison<'a> {
@@ -127,6 +131,14 @@ impl<'a> Comparison<'a> {
                     .collect::<Result<_, _>>()?,
             });
         }
+        let canonical = if exports.namespaces.is_empty() {
+            BTreeMap::from([(root.clone(), offset)])
+        } else {
+            indices
+                .iter()
+                .map(|(identity, index)| ((*identity).clone(), *index))
+                .collect()
+        };
         let root = if exports.namespaces.is_empty() {
             // An explicitly empty authoring graph and an empty root namespace
             // expose the same public paths.
@@ -138,66 +150,78 @@ impl<'a> Comparison<'a> {
         Ok(Contract {
             root,
             entry: exports.entry.map(|id| signatures[&id]),
+            canonical,
         })
     }
 
     fn compare(&self, left: Contract, right: Contract) -> Result<(), ReloadValidationError> {
-        if left.entry != right.entry {
+        if left.entry.is_some() && left.entry != right.entry {
             return Err(invalid());
         }
-        let mut sets = Equivalence::new(self.namespaces.len());
-        let mut pending = vec![(left.root, right.root)];
-        while let Some((left, right)) = pending.pop() {
-            let left = sets.find(left);
-            let right = sets.find(right);
-            if left == right {
-                continue;
-            }
+        let mut traversal = Preservation::new(MAX_TABLE_RECORDS);
+        traversal.enqueue(left.root, right.root)?;
+        // A previously exposed canonical namespace remains a query start even
+        // when every root alias now reaches a different, compatible namespace.
+        for (identity, left) in left.canonical {
+            let right = right.canonical.get(&identity).ok_or_else(invalid)?;
+            traversal.enqueue(left, *right)?;
+        }
+        while let Some((left, right)) = traversal.pending.pop() {
             let a = &self.namespaces[left];
             let b = &self.namespaces[right];
-            if a.functions != b.functions
-                || a.types != b.types
-                || !a.modules.keys().eq(b.modules.keys())
-            {
-                return Err(invalid());
+            for (name, signature) in &a.functions {
+                traversal.charge()?;
+                if b.functions.get(name) != Some(signature) {
+                    return Err(invalid());
+                }
             }
-            sets.join(left, right);
-            pending.extend(a.modules.values().copied().zip(b.modules.values().copied()));
+            for (name, ty) in &a.types {
+                traversal.charge()?;
+                if b.types.get(name) != Some(ty) {
+                    return Err(invalid());
+                }
+            }
+            for (name, left) in &a.modules {
+                let right = b.modules.get(name).ok_or_else(invalid)?;
+                traversal.enqueue(*left, *right)?;
+            }
         }
         Ok(())
     }
 }
 
-/// Union representatives have already-matched labels and signatures. Comparing
-/// representatives makes each removed namespace pay for its outgoing edges once;
-/// equal cycles of different lengths do not create a quadratic product traversal.
-struct Equivalence {
-    parents: Vec<usize>,
-    sizes: Vec<usize>,
+/// Inclusion is directional, not an equivalence relation: joining namespaces
+/// would lose obligations when one old namespace has several candidate targets.
+/// Charge even repeated edges before enqueueing, bounding both work and storage.
+struct Preservation {
+    remaining: usize,
+    seen: HashSet<(usize, usize)>,
+    pending: Vec<(usize, usize)>,
 }
 
-impl Equivalence {
-    fn new(count: usize) -> Self {
+impl Preservation {
+    fn new(limit: usize) -> Self {
         Self {
-            parents: (0..count).collect(),
-            sizes: vec![1; count],
+            remaining: limit,
+            seen: HashSet::new(),
+            pending: Vec::new(),
         }
     }
 
-    fn find(&mut self, mut node: usize) -> usize {
-        while self.parents[node] != node {
-            self.parents[node] = self.parents[self.parents[node]];
-            node = self.parents[node];
-        }
-        node
+    fn charge(&mut self) -> Result<(), ReloadValidationError> {
+        self.remaining = self
+            .remaining
+            .checked_sub(1)
+            .ok_or(ReloadValidationError::PublicExportComparisonLimit)?;
+        Ok(())
     }
 
-    fn join(&mut self, mut left: usize, mut right: usize) {
-        if self.sizes[left] < self.sizes[right] {
-            mem::swap(&mut left, &mut right);
+    fn enqueue(&mut self, left: usize, right: usize) -> Result<(), ReloadValidationError> {
+        self.charge()?;
+        if self.seen.insert((left, right)) {
+            self.pending.push((left, right));
         }
-        self.parents[right] = left;
-        self.sizes[left] += self.sizes[right];
+        Ok(())
     }
 }
 

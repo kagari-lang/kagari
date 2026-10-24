@@ -8,7 +8,10 @@ use crate::{
     tests::native_fixtures,
     vm::{JitExecutionStatus, Vm, owned::DriveResult},
 };
-use kagari_bytecode::instruction::ModuleSlot;
+use kagari_bytecode::{instruction::ModuleSlot, program::BytecodeProgram};
+use kagari_common::identity::metadata::DefinitionMetadata;
+use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
@@ -18,10 +21,12 @@ use kagari_runtime::{
         adapter::Async, builder::ModuleBuilder, completion::Completion, declarations::FunctionDecl,
         future::NativeStart, types::Type,
     },
+    reload::ReloadValidationError,
     session::{ExecutionEvent, ExecutionObserver},
     task::{CancellationCause, drive::TaskDriveResult},
     value::Value,
 };
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use std::{
     num::NonZeroUsize,
     sync::{
@@ -52,9 +57,29 @@ fn state(runtime: &Runtime, loaded: &LoadedModule, name: &str) -> StaticState {
         .clone()
 }
 
+// These scalar reloads require a known protected closure. Loading the entire
+// foundation source catalog also publishes unused native Hash/Eq protocols whose
+// unknown callbacks conservatively freeze every handler and executable addition.
+fn compile_scalar_static_bytecode(text: &str) -> DefinitionMetadata<BytecodeProgram> {
+    let mut sources = SourceDatabase::default();
+    let root = sources
+        .set("test.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut analysis = AnalysisDatabase::default();
+    let checked = analysis
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap()
+        .check_program(root, &Default::default())
+        .unwrap();
+    let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    lower_program_to_bytecode(&mir, &Default::default())
+        .unwrap()
+        .into_unverified()
+}
+
 #[test]
 fn source_and_decoded_statics_are_lazy_shared_on_reload_and_keep_fixed_recipes() {
-    let first = compile_test_bytecode(
+    let first = compile_scalar_static_bytecode(
         r#"
         static var count: i32 = 0;
         static val cold: i32 = 7;
@@ -65,29 +90,34 @@ fn source_and_decoded_statics_are_lazy_shared_on_reload_and_keep_fixed_recipes()
         pub fn read_added() -> i32 { 0 }
     "#,
     );
-    let second = compile_test_bytecode(
+    let second = compile_scalar_static_bytecode(
         r#"
         static val added: i32 = 5;
         static val unused: i32 = fail();
-        static val cold: i32 = 90;
-        static var count: i32 = 100;
+        static val cold: i32 = 7;
+        static var count: i32 = 0;
         fn fail() -> i32 { val zero = 0; 1 / zero }
         pub fn tick() -> i32 { count += 1; count }
         pub fn read_cold() -> i32 { cold }
         pub fn read_added() -> i32 { added }
     "#,
     );
-    let third = compile_test_bytecode(
-        r#"
-        static var count: i32 = 200;
-        static val cold: i32 = 900;
+    let third_source = r#"
+        static var count: i32 = 0;
+        static val cold: i32 = 7;
         static val unused: i32 = fail();
-        static val added: i32 = 50;
+        static val added: i32 = 5;
         fn fail() -> i32 { val zero = 0; 1 / zero }
         pub fn tick() -> i32 { count += 10; count }
         pub fn read_cold() -> i32 { cold }
         pub fn read_added() -> i32 { added }
-    "#,
+    "#;
+    let third = compile_scalar_static_bytecode(third_source);
+    let changed_recipes = compile_scalar_static_bytecode(
+        &third_source
+            .replace("count: i32 = 0", "count: i32 = 200")
+            .replace("cold: i32 = 7", "cold: i32 = 900")
+            .replace("added: i32 = 5", "added: i32 = 50"),
     );
     for decoded in [false, true] {
         let code = |program| {
@@ -135,9 +165,14 @@ fn source_and_decoded_statics_are_lazy_shared_on_reload_and_keep_fixed_recipes()
             state(vm.runtime(), &current, "unused"),
             StaticState::Uninitialized(_)
         ));
+        assert!(matches!(
+            vm.runtime()
+                .stage_reload_program(&latest, "state", code(changed_recipes.clone())),
+            Err(ReloadValidationError::UpdateEvidence(_))
+        ));
         let fresh = vm
             .runtime_mut()
-            .load_program("fresh", code(third.clone()))
+            .load_program("fresh", code(changed_recipes.clone()))
             .unwrap();
         assert_eq!(call(&vm, &fresh, "tick"), Value::I32(210));
         assert_eq!(call(&vm, &fresh, "read_cold"), Value::I32(900));
@@ -164,7 +199,7 @@ fn candidate_indirect_reads_and_writes_cannot_touch_shared_or_private_cells() {
     );
     let mut runtime = standard_runtime(Default::default());
     let old = runtime
-        .load_program("candidate", compile_test_bytecode(source))
+        .load_program("candidate", compile_scalar_static_bytecode(source))
         .unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(call(&vm, &old, "tick"), Value::I32(1));
@@ -173,7 +208,7 @@ fn candidate_indirect_reads_and_writes_cannot_touch_shared_or_private_cells() {
         .stage_reload_program(
             &old,
             "candidate",
-            round_trip_bytecode(compile_test_bytecode(&candidate_source)),
+            round_trip_bytecode(compile_scalar_static_bytecode(&candidate_source)),
         )
         .unwrap();
     {
@@ -223,7 +258,7 @@ fn runtime_transfer_preserves_ready_failed_and_unstarted_recipe_ownership() {
     "#;
     let mut runtime = standard_runtime(Default::default());
     let old = runtime
-        .load_program("transfer", compile_test_bytecode(source))
+        .load_program("transfer", compile_scalar_static_bytecode(source))
         .unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(call(&vm, &old, "tick"), Value::I32(1));
@@ -233,7 +268,9 @@ fn runtime_transfer_preserves_ready_failed_and_unstarted_recipe_ownership() {
         .stage_reload_program(
             &old,
             "transfer",
-            round_trip_bytecode(compile_test_bytecode(&source.replace("= 7;", "= 90;"))),
+            round_trip_bytecode(compile_scalar_static_bytecode(
+                &source.replace("{ cold }", "{ cold + 0 }"),
+            )),
         )
         .unwrap();
     let current = vm.runtime().publish_staged_reload(staged).unwrap();
@@ -381,12 +418,50 @@ fn imported_static_executes_its_fixed_supplier_generation_not_the_callers_module
         use self::provider::value;
         pub fn read() -> i32 { value }
     "#;
-    let first = compile_test_bytecode(source);
-    let second = compile_test_bytecode(&source.replace("{ 7 }", "{ 90 }"));
+    let changed_handler = source.replace("{ value }", "{ value + 0 }");
+    // With unknown foundation protocols published, even this ordinary handler
+    // edit is protected. Independent recompilation of unchanged code remains valid.
+    {
+        let mut runtime = standard_runtime(Default::default());
+        let baseline = runtime
+            .load_program("foundation", compile_test_bytecode(source))
+            .unwrap();
+        let unchanged = runtime
+            .stage_reload_program(
+                &baseline,
+                "foundation",
+                round_trip_bytecode(compile_test_bytecode(source)),
+            )
+            .unwrap();
+        drop(unchanged);
+        let error = runtime
+            .stage_reload_program(
+                &baseline,
+                "foundation",
+                round_trip_bytecode(compile_test_bytecode(&changed_handler)),
+            )
+            .unwrap_err();
+        assert!(
+            matches!(&error, ReloadValidationError::UpdateEvidence(message) if message.contains("unknown dependency edge")),
+            "{error}"
+        );
+        assert_eq!(
+            runtime.modules().latest("foundation").unwrap().key(),
+            baseline.key()
+        );
+        assert_eq!(runtime.resources().counters().peak_call_depth, 0);
+    }
+    let first = compile_scalar_static_bytecode(source);
+    let changed_recipe = compile_scalar_static_bytecode(&source.replace("{ 7 }", "{ 90 }"));
+    let second = compile_scalar_static_bytecode(&changed_handler);
     let mut runtime = standard_runtime(Default::default());
     let old = runtime
         .load_program("imports", round_trip_bytecode(first))
         .unwrap();
+    assert!(matches!(
+        runtime.stage_reload_program(&old, "imports", round_trip_bytecode(changed_recipe)),
+        Err(ReloadValidationError::UpdateEvidence(_))
+    ));
     let staged = runtime
         .stage_reload_program(&old, "imports", round_trip_bytecode(second))
         .unwrap();
@@ -601,6 +676,18 @@ fn cycles_and_traps_poison_only_started_cells_without_replaying_effects() {
             let StaticState::Failed(original_failure) = state(vm.runtime(), &loaded, "bad") else {
                 unreachable!()
             };
+            assert!(matches!(
+                vm.runtime().stage_reload_program(
+                    &loaded,
+                    "poison",
+                    if decoded {
+                        round_trip_bytecode(repaired.clone())
+                    } else {
+                        repaired.clone()
+                    }
+                ),
+                Err(ReloadValidationError::UpdateEvidence(_))
+            ));
             let mut current = loaded;
             for _ in 0..2 {
                 let staged = vm
@@ -609,9 +696,9 @@ fn cycles_and_traps_poison_only_started_cells_without_replaying_effects() {
                         &current,
                         "poison",
                         if decoded {
-                            round_trip_bytecode(repaired.clone())
+                            round_trip_bytecode(program.clone())
                         } else {
-                            repaired.clone()
+                            program.clone()
                         },
                     )
                     .unwrap();

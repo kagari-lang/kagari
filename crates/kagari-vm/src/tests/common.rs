@@ -1,3 +1,4 @@
+use crate::tests::native_program::ProgramFixture;
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     artifact::KbcArtifact,
@@ -21,7 +22,10 @@ use kagari_runtime::{
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib as foundation;
-use kagari_types::declaration::logging;
+use kagari_types::{
+    declaration::logging,
+    ty::{NominalTy, Ty},
+};
 use std::{iter, sync::Arc};
 
 pub fn load_bytecode_module(
@@ -47,15 +51,12 @@ pub fn module_program(
     module: DefinitionMetadata<BytecodeModule>,
 ) -> DefinitionMetadata<BytecodeProgram> {
     let (definitions, module) = module.into_parts();
-    DefinitionMetadata::checked(
-        definitions,
-        BytecodeProgram {
-            exports: Default::default(),
-            root: ModuleRef::new(0),
-            modules: vec![module],
-        },
-        &Default::default(),
-    )
+    ProgramFixture {
+        exports: Default::default(),
+        root: ModuleRef::new(0),
+        modules: vec![module],
+    }
+    .metadata(definitions, &Default::default())
     .unwrap()
 }
 
@@ -274,6 +275,20 @@ pub fn point_function_module(
     module.structures = program.records().modules[program.records().root.index()]
         .structures
         .clone();
+    let point = Ty::Struct(NominalTy {
+        declaration: module.structures[0].declaration,
+        arguments: vec![],
+        associated_types: Default::default(),
+    });
+    let metadata = &mut module.functions[0].metadata;
+    if return_type == ValueType::HeapObject {
+        metadata.semantic.result = Some(point.clone());
+    }
+    for (index, ty) in metadata.slots.iter().enumerate() {
+        if *ty == ValueType::HeapObject {
+            metadata.semantic.slots.insert(index, point.clone());
+        }
+    }
     DefinitionMetadata::checked(program.definitions().clone(), module, &Default::default()).unwrap()
 }
 

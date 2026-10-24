@@ -253,49 +253,60 @@ fn executes_runtime_reflect_get_and_set_field_helpers() {
 
 #[test]
 fn executes_runtime_reflect_set_index_helper() {
+    let module = test_function_module(
+        "main",
+        vec![
+            BytecodeInstruction::LoadConst {
+                dst: Slot::new(0),
+                constant: ConstantId::new(0),
+            },
+            BytecodeInstruction::LoadConst {
+                dst: Slot::new(1),
+                constant: ConstantId::new(1),
+            },
+            BytecodeInstruction::MakeArray {
+                element: Ty::Builtin(BuiltinType::I32),
+                dst: Slot::new(2),
+                elements: vec![Slot::new(0), Slot::new(1)],
+            },
+            BytecodeInstruction::LoadConst {
+                dst: Slot::new(3),
+                constant: ConstantId::new(2),
+            },
+            BytecodeInstruction::Call {
+                dst: Some(Slot::new(4)),
+                callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetIndex),
+                args: vec![Slot::new(2), Slot::new(3), Slot::new(1)],
+            },
+            BytecodeInstruction::Return(Some(Slot::new(4))),
+        ],
+        ValueType::HeapObject,
+        vec![
+            ValueType::I32,
+            ValueType::I32,
+            ValueType::HeapObject,
+            ValueType::I32,
+            ValueType::HeapObject,
+        ],
+        vec![
+            ConstantOperand::I32(1),
+            ConstantOperand::I32(2),
+            ConstantOperand::I32(0),
+        ],
+    );
+    let (definitions, mut module) = module.into_parts();
+    let array = Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32)));
+    module.functions[0].metadata.semantic.result = Some(array.clone());
+    for slot in [2, 4] {
+        module.functions[0]
+            .metadata
+            .semantic
+            .slots
+            .insert(slot, array.clone());
+    }
     let (runtime, loaded) = load_reflection_bytecode_module(
         "reflect_index.kbc",
-        test_function_module(
-            "main",
-            vec![
-                BytecodeInstruction::LoadConst {
-                    dst: Slot::new(0),
-                    constant: ConstantId::new(0),
-                },
-                BytecodeInstruction::LoadConst {
-                    dst: Slot::new(1),
-                    constant: ConstantId::new(1),
-                },
-                BytecodeInstruction::MakeArray {
-                    element: Ty::Builtin(BuiltinType::I32),
-                    dst: Slot::new(2),
-                    elements: vec![Slot::new(0), Slot::new(1)],
-                },
-                BytecodeInstruction::LoadConst {
-                    dst: Slot::new(3),
-                    constant: ConstantId::new(2),
-                },
-                BytecodeInstruction::Call {
-                    dst: Some(Slot::new(4)),
-                    callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetIndex),
-                    args: vec![Slot::new(2), Slot::new(3), Slot::new(1)],
-                },
-                BytecodeInstruction::Return(Some(Slot::new(4))),
-            ],
-            ValueType::HeapObject,
-            vec![
-                ValueType::I32,
-                ValueType::I32,
-                ValueType::HeapObject,
-                ValueType::I32,
-                ValueType::HeapObject,
-            ],
-            vec![
-                ConstantOperand::I32(1),
-                ConstantOperand::I32(2),
-                ConstantOperand::I32(0),
-            ],
-        ),
+        DefinitionMetadata::checked(definitions, module, &Default::default()).unwrap(),
     );
 
     let vm = Vm::new(runtime);

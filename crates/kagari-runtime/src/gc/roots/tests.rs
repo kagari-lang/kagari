@@ -1,10 +1,8 @@
 use super::*;
+use crate::test_support::native::program::ProgramFixture;
 use crate::{Runtime, test_support::layouts::allocation_owner};
-use kagari_bytecode::{
-    module::BytecodeModule,
-    program::{BytecodeProgram, ModuleRef},
-};
-use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
+use kagari_common::identity::map::DefinitionContext;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::thread;
 
@@ -248,13 +246,13 @@ fn root_leases_outlive_runtime_without_owning_its_storage() {
 #[test]
 fn metadata_roots_retain_programs_until_the_last_external_lease_drops() {
     let program = || {
-        DefinitionMetadata::checked(
+        ProgramFixture {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule::default()],
+        }
+        .metadata(
             DefinitionContext::new().unwrap().snapshot(),
-            BytecodeProgram {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
             &Default::default(),
         )
         .unwrap()
@@ -296,13 +294,13 @@ fn metadata_roots_retain_programs_until_the_last_external_lease_drops() {
 #[test]
 fn rejected_metadata_replacement_keeps_the_original_program_reachable() {
     let program = || {
-        DefinitionMetadata::checked(
+        ProgramFixture {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule::default()],
+        }
+        .metadata(
             DefinitionContext::new().unwrap().snapshot(),
-            BytecodeProgram {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
             &Default::default(),
         )
         .unwrap()

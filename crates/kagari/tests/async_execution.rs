@@ -32,6 +32,11 @@ use std::{
     time::Duration,
 };
 
+// Same source-free evidence authoring owner as the embedding unit fixtures.
+#[allow(dead_code)] // This consumer needs the builder, not the native-only fixture.
+#[path = "../../kagari-runtime/tests/support/native/program.rs"]
+mod native_program;
+
 #[path = "support/async_fixture.rs"]
 mod fixture;
 use fixture::{Fixture, slice};

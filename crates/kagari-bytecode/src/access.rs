@@ -22,7 +22,7 @@ use kagari_contract::{
     callable::receiver::{accepts_owned, accepts_view},
     operations::IterOp,
     standard::RuntimePrimitive as S,
-    types::{PublicItem, inherent::executable_signature_matches},
+    types::{PublicItem, inherent::executable_signature_matches, named::verify::signature_matches},
 };
 use kagari_types::{
     collection::CollectionAccess as Access,
@@ -228,7 +228,15 @@ pub(super) fn verify(
         return Err(invalid());
     }
     if let Some(identity) = &function.identity {
-        if !executable_signature_matches(&module.public_items, identity, semantic, definitions) {
+        if !executable_signature_matches(&module.public_items, identity, semantic, definitions)
+            || !signature_matches(
+                &module.named_declarations,
+                identity,
+                semantic,
+                definitions,
+                &CancellationToken::default(),
+            )
+        {
             return Err(invalid());
         }
         let name = definitions

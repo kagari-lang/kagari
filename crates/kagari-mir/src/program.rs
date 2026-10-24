@@ -8,11 +8,12 @@ pub mod records;
 mod shared;
 #[cfg(test)]
 mod type_exports;
+pub mod updates;
 
 use crate::{
     ids::InstanceId,
     instruction::{CallTarget, ConstructionTarget as MirConstruction, Instruction},
-    program::{proofs::ProofResources, records::MirProgram},
+    program::{construction::UpdateCoverage, proofs::ProofResources, records::MirProgram},
     verify::{
         MirVerificationError, ValidatedMirModule, VerificationBudget, VerifiedMirModule, ownership,
         statics, verify_with_budget,
@@ -36,7 +37,12 @@ use kagari_contract::{
     layout::LayoutValidationError,
     representation::semantic_representation,
     types as abi,
-    types::{ConcreteFunctionIdentity, PublicItem, verify::trait_references_match},
+    types::{
+        ConcreteFunctionIdentity, PublicItem,
+        named::{correspondence::validate_inventory, origins},
+        verify::trait_references_match,
+    },
+    updates::{UpdateEvidence, demands::Coverage, limits::UpdateError},
 };
 use kagari_types::{
     declaration::TypeDefKind,
@@ -55,6 +61,7 @@ pub enum ProgramErrorKind {
     Cancelled,
     InvalidGraph,
     InvalidExports,
+    Updates(UpdateError),
     Verification(MirVerificationError),
     UnresolvedFunction(DefinitionPath),
     FunctionContract(DefinitionPath),
@@ -76,6 +83,8 @@ pub struct VerifiedMirProgram {
     bindings: HashMap<ConcreteFunctionIdentity, ProgramFunctionRef>,
     definitions: DefinitionTable,
     exports: ProgramExports,
+    update_evidence: UpdateEvidence,
+    update_coverage: UpdateCoverage,
 }
 
 impl VerifiedMirProgram {
@@ -96,6 +105,21 @@ impl VerifiedMirProgram {
         &self.exports
     }
 
+    /// Checked candidate products for compiler retained-demand planning.
+    pub fn update_coverage(&self) -> Coverage<'_> {
+        Coverage {
+            evidence: &self.update_evidence,
+            methods: &self.update_coverage.methods,
+            constructions: &self.update_coverage.constructions,
+            layouts: &self.update_coverage.layouts,
+            natives: &[],
+        }
+    }
+
+    pub fn update_evidence(&self) -> &UpdateEvidence {
+        &self.update_evidence
+    }
+
     pub fn function(&self, instance: &ConcreteFunctionIdentity) -> Option<ProgramFunctionRef> {
         self.bindings.get(instance).copied()
     }
@@ -107,6 +131,7 @@ impl VerifiedMirProgram {
             MirProgram {
                 root: self.root,
                 exports: self.exports,
+                update_evidence: self.update_evidence,
                 modules: self
                     .modules
                     .into_iter()
@@ -133,6 +158,7 @@ pub fn verify_program(
         root,
         modules: inputs,
         exports,
+        update_evidence,
     } = input;
     let error = |module: &ModuleIdentity, kind| ProgramError {
         module: Box::new(module.clone()),
@@ -253,6 +279,19 @@ pub fn verify_program(
         }
         modules.push(module);
     }
+    validate_inventory(
+        modules
+            .iter()
+            .flat_map(|module| &module.abi.named_declarations),
+        &definitions,
+        cancel,
+    )
+    .map_err(|cause| {
+        error(
+            &root,
+            ProgramErrorKind::Verification(ownership::mapping_error(cause)),
+        )
+    })?;
     let Some(root_index) = indices.get(&root).copied() else {
         return Err(error(&root, ProgramErrorKind::InvalidGraph));
     };
@@ -306,6 +345,31 @@ pub fn verify_program(
                 (owner == index || dependencies.contains(&owner)).then_some(module)
             })
             .collect();
+        origins::validate(
+            &module.abi.function_origins,
+            &module.identity,
+            &definitions,
+            cancel,
+            module
+                .functions
+                .iter()
+                .map(|function| (&function.instance, &function.semantic)),
+            |id| {
+                closure
+                    .iter()
+                    .flat_map(|module| &module.abi.named_declarations)
+                    .find(|record| record.declaration == id)
+            },
+        )
+        .map_err(|cause| {
+            error(
+                &module.identity,
+                match cause {
+                    TypeTransformError::Cancelled => ProgramErrorKind::Cancelled,
+                    _ => ProgramErrorKind::InvalidGraph,
+                },
+            )
+        })?;
         if !trait_references_match(
             &module.abi.trait_references,
             |id| {
@@ -665,7 +729,7 @@ pub fn verify_program(
             )
         })?;
     drop(proofs);
-    construction::verify_closed_interfaces(
+    let update_coverage = construction::verify_closed_interfaces(
         &modules
             .iter()
             .map(|module| module.metadata.records())
@@ -748,6 +812,26 @@ pub fn verify_program(
             )
         })?;
     drop(types);
+    updates::verify(
+        &modules
+            .iter()
+            .map(|module| module.metadata.records())
+            .collect::<Vec<_>>(),
+        &update_evidence,
+        &definitions,
+        &export_catalog,
+        cancel,
+    )
+    .map_err(|cause| {
+        error(
+            &root,
+            if cause == UpdateError::Cancelled {
+                ProgramErrorKind::Cancelled
+            } else {
+                ProgramErrorKind::Updates(cause)
+            },
+        )
+    })?;
     drop(export_catalog);
     let modules = modules.into_iter().map(ValidatedMirModule::seal).collect();
     Ok(VerifiedMirProgram {
@@ -756,5 +840,7 @@ pub fn verify_program(
         bindings,
         definitions,
         exports,
+        update_evidence,
+        update_coverage,
     })
 }

@@ -34,6 +34,7 @@ fn external_artifact_cancellation_during_graph_validation_never_returns_a_seal()
         .collect();
     let artifact = KbcArtifact::from_program(
         BytecodeProgram {
+            update_evidence: crate::program::updates::empty(),
             root: ModuleRef::new(0),
             modules,
             exports: Default::default(),

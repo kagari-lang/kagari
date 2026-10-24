@@ -38,7 +38,10 @@ use crate::{
         staging::{CandidateLease, StagedProgram},
     },
     native::binding::LinkedNativeFunction,
-    reload::{ModuleEpoch, ModuleEpochAllocator},
+    reload::{
+        ModuleEpoch, ModuleEpochAllocator,
+        updates::{ReloadAdmission, RetainedDemands, coverage::CoverageFacts},
+    },
 };
 use kagari_bytecode::{
     artifact::{ArtifactFingerprint, ArtifactValidationError, validate_program_resource_limits},
@@ -53,6 +56,7 @@ use kagari_contract::{
     exports::ProgramExports,
     ids::FunctionRef,
     layout::{EnumLayout, EnumVariantLayout, StructLayout},
+    updates::UpdateEvidence,
 };
 
 use kagari_common::{
@@ -134,6 +138,8 @@ pub struct LoadedModule {
 /// Host bindings and module instances are created separately for each runtime.
 #[derive(Debug, Clone)]
 pub struct VerifiedProgram {
+    update_evidence: Arc<UpdateEvidence>,
+    update_coverage: Arc<CoverageFacts>,
     initializers: Arc<[HashSet<FunctionRef>]>,
     exports: Arc<ProgramExports>,
     export_targets: Arc<HashMap<DefinitionId, ExportTarget>>,
@@ -198,9 +204,18 @@ impl VerifiedProgram {
             .cloned()
             .map(Arc::new)
             .collect();
-        let definition_references =
-            Self::prepare_definition_references(&modules, &program.program().exports)
-                .expect("verified program retains bounded definition references");
+        let update_coverage = Arc::new(CoverageFacts::from_checked(
+            program.update_coverage(),
+            &program.program().modules,
+            program.definitions(),
+        ));
+        let definition_references = Self::prepare_definition_references(
+            &modules,
+            &program.program().exports,
+            &program.program().update_evidence,
+            &update_coverage,
+        )
+        .expect("verified program retains bounded definition references");
         let mut allocation_work = 0;
         let mut execution: Vec<ExecutionModule> = modules
             .iter()
@@ -232,6 +247,8 @@ impl VerifiedProgram {
             .collect::<Vec<HashSet<FunctionRef>>>()
             .into();
         Self {
+            update_evidence: Arc::new(program.program().update_evidence.clone()),
+            update_coverage,
             initializers,
             execution: execution.into(),
             root: program.program().root,
@@ -243,6 +260,15 @@ impl VerifiedProgram {
             modules,
             dependencies,
         }
+    }
+
+    /// Independently verified publication evidence, in `definitions()`'s scope.
+    pub fn update_evidence(&self) -> &UpdateEvidence {
+        &self.update_evidence
+    }
+
+    pub(crate) fn update_coverage(&self) -> &CoverageFacts {
+        &self.update_coverage
     }
 
     pub fn root(&self) -> ModuleRef {
@@ -271,6 +297,7 @@ impl VerifiedProgram {
 #[derive(Debug)]
 struct ProgramDescriptor {
     code: VerifiedProgram,
+    retained_demands: Arc<RetainedDemands>,
     layouts: ProgramLayouts,
     layout_admissions: LayoutAdmissions,
     root: ModuleRef,
@@ -306,6 +333,12 @@ impl Deref for LoadedModule {
 }
 
 impl LoadedModule {
+    /// Monotonic installation requirements; this metadata does not retain old code.
+    /// A new ordinary load starts a fresh history even when its display name is reused.
+    pub fn retained_demands(&self) -> &RetainedDemands {
+        &self.program.retained_demands
+    }
+
     pub(crate) fn is_static_initializer(&self, function: FunctionRef) -> bool {
         self.program.code.initializers[self.slot.index()].contains(&function)
     }
@@ -602,12 +635,21 @@ impl ModuleStore {
         program: VerifiedProgram,
         registry_owner: HostRegistryId,
         host_bindings: Vec<LinkedHostBindings>,
+        admission: Option<ReloadAdmission>,
     ) -> Result<StagedProgram, RuntimeError> {
         assert_eq!(
             program.modules.len(),
             host_bindings.len(),
             "each program member must be linked"
         );
+        let (retained_demands, expected_base) = match admission {
+            Some(admission) => (admission.demands, Some(admission.baseline)),
+            None => (
+                RetainedDemands::initial(&program)
+                    .map_err(|error| RuntimeError::module_validation(error.to_string()))?,
+                None,
+            ),
+        };
         let name = name.into();
         let mut inner = self.inner.try_borrow_mut().map_err(|_| {
             RuntimeError::module_validation("module store is borrowed during staging")
@@ -659,6 +701,7 @@ impl ModuleStore {
             })
             .collect();
         let program = Arc::new(ProgramDescriptor {
+            retained_demands,
             layouts: ProgramLayouts::prepare(&program.modules),
             layout_admissions: LayoutAdmissions::default(),
             code: program,
@@ -685,7 +728,7 @@ impl ModuleStore {
         Ok(StagedProgram {
             module: loaded,
             lease,
-            expected_base: None,
+            expected_base,
         })
     }
 

@@ -56,12 +56,25 @@ pub fn write() { STATE = 128578u32; }
     for decoded in [false, true] {
         let engine = KagariEngine::default();
         let first = prepare_static_program(&engine, source, decoded);
-        let second = prepare_static_program(&engine, &source.replace("'a'", "'z'"), decoded);
+        let changed_initializer =
+            prepare_static_program(&engine, &source.replace("'a'", "'z'"), decoded);
+        let second = prepare_static_program(
+            &engine,
+            &source.replace("u32::from(STATE)", "u32::from(STATE) + 0u32"),
+            decoded,
+        );
         let incompatible = prepare_static_program(&engine, retyped, decoded);
         let mut runtime = engine.runtime(Default::default());
         let old = runtime.load_program(&first, Default::default()).unwrap();
         assert_eq!(static_call(&runtime, &old, "read"), Value::I64(97));
         static_call(&runtime, &old, "write");
+        assert_eq!(
+            runtime
+                .reload_program(&old, &changed_initializer, Default::default())
+                .unwrap_err()
+                .code(),
+            "KG_RELOAD_UPDATE_EVIDENCE"
+        );
         let current = runtime
             .reload_program(&old, &second, Default::default())
             .unwrap();
@@ -115,11 +128,23 @@ pub fn distinct() -> bool { !(ROOT === ALIAS) }
     for decoded in [false, true] {
         let engine = KagariEngine::default();
         let first = prepare_static_program(&engine, source, decoded);
-        let second =
+        let changed_initializer =
             prepare_static_program(&engine, &source.replace("value: 1,", "value: 2,"), decoded);
+        let second = prepare_static_program(
+            &engine,
+            &source.replace("value: 90,", "value: 91,"),
+            decoded,
+        );
         let mut runtime = engine.runtime(Default::default());
         let old = runtime.load_program(&first, Default::default()).unwrap();
         assert_eq!(static_call(&runtime, &old, "check"), Value::Bool(true));
+        assert_eq!(
+            runtime
+                .reload_program(&old, &changed_initializer, Default::default())
+                .unwrap_err()
+                .code(),
+            "KG_RELOAD_UPDATE_EVIDENCE"
+        );
         let current = runtime
             .reload_program(&old, &second, Default::default())
             .unwrap();
@@ -127,7 +152,7 @@ pub fn distinct() -> bool { !(ROOT === ALIAS) }
         for module in [&old, &current] {
             assert_eq!(static_call(&runtime, module, "check"), Value::Bool(true));
             assert_eq!(static_call(&runtime, module, "distinct"), Value::Bool(true));
-            assert_eq!(static_call(&runtime, module, "read"), Value::I32(790));
+            assert_eq!(static_call(&runtime, module, "read"), Value::I32(791));
         }
     }
 }
@@ -223,13 +248,15 @@ pub fn replace() { CALLBACK = make_callback(); VIEW = Reader {}; }
 #[test]
 fn persistent_static_callbacks_and_interfaces_keep_generations() {
     let source = STATIC_PINNING_SOURCE;
-    let replacement = source
-        .replace("fn version() -> i32 { 10 }", "fn version() -> i32 { 20 }")
-        .replace(
-            "self.value % 10 == other.value % 10",
-            "self.value == other.value",
+    // Existing initializer dependencies stay frozen. Explicit assignment may
+    // install new values made by newly added, unprotected code.
+    let replacement = format!(
+        "{}\nstruct UpdatedReader {{}}\nimpl Read for UpdatedReader {{ fn read(self) -> i32 {{ 20 + STATE }} }}",
+        source.replace(
+            "CALLBACK = make_callback(); VIEW = Reader {};",
+            "CALLBACK = || 20 + STATE; VIEW = UpdatedReader {};",
         )
-        .replace("{ 1i64 }", "{ 2i64 }");
+    );
     for decoded in [false, true] {
         let engine = KagariEngine::default();
         let first = prepare_static_program(&engine, source, decoded);
@@ -247,7 +274,7 @@ fn persistent_static_callbacks_and_interfaces_keep_generations() {
 
         assert_eq!(
             static_call(&runtime, &current, "fresh_lookup"),
-            Value::Bool(false)
+            Value::Bool(true)
         );
         assert_eq!(static_call(&runtime, &current, "current"), Value::I32(30));
         assert_eq!(static_call(&runtime, &current, "function"), Value::I32(10));
@@ -259,7 +286,7 @@ fn persistent_static_callbacks_and_interfaces_keep_generations() {
 }
 
 #[test]
-fn persistent_static_hash_comparators_keep_generations() {
+fn persistent_static_hash_comparators_reject_changes_and_preserve_values() {
     let source = STATIC_PINNING_SOURCE;
     let replacement = source
         .replace(
@@ -281,12 +308,19 @@ fn persistent_static_hash_comparators_keep_generations() {
             static_call(&runtime, &old, "compare_contents"),
             Value::I32(15)
         );
+        assert_eq!(
+            runtime
+                .reload_program(&old, &second, Default::default())
+                .unwrap_err()
+                .code(),
+            "KG_RELOAD_UPDATE_EVIDENCE"
+        );
         let current = runtime
-            .reload_program(&old, &second, Default::default())
+            .reload_program(&old, &first, Default::default())
             .unwrap();
         assert_eq!(
             static_call(&runtime, &current, "compare_contents"),
-            Value::I32(0)
+            Value::I32(15)
         );
         assert_eq!(
             static_call(&runtime, &current, "content_hashes"),
@@ -294,7 +328,7 @@ fn persistent_static_hash_comparators_keep_generations() {
         );
         assert_eq!(
             static_call(&runtime, &current, "fresh_lookup"),
-            Value::Bool(false)
+            Value::Bool(true)
         );
         for entry in ["map_lookup", "set_lookup", "mutate_keys"] {
             results.push((decoded, entry, static_call(&runtime, &current, entry)));

@@ -239,6 +239,7 @@ fn common_bind_accepts_free_borrowed_packs_and_rejects_overlap_before_callbacks(
     // Inspect the already decoded source-free program; forged field capability
     // facts must fail without trusting source analysis or runtime view contents.
     let portable = BytecodeProgram {
+        update_evidence: owner.verified_program().update_evidence().clone(),
         root: owner.slot(),
         exports: Default::default(),
         modules: owner
@@ -248,6 +249,7 @@ fn common_bind_accepts_free_borrowed_packs_and_rejects_overlap_before_callbacks(
             .map(|module| module.as_ref().clone())
             .collect(),
     };
+    verify_program(&portable, owner.definitions(), &Default::default()).unwrap();
     for reference in [None, Some(ReferenceAccess::Mutable)] {
         let mut forged = portable.clone();
         let inspect = forged.modules[owner.slot().index()]

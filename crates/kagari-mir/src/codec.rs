@@ -18,7 +18,7 @@ use crate::{
     program::{ProgramError, VerifiedMirProgram, records::MirProgram, verify_program},
 };
 
-mod wire;
+pub(crate) mod wire;
 
 pub const MIR_MAGIC: [u8; 4] = *b"KMIR";
 pub const MIR_FORMAT_VERSION: u16 = 14;

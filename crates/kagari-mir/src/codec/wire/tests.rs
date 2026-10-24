@@ -84,6 +84,12 @@ fn module(context: &DefinitionContext, name: &str) -> MirModule {
 // without exposing an unverified encoder through the production codec API.
 fn forged(context: &DefinitionContext, modules: &[MirModule]) -> Vec<u8> {
     let cancel = Default::default();
+    let mut modules = modules.to_vec();
+    // Malformed extraction inputs are intentional on this unverified encoder route.
+    // Successful fixtures carry real evidence; malformed ones still cross all
+    // ordinary executable validation before the mandatory evidence boundary.
+    let update_evidence = crate::program::updates::fixtures::evidence(&mut modules, context)
+        .unwrap_or_else(|_| crate::program::updates::empty());
     let mut references = HashSet::new();
     modules
         .to_vec()
@@ -103,6 +109,13 @@ fn forged(context: &DefinitionContext, modules: &[MirModule]) -> Vec<u8> {
             .map(|module| MirModuleRecord::encode(module, &encoding, &cancel).unwrap())
             .collect(),
         exports: ProgramExportsRecord::encode(&Default::default(), &encoding, &cancel).unwrap(),
+        update_evidence: kagari_contract::updates::wire::UpdateEvidenceRecord::encode(
+            &update_evidence,
+            &encoding,
+            &mut kagari_contract::updates::limits::Budget::new(Default::default(), &cancel)
+                .unwrap(),
+        )
+        .unwrap(),
         definitions: encoding.table,
     };
     options().serialize(&(Header::current(), record)).unwrap()
@@ -361,7 +374,10 @@ fn codec_preserves_static_identity_supplier_and_hidden_initializer_contract() {
             2 => invalid[1].dependencies.clear(),
             _ => invalid[1].module_slots[0].contract.mutable = true,
         }
-        assert!(decode_program(&forged(&context, &invalid), &Default::default()).is_err());
+        assert!(
+            decode_program(&forged(&context, &invalid), &Default::default()).is_err(),
+            "static contract mutation {mutation}"
+        );
         if mutation < 2 {
             assert!(
                 verify_mir(
@@ -384,11 +400,15 @@ fn codec_rejects_forged_control_flow_instead_of_accepting_serialized_proof() {
     let context = DefinitionContext::new().unwrap();
     let mut module = module(&context, "root");
     verify_program(
-        MirProgram {
-            root: module.identity.clone(),
-            modules: vec![module.clone()],
-            exports: Default::default(),
-        },
+        crate::program::updates::fixtures::certify(
+            MirProgram {
+                update_evidence: crate::program::updates::empty(),
+                root: module.identity.clone(),
+                modules: vec![module.clone()],
+                exports: Default::default(),
+            },
+            &context,
+        ),
         &context,
         &Default::default(),
     )
@@ -432,11 +452,15 @@ fn whole_program_analysis_budget_cannot_be_reset_by_splitting_modules() {
         })
         .collect::<Vec<_>>();
     verify_program(
-        MirProgram {
-            root: modules[0].identity.clone(),
-            modules: vec![modules[0].clone()],
-            exports: Default::default(),
-        },
+        crate::program::updates::fixtures::certify(
+            MirProgram {
+                update_evidence: crate::program::updates::empty(),
+                root: modules[0].identity.clone(),
+                modules: vec![modules[0].clone()],
+                exports: Default::default(),
+            },
+            &context,
+        ),
         &context,
         &Default::default(),
     )

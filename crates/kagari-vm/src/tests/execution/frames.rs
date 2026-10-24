@@ -1,8 +1,11 @@
 use super::*;
-use crate::{tests::common::standard_runtime, vm::fixtures::FixtureExecution};
+use crate::{
+    tests::{common::standard_runtime, native_program::ProgramFixture},
+    vm::fixtures::FixtureExecution,
+};
 use kagari_bytecode::{
     instruction::{ConstantId, StructId},
-    program::{BytecodeProgram, ModuleRef, verify_program},
+    program::{ModuleRef, verify_program},
 };
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::error::RuntimeErrorKind;
@@ -57,7 +60,7 @@ fn executes_simple_arithmetic_function() {
 
 #[test]
 fn rejects_unverified_bytecode_before_publication() {
-    let mut bytecode = verified_module(
+    let bytecode = verified_module(
         vec![test_function(
             0,
             "main",
@@ -73,7 +76,14 @@ fn rejects_unverified_bytecode_before_publication() {
         )],
         vec![ConstantOperand::I32(1)],
     );
-    bytecode.function_table.clear();
+    let context = DefinitionContext::new().unwrap();
+    let mut program = ProgramFixture {
+        exports: Default::default(),
+        root: ModuleRef::new(0),
+        modules: vec![bytecode],
+    }
+    .build(&context);
+    program.modules[0].function_table.clear();
     let mut runtime = standard_runtime(RuntimeConfig {
         limits: RuntimeLimits {
             ..RuntimeLimits::default()
@@ -83,16 +93,7 @@ fn rejects_unverified_bytecode_before_publication() {
     let error = runtime
         .load_program(
             "unverified.kbc",
-            DefinitionMetadata::checked(
-                DefinitionContext::new().unwrap().snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![bytecode],
-                },
-                &Default::default(),
-            )
-            .unwrap(),
+            DefinitionMetadata::checked(context.snapshot(), program, &Default::default()).unwrap(),
         )
         .expect_err("runtime must reject unverified bytecode before publication");
 
@@ -149,13 +150,13 @@ fn rejects_unsupported_bytecode_before_publication() {
         let error = runtime
             .load_program(
                 name,
-                DefinitionMetadata::checked(
+                ProgramFixture {
+                    exports: Default::default(),
+                    root: ModuleRef::new(0),
+                    modules: vec![bytecode],
+                }
+                .metadata(
                     DefinitionContext::new().unwrap().snapshot(),
-                    BytecodeProgram {
-                        exports: Default::default(),
-                        root: ModuleRef::new(0),
-                        modules: vec![bytecode],
-                    },
                     &Default::default(),
                 )
                 .unwrap(),
@@ -192,13 +193,13 @@ fn unsupported_dynamic_invocation_is_rejected() {
     let error = runtime
         .load_program(
             "dynamic_call_capable.kbc",
-            DefinitionMetadata::checked(
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![dynamic_call],
+            }
+            .metadata(
                 DefinitionContext::new().unwrap().snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![dynamic_call],
-                },
                 &Default::default(),
             )
             .unwrap(),
@@ -317,22 +318,22 @@ fn unreachable_instruction_is_a_script_trap() {
     let loaded = runtime
         .load_program(
             "trap.kbc",
-            DefinitionMetadata::checked(
-                DefinitionContext::new().unwrap().snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![verified_module(
-                        vec![test_function(
-                            0,
-                            "main",
-                            vec![BytecodeInstruction::Unreachable],
-                            ValueType::Unit,
-                            vec![],
-                        )],
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![verified_module(
+                    vec![test_function(
+                        0,
+                        "main",
+                        vec![BytecodeInstruction::Unreachable],
+                        ValueType::Unit,
                         vec![],
                     )],
-                },
+                    vec![],
+                )],
+            }
+            .metadata(
+                DefinitionContext::new().unwrap().snapshot(),
                 &Default::default(),
             )
             .unwrap(),
@@ -465,15 +466,12 @@ fn lazy_static_driver_enters_hidden_initializer_but_stores_cannot_initialize() {
     let loaded = runtime
         .load_program(
             "module-slot-writes",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![module],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![module],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap();
@@ -516,13 +514,13 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
     let first_loaded = runtime
         .load_program(
             "hot_reload.kgr",
-            DefinitionMetadata::checked(
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![reloadable_value_module(1)],
+            }
+            .metadata(
                 DefinitionContext::new().unwrap().snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![reloadable_value_module(1)],
-                },
                 &Default::default(),
             )
             .unwrap(),
@@ -536,13 +534,13 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
         .stage_reload_program(
             &first_loaded,
             "hot_reload.kgr",
-            DefinitionMetadata::checked(
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![reloadable_value_module(2)],
+            }
+            .metadata(
                 DefinitionContext::new().unwrap().snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![reloadable_value_module(2)],
-                },
                 &Default::default(),
             )
             .unwrap(),

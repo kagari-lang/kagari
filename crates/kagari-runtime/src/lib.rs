@@ -29,6 +29,7 @@ use crate::{
     },
     objects::{invocation::MethodInvocation, method::BoundReceiver},
     reflection::ReflectionError,
+    reload::updates::ReloadAdmission,
     resource::{AsyncLimits, ResourceState, RuntimeLimits},
     scheduler::Scheduler,
     session::{
@@ -84,6 +85,7 @@ pub mod value_semantics;
 
 /// Verified and linked reload data that has not changed any runtime entry.
 struct PreparedReload {
+    admission: ReloadAdmission,
     baseline: LoadedModule,
     name: String,
     program: VerifiedProgram,

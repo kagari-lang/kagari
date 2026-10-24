@@ -15,6 +15,7 @@ use kagari_compiler::{
         program::{SourceProgramError, lower_program_to_mir},
     },
 };
+use kagari_contract::updates::limits::UpdateError;
 use kagari_mir::{
     codec::{MirCodecError, encode_program},
     program::{ProgramErrorKind, VerifiedMirProgram},
@@ -44,6 +45,13 @@ impl Compilation {
                         .source;
                     EmbeddingError::ir_lowering(error, source)
                 }
+                SourceProgramError::Update { stage, error } => match error {
+                    UpdateError::Cancelled => EmbeddingError::Cancelled,
+                    error => EmbeddingError::Compilation {
+                        phase: CompilationPhase::MirLowering,
+                        message: format!("{stage}: {error}"),
+                    },
+                },
                 SourceProgramError::Verification(error) => match error.kind {
                     ProgramErrorKind::Cancelled => EmbeddingError::Cancelled,
                     kind => EmbeddingError::Compilation {

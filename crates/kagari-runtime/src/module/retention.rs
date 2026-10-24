@@ -93,6 +93,7 @@ impl Registrations {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::native::program::ProgramFixture;
     use crate::{Runtime, error::RuntimeErrorKind, module::LoadedModule, value::Value};
     use kagari_bytecode::{
         instruction::ModuleSlot,
@@ -103,13 +104,13 @@ mod tests {
     use std::thread;
 
     fn program() -> DefinitionMetadata<BytecodeProgram> {
-        DefinitionMetadata::checked(
+        ProgramFixture {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule::default()],
+        }
+        .metadata(
             DefinitionContext::new().unwrap().snapshot(),
-            BytecodeProgram {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
             &Default::default(),
         )
         .unwrap()

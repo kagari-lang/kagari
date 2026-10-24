@@ -230,10 +230,19 @@ fn generic_interface_implementation_specializes_reachable_method() {
         wrong_arity.modules[wrong_arity.root.index()].functions[method]
             .identity
             .clone();
-    assert!(matches!(
-        verify_program(&wrong_arity, &context.snapshot(), &Default::default()),
-        Err(BytecodeVerificationError::InvalidInterfaceTable)
-    ));
+    // Named-signature arity is checked during access-flow validation, before
+    // interface-table validation can inspect the malformed method target.
+    let error = verify_program(&wrong_arity, &context.snapshot(), &Default::default()).unwrap_err();
+    assert!(
+        matches!(
+            error,
+            BytecodeVerificationError::InvalidOperation {
+                function,
+                reason: "invalid collection access flow",
+            } if function == script_target(slots[0].target)
+        ),
+        "unexpected wrong-arity diagnostic: {error:?}"
+    );
 }
 
 #[test]

@@ -1,7 +1,10 @@
 //! Reserve supplier-local initializer indices before planning any ordinary callable.
 use crate::source::lower::{
     MirLoweringError,
-    instances::{Instance, InstanceBody, InstanceKey, InstancePlanner, limit_diagnostic},
+    instances::{
+        Instance, InstanceBody, InstanceClassification, InstanceKey, InstancePlanner,
+        limit_diagnostic,
+    },
     statics::static_contract,
 };
 use kagari_common::identity::{DefinitionKind, mapping::DefinitionMappingError};
@@ -44,6 +47,9 @@ impl InstancePlanner<'_> {
             let id = InstanceId::new(self.instances.len());
             self.keys.insert(key.clone(), id);
             self.instances.push(Instance {
+                classification: InstanceClassification::StaticInitializer(
+                    static_contract(module, item.id).declaration,
+                ),
                 callable: None,
                 resume: false,
                 origin: self.owner_handle(),

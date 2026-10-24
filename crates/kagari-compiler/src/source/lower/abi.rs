@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod host_tests;
 
+mod named;
 mod type_definitions;
 
 use crate::source::lower::statics::static_contract;
@@ -527,6 +528,8 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
             .expect("checked source trait identities")
     });
     ModuleContract {
+        named_declarations: named::collect(module),
+        function_origins: Vec::new(),
         trait_references,
         native_declarations,
         public_items,

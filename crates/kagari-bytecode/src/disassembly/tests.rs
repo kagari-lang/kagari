@@ -144,11 +144,15 @@ fn fixture() -> (DefinitionContext, KbcArtifact) {
     });
     push_function(&mut root, occurrence);
     let artifact = KbcArtifact::from_program(
-        BytecodeProgram {
-            root: ModuleRef::new(1),
-            modules: vec![dependency, root],
-            exports: Default::default(),
-        },
+        crate::program::updates::fixtures::certify(
+            BytecodeProgram {
+                update_evidence: crate::program::updates::empty(),
+                root: ModuleRef::new(1),
+                modules: vec![dependency, root],
+                exports: Default::default(),
+            },
+            &context,
+        ),
         ArtifactBuildOptions::default(),
         &context,
         &Default::default(),
@@ -328,11 +332,15 @@ fn decoded_static_descriptors_link_supplier_body_and_debug_without_runtime_state
     };
     push_function(&mut consumer, reader);
     let artifact = KbcArtifact::from_program(
-        BytecodeProgram {
-            root: ModuleRef::new(1),
-            modules: vec![supplier, consumer],
-            exports: Default::default(),
-        },
+        crate::program::updates::fixtures::certify(
+            BytecodeProgram {
+                update_evidence: crate::program::updates::empty(),
+                root: ModuleRef::new(1),
+                modules: vec![supplier, consumer],
+                exports: Default::default(),
+            },
+            &context,
+        ),
         ArtifactBuildOptions::default(),
         &context,
         &Default::default(),
@@ -685,11 +693,15 @@ fn custom_native_calls_render_verified_offline_contracts_without_providers() {
     push_function(&mut module, caller);
     push_function(&mut module, function("echo"));
     let artifact = KbcArtifact::from_program(
-        BytecodeProgram {
-            root: ModuleRef::new(0),
-            exports: Default::default(),
-            modules: vec![module],
-        },
+        crate::program::updates::fixtures::certify(
+            BytecodeProgram {
+                update_evidence: crate::program::updates::empty(),
+                root: ModuleRef::new(0),
+                exports: Default::default(),
+                modules: vec![module],
+            },
+            &context,
+        ),
         Default::default(),
         &context,
         &Default::default(),

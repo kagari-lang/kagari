@@ -475,15 +475,23 @@ pub fn function_valid(
     };
     let parent_kind =
         parent.and_then(|parent| table.resolve(parent).ok()?.last().map(|part| part.kind));
-    let kind = if parent_kind.is_none() {
+    let local = matches!(
+        parent_kind,
+        Some(
+            DefinitionKind::Function
+                | DefinitionKind::Method
+                | DefinitionKind::Const
+                | DefinitionKind::Static
+        )
+    );
+    let kind = if parent_kind.is_none() || local {
         DefinitionKind::Function
     } else {
         DefinitionKind::Method
     };
-    if !view
-        .last()
-        .is_some_and(|part| part.kind == kind && part.name == function.name && part.occurrence == 0)
-    {
+    if !view.last().is_some_and(|part| {
+        part.kind == kind && part.name == function.name && (local || part.occurrence == 0)
+    }) {
         return false;
     }
     let implementation_valid = match &function.implementation {

@@ -25,6 +25,7 @@ fn type_exports_mir_codec_retains_authority_and_rejects_layout_free_forgery() {
         .intern_child(root, DefinitionKind::Struct, "Record", 0)
         .unwrap();
     let program = MirProgram {
+        update_evidence: crate::program::updates::empty(),
         root: identity.clone(),
         exports: ProgramExports {
             namespaces: [(

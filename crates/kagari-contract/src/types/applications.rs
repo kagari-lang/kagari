@@ -2,7 +2,10 @@
 use crate::{
     layout::{EnumLayout, StructLayout},
     slots::FunctionTypeFacts,
-    types::{PublicItem, TraitContract},
+    types::{
+        PublicItem, TraitContract,
+        named::{NamedContract, NamedDeclaration},
+    },
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -22,6 +25,7 @@ pub fn validate_declarations<'declaration, F, G>(
     items: &[PublicItem],
     private: &[TraitContract],
     private_types: &[TypeDeclaration],
+    named: &[NamedDeclaration],
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
 ) -> Result<(), TypeTransformError>
@@ -68,6 +72,28 @@ where
                 for family in &table.associated_type_families {
                     validate_types(validator, [&family.value], cancel, definitions)?;
                     validator.bounds(&family.bounds)?;
+                }
+            }
+        }
+    }
+    for record in named {
+        cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
+        match &record.contract {
+            NamedContract::Function(function) => {
+                validate_function(validator, function, cancel, definitions)?
+            }
+            NamedContract::Constant(value) => {
+                validate_types(validator, [&value.ty], cancel, definitions)?
+            }
+            NamedContract::Alias(value) => {
+                validator.bounds(&value.bounds)?;
+                validate_types(validator, [&value.target], cancel, definitions)?;
+            }
+            NamedContract::Implementation(value) => {
+                validator.bounds(&value.bounds)?;
+                validate_types(validator, [&value.receiver], cancel, definitions)?;
+                if let Some(ty) = &value.trait_type {
+                    validator.validate_type(ty)?;
                 }
             }
         }

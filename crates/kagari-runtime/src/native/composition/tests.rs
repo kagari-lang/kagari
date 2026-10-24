@@ -1,10 +1,8 @@
 //! Source-free nominal checks and optional origin forwarding at the policy boundary.
 use super::*;
+use crate::test_support::native::program::ProgramFixture;
 use crate::{error_trace::ErrorTrace, module::LoadedModule};
-use kagari_bytecode::{
-    module::BytecodeModule,
-    program::{BytecodeProgram, ModuleRef},
-};
+use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, map::DefinitionContext, metadata::DefinitionMetadata,
 };
@@ -68,19 +66,16 @@ fn fixture(runtime: &mut Runtime) -> (LoadedModule, Vec<TypeArgument>, VariantRe
     let owner = runtime
         .load_program(
             "pair-origin",
-            DefinitionMetadata::checked(
-                definitions.snapshot(),
-                BytecodeProgram {
-                    root: ModuleRef::new(0),
-                    exports: Default::default(),
-                    modules: vec![BytecodeModule {
-                        identity,
-                        enumerations: layouts,
-                        ..Default::default()
-                    }],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                root: ModuleRef::new(0),
+                exports: Default::default(),
+                modules: vec![BytecodeModule {
+                    identity,
+                    enumerations: layouts,
+                    ..Default::default()
+                }],
+            }
+            .metadata(definitions.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap();

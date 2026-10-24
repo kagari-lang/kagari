@@ -1,7 +1,10 @@
 //! Immutable evidence for a resource-bounded, fully checked bytecode graph.
 use crate::{
     artifact::{ArtifactValidationError, validate_program_resource_limits},
-    program::{BytecodeProgram, ModuleRef, exports::ExportTarget, identity, verify_graph},
+    program::{
+        BytecodeProgram, ModuleRef, construction::UpdateCoverage, exports::ExportTarget, identity,
+        verify_graph,
+    },
     suspension::{AwaitLiveness, ProgramSuspensions},
 };
 use kagari_common::{
@@ -14,12 +17,14 @@ use kagari_common::{
     },
 };
 
+use kagari_contract::updates::demands::Coverage;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub(crate) struct ProgramVerification {
     pub suspensions: ProgramSuspensions,
     pub exports: HashMap<DefinitionId, ExportTarget>,
+    pub update_coverage: UpdateCoverage,
 }
 
 /// Verification belongs to these exact owned bytes, never a serialized flag or hash.
@@ -109,6 +114,17 @@ impl VerifiedBytecodeProgram {
     /// IDs belong to `definitions()`; these records cannot verify a different Program.
     pub fn export_targets(&self) -> &HashMap<DefinitionId, ExportTarget> {
         &self.verification.exports
+    }
+
+    /// Checked candidate products. Installed native callback evidence belongs to Runtime.
+    pub fn update_coverage(&self) -> Coverage<'_> {
+        Coverage {
+            evidence: &self.program().update_evidence,
+            methods: &self.verification.update_coverage.methods,
+            constructions: &self.verification.update_coverage.constructions,
+            layouts: &self.verification.update_coverage.layouts,
+            natives: &[],
+        }
     }
 
     pub fn program(&self) -> &BytecodeProgram {

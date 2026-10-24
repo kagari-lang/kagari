@@ -1,4 +1,5 @@
 //! Small actual-pointer fixtures isolate Miri safety from source compilation cost.
+use crate::test_support::native::program::ProgramFixture;
 mod fields;
 use crate::{
     Runtime,
@@ -6,11 +7,8 @@ use crate::{
     native::{builder::ModuleBuilder, catalog::DeclarationCatalog, storage::NativeStorage},
     value::Value,
 };
-use kagari_bytecode::{
-    module::BytecodeModule,
-    program::{BytecodeProgram, ModuleRef},
-};
-use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
+use kagari_common::identity::map::DefinitionContext;
 use std::{
     panic::{AssertUnwindSafe, catch_unwind},
     ptr,
@@ -35,15 +33,12 @@ fn external_root_actual_pointer_loans_release_and_revoke_on_all_exits() {
     let owner = runtime
         .load_program(
             "scope-proof",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap();
@@ -147,15 +142,12 @@ fn distinct_zero_sized_host_roots_allow_independent_unique_loans() {
     let owner = runtime
         .load_program(
             "scope-proof",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap();

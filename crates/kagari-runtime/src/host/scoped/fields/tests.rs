@@ -1,3 +1,4 @@
+use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
     native::{
@@ -5,11 +6,7 @@ use crate::{
     },
     value::Value,
 };
-use kagari_bytecode::{
-    instruction::StructId,
-    module::BytecodeModule,
-    program::{BytecodeProgram, ModuleRef},
-};
+use kagari_bytecode::{instruction::StructId, module::BytecodeModule, program::ModuleRef};
 use kagari_common::identity::{DefinitionKind, metadata::DefinitionMetadata};
 use kagari_contract::layout::{StructFieldLayout, StructLayout};
 use kagari_contract::types::PublicItem;
@@ -79,20 +76,17 @@ fn executable_inline_field_codecs_keep_paths_current_and_results_rooted() {
         .unwrap()
         .module()
         .clone();
-    let program = DefinitionMetadata::checked(
-        runtime.definition_context().snapshot(),
-        BytecodeProgram {
-            root: ModuleRef::new(0),
-            exports: Default::default(),
-            modules: vec![BytecodeModule {
-                structures,
-                public_items,
-                identity,
-                ..Default::default()
-            }],
-        },
-        &Default::default(),
-    )
+    let program = ProgramFixture {
+        root: ModuleRef::new(0),
+        exports: Default::default(),
+        modules: vec![BytecodeModule {
+            structures,
+            public_items,
+            identity,
+            ..Default::default()
+        }],
+    }
+    .metadata(runtime.definition_context().snapshot(), &Default::default())
     .unwrap();
     let owner = runtime
         .load_program("field-codec-proof", program.clone())

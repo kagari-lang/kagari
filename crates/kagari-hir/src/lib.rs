@@ -87,6 +87,7 @@ pub mod resolver;
 pub mod source_map;
 pub mod typeck;
 pub mod types;
+pub mod update_source;
 
 /// Analysis diagnostics with four inline slots; additional diagnostics spill to the heap.
 pub type DiagnosticBuffer = SmallVec<[Diagnostic; 4]>;

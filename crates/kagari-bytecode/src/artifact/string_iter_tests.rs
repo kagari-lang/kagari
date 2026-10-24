@@ -56,23 +56,27 @@ fn string_cursor_operations_roundtrip_with_direct_source_and_exact_item_types() 
             instructions,
             ..Default::default()
         };
-        let program = BytecodeProgram {
-            modules: vec![BytecodeModule {
-                types: vec![ValueType::Str, ValueType::HeapObject],
-                function_table: vec![FunctionRecord {
-                    id: function.id,
-                    identity: None,
-                    name: function.name.clone(),
-                    params: function.metadata.params.clone(),
-                    return_type: function.metadata.return_type,
-                    effects: function.metadata.effects,
+        let program = crate::program::updates::fixtures::certify(
+            BytecodeProgram {
+                update_evidence: crate::program::updates::empty(),
+                modules: vec![BytecodeModule {
+                    types: vec![ValueType::Str, ValueType::HeapObject],
+                    function_table: vec![FunctionRecord {
+                        id: function.id,
+                        identity: None,
+                        name: function.name.clone(),
+                        params: function.metadata.params.clone(),
+                        return_type: function.metadata.return_type,
+                        effects: function.metadata.effects,
+                    }],
+                    functions: vec![function],
+                    ..Default::default()
                 }],
-                functions: vec![function],
-                ..Default::default()
-            }],
-            exports: Default::default(),
-            root: ModuleRef::new(0),
-        };
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+            },
+            &context,
+        );
         let artifact = KbcArtifact::from_program(
             program.clone(),
             Default::default(),

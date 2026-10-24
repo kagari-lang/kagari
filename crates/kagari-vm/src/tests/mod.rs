@@ -22,4 +22,4 @@ mod package_exports;
 mod prepared_execution;
 
 #[path = "../../../kagari-runtime/tests/support/native/program.rs"]
-mod native_program;
+pub(crate) mod native_program;

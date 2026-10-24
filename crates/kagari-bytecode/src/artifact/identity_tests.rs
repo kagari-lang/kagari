@@ -131,6 +131,7 @@ fn private_types_round_trip_preserves_bounds_and_rejects_forged_authority() {
     });
     let artifact = KbcArtifact::from_program(
         BytecodeProgram {
+            update_evidence: crate::program::updates::empty(),
             exports: Default::default(),
             root: ModuleRef::new(0),
             modules: vec![module],
@@ -226,6 +227,7 @@ fn consuming_artifact_verification_rejects_changed_code_and_envelope() {
     let context = DefinitionContext::new().unwrap();
     let artifact = KbcArtifact::from_program(
         BytecodeProgram {
+            update_evidence: crate::program::updates::empty(),
             exports: Default::default(),
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule::default()],
@@ -279,6 +281,7 @@ fn consuming_artifact_verification_rejects_changed_code_and_envelope() {
 fn bytecode_seal_rejects_in_memory_resource_exhaustion() {
     let context = DefinitionContext::new().unwrap();
     let oversized = BytecodeProgram {
+        update_evidence: crate::program::updates::empty(),
         exports: Default::default(),
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default(); MAX_ARTIFACT_MODULES + 1],
@@ -293,6 +296,7 @@ fn bytecode_seal_rejects_in_memory_resource_exhaustion() {
 fn memory_artifacts_reject_oversized_strings_before_fingerprinting() {
     let context = DefinitionContext::new().unwrap();
     let valid = BytecodeProgram {
+        update_evidence: crate::program::updates::empty(),
         exports: Default::default(),
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
@@ -331,6 +335,7 @@ fn decoder_rejects_old_versions_trailing_bytes_and_oversized_lengths() {
     let context = DefinitionContext::new().unwrap();
     let artifact = KbcArtifact::from_program(
         BytecodeProgram {
+            update_evidence: crate::program::updates::empty(),
             exports: Default::default(),
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule::default()],
@@ -415,6 +420,7 @@ fn artifact_preserves_portable_virtual_path_declarations() {
     module.path_declarations.push(path.clone());
     let artifact = KbcArtifact::from_program(
         BytecodeProgram {
+            update_evidence: crate::program::updates::empty(),
             exports: Default::default(),
             root: ModuleRef::new(0),
             modules: vec![module],

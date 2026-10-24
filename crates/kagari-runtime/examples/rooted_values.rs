@@ -4,6 +4,7 @@ use kagari_bytecode::{
     program::{BytecodeProgram, ModuleRef},
 };
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_contract::updates::UpdateEvidence;
 use kagari_runtime::{Runtime, value::Value};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
@@ -20,6 +21,14 @@ fn main() {
                 DefinitionMetadata::checked(
                     context.snapshot(),
                     BytecodeProgram {
+                        // This owner has no declarations or executable bodies.
+                        update_evidence: UpdateEvidence {
+                            sources: vec![],
+                            bodies: vec![],
+                            roots: vec![],
+                            targets: vec![],
+                            selections: vec![],
+                        },
                         exports: Default::default(),
                         root: ModuleRef::new(0),
                         modules: vec![BytecodeModule::default()],

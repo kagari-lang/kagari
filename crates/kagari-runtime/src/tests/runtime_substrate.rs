@@ -1,3 +1,4 @@
+use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
@@ -13,10 +14,7 @@ use crate::{
     native::builder::ModuleBuilder,
     value::{Value, ValueCategory},
 };
-use kagari_bytecode::{
-    module::BytecodeModule,
-    program::{BytecodeProgram, ModuleRef},
-};
+use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
 use kagari_common::identity::{
     DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata,
 };
@@ -212,30 +210,24 @@ fn module_epochs_have_independent_runtime_instances() {
     let first = runtime
         .load_program(
             "game.player",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap();
     let second = runtime
         .load_program(
             "game.player",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap();

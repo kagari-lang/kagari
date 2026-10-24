@@ -50,6 +50,8 @@ impl RemapDefinitions for BytecodeModule {
                 (value).remap_definitions(mapper)
             })?,
             private_types: self.private_types.remap_definitions(mapper)?,
+            named_declarations: self.named_declarations.remap_definitions(mapper)?,
+            function_origins: self.function_origins.remap_definitions(mapper)?,
             trait_references: map_sequence(&self.trait_references, |value| {
                 (value).remap_definitions(mapper)
             })?,
@@ -95,6 +97,9 @@ impl DefinitionReferences for BytecodeModule {
             (value0).visit_definition_ids(visit, cancel)?;
         }
         self.private_types.visit_definition_ids(visit, cancel)?;
+        self.named_declarations
+            .visit_definition_ids(visit, cancel)?;
+        self.function_origins.visit_definition_ids(visit, cancel)?;
         for value0 in &self.trait_references {
             (value0).visit_definition_ids(visit, cancel)?;
         }

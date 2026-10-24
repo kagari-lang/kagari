@@ -1,4 +1,5 @@
 use crate::test_support as support;
+use crate::test_support::native::program::ProgramFixture;
 
 use crate::{
     Runtime,
@@ -11,13 +12,9 @@ use crate::{
     session::{DeterministicInputs, ExecutionPhase},
     value::Value,
 };
-use kagari_bytecode::{
-    instruction::ModuleSlot,
-    module::BytecodeModule,
-    program::{BytecodeProgram, ModuleRef},
-};
+use kagari_bytecode::{instruction::ModuleSlot, module::BytecodeModule, program::ModuleRef};
 use kagari_common::cancellation::CancellationToken;
-use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_common::identity::map::DefinitionContext;
 use kagari_types::{
     declaration::host::{HostCallPolicy, HostFunctionEffects},
     scalar::BuiltinType,
@@ -34,17 +31,14 @@ fn load(runtime: &mut Runtime, name: &str) -> LoadedModule {
     runtime
         .load_program(
             name,
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule {
-                        ..Default::default()
-                    }],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule {
+                    ..Default::default()
+                }],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap()
@@ -444,15 +438,12 @@ fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocat
                 .to_unverified(&Default::default())
                 .unwrap()
                 .into_parts();
-            DefinitionMetadata::checked(
-                definitions,
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![module],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![module],
+            }
+            .metadata(definitions, &Default::default())
             .unwrap()
         })
         .unwrap();
@@ -490,15 +481,12 @@ fn candidate_module_state_access_is_denied_for_every_program() {
         .stage_reload_program(&old, "main", {
             let (definitions, module) =
                 old.to_unverified(&Default::default()).unwrap().into_parts();
-            DefinitionMetadata::checked(
-                definitions,
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![module],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![module],
+            }
+            .metadata(definitions, &Default::default())
             .unwrap()
         })
         .unwrap();
@@ -542,15 +530,12 @@ fn candidate_cannot_publish_static_values_between_initialization_and_publication
         .stage_reload_program(
             &baseline,
             "main",
-            DefinitionMetadata::checked(
-                definitions,
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![module],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![module],
+            }
+            .metadata(definitions, &Default::default())
             .unwrap(),
         )
         .unwrap();
@@ -586,15 +571,12 @@ fn candidate_termination_is_cached_after_the_session_is_dropped() {
                     .to_unverified(&Default::default())
                     .unwrap()
                     .into_parts();
-                DefinitionMetadata::checked(
-                    definitions,
-                    BytecodeProgram {
-                        exports: Default::default(),
-                        root: ModuleRef::new(0),
-                        modules: vec![module],
-                    },
-                    &Default::default(),
-                )
+                ProgramFixture {
+                    exports: Default::default(),
+                    root: ModuleRef::new(0),
+                    modules: vec![module],
+                }
+                .metadata(definitions, &Default::default())
                 .unwrap()
             })
             .unwrap();

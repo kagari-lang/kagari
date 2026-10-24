@@ -21,7 +21,10 @@ use kagari_contract::{
     representation::semantic_representation,
     slots::{self as semantic_slots, FunctionTypeFacts},
     statics::StaticDescriptor,
-    types::{ConcreteFunctionIdentity, PublicItem, TraitContract},
+    types::{
+        ConcreteFunctionIdentity, PublicItem, TraitContract,
+        named::{FunctionOrigin, NamedDeclaration},
+    },
 };
 use kagari_types::{
     declaration::{NativeDeclaration, TypeDeclaration},
@@ -52,6 +55,10 @@ pub struct BytecodeModule {
     pub public_items: PublicItemTable,
     /// Module-owned private nominal proof metadata, never public export authority.
     pub private_types: Vec<TypeDeclaration>,
+    /// Authored named contracts, not executable placement or export authority.
+    pub named_declarations: Vec<NamedDeclaration>,
+    /// Explicit imported-local executable placement to authored declaration links.
+    pub function_origins: Vec<FunctionOrigin>,
     /// Exact foreign source requirements; these do not define or export a trait.
     pub trait_references: Vec<TraitContract>,
     pub trait_contracts: Vec<TraitContract>,

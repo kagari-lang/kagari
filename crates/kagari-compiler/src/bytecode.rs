@@ -15,7 +15,7 @@ use kagari_bytecode::{
         BytecodeFunction, BytecodeModule, BytecodeSemanticSlots, CallableTarget, FunctionMetadata,
         FunctionRecord, InstructionOrigin, PathRecord, RootSlotLayout,
     },
-    program::{BytecodeProgram, ModuleRef, verified::VerifiedBytecodeProgram},
+    program::{BytecodeProgram, ModuleRef, updates, verified::VerifiedBytecodeProgram},
     verifier::{BytecodeVerificationError, verify_module},
 };
 use kagari_common::{
@@ -32,6 +32,7 @@ use kagari_contract::{
     representation::semantic_representation,
     statics::StaticDescriptor,
     types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
+    updates::limits::UpdateError,
 };
 use kagari_mir::instruction::ConstructionTarget as MirConstruction;
 use kagari_mir::{
@@ -65,6 +66,7 @@ pub enum BytecodeLoweringError {
     Verification(BytecodeVerificationError),
     ProgramValidation(ArtifactValidationError),
     InvalidNativeInterface,
+    Update(UpdateError),
 }
 
 /// Lower and verify an independent MIR module while retaining its identity scope.
@@ -183,6 +185,8 @@ fn lower_linked_module(
         function_table: Vec::new(),
         public_items: ir.abi.public_items.clone(),
         private_types: ir.abi.private_types.clone(),
+        named_declarations: ir.abi.named_declarations.clone(),
+        function_origins: ir.abi.function_origins.clone(),
         trait_references: ir.abi.trait_references.clone(),
         trait_contracts: ir.abi.trait_contracts.clone(),
         functions,
@@ -1159,8 +1163,16 @@ pub(crate) fn lower_program_for_comparison(
         root: indices[program.root()],
         exports: program.exports().clone(),
         modules,
+        update_evidence: program.update_evidence().clone(),
     };
     views::populate(&mut bytecode.modules, program.definitions())?;
+    bytecode.update_evidence = updates::project(
+        &bytecode.modules,
+        program.update_evidence(),
+        program.definitions(),
+        cancel,
+    )
+    .map_err(BytecodeLoweringError::Update)?;
     DefinitionMetadata::checked(program.definitions().clone(), bytecode, cancel)
         .map_err(|_| BytecodeLoweringError::InvalidNativeInterface)
 }

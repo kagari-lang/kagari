@@ -181,12 +181,10 @@ impl SessionStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::native::program::ProgramFixture;
     use crate::{Runtime, module::ModuleEpochRetention};
-    use kagari_bytecode::{
-        module::BytecodeModule,
-        program::{BytecodeProgram, ModuleRef},
-    };
-    use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+    use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
+    use kagari_common::identity::map::DefinitionContext;
 
     fn module() -> (Runtime, LoadedModule) {
         let context = DefinitionContext::new().unwrap();
@@ -194,15 +192,12 @@ mod tests {
         let module = runtime
             .load_program(
                 "sessions",
-                DefinitionMetadata::checked(
-                    context.snapshot(),
-                    BytecodeProgram {
-                        exports: Default::default(),
-                        root: ModuleRef::new(0),
-                        modules: vec![BytecodeModule::default()],
-                    },
-                    &Default::default(),
-                )
+                ProgramFixture {
+                    exports: Default::default(),
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                }
+                .metadata(context.snapshot(), &Default::default())
                 .unwrap(),
             )
             .unwrap();

@@ -1,3 +1,9 @@
+// Share the runtime-owned source-free authoring helper across embedding fixtures.
+#[cfg(feature = "source")]
+#[allow(dead_code)] // Embedding uses the builder, not the native-only convenience fixture.
+#[path = "../../../../../kagari-runtime/tests/support/native/program.rs"]
+mod native_program;
+
 #[cfg(feature = "source")]
 mod conformance;
 

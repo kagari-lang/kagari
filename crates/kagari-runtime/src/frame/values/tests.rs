@@ -1,3 +1,4 @@
+use crate::test_support::native::program::ProgramFixture;
 mod measurements;
 
 use super::*;
@@ -15,11 +16,10 @@ use crate::{
 use kagari_bytecode::{
     instruction::{NativeImportId, Slot},
     module::{BytecodeModule, CallableTarget},
-    program::{BytecodeProgram, ModuleRef},
+    program::ModuleRef,
 };
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
-    metadata::DefinitionMetadata,
 };
 use kagari_contract::ids::FunctionRef;
 use kagari_types::{callable::Signature, scalar::BuiltinType, ty::Ty};
@@ -30,15 +30,12 @@ fn module() -> (Runtime, LoadedModule) {
     let module = runtime
         .load_program(
             "windows",
-            DefinitionMetadata::checked(
-                runtime.host().definitions(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(runtime.host().definitions(), &Default::default())
             .unwrap(),
         )
         .unwrap();

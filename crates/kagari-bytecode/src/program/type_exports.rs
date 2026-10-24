@@ -65,6 +65,7 @@ fn fixture() -> (DefinitionContext, BytecodeProgram, DefinitionId) {
     };
     let int = Ty::Builtin(BuiltinType::I32);
     let program = BytecodeProgram {
+        update_evidence: crate::program::updates::empty(),
         root: ModuleRef::new(0),
         exports: ProgramExports {
             namespaces: [(
@@ -629,6 +630,7 @@ fn type_exports_keep_native_storage_distinct_from_script_structs() {
         .intern_child(root, DefinitionKind::AssociatedType, "Object", 0)
         .unwrap();
     let mut program = BytecodeProgram {
+        update_evidence: crate::program::updates::empty(),
         root: ModuleRef::new(0),
         exports: ProgramExports {
             namespaces: [(identity.clone(), ExportNamespace::default())].into(),

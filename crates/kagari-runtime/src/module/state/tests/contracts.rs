@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_support::native::program::{ProgramFixture, certify};
 use crate::value::EnumTag;
 use kagari_bytecode::{
     artifact::KbcArtifact,
@@ -62,11 +63,12 @@ fn imported_program(context: &DefinitionContext) -> BytecodeProgram {
     let mut alias = consumer.clone();
     alias.identity.path = vec!["alias".into()];
     consumer.dependencies.push(ModuleRef::new(2));
-    BytecodeProgram {
+    ProgramFixture {
         exports: Default::default(),
         root: ModuleRef::new(1),
         modules: vec![supplier, consumer, alias],
     }
+    .build(context)
 }
 
 #[test]
@@ -181,7 +183,9 @@ fn source_free_verification_rejects_forged_static_contracts_and_initializer_auth
                 writable.modules[0].public_items = vec![PublicItem::Static(
                     writable.modules[0].module_slots[0].contract.clone(),
                 )];
+                let writable = certify(writable, &context);
                 VerifiedBytecodeProgram::new(writable, &context, &Default::default()).unwrap();
+                code = certify(code, &context);
             }
             6 => {
                 code.modules[1].functions[0].instructions[0] = BytecodeInstruction::Call {
@@ -313,11 +317,12 @@ fn empty_variant_does_not_hide_changed_private_payload_schema() {
         true,
         Visibility::Private,
     );
-    let mut code = BytecodeProgram {
+    let mut code = ProgramFixture {
         root: ModuleRef::new(0),
         modules: vec![module],
         exports: Default::default(),
-    };
+    }
+    .build(&context);
     let old = runtime
         .load_program(
             "choice",

@@ -1,3 +1,4 @@
+use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
@@ -19,7 +20,7 @@ use kagari_bytecode::{
         BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, InstructionOrigin,
         RootSlotLayout,
     },
-    program::{BytecodeProgram, ModuleRef},
+    program::ModuleRef,
 };
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_contract::ids::FunctionRef;
@@ -64,7 +65,7 @@ pub(in crate::frame) fn module(
         instructions: vec![BytecodeInstruction::Return(None)],
         ..Default::default()
     };
-    let program = BytecodeProgram {
+    let program = ProgramFixture {
         root: ModuleRef::new(0),
         exports: Default::default(),
         modules: vec![BytecodeModule {
@@ -80,7 +81,8 @@ pub(in crate::frame) fn module(
             functions: vec![function],
             ..Default::default()
         }],
-    };
+    }
+    .build(runtime.definition_context());
     let program =
         DefinitionMetadata::checked(runtime.host().definitions(), program, &Default::default())
             .unwrap();

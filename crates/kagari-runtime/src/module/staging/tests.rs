@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime, RuntimeConfig, StagedReload, error::RuntimeErrorKind, module::ModuleEpochRetention,
 };
@@ -10,13 +11,13 @@ use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetada
 use std::thread;
 
 fn program() -> DefinitionMetadata<BytecodeProgram> {
-    DefinitionMetadata::checked(
+    ProgramFixture {
+        exports: Default::default(),
+        root: ModuleRef::new(0),
+        modules: vec![BytecodeModule::default()],
+    }
+    .metadata(
         DefinitionContext::new().unwrap().snapshot(),
-        BytecodeProgram {
-            exports: Default::default(),
-            root: ModuleRef::new(0),
-            modules: vec![BytecodeModule::default()],
-        },
         &Default::default(),
     )
     .unwrap()

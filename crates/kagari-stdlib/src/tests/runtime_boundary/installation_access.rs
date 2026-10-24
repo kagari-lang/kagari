@@ -1,10 +1,7 @@
 use super::support;
 
 use crate::{declarations::StandardDeclarations, namespaces};
-use kagari_bytecode::{
-    module::BytecodeModule,
-    program::{BytecodeProgram, ModuleRef},
-};
+use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata},
@@ -31,8 +28,10 @@ use kagari_runtime::{
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::declaration::{NativeDeclaration, TraitDef, host::HostCallPolicy};
-use std::collections::BTreeSet;
-use support::native::{invoke::invoke, program::free_function_program};
+use support::native::{
+    invoke::invoke,
+    program::{ProgramFixture, free_function_program},
+};
 
 #[test]
 fn installed_function_needs_no_execution_permissions() {
@@ -153,15 +152,12 @@ fn ordinary_installed_traits_require_exact_contracts_without_calls() {
         } else {
             module.public_items.push(PublicItem::Trait(contract));
         }
-        DefinitionMetadata::checked(
-            context.snapshot(),
-            BytecodeProgram {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![module],
-            },
-            &Default::default(),
-        )
+        ProgramFixture {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![module],
+        }
+        .metadata(context.snapshot(), &Default::default())
         .unwrap()
     };
     // A plain declaration alone has no native privilege or installation dependency.
@@ -227,19 +223,16 @@ fn native_declarations_require_exact_installation_without_calls() {
         callable_requirements: vec![],
     };
     let program = |contract: NativeDeclaration| {
-        DefinitionMetadata::checked(
-            context.snapshot(),
-            BytecodeProgram {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule {
-                    identity: declaration.identity.clone(),
-                    native_declarations: vec![contract],
-                    ..Default::default()
-                }],
-            },
-            &Default::default(),
-        )
+        ProgramFixture {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule {
+                identity: declaration.identity.clone(),
+                native_declarations: vec![contract],
+                ..Default::default()
+            }],
+        }
+        .metadata(context.snapshot(), &Default::default())
         .unwrap()
     };
     let mut runtime = Runtime::default();
@@ -286,13 +279,13 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
     let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
-    let modules = lower_program_to_bytecode(&mir, &Default::default())
+    let compiled = lower_program_to_bytecode(&mir, &Default::default())
         .map(|program| program.into_unverified())
         .unwrap()
         .import_into(&context, &Default::default())
         .unwrap()
-        .into_records()
-        .modules;
+        .into_records();
+    let modules = &compiled.modules;
     for (index, module) in modules
         .iter()
         .enumerate()
@@ -307,44 +300,12 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
             .into_records();
         let base = modules[index].clone();
         let program = |module| {
-            let mut modules = modules.clone();
-            modules[index] = module;
-            let mut included = BTreeSet::new();
-            let mut pending = vec![index];
-            while let Some(index) = pending.pop() {
-                if included.insert(index) {
-                    pending.extend(
-                        modules[index]
-                            .dependencies
-                            .iter()
-                            .map(|owner| owner.index()),
-                    );
-                }
-            }
-            let order = included.into_iter().collect::<Vec<_>>();
-            let reference =
-                |index| ModuleRef::new(order.iter().position(|owner| *owner == index).unwrap());
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: reference(index),
-                    modules: order
-                        .iter()
-                        .map(|index| {
-                            let mut module = modules[*index].clone();
-                            module.dependencies = module
-                                .dependencies
-                                .iter()
-                                .map(|owner| reference(owner.index()))
-                                .collect();
-                            module
-                        })
-                        .collect(),
-                },
-                &Default::default(),
-            )
-            .unwrap()
+            // Retain the producer's complete proof/evidence closure rather than
+            // extracting modules and losing authored generic/default-body records.
+            let mut program = compiled.clone();
+
+            program.modules[index] = module;
+            DefinitionMetadata::checked(context.snapshot(), program, &Default::default()).unwrap()
         };
         let mut runtime = Runtime::default();
         assert!(
@@ -392,15 +353,12 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
         .find(|module| module.identity == namespaces::module("core", "fmt"))
         .unwrap();
     let program = |module| {
-        DefinitionMetadata::checked(
-            context.snapshot(),
-            BytecodeProgram {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![module],
-            },
-            &Default::default(),
-        )
+        ProgramFixture {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![module],
+        }
+        .metadata(context.snapshot(), &Default::default())
         .unwrap()
     };
     let base = BytecodeModule {

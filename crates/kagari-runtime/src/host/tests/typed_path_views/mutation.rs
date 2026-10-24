@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_support::native::program::ProgramFixture;
 use kagari_common::cancellation::CancellationToken;
 use std::sync::{
     Arc,
@@ -224,15 +225,12 @@ fn cancellation_during_a_prepared_commit_is_observed_after_the_atomic_update() {
     let module = runtime
         .load_program(
             "commit.kgr",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![Default::default()],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![Default::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap();

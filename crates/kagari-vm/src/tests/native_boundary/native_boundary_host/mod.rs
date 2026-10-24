@@ -1,12 +1,7 @@
 use super::compile_program;
 use crate::vm::Vm;
-use kagari_bytecode::{
-    module::BytecodeModule,
-    program::{BytecodeProgram, ModuleRef},
-};
-use kagari_common::identity::{
-    DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata,
-};
+use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
+use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
@@ -40,7 +35,7 @@ use std::sync::{
 // Reuse the runtime contract owners without another invocation or ABI implementation.
 #[path = "../../../../../kagari-runtime/tests/support/native/invoke.rs"]
 mod native_invocation;
-use crate::tests::native_program;
+use crate::tests::native_program::{self, ProgramFixture};
 
 fn host_policy(parameters: usize) -> HostCallPolicy {
     HostCallPolicy {
@@ -78,13 +73,13 @@ fn allocation_owner(runtime: &mut Runtime) -> LoadedModule {
     runtime
         .load_program(
             "allocation-owner",
-            DefinitionMetadata::checked(
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(
                 DefinitionContext::new().unwrap().snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
                 &Default::default(),
             )
             .unwrap(),

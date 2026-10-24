@@ -69,6 +69,7 @@ fn module(name: &str) -> BytecodeModule {
 
 fn program(modules: Vec<BytecodeModule>) -> BytecodeProgram {
     BytecodeProgram {
+        update_evidence: crate::program::updates::empty(),
         root: ModuleRef::new(0),
         modules,
         exports: Default::default(),

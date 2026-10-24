@@ -107,6 +107,7 @@ fn detached_copy(loaded: &LoadedModule) -> LoadedModule {
         slot: loaded.slot,
         program: Arc::new(ProgramDescriptor {
             code: loaded.program.code.clone(),
+            retained_demands: loaded.program.retained_demands.clone(),
             layouts: loaded.program.layouts.clone(),
             layout_admissions: Default::default(),
             root: loaded.program.root,

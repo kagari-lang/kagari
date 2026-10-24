@@ -18,7 +18,7 @@ use kagari_contract::{
         evidence::EvidenceRef,
         witness::OperationWitness,
     },
-    types::PublicItem,
+    types::{PublicItem, named::NamedContract},
 };
 use kagari_types::{
     callable::CallableImplementation,
@@ -40,6 +40,31 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
         *total = total.saturating_add(length);
         length <= MAX_ARTIFACT_NESTED_RECORDS && *total <= MAX_ARTIFACT_TABLE_RECORDS
     };
+    for record in &module.named_declarations {
+        let valid = match &record.contract {
+            NamedContract::Function(value) => {
+                add(value.generic_params.len())
+                    && add(value.bounds.len())
+                    && add(value.params.len())
+                    && add_abi_bounds(&value.bounds, &mut add)
+                    && add_function_contract(value, &mut add)
+            }
+            NamedContract::Constant(_) => true,
+            NamedContract::Alias(value) => {
+                add(value.generic_params.len())
+                    && add(value.bounds.len())
+                    && add_abi_bounds(&value.bounds, &mut add)
+            }
+            NamedContract::Implementation(value) => {
+                add(value.generic_params.len())
+                    && add(value.bounds.len())
+                    && add_abi_bounds(&value.bounds, &mut add)
+            }
+        };
+        if !valid {
+            return false;
+        }
+    }
     if !add(module.trait_references.len()) {
         return false;
     }
@@ -385,6 +410,26 @@ pub(super) fn module_abi_type_limit(
     definitions: &DefinitionTable,
 ) -> bool {
     let valid = |ty: &Ty| ty.within_wire_limits();
+    if !module
+        .named_declarations
+        .iter()
+        .all(|record| match &record.contract {
+            NamedContract::Function(value) => {
+                function_abi_type_limit(value)
+                    && value.params.iter().all(|param| valid(&param.ty))
+                    && valid(&value.return_type)
+            }
+            NamedContract::Constant(value) => valid(&value.ty),
+            NamedContract::Alias(value) => bounds_type_limit(&value.bounds) && valid(&value.target),
+            NamedContract::Implementation(value) => {
+                bounds_type_limit(&value.bounds)
+                    && valid(&value.receiver)
+                    && value.trait_type.as_ref().is_none_or(valid)
+            }
+        })
+    {
+        return false;
+    }
     if !module.path_declarations.iter().all(|path| {
         path.segments.len() <= 256
             && path.segments.iter().all(|segment| match segment {
@@ -571,6 +616,8 @@ pub(super) fn program_count_limit(
                 module.function_table.len(),
                 module.public_items.len(),
                 module.private_types.len(),
+                module.named_declarations.len(),
+                module.function_origins.len(),
                 module.trait_contracts.len(),
                 module.trait_references.len(),
             ]

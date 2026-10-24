@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_support::native::program::ProgramFixture;
 use kagari_contract::{
     layout::{StructFieldLayout, StructLayout},
     types::TraitContract,
@@ -62,18 +63,21 @@ fn fixture(context: &DefinitionContext) -> BytecodeProgram {
         true,
         Visibility::Private,
     );
-    BytecodeProgram {
+    ProgramFixture {
         root: ModuleRef::new(0),
         modules: vec![module],
         exports: Default::default(),
     }
+    .build(context)
 }
 
 fn metadata(
     context: &DefinitionContext,
     code: BytecodeProgram,
 ) -> DefinitionMetadata<BytecodeProgram> {
-    DefinitionMetadata::checked(context.snapshot(), code, &Default::default()).unwrap()
+    ProgramFixture::from(code)
+        .metadata(context.snapshot(), &Default::default())
+        .unwrap()
 }
 
 #[test]

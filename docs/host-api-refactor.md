@@ -14,11 +14,13 @@ UP00's transitive-selection gate by freezing published key Hash/Eq, static
 initializer expressions and their transitive dependencies during compatible update.
 The [UP plan](update-model-design.md#resumed-up00-audit-at-bbe30666) owns that policy
 and its implementation. The joint HM00+UP00 design checkpoint was committed as
-`bbfc0af6`. HM01 is locally complete, including the private-type evidence repair
-and post-repair validation; no carried errors remain. Next is UP01. Full CI remains
-pending. HM02-HM04 and UP implementation remain
-unstarted; MS remains unstarted. The public API still uses `LoadedModule` and pinned
-calls until HM02/UP02; HM01 delivers source-free type exports, not live dispatch.
+`bbfc0af6`. HM01 is locally complete and committed as `3523c4c8`, including the
+private-type evidence repair and post-repair validation; no HM01 errors remain.
+[UP01 integration](update-model-design.md#up01-implementation-and-integration) is
+locally complete with no carried errors; HM02 is next. Full CI remains unrun.
+HM02-HM04 and UP02-UP05 remain unstarted; MS remains unstarted. The public API still
+uses `LoadedModule` and pinned calls until HM02/UP02; HM01 delivers source-free
+type exports, not live dispatch.
 Originally requested against `67d9e36f`, this document owns HM00-HM04, decisions,
 acceptance and progress for the [Host Program and module lookup finding](review.md#host-program-and-module-lookup).
 
@@ -753,10 +755,10 @@ handoff. No speedup is claimed; new persistent caches require concrete justifica
 The [transparent generic alias prerequisite](#transparent-generic-alias-prerequisite)
 is locally complete. The newly reauthorized order is joint HM00 + UP00, then HM01,
 UP01, HM02, UP02, HM03, HM04, UP03, UP04 and UP05. The joint design checkpoint is
-committed as `bbfc0af6`; HM01 is locally complete after private-type evidence
-integration and validation. UP01 is next. The joint design commit has both
-Plan-Phase trailers;
-subsequent completed phases have their own coherent commits. MS remains unstarted.
+committed as `bbfc0af6`; HM01 is locally complete and committed as `3523c4c8` after
+private-type evidence integration and validation. UP01 is locally complete; HM02
+is next. The joint design commit has both Plan-Phase trailers; subsequent phases
+retain separate coherent commit boundaries. MS remains unstarted.
 Record each phase in its existing owning plan, not a third integration ledger.
 Alias completion alone did not complete HM00/UP00; the resumed design audit and
 explicit policy decision resolve the representation/type-export/lifetime handoff.
@@ -1037,8 +1039,9 @@ retain their existing review/plan owners.
   retarget semantics are explicit below. Design acceptance only; UP00's own checklist
   stays in its owning plan. Joint HM00+UP00 committed as `bbfc0af6`.
 - [x] HM01 — Type export pipeline, private declaration evidence, layout demand and
-  reload comparison locally complete. Post-repair focused tests and all local
-  checks passed; no carried errors. Next: UP01. Full CI remains pending.
+  reload comparison locally complete, committed as `3523c4c8`. Post-repair focused
+  tests and all local checks passed; no HM01 errors remain. UP01 is locally complete
+  in its own ledger; HM02 is next. Full CI remains unrun.
 - [ ] HM02 — Installed Program/module capability separation and consumer migration.
 - [ ] HM03 — Relative module/function/type binding and ordinary examples.
 - [ ] HM04 — Integration, lasting documentation and handoff.
@@ -1046,8 +1049,10 @@ retain their existing review/plan owners.
 HM00/UP00 design is committed; HM01 is locally complete as recorded below.
 The public API remains `LoadedModule` with pinned calls: live Program/Module handles,
 relative host type binding and current-call dispatch are not implemented by HM01.
-UP01 owns the next frozen-inventory/protected-dependency/stable-callable checkpoint;
-HM02 follows it, and UP02 owns dispatch. MS remains unstarted. Older audits and the
+UP01's frozen-inventory/protected-dependency/stable-callable checkpoint is locally
+complete; its [integration ledger](update-model-design.md#up01-implementation-and-integration)
+records the resolved compiler failure and final 12 focused passes. No UP01 errors
+remain. HM02 is next; UP02 owns dispatch. MS remains unstarted. Older audits and the
 alias ledger are historical evidence, not current pauses or authorization gates.
 
 ### HM01 integration and UP01 handoff
@@ -1092,11 +1097,14 @@ verification and reload compatibility without a workspace test sweep. HM01 local
 acceptance is complete. Full-workspace tests and the complete feature/backend/
 platform matrix remain CI-only and unrun; local results are not CI acceptance.
 
-Next, UP01 reuses these checked exports but supplies the separate complete frozen
-inventory, protected Hash/Eq/initializer dependency evidence and stable-callable
-application coverage. Export metadata is not that inventory. Existing function
-alias retarget policy and private root-entry behavior are unchanged; HM01 does not
-implement protected-update enforcement or current-call selection.
+UP01 now reuses these checked exports for its separate frozen inventory, protected
+Hash/Eq/initializer dependency evidence and stable-callable application coverage;
+its [local acceptance is complete](update-model-design.md#up01-implementation-and-integration).
+Export metadata is not that inventory. HM02 must consume the accepted metadata
+without claiming UP02 dispatch. Existing function-alias retarget policy is unchanged:
+retained bindings keep their declaration; fresh lookup may follow a same-signature
+retarget. Private root-entry behavior is unchanged. HM01 itself implements neither
+protected-update enforcement nor current-call selection.
 
 ### HM00 audit at bbe30666: implementation slices and parent handoff
 

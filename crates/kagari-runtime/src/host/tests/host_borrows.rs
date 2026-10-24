@@ -1,14 +1,12 @@
+use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
     host::{HostBorrowKind, HostBorrowTable, HostCallGuard, HostObjectId},
     metadata::TypeId,
 };
-use kagari_bytecode::{
-    module::BytecodeModule,
-    program::{BytecodeProgram, ModuleRef},
-};
-use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
+use kagari_common::identity::map::DefinitionContext;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[test]
@@ -110,15 +108,12 @@ fn borrow_values_are_non_storable_and_fail_no_escape_validation() {
     let module = runtime
         .load_program(
             "borrow-storage",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap();

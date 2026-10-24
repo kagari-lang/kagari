@@ -22,7 +22,9 @@ fn access_program() -> DefinitionMetadata<BytecodeProgram> {
     let mut origin = main.metadata.origins[0].clone();
     origin.instruction = 1;
     main.metadata.origins.push(origin);
-    DefinitionMetadata::checked(definitions, code, &Default::default()).unwrap()
+    ProgramFixture::from(code)
+        .metadata(definitions, &Default::default())
+        .unwrap()
 }
 
 #[test]

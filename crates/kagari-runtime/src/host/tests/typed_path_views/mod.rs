@@ -1,3 +1,4 @@
+use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
@@ -11,11 +12,7 @@ use crate::{
     native::{builder::ModuleBuilder, module::NativeModule},
     value::Value,
 };
-use kagari_bytecode::{
-    instruction::BinaryOp,
-    module::BytecodeModule,
-    program::{BytecodeProgram, ModuleRef},
-};
+use kagari_bytecode::{instruction::BinaryOp, module::BytecodeModule, program::ModuleRef};
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext,
     metadata::DefinitionMetadata, table::DefinitionId,
@@ -42,15 +39,12 @@ fn allocation_owner(runtime: &mut Runtime) -> LoadedModule {
     runtime
         .load_program(
             "allocation-owner",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap()

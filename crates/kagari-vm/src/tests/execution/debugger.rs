@@ -1,9 +1,12 @@
 use super::*;
 use crate::{
-    tests::common::{compile_test_bytecode_with_options, round_trip_bytecode, standard_runtime},
+    tests::{
+        common::{compile_test_bytecode_with_options, round_trip_bytecode, standard_runtime},
+        native_program::ProgramFixture,
+    },
     vm::fixtures::FixtureExecution,
 };
-use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
+use kagari_bytecode::program::ModuleRef;
 use kagari_compiler::source::lower::instances::MirLoweringOptions;
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::module::entry::ProgramEntry;
@@ -328,13 +331,13 @@ fn debug_session_supports_step_into_and_trap_pause_events() {
     let loaded = runtime
         .load_program(
             "debug_trap.kbc",
-            DefinitionMetadata::checked(
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![verified_module(vec![main], vec![ConstantOperand::I32(1)])],
+            }
+            .metadata(
                 DefinitionContext::new().unwrap().snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![verified_module(vec![main], vec![ConstantOperand::I32(1)])],
-                },
                 &Default::default(),
             )
             .unwrap(),

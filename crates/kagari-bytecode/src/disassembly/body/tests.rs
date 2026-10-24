@@ -101,11 +101,15 @@ fn prepare(function: BytecodeFunction) -> PreparedDisassembly {
         ..Default::default()
     };
     let artifact = KbcArtifact::from_program(
-        BytecodeProgram {
-            root: ModuleRef::new(0),
-            modules: vec![module],
-            exports: Default::default(),
-        },
+        crate::program::updates::fixtures::certify(
+            BytecodeProgram {
+                update_evidence: crate::program::updates::empty(),
+                root: ModuleRef::new(0),
+                modules: vec![module],
+                exports: Default::default(),
+            },
+            &context,
+        ),
         ArtifactBuildOptions::default(),
         &context,
         &Default::default(),
@@ -151,7 +155,7 @@ fn no_debug_body_preserves_stored_order_unreachable_code_and_execution_facts() {
     assert_eq!(
         output,
         concat!(
-            "fn @0:0 fixture::body::echo(arg0: physical(i32)) -> physical(i32) ; instructions=6 may_suspend=false recorded_effects=[]\n",
+            "fn @0:0 fixture::body::echo(arg0: i32) -> i32 ; instructions=6 may_suspend=false recorded_effects=[]\n",
             "  slots: 3\n",
             "  entry: arg0 -> s1\n",
             "  s0: physical=i32 semantic=i32\n",

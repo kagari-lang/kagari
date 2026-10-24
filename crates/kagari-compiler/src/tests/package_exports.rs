@@ -23,6 +23,7 @@ use kagari_hir::analysis::AnalysisDatabase;
 use kagari_mir::{
     codec::{decode_program, encode_program},
     program::{ProgramErrorKind, VerifiedMirProgram, records::MirProgram, verify_program},
+    verify::{MirVerificationError, MirVerificationErrorKind},
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{
@@ -453,16 +454,22 @@ fn executable_export_validation_rejects_forged_authority_and_dangling_graphs() {
         }
         let error = verify_bytecode(&forged_bytecode, &context.snapshot(), &Default::default())
             .unwrap_err();
-        if matches!(corruption, 6 | 7) {
-            // Bytecode's existing semantic-flow verifier detects the signature
-            // mismatch or omission before the final export binding check.
-            assert!(matches!(
-                error,
-                BytecodeVerificationError::InvalidOperation {
-                    reason: "invalid collection access flow",
-                    ..
-                }
-            ));
+        if corruption == 6 {
+            // The named inventory now rejects disagreement with public ABI before
+            // executable flow or export binding can confer callable authority.
+            assert_eq!(error, BytecodeVerificationError::InvalidPublicAbi);
+        } else if corruption == 7 {
+            // Missing executable result metadata is rejected before export binding.
+            assert!(
+                matches!(
+                    error,
+                    BytecodeVerificationError::InvalidOperation {
+                        reason: "invalid collection access flow",
+                        ..
+                    }
+                ),
+                "bytecode corruption {corruption}: {error:?}"
+            );
         } else {
             assert_eq!(
                 error,
@@ -470,15 +477,25 @@ fn executable_export_validation_rejects_forged_authority_and_dangling_graphs() {
                 "bytecode corruption {corruption}"
             );
         }
-        assert!(
-            matches!(
-                verify_program(forged, &context, &Default::default())
-                    .unwrap_err()
-                    .kind,
-                ProgramErrorKind::InvalidExports
+        let error = verify_program(forged, &context, &Default::default()).unwrap_err();
+        let expected = match corruption {
+            6 => matches!(
+                error.kind,
+                ProgramErrorKind::Verification(MirVerificationError {
+                    kind: MirVerificationErrorKind::InvalidPublicAbi,
+                    ..
+                })
             ),
-            "corruption {corruption}"
-        );
+            7 => matches!(
+                error.kind,
+                ProgramErrorKind::Verification(MirVerificationError {
+                    kind: MirVerificationErrorKind::InvalidParameterLayout,
+                    ..
+                })
+            ),
+            _ => matches!(error.kind, ProgramErrorKind::InvalidExports),
+        };
+        assert!(expected, "MIR corruption {corruption}: {error:?}");
     }
     let cancel = CancellationToken::default();
     cancel.cancel();

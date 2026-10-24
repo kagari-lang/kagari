@@ -1,3 +1,4 @@
+use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime, RuntimeConfig,
     error::{RuntimeError, RuntimeErrorKind},
@@ -17,9 +18,9 @@ use kagari_bytecode::{
         BytecodeFunction, BytecodeModule, CallableTarget, FunctionMetadata, FunctionRecord,
         RootSlotLayout,
     },
-    program::{BytecodeProgram, ModuleRef},
+    program::ModuleRef,
 };
-use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_common::identity::map::DefinitionContext;
 use kagari_contract::ids::FunctionRef;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
@@ -87,27 +88,24 @@ fn loaded_function(runtime: &mut Runtime, function: BytecodeFunction) -> LoadedM
     runtime
         .load_program(
             "frames",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule {
-                        types: vec![ValueType::Unit, ValueType::HeapObject],
-                        function_table: vec![FunctionRecord {
-                            id: function.id,
-                            identity: function.identity.clone(),
-                            name: function.name.clone(),
-                            params: function.metadata.params.clone(),
-                            return_type: function.metadata.return_type,
-                            effects: Default::default(),
-                        }],
-                        functions: vec![function],
-                        ..Default::default()
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule {
+                    types: vec![ValueType::Unit, ValueType::HeapObject],
+                    function_table: vec![FunctionRecord {
+                        id: function.id,
+                        identity: function.identity.clone(),
+                        name: function.name.clone(),
+                        params: function.metadata.params.clone(),
+                        return_type: function.metadata.return_type,
+                        effects: Default::default(),
                     }],
-                },
-                &Default::default(),
-            )
+                    functions: vec![function],
+                    ..Default::default()
+                }],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap()
@@ -186,6 +184,12 @@ fn call_argument_admission_preserves_failure_precedence_and_atomicity() {
                     params,
                     ..Default::default()
                 };
+            for index in 0..2 {
+                fixture_metadata
+                    .semantic
+                    .params
+                    .insert(index, Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))));
+            }
             if fixture_metadata.parameter_slots.is_empty() {
                 fixture_metadata.parameter_slots =
                     (0..2).map(|i| Slot::new(parameter_base + i)).collect();
@@ -219,15 +223,12 @@ fn call_argument_admission_preserves_failure_precedence_and_atomicity() {
                 .stage_reload_program(
                     &baseline,
                     "frames",
-                    DefinitionMetadata::checked(
-                        definitions,
-                        BytecodeProgram {
-                            exports: Default::default(),
-                            root: ModuleRef::new(0),
-                            modules: vec![module],
-                        },
-                        &Default::default(),
-                    )
+                    ProgramFixture {
+                        exports: Default::default(),
+                        root: ModuleRef::new(0),
+                        modules: vec![module],
+                    }
+                    .metadata(definitions, &Default::default())
                     .unwrap(),
                 )
                 .unwrap()
@@ -565,15 +566,12 @@ fn ending_a_suspended_session_does_not_count_candidate_frames_as_leaks() {
         .stage_reload_program(
             &old,
             "frames",
-            DefinitionMetadata::checked(
-                definitions,
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![module],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![module],
+            }
+            .metadata(definitions, &Default::default())
             .unwrap(),
         )
         .unwrap();
@@ -638,15 +636,12 @@ fn suspended_session_frames_cannot_be_used_during_candidate_initialization() {
         .stage_reload_program(
             &old,
             "frames",
-            DefinitionMetadata::checked(
-                definitions,
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![module],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![module],
+            }
+            .metadata(definitions, &Default::default())
             .unwrap(),
         )
         .unwrap();

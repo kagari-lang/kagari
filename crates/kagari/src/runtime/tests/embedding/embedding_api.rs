@@ -16,7 +16,7 @@ use kagari_bytecode::{
         BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, PathRecord,
         RootSlotLayout,
     },
-    program::{BytecodeProgram, ModuleRef},
+    program::ModuleRef,
 };
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, map::DefinitionContext, metadata::DefinitionMetadata,
@@ -25,7 +25,10 @@ use kagari_contract::{
     exports::ProgramExports,
     ids::FunctionRef,
     native_import::NativeImport,
-    types::{ConcreteFunctionIdentity, PublicItem},
+    types::{
+        ConcreteFunctionIdentity, PublicItem,
+        named::{NamedContract, NamedDeclaration},
+    },
 };
 use kagari_runtime::value_semantics::script_equal;
 use kagari_runtime::{
@@ -54,6 +57,8 @@ use kagari_types::{
     ty::Ty,
     visibility::Visibility,
 };
+
+use super::native_program::ProgramFixture;
 
 fn compile_artifact(
     engine: &KagariEngine,
@@ -264,7 +269,7 @@ fn host_path_artifact(
         }
     }
     let artifact = KbcArtifact::from_program(
-        BytecodeProgram {
+        ProgramFixture {
             exports: ProgramExports {
                 entry: Some(main),
                 ..Default::default()
@@ -340,6 +345,12 @@ fn host_path_artifact(
                     identity: module.identity.clone(),
                     source_name: "native:game".into(),
                     external_types: vec![schema],
+                    named_declarations: vec![NamedDeclaration {
+                        declaration: make.declaration,
+                        visibility: Visibility::Public,
+                        ambiguous_local_body: None,
+                        contract: NamedContract::Function(make.function.clone()),
+                    }],
                     native_declarations: vec![make.clone()],
                     public_items: vec![
                         PublicItem::Type(module.types[0].clone()),
@@ -348,7 +359,8 @@ fn host_path_artifact(
                     ..Default::default()
                 },
             ],
-        },
+        }
+        .build(&definitions),
         ArtifactBuildOptions::default(),
         &definitions,
         &Default::default(),

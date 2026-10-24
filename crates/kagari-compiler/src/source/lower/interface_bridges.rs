@@ -15,6 +15,7 @@ use kagari_contract::{
     types::{
         ConcreteFunctionIdentity, InterfaceBridge, InterfaceTable, ModuleContract, PublicItem,
     },
+    updates::BodyClassification,
 };
 use kagari_hir::{AnalyzedModule, types::semantic::raise_type};
 use kagari_mir::{
@@ -38,6 +39,7 @@ pub(super) fn collect(
     module: &AnalyzedModule,
     abi: &mut ModuleContract,
     functions: &mut Vec<MirFunction>,
+    classifications: &mut Vec<(ConcreteFunctionIdentity, BodyClassification)>,
 ) -> Result<(), MirLoweringError> {
     for request in planner.interface_bridges.clone() {
         planner.check()?;
@@ -209,6 +211,10 @@ pub(super) fn collect(
                 &module.lowered.source,
                 &planner.options.cancel,
             )?);
+            classifications.push((
+                function.instance.clone(),
+                BodyClassification::Adapter(function.instance.clone()),
+            ));
             functions.push(function);
         }
         abi.public_items

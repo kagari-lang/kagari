@@ -1,3 +1,4 @@
+use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime, RuntimeConfig,
     backend::{BackendInvocationError, native::InstalledNativeFunction},
@@ -65,6 +66,7 @@ fn runtime() -> Runtime {
 }
 
 fn program() -> DefinitionMetadata<BytecodeProgram> {
+    let context = DefinitionContext::new().unwrap();
     let instructions = vec![
         BytecodeInstruction::Jump {
             target: JumpTarget::new(1),
@@ -87,7 +89,7 @@ fn program() -> DefinitionMetadata<BytecodeProgram> {
         instructions,
         ..Default::default()
     };
-    let program = BytecodeProgram {
+    let program = ProgramFixture {
         exports: Default::default(),
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule {
@@ -103,13 +105,9 @@ fn program() -> DefinitionMetadata<BytecodeProgram> {
             functions: vec![function],
             ..Default::default()
         }],
-    };
-    DefinitionMetadata::checked(
-        DefinitionContext::new().unwrap().snapshot(),
-        program,
-        &Default::default(),
-    )
-    .unwrap()
+    }
+    .build(&context);
+    DefinitionMetadata::checked(context.snapshot(), program, &Default::default()).unwrap()
 }
 
 unsafe extern "C" fn execute(
@@ -510,7 +508,9 @@ fn native_handles_pin_the_entire_dependency_program_across_reload() {
         },
     );
     graph.root = ModuleRef::new(1);
-    let graph = DefinitionMetadata::checked(definitions, graph, &Default::default()).unwrap();
+    let graph = ProgramFixture::from(graph)
+        .metadata(definitions, &Default::default())
+        .unwrap();
     let mut runtime = runtime();
     let module = runtime.load_program("native", graph.clone()).unwrap();
     let old_dependency = module.member(ModuleRef::new(0)).unwrap();

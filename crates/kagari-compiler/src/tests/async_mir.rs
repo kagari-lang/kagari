@@ -3,24 +3,28 @@ use crate::{bytecode::lower_program_to_bytecode, tests::common};
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{artifact::KbcArtifact, instruction::BytecodeInstruction};
 use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
-use kagari_contract::types::PublicItem;
+use kagari_contract::{
+    types::{PublicItem, named::NamedContract},
+    updates::UpdateEvidence,
+};
 use kagari_mir::{
     codec::{decode_program, encode_program},
     function::{MirModule, MirTemp},
     ids::{LocalId, TempId},
     instruction::{Instruction, MirValue},
-    program::{VerifiedMirProgram, records::MirProgram, verify_program},
+    program::{VerifiedMirProgram, records::MirProgram, updates, verify_program},
 };
 use kagari_types::{
     declaration::{TypeDefKind, native::NativeStorageLayout},
     ty::Ty,
 };
 
-fn program(context: &DefinitionContext) -> (Vec<MirModule>, usize) {
+fn program(context: &DefinitionContext) -> (Vec<MirModule>, usize, UpdateEvidence) {
     let program =
         common::mir_ok("pub struct Future<T> {} fn wait(value: Future<i32>) -> i32 { 0 }");
     let root = program.root().clone();
-    let mut modules = common::adopt(context, program.into_unverified()).modules;
+    let program = common::adopt(context, program.into_unverified());
+    let mut modules = program.modules;
     let index = modules
         .iter()
         .position(|module| module.identity == root)
@@ -50,6 +54,16 @@ fn program(context: &DefinitionContext) -> (Vec<MirModule>, usize) {
     let future = Ty::NativeObject(nominal);
     function.semantic.params.insert(0, future.clone());
     function.semantic.locals.insert(0, future.clone());
+    let declaration = module
+        .abi
+        .named_declarations
+        .iter_mut()
+        .find(|declaration| declaration.declaration == function.instance.declaration)
+        .expect("wait's authored function contract");
+    let NamedContract::Function(declaration) = &mut declaration.contract else {
+        panic!("wait must retain a function contract");
+    };
+    declaration.params[0].ty = future.clone();
     let value = MirValue {
         temp: TempId::new(function.temps.len()),
         ty: ValueType::HeapObject,
@@ -80,17 +94,35 @@ fn program(context: &DefinitionContext) -> (Vec<MirModule>, usize) {
             declaration.params[0].ty = function.semantic.params[&0].clone();
         }
     }
-    (modules, index)
+    (modules, index, program.update_evidence)
 }
 
 fn verified(
     context: &DefinitionContext,
     modules: Vec<MirModule>,
     root: usize,
+    original: UpdateEvidence,
 ) -> VerifiedMirProgram {
+    let update_evidence = updates::build(
+        &modules,
+        updates::EvidenceInputs {
+            sources: original.sources,
+            roots: original.roots,
+            selections: original.selections,
+            classifications: original
+                .bodies
+                .into_iter()
+                .map(|body| (body.requirement.origin, body.classification))
+                .collect(),
+        },
+        &context.snapshot(),
+        &Default::default(),
+    )
+    .unwrap();
     verify_program(
         MirProgram {
             root: modules[root].identity.clone(),
+            update_evidence,
             modules,
             exports: Default::default(),
         },
@@ -103,8 +135,8 @@ fn verified(
 #[test]
 fn async_mir_suspension_contract() {
     let context = DefinitionContext::new().unwrap();
-    let (modules, root) = program(&context);
-    let verified = verified(&context, modules.clone(), root);
+    let (modules, root, evidence) = program(&context);
+    let verified = verified(&context, modules.clone(), root, evidence);
     let bytes = encode_program(&verified, &Default::default()).unwrap();
     let decoded = decode_program(&bytes, &Default::default()).unwrap();
     let bytecode = common::adopt_bytecode(

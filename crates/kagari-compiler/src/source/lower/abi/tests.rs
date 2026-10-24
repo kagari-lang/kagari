@@ -3,7 +3,7 @@ use crate::source::lower::support::lower_scalar;
 use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
 use kagari_contract::{
     types as abi,
-    types::{PublicItem, inherent::native_signatures_match, verify},
+    types::{PublicItem, inherent::native_signatures_match, named::verify as named_verify, verify},
 };
 use kagari_hir::{
     aggregates::traits::MethodDefault, analysis::AnalysisDatabase,
@@ -357,6 +357,14 @@ fn every_installed_callable_and_public_contract_passes_portable_validation() {
                 .facts(),
         );
         let identity = declared.source().module_identity();
+        named_verify::validate(
+            &abi.named_declarations,
+            &abi.public_items,
+            identity,
+            analyzed.definitions(),
+            &Default::default(),
+        )
+        .unwrap_or_else(|error| panic!("invalid named inventory {identity}: {error:?}"));
         for declaration in &abi.native_declarations {
             assert!(
                 validate_native_declarations(

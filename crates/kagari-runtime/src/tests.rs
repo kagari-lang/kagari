@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_support::native::program::ProgramFixture;
 use crate::{
     metadata::{AbiFingerprint, TypeKind, TypeRegistration},
     reload::ReloadValidationError,
@@ -11,7 +12,7 @@ use kagari_bytecode::{
     },
     instruction::{BytecodeInstruction, ConstantOperand},
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord},
-    program::{BytecodeProgram, ModuleRef},
+    program::ModuleRef,
 };
 use kagari_contract::{ids::FunctionRef, types::PublicItem};
 use kagari_types::{
@@ -94,15 +95,12 @@ fn load_rejects_missing_function_terminator_before_publication() {
     let error = runtime
         .load_program(
             "missing-return",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![module],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![module],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap_err();
@@ -118,11 +116,12 @@ fn artifact_with_loader_fingerprints(context: &DefinitionContext) -> KbcArtifact
     let mut root = module_with_public_function(BuiltinType::I32);
     root.dependencies = vec![ModuleRef::new(0)];
     KbcArtifact::from_program(
-        BytecodeProgram {
+        ProgramFixture {
             exports: Default::default(),
             root: ModuleRef::new(1),
             modules: vec![dependency, root],
-        },
+        }
+        .build(context),
         ArtifactBuildOptions {
             ..Default::default()
         },
@@ -148,15 +147,12 @@ fn reload_publishes_valid_candidate_after_validation() {
     let loaded = runtime
         .load_program(
             "reloadable",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![module_with_public_function(BuiltinType::I32)],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![module_with_public_function(BuiltinType::I32)],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .expect("module should load");
@@ -165,15 +161,12 @@ fn reload_publishes_valid_candidate_after_validation() {
         .stage_reload_program(
             &loaded,
             "reloadable",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![module_with_public_function(BuiltinType::I32)],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![module_with_public_function(BuiltinType::I32)],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .and_then(|candidate| runtime.publish_staged_reload(candidate))
@@ -194,15 +187,12 @@ fn reload_rejects_public_abi_changes_before_publication() {
     let loaded = runtime
         .load_program(
             "reloadable",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![module_with_public_function(BuiltinType::I32)],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![module_with_public_function(BuiltinType::I32)],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .expect("module should load");
@@ -212,24 +202,21 @@ fn reload_rejects_public_abi_changes_before_publication() {
         .stage_reload_program(
             &loaded,
             "reloadable",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![module_with_public_function(BuiltinType::String)],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![module_with_public_function(BuiltinType::String)],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .and_then(|candidate| runtime.publish_staged_reload(candidate))
         .expect_err("public ABI change should reject reload");
 
-    assert_eq!(error.code(), "KG_RELOAD_PUBLIC_ABI_FINGERPRINT_MISMATCH");
+    assert_eq!(error.code(), "KG_RELOAD_DECLARATION_CONTRACT_MISMATCH");
     assert!(matches!(
         error,
-        ReloadValidationError::PublicAbiFingerprintMismatch
+        ReloadValidationError::DeclarationContractMismatch { .. }
     ));
     assert_eq!(runtime.modules().loaded_count(), before_count);
     assert_eq!(
@@ -245,15 +232,12 @@ fn reload_rejects_stale_active_epoch_before_publication() {
     let first = runtime
         .load_program(
             "reloadable",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![module_with_public_function(BuiltinType::I32)],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![module_with_public_function(BuiltinType::I32)],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .expect("module should load");
@@ -261,15 +245,12 @@ fn reload_rejects_stale_active_epoch_before_publication() {
         .stage_reload_program(
             &first,
             "reloadable",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![module_with_public_function(BuiltinType::I32)],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![module_with_public_function(BuiltinType::I32)],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .and_then(|candidate| runtime.publish_staged_reload(candidate))
@@ -280,15 +261,12 @@ fn reload_rejects_stale_active_epoch_before_publication() {
         .stage_reload_program(
             &first,
             "reloadable",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![module_with_public_function(BuiltinType::I32)],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![module_with_public_function(BuiltinType::I32)],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .and_then(|candidate| runtime.publish_staged_reload(candidate))
@@ -528,28 +506,30 @@ fn prepared_reload_is_inert_and_rejects_a_stale_publication() {
 fn reload_invalidates_interpreter_caches_with_stale_dependency_fingerprints() {
     let context = DefinitionContext::new().unwrap();
     let dependency_v1 = KbcArtifact::from_program(
-        BytecodeProgram {
+        ProgramFixture {
             exports: Default::default(),
             root: ModuleRef::new(0),
             modules: vec![module_with_public_function_and_constant(
                 BuiltinType::I32,
                 1,
             )],
-        },
+        }
+        .build(&context),
         ArtifactBuildOptions::default(),
         &context,
         &Default::default(),
     )
     .unwrap();
     let dependency_v2 = KbcArtifact::from_program(
-        BytecodeProgram {
+        ProgramFixture {
             exports: Default::default(),
             root: ModuleRef::new(0),
             modules: vec![module_with_public_function_and_constant(
                 BuiltinType::I32,
                 2,
             )],
-        },
+        }
+        .build(&context),
         ArtifactBuildOptions::default(),
         &context,
         &Default::default(),
@@ -573,15 +553,12 @@ fn reload_invalidates_interpreter_caches_with_stale_dependency_fingerprints() {
     let consumer = runtime
         .load_program(
             "consumer",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![module_with_public_function(BuiltinType::I32)],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![module_with_public_function(BuiltinType::I32)],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .expect("consumer should load");
@@ -644,18 +621,15 @@ fn reload_invalidates_interpreter_cache_for_new_epoch_even_when_public_abi_is_st
     let loaded = runtime
         .load_program(
             "reloadable",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![module_with_public_function_and_constant(
-                        BuiltinType::I32,
-                        1,
-                    )],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![module_with_public_function_and_constant(
+                    BuiltinType::I32,
+                    1,
+                )],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .expect("module should load");
@@ -680,18 +654,15 @@ fn reload_invalidates_interpreter_cache_for_new_epoch_even_when_public_abi_is_st
         .stage_reload_program(
             &loaded,
             "reloadable",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![module_with_public_function_and_constant(
-                        BuiltinType::I32,
-                        2,
-                    )],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![module_with_public_function_and_constant(
+                    BuiltinType::I32,
+                    2,
+                )],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .and_then(|candidate| runtime.publish_staged_reload(candidate))
@@ -735,15 +706,12 @@ fn failed_reload_does_not_invalidate_interpreter_caches() {
     let consumer = runtime
         .load_program(
             "consumer",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![module_with_public_function(BuiltinType::I32)],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![module_with_public_function(BuiltinType::I32)],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .expect("consumer should load");

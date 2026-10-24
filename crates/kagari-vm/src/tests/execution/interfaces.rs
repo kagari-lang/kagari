@@ -1,13 +1,13 @@
 use super::*;
 use crate::{
     executor::Executor,
-    tests::common::{module_program, round_trip_bytecode, standard_runtime},
+    tests::common::{round_trip_bytecode, standard_runtime},
     vm::fixtures::FixtureExecution,
 };
 use kagari_bytecode::instruction::ConstructionTarget as BytecodeConstruction;
 use kagari_bytecode::{
     instruction::{ConstantId, StructId},
-    program::{BytecodeProgram, identity, verify_program},
+    program::{identity, verify_program},
     verifier::{BytecodeVerificationError, verify_module},
 };
 use kagari_contract::{ids::FunctionRef, types::PublicItem};
@@ -591,7 +591,15 @@ fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
     };
     assert!(verify_module(&invalid, &definitions, &Default::default()).is_err());
 
-    let decoded = round_trip_bytecode(module_program(module));
+    let context = DefinitionContext::new().unwrap();
+    let module = module
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    let program = interface_program(&context, vec![module], ModuleRef::new(0));
+    let decoded = round_trip_bytecode(
+        DefinitionMetadata::checked(context.snapshot(), program, &Default::default()).unwrap(),
+    );
     let mut runtime = standard_runtime(Default::default());
     let loaded = runtime
         .load_program("interface-instruction", decoded)
@@ -641,11 +649,24 @@ fn interface_instruction_uses_a_reachable_dependency_table() {
     );
     consumer.identity = ModuleIdentity::single_file("interface-consumer.kgr");
     consumer.dependencies = vec![ModuleRef::new(0)];
-    let program = BytecodeProgram {
-        exports: Default::default(),
-        root: ModuleRef::new(1),
-        modules: vec![dependency, consumer],
-    };
+    let result = dependency.functions[0]
+        .metadata
+        .semantic
+        .result
+        .clone()
+        .unwrap();
+    consumer.functions[0]
+        .metadata
+        .semantic
+        .slots
+        .insert(0, Ty::Builtin(BuiltinType::I32));
+    consumer.functions[0].metadata.semantic.result = Some(result.clone());
+    consumer.functions[0]
+        .metadata
+        .semantic
+        .slots
+        .insert(1, result);
+    let program = interface_program(&context, vec![dependency, consumer], ModuleRef::new(1));
     let definitions = identity::collect(
         &program.modules.iter().collect::<Vec<_>>(),
         &context,
