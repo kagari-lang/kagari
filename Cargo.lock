@@ -781,6 +781,8 @@ dependencies = [
  "kagari-source",
  "rowan",
  "rstest",
+ "serde",
+ "serde_json",
  "smallvec",
 ]
 

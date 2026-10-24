@@ -72,15 +72,16 @@ products and one serial test that walks an entire fixture directory. A custom
 discovery harness needs a concrete justification for departing from ordinary
 ownership rules.
 
-### Planned compiler UI diagnostic tests
+### Compiler UI diagnostic tests
 
 The [organization plan](test-organization-plan.md#file-based-ui-diagnostic-tests-planned)
-defines the proposed file-based UI suites for TO03/TO04/TO09. Here UI means
-user-facing compiler diagnostics, not graphical interfaces. These suites are not
-implemented by the committed fixture pilot.
+owns the remaining HIR/CLI UI migration. Here UI means user-facing compiler
+diagnostics, not graphical interfaces. The parser suite is implemented in the
+existing syntax library harness; HIR and real-process CLI suites follow separately.
 
-Parser/HIR source inputs will pair with ordered `.diagnostics.json` expectations
-for full producer records; CLI cases will compare actual `.stdout`, `.stderr` and
+Parser source inputs pair with ordered `.diagnostics.json` expectations for full
+producer records; HIR will use the same test-only source-owned schema. CLI cases
+will compare actual `.stdout`, `.stderr` and
 `.exit` output through the existing process harness. The plan owns the TO00-frozen
 schema, source/revision checks, narrow normalization and explicit update workflow.
 Default test/CI runs must not rewrite expectations. Recovery trees, stronger typed
@@ -97,10 +98,15 @@ Use the existing owners as templates, not a new universal runner:
   parameterized test compares exact output and second-format/narrow-width results
   directly, without a custom registrar or single-caller assertion helper. Data
   lives under `kagari-format/tests/fixtures/layout`.
-- [Parser error cases](../crates/kagari-syntax/src/tests/parser/errors.rs) parameterize
-  same-flow delimiter errors with typed kind/severity/text/range assertions and
-  inputs under `kagari-syntax/tests/fixtures/parser`. Recovery-tree checks stay in
-  their distinct scenario rather than conditional branches in the diagnostic test.
+- [Parser error cases](../crates/kagari-syntax/src/tests/parser/errors.rs) retain
+  typed delimiter kind/count/severity and separate partial-tree recovery checks.
+  [Parser UI cases](../crates/kagari-syntax/src/tests/parser/ui.rs) discover paired
+  `.kgr`/`.diagnostics.json` files under `kagari-syntax/tests/fixtures/ui/parser`.
+  The real producer supplies all messages and labels. The
+  [source-owned test schema](../crates/kagari-source/tests/support/diagnostics.rs)
+  rejects malformed fields and validates captured identities/revisions and UTF-8
+  ranges before projecting IDs to logical paths. Missing/orphan pairs fail the
+  owner inventory; normal comparisons never update expectations.
 - SDK [syntax examples](../crates/kagari/src/runtime/tests/language/syntax_examples.rs)
   and [reload](../crates/kagari/src/runtime/tests/embedding/generic_reload.rs)
   load scripts from `kagari/tests/fixtures/test-fixtures`. Ordinary conversion,

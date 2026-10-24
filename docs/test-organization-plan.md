@@ -516,17 +516,17 @@ subtree. No operation/type/bit-pattern/backend product is added by default.
 
 ### TO03 — Source, lexer, parser and grammar contracts
 
-- [ ] Preserve source/literal byte tables and transactional source-database scenarios
+- [x] Preserve source/literal byte tables and transactional source-database scenarios
   at `kagari-source`; parameterize/extract only where clearer.
-- [ ] Move parser-context assertions out of lexer-only ownership. Reconcile parser
+- [x] Move parser-context assertions out of lexer-only ownership. Reconcile parser
   conformance/rejection groups, including the confirmed duplicate described above;
   retain stronger diagnostics and spec links.
-- [ ] Introduce the first file-based UI diagnostic suite using the existing missing
+- [x] Introduce the first file-based UI diagnostic suite using the existing missing
   delimiter cases. Admit `.kgr`/`.diagnostics.json` pairs through the frozen TO00
   schema, reuse the real producer and compare full records. Verify pairing and
   intentional mismatch failures; retire superseded inline expected text only when
   the UI assertion covers it, retaining stronger typed-kind assertions.
-- [ ] Use files/tables for appropriate parse-success and diagnostic families, while
+- [x] Use files/tables for appropriate parse-success and diagnostic families, while
   retaining losslessness, partial trees, cancellation/budget and grammar coverage
   accounting. Independent spec rows should be independently selectable.
 
@@ -729,8 +729,38 @@ fewer Rust strings, fewer binaries or a different test count is not speed eviden
 | TO00 | Complete: family dispositions, UI schema and first-batch inventory frozen |
 | TO01 | Complete locally: 59 ordinary inputs, 43 retained cases; focused validation passed |
 | TO02 | Complete locally: SDK language families reconciled; 463 selected cases discovered |
-| TO03-TO10 | Planned, not started |
+| TO03 | Complete locally: parser UI pairs, lexer/parser ownership and spec rows |
+| TO04-TO10 | Planned, not started |
 | TO11 | Pending completion of owner phases |
+
+2026-10-24 TO03: source literal/diagnostic/database/coordinate tables and transactions
+remain at their existing owners, byte-identical. Lexer token/span/lossless facts
+stay lexical; parser-context portions move to parser/literals. Twelve spec rows
+are individually selectable. Three equivalent `dyn Effect` rejection occurrences
+become one spec-linked assertion retaining the stronger first-error requirement;
+field diagnostic count/kind/text and distinct ref/receiver/let-mut cases remain.
+Other parser AST/metadata/recovery, attributes/interpolation, generated budgets,
+cancellation, grammar accounting and public doctests retain their contracts.
+
+Two existing 23/18-byte missing-delimiter inputs move unchanged into UI/parser,
+with complete ordered diagnostic expectations and logical `test.kg`; the separate
+25-byte recovery input is unchanged. A test-only source-owned shared schema projects
+real DiagnosticRecords after validating captured file/revision and UTF-8 ranges.
+Required/unknown/duplicate/null/type/object-shape and range checks are strict;
+raw parser spans are validated before adaptation could anonymize invalid locations.
+No renderer, production serialization, global runner or test binary was added.
+Syntax alone gains existing Serde/JSON dev dependency edges and a fixture-tree
+watch; HIR will be the second concrete schema consumer in TO04.
+
+Discovery: source remains 22, syntax 118 -> 143 (exposed rows, ownership splits,
+duplicate removal and UI/support cases). Focused local validation passed 71 distinct
+syntax library cases, 10 source cases and one selected parser doctest; affected
+schema reruns also passed. Real missing-pair and changed-record probes failed as
+intended; restoring original expectations passed. Paired additions/removals changed
+discovery and were removed. Workspace Clippy, format, structure (1,588 files, zero
+violations/exceptions) and diff checks passed. Resolved intermediate import and
+strict-Serde-shape/probe-encoding issues; no carried errors. Unrun library cases,
+unchanged doctests and exhaustive matrices remain CI-owned. TO04 is next.
 
 2026-10-24 TO02: completed five serial owner batches, each compiled and finished
 its focused behavior selection before the next batch. Added 157 exact-source

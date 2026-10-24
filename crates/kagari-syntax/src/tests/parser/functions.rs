@@ -173,18 +173,6 @@ fn rejects_receiver_modifiers() {
 }
 
 #[test]
-fn rejects_dyn_trait_type() {
-    let parse = common::parse("fn apply(effect: dyn Effect) {}");
-
-    assert_eq!(
-        parse.diagnostics()[0].severity,
-        Severity::Error,
-        "expected an error, got {:?}",
-        parse.diagnostics()
-    );
-}
-
-#[test]
 fn local_function_syntax_preserves_recovery_and_offsets() {
     let text = "// 中文😀\r\nfn outer() { #[meta(tag = \"local\")] fn inner<T>(x: T) -> T { x } async fn task() {} inner(42) }";
     let module = common::parse_ok(text);

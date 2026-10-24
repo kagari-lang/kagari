@@ -12,3 +12,5 @@ smallvec.workspace = true
 
 [dev-dependencies]
 rstest.workspace = true
+serde.workspace = true
+serde_json = "1"

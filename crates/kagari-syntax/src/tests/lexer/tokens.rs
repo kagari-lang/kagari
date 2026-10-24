@@ -1,7 +1,7 @@
-use crate::{ast::traits::AstNode, lexer::lex, parser::parse, tests::common, token::TokenKind};
+use crate::{lexer::lex, tests::common, token::TokenKind};
 
 #[test]
-fn character_tokens_keep_unicode_spans_and_pattern_boundaries() {
+fn character_tokens_keep_unicode_spans_and_malformed_boundaries() {
     let source = r"'🙂' 'a'..='z' '\'' '\u{10_FFFF_}'";
     let tokens = lex(source)
         .into_iter()
@@ -23,13 +23,7 @@ fn character_tokens_keep_unicode_spans_and_pattern_boundaries() {
         ]
     );
     assert_eq!(&source[tokens[0].span.start..tokens[0].span.end], "'🙂'");
-    let source = "const FIRST: char = 'a'; fn classify(c: char) -> char { match c { 'a'..='z' => '🙂', _ => '\\0' } }";
-    let parsed = common::parse(source);
-    assert!(
-        parsed.diagnostics().is_empty(),
-        "{:?}",
-        parsed.diagnostics()
-    );
+
     for malformed in ["''", "'ab'", "'á'", "'\t'", r"'\x80'", r"'\u{D800}'"] {
         assert_eq!(lex(malformed)[0].kind, TokenKind::Unknown, "{malformed:?}");
     }
@@ -99,30 +93,6 @@ fn byte_tokens_preserve_source_spans_and_never_interpolate() {
 }
 
 #[test]
-fn byte_literal_parser_contexts_distinguish_scalars_from_arrays() {
-    let source = r##"
-        const FIRST: u8 = b'A';
-        fn classify(value: u8) -> u8 {
-            val bytes = br#"{name}\xFF"#;
-            match value { b'A'..=b'Z' => b'\xFF', _ => b'\0' }
-        }
-    "##;
-    let parsed = common::parse(source);
-    assert!(
-        parsed.diagnostics().is_empty(),
-        "{:?}",
-        parsed.diagnostics()
-    );
-    assert_eq!(parsed.syntax().syntax().text().to_string(), source);
-    for source in [
-        r#"fn bad(value: [u8]) { match value { b"A" => (), _ => () } }"#,
-        r#"fn bad(value: [u8]) { match value { br"" => (), _ => () } }"#,
-    ] {
-        assert!(!common::parse(source).diagnostics().is_empty(), "{source}");
-    }
-}
-
-#[test]
 fn string_tokens_preserve_physical_lines_and_raw_delimiter_boundaries() {
     for literal in [
         "\"a\r\n  🙂\n\"",
@@ -182,9 +152,6 @@ fn unterminated_multiline_strings_end_at_eof_not_the_next_declaration() {
     for pair in tokens.windows(2) {
         assert_eq!(pair[0].span.end, pair[1].span.start);
     }
-    let parsed = common::parse(text);
-    assert!(!parsed.diagnostics().is_empty());
-    assert_eq!(parsed.syntax().syntax().text().to_string(), text);
 }
 
 #[test]
@@ -207,7 +174,7 @@ fn line_comments_keep_unicode_ranges_and_crlf_trivia() {
 }
 
 #[test]
-fn nested_block_comments_are_lossless_trivia_and_unclosed_comments_reject() {
+fn nested_block_comments_preserve_physical_trivia() {
     let source = "fn main() { /* 中😀\r\n /* nested */ done */ 42 }";
     let tokens = lex(source);
     let comment = tokens
@@ -218,8 +185,6 @@ fn nested_block_comments_are_lossless_trivia_and_unclosed_comments_reject() {
         &source[comment.span.start..comment.span.end],
         "/* 中😀\r\n /* nested */ done */"
     );
-    assert!(common::parse(source).diagnostics().is_empty());
-    assert!(!common::parse("/* never closed").diagnostics().is_empty());
 }
 
 #[test]
@@ -263,7 +228,7 @@ fn numeric_and_escaped_string_tokens_keep_range_boundaries() {
 }
 
 #[test]
-fn unsupported_unicode_tokens_keep_utf8_boundaries_and_parse_without_panicking() {
+fn unsupported_unicode_tokens_keep_utf8_boundaries() {
     let text = "fn main() { 中😀 }";
     let unknown = lex(text)
         .into_iter()
@@ -271,7 +236,6 @@ fn unsupported_unicode_tokens_keep_utf8_boundaries_and_parse_without_panicking()
         .map(|token| text[token.span.start..token.span.end].to_owned())
         .collect::<Vec<_>>();
     assert_eq!(unknown, ["中", "😀"]);
-    assert!(!parse(&common::source(text)).diagnostics().is_empty());
 }
 
 #[test]

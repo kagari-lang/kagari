@@ -5,31 +5,22 @@ use crate::{ast::item::Item, tests::common};
 
 #[rstest]
 #[case::missing_closing_paren(
-    "reports_missing_closing_paren.kgr",
-    include_str!("../../../tests/fixtures/parser/reports_missing_closing_paren.kgr"),
-    DiagnosticKind::ExpectedFunctionParameterListEnd,
-    "Error: expected `)` after parameters at 16..17"
+    include_str!("../../../tests/fixtures/ui/parser/reports_missing_closing_paren.kgr"),
+    DiagnosticKind::ExpectedFunctionParameterListEnd
 )]
 #[case::missing_block_end(
-    "reports_missing_block_end.kgr",
-    include_str!("../../../tests/fixtures/parser/reports_missing_block_end.kgr"),
-    DiagnosticKind::ExpectedBlockEnd,
-    "Error: expected `}` to end block at 18..18"
+    include_str!("../../../tests/fixtures/ui/parser/reports_missing_block_end.kgr"),
+    DiagnosticKind::ExpectedBlockEnd
 )]
-fn reports_missing_delimiter(
-    #[case] fixture: &str,
-    #[case] input: &str,
-    #[case] kind: DiagnosticKind,
-    #[case] text: &str,
-) {
-    let context = format!("tests/fixtures/parser/{fixture} (logical source: test.kg)");
+fn reports_missing_delimiter(#[case] input: &str, #[case] kind: DiagnosticKind) {
+    // Full producer text, spans, labels and notes belong to the paired UI test.
+    let context = "missing delimiter (logical source: test.kg)";
     let parse = common::parse(input);
 
     let diagnostics = parse.diagnostics();
     assert_eq!(diagnostics.len(), 1, "{context}");
     assert_eq!(diagnostics[0].severity, Severity::Error, "{context}");
     assert_eq!(diagnostics[0].kind, kind, "{context}");
-    assert_eq!(diagnostics[0].to_string(), text, "{context}");
 }
 
 #[test]

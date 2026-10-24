@@ -131,8 +131,8 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 - [Repository-wide test organization](test-organization-plan.md): TO00-TO11 plan
   semantic grouping, evidence-backed consolidation and fixture/parameterization
   work across Rust and existing non-Rust runners. TO00 classification/UI-contract
-  freeze and TO01-TO02 SDK language organization are complete locally; implementation
-  and phase commits are authorized, with TO03 source/parser/UI work next. The pilot and lasting rules remain in
+  freeze, TO01-TO02 SDK language organization and TO03 source/parser/UI work are
+  complete locally; TO04 HIR/package organization is next. The pilot and lasting rules remain in
   the [testing guide](testing.md), with previous performance debt kept separate.
 - [Script testing](script-testing-design.md): proposed `kg test`, source-owned
   `#[test]` functions and host-orchestrated fixtures; design only, separate from
