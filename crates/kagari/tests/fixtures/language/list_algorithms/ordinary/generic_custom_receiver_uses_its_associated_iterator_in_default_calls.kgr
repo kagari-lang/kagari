@@ -1,8 +1,16 @@
-use std::collections::{List};
-use std::ops::{Index};
+use std::collections::{ List };
 
-struct Sequence<T> { val items: Vec<T> }
-struct Cursor<T> { val items: Vec<T>, var position: u64 }
+use std::ops::{ Index };
+
+struct Sequence<T> {
+    val items: Vec<T>
+}
+
+struct Cursor<T> {
+    val items: Vec<T>,
+    var position: u64
+}
+
 impl<T> Iterator for Cursor<T> {
     type Item = T;
     fn next(self) -> Option<T> {
@@ -11,31 +19,53 @@ impl<T> Iterator for Cursor<T> {
         value
     }
 }
+
 impl<T> Index<u64> for Sequence<T> {
     type Output = T;
-    fn index(self, index: u64) -> T { self.items[index] }
+    fn index(self, index: u64) -> T {
+        self.items[index]
+    }
 }
+
 impl<T> Iterable for Sequence<T> {
     type Item = T;
     type Iter = Cursor<T>;
-    fn iter(self) -> Cursor<T> { Cursor { items: self.items, position: 0u64 } }
+    fn iter(self) -> Cursor<T> {
+        Cursor { items: self.items, position: 0u64 }
+    }
 }
+
 impl<T> List<T> for Sequence<T> {
-    fn len(self) -> u64 { self.items.len() }
-    fn is_empty(self) -> bool { self.items.is_empty() }
-    fn get(self, index: u64) -> Option<T> { self.items.get(index) }
+    fn len(self) -> u64 {
+        self.items.len()
+    }
+    fn is_empty(self) -> bool {
+        self.items.is_empty()
+    }
+    fn get(self, index: u64) -> Option<T> {
+        self.items.get(index)
+    }
 }
-fn order<T: Ord>(values: List<T>) -> List<T> { values.sorted() }
+
+fn order<T: Ord>(values: List<T>) -> List<T> {
+    values.sorted()
+}
+
 trait Sorter {
-    fn order<T: Ord>(self, values: List<T>) -> List<T> { values.sorted() }
+    fn order<T: Ord>(self, values: List<T>) -> List<T> {
+        values.sorted()
+    }
 }
+
 impl Sorter for i32 {}
+
 fn main() -> bool {
-    val source = Sequence { items: Vec::from([3,1,2]) };
+    val source = Sequence { items: Vec::from([3, 1, 2]) };
     val sorted = source.sorted();
     val list: List<i32> = source;
     val sorter: Sorter = 0;
     val text: List<String> = Sequence { items: Vec::from(["b", "a"]) };
-    sorted[0] == 1 && order(list)[0] == 1 && sorter.order(list)[0] == 1
-        && sorter.order(text)[0] == "a" && list.reversed()[0] == 2
+    sorted[0] == 1 && order(list)[0] == 1 && sorter.order(list)[0] == 1 &&
+        sorter.order(text)[0] == "a" &&
+        list.reversed()[0] == 2
 }

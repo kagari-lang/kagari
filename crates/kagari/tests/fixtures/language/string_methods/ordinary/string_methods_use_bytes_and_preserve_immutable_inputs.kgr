@@ -1,13 +1,20 @@
-
 fn main() -> bool {
     val text = "aé🙂z";
     val alias = text;
     val middle = text.slice(1u64, 7u64);
     val replaced = text.replace("é", "E");
-    text.len() == 8u64 && !text.is_empty() && "".is_empty()
-        && text.contains("é🙂") && text.starts_with("aé") && text.ends_with("🙂z")
-        && !text.contains("missing") && !text.starts_with("é") && !text.ends_with("🙂")
-        && text.find("🙂") == Some(3u64) && text.find("missing") == None
-        && middle == "é🙂" && replaced == "aE🙂z" && alias == "aé🙂z" && text == alias
-        && text.slice(8u64, 8u64) == "" && "".slice(0u64, 0u64) == ""
+    text.len() == 8u64 && !text.is_empty() && "".is_empty() && text.contains("é🙂") &&
+        text.starts_with("aé") &&
+        text.ends_with("🙂z") &&
+        !text.contains("missing") &&
+        !text.starts_with("é") &&
+        !text.ends_with("🙂") &&
+        text.find("🙂") == Some(3u64) &&
+        text.find("missing") == None &&
+        middle == "é🙂" &&
+        replaced == "aE🙂z" &&
+        alias == "aé🙂z" &&
+        text == alias &&
+        text.slice(8u64, 8u64) == "" &&
+        "".slice(0u64, 0u64) == ""
 }

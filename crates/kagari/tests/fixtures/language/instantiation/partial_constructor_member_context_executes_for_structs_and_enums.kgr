@@ -1,1 +1,35 @@
-enum Token<T> { Empty } impl<T> PartialEq for Token<T> { fn eq(self, other: Self) -> bool { true } } struct Pair<T> { val pair: (Token<i32>, T) } enum Payload<T> { Pair((Token<i32>, T)) } impl<T: PartialEq> PartialEq for Payload<T> { fn eq(self, other: Self) -> bool { match (self, other) { (Payload::Pair(a), Payload::Pair(b)) => a == b } } } fn main() -> i32 { val item = Pair { pair: (Token::Empty, 20) }; val payload = Payload::Pair((Token::Empty, 22)); if payload == Payload<i32>::Pair((Token<i32>::Empty, 22)) { item.pair[1] + 22 } else { 0 } }
+enum Token<T> {
+    Empty
+}
+
+impl<T> PartialEq for Token<T> {
+    fn eq(self, other: Self) -> bool {
+        true
+    }
+}
+
+struct Pair<T> {
+    val pair: (Token<i32>, T)
+}
+
+enum Payload<T> {
+    Pair((Token<i32>, T))
+}
+
+impl<T: PartialEq> PartialEq for Payload<T> {
+    fn eq(self, other: Self) -> bool {
+        match (self, other) {
+            (Payload::Pair(a), Payload::Pair(b)) => a == b
+        }
+    }
+}
+
+fn main() -> i32 {
+    val item = Pair { pair: (Token::Empty, 20) };
+    val payload = Payload::Pair((Token::Empty, 22));
+    if payload == Payload<i32>::Pair((Token<i32>::Empty, 22)) {
+        item.pair[1] + 22
+    } else {
+        0
+    }
+}

@@ -1,19 +1,53 @@
-use std::collections::{HashMap, HashSet};
-use std::hash::{Hash};
+use std::collections::{ HashMap, HashSet };
 
-enum Id { Local(i32,f32), Remote(i32) }
-fn number(v:Id)->i32 { match v { Id::Local(id,_)=>id, Id::Remote(id)=>id } }
-impl PartialEq for Id { fn eq(self,other:Self)->bool {number(self)==number(other)} }
+use std::hash::{ Hash };
+
+enum Id {
+    Local(i32, f32),
+    Remote(i32)
+}
+
+fn number(v: Id) -> i32 {
+    match v {
+        Id::Local(id, _) => id,
+        Id::Remote(id) => id
+    }
+}
+
+impl PartialEq for Id {
+    fn eq(self, other: Self) -> bool {
+        number(self) == number(other)
+    }
+}
+
 impl Eq for Id {}
-impl Hash for Id {fn hash(self)->i64 {number(self).hash()}}
-fn main()->i32 {
- val a:HashSet<Id> = HashSet::new(); val b:HashSet<Id> = HashSet::new();
- a.insert(Id::Local(42,1.5));b.insert(Id::Remote(42));b.insert(Id::Remote(7));
- val equivalent = Id::Remote(42);
- if !a.contains(equivalent) || !b.contains(equivalent) { return 0; }
- a.insert(Id::Remote(42));
- if a.len() != 1u64 || b.len() != 2u64 { return 0; }
- val map:HashMap<Option<Id>,i32> = HashMap::new();
- map.insert(Some(Id::Local(42,2.5)),42);
- (match map.get(Some(Id::Remote(42))) { Some(value) => value, None => 0 })
+
+impl Hash for Id {
+    fn hash(self) -> i64 {
+        number(self).hash()
+    }
+}
+
+fn main() -> i32 {
+    val a: HashSet<Id> = HashSet::new();
+    val b: HashSet<Id> = HashSet::new();
+    a.insert(Id::Local(42, 1.5));
+    b.insert(Id::Remote(42));
+    b.insert(Id::Remote(7));
+    val equivalent = Id::Remote(42);
+    if !a.contains(equivalent) || !b.contains(equivalent) {
+        return 0;
+    }
+    a.insert(Id::Remote(42));
+    if a.len() != 1u64 || b.len() != 2u64 {
+        return 0;
+    }
+    val map: HashMap<Option<Id>, i32> = HashMap::new();
+    map.insert(Some(Id::Local(42, 2.5)), 42);
+    (
+        match map.get(Some(Id::Remote(42))) {
+            Some(value) => value,
+            None => 0
+        }
+    )
 }

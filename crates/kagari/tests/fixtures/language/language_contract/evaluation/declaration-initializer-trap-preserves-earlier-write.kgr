@@ -1,11 +1,19 @@
-
 use observe as test;
-struct Pending { val ready: fn() -> i32, val spare: Vec<i32> }
+
+struct Pending {
+    val ready: fn() -> i32,
+    val spare: Vec<i32>
+}
+
 fn main() {
     val a = test::vector();
     var (count, _) = (0, Vec::from([1]));
     val Pending { ready, .. } = Pending {
-        ready: || { count += 1; count }, spare: Vec::from([2])
+        ready: || {
+            count += 1;
+            count
+        },
+        spare: Vec::from([2])
     };
     val (Pending { ready: next, .. }, _) = (
         Pending { ready: ready, spare: Vec::from([3]) },

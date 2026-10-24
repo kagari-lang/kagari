@@ -1,24 +1,84 @@
+struct Adder {
+    var base: i32
+}
 
-struct Adder { var base: i32 }
 impl Fn<(i32,)> for Adder {
     type Output = i32;
-    fn call(self, args: (i32,)) -> i32 { self.base += args[0]; self.base }
+    fn call(self, args: (i32,)) -> i32 {
+        self.base += args[0];
+        self.base
+    }
 }
-fn apply<F: Fn(i32) -> i32>(f: F, x: i32) -> i32 { f(x) }
-fn infer<T, R, F: Fn(T) -> R>(x: T, f: F) -> R { f(x) }
-fn two<F: Fn(i32, i32) -> i32>(f: F) -> i32 { f(20, 22) }
-fn zero<F: Fn() -> i32>(f: F) -> i32 { f() }
-fn unit<F: Fn()>(f: F) { f(); }
+
+fn apply<F: Fn (i32) -> i32>(f: F, x: i32) -> i32 {
+    f(x)
+}
+
+fn infer<T, R, F: Fn (T) -> R>(x: T, f: F) -> R {
+    f(x)
+}
+
+fn two<F: Fn (i32, i32) -> i32>(f: F) -> i32 {
+    f(20, 22)
+}
+
+fn zero<F: Fn () -> i32>(f: F) -> i32 {
+    f()
+}
+
+fn unit<F: Fn ()>(f: F) {
+    f();
+}
+
 fn main() -> i32 {
     val add = Adder { base: 10 };
-    { val passed = add(2) == 12; if !passed { return 0; } };
-    { val passed = apply(add, 3) == 15; if !passed { return 0; } };
-    { val passed = apply(|x| x + 1, 41) == 42; if !passed { return 0; } };
-    { val passed = infer(21, |x| x * 2) == 42; if !passed { return 0; } };
-    { val passed = two(|x, y| x + y) == 42; if !passed { return 0; } };
-    { val passed = zero(|| 42) == 42; if !passed { return 0; } };
-    unit(|| { add.base = 0; });
+    {
+        val passed = add(2) == 12;
+        if !passed {
+            return 0;
+        }
+    };
+    {
+        val passed = apply(add, 3) == 15;
+        if !passed {
+            return 0;
+        }
+    };
+    {
+        val passed = apply(|x| x + 1, 41) == 42;
+        if !passed {
+            return 0;
+        }
+    };
+    {
+        val passed = infer(21, |x| x * 2) == 42;
+        if !passed {
+            return 0;
+        }
+    };
+    {
+        val passed = two(|x, y| x + y) == 42;
+        if !passed {
+            return 0;
+        }
+    };
+    {
+        val passed = zero(|| 42) == 42;
+        if !passed {
+            return 0;
+        }
+    };
+    unit(
+        || {
+            add.base = 0;
+        }
+    );
     val f: fn(i32) -> i32 = |x| x + 1;
-    { val passed = f.call((41,)) == 42; if !passed { return 0; } };
+    {
+        val passed = f.call((41,)) == 42;
+        if !passed {
+            return 0;
+        }
+    };
     add(42)
 }

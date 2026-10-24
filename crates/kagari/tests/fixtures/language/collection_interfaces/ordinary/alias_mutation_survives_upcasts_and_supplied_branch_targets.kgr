@@ -1,17 +1,39 @@
-use std::collections::{HashSet, List, MutableList};
+use std::collections::{ HashSet, List, MutableList };
 
-struct Cell { var value: i32 }
-impl PartialEq for Cell { fn eq(self, other: Self) -> bool { self === other } }
-fn readonly(xs: MutableList<Cell>) -> List<Cell> { xs }
+struct Cell {
+    var value: i32
+}
+
+impl PartialEq for Cell {
+    fn eq(self, other: Self) -> bool {
+        self === other
+    }
+}
+
+fn readonly(xs: MutableList<Cell>) -> List<Cell> {
+    xs
+}
+
 fn main() -> i32 {
     val raw = Vec::from([Cell { value: 20 }]);
     val writable: MutableList<Cell> = raw;
     val read: List<Cell> = readonly(writable);
     read[0].value += 22;
-    val joined: List<Cell> = if true { raw } else { read };
-    val selected: List<Cell> = match 1 { 1 => raw, _ => read };
-    if !(raw[0] === read[0] && writable[0] === selected[0] && selected[0] === joined[0]) { return 0; }
+    val joined: List<Cell> = if true {
+        raw
+    } else {
+        read
+    };
+    val selected: List<Cell> = match 1 {
+        1 => raw,
+        _ => read
+    };
+    if !(raw[0] === read[0] && writable[0] === selected[0] && selected[0] === joined[0]) {
+        return 0;
+    }
     val copy = Vec::from([read[0]]);
-    if !(raw == copy && raw !== copy) { return 0; }
+    if !(raw == copy && raw !== copy) {
+        return 0;
+    }
     raw[0].value
 }

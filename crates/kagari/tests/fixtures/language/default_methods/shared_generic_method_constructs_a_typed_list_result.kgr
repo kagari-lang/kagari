@@ -1,17 +1,33 @@
-use std::collections::{List};
+use std::collections::{ List };
 
-trait Wrap { fn wrap<T>(self, value: T) -> List<T> { Vec::from([value]) } }
+trait Wrap {
+    fn wrap<T>(self, value: T) -> List<T> {
+        Vec::from([value])
+    }
+}
+
 struct Source {}
+
 impl Wrap for Source {}
-struct Item { val value: i32 }
+
+struct Item {
+    val value: i32
+}
+
 fn main() -> i32 {
     val source: Wrap = Source {};
     val a = source.wrap(21);
     val b = source.wrap(Item { value: 21 });
     val nested = source.wrap(b);
     var sum = 0;
-    for item in a { sum += item; }
-    for item in nested[0] { sum += item.value; }
-    if sum != 42 { return 0; }
+    for item in a {
+        sum += item;
+    }
+    for item in nested[0] {
+        sum += item.value;
+    }
+    if sum != 42 {
+        return 0;
+    }
     a[0] + b[0].value
 }

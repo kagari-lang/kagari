@@ -1,29 +1,56 @@
+fn cooked() -> [u8] {
+    b"AB"
+}
 
-    fn cooked() -> [u8] { b"AB" }
-    fn raw() -> [u8] { br"AB" }
-    fn empty() -> [u8] { b"" }
-    fn raw_empty() -> [u8] { br"" }
-    fn identity<T>(value: T) -> T { value }
-    fn main() -> i32 {
-        val first = cooked();
-        val second = cooked();
-        val alias = identity(first);
-        if first === second || alias !== first { return 0; }
-        alias[0] = b'Z';
-        if first != b"ZB" || second != b"AB" { return 0; }
-        val raw_first = raw();
-        val raw_second = raw();
-        val raw_alias = identity(raw_first);
-        if raw_first === raw_second || raw_alias !== raw_first { return 0; }
-        raw_alias[1] = b'Z';
-        if raw_first != b"AZ" || raw_second != b"AB" { return 0; }
-        val nothing = empty();
-        val raw_nothing = raw_empty();
-        val empty_alias = identity(nothing);
-        val raw_empty_alias = identity(raw_nothing);
-        if nothing === empty() || raw_nothing === raw_empty() { return 0; }
-        if empty_alias !== nothing || raw_empty_alias !== raw_nothing { return 0; }
-        if !nothing.is_empty() || !raw_nothing.is_empty() { return 0; }
-        42
+fn raw() -> [u8] {
+    br"AB"
+}
+
+fn empty() -> [u8] {
+    b""
+}
+
+fn raw_empty() -> [u8] {
+    br""
+}
+
+fn identity<T>(value: T) -> T {
+    value
+}
+
+fn main() -> i32 {
+    val first = cooked();
+    val second = cooked();
+    val alias = identity(first);
+    if first === second || alias !== first {
+        return 0;
     }
-    
+    alias[0] = b'Z';
+    if first != b"ZB" || second != b"AB" {
+        return 0;
+    }
+    val raw_first = raw();
+    val raw_second = raw();
+    val raw_alias = identity(raw_first);
+    if raw_first === raw_second || raw_alias !== raw_first {
+        return 0;
+    }
+    raw_alias[1] = b'Z';
+    if raw_first != b"AZ" || raw_second != b"AB" {
+        return 0;
+    }
+    val nothing = empty();
+    val raw_nothing = raw_empty();
+    val empty_alias = identity(nothing);
+    val raw_empty_alias = identity(raw_nothing);
+    if nothing === empty() || raw_nothing === raw_empty() {
+        return 0;
+    }
+    if empty_alias !== nothing || raw_empty_alias !== raw_nothing {
+        return 0;
+    }
+    if !nothing.is_empty() || !raw_nothing.is_empty() {
+        return 0;
+    }
+    42
+}

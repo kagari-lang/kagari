@@ -1,10 +1,20 @@
-use std::ops::{BitOr};
+use std::ops::{ BitOr };
 
-        struct Bits { val value: i32 }
-        impl BitOr<Bits> for Bits {
-            type Output = Bits;
-            fn bitor(self, rhs: Bits) -> Bits { Bits { value: self.value | rhs.value } }
-        }
-        fn combine<T: BitOr<T, Output = T>>(a: T, b: T) -> T { a | b }
-        fn main() -> i32 { combine(Bits { value: 32 }, Bits { value: 10 }).value }
-    
+struct Bits {
+    val value: i32
+}
+
+impl BitOr<Bits> for Bits {
+    type Output = Bits;
+    fn bitor(self, rhs: Bits) -> Bits {
+        Bits { value: self.value | rhs.value }
+    }
+}
+
+fn combine<T: BitOr<T, Output = T>>(a: T, b: T) -> T {
+    a | b
+}
+
+fn main() -> i32 {
+    combine(Bits { value: 32 }, Bits { value: 10 }).value
+}

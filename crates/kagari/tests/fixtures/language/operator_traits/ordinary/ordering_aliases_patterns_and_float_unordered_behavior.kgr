@@ -1,5 +1,22 @@
-
 use core::cmp::Ordering as Order;
+
 use core::cmp::Ordering::*;
-fn rank(x:Order)->i32 {match x {Less=>0,Equal=>1,Greater=>2}}
-fn main()->i32 {val nan=0.0/0.0; if nan.partial_cmp(nan) == None && !(nan<nan) && !(nan<=nan) && !(nan>nan) && !(nan>=nan) && rank(Order::Equal)==1 {42}else{0}}
+
+fn rank(x: Order) -> i32 {
+    match x {
+        Less => 0,
+        Equal => 1,
+        Greater => 2
+    }
+}
+
+fn main() -> i32 {
+    val nan = 0.0 / 0.0;
+    if nan.partial_cmp(nan) == None && !(nan < nan) && !(nan <= nan) && !(nan > nan) &&
+        !(nan >= nan) &&
+        rank(Order::Equal) == 1 {
+        42
+    } else {
+        0
+    }
+}

@@ -1,13 +1,66 @@
-
 use test::async_sdk::request;
-pub fn events() -> Vec<i32> { Vec::from([]) }
-pub fn count(events:Vec<i32>) -> u64 { events.len() }
-async fn read() -> i32 { request(10).await }
-pub fn ordinary(events:Vec<i32>) -> fn()->Future<i32> { || { events.push(1); read() } }
-pub fn explicit(events:Vec<i32>) -> fn()->Future<i32> { async || { events.push(2); request(20).await } }
-pub fn reentry(events:Vec<i32>) -> fn()->Future<i32> { || { val items=Vec::from([3,1,2]); items.retain(|x| { events.push(x); true }); read() } }
-pub fn wrong() -> fn()->i32 { || 7 }
-pub fn trapped(events:Vec<i32>) -> fn()->Future<i32> { || { events.push(3); val zero=0; val bad=1/zero; read() } }
-pub fn captured() -> fn()->Future<i32> { val future=read(); || future }
-async fn outer() -> Future<i32> { read() }
-pub fn nested() -> fn()->Future<Future<i32>> { || outer() }
+
+pub fn events() -> Vec<i32> {
+    Vec::from([])
+}
+
+pub fn count(events: Vec<i32>) -> u64 {
+    events.len()
+}
+
+async fn read() -> i32 {
+    request(10).await
+}
+
+pub fn ordinary(events: Vec<i32>) -> fn() -> Future<i32> {
+    || {
+        events.push(1);
+        read()
+    }
+}
+
+pub fn explicit(events: Vec<i32>) -> fn() -> Future<i32> {
+    async || {
+        events.push(2);
+        request(20).await
+    }
+}
+
+pub fn reentry(events: Vec<i32>) -> fn() -> Future<i32> {
+    || {
+        val items = Vec::from([3, 1, 2]);
+        items.retain(
+            |x| {
+                events.push(x);
+                true
+            }
+        );
+        read()
+    }
+}
+
+pub fn wrong() -> fn() -> i32 {
+    || 7
+}
+
+pub fn trapped(events: Vec<i32>) -> fn() -> Future<i32> {
+    || {
+        events.push(3);
+        val zero = 0;
+        val bad = 1 / zero;
+        read()
+    }
+}
+
+pub fn captured() -> fn() -> Future<i32> {
+    val future = read();
+    || future
+}
+
+async fn outer() -> Future<i32> {
+    read()
+}
+
+pub fn nested() -> fn() -> Future<Future<i32>> {
+    || outer()
+}

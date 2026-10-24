@@ -1,1 +1,22 @@
-use web::print; fn base(values: [i32]) -> [i32] { print("base"); values } fn index() -> u64 { print("index"); 18446744073709551615u64 } fn replacement() -> i32 { print("replacement"); 9 } fn main() { val values = [7]; base(values)[index()] = replacement(); print("after"); }
+use web::print;
+
+fn base(values: [i32]) -> [i32] {
+    print("base");
+    values
+}
+
+fn index() -> u64 {
+    print("index");
+    18446744073709551615u64
+}
+
+fn replacement() -> i32 {
+    print("replacement");
+    9
+}
+
+fn main() {
+    val values = [7];
+    base(values)[index()] = replacement();
+    print("after");
+}

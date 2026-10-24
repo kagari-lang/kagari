@@ -1,16 +1,39 @@
+fn invoke<F: Fn () -> i32>(callback: F) -> i32 {
+    callback()
+}
 
-fn invoke<F: Fn() -> i32>(callback: F) -> i32 { callback() }
 fn retain<T>(value: T, remaining: i32) -> fn() -> T {
-    if remaining == 0 { || value } else { retain(value, remaining - 1) }
+    if remaining == 0 {
+        || value
+    } else {
+        retain(value, remaining - 1)
+    }
 }
+
 trait Run {
-    fn run<F: Fn() -> i32>(self, callback: F) -> i32 { invoke(callback) }
-    fn keep<T>(self, value: T) -> fn() -> (T, i32) { retain((value, 1), 2) }
+    fn run<F: Fn () -> i32>(self, callback: F) -> i32 {
+        invoke(callback)
+    }
+    fn keep<T>(self, value: T) -> fn() ->(T, i32) {
+        retain((value, 1), 2)
+    }
 }
+
 struct Source {}
+
 impl Run for Source {}
-struct Callback { val value: i32 }
-impl Fn<()> for Callback { type Output = i32; fn call(self, args: ()) -> i32 { self.value } }
+
+struct Callback {
+    val value: i32
+}
+
+impl Fn<()> for Callback {
+    type Output = i32;
+    fn call(self, args: ()) -> i32 {
+        self.value
+    }
+}
+
 fn main() -> i32 {
     val source: Run = Source {};
     val get = source.keep(Callback { value: 20 });

@@ -1,13 +1,43 @@
+struct ErrorInfo {
+    var code: i32
+}
 
-struct ErrorInfo { var code: i32 }
-fn fail(error: ErrorInfo)->Result<i32, ErrorInfo> { Err(error) }
-fn forward(error: ErrorInfo)->Result<String, ErrorInfo> { fail(error)?; Ok("never") }
-struct Converted {val code:i32}
-impl From<i32> for Converted {fn from(code:i32)->Self{Converted{code}}}
-fn translated()->Result<i32, Converted> { val x: Result<i32, i32> = Err(7); Ok(x?) }
-fn main()->i32 {
+fn fail(error: ErrorInfo) -> Result<i32, ErrorInfo> {
+    Err(error)
+}
+
+fn forward(error: ErrorInfo) -> Result<String, ErrorInfo> {
+    fail(error)?;
+    Ok("never")
+}
+
+struct Converted {
+    val code: i32
+}
+
+impl From<i32> for Converted {
+    fn from(code: i32) -> Self {
+        Converted { code }
+    }
+}
+
+fn translated() -> Result<i32, Converted> {
+    val x: Result<i32, i32> = Err(7);
+    Ok(x?)
+}
+
+fn main() -> i32 {
     val error = ErrorInfo { code: 0 };
     val returned = forward(error);
-    if val Err(original) = returned { original.code = 42; }
-    match translated(){Err(e)=>if e.code==7 {error.code}else{0},Ok(_)=>0}
+    if val Err(original) = returned {
+        original.code = 42;
+    }
+    match translated() {
+        Err(e) => if e.code == 7 {
+            error.code
+        } else {
+            0
+        },
+        Ok(_) => 0
+    }
 }

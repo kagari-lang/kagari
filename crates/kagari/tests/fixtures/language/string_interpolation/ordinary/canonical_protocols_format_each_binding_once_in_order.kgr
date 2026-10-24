@@ -1,14 +1,36 @@
-use std::fmt::{Debug, Display};
+use std::fmt::{ Debug, Display };
 
-struct Item { val log: Vec<i32>, val id: i32 }
-impl Item { fn display(self) -> String { "wrong inherent method" } }
+struct Item {
+    val log: Vec<i32>,
+    val id: i32
+}
+
+impl Item {
+    fn display(self) -> String {
+        "wrong inherent method"
+    }
+}
+
 impl Display for Item {
-    fn display(self) -> String { self.log.push(self.id); val id = self.id; "{id}" }
+    fn display(self) -> String {
+        self.log.push(self.id);
+        val id = self.id;
+        "{id}"
+    }
 }
+
 impl Debug for Item {
-    fn debug(self) -> String { self.log.push(9); "debug" }
+    fn debug(self) -> String {
+        self.log.push(9);
+        "debug"
+    }
 }
-fn make(log: Vec<i32>, id: i32) -> Item { log.push(0); Item { log, id } }
+
+fn make(log: Vec<i32>, id: i32) -> Item {
+    log.push(0);
+    Item { log, id }
+}
+
 fn main() -> i32 {
     val log: Vec<i32> = Vec::from([]);
     val result = {
@@ -19,11 +41,47 @@ fn main() -> i32 {
         val second = make(log, 2);
         "{rendered}:{second:?}"
     };
-    { val passed = result == "1:debug"; if !passed {val zero=0;1/zero;} };
-    { val passed = log.len() == Vec::from([0, 0, 0, 0]).len(); if !passed {val zero=0;1/zero;} };
-    { val passed = log.get(0u64) == Some(0); if !passed {val zero=0;1/zero;} };
-    { val passed = log.get(Vec::from([0]).len()) == Some(1); if !passed {val zero=0;1/zero;} };
-    { val passed = log.get(Vec::from([0, 0]).len()) == Some(0); if !passed {val zero=0;1/zero;} };
-    { val passed = log.get(Vec::from([0, 0, 0]).len()) == Some(9); if !passed {val zero=0;1/zero;} };
+    {
+        val passed = result == "1:debug";
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    {
+        val passed = log.len() == Vec::from([0, 0, 0, 0]).len();
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    {
+        val passed = log.get(0u64) == Some(0);
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    {
+        val passed = log.get(Vec::from([0]).len()) == Some(1);
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    {
+        val passed = log.get(Vec::from([0, 0]).len()) == Some(0);
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    {
+        val passed = log.get(Vec::from([0, 0, 0]).len()) == Some(9);
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
     42
 }

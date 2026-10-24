@@ -1,7 +1,1 @@
 *.kgr text eol=lf
-# Preserve the exact final indentation line of these original Rust literal values.
-async-block-capture.kgr whitespace=-blank-at-eof,-blank-at-eol
-declaration-naming-and-trait-contracts.kgr whitespace=-blank-at-eof,-blank-at-eol
-eligible-static-initializers.kgr whitespace=-blank-at-eof,-blank-at-eol
-reads-shadowing-captures-places.kgr whitespace=-blank-at-eof,-blank-at-eol
-valid-names-and-malformed-policy.kgr whitespace=-blank-at-eof,-blank-at-eol

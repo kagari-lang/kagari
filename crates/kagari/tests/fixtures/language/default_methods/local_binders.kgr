@@ -1,6 +1,23 @@
+trait Identity {
+    fn identity<T>(self, value: T) -> T {
+        value
+    }
+    fn same(self) -> Self {
+        self
+    }
+}
 
-trait Identity { fn identity<T>(self, value: T) -> T { value } fn same(self) -> Self { self } }
-struct Number { val value: i32 }
+struct Number {
+    val value: i32
+}
+
 impl Identity for Number {}
-fn generic<T: Identity>(x: T) -> i32 { x.identity(42) }
-fn main() -> i32 { val n = Number { value: 42 }.same(); generic(n) }
+
+fn generic<T: Identity>(x: T) -> i32 {
+    x.identity(42)
+}
+
+fn main() -> i32 {
+    val n = Number { value: 42 }.same();
+    generic(n)
+}

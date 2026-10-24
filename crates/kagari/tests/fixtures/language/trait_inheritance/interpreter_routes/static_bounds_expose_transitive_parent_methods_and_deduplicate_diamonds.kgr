@@ -1,14 +1,41 @@
+trait Read<T> {
+    fn read(self) -> T;
+}
 
-trait Read<T> { fn read(self) -> T; }
 trait Left<T>: Read<T> {}
+
 trait Right<T>: Read<T> {}
+
 trait Child<T>: Left<T> + Right<T> {}
-struct Number { val value: i32 }
-impl Read<i32> for Number { fn read(self) -> i32 { self.value } }
+
+struct Number {
+    val value: i32
+}
+
+impl Read<i32> for Number {
+    fn read(self) -> i32 {
+        self.value
+    }
+}
+
 impl Left<i32> for Number {}
+
 impl Right<i32> for Number {}
+
 impl Child<i32> for Number {}
-fn parent<T: Read<i32>>(value: T) -> i32 { value.read() }
-fn read<T: Child<i32>>(value: T) -> i32 { parent(value) }
-fn direct<T: Child<i32>>(value: T) -> i32 { value.read() }
-fn main() -> i32 { read(Number { value: 20 }) + direct(Number { value: 22 }) }
+
+fn parent<T: Read<i32>>(value: T) -> i32 {
+    value.read()
+}
+
+fn read<T: Child<i32>>(value: T) -> i32 {
+    parent(value)
+}
+
+fn direct<T: Child<i32>>(value: T) -> i32 {
+    value.read()
+}
+
+fn main() -> i32 {
+    read(Number { value: 20 }) + direct(Number { value: 22 })
+}

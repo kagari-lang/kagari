@@ -1,14 +1,38 @@
-use std::fmt::{Display};
+use std::fmt::{ Display };
 
 static val LOG: Vec<i32> = Vec::from([]);
-static val LATER: i32 = { LOG.push(9); val too_large = 2147483647; too_large + 1 };
-struct Item { val log: Vec<i32> }
-impl Display for Item { fn display(self)->String { self.log.push(7); val zero=0;1/zero; "" } }
-fn main()->String {
+
+static val LATER: i32 = {
+    LOG.push(9);
+    val too_large = 2147483647;
+    too_large + 1
+};
+
+struct Item {
+    val log: Vec<i32>
+}
+
+impl Display for Item {
+    fn display(self) -> String {
+        self.log.push(7);
+        val zero = 0;
+        1 / zero;
+        ""
+    }
+}
+
+fn main() -> String {
     val item = Item { log: LOG };
     "{item} {LATER}"
 }
-pub fn healthy()->i32 {
-    { val passed = LOG.len() == 1u64 && LOG.get(0u64) == Some(7); if !passed {val zero=0;1/zero;} };
+
+pub fn healthy() -> i32 {
+    {
+        val passed = LOG.len() == 1u64 && LOG.get(0u64) == Some(7);
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
     42
 }

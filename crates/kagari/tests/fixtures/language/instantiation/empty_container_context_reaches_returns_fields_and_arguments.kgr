@@ -1,18 +1,36 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{ HashMap, HashSet };
 
-        struct Values { val array: Vec<i32>, val map: HashMap<i32, bool>, val set: HashSet<i32> }
-        fn array() -> Vec<i32> { Vec::from([]) }
-        fn map() -> HashMap<i32, bool> { HashMap::new() }
-        fn set() -> HashSet<i32> { HashSet::new() }
-        fn empty(a: Vec<i32>, m: HashMap<i32, bool>, s: HashSet<i32>) -> bool {
-            a.is_empty() && m.is_empty() && s.is_empty()
-        }
-        fn main() -> i32 {
-            val value = Values { array: Vec::from([]), map: HashMap::new(), set: HashSet::new() };
-            var replacement: HashMap<i32, bool> = map();
-            replacement = HashMap::new();
-            if empty(Vec::from([]), HashMap::new(), HashSet::new())
-                && empty(array(), map(), set()) && empty(value.array, value.map, value.set)
-                && replacement.is_empty() { 42 } else { 0 }
-        }
-    
+struct Values {
+    val array: Vec<i32>,
+    val map: HashMap<i32, bool>,
+    val set: HashSet<i32>
+}
+
+fn array() -> Vec<i32> {
+    Vec::from([])
+}
+
+fn map() -> HashMap<i32, bool> {
+    HashMap::new()
+}
+
+fn set() -> HashSet<i32> {
+    HashSet::new()
+}
+
+fn empty(a: Vec<i32>, m: HashMap<i32, bool>, s: HashSet<i32>) -> bool {
+    a.is_empty() && m.is_empty() && s.is_empty()
+}
+
+fn main() -> i32 {
+    val value = Values { array: Vec::from([]), map: HashMap::new(), set: HashSet::new() };
+    var replacement: HashMap<i32, bool> = map();
+    replacement = HashMap::new();
+    if empty(Vec::from([]), HashMap::new(), HashSet::new()) && empty(array(), map(), set()) &&
+        empty(value.array, value.map, value.set) &&
+        replacement.is_empty() {
+        42
+    } else {
+        0
+    }
+}

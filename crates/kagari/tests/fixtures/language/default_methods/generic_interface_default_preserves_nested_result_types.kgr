@@ -1,8 +1,20 @@
+trait Wrap {
+    fn wrap<T>(self, value: T) -> Option<Option<T>> {
+        Some(Some(value))
+    }
+}
 
-trait Wrap { fn wrap<T>(self, value: T) -> Option<Option<T>> { Some(Some(value)) } }
 struct Number {}
+
 impl Wrap for Number {}
+
 fn main() -> i32 {
     val source: Wrap = Number {};
-    match source.wrap(42) { Some(inner) => match inner { Some(value) => value, None => 0 }, None => 0 }
+    match source.wrap(42) {
+        Some(inner) => match inner {
+            Some(value) => value,
+            None => 0
+        },
+        None => 0
+    }
 }

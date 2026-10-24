@@ -203,12 +203,11 @@ fn lifecycle_reload_contract() {
     drop(captured);
     assert_eq!(task_boundary(&f, &scope, waiting), TaskDriveResult::Waiting);
     reject_candidate_work(&f, &scope, &factory);
+    let original_version = "pub fn version() -> i32 {\n    1\n}";
+    assert_eq!(SOURCE.matches(original_version).count(), 1);
     let replacement = prepare(
         &f,
-        &SOURCE.replace(
-            "pub fn version() -> i32 { 1 }",
-            "pub fn version() -> i32 { 100 }",
-        ),
+        &SOURCE.replace(original_version, "pub fn version() -> i32 {\n    100\n}"),
     );
     let current = f
         .runtime

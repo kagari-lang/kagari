@@ -1,16 +1,27 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{ HashMap, HashSet };
 
-        fn main() -> i32 {
-            val values = Vec::from([]);
-            val alias = values;
-            alias.push(20);
-            values.push(22);
-            val keys = HashSet::new();
-            keys.insert(values[0]);
-            val map = HashMap::new();
-            map.insert("answer", values[1]);
-            { val passed = keys.contains(20); if !passed {val zero=0;1/zero;} };
-            { val passed = map.get("answer") == Some(22); if !passed {val zero=0;1/zero;} };
-            values[0] + values[1]
+fn main() -> i32 {
+    val values = Vec::from([]);
+    val alias = values;
+    alias.push(20);
+    values.push(22);
+    val keys = HashSet::new();
+    keys.insert(values[0]);
+    val map = HashMap::new();
+    map.insert("answer", values[1]);
+    {
+        val passed = keys.contains(20);
+        if !passed {
+            val zero = 0;
+            1 / zero;
         }
-    
+    };
+    {
+        val passed = map.get("answer") == Some(22);
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    values[0] + values[1]
+}

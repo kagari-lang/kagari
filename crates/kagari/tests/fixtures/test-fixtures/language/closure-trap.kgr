@@ -1,7 +1,12 @@
-
 pub fn fail() -> i32 {
     var count = 40;
-    val fail = || { count = count + 1; 1 / 0 };
+    val fail = || {
+        count = count + 1;
+        1 / 0
+    };
     fail()
 }
-pub fn after() -> i32 { 42 }
+
+pub fn after() -> i32 {
+    42
+}

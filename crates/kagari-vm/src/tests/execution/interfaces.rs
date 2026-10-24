@@ -460,11 +460,12 @@ fn generic_interface_and_retained_closure_keep_their_environment_after_reload() 
         execution.run().unwrap()
     };
     let closure_root = runtime.root_value(closure).unwrap();
+    assert_eq!(source.matches("42").count(), 1);
     let candidate = runtime
         .stage_reload_program(
             &old,
             "shared-reload",
-            compile_test_bytecode(&source.replace("{ 42 }", "{ 43 }")),
+            compile_test_bytecode(&source.replace("42", "43")),
         )
         .unwrap();
     let new = runtime.publish_staged_reload(candidate).unwrap();
@@ -681,11 +682,12 @@ fn a_retained_generic_closure_pins_the_callers_constraint_generation() {
         .unwrap();
     let receiver = execute(&runtime, &first, "source", &[]);
     let receiver_root = runtime.root_value(receiver).unwrap();
+    assert_eq!(source.matches("42").count(), 1);
     let candidate = runtime
         .stage_reload_program(
             &first,
             "constraint-reload",
-            compile_test_bytecode(&source.replace("{ 42 }", "{ 43 }")),
+            compile_test_bytecode(&source.replace("42", "43")),
         )
         .unwrap();
     let second = runtime.publish_staged_reload(candidate).unwrap();
@@ -696,7 +698,7 @@ fn a_retained_generic_closure_pins_the_callers_constraint_generation() {
         .stage_reload_program(
             &second,
             "constraint-reload",
-            compile_test_bytecode(&source.replace("{ 42 }", "{ 44 }")),
+            compile_test_bytecode(&source.replace("42", "44")),
         )
         .unwrap();
     let third = runtime.publish_staged_reload(candidate).unwrap();
@@ -728,7 +730,7 @@ fn shared_calls_retain_the_callers_nominal_layout_generation() {
         fn make(source: Capture) -> fn() -> i32 { source.capture(Item { value: 1 }) }
         fn use_closure(call: fn() -> i32) -> i32 { call() }
     "#;
-    check_type_provenance_reload(source);
+    check_type_provenance_reload(source, 1);
 }
 
 #[test]
@@ -748,6 +750,7 @@ fn shared_composite_arguments_keep_distinct_nominal_generations() {
         fn make(source: Capture) -> fn() -> i32 { source.capture(Item { value: 1 }) }
         fn use_closure(call: fn() -> i32) -> i32 { call() }
     "#,
+        2,
     );
 }
 
@@ -767,20 +770,36 @@ fn shared_closures_keep_type_metadata_and_pinned_construction_dependencies() {
         fn make(source: Capture) -> fn() -> i32 { source.capture(Item { value: 1 }) }
         fn use_closure(call: fn() -> i32) -> i32 { call() }
     "#,
+        1,
     );
 }
 
-fn check_type_provenance_reload(source: &str) {
+fn check_type_provenance_reload(source: &str, item_constructions: usize) {
     let mut runtime = standard_runtime(Default::default());
     let old = runtime
         .load_program("type-provenance", compile_test_bytecode(source))
         .unwrap();
     let interface = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
     let interface_root = runtime.root_value(interface).unwrap();
-    let second_source = source
-        .replace("val value: i32", "val value: i32, val extra: bool")
-        .replace("value: 1 }", "value: 1, extra: true }")
-        .replace("{ 42 }", "{ 43 }");
+    let helper = "fn helper() -> i32 {";
+    assert_eq!(source.matches(helper).count(), 1);
+    let body_start = source.find(helper).unwrap() + helper.len();
+    let body_end = body_start + source[body_start..].find('}').unwrap();
+    assert_eq!(source[body_start..body_end].trim(), "42");
+    let value_start = body_start + source[body_start..body_end].find("42").unwrap();
+    let mut second_source = source.to_owned();
+    second_source.replace_range(value_start..value_start + 2, "43");
+    for (from, to, count) in [
+        ("val value: i32", "val value: i32, val extra: bool", 1),
+        (
+            "Item { value: 1 }",
+            "Item { value: 1, extra: true }",
+            item_constructions,
+        ),
+    ] {
+        assert_eq!(second_source.matches(from).count(), count, "{from}");
+        second_source = second_source.replace(from, to);
+    }
     let candidate = runtime
         .stage_reload_program(
             &old,
@@ -867,10 +886,19 @@ fn check_type_provenance_reload(source: &str) {
         .run()
         .unwrap();
     let root = runtime.root_value(closure).unwrap();
-    let third_source = second_source
-        .replace("val extra: bool", "val extra: bool, val later: i32")
-        .replace("extra: true }", "extra: true, later: 3 }")
-        .replace("{ 43 }", "{ 44 }");
+    let mut third_source = second_source;
+    for (from, to, count) in [
+        ("val extra: bool", "val extra: bool, val later: i32", 1),
+        (
+            "Item { value: 1, extra: true }",
+            "Item { value: 1, extra: true, later: 3 }",
+            item_constructions,
+        ),
+        ("43", "44", 1),
+    ] {
+        assert_eq!(third_source.matches(from).count(), count, "{from}");
+        third_source = third_source.replace(from, to);
+    }
     let candidate = runtime
         .stage_reload_program(
             &second,
@@ -931,6 +959,7 @@ fn shared_aggregate_fields_retain_the_callers_nominal_generation() {
         fn make(source: Capture) -> fn() -> i32 { source.capture(Item { value: 1 }) }
         fn use_closure(call: fn() -> i32) -> i32 { call() }
     "#,
+        1,
     );
 }
 
@@ -952,6 +981,7 @@ fn shared_native_lists_retain_the_callers_nominal_generation() {
         fn make(source: Capture) -> fn() -> i32 { source.capture(Item { value: 1 }) }
         fn use_closure(call: fn() -> i32) -> i32 { call() }
     "#,
+        1,
     );
 }
 
@@ -1047,9 +1077,10 @@ fn shared_closure_signatures_distinguish_nominal_generations() {
 
 #[test]
 fn shared_mutable_lists_preserve_mixed_nominal_scopes_and_parent_views() {
-    check_type_provenance_reload(include_str!(
-        "../../../tests/fixtures/execution/mixed-nominal-list-capture.kgr"
-    ));
+    check_type_provenance_reload(
+        include_str!("../../../tests/fixtures/execution/mixed-nominal-list-capture.kgr"),
+        4,
+    );
 }
 
 #[test]
@@ -1070,5 +1101,6 @@ fn shared_repeat_arrays_keep_scalar_contracts_in_generic_frames() {
         fn make(source: Capture) -> fn() -> i32 { source.capture(Item { value: 1 }) }
         fn use_closure(call: fn() -> i32) -> i32 { call() }
     "#,
+        1,
     );
 }

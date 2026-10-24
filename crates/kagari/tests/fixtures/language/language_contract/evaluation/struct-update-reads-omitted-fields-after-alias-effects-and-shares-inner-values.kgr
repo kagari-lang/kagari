@@ -1,27 +1,37 @@
-
-struct P { var n: i32, var items: Vec<i32> }
-impl Default for P {
-    fn default() -> Self { P { n: 1, items: Vec::from([2]) } }
+struct P {
+    var n: i32,
+    var items: Vec<i32>
 }
+
+impl Default for P {
+    fn default() -> Self {
+        P { n: 1, items: Vec::from([2]) }
+    }
+}
+
 fn explicit(base: P) -> i32 {
     print("explicit");
     base.items = Vec::from([3]);
     7
 }
+
 fn base(alias: P) -> P {
     print("base");
     alias.n = 5;
     alias.items = Vec::from([4]);
     alias
 }
+
 fn main() -> bool {
     val original = P::default();
     val old_items = original.items;
     val changed = P { n: explicit(original), ..base(original) };
     changed.items.push(9);
     changed.n += 1;
-    changed !== original && changed.items === original.items &&
-        changed.items !== old_items && old_items[0] == 2 &&
-        original.items[0] == 4 && original.items[1] == 9 &&
-        original.n == 5 && changed.n == 8
+    changed !== original && changed.items === original.items && changed.items !== old_items &&
+        old_items[0] == 2 &&
+        original.items[0] == 4 &&
+        original.items[1] == 9 &&
+        original.n == 5 &&
+        changed.n == 8
 }

@@ -1,20 +1,37 @@
+use std::collections::{ List, list_content_equal };
 
-use std::collections::{List, list_content_equal};
-fn forward<T>(xs: Vec<T>) -> List<T> { xs }
-trait Boxer {
-    fn boxed<T>(self, xs: Vec<T>) -> List<T> { forward(xs) }
-    fn one<T>(self, value: T) -> List<T> { Vec::from([value]) }
-    fn later<T>(self, value: T) -> fn() -> List<T> { || Vec::from([value]) }
+fn forward<T>(xs: Vec<T>) -> List<T> {
+    xs
 }
+
+trait Boxer {
+    fn boxed<T>(self, xs: Vec<T>) -> List<T> {
+        forward(xs)
+    }
+    fn one<T>(self, value: T) -> List<T> {
+        Vec::from([value])
+    }
+    fn later<T>(self, value: T) -> fn() -> List<T> {
+        || Vec::from([value])
+    }
+}
+
 impl Boxer for i32 {}
+
 fn main() -> i32 {
     val boxer: Boxer = 0;
     val a = boxer.boxed(Vec::from([1]));
     val b = boxer.one(1);
     val later = boxer.later(1);
-    if !(list_content_equal(a, b) && list_content_equal(b, later())) { return 1; }
+    if !(list_content_equal(a, b) && list_content_equal(b, later())) {
+        return 1;
+    }
     val nan = boxer.one(0.0f32 / 0.0f32);
-    if list_content_equal(nan, nan) { return 2; }
-    if !(list_content_equal(boxer.one(0.0f32), boxer.one(-0.0f32))) { return 3; }
+    if list_content_equal(nan, nan) {
+        return 2;
+    }
+    if !(list_content_equal(boxer.one(0.0f32), boxer.one(-0.0f32))) {
+        return 3;
+    }
     42
 }

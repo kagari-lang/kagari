@@ -1,21 +1,32 @@
 fn main() -> i32 {
     val counter = Vec::from([18]);
-    val arrays = Vec::from_fn(2u64, |index| {
-        counter[0u64] = counter[0u64] + 2;
-        Vec::from([counter[0u64]])
-    });
+    val arrays = Vec::from_fn(
+        2u64,
+        |index| {
+            counter[0u64] = counter[0u64] + 2;
+            Vec::from([counter[0u64]])
+        }
+    );
     val result: Vec<i32> = Vec::new();
     result.push(arrays[0u64][0u64]);
     result.push(arrays[1u64][0u64]);
     val view: std::collections::List<i32> = result;
-    if view.len() == 2u64
-        && std::math::floor(2.5) == 2.0
-        && std::math::ceil(2.5) == 3.0
-        && std::math::sqrt(9.0) == 3.0 {
+    if view.len() == 2u64 && std::math::floor(2.5) == 2.0 && std::math::ceil(2.5) == 3.0 &&
+        std::math::sqrt(9.0) == 3.0 {
         result[0u64] + result[1u64]
-    } else { 0 }
+    } else {
+        0
+    }
 }
 
-fn floor_value() -> f64 { std::math::floor(0.0) }
-fn ceil_value() -> f64 { std::math::ceil(0.0) }
-fn sqrt_value() -> f64 { std::math::sqrt(0.0) }
+fn floor_value() -> f64 {
+    std::math::floor(0.0)
+}
+
+fn ceil_value() -> f64 {
+    std::math::ceil(0.0)
+}
+
+fn sqrt_value() -> f64 {
+    std::math::sqrt(0.0)
+}

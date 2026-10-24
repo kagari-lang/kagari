@@ -1,8 +1,25 @@
-use std::hash::{Hash};
+use std::hash::{ Hash };
 
-        trait Reader { type Item; fn read(self) -> Self::Item; }
-        struct Holder<T> { val value: T }
-        impl<T: Eq + Hash> Reader for Holder<T> { type Item = T; fn read(self) -> T { self.value } }
-        fn boxed<T: Eq + Hash>(value: Holder<T>) -> Reader<Item = T> { value }
-        fn main() -> i32 { boxed(Holder { value: 42 }).read() }
-    
+trait Reader {
+    type Item;
+    fn read(self) -> Self::Item;
+}
+
+struct Holder<T> {
+    val value: T
+}
+
+impl<T: Eq + Hash> Reader for Holder<T> {
+    type Item = T;
+    fn read(self) -> T {
+        self.value
+    }
+}
+
+fn boxed<T: Eq + Hash>(value: Holder<T>) -> Reader<Item = T> {
+    value
+}
+
+fn main() -> i32 {
+    boxed(Holder { value: 42 }).read()
+}

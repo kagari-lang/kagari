@@ -1,8 +1,19 @@
+trait Parent {
+    const VALUE: i32 = 42;
+}
 
-trait Parent { const VALUE: i32 = 42; }
 trait Child: Parent {}
+
 struct Number {}
+
 impl Parent for Number {}
+
 impl Child for Number {}
-fn get<T: Child>(x: T) -> i32 { T::VALUE }
-fn main() -> i32 { get(Number {}) }
+
+fn get<T: Child>(x: T) -> i32 {
+    T::VALUE
+}
+
+fn main() -> i32 {
+    get(Number {})
+}

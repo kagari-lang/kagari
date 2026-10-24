@@ -1,15 +1,60 @@
-use std::ops::{Add, Div, Mul, Rem, Sub};
+use std::ops::{ Add, Div, Mul, Rem, Sub };
 
 use core::ops::Add as Plus;
-struct Vector {val x:i32}
-impl Plus<Vector> for Vector {type Output=Vector;fn add(self,rhs:Vector)->Vector {Vector{x:self.x+rhs.x}}}
-impl Mul<i32> for Vector {type Output=Vector;fn mul(self,rhs:i32)->Vector {Vector{x:self.x*rhs}}}
-impl Sub<Vector> for Vector {type Output=i32;fn sub(self,rhs:Vector)->i32 {self.x-rhs.x}}
-impl Div<i32> for Vector {type Output=i32;fn div(self,rhs:i32)->i32 {self.x/rhs}}
-impl Rem<i32> for Vector {type Output=i32;fn rem(self,rhs:i32)->i32 {self.x%rhs}}
-fn plus<T:Plus<T>>(a:T,b:T)->T::Output {a+b}
-fn scaled<T:Mul<i32,Output=Vector>>(a:T)->Vector {a*2}
-fn main()->i32 {
- val a=Vector{x:10};val b=Vector{x:11};
- if (a+b).x==a.add(b).x && plus(1,2)==3 && a-b == -1 && b/2==5 && b%2==1 {scaled(plus(a,b)).x}else{0}
+
+struct Vector {
+    val x: i32
+}
+
+impl Plus<Vector> for Vector {
+    type Output = Vector;
+    fn add(self, rhs: Vector) -> Vector {
+        Vector { x: self.x + rhs.x }
+    }
+}
+
+impl Mul<i32> for Vector {
+    type Output = Vector;
+    fn mul(self, rhs: i32) -> Vector {
+        Vector { x: self.x * rhs }
+    }
+}
+
+impl Sub<Vector> for Vector {
+    type Output = i32;
+    fn sub(self, rhs: Vector) -> i32 {
+        self.x - rhs.x
+    }
+}
+
+impl Div<i32> for Vector {
+    type Output = i32;
+    fn div(self, rhs: i32) -> i32 {
+        self.x / rhs
+    }
+}
+
+impl Rem<i32> for Vector {
+    type Output = i32;
+    fn rem(self, rhs: i32) -> i32 {
+        self.x % rhs
+    }
+}
+
+fn plus<T: Plus<T>>(a: T, b: T) -> T::Output {
+    a + b
+}
+
+fn scaled<T: Mul<i32, Output = Vector>>(a: T) -> Vector {
+    a * 2
+}
+
+fn main() -> i32 {
+    val a = Vector { x: 10 };
+    val b = Vector { x: 11 };
+    if (a + b).x == a.add(b).x && plus(1, 2) == 3 && a - b == -1 && b / 2 == 5 && b % 2 == 1 {
+        scaled(plus(a, b)).x
+    } else {
+        0
+    }
 }

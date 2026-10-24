@@ -1,54 +1,98 @@
+use std::collections::{ List, MutableList, HashSet };
 
-    use std::collections::{List, MutableList, HashSet};
-    struct Cell { var value: i32 }
-    fn first<T>(values: [T]) -> T { values[0] }
-    fn key(counter: Cell) -> i32 { counter.value += 1; 7 }
-    fn write<T: MutableList<i32>>(first: T, second: T) {
-        var current = first;
-        current[{ current = second; 0u64 }] = 42;
+struct Cell {
+    var value: i32
+}
+
+fn first<T>(values: [T]) -> T {
+    values[0]
+}
+
+fn key(counter: Cell) -> i32 {
+    counter.value += 1;
+    7
+}
+
+fn write<T: MutableList<i32>>(first: T, second: T) {
+    var current = first;
+    current[
+        {
+            current = second;
+            0u64
+        }
+    ] = 42;
+}
+
+fn update<T: MutableList<i32>>(first: T, second: T) {
+    var current = first;
+    val rebind = || {
+        current = second;
+        2
+    };
+    current[0u64] += rebind();
+}
+
+fn main() -> i32 {
+    var array = [1, 2, 2];
+    val alias = array;
+    val vector = Vec::from(array);
+    val unique = HashSet::from(array);
+    alias[0] = 3;
+    vector.push(4);
+    vector[0] += 6;
+    array = [9];
+    val readable: List<i32> = vector;
+    if alias.len() != 3u64 || first(alias) != 3 || vector[0] != 7 {
+        return 0;
     }
-    fn update<T: MutableList<i32>>(first: T, second: T) {
-        var current = first;
-        val rebind = || { current = second; 2 };
-        current[0u64] += rebind();
+    if readable.len() != 4u64 || array.len() != 1u64 || unique.len() != 2u64 {
+        return 0;
     }
-    fn main() -> i32 {
-        var array = [1, 2, 2];
-        val alias = array;
-        val vector = Vec::from(array);
-        val unique = HashSet::from(array);
-        alias[0] = 3;
-        vector.push(4);
-        vector[0] += 6;
-        array = [9];
-        val readable: List<i32> = vector;
-        if alias.len() != 3u64 || first(alias) != 3 || vector[0] != 7 { return 0; }
-        if readable.len() != 4u64 || array.len() != 1u64 || unique.len() != 2u64 { return 0; }
-        var destination = Vec::from([1]);
-        val original = destination;
-        destination[{ destination = Vec::from([9]); 0u64 }] = 42;
-        if original[0] != 42 || destination[0] != 9 { return 0; }
-        val generic_original = Vec::from([1]);
-        val generic_replacement = Vec::from([9]);
-        write(generic_original, generic_replacement);
-        if generic_original[0] != 42 || generic_replacement[0] != 9 { return 0; }
-        update(generic_original, generic_replacement);
-        if generic_original[0] != 44 || generic_replacement[0] != 9 { return 0; }
-        val empty: [u8] = [];
-        val empty_vector: Vec<u8> = Vec::from([]);
-        val empty_set: HashSet<u8> = HashSet::from([]);
-        if !empty.is_empty() || !empty_vector.is_empty() || !empty_set.is_empty() { return 0; }
-        val counter = Cell { value: 0 };
-        val deduplicated = HashSet::from([key(counter), key(counter)]);
-        if counter.value != 2 || deduplicated.len() != 1u64 { return 0; }
-        if vector[1] != 2 || vector[2] != 2 || vector[3] != 4 { return 0; }
-        val object = Cell { value: 1 };
-        val objects = [object];
-        val copies = Vec::from(objects);
-        copies[0].value = 42;
-        var sum = 0;
-        for value in alias { sum += value; }
-        if sum != 7 { return 0; }
-        objects[0].value
+    var destination = Vec::from([1]);
+    val original = destination;
+    destination[
+        {
+            destination = Vec::from([9]);
+            0u64
+        }
+    ] = 42;
+    if original[0] != 42 || destination[0] != 9 {
+        return 0;
     }
-    
+    val generic_original = Vec::from([1]);
+    val generic_replacement = Vec::from([9]);
+    write(generic_original, generic_replacement);
+    if generic_original[0] != 42 || generic_replacement[0] != 9 {
+        return 0;
+    }
+    update(generic_original, generic_replacement);
+    if generic_original[0] != 44 || generic_replacement[0] != 9 {
+        return 0;
+    }
+    val empty: [u8] = [];
+    val empty_vector: Vec<u8> = Vec::from([]);
+    val empty_set: HashSet<u8> = HashSet::from([]);
+    if !empty.is_empty() || !empty_vector.is_empty() || !empty_set.is_empty() {
+        return 0;
+    }
+    val counter = Cell { value: 0 };
+    val deduplicated = HashSet::from([key(counter), key(counter)]);
+    if counter.value != 2 || deduplicated.len() != 1u64 {
+        return 0;
+    }
+    if vector[1] != 2 || vector[2] != 2 || vector[3] != 4 {
+        return 0;
+    }
+    val object = Cell { value: 1 };
+    val objects = [object];
+    val copies = Vec::from(objects);
+    copies[0].value = 42;
+    var sum = 0;
+    for value in alias {
+        sum += value;
+    }
+    if sum != 7 {
+        return 0;
+    }
+    objects[0].value
+}

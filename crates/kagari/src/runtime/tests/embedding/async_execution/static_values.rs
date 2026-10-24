@@ -9,6 +9,8 @@ use std::sync::{Arc, atomic::Ordering};
 fn persistent_static_future_and_task_keep_old_code_but_observe_shared_state() {
     let source =
         include_str!("../../../../../tests/fixtures/embedding/async/persistent-values.kgr");
+    let original_version = "fn version() -> i32 {\n    10\n}";
+    assert_eq!(source.matches(original_version).count(), 1);
     for decoded in [false, true] {
         let mut f = Fixture::with_prepared_program(
             Default::default(),
@@ -17,7 +19,7 @@ fn persistent_static_future_and_task_keep_old_code_but_observe_shared_state() {
         );
         let replacement = prepare_static_program(
             &f.engine,
-            &source.replace("fn version() -> i32 { 10 }", "fn version() -> i32 { 20 }"),
+            &source.replace(original_version, "fn version() -> i32 {\n    20\n}"),
             decoded,
         );
         let _ = f.invoke("save_future", &[]);

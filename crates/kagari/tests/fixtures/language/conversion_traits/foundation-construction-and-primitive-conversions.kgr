@@ -1,12 +1,26 @@
-use std::iter::{Sum};
-use std::num::{TryFromIntError};
+use std::iter::{ Sum };
 
-fn aggregate<T:Sum<i32>,I:Iterable<Item=i32>>(source:I)->T {T::sum(source)}
-fn main()->i32 {
-    val copied=Vec<i32>::from_iter(Vec::from([2,3,7]));
-    val product=i32::product(copied);
-    val total:i32=aggregate(Vec::from([20,22]));
-    val parsed=i32::from_str("42");
-    val narrow:Result<i8,TryFromIntError> = total.try_into();
-    match parsed {Ok(n)=>match narrow {Ok(k)=>if product==n && i32::from(k)==n {n}else{0},Err(_)=>0},Err(_)=>0}
+use std::num::{ TryFromIntError };
+
+fn aggregate<T: Sum<i32>, I: Iterable<Item = i32>>(source: I) -> T {
+    T::sum(source)
+}
+
+fn main() -> i32 {
+    val copied = Vec<i32>::from_iter(Vec::from([2, 3, 7]));
+    val product = i32::product(copied);
+    val total: i32 = aggregate(Vec::from([20, 22]));
+    val parsed = i32::from_str("42");
+    val narrow: Result<i8, TryFromIntError> = total.try_into();
+    match parsed {
+        Ok(n) => match narrow {
+            Ok(k) => if product == n && i32::from(k) == n {
+                n
+            } else {
+                0
+            },
+            Err(_) => 0
+        },
+        Err(_) => 0
+    }
 }

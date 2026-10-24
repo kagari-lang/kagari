@@ -81,6 +81,7 @@ fn persistent_static_objects_and_recursive_nominal_collections_preserve_aliases(
     let source = include_str!(
         "../../../../tests/fixtures/test-fixtures/embedding/persistent-static-objects.kgr"
     );
+    assert_eq!(source.matches("value: 1,").count(), 1);
     for decoded in [false, true] {
         let engine = KagariEngine::default();
         let first = prepare_static_program(&engine, source, decoded);

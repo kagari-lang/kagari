@@ -1,1 +1,11 @@
-use web::print; fn main() -> u64 { val minimum = -9223372036854775808i64; val maximum = 9223372036854775807i64; if minimum >= 0i64 || maximum <= 0i64 { return 0u64; } print("hello 😀"); 18446744073709551615u64 }
+use web::print;
+
+fn main() -> u64 {
+    val minimum = -9223372036854775808i64;
+    val maximum = 9223372036854775807i64;
+    if minimum >= 0i64 || maximum <= 0i64 {
+        return 0u64;
+    }
+    print("hello 😀");
+    18446744073709551615u64
+}

@@ -1,17 +1,39 @@
-use std::cmp::{Ordering};
+use std::cmp::{ Ordering };
 
-        struct Rank { val key: i32, val tag: i32, var visits: i32 }
-        impl PartialEq for Rank { fn eq(self, other: Self) -> bool { self.key == other.key } }
-        impl Eq for Rank {}
-        impl PartialOrd for Rank { fn partial_cmp(self, other: Self) -> Option<Ordering> { self.key.partial_cmp(other.key) } }
-        impl Ord for Rank { fn cmp(self, other: Self) -> Ordering { self.visits += 1; self.key.cmp(other.key) } }
-        fn main() -> bool {
-            val a = Rank { key: 2, tag: 0, visits: 0 };
-            val b = Rank { key: 1, tag: 1, visits: 0 };
-            val c = Rank { key: 1, tag: 2, visits: 0 };
-            val d = Rank { key: 2, tag: 3, visits: 0 };
-            val values = Vec::from([a,b,c,d]); values.sort();
-            values[0].tag == 1 && values[1].tag == 2 && values[2].tag == 0 && values[3].tag == 3
-                && a.visits + b.visits + c.visits + d.visits > 0
-        }
-    
+struct Rank {
+    val key: i32,
+    val tag: i32,
+    var visits: i32
+}
+
+impl PartialEq for Rank {
+    fn eq(self, other: Self) -> bool {
+        self.key == other.key
+    }
+}
+
+impl Eq for Rank {}
+
+impl PartialOrd for Rank {
+    fn partial_cmp(self, other: Self) -> Option<Ordering> {
+        self.key.partial_cmp(other.key)
+    }
+}
+
+impl Ord for Rank {
+    fn cmp(self, other: Self) -> Ordering {
+        self.visits += 1;
+        self.key.cmp(other.key)
+    }
+}
+
+fn main() -> bool {
+    val a = Rank { key: 2, tag: 0, visits: 0 };
+    val b = Rank { key: 1, tag: 1, visits: 0 };
+    val c = Rank { key: 1, tag: 2, visits: 0 };
+    val d = Rank { key: 2, tag: 3, visits: 0 };
+    val values = Vec::from([a, b, c, d]);
+    values.sort();
+    values[0].tag == 1 && values[1].tag == 2 && values[2].tag == 0 && values[3].tag == 3 &&
+        a.visits + b.visits + c.visits + d.visits > 0
+}

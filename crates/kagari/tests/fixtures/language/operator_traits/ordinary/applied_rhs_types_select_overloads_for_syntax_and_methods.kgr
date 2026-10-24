@@ -1,8 +1,37 @@
-use std::ops::{Add};
+use std::ops::{ Add };
 
-struct Number {val value:i32}
-impl Add<i32> for Number {type Output=i32;fn add(self,rhs:i32)->i32 {self.value+rhs}}
-impl Add<Number> for Number {type Output=Number;fn add(self,rhs:Number)->Number {Number{value:self.value+rhs.value}}}
-fn scalar()->i32 {21}
-fn identity<T>(value:T)->T {value}
-fn main()->i32 {val a=Number{value:21};val b=a+identity(scalar());if b==42 && a.add(scalar())==42 && a.add(a).value==42 {42}else{0}}
+struct Number {
+    val value: i32
+}
+
+impl Add<i32> for Number {
+    type Output = i32;
+    fn add(self, rhs: i32) -> i32 {
+        self.value + rhs
+    }
+}
+
+impl Add<Number> for Number {
+    type Output = Number;
+    fn add(self, rhs: Number) -> Number {
+        Number { value: self.value + rhs.value }
+    }
+}
+
+fn scalar() -> i32 {
+    21
+}
+
+fn identity<T>(value: T) -> T {
+    value
+}
+
+fn main() -> i32 {
+    val a = Number { value: 21 };
+    val b = a + identity(scalar());
+    if b == 42 && a.add(scalar()) == 42 && a.add(a).value == 42 {
+        42
+    } else {
+        0
+    }
+}

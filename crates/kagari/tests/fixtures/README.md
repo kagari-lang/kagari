@@ -17,9 +17,12 @@ Syntax-example and stateful scenario inputs also live under
 [`test-fixtures/embedding`](test-fixtures/embedding). They are source data loaded
 by the existing library test harness, not additional integration targets. Rust
 owns expected values, route/GC configuration, traps, publication, alias checks and
-resource cleanup. Preserve logical source names and exact fixture bytes, including
-leading newlines and intentionally missing final newlines. Local attributes keep
-these `.kgr` inputs LF-only on Windows. See the [testing guide](../../../../docs/testing.md#existing-file-backed-patterns).
+resource cleanup. Ordinary inputs use normal four-space Kagari layout, LF and a
+final newline, not the incidental indentation of their former Rust raw strings.
+Preserve exact bytes only for dedicated line/whitespace/source-location contracts
+and the canonical artifact source below. Keep logical source names unchanged; do
+not normalize contents when loading them. Local attributes keep ordinary inputs
+LF-only on Windows. See the [testing guide](../../../../docs/testing.md#existing-file-backed-patterns).
 
 ## Feature-boundary artifact
 

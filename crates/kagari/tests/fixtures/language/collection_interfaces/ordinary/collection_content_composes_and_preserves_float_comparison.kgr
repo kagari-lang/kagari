@@ -1,19 +1,31 @@
-use std::collections::{HashMap, HashSet, List, list_content_equal};
+use std::collections::{ HashMap, HashSet, List, list_content_equal };
+
 use std::hash::Hash;
+
 fn main() -> i32 {
     val a = Vec::from([Vec::from([1, 2])]);
     val b = Vec::from([Vec::from([1, 2])]);
-    if !(a == b && a.hash() == b.hash()) { return 1; }
+    if !(a == b && a.hash() == b.hash()) {
+        return 1;
+    }
     val keys: HashSet<Vec<Vec<i32>>> = HashSet::new();
     keys.insert(a);
-    if !keys.contains(b) { return 2; }
+    if !keys.contains(b) {
+        return 2;
+    }
     val nan = 0.0f32 / 0.0f32;
     val xs = Vec::from([nan]);
     val read: List<f32> = xs;
-    if xs == xs || list_content_equal(read, read) { return 3; }
-    if !(Vec::from([0.0f32]) == Vec::from([-0.0f32])) { return 4; }
+    if xs == xs || list_content_equal(read, read) {
+        return 3;
+    }
+    if !(Vec::from([0.0f32]) == Vec::from([-0.0f32])) {
+        return 4;
+    }
     val m: HashMap<i32, f32> = HashMap::new();
     m.insert(1, nan);
-    if m == m { return 5; }
+    if m == m {
+        return 5;
+    }
     42
 }

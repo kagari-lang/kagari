@@ -1,34 +1,76 @@
+struct SourceError {
+    var reads: i32,
+    var conversions: i32
+}
 
-struct SourceError { var reads: i32, var conversions: i32 }
-struct AppError { val cause: SourceError }
+struct AppError {
+    val cause: SourceError
+}
+
 impl From<SourceError> for AppError {
     fn from(error: SourceError) -> Self {
         error.conversions += 1;
         AppError { cause: error }
     }
 }
+
 fn read(error: SourceError, fail: bool) -> Result<i32, SourceError> {
     error.reads += 1;
-    if fail { Err(error) } else { Ok(42) }
+    if fail {
+        Err(error)
+    } else {
+        Ok(42)
+    }
 }
-fn forward<T, E, F: From<E>>(value: Result<T, E>) -> Result<T, F> { Ok(value?) }
-fn inferred_success() -> Result<i32, AppError> { Ok(Ok(42)?) }
+
+fn forward<T, E, F: From<E>>(value: Result<T, E>) -> Result<T, F> {
+    Ok(value?)
+}
+
+fn inferred_success() -> Result<i32, AppError> {
+    Ok(Ok(42)?)
+}
+
 fn direct(error: SourceError) -> Result<i32, AppError> {
     val value: i32 = Err(error)?;
     Ok(value)
 }
+
 fn main() -> i32 {
     val error = SourceError { reads: 0, conversions: 0 };
     val failure: Result<i32, AppError> = forward(read(error, true));
     val success: Result<i32, AppError> = forward(read(error, false));
-    if error.reads != 2 || error.conversions != 1 {return 0;}
-    val same = match failure {Err(e)=>e.cause === error,Ok(_)=>false};
-    if !same {return 0;}
-    val callback: fn() -> Result<i32, AppError> = || { Ok(read(error, true)?) };
-    if val Ok(_) = callback() {return 0;}
-    if val Ok(_) = direct(error) {return 0;}
-    if error.conversions != 3 {return 0;}
-    val inferred = match inferred_success() {Ok(n)=>n,Err(_)=>0};
-    if inferred != 42 {return 0;}
-    match success {Ok(n)=>n,Err(_)=>0}
+    if error.reads != 2 || error.conversions != 1 {
+        return 0;
+    }
+    val same = match failure {
+        Err(e) => e.cause === error,
+        Ok(_) => false
+    };
+    if !same {
+        return 0;
+    }
+    val callback: fn() -> Result<i32, AppError> = || {
+        Ok(read(error, true)?)
+    };
+    if val Ok(_) = callback() {
+        return 0;
+    }
+    if val Ok(_) = direct(error) {
+        return 0;
+    }
+    if error.conversions != 3 {
+        return 0;
+    }
+    val inferred = match inferred_success() {
+        Ok(n) => n,
+        Err(_) => 0
+    };
+    if inferred != 42 {
+        return 0;
+    }
+    match success {
+        Ok(n) => n,
+        Err(_) => 0
+    }
 }

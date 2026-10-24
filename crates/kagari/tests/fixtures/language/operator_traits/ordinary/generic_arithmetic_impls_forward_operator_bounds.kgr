@@ -1,5 +1,16 @@
-use std::ops::{Add};
+use std::ops::{ Add };
 
-struct Wrap<T>{val item:T}
-impl<T:Add<T,Output=T>> Add<Wrap<T>> for Wrap<T> {type Output=Wrap<T>;fn add(self,rhs:Wrap<T>)->Wrap<T> {Wrap{item:self.item+rhs.item}}}
-fn main()->i32 {(Wrap{item:20}+Wrap{item:22}).item}
+struct Wrap<T> {
+    val item: T
+}
+
+impl<T: Add<T, Output = T>> Add<Wrap<T>> for Wrap<T> {
+    type Output = Wrap<T>;
+    fn add(self, rhs: Wrap<T>) -> Wrap<T> {
+        Wrap { item: self.item + rhs.item }
+    }
+}
+
+fn main() -> i32 {
+    (Wrap { item: 20 } + Wrap { item: 22 }).item
+}

@@ -1,1 +1,13 @@
-struct Item { val value: i32 } struct Box<T> { var items: Vec<T> } fn main() -> i32 { val box = Box<Item> { items: Vec::from([Item { value: 1 }]) }; box.items = Vec::from([Item { value: 42 }]); box.items[0].value }
+struct Item {
+    val value: i32
+}
+
+struct Box<T> {
+    var items: Vec<T>
+}
+
+fn main() -> i32 {
+    val box = Box<Item> { items: Vec::from([Item { value: 1 }]) };
+    box.items = Vec::from([Item { value: 42 }]);
+    box.items[0].value
+}

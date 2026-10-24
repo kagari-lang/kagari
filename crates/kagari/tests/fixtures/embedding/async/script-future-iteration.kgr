@@ -1,34 +1,85 @@
-
 use test::async_sdk::request;
-async fn identity<T>(value: T) -> T { value }
-fn apply<F:Fn(i32)->Future<i32>>(f:F, value:i32) -> Future<i32> { f(value) }
+
+async fn identity<T>(value: T) -> T {
+    value
+}
+
+fn apply<F: Fn (i32) -> Future<i32>>(f: F, value: i32) -> Future<i32> {
+    f(value)
+}
+
 pub async fn total(items: Vec<i32>) -> i32 {
-    val fetch: fn(i32) -> Future<i32> = async |item| request(identity(item).await).await;
+    val fetch: fn(i32) -> Future<i32> = async|item| request(identity(item).await).await;
     var sum = 0;
-    for item in items { sum += apply(fetch, item).await; }
+    for item in items {
+        sum += apply(fetch, item).await;
+    }
     sum
 }
-pub fn items() -> Vec<i32> { Vec::from([10, 20, 30]) }
-pub fn replace(items: Vec<i32>) { items[1] = 99; }
-pub fn append(items: Vec<i32>) { items.push(40); }
-pub fn size(items: Vec<i32>) -> u64 { items.len() }
-pub async fn lazy(items: Vec<i32>) { items.push(50); }
-fn record(events:Vec<i32>, value:i32) -> i32 { events.push(value); value }
-async fn ordered(first:i32, second:i32) -> i32 { first*10+second }
-pub fn construct(events:Vec<i32>) -> Future<i32> { ordered(record(events,1),record(events,2)) }
-pub fn empty() -> Vec<i32> { Vec::from([]) }
-pub fn order(events:Vec<i32>) -> i32 { events[0]*10+events[1] }
+
+pub fn items() -> Vec<i32> {
+    Vec::from([10, 20, 30])
+}
+
+pub fn replace(items: Vec<i32>) {
+    items[1] = 99;
+}
+
+pub fn append(items: Vec<i32>) {
+    items.push(40);
+}
+
+pub fn size(items: Vec<i32>) -> u64 {
+    items.len()
+}
+
+pub async fn lazy(items: Vec<i32>) {
+    items.push(50);
+}
+
+fn record(events: Vec<i32>, value: i32) -> i32 {
+    events.push(value);
+    value
+}
+
+async fn ordered(first: i32, second: i32) -> i32 {
+    first * 10 + second
+}
+
+pub fn construct(events: Vec<i32>) -> Future<i32> {
+    ordered(record(events, 1), record(events, 2))
+}
+
+pub fn empty() -> Vec<i32> {
+    Vec::from([])
+}
+
+pub fn order(events: Vec<i32>) -> i32 {
+    events[0] * 10 + events[1]
+}
+
 pub async fn closures() -> i32 {
     var count = 0;
-    val next = async || { count += 1; identity(count).await };
+    val next = async || {
+        count += 1;
+        identity(count).await
+    };
     val first = next();
     val second = next();
     first.await * 10 + second.await
 }
-pub async fn nested() -> Future<i32> { identity(7) }
+
+pub async fn nested() -> Future<i32> {
+    identity(7)
+}
+
 pub async fn early() -> Result<i32, i32> {
-    val first=request(50).await;
-    val result:Result<i32,i32> = if first<0 { Err(first) } else { Ok(first) };
-    val value=identity(result).await?;
+    val first = request(50).await;
+    val result: Result<i32, i32> = if first < 0 {
+        Err(first)
+    } else {
+        Ok(first)
+    };
+    val value = identity(result).await?;
     Ok(request(value).await)
 }

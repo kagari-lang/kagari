@@ -1,39 +1,67 @@
+struct Cursor {
+    var position: i32
+}
 
-struct Cursor { var position: i32 }
 impl Iterator for Cursor {
     type Item = i32;
     fn next(self) -> Option<i32> {
         self.position += 1;
-        if self.position <= 3 { Some(self.position) } else { None }
+        if self.position <= 3 {
+            Some(self.position)
+        } else {
+            None
+        }
     }
 }
+
 struct Values {}
+
 impl Iterable for Values {
     type Item = i32;
     type Iter = Cursor;
-    fn iter(self) -> Cursor { Cursor { position: 0 } }
+    fn iter(self) -> Cursor {
+        Cursor { position: 0 }
+    }
 }
+
 struct Override {}
+
 impl Iterable for Override {
-    type Item=i32;
-    type Iter=Cursor;
-    fn iter(self)->Cursor { Cursor {position:0} }
-    fn map<U>(self, mapper:fn(i32)->U)->core::iter::MapIterator<i32,U> {
+    type Item = i32;
+    type Iter = Cursor;
+    fn iter(self) -> Cursor {
+        Cursor { position: 0 }
+    }
+    fn map<U>(self, mapper: fn(i32) -> U) -> core::iter::MapIterator<i32, U> {
         Vec::from([10]).map(mapper)
     }
 }
-fn total<I: Iterable<Item=i32>>(values: I) -> i32 {
+
+fn total<I: Iterable<Item = i32>>(values: I) -> i32 {
     values.map(|x| x * 2).filter(|x| x > 2).take(1u64).sum()
 }
+
 fn main() -> i32 {
-    val custom=Override {};
-    val overridden:Iterable<Item=i32,Iter=Cursor> = custom;
-    if total(custom)!=20 || total(overridden)!=20 { return 0; }
-    val values: Iterable<Item=i32,Iter=Cursor> = Values {};
-    val cursor: Iterator<Item=i32> = Cursor { position: 0 };
+    val custom = Override {};
+    val overridden: Iterable<Item = i32, Iter = Cursor> = custom;
+    if total(custom) != 20 || total(overridden) != 20 {
+        return 0;
+    }
+    val values: Iterable<Item = i32, Iter = Cursor> = Values {};
+    val cursor: Iterator<Item = i32> = Cursor { position: 0 };
     val mapped = cursor.map(|x| x + 10);
     val alias = mapped;
-    val first = match mapped.next() { Some(x) => x, None => 0 };
-    val second = match alias.next() { Some(x) => x, None => 0 };
-    total(Vec::from([1,2,3])) + total([1,2,3]) + total(1..4) + total(Values {}) + total(values) + total(Cursor { position: 0 }) + first + second - 5
+    val first = match mapped.next() {
+        Some(x) => x,
+        None => 0
+    };
+    val second = match alias.next() {
+        Some(x) => x,
+        None => 0
+    };
+    total(Vec::from([1, 2, 3])) + total([1, 2, 3]) + total(1..4) + total(Values {}) + total(values) +
+        total(Cursor { position: 0 }) +
+        first +
+        second -
+        5
 }

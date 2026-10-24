@@ -1,14 +1,37 @@
-
-struct Count {val value:i32}
-impl From<i32> for Count {fn from(value:i32)->Self {Count{value}}}
-impl TryFrom<i32> for Count {
-    type Error=String;
-    fn try_from(value:i32)->Result<Self,String> {if value<0 {Err("negative")}else{Ok(Count{value})}}
+struct Count {
+    val value: i32
 }
-fn convert<S:Into<D>,D>(value:S)->D {value.into()}
-fn attempt<S:TryInto<D,Error=String>,D>(value:S)->Result<D,String> {value.try_into()}
-fn main()->i32 {
-    val a:Count=convert(20);
-    val b:Result<Count,String> = attempt(22);
-    match b {Ok(b)=>a.value+b.value,Err(_)=>0}
+
+impl From<i32> for Count {
+    fn from(value: i32) -> Self {
+        Count { value }
+    }
+}
+
+impl TryFrom<i32> for Count {
+    type Error = String;
+    fn try_from(value: i32) -> Result<Self, String> {
+        if value < 0 {
+            Err("negative")
+        } else {
+            Ok(Count { value })
+        }
+    }
+}
+
+fn convert<S: Into<D>, D>(value: S) -> D {
+    value.into()
+}
+
+fn attempt<S: TryInto<D, Error = String>, D>(value: S) -> Result<D, String> {
+    value.try_into()
+}
+
+fn main() -> i32 {
+    val a: Count = convert(20);
+    val b: Result<Count, String> = attempt(22);
+    match b {
+        Ok(b) => a.value + b.value,
+        Err(_) => 0
+    }
 }

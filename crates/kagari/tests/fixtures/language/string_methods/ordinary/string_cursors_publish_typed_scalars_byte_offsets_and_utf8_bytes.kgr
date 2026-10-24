@@ -1,6 +1,9 @@
-
 use std::iter::CollectionCursor;
-fn source() -> String { "a-é-🙂".replace("-", "") }
+
+fn source() -> String {
+    "a-é-🙂".replace("-", "")
+}
+
 fn main() -> bool {
     val chars: CollectionCursor<char> = source().chars();
     val indices: CollectionCursor<(u64, char)> = source().char_indices();
@@ -8,15 +11,25 @@ fn main() -> bool {
     val first: Option<char> = chars.next();
     val indexed: Option<(u64, char)> = indices.next();
     val byte: Option<u8> = bytes.next();
-    first == Some('a') && chars.next() == Some('é') && chars.next() == Some('🙂')
-        && indexed == Some((0u64, 'a')) && indices.next() == Some((1u64, 'é'))
-        && indices.next() == Some((3u64, '🙂'))
-        && byte == Some(97u8) && bytes.next() == Some(195u8) && bytes.next() == Some(169u8)
-        && bytes.next() == Some(240u8) && bytes.next() == Some(159u8)
-        && bytes.next() == Some(153u8) && bytes.next() == Some(130u8)
-        && chars.next() == None && chars.next() == None
-        && indices.next() == None && indices.next() == None
-        && bytes.next() == None && bytes.next() == None
-        && source().len() == 7u64 && source().chars().count() == 3u64
-        && source().char_indices().count() == 3u64 && source().bytes().count() == 7u64
+    first == Some('a') && chars.next() == Some('é') && chars.next() == Some('🙂') &&
+        indexed == Some((0u64, 'a')) &&
+        indices.next() == Some((1u64, 'é')) &&
+        indices.next() == Some((3u64, '🙂')) &&
+        byte == Some(97u8) &&
+        bytes.next() == Some(195u8) &&
+        bytes.next() == Some(169u8) &&
+        bytes.next() == Some(240u8) &&
+        bytes.next() == Some(159u8) &&
+        bytes.next() == Some(153u8) &&
+        bytes.next() == Some(130u8) &&
+        chars.next() == None &&
+        chars.next() == None &&
+        indices.next() == None &&
+        indices.next() == None &&
+        bytes.next() == None &&
+        bytes.next() == None &&
+        source().len() == 7u64 &&
+        source().chars().count() == 3u64 &&
+        source().char_indices().count() == 3u64 &&
+        source().bytes().count() == 7u64
 }

@@ -1,2 +1,15 @@
-use std::collections::{HashMap, HashSet};
-use demo as api; fn main() -> ([i32], HashMap<String, bool>, HashSet<String>, Option<i32>, Result<i32, String>) { api::echo(api::make()) } pub fn payload() -> ([i32], HashMap<String,bool>, HashSet<String>, Option<i32>, Result<i32,String>) { val map: HashMap<String,bool> = HashMap::new(); map.insert("yes",true); val set: HashSet<String> = HashSet::new(); set.insert("name"); ([7],map,set,Some(8),Ok(9)) }
+use std::collections::{ HashMap, HashSet };
+
+use demo as api;
+
+fn main() ->([i32], HashMap<String, bool>, HashSet<String>, Option<i32>, Result<i32, String>) {
+    api::echo(api::make())
+}
+
+pub fn payload() ->([i32], HashMap<String, bool>, HashSet<String>, Option<i32>, Result<i32, String>) {
+    val map: HashMap<String, bool> = HashMap::new();
+    map.insert("yes", true);
+    val set: HashSet<String> = HashSet::new();
+    set.insert("name");
+    ([7], map, set, Some(8), Ok(9))
+}

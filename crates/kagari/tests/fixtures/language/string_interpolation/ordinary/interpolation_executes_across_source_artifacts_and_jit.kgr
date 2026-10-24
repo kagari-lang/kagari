@@ -1,23 +1,94 @@
-use std::fmt::{Display};
+use std::fmt::{ Display };
+
 use self::labels::CODE as code;
 
-mod labels { pub const CODE: i32 = 7; }
-fn generic<T: Display>(value: T) -> String { "value={value}" }
+mod labels {
+    pub const CODE: i32 = 7;
+}
+
+fn generic<T: Display>(value: T) -> String {
+    "value={value}"
+}
+
 fn main() -> i32 {
     val name = "world";
     val sum = 1 + 2;
-    { val passed = "hello {name}! {sum}" == "hello world! 3"; if !passed {val zero=0;1/zero;} };
-    { val passed = "{name:?}" == "\"world\""; if !passed {val zero=0;1/zero;} };
-    { val passed = "{{{name}}}" == r"{world}"; if !passed {val zero=0;1/zero;} };
+    {
+        val passed = "hello {name}! {sum}" == "hello world! 3";
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    {
+        val passed = "{name:?}" == "\"world\"";
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    {
+        val passed = "{{{name}}}" == r"{world}";
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
     val nested = "<{name}>";
-    { val passed = "nested: {nested}" == "nested: <world>"; if !passed {val zero=0;1/zero;} };
-    val choice = if true { "yes" } else { "no" };
-    { val passed = "{choice}" == "yes"; if !passed {val zero=0;1/zero;} };
+    {
+        val passed = "nested: {nested}" == "nested: <world>";
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    val choice = if true {
+        "yes"
+    } else {
+        "no"
+    };
+    {
+        val passed = "{choice}" == "yes";
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
     val number = 7;
-    { val passed = "你好 \u{1f600} {number}\n" == "你好 😀 7\n"; if !passed {val zero=0;1/zero;} };
-    { val passed = "" == ""; if !passed {val zero=0;1/zero;} };
-    { val passed = "{{name}}" == r"{name}"; if !passed {val zero=0;1/zero;} };
-    { val passed = generic(7) == "value=7"; if !passed {val zero=0;1/zero;} };
-    { val passed = "code={code}" == "code=7"; if !passed {val zero=0;1/zero;} };
+    {
+        val passed = "你好 \u{1f600} {number}\n" == "你好 😀 7\n";
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    {
+        val passed = "" == "";
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    {
+        val passed = "{{name}}" == r"{name}";
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    {
+        val passed = generic(7) == "value=7";
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    {
+        val passed = "code={code}" == "code=7";
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
     42
 }

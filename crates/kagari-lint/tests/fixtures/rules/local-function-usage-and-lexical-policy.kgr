@@ -1,8 +1,11 @@
-
 fn outer(unused: i32) -> i32 {
     val abandoned = 0;
     #[tool::allow("non_snake_case", "unused_parameter")]
-    fn QuietHelper(Unused: i32) -> i32 { 40 }
-    fn LoudHelper(value: i32, unused: i32) -> i32 { value + 2 }
+    fn QuietHelper(Unused: i32) -> i32 {
+        40
+    }
+    fn LoudHelper(value: i32, unused: i32) -> i32 {
+        value + 2
+    }
     LoudHelper(QuietHelper(0), 0)
 }

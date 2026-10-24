@@ -1,78 +1,154 @@
-use std::collections::{List, MutableList, Set, list_content_equal};
-use std::iter::{CollectionCursor};
+use std::collections::{ List, MutableList, Set, list_content_equal };
+
+use std::iter::{ CollectionCursor };
 
 mod storage {
-use std::iter::CollectionCursor;
-use std::ops::Index;
-pub struct Sequence { pub val items: Vec<i32> }
-impl Index<u64> for Sequence {
-    type Output = i32;
-    fn index(self, index: u64) -> i32 { self.items[index] }
+    use std::iter::CollectionCursor;
+    use std::ops::Index;
+    pub struct Sequence {
+        pub val items: Vec<i32>
+    }
+    impl Index<u64> for Sequence {
+        type Output = i32;
+        fn index(self, index: u64) -> i32 {
+            self.items[index]
+        }
+    }
+    impl Iterable for Sequence {
+        type Item = i32;
+        type Iter = CollectionCursor<i32>;
+        fn iter(self) -> CollectionCursor<i32> {
+            self.items.iter()
+        }
+    }
 }
-impl Iterable for Sequence {
-    type Item = i32;
-    type Iter = CollectionCursor<i32>;
-    fn iter(self) -> CollectionCursor<i32> { self.items.iter() }
-}
-}
-use self::storage::Sequence;
-impl List<i32> for Sequence {
-    fn len(self) -> u64 { self.items.len() }
-    fn is_empty(self) -> bool { self.items.is_empty() }
-    fn get(self, index: u64) -> Option<i32> { self.items.get(index) }
-}
-impl MutableList<i32> for Sequence {
 
-    fn push(self, value: i32) { self.items.push(value); }
-    fn pop(self) -> Option<i32> { self.items.pop() }
-    fn insert(self, index: u64, value: i32) { self.items.insert(index, value); }
-    fn remove(self, index: u64) -> Option<i32> { self.items.remove(index) }
-    fn clear(self) { self.items.clear(); }
-    fn set(self, index: u64, value: i32) { self.items[index] = value; }
+use self::storage::Sequence;
+
+impl List<i32> for Sequence {
+    fn len(self) -> u64 {
+        self.items.len()
+    }
+    fn is_empty(self) -> bool {
+        self.items.is_empty()
+    }
+    fn get(self, index: u64) -> Option<i32> {
+        self.items.get(index)
+    }
 }
+
+impl MutableList<i32> for Sequence {
+    fn push(self, value: i32) {
+        self.items.push(value);
+    }
+    fn pop(self) -> Option<i32> {
+        self.items.pop()
+    }
+    fn insert(self, index: u64, value: i32) {
+        self.items.insert(index, value);
+    }
+    fn remove(self, index: u64) -> Option<i32> {
+        self.items.remove(index)
+    }
+    fn clear(self) {
+        self.items.clear();
+    }
+    fn set(self, index: u64, value: i32) {
+        self.items[index] = value;
+    }
+}
+
 trait Writable: MutableList<i32> {}
+
 impl Writable for Sequence {}
-fn replace<T, C: MutableList<T>>(xs: C, value: T) { xs[0] = value; }
-struct Singleton { val value: f64 }
-impl PartialEq for Singleton {
-    fn eq(self, other: Self) -> bool { self.value == other.value }
+
+fn replace<T, C: MutableList<T>>(xs: C, value: T) {
+    xs[0] = value;
 }
+
+struct Singleton {
+    val value: f64
+}
+
+impl PartialEq for Singleton {
+    fn eq(self, other: Self) -> bool {
+        self.value == other.value
+    }
+}
+
 impl Iterable for Singleton {
     type Item = f64;
     type Iter = CollectionCursor<f64>;
-    fn iter(self) -> CollectionCursor<f64> { Vec::from([self.value]).iter() }
+    fn iter(self) -> CollectionCursor<f64> {
+        Vec::from([self.value]).iter()
+    }
 }
+
 impl Set<f64> for Singleton {
-    fn len(self) -> u64 { 1u64 }
-    fn is_empty(self) -> bool { false }
-    fn contains(self, value: f64) -> bool { self.value == value }
+    fn len(self) -> u64 {
+        1u64
+    }
+    fn is_empty(self) -> bool {
+        false
+    }
+    fn contains(self, value: f64) -> bool {
+        self.value == value
+    }
 }
-fn first<T>(xs: std::collections::List<T>) -> T { xs[0] }
-fn size<C: List<i32>>(xs: C) -> u64 { xs.len() }
+
+fn first<T>(xs: std::collections::List<T>) -> T {
+    xs[0]
+}
+
+fn size<C: List<i32>>(xs: C) -> u64 {
+    xs.len()
+}
+
 fn main() -> i32 {
     val source = Sequence { items: Vec::from([7, 35]) };
     val view: std::collections::List<i32> = source;
     val copy = Vec::from([view[0], view[1]]);
     val copied_view: List<i32> = copy;
     val other_sequence: List<i32> = Sequence { items: Vec::from([7, 35]) };
-    if !(list_content_equal(view, view) && list_content_equal(view, other_sequence) && list_content_equal(other_sequence, view)) { return 0; }
-    if !(list_content_equal(view, copied_view) && list_content_equal(copied_view, view)) { return 0; }
-    if !(list_content_equal(source, copy) && list_content_equal(copy, source)) { return 0; }
+    if !(
+        list_content_equal(view, view) && list_content_equal(view, other_sequence) &&
+            list_content_equal(other_sequence, view)
+    ) {
+        return 0;
+    }
+    if !(list_content_equal(view, copied_view) && list_content_equal(copied_view, view)) {
+        return 0;
+    }
+    if !(list_content_equal(source, copy) && list_content_equal(copy, source)) {
+        return 0;
+    }
     val second_source = Sequence { items: Vec::from([7, 35]) };
-    if !list_content_equal(source, second_source) { return 0; }
-    if first(source) != 7 { return 0; }
-    if !(source !== copy && source !== second_source) { return 0; }
+    if !list_content_equal(source, second_source) {
+        return 0;
+    }
+    if first(source) != 7 {
+        return 0;
+    }
+    if !(source !== copy && source !== second_source) {
+        return 0;
+    }
     val writable: MutableList<i32> = source;
     writable[0] -= 6;
     replace(source, 9);
     val child: Writable = source;
     child[0] -= 8;
-    if !(copy[0] == 7 && view[0] == 1) { return 0; }
-    if !(size(source) == 2u64 && size(copy) == 2u64) { return 0; }
+    if !(copy[0] == 7 && view[0] == 1) {
+        return 0;
+    }
+    if !(size(source) == 2u64 && size(copy) == 2u64) {
+        return 0;
+    }
     val concrete = Singleton { value: 0.5 };
     val same_concrete = Singleton { value: 0.5 };
     val set: Set<f64> = concrete;
     val different_set: Set<f64> = Singleton { value: 1.0 };
-    if !(set.contains(0.5) && concrete == same_concrete && !different_set.contains(0.5)) { return 0; }
+    if !(set.contains(0.5) && concrete == same_concrete && !different_set.contains(0.5)) {
+        return 0;
+    }
     first(copy) + copy[1]
 }

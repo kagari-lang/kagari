@@ -1,14 +1,23 @@
-
 trait Erase {
-    fn cursor<T: Iterator<Item=i32>>(self, value: T) -> Iterator<Item=i32> { value }
-    fn callback<F: Fn() -> i32>(self, value: F) -> Fn<(), Output=i32> { value }
+    fn cursor<T: Iterator<Item = i32>>(self, value: T) -> Iterator<Item = i32> {
+        value
+    }
+    fn callback<F: Fn () -> i32>(self, value: F) -> Fn<(), Output = i32> {
+        value
+    }
 }
+
 struct Eraser {}
+
 impl Erase for Eraser {}
+
 fn main() -> i32 {
     val eraser: Erase = Eraser {};
-    val cursor: Iterator<Item=i32> = Vec::from([21]).iter();
+    val cursor: Iterator<Item = i32> = Vec::from([21]).iter();
     val copied = eraser.cursor(cursor);
     val callback = eraser.callback(|| 21);
-    match copied.next() { Some(value) => value + callback.call(()), None => 0 }
+    match copied.next() {
+        Some(value) => value + callback.call(()),
+        None => 0
+    }
 }

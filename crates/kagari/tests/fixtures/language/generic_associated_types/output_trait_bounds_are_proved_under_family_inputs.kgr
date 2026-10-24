@@ -1,9 +1,35 @@
+trait Read {
+    fn read(self) -> i32;
+}
 
-trait Read { fn read(self) -> i32; }
-struct Number { val value: i32 }
-impl Read for Number { fn read(self) -> i32 { self.value } }
-trait Family { type Item<T: Read>: Read; fn make<T: Read>(self, value: T) -> Self::Item<T>; }
+struct Number {
+    val value: i32
+}
+
+impl Read for Number {
+    fn read(self) -> i32 {
+        self.value
+    }
+}
+
+trait Family {
+    type Item<T: Read>: Read;
+    fn make<T: Read>(self, value: T) -> Self::Item<T>;
+}
+
 struct Maker {}
-impl Family for Maker { type Item<U> = U; fn make<V: Read>(self, value: V) -> V { value } }
-fn make<F: Family>(f: F) -> F::Item<Number> { f.make(Number { value: 42 }) }
-fn main() -> i32 { make(Maker {}).read() }
+
+impl Family for Maker {
+    type Item<U> = U;
+    fn make<V: Read>(self, value: V) -> V {
+        value
+    }
+}
+
+fn make<F: Family>(f: F) -> F::Item<Number> {
+    f.make(Number { value: 42 })
+}
+
+fn main() -> i32 {
+    make(Maker {}).read()
+}

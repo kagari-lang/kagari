@@ -1,4 +1,4 @@
-use std::collections::{List, MutableList};
+use std::collections::{ List, MutableList };
 
 fn main() -> bool {
     val source = Vec::from([3, 1, 2]);

@@ -1,11 +1,27 @@
 use std::collections::HashSet;
+
 fn main() -> u64 {
-    val maximum = match u64::from_str("18446744073709551615") { Ok(value) => value, Err(_) => { return 0u64; } };
-    if "{maximum}" != "18446744073709551615" { return 0u64; }
-    val keys = HashSet::new(); keys.insert(maximum);
-    if !keys.contains(maximum) || keys.len() != 1u64 { return 0u64; }
-    val values = Vec::from([maximum]); values.sort();
-    if values.take(4294967296u64).count() != 1u64 { return 0u64; }
-    if values.skip(4294967296u64).count() != 0u64 { return 0u64; }
+    val maximum = match u64::from_str("18446744073709551615") {
+        Ok(value) => value,
+        Err(_) => {
+            return 0u64;
+        }
+    };
+    if "{maximum}" != "18446744073709551615" {
+        return 0u64;
+    }
+    val keys = HashSet::new();
+    keys.insert(maximum);
+    if !keys.contains(maximum) || keys.len() != 1u64 {
+        return 0u64;
+    }
+    val values = Vec::from([maximum]);
+    values.sort();
+    if values.take(4294967296u64).count() != 1u64 {
+        return 0u64;
+    }
+    if values.skip(4294967296u64).count() != 0u64 {
+        return 0u64;
+    }
     values.take(18446744073709551615u64).sum()
 }

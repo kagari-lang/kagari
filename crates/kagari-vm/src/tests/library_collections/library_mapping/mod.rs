@@ -274,17 +274,14 @@ fn retained_zip_uses_both_original_custom_sources_and_callbacks_after_reload() {
         .value(vm.runtime().gc())
         .expect("retained execution result");
     let root = vm.runtime().root_value(iterator).unwrap();
+    let bias = "fn bias() -> i32 {\n    0\n}";
+    assert_eq!(source.matches("[1]").count(), 1);
+    assert_eq!(source.matches(bias).count(), 1);
+    let updated_source = source
+        .replace("[1]", "[100]")
+        .replace(bias, "fn bias() -> i32 {\n    100\n}");
     let replacement = vm
-        .reload_program(
-            &old,
-            "map",
-            program(
-                &source
-                    .replace("[1]", "[100]")
-                    .replace("fn bias()->i32{0}", "fn bias()->i32{100}"),
-                &[&library],
-            ),
-        )
+        .reload_program(&old, "map", program(&updated_source, &[&library]))
         .unwrap();
     drop(old);
     vm.runtime().collect_garbage().unwrap();

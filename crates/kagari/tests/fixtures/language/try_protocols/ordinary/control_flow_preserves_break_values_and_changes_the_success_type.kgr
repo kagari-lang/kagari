@@ -1,12 +1,34 @@
+use core::ops::ControlFlow;
 
-        use core::ops::ControlFlow;
-        struct Failure { var value: i32 }
-        fn stop(error: Failure) -> ControlFlow<Failure, i32> { ControlFlow::Break(error) }
-        fn forward(error: Failure) -> ControlFlow<Failure, String> { stop(error)?; ControlFlow::Continue("unused") }
-        fn pass(value: ControlFlow<Failure, i32>) -> ControlFlow<Failure, i32> { ControlFlow::Continue(value? + 22) }
-        fn main() -> i32 {
-            val error = Failure { value: 0 };
-            match forward(error) { ControlFlow::Break(same) => { same.value = 20; }, ControlFlow::Continue(_) => { error.value = 0; } };
-            match pass(ControlFlow::Continue(0)) { ControlFlow::Continue(value) => value + error.value, ControlFlow::Break(_) => 0 }
+struct Failure {
+    var value: i32
+}
+
+fn stop(error: Failure) -> ControlFlow<Failure, i32> {
+    ControlFlow::Break(error)
+}
+
+fn forward(error: Failure) -> ControlFlow<Failure, String> {
+    stop(error)?;
+    ControlFlow::Continue("unused")
+}
+
+fn pass(value: ControlFlow<Failure, i32>) -> ControlFlow<Failure, i32> {
+    ControlFlow::Continue(value? + 22)
+}
+
+fn main() -> i32 {
+    val error = Failure { value: 0 };
+    match forward(error) {
+        ControlFlow::Break(same) => {
+            same.value = 20;
+        },
+        ControlFlow::Continue(_) => {
+            error.value = 0;
         }
-    
+    };
+    match pass(ControlFlow::Continue(0)) {
+        ControlFlow::Continue(value) => value + error.value,
+        ControlFlow::Break(_) => 0
+    }
+}

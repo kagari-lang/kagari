@@ -185,7 +185,7 @@ Use the existing owners as templates, not a new universal runner:
   `kagari/tests/fixtures/language/{conversion_traits,default_methods,standard_traits}`.
   Each owner keeps its logical source name, GC threshold `Some(1)`, result `42`
   and source/artifact/artifact-JIT routes. The default-method cursor case reuses
-  the canonical `iterable-default-cursor.kgr` directly, preserving its CRLF bytes;
+  the canonical `iterable-default-cursor.kgr` directly;
   admission tests reuse ordinary fixtures when they need the same program.
   The remaining types/dispatch, collections/iteration, operators, Result/Try and
   string owners follow the same representation rule, not one universal execution
@@ -219,11 +219,27 @@ Use the existing owners as templates, not a new universal runner:
   Typed result carriers, exact float bits, NaN rules and allowed signed-zero sets
   remain explicit; no general expectation DSL is needed.
 
-Fixed text extraction preserves the original Rust literal's value, including its
-leading/trailing newlines or deliberate absence of a final newline. Multiline
-fixture directories declare `*.kgr text eol=lf` locally so `include_str!` has stable
-bytes under Windows checkout conversion. Do not normalize loaded fixtures. Tests
-specifically about CRLF or literal bytes may continue constructing inputs inline.
+Ordinary source fixtures use normal Kagari formatting: four-space indentation,
+LF layout and one final newline, without copied Rust-string outer indentation or
+incidental leading/trailing blank lines. Use the existing formatter, which verifies
+non-whitespace tokens and CST shape and preserves literal/comment spelling; do not
+use global whitespace replacement that could change raw strings or continuations.
+Exact extraction-byte checks establish migration equivalence, not a permanent
+requirement to retain accidental Rust literal layout.
+
+Preserve authored bytes where they are the contract: formatter input/output goldens,
+dedicated whitespace/CRLF/literal line-rule cases, diagnostic byte/display ranges,
+malformed recovery inputs, and canonical artifact sources. Keep their Rust assertions
+and paired expectations intact rather than updating goldens to hide a layout change.
+A file merely having CRLF or no final newline is not itself a reason to exempt it.
+Fixture-local LF attributes keep ordinary checkout layout stable. Remove inherited
+trailing-whitespace exceptions when normal formatting makes them unnecessary.
+
+Keep logical source names and evaluation order unchanged. When reload tests construct
+a new version by replacing source text, update checked matches alongside formatting
+and assert each intended match count; a missing replacement must not silently turn
+reload into the original program. Always read fixture contents as authored: formatting
+is a reviewed repository edit, not normalization in a runtime loader or test driver.
 
 ### Directory-discovered syntax examples
 

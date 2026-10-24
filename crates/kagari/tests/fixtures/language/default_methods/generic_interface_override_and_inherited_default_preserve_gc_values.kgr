@@ -1,10 +1,25 @@
+trait Identity {
+    fn identity<T>(self, value: T) -> T {
+        value
+    }
+}
 
-trait Identity { fn identity<T>(self, value: T) -> T { value } }
 trait Child: Identity {}
+
 struct Number {}
-struct Item { val value: i32 }
-impl Identity for Number { fn identity<T>(self, value: T) -> T { value } }
+
+struct Item {
+    val value: i32
+}
+
+impl Identity for Number {
+    fn identity<T>(self, value: T) -> T {
+        value
+    }
+}
+
 impl Child for Number {}
+
 fn main() -> i32 {
     val value: Child = Number {};
     val item: Item = value.identity(Item { value: 42 });

@@ -1,9 +1,29 @@
+trait Read<T> {
+    fn read(self) -> T;
+}
 
-trait Read<T> { fn read(self) -> T; }
 trait Child<T>: Read<T> {}
-struct Holder<T> { val value: T }
-impl<T> Read<T> for Holder<T> { fn read(self) -> T { self.value } }
+
+struct Holder<T> {
+    val value: T
+}
+
+impl<T> Read<T> for Holder<T> {
+    fn read(self) -> T {
+        self.value
+    }
+}
+
 impl<T> Child<T> for Holder<T> {}
-pub fn boxed<T>(value: Holder<T>) -> Child<T> { value }
-fn parent(value: Child<i32>) -> Read<i32> { value }
-fn main() -> i32 { parent(boxed(Holder { value: 42 })).read() }
+
+pub fn boxed<T>(value: Holder<T>) -> Child<T> {
+    value
+}
+
+fn parent(value: Child<i32>) -> Read<i32> {
+    value
+}
+
+fn main() -> i32 {
+    parent(boxed(Holder { value: 42 })).read()
+}

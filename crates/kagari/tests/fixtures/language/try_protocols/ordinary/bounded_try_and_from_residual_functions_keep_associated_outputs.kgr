@@ -1,8 +1,13 @@
+use core::ops::{ Try, FromResidual, ControlFlow };
 
-        use core::ops::{Try, FromResidual, ControlFlow};
-        fn forward<A: Try, R: FromResidual<A::Residual>>(value: A, wrap: fn(A::Output) -> R) -> R { wrap(value?) }
-        fn main() -> i32 {
-            val result: Option<i32> = forward(Some(20), |value| Some(value + 22));
-            match result { Some(value) => value, None => 0 }
-        }
-    
+fn forward<A: Try, R: FromResidual<A::Residual>>(value: A, wrap: fn(A::Output) -> R) -> R {
+    wrap(value?)
+}
+
+fn main() -> i32 {
+    val result: Option<i32> = forward(Some(20), |value| Some(value + 22));
+    match result {
+        Some(value) => value,
+        None => 0
+    }
+}

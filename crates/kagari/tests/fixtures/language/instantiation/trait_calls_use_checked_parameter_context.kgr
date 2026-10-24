@@ -1,11 +1,29 @@
+struct Marker<T> {
+    val value: i32
+}
 
-        struct Marker<T> { val value: i32 }
-        enum Token<T> { Empty }
-        trait Take { fn take(self, marker: Marker<i32>, token: Token<bool>) -> i32; }
-        struct Actor { val offset: i32 }
-        impl Take for Actor {
-            fn take(self, marker: Marker<i32>, token: Token<bool>) -> i32 { self.offset + marker.value }
-        }
-        fn invoke<T: Take>(value: T) -> i32 { value.take(Marker { value: 40 }, Token::Empty) }
-        fn main() -> i32 { invoke(Actor { offset: 2 }) }
-    
+enum Token<T> {
+    Empty
+}
+
+trait Take {
+    fn take(self, marker: Marker<i32>, token: Token<bool>) -> i32;
+}
+
+struct Actor {
+    val offset: i32
+}
+
+impl Take for Actor {
+    fn take(self, marker: Marker<i32>, token: Token<bool>) -> i32 {
+        self.offset + marker.value
+    }
+}
+
+fn invoke<T: Take>(value: T) -> i32 {
+    value.take(Marker { value: 40 }, Token::Empty)
+}
+
+fn main() -> i32 {
+    invoke(Actor { offset: 2 })
+}

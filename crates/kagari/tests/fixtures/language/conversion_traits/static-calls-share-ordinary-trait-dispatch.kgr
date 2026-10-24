@@ -1,30 +1,89 @@
-use std::iter::{Product, Sum};
-use std::str::{FromStr};
+use std::iter::{ Product, Sum };
 
-struct Count {val value:i32}
+use std::str::{ FromStr };
+
+struct Count {
+    val value: i32
+}
+
 impl FromStr for Count {
-    type Err=String;
-    fn from_str(text:String)->Result<Self,String> {if text=="42" {Ok(Count{value:42})}else{Err(text)}}
+    type Err = String;
+    fn from_str(text: String) -> Result<Self, String> {
+        if text == "42" {
+            Ok(Count { value: 42 })
+        } else {
+            Err(text)
+        }
+    }
 }
+
 impl Sum<i32> for Count {
-    fn sum<I:Iterable<Item=i32>>(source:I)->Self {var value=0;for item in source {value=value+item;}Count{value}}
+    fn sum<I: Iterable<Item = i32>>(source: I) -> Self {
+        var value = 0;
+        for item in source {
+            value = value + item;
+        }
+        Count { value }
+    }
 }
+
 impl Product<i32> for Count {
-    fn product<I:Iterable<Item=i32>>(source:I)->Self {var value=1;for item in source {value=value*item;}Count{value}}
+    fn product<I: Iterable<Item = i32>>(source: I) -> Self {
+        var value = 1;
+        for item in source {
+            value = value * item;
+        }
+        Count { value }
+    }
 }
+
 impl FromIterator<i32> for Count {
-    fn from_iter<I:Iterable<Item=i32>>(source:I)->Self {Self::sum(source)}
+    fn from_iter<I: Iterable<Item = i32>>(source: I) -> Self {
+        Self::sum(source)
+    }
 }
-fn collect<T:FromIterator<i32>,I:Iterable<Item=i32>>(source:I)->T {T::from_iter(source)}
-impl Default for Count { fn default() -> Self { Count { value: 21 } } }
-trait Factory { fn make() -> Self; }
-impl Factory for Count { fn make() -> Self { Count { value: 21 } } }
-fn defaults<T: Default>() -> T { T::default() }
-fn contextual<T: Default>() -> T { Default::default() }
-fn factory() -> Count { Factory::make() }
-fn consume(value: Count) -> i32 { value.value }
-struct Holder { val count: Count }
-fn main()->i32 {
+
+fn collect<T: FromIterator<i32>, I: Iterable<Item = i32>>(source: I) -> T {
+    T::from_iter(source)
+}
+
+impl Default for Count {
+    fn default() -> Self {
+        Count { value: 21 }
+    }
+}
+
+trait Factory {
+    fn make() -> Self;
+}
+
+impl Factory for Count {
+    fn make() -> Self {
+        Count { value: 21 }
+    }
+}
+
+fn defaults<T: Default>() -> T {
+    T::default()
+}
+
+fn contextual<T: Default>() -> T {
+    Default::default()
+}
+
+fn factory() -> Count {
+    Factory::make()
+}
+
+fn consume(value: Count) -> i32 {
+    value.value
+}
+
+struct Holder {
+    val count: Count
+}
+
+fn main() -> i32 {
     val direct = Count::default();
     val inferred: Count = Default::default();
     val qualified = <Count as Default>::default();
@@ -34,11 +93,23 @@ fn main()->i32 {
     assigned = Factory::make();
     val holder = Holder { count: Factory::make() };
     val aliased: Count = std::default::Default::default();
-    if direct.value != 21 || inferred.value != 21 || qualified.value != 21
-        || generic.value != 21 || contextual.value != 21 || assigned.value != 21
-        || holder.count.value != 21 || aliased.value != 21
-        || consume(Factory::make()) != 21 { return 0; }
-    val a:Count=collect([10,11]);val b=Count::product([3,7]);
-    val parsed=<Count as FromStr<Err=String>>::from_str("42");
-    match parsed {Ok(n)=>if n.value==a.value+b.value {n.value}else{0},Err(_)=>0}
+    if direct.value != 21 || inferred.value != 21 || qualified.value != 21 || generic.value != 21 ||
+        contextual.value != 21 ||
+        assigned.value != 21 ||
+        holder.count.value != 21 ||
+        aliased.value != 21 ||
+        consume(Factory::make()) != 21 {
+        return 0;
+    }
+    val a: Count = collect([10, 11]);
+    val b = Count::product([3, 7]);
+    val parsed = <Count as FromStr<Err = String>>::from_str("42");
+    match parsed {
+        Ok(n) => if n.value == a.value + b.value {
+            n.value
+        } else {
+            0
+        },
+        Err(_) => 0
+    }
 }

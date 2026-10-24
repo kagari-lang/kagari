@@ -1,9 +1,21 @@
+fn identity<T>(value: T) -> T {
+    value
+}
 
-fn identity<T>(value: T) -> T { value }
-trait Forward { fn forward<T>(self, value: T) -> T { identity(value) } }
+trait Forward {
+    fn forward<T>(self, value: T) -> T {
+        identity(value)
+    }
+}
+
 struct Source {}
+
 impl Forward for Source {}
-struct Item { val value: i32 }
+
+struct Item {
+    val value: i32
+}
+
 fn main() -> i32 {
     val source: Forward = Source {};
     source.forward(21) + source.forward(Item { value: 21 }).value

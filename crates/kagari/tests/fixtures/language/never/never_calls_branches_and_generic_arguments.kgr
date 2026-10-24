@@ -1,15 +1,53 @@
-
-fn fail() -> ! { val zero = 0; 1 / zero; loop {} }
-pub fn forever() -> ! { loop {} }
-fn absurd(x: !) -> i32 { x }
-fn absurd_generic<T>(x: !) -> T { x }
-fn impossible_branch(x: !) -> i32 { if true { x } else { 1 } }
-fn generic_fail<T>() -> T { fail() }
-fn invoke<T>(callback: fn() -> T) -> T { callback() }
-fn choose(ok: bool) -> i32 { if ok { 42 } else { fail() } }
-fn success<T>(value: T) -> Result<T, !> { Ok(value) }
-fn main() -> i32 {
-    val value: Result<i32, !> = success(choose(true));
-    match value { Ok(value) => value, Err(error) => match error {} }
+fn fail() -> ! {
+    val zero = 0;
+    1 / zero;
+    loop {}
 }
 
+pub fn forever() -> ! {
+    loop {}
+}
+
+fn absurd(x: !) -> i32 {
+    x
+}
+
+fn absurd_generic<T>(x: !) -> T {
+    x
+}
+
+fn impossible_branch(x: !) -> i32 {
+    if true {
+        x
+    } else {
+        1
+    }
+}
+
+fn generic_fail<T>() -> T {
+    fail()
+}
+
+fn invoke<T>(callback: fn() -> T) -> T {
+    callback()
+}
+
+fn choose(ok: bool) -> i32 {
+    if ok {
+        42
+    } else {
+        fail()
+    }
+}
+
+fn success<T>(value: T) -> Result<T, !> {
+    Ok(value)
+}
+
+fn main() -> i32 {
+    val value: Result<i32, !> = success(choose(true));
+    match value {
+        Ok(value) => value,
+        Err(error) => match error {}
+    }
+}

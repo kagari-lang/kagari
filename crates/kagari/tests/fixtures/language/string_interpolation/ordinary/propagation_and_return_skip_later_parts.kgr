@@ -1,22 +1,54 @@
-
 fn render(value: Option<i32>, log: Vec<i32>) -> Option<String> {
     val first = value?;
     val rendered = "{first}";
-    val second = { log.push(1); 7 };
+    val second = {
+        log.push(1);
+        7
+    };
     Some("{rendered} {second}")
 }
+
 fn early(stop: bool) -> String {
-    val first = if stop { return "early"; } else { 0 };
+    val first = if stop {
+        return "early";
+    } else {
+        0
+    };
     val rendered = "{first}";
     val zero = 0;
     val later = 1 / zero;
     "{rendered} {later}"
 }
+
 fn main() -> i32 {
     val log: Vec<i32> = Vec::from([]);
-    { val passed = render(None, log) == None; if !passed {val zero=0;1/zero;} };
-    { val passed = log.is_empty(); if !passed {val zero=0;1/zero;} };
-    { val passed = render(Some(1), log) == Some("1 7"); if !passed {val zero=0;1/zero;} };
-    { val passed = early(true) == "early"; if !passed {val zero=0;1/zero;} };
+    {
+        val passed = render(None, log) == None;
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    {
+        val passed = log.is_empty();
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    {
+        val passed = render(Some(1), log) == Some("1 7");
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
+    {
+        val passed = early(true) == "early";
+        if !passed {
+            val zero = 0;
+            1 / zero;
+        }
+    };
     42
 }

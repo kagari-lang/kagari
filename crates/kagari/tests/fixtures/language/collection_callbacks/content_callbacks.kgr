@@ -1,27 +1,53 @@
+use std::collections::{ List, list_content_equal };
 
-use std::collections::{List, list_content_equal};
 use std::hash::Hash;
-struct State { var mode: i32, var calls: i32 }
-struct Item { val owner: Vec<Item>, val state: State }
+
+struct State {
+    var mode: i32,
+    var calls: i32
+}
+
+struct Item {
+    val owner: Vec<Item>,
+    val state: State
+}
+
 impl PartialEq for Item {
     fn eq(self, other: Self) -> bool {
         self.state.calls += 1;
-        if self.state.mode == 1 { self.owner.clear(); }
-        if self.state.mode == 2 { self.owner.clear(); return false; }
-        if self.state.mode == 3 { val zero = 0; 1 / zero; }
-        if self.state.mode == 4 { return self.owner == other.owner; }
+        if self.state.mode == 1 {
+            self.owner.clear();
+        }
+        if self.state.mode == 2 {
+            self.owner.clear();
+            return false;
+        }
+        if self.state.mode == 3 {
+            val zero = 0;
+            1 / zero;
+        }
+        if self.state.mode == 4 {
+            return self.owner == other.owner;
+        }
         true
     }
 }
+
 impl Eq for Item {}
+
 impl Hash for Item {
     fn hash(self) -> i64 {
         self.state.calls += 1;
-        if self.state.mode == 5 { self.owner.clear(); }
-        if self.state.mode == 6 { return self.owner.hash(); }
+        if self.state.mode == 5 {
+            self.owner.clear();
+        }
+        if self.state.mode == 6 {
+            return self.owner.hash();
+        }
         42i64
     }
 }
+
 trait Test {
     fn mode(self, value: i32);
     fn compare(self, helper: bool) -> bool;
@@ -29,20 +55,37 @@ trait Test {
     fn calls(self) -> i32;
     fn size(self) -> u64;
 }
-struct Tester { val left: Vec<Item>, val right: Vec<Item>, val state: State }
+
+struct Tester {
+    val left: Vec<Item>,
+    val right: Vec<Item>,
+    val state: State
+}
+
 impl Test for Tester {
-    fn mode(self, value: i32) { self.state.mode = value; }
+    fn mode(self, value: i32) {
+        self.state.mode = value;
+    }
     fn compare(self, helper: bool) -> bool {
         if helper {
             val a: List<Item> = self.left;
             val b: List<Item> = self.right;
             list_content_equal(a, b)
-        } else { self.left == self.right }
+        } else {
+            self.left == self.right
+        }
     }
-    fn hash_items(self) -> i64 { self.left.hash() }
-    fn calls(self) -> i32 { self.state.calls }
-    fn size(self) -> u64 { self.left.len() }
+    fn hash_items(self) -> i64 {
+        self.left.hash()
+    }
+    fn calls(self) -> i32 {
+        self.state.calls
+    }
+    fn size(self) -> u64 {
+        self.left.len()
+    }
 }
+
 pub fn make() -> Test {
     val state = State { mode: 0, calls: 0 };
     val left: Vec<Item> = Vec::new();

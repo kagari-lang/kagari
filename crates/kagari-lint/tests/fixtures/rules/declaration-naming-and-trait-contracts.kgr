@@ -1,11 +1,28 @@
+struct bad_type {
+    val BadField: i32
+}
 
-        struct bad_type { val BadField:i32 }
-        enum bad_enum { bad_variant }
-        trait bad_trait { fn BadMethod(self, parameter:i32)->i32; }
-        impl bad_trait for bad_type { fn BadMethod(self, parameter:i32)->i32 { parameter } }
-        const bad_global:i32=1;
-        type bad_alias<bad_alias_param> = [bad_alias_param];
-        #[tool::allow("non_upper_camel_case")]
-        type quiet_alias<quiet_param> = (quiet_param,);
-        fn BadFunction<bad_generic>(BadParameter:bad_generic) { val BadLocal=BadParameter; }
-    
+enum bad_enum {
+    bad_variant
+}
+
+trait bad_trait {
+    fn BadMethod(self, parameter: i32) -> i32;
+}
+
+impl bad_trait for bad_type {
+    fn BadMethod(self, parameter: i32) -> i32 {
+        parameter
+    }
+}
+
+const bad_global: i32 = 1;
+
+type bad_alias<bad_alias_param> = [bad_alias_param];
+
+#[tool::allow("non_upper_camel_case")]
+type quiet_alias<quiet_param> = (quiet_param,);
+
+fn BadFunction<bad_generic>(BadParameter: bad_generic) {
+    val BadLocal = BadParameter;
+}

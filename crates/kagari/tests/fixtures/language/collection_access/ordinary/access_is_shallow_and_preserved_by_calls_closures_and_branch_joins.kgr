@@ -1,8 +1,19 @@
+struct Item {
+    var value: i32
+}
 
-struct Item { var value: i32 }
-struct Shelf { val items: std::collections::List<Item> }
-fn readable<T>(values: Vec<T>) -> std::collections::List<T> { values }
-fn size<T>(values: std::collections::List<T>) -> u64 { values.len() }
+struct Shelf {
+    val items: std::collections::List<Item>
+}
+
+fn readable<T>(values: Vec<T>) -> std::collections::List<T> {
+    values
+}
+
+fn size<T>(values: std::collections::List<T>) -> u64 {
+    values.len()
+}
+
 fn main() -> i32 {
     val item = Item { value: 1 };
     val writable = Vec::from([item]);
@@ -11,12 +22,25 @@ fn main() -> i32 {
     shelf.items[0].value = 40;
     val copy = Vec::from([view[0]]);
     writable[0] = Item { value: 7 };
-    if !(copy[0] === item && copy !== writable) { return 0; }
-    if !(view[0] === writable[0] && view[0].value == 7) { return 0; }
-    val join: std::collections::List<Item> = if true { view } else { writable };
-    val other: std::collections::List<Item> = match true { true => writable, false => view };
+    if !(copy[0] === item && copy !== writable) {
+        return 0;
+    }
+    if !(view[0] === writable[0] && view[0].value == 7) {
+        return 0;
+    }
+    val join: std::collections::List<Item> = if true {
+        view
+    } else {
+        writable
+    };
+    val other: std::collections::List<Item> = match true {
+        true => writable,
+        false => view
+    };
     val inspect = || size(join) == size(other);
-    if !(inspect()) { return 0; }
+    if !(inspect()) {
+        return 0;
+    }
     val nested: std::collections::List<Vec<i32>> = Vec::from([Vec::from([1])]);
     nested[0].push(2);
     copy[0].value + nested[0][1]

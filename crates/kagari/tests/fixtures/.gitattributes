@@ -1,0 +1,3 @@
+# Ordinary root-level inputs use the same LF layout as owner-local fixtures.
+/native_*.kgr text eol=lf
+/iterable-default-cursor.kgr text eol=lf

@@ -1,35 +1,68 @@
-use std::collections::{List, MutableList};
-use std::iter::{CollectionCursor};
-use std::ops::{Index};
+use std::collections::{ List, MutableList };
 
-struct Sequence { val items: Vec<i32> }
+use std::iter::{ CollectionCursor };
+
+use std::ops::{ Index };
+
+struct Sequence {
+    val items: Vec<i32>
+}
+
 impl Index<u64> for Sequence {
     type Output = i32;
-    fn index(self, index: u64) -> i32 { 1 / 0 }
+    fn index(self, index: u64) -> i32 {
+        1 / 0
+    }
 }
+
 impl Iterable for Sequence {
     type Item = i32;
     type Iter = CollectionCursor<i32>;
-    fn iter(self) -> CollectionCursor<i32> { self.items.iter() }
+    fn iter(self) -> CollectionCursor<i32> {
+        self.items.iter()
+    }
 }
+
 impl List<i32> for Sequence {
-    fn len(self) -> u64 { self.items.len() }
-    fn is_empty(self) -> bool { self.items.is_empty() }
-    fn get(self, index: u64) -> Option<i32> { self.items.get(index) }
+    fn len(self) -> u64 {
+        self.items.len()
+    }
+    fn is_empty(self) -> bool {
+        self.items.is_empty()
+    }
+    fn get(self, index: u64) -> Option<i32> {
+        self.items.get(index)
+    }
 }
+
 impl MutableList<i32> for Sequence {
-    fn push(self, value: i32) { self.items.push(value); }
-    fn pop(self) -> Option<i32> { self.items.pop() }
-    fn insert(self, index: u64, value: i32) { self.items.insert(index, value); }
-    fn remove(self, index: u64) -> Option<i32> { self.items.remove(index) }
-    fn clear(self) { self.items.clear(); }
-    fn set(self, index: u64, value: i32) { self.items[index] = value; }
+    fn push(self, value: i32) {
+        self.items.push(value);
+    }
+    fn pop(self) -> Option<i32> {
+        self.items.pop()
+    }
+    fn insert(self, index: u64, value: i32) {
+        self.items.insert(index, value);
+    }
+    fn remove(self, index: u64) -> Option<i32> {
+        self.items.remove(index)
+    }
+    fn clear(self) {
+        self.items.clear();
+    }
+    fn set(self, index: u64, value: i32) {
+        self.items[index] = value;
+    }
 }
+
 fn main() -> bool {
     val source = Sequence { items: Vec::from([3, 1, 2, 1]) };
     val list: List<i32> = source;
     val sorted = list.sorted_by_key(|item| item);
-    if sorted[0] != 1 || source.items[0] != 3 { return false; }
+    if sorted[0] != 1 || source.items[0] != 3 {
+        return false;
+    }
     val writable: MutableList<i32> = source;
     writable.sort();
     writable.dedup();

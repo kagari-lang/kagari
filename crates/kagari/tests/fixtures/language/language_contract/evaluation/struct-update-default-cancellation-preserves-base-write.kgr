@@ -1,6 +1,10 @@
-
 use observe as test;
-struct Pending { val ready: Vec<i32>, val spare: Vec<i32> }
+
+struct Pending {
+    val ready: Vec<i32>,
+    val spare: Vec<i32>
+}
+
 impl Default for Pending {
     fn default() -> Self {
         val spare = Vec::from([2]);
@@ -8,12 +12,18 @@ impl Default for Pending {
         loop {}
     }
 }
-fn explicit() -> Vec<i32> { print("explicit"); Vec::from([1]) }
+
+fn explicit() -> Vec<i32> {
+    print("explicit");
+    Vec::from([1])
+}
+
 fn base(a: Vec<i32>) -> Pending {
     a[0] = 42;
     print("base");
     Default::default()
 }
+
 fn main() {
     val a = test::vector();
     val pending = Pending { ready: explicit(), ..base(a) };

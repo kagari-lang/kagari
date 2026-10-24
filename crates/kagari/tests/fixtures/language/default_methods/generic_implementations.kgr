@@ -1,10 +1,24 @@
-
 trait Read<T> {
     fn read(self) -> T;
-    fn again(self) -> T { self.read() }
+    fn again(self) -> T {
+        self.read()
+    }
 }
 
-struct Holder<T> { val value: T }
-impl<T> Read<T> for Holder<T> { fn read(self) -> T { self.value } }
-fn boxed<T>(x: Holder<T>) -> Read<T> { x }
-fn main() -> i32 { boxed(Holder { value: 20 }).again() + Holder { value: 22 }.again() }
+struct Holder<T> {
+    val value: T
+}
+
+impl<T> Read<T> for Holder<T> {
+    fn read(self) -> T {
+        self.value
+    }
+}
+
+fn boxed<T>(x: Holder<T>) -> Read<T> {
+    x
+}
+
+fn main() -> i32 {
+    boxed(Holder { value: 20 }).again() + Holder { value: 22 }.again()
+}
