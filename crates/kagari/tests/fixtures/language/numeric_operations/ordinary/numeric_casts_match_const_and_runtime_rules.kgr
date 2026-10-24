@@ -1,0 +1,25 @@
+
+        fn assert(value: bool) { { val passed = value; if !passed {val zero=0;1/zero;} }; }
+        const BYTE: u8 = 256u16 as u8;
+        const SIGN: i8 = 255u8 as i8;
+        const CLAMP: u8 = 999.75 as u8;
+        fn main() -> i32 {
+            assert(BYTE == 0u8);
+            assert(SIGN == -1i8);
+            assert(CLAMP == 255u8);
+            assert((-1i8 as u16) == 65535u16);
+            assert((255u16 as i8) == -1i8);
+            assert((65535u16 as u8) == 255u8);
+            assert((65535u16 as f64) == 65535.0);
+            assert((16777217u32 as f32) == 16777216.0f32);
+            assert((42.9 as u8) == 42u8);
+            assert((-42.9 as i8) == -42i8);
+            assert((-42.9 as u8) == 0u8);
+            assert(((0.0 / 0.0) as u8) == 0u8);
+            assert(((1.0 / 0.0) as u64) == 18446744073709551615u64);
+            assert((true as u8) == 1u8);
+            assert((false as i32) == 0);
+            assert((2u8 as u16 * 21u16) == 42u16);
+            42
+        }
+    

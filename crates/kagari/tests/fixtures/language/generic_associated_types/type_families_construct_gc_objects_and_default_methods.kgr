@@ -1,0 +1,7 @@
+
+trait Family { type Item<T>; fn make<T>(self, value: T) -> Self::Item<T>; fn again<T>(self, value: T) -> Self::Item<T> { self.make(value) } }
+struct Holder<T> { val value: T }
+struct Number {}
+impl Family for Number { type Item<U> = Holder<U>; fn make<V>(self, value: V) -> Holder<V> { Holder { value } } }
+fn make<T: Family>(x: T) -> T::Item<i32> { x.again(42) }
+fn main() -> i32 { val result: <Number as Family>::Item<i32> = make(Number {}); result.value }

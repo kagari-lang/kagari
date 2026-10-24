@@ -1,0 +1,21 @@
+
+        use std::collections;
+        fn identity<T>(value: T) -> T { value }
+        trait Transform {
+            fn transform<T>(self, value: T) -> T;
+        }
+        struct Worker {}
+        impl Transform for Worker {
+            fn transform<T>(self, value: T) -> T { value }
+        }
+        fn main() -> i32 {
+            val values: Vec<_> = Vec::from([20, 22]);
+            val copy = identity::<Vec<i32>>(values);
+            val mapped = Vec::from([42]).map::<i64>(|x| 42i64).next();
+            { val passed = mapped == Some(42i64); if !passed {val zero=0;1/zero;} };
+            val success = Ok::<i32, String>(42);
+            { val passed = match success {Ok(_)=>true,Err(_)=>false}; if !passed {val zero=0;1/zero;} };
+            val answer = identity::<_>(copy[0]) + Worker {}.transform::<i32>(copy[1]);
+            identity::<i32>(answer)
+        }
+    

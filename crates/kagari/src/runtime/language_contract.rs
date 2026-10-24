@@ -130,7 +130,6 @@ struct Case<'a> {
     repeat: usize,
     require_native: bool,
     cancel_at: Option<usize>,
-    reflection: bool,
     vector: Option<(&'static [i32], &'static [i32])>,
 }
 
@@ -149,7 +148,6 @@ impl<'a> Case<'a> {
             repeat: 1,
             require_native: false,
             cancel_at: None,
-            reflection: false,
             vector: None,
         }
     }
@@ -176,11 +174,6 @@ impl<'a> Case<'a> {
 
     fn native(mut self) -> Self {
         self.require_native = true;
-        self
-    }
-
-    fn reflection(mut self) -> Self {
-        self.reflection = true;
         self
     }
 }

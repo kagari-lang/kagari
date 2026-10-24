@@ -1,0 +1,44 @@
+
+    fn identity<T>(value: T) -> T { value }
+    fn byte(value: u8) -> u8 { value }
+    fn classify(value: u8) -> i32 {
+        match value {
+            b'\0' | b'\x7F' => 1,
+            b'\x80' | b'\xFE' => 2,
+            b'\xFF' => 3,
+            _ => 0,
+        }
+    }
+    fn main() -> i32 {
+        val letter = identity(b'A');
+        val inferred = [b'A', 66];
+        val empty = b"";
+        val raw_empty = br#""#;
+        if byte(letter) != 65u8 || byte(inferred[1]) != 66u8 { return 0; }
+        if empty != raw_empty || !empty.is_empty() { return 0; }
+        val payload = b"\0\x00\x7F\x80\xFF";
+        if payload != [0u8, 0u8, 127u8, 128u8, 255u8] { return 0; }
+        if byte(payload[4]) != b'\xFF' || payload[0] != b'\0' { return 0; }
+        if classify(b'\0') != 1 || classify(b'\x7F') != 1 { return 0; }
+        if classify(b'\x80') != 2 || classify(b'\xFE') != 2 { return 0; }
+        if classify(b'\xFF') != 3 { return 0; }
+        if b"\n\r\t\'\"\\" != [b'\n', b'\r', b'\t', b'\'', b'"', b'\\'] { return 0; }
+        if br"\xFF" != b"\\xFF" { return 0; }
+        if br#""{unknown}{{}}\n""# != b"\"{unknown}{{}}\\n\"" { return 0; }
+        val cooked = b"
+  A
+";
+        val raw = br#"
+  A
+"#;
+        if cooked != b"\n  A\n" || raw != cooked { return 0; }
+        val joined = b"left\
+
+    right";
+        if joined != b"leftright" { return 0; }
+        val raw_joined = br"left\
+    right";
+        if raw_joined != b"left\\\n    right" { return 0; }
+        42
+    }
+    

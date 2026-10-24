@@ -1,0 +1,11 @@
+use std::collections::{List, MutableList};
+
+fn main() -> bool {
+    val source = Vec::from([3, 1, 2]);
+    val list: List<i32> = source;
+    val ascending = list.sorted_by_key(|value| value);
+    val descending = list.sorted_by(|a, b| b.cmp(a));
+    val writable: MutableList<i32> = source;
+    writable.sort_by_key(|value| -value);
+    ascending[0] == 1 && descending[0] == 3 && source[0] == 3 && list.reversed()[0] == 1
+}

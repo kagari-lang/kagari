@@ -1,0 +1,32 @@
+
+struct Log { var sequence: i32 }
+fn receiver(log: Log) -> u8 { log.sequence = log.sequence * 10 + 1; 255u8 }
+fn argument(log: Log) -> u8 { log.sequence = log.sequence * 10 + 2; 1u8 }
+fn count(log: Log) -> u32 { log.sequence = log.sequence * 10 + 2; 9u32 }
+fn offset(log: Log) -> i8 { log.sequence = log.sequence * 10 + 2; -1i8 }
+fn main() -> bool {
+    val log = Log { sequence: 0 };
+    val wrapped = receiver(log).wrapping_add(argument(log));
+    if log.sequence != 12 || wrapped != 0u8 { return false; }
+    log.sequence = 0;
+    val missing: Option<u8> = receiver(log).checked_add(argument(log));
+    if log.sequence != 12 || !(match missing { None => true, Some(_) => false }) { return false; }
+    log.sequence = 0;
+    val present: Option<u8> = receiver(log).checked_sub(argument(log));
+    if log.sequence != 12 || !(match present { Some(n) => n == 254u8, None => false }) { return false; }
+    log.sequence = 0;
+    val (value, overflow) = receiver(log).overflowing_add(argument(log));
+    if log.sequence != 12 || value != 0u8 || !overflow { return false; }
+    log.sequence = 0;
+    val saturated = receiver(log).saturating_add(argument(log));
+    if log.sequence != 12 || saturated != 255u8 { return false; }
+    log.sequence = 0;
+    val rotated = receiver(log).rotate_left(count(log));
+    if log.sequence != 12 || rotated != 255u8 { return false; }
+    log.sequence = 0;
+    val shifted = receiver(log).wrapping_add_signed(offset(log));
+    if log.sequence != 12 || shifted != 254u8 { return false; }
+    log.sequence = 0;
+    val nested = receiver(log).wrapping_add(argument(log)).checked_add(argument(log));
+    log.sequence == 122 && match nested { Some(n) => n == 1u8, None => false }
+}

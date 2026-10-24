@@ -1,0 +1,8 @@
+
+trait Left { const VALUE: i32; }
+trait Right { const VALUE: i32 = 20; }
+struct Number {}
+impl Left for Number { const VALUE: i32 = 22; }
+impl Right for Number {}
+fn sum<T: Left + Right>(x: T) -> i32 { <T as Left>::VALUE + <T as Right>::VALUE }
+fn main() -> i32 { sum(Number {}) }

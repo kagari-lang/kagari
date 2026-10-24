@@ -1,0 +1,8 @@
+
+trait Family<A> { type Item<T>; fn make<T>(self, first: A, value: T) -> Self::Item<T>; }
+trait Child: Family<i32> {}
+struct Number {}
+impl Family<i32> for Number { type Item<U> = (i32, U); fn make<V>(self, first: i32, value: V) -> (i32, V) { (first, value) } }
+impl Child for Number {}
+fn make<T: Child>(x: T) -> T::Item<i32> { x.make(20, 22) }
+fn main() -> i32 { val pair = make(Number {}); match pair { (a, b) => a + b, } }

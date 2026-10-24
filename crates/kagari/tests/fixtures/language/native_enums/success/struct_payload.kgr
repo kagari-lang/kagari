@@ -1,0 +1,1 @@
+struct Payload { val value: i32 } fn wrap<T>(value: T) -> enums::Event<T> { enums::make(value, 2) } fn main() -> i32 { val payload = Payload { value: 40 }; match wrap(payload) { enums::Event::Data(value, sequence) => value.value + sequence, enums::Event::Closed => 0 } }

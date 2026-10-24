@@ -1,0 +1,6 @@
+
+            fn root(a: [i32]) -> [i32] { print("root"); a }
+            fn index() -> i32 { print("index"); 0 }
+            fn rhs() -> i32 { print("rhs"); 42 }
+            fn main() -> i32 { val a = [1]; root(a)[index()] = rhs(); a[0] }
+        

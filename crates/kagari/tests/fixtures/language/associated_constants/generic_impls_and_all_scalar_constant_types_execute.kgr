@@ -1,0 +1,6 @@
+
+trait Value { const VALUE: i32 = 42; const OK: bool = true; const FRACTION: f32 = 1.5; const UNIT: () = (); }
+struct Holder<T> { val value: T }
+impl<T> Value for Holder<T> { const VALUE: i32 = 42; }
+fn get<T: Value>(x: T) -> i32 { val unit: () = T::UNIT; if T::OK && T::FRACTION == 1.5 { T::VALUE } else { 0 } }
+fn main() -> i32 { get(Holder { value: true }) + Holder<i32>::VALUE - 42 }

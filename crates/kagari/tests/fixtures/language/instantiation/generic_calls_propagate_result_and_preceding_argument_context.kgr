@@ -1,0 +1,13 @@
+
+        struct Marker<T> { val value: i32 }
+        enum Token<T> { Empty } impl<T> PartialEq for Token<T> { fn eq(self, other: Self) -> bool { true } }
+        fn identity<T>(value: T) -> T { value }
+        fn empty<T>() -> Token<T> { Token::Empty }
+        fn consume<T>(seed: T, marker: Marker<T>) -> i32 { marker.value }
+        fn main() -> i32 {
+            val first: Marker<i32> = identity(Marker { value: 20 });
+            val token: Token<bool> = empty();
+            val expected: Token<bool> = Token::Empty;
+            if token == expected { first.value + consume(true, Marker { value: 22 }) } else { 0 }
+        }
+    

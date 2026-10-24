@@ -1,0 +1,24 @@
+
+        struct Marker<T> { val value: i32 }
+        struct Pair<T> { val marker: Marker<T>, val seed: T }
+        enum Bundle<T> { Pair(Marker<T>, T) }
+        fn consume<T>(marker: Marker<T>, seed: T) -> i32 { marker.value }
+        fn record(events: Vec<i32>, value: i32) -> i32 {
+            events.push(value);
+            value
+        }
+        fn main() -> i32 {
+            val events = Vec::from([]);
+            val x = consume(Marker { value: record(events, 20) }, record(events, 22));
+            { val passed = events[0] == 20; if !passed {val zero=0;1/zero;} };
+            { val passed = events[1] == 22; if !passed {val zero=0;1/zero;} };
+            { val passed = events.len() == 2u64; if !passed {val zero=0;1/zero;} };
+            val pair = Pair { marker: Marker { value: x }, seed: true };
+            val bundle = Bundle::Pair(Marker { value: x }, true);
+            val options = Vec::from([None, Some(22)]);
+            val branch = if false { None } else { Some(22) };
+            { val passed = options[1] == branch; if !passed {val zero=0;1/zero;} };
+            val callback = |value| value + 1;
+            callback(41)
+        }
+    

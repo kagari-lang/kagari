@@ -1,0 +1,10 @@
+
+fn main() -> bool {
+    val spaced = "　 é🙂 \n";
+    spaced.trim() == "é🙂" && spaced.trim_start() == "é🙂 \n" && spaced.trim_end() == "　 é🙂"
+        && "".trim() == "" && "\t\n　".trim() == ""
+        && "aaa".replace("aa", "b") == "ba" && "é🙂".replace("", "-") == "-é-🙂-"
+        && "".replace("", "x") == "x" && "abc".replace("missing", "x") == "abc"
+        && "abc".replace("b", "") == "ac" && "".find("") == Some(0u64)
+        && "é🙂".find("") == Some(0u64) && "".contains("") && "".starts_with("") && "".ends_with("")
+}

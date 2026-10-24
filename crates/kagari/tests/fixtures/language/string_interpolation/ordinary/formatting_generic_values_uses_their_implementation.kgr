@@ -1,0 +1,9 @@
+use std::fmt::{Display};
+
+struct Item { val value: i32 }
+impl Display for Item { fn display(self)->String { val value = self.value; "item={value}" } }
+fn render<T: Display>(value: T)->String { "{value}" }
+fn main()->i32 {
+    { val passed = render(Item { value: 7 }) == "item=7"; if !passed {val zero=0;1/zero;} };
+    42
+}

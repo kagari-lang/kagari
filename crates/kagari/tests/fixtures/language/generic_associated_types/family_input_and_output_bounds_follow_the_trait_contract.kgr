@@ -1,0 +1,6 @@
+
+trait Family { type Item<T: PartialEq>: PartialEq; fn make<T: PartialEq>(self, value: T) -> Self::Item<T>; }
+struct Number {}
+impl Family for Number { type Item<U> = U; fn make<V: PartialEq>(self, value: V) -> V { value } }
+fn make<T: Family>(x: T) -> T::Item<i32> { x.make(42) }
+fn main() -> i32 { make(Number {}) }

@@ -1,0 +1,11 @@
+
+fn option(x: i32)->Option<i32> { if x > 0 { Some(x) } else { None } }
+fn result(x:i32)->Result<i32, String> { if x > 0 { Ok(x) } else { Err("negative") } }
+fn main()->i32 {
+    val a = match option(20) { Some(value) => value, None => 0, };
+    val b = match result(22) { Ok(value) => value, Err(message) => 0, };
+    val nested: Option<Result<i32, String>> = Option::Some(Result::Ok(a + b));
+    match nested { Some(Ok(value)) => value, _ => 0, }
+}
+
+

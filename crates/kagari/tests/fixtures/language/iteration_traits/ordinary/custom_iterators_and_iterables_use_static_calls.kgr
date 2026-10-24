@@ -1,0 +1,7 @@
+
+struct Counter {var value:i32,val end:i32}
+impl Iterator for Counter {type Item=i32;fn next(self)->Option<i32>{if self.value>=self.end {None}else{val value=self.value;self.value+=1;Some(value)}}}
+struct Range {val start:i32,val end:i32}
+impl Iterable for Range {type Item=i32;type Iter=Counter;fn iter(self)->Counter{Counter{value:self.start,end:self.end}}}
+fn sum<C:Iterable<Item=i32>>(values:C)->i32 {var total=0;for value in values {if value==0 {continue;}total+=value;if total==42 {break;}}total}
+fn main()->i32 {val a=Range{start:0,end:7};val b=Counter{value:0,end:7};sum(a)+sum(b)}

@@ -1,7 +1,7 @@
 //! Track example discovery and unpublished-workspace contracts for persisted native code.
 #[cfg(feature = "aot-load")]
 use blake3::Hasher;
-#[cfg(any(feature = "aot-load", all(feature = "source", feature = "native")))]
+#[cfg(any(feature = "aot-load", feature = "source"))]
 use std::{env, path::PathBuf};
 #[cfg(feature = "aot-load")]
 use std::{fs, path::Path};
@@ -20,7 +20,7 @@ fn collect(path: &Path, paths: &mut Vec<PathBuf>) {
 }
 
 fn main() {
-    #[cfg(all(feature = "source", feature = "native"))]
+    #[cfg(feature = "source")]
     {
         let manifest = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("manifest"));
         for relative in ["../../examples/syntax", "tests/fixtures/language"] {

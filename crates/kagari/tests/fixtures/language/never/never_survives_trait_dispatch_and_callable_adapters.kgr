@@ -1,0 +1,15 @@
+
+trait Halt { fn stop(self) -> !; }
+struct Stop {}
+impl Halt for Stop { fn stop(self) -> ! { val zero = 0; 1 / zero; loop {} } }
+impl Fn<()> for Stop {
+    type Output = !;
+    fn call(self, args: ()) -> ! { val zero = 0; 1 / zero; loop {} }
+}
+fn via_interface(value: Halt) -> ! { value.stop() }
+fn via_callback(callback: fn() -> !) -> ! { callback() }
+fn main() -> i32 {
+    if false { via_interface(Stop {}) }
+    else if false { via_callback(Stop {}) }
+    else { 42 }
+}

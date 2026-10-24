@@ -1,0 +1,27 @@
+use std::collections::{HashMap, HashSet, List, Map, MutableList, MutableMap, MutableSet, Set};
+
+fn size(xs: List<i32>) -> u64 { xs.len() }
+fn change(xs: MutableList<i32>) { xs.push(42); xs[0] += 6; }
+fn main() -> i32 {
+    val xs = Vec::from([1]);
+    change(xs);
+    val view: MutableList<i32> = xs;
+    val read: std::collections::List<i32> = view;
+    if !(read[0u64] == 7) { return 0; }
+    var total = 0;
+    for item in read { total += item; }
+    if !(total == 49) { return 0; }
+    val map: HashMap<String, i32> = HashMap::new();
+    val writable: MutableMap<String, i32> = map;
+    writable.insert("answer", 42);
+    val readable: Map<String, i32> = writable;
+    if !(readable.get("answer") == Some(42)) { return 0; }
+    val set: HashSet<i32> = HashSet::new();
+    val writable_set: MutableSet<i32> = set;
+    writable_set.insert(42);
+    val readable_set: Set<i32> = writable_set;
+    if !(readable_set.contains(42)) { return 0; }
+    if !(size(xs) == 2u64) { return 0; }
+    if !(read.get(0) == Some(7)) { return 0; }
+    42
+}

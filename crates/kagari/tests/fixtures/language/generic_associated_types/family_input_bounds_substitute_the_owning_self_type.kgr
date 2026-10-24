@@ -1,0 +1,8 @@
+
+trait Link<A> {}
+struct N { val value:i32 }
+struct Maker {}
+impl Link<Maker> for N {}
+trait Family { type Item<T: Link<Self>>; fn make<T: Link<Self>>(self, value:T)->Self::Item<T>; }
+impl Family for Maker { type Item<U> = U where U: Link<Maker>; fn make<V: Link<Maker>>(self, value:V)->V { value } }
+fn main()->i32 { val value: <Maker as Family>::Item<N> = Maker {}.make(N { value:42 }); value.value }

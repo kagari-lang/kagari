@@ -1,0 +1,12 @@
+use std::cmp::{Ordering};
+
+struct Rank {val value:i32}
+impl PartialEq for Rank {fn eq(self,other:Self)->bool {self.value==other.value}}
+impl Eq for Rank {}
+impl PartialOrd for Rank {fn partial_cmp(self,other:Self)->Option<Ordering> {self.value.partial_cmp(other.value)}}
+impl Ord for Rank {fn cmp(self,other:Self)->Ordering {self.value.cmp(other.value)}}
+fn before<T:Ord>(a:T,b:T)->bool {a<b && a<=b && !(a>b) && !(a>=b)}
+fn main()->i32 {
+ val a=Rank{value:1};val b=Rank{value:2};
+ if before(a,b) && a<=a && a>=a && before(1,2) && before("a","b") && a.cmp(b)==Ordering::Less && Ordering::Less<Ordering::Greater {42}else{0}
+}

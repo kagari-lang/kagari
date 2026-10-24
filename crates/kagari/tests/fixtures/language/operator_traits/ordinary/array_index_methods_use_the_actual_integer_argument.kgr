@@ -1,0 +1,1 @@
+fn main()->i32 {val a=[42];val zero=a.len()-a.len();a.index(zero)}

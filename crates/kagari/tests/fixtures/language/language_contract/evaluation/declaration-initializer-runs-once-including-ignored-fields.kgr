@@ -1,0 +1,13 @@
+
+struct P { val left: i32, val right: i32 }
+fn left() -> i32 { print("left"); 1 }
+fn right() -> i32 { print("right"); 2 }
+fn make() -> (P, P) {
+    print("initializer");
+    (P { right: right(), left: left() }, P { left: left(), right: right() })
+}
+fn main() -> i32 {
+    val _ = print("discarded");
+    val (P { right, .. }, P { .. }) = make();
+    right
+}

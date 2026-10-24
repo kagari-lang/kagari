@@ -1,0 +1,19 @@
+use std::ops::{Add, Index};
+
+struct State {var steps:i32}
+struct Item {var value:i32}
+struct Bag {var item:Item,val state:State}
+impl Index<i32> for Bag {type Output=Item;fn index(self,rhs:i32)->Item {self.state.steps=self.state.steps*10+3;self.item}}
+fn receiver(b:Bag)->Bag {b.state.steps=b.state.steps*10+1;b}
+fn index(s:State)->i32 {s.steps=s.steps*10+2;0}
+fn rhs(b:Bag)->i32 {b.state.steps=b.state.steps*10+4;b.item=Item{value:99};42}
+struct Number {val value:i32}
+impl Add<Number> for Number {type Output=Number;fn add(self,rhs:Number)->Number {Number{value:self.value+rhs.value}}}
+fn number(s:State,digit:i32)->Number {s.steps=s.steps*10+digit;Number{value:21}}
+fn main()->i32 {
+ val s=State{steps:0};val old=Item{value:0};val b=Bag{item:old,state:s};
+ receiver(b)[index(s)].value=rhs(b);
+ if !(s.steps==1234 && old.value==42 && b.item.value==99) { return 0; }
+ s.steps=0;val sum=number(s,1)+number(s,2);
+ if s.steps==12 {sum.value}else{0}
+}

@@ -1,0 +1,10 @@
+
+        trait Describe { fn number(self) -> i32; }
+        struct Number { val value: i32 }
+        impl Describe for Number { fn number(self) -> i32 { self.value } }
+        trait Reader { fn read(self) -> i32; }
+        struct Holder<T> { val value: T }
+        impl<T: Describe> Reader for Holder<T> { fn read(self) -> i32 { self.value.number() } }
+        fn boxed<T: Describe>(value: Holder<T>) -> Reader { value }
+        fn main() -> i32 { boxed(Holder { value: Number { value: 42 } }).read() }
+    

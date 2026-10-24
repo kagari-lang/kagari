@@ -490,8 +490,9 @@ ownership, proven duplicate cleanup, suitable parameterization/discovery,
 file-based compiler UI diagnostics in TO03/TO04/TO09, and explicit retention of
 stateful/source-free/native boundaries. TO00 has frozen the full family catalogue,
 UI expectation contract and first selected harness inventory. TO01 conversions and
-ordinary traits are complete locally (102 discovered cases preserved; focused
-behavioral validation passed); TO02 remaining SDK language families is next. The user authorized implementation and phase commits. This creates no
+ordinary traits and TO02 remaining SDK language families are complete locally;
+focused behavior, fixture equivalence and discovery checks passed. TO03
+source/parser/UI work is next. The user authorized implementation and phase commits. This creates no
 new test binary/framework layer and does not replace the older measurement debt
 below; complete CI acceptance remains separate.
 

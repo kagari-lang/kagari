@@ -1,0 +1,9 @@
+
+        trait Left { type Item; fn left(self) -> Self::Item; }
+        trait Right { type Item; fn right(self) -> Self::Item; }
+        struct Number { val value: i32 }
+        impl Left for Number { type Item = i32; fn left(self) -> Self::Item { self.value } }
+        impl Right for Number { type Item = String; fn right(self) -> Self::Item { "right" } }
+        fn left<R: Left + Right>(r: R) -> <R as Left>::Item { r.left() }
+        fn main() -> i32 { left(Number { value: 42 }) }
+    

@@ -1,0 +1,4 @@
+
+            fn rhs(a: Vec<i32>) -> i32 { a.pop(); print("removed"); 2 }
+            fn main() -> i32 { val a = Vec::from([1]); a[0] += rhs(a); print("written"); 0 }
+        

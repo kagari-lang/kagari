@@ -1,0 +1,14 @@
+use std::collections::{List};
+
+fn fail() -> ! { val zero = 0; 1 / zero; loop {} }
+fn main() -> i32 {
+    val values: Vec<!> = Vec::from([]);
+    val readonly: List<!> = values;
+    val missing: Option<!> = None;
+    val result: Result<!, i32> = Err(42);
+    val copied: Result<!, i32> = match result { Ok(value) => value, Err(error) => Err(error) };
+    val unused = false && fail();
+    val skipped = true || fail();
+    if !(readonly.len() == 0u64 && (match missing { None => true, Some(value) => value }) && skipped && !unused) { return 0; }
+    match copied { Ok(value) => value, Err(error) => error }
+}

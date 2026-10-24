@@ -1,0 +1,9 @@
+
+    enum Wrapped<T> { Empty, Data(T) } impl<T: PartialEq> PartialEq for Wrapped<T> { fn eq(self, other: Self) -> bool { match (self, other) { (Wrapped::Empty, Wrapped::Empty) => true, (Wrapped::Data(a), Wrapped::Data(b)) => a == b, _ => false } } }
+    fn main() -> i32 {
+        val enums = [Wrapped::Data((1, "hello")); 2];
+        val options: [Option<i32>] = [None; 2];
+        val strings = ["hello"; 2];
+        if enums[0] == enums[1] && options[0] == options[1] && strings[0] == strings[1] { 42 } else { 0 }
+    }
+    

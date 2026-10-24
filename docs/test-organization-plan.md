@@ -502,13 +502,13 @@ is replaced by a final `42`.
 Scope: `kagari/src/runtime/tests/language` outside TO01, plus existing language
 conformance case groups. The completed syntax pilot is a retained reference.
 
-- [ ] Process separate owner batches for types/generics/interfaces, collections/
+- [x] Process separate owner batches for types/generics/interfaces, collections/
   iteration, and values/operators/strings/Result/Option. Split mixed rejection,
   artifact mutation and special runtime cases before adopting discovery.
-- [ ] Review numeric methods and their generators: parameterize useful finite outer
+- [x] Review numeric methods and their generators: parameterize useful finite outer
   dimensions only; keep bounded inner predicates, original route differences,
   independent references, typed carriers, IEEE bits/NaNs/zeros and cleanup.
-- [ ] Give every residual family a migrated or reasoned-retained disposition; remove
+- [x] Give every residual family a migrated or reasoned-retained disposition; remove
   proven equivalent smoke cases, not installed-binding/transport boundary proof.
 
 Exit: no unexplained same-flow wrappers or unclassified cases remain in this
@@ -728,8 +728,62 @@ fewer Rust strings, fewer binaries or a different test count is not speed eviden
 | --- | --- |
 | TO00 | Complete: family dispositions, UI schema and first-batch inventory frozen |
 | TO01 | Complete locally: 59 ordinary inputs, 43 retained cases; focused validation passed |
-| TO02-TO10 | Planned, not started |
+| TO02 | Complete locally: SDK language families reconciled; 463 selected cases discovered |
+| TO03-TO10 | Planned, not started |
 | TO11 | Pending completion of owner phases |
+
+2026-10-24 TO02: completed five serial owner batches, each compiled and finished
+its focused behavior selection before the next batch. Added 157 exact-source
+fixtures and 59 wired child modules. The family mapping is:
+
+| Batch / complete owner scope | Disposition and preserved boundaries | Case accounting: frozen source inventory -> actual discovery |
+| --- | --- | ---: |
+| associated constants/types, callable traits, generic associated types, instantiation, interface identity, local functions, never, inheritance, inference | 60 discovered fixed programs; explicit diagnostics, bounds, linking, forged admission, generated inference and trap/recovery. Local-function sync/async/export scenario is byte-identical. Inheritance keeps four distinct preparation/route groups; contextual result 84 remains explicit. | 100 -> 105 |
+| arrays, collection access/callbacks/interfaces, iteration, list algorithms | 40 exact inputs; LF/CRLF line-rule rows; explicit host, rejection/admission, cursor resources and callback cancellation. Arrays keep their two-consumer runner; list Bool/encoded-only, constant retirement and heap cleanup remain. | 56 -> 59 |
+| enum payloads, library namespaces, native enums, numeric operations, operator traits, Result/Option, interpolation, String methods, Try | 44 exact inputs plus canonical public Try input; focused rejection, admission, linking, binding and failure scenarios. Enum version/layout scenarios remain byte-identical. Native enums keep fresh source-unaware installed consumers and three runs on one heap. | 71 -> 81 |
+| integer/float methods and all children, numeric check generator and sampling example | 24 integer and 28 float named outer rows; bounded generators, reference math, exact bits, NaN/zero sets, typed transport, patched pools and cleanup retained. NumericChecks, sampling, invalid-clamp lifecycle and real-backend/fallback aggregate retain their substantive ownership. Two fixed integer sources extracted. | 25 -> 59 |
+| language-contract preparation/evaluation/types-dispatch | 11 substantial sources extracted; independent cancellation/return/initialization/alias/trap rows exposed; five mutation rows named. Four routes, actual-native obligations, attempted/committed effects and publication facts remain with the existing runner. Preparation and 73 type/dispatch cases unchanged. | 149 -> 159 |
+
+The final selected discovery has 463 cases. The original 401 is the frozen
+source-level scheduled-case inventory, not a pre-edit execution claim. The net
+increase of 62 exposes independent programs/widths previously hidden in serial
+functions, minus one proved duplicate: `user_print_is_direct_call` duplicated
+`shadowed_print_has_no_host_effect` with only scalar input/output changes and no
+lowering observation. The latter remains; no exact-name consumers existed. The
+only numeric deletion is one repeated quiet-NaN/quiet-NaN atan2 predicate per width;
+one identical predicate remains and unequal argument orders are unchanged. Removed
+the language-contract runner's write-only reflection selector, not the reflection
+scenario or any observed host effect.
+
+The completed syntax discovery pilot is retained without changes: mixed public
+examples keep their exclusions, metadata/routes, origin/trap/closure assertions and
+two-consumer source-example runner. Remaining stateful/native providers and
+numeric preparation/reference helpers retain real consumers or independent
+responsibilities. No unclassified language owner or unexplained forwarding wrapper
+remains. No dependency, integration target, production runtime or shared execution
+API was changed. This does not implement future UI diagnostic suites.
+
+Preservation review compares every extracted input against frozen literal values,
+retained bodies/assertions and full generated predicate/outer-binding streams.
+An independent read-only review also compared fixtures and exceptional paths
+against the committed baseline. Legacy unencoded compiled-artifact execution is
+not relabeled as checked-source. Result/Option still requires actual collection
+on every lane; String/Try still retire constants before final heap observations.
+Narrow path-specific Git whitespace attributes preserve inherited final blank or
+unterminated indentation lines rather than trimming literal values.
+
+Local behavior: 65 selected tests passed (types 12, collections 13, values 13,
+numeric 11, language-contract 16). These cover ordinary routes and representative
+rejection/admission, source-free linking, typed bits, actual-native, GC, cancellation,
+trap/reuse and pinned-publication boundaries; they are not all 463 cases. Corrected
+a too-long file-derived filter by using Try's `base_dir` and confirmed the intended
+carrier case actually executes. The source-only build hook now watches discovery:
+adding a temporary list fixture changed the selected list 6 -> 7, its one selected
+case passed, and removal restored the exact six names without registration edits.
+The probe is removed. Workspace Clippy, structure (1,583 Rust files, no violations
+or exceptions), formatting and diff checks passed. Full affected suites and the
+complete feature/backend/platform matrix remain CI-owned. No speed claim or
+carried implementation error; TO03 source/parser/UI work is next.
 
 2026-10-24 TO01: moved 15 conversion, 27 default-method and 17 standard-trait
 programs to directory discovery. The 59 ordinary inputs match their frozen source

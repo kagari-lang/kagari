@@ -1,0 +1,10 @@
+
+use core::option::Option::{Some as Present, None as Absent};
+use core::result::Result::{Ok, Err};
+fn main() -> i32 {
+    val value: Option<i32> = Present(42);
+    val absent: Option<i32> = Absent;
+    val result: Result<i32, i32> = Err(42);
+    val x = match result { Ok(n) | Err(n) => n, };
+    if val Absent = absent { match value { Present(n) => n, Absent => 0, } } else { x - 42 }
+}

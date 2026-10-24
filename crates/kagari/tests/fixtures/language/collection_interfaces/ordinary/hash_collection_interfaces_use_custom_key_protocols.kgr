@@ -1,0 +1,22 @@
+use std::collections::{HashMap, HashSet, Map, MutableMap, MutableSet};
+use std::hash::{Hash};
+
+struct Key { val value: i32 }
+impl PartialEq for Key { fn eq(self, other: Self) -> bool { self.value == other.value } }
+impl Eq for Key {}
+impl Hash for Key { fn hash(self) -> i64 { self.value.hash() } }
+fn main() -> i32 {
+    val storage: HashMap<Key, i32> = HashMap::new();
+    val map: MutableMap<Key, i32> = storage;
+    map.insert(Key { value: 1 }, 40);
+    map.insert(Key { value: 1 }, 42);
+    for (key, value) in storage { if key.value != 1 || value != 42 { return 0; } }
+    val read: Map<Key, i32> = map;
+    val lookup = Key { value: 1 };
+    if !(read.len() == 1u64 && read.get(lookup) == Some(42)) { return 0; }
+    val set: MutableSet<Key> = HashSet::from([Key { value: 1 }, Key { value: 1 }]);
+    set.insert(Key { value: 1 });
+    set.insert(Key { value: 1 });
+    if !(set.len() == 1u64 && set.contains(lookup)) { return 0; }
+    42
+}

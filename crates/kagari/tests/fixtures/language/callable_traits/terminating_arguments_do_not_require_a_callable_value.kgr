@@ -1,0 +1,3 @@
+
+fn invoke<F:Fn(i32)->i32>(f:F)->i32{f(0)}
+fn main()->i32{invoke({return 42;})}

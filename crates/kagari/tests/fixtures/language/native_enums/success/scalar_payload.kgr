@@ -1,0 +1,1 @@
+fn main() -> i32 { match enums::make(40, 2) { enums::Event::Data(value, sequence) => value + sequence, enums::Event::Closed => 0 } }

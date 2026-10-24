@@ -1,0 +1,26 @@
+
+        use core::ops::{Try, FromResidual, ControlFlow};
+        use core::convert::Infallible;
+        struct State { var calls: i32 }
+        struct Carrier<T> { val value: Option<T>, val state: State }
+        struct Residual { val state: State }
+        impl<T> FromResidual<Residual> for Carrier<T> {
+            fn from_residual(residual: Residual) -> Self { residual.state.calls += 1; Carrier { value: None, state: residual.state } }
+        }
+        impl<T> Try for Carrier<T> {
+            type Output = T;
+            type Residual = Residual;
+            fn from_output(value: T) -> Self { Carrier { value: Some(value), state: State { calls: 0 } } }
+            fn branch(self) -> ControlFlow<Residual, T> {
+                self.state.calls += 1;
+                match self.value { Some(value) => ControlFlow::Continue(value), None => ControlFlow::Break(Residual { state: self.state }) }
+            }
+        }
+        fn operand(state: State) -> Carrier<i32> { state.calls += 10; Carrier { value: None, state } }
+        fn forward(state: State) -> Carrier<String> { operand(state)?; state.calls += 100; Carrier { value: Some("unused"), state } }
+        fn main() -> i32 {
+            val state = State { calls: 30 };
+            val result = forward(state);
+            match result.value { None => state.calls, Some(_) => 0 }
+        }
+    

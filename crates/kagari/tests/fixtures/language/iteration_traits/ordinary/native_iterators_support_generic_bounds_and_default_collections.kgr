@@ -1,0 +1,18 @@
+use std::collections::{HashMap, HashSet};
+use std::iter::{CollectionCursor};
+
+fn sum<C:Iterable<Item=i32>>(values:C)->i32 {var total=0;for value in values {total+=value;}total}
+fn first<I:Iterator<Item=i32>>(values:I)->i32 {match values.next(){Some(x)=>x,None=>0}}
+fn main()->i32 {
+    val a=Vec::from([20,22]); val iter:CollectionCursor<i32> =a.iter();
+    if first(iter) != 20 { return 0; }
+    if first(iter) != 22 { return 0; }
+    if first(iter) != 0 { return 0; }
+    a.push(5);
+    val scores:HashMap<String,i32> =HashMap::new();scores.insert("a",20);scores.insert("b",22);
+    var total=0;for (key,value) in scores {total+=value;}
+    if total != 42 { return 0; }
+    val values:HashSet<i32> =HashSet::new();values.insert(20);values.insert(22);
+    if sum(values) != 42 { return 0; }
+    sum(Vec::from([20,22]))
+}

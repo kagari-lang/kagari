@@ -1,10 +1,15 @@
 # SDK feature-boundary artifact
 
 Ordinary file-backed language inputs live under [`language`](language), grouped
-by their owning language contract (conversions, default methods and standard traits).
+by their owning language contract (types/dispatch, collections/iteration, operators,
+traits, Result/Try, strings and numerics).
 Their directory-discovered cases keep route/result/GC configuration in the existing
 Rust owner; boundary scenarios retain explicit assertions. The default-method
-cursor input reuses `iterable-default-cursor.kgr` rather than copying it.
+cursor input reuses `iterable-default-cursor.kgr` rather than copying it. Try
+execution directly selects the canonical public example. The `language_contract`
+subtree holds source data for explicit effect/trap/cancellation scenarios, not a
+second runner. Numeric predicates stay generated from bounded Rust tables; only
+useful fixed programs are extracted.
 Syntax-example and stateful scenario inputs also live under
 [`test-fixtures/language`](test-fixtures/language) and
 [`test-fixtures/embedding`](test-fixtures/embedding). They are source data loaded

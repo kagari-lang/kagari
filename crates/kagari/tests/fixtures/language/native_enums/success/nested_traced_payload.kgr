@@ -1,0 +1,1 @@
+fn main() -> i32 { val nested = enums::make(enums::make([38], 2), 2); match enums::roundtrip(nested) { enums::Event::Data(inner, outer) => match inner { enums::Event::Data(value, sequence) => value[0u64] + sequence + outer, enums::Event::Closed => 0 }, enums::Event::Closed => 0 } }

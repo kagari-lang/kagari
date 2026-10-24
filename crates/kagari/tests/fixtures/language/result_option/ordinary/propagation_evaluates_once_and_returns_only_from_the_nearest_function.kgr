@@ -1,0 +1,26 @@
+
+struct Counts { var calls: i32, var after: i32 }
+fn read(c: Counts, pass: bool) -> Result<i32, String> {
+    c.calls += 1;
+    if pass { Ok(20) } else { Err("failed") }
+}
+fn forward(c: Counts, pass: bool) -> Result<String, String> {
+    val value = read(c, pass)?;
+    c.after += value;
+    Ok("done")
+}
+fn missing() -> Option<i32> { None }
+fn option() -> Option<String> { val value = missing()?; Some("unreachable") }
+fn main() -> i32 {
+    val c = Counts { calls: 0, after: 0 };
+    val failed = forward(c, false);
+    val good = forward(c, true);
+    val callback: fn() -> Result<i32, String> = || { val x = read(c, false)?; Ok(x) };
+    val nested = callback();
+    val inferred = || { val x = read(c, true)?; Ok(x + 2) };
+    val answer = inferred();
+    val correct = match failed {Err(_)=>match good {Ok(_)=>match nested {Err(_)=>match option(){None=>true,Some(_)=>false},Ok(_)=>false},Err(_)=>false},Ok(_)=>false};
+    if correct && c.calls == 4 && c.after == 20 {
+        (match answer {Ok(n)=>n,Err(_)=>0}) + c.after
+    } else { 0 }
+}

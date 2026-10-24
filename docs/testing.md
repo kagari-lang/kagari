@@ -110,15 +110,19 @@ Use the existing owners as templates, not a new universal runner:
   and source/artifact/artifact-JIT routes. The default-method cursor case reuses
   the canonical `iterable-default-cursor.kgr` directly, preserving its CRLF bytes;
   admission tests reuse ordinary fixtures when they need the same program.
-  Rejection, linking, forged-contract and callback-lifecycle scenarios keep their
-  explicit assertions in focused modules. Singleton and lifecycle tests need not
-  be parameterized. Independent programs remain independent named cases; a common
+  The remaining types/dispatch, collections/iteration, operators, Result/Try and
+  string owners follow the same representation rule, not one universal execution
+  policy. Rejection, linking, forged-contract and callback-lifecycle scenarios keep
+  their explicit assertions in focused modules. Singleton and lifecycle tests need
+  not be parameterized. Independent programs remain independent named cases; a common
   final result does not make them duplicate coverage.
 - [Numeric predicate programs](../crates/kagari/src/runtime/tests/language/numeric_checks.rs)
   share bounded source generation and retain the expression for each failure
   marker. Integer/float owners retain their own compilation, routes, result/root,
-  depth and quarantine checks. Typed result carriers, exact float bits, NaN rules
-  and allowed signed-zero sets remain explicit; no general expectation DSL is needed.
+  depth and quarantine checks. Named `rstest` rows expose the existing integer and
+  float width dimensions, while bounded inner predicates stay generated in Rust.
+  Typed result carriers, exact float bits, NaN rules and allowed signed-zero sets
+  remain explicit; no general expectation DSL is needed.
 
 Fixed text extraction preserves the original Rust literal's value, including its
 leading/trailing newlines or deliberate absence of a final newline. Multiline
@@ -143,7 +147,7 @@ Five existing files remain explicitly excluded, not silently skipped on failure:
 | `byte-literals.kgr` | Returns `1`, not `42`; formatter tests retain literal-byte and layout checks. |
 | `char-literals.kgr` | Returns unit, not `i32`; character semantics and formatter tests have their own assertions. |
 | `grammar-witnesses.kgr` | Parser/formatter grammar witness with unresolved external declarations, not a standalone executable. |
-| `try-protocols.kgr` | Returns `40`; `try_protocols::documented_custom_carrier_and_control_flow_execute` owns its execution. |
+| `try-protocols.kgr` | Returns `42`, but the Try owner requires forced GC, encoded-only transport, reload retirement and heap cleanup; `try_protocols::ordinary_execution` selects this canonical input directly. |
 
 The four separately selected root examples and two extracted programs stay explicit
 in `additional_source_examples`: the repository root example directory has mixed
@@ -159,9 +163,10 @@ normalization and retains the logical name `examples/syntax/<filename>` for sour
 origins. Missing files fail with the physical path. Existing scripts are not
 rewritten and result-release/root cleanup remains in the shared execution runner.
 
-The SDK build script watches the external syntax directory when source/native
-features and that directory are present. File additions/removals therefore rerun
-macro discovery; do not rely on `include_str!` content tracking to notice new files.
+The SDK build script watches the external syntax and language-fixture directories
+when the source feature and each directory are present, including source-only
+builds. File additions/removals therefore rerun macro discovery; do not rely on
+`include_str!` content tracking to notice new files.
 The missing-directory guard keeps standalone consumers from requiring the workspace
 example tree. This hook adds no source-analysis or framework production dependency.
 
@@ -306,13 +311,23 @@ Do not reuse a runtime, heap, host registry, cancellation token or mutable callb
 capture between independent cases. Sharing prepared registration does not clone
 Rust state captured by a callback.
 
+Not every existing SDK test's first lane is the checked-source route. Arrays,
+iteration, numeric operations, operator traits, Result/Option and interpolation
+also test **unencoded compiled artifacts** before their decoded artifact lanes.
+Keep this distinction when choosing a runner. Some owners require more than the
+standard scalar runner: Result/Option observes actual collection on every lane;
+String/Try retire materialized constants before checking final heap cleanup; native
+enums use a fresh installed source-unaware consumer and repeat on its loaded heap.
+These are separate contracts, not setup differences to discard for uniformity.
+
 ## Expose cases to the harness
 
 Give independent scenarios descriptive `#[test]` names or named `rstest` cases,
 as in [`syntax_examples.rs`](../crates/kagari/src/runtime/tests/language/syntax_examples.rs).
 `rstest` produces qualified names with a group, ordinal and case description or
-sanitized file path. File ordering can change ordinals; update affected filters
-rather than retaining forwarding aliases. Preserve semantic descriptions and use selected
+sanitized file path. Prefer `#[base_dir]` to keep directory prefixes from consuming
+the framework's truncated file description. File ordering can change ordinals;
+update affected filters rather than retaining forwarding aliases. Preserve semantic descriptions and use selected
 `--list` output to confirm exact names when needed. Do not hide a growing
 independent case list inside one serial test. Related
 sequences such as trap-then-recovery or publish-then-call-old-generation remain

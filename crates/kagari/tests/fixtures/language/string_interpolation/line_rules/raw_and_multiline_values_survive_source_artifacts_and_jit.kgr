@@ -1,0 +1,20 @@
+fn main() -> i32 {
+    val name = "world";
+    val cooked = "
+  {name}
+";
+    { val passed = cooked == "\n  world\n"; if !passed {val zero=0;1/zero;} };
+    val raw = r#"
+  {"name":"{name}","path":"\n"}
+"#;
+    { val passed = raw == "\n  {{\"name\":\"{{name}}\",\"path\":\"\\n\"}}\n"; if !passed {val zero=0;1/zero;} };
+    val continued = "left\
+        right";
+    { val passed = continued == "leftright"; if !passed {val zero=0;1/zero;} };
+    val raw_lines = r"left\
+        right";
+    { val passed = raw_lines == "left\\\n        right"; if !passed {val zero=0;1/zero;} };
+    { val passed = "\u{7B}name\u{7D}" == r"{name}"; if !passed {val zero=0;1/zero;} };
+    { val passed = "\x41\u{1F_600_}\'\0" == "A😀'\0"; if !passed {val zero=0;1/zero;} };
+    match r"{name}" { "{{name}}" => 42, _ => 0 }
+}
