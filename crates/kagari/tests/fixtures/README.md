@@ -10,6 +10,8 @@ execution directly selects the canonical public example. The `language_contract`
 subtree holds source data for explicit effect/trap/cancellation scenarios, not a
 second runner. Numeric predicates stay generated from bounded Rust tables; only
 useful fixed programs are extracted.
+Host/async source data lives under [`embedding`](embedding), with fresh provider
+installation, scheduling/borrow/reentry and cleanup assertions retained in Rust.
 Syntax-example and stateful scenario inputs also live under
 [`test-fixtures/language`](test-fixtures/language) and
 [`test-fixtures/embedding`](test-fixtures/embedding). They are source data loaded

@@ -7,36 +7,14 @@ use std::sync::{Arc, atomic::Ordering};
 
 #[test]
 fn persistent_static_future_and_task_keep_old_code_but_observe_shared_state() {
-    let source = r#"
-use test::async_sdk::request;
-static var STATE: i32 = 1;
-static var SAVED_FUTURE: Option<Future<i32>> = None;
-static var SAVED_TASK: Option<Task<i32>> = None;
-fn version() -> i32 { 10 }
-async fn work() -> i32 {
-    val response = request(version()).await;
-    STATE += 1;
-    version() + STATE + response
-}
-pub fn save_future() { SAVED_FUTURE = Some(async { work().await }); }
-pub fn factory() -> fn()->Future<i32> { || work() }
-pub fn save_task(task: Task<i32>) { SAVED_TASK = Some(task); }
-pub async fn await_future() -> i32 {
-    match SAVED_FUTURE { Some(future) => future.await + version(), None => -1 }
-}
-pub async fn await_task() -> i32 {
-    match SAVED_TASK { Some(task) => task.await + version(), None => -1 }
-}
-pub fn set_state(value: i32) { STATE = value; }
-pub fn state() -> i32 { STATE }
-"#;
+    let source =
+        include_str!("../../../../../tests/fixtures/embedding/async/persistent-values.kgr");
     for decoded in [false, true] {
-        let mut f = Fixture::configured(Default::default());
-        f.program = prepare_static_program(&f.engine, source, decoded);
-        f.module = f
-            .runtime
-            .load_program(&f.program, Default::default())
-            .unwrap();
+        let mut f = Fixture::with_prepared_program(
+            Default::default(),
+            |_| {},
+            |engine, _, _| prepare_static_program(engine, source, decoded),
+        );
         let replacement = prepare_static_program(
             &f.engine,
             &source.replace("fn version() -> i32 { 10 }", "fn version() -> i32 { 20 }"),

@@ -127,6 +127,12 @@ Use the existing owners as templates, not a new universal runner:
   their explicit assertions in focused modules. Singleton and lifecycle tests need
   not be parameterized. Independent programs remain independent named cases; a common
   final result does not make them duplicate coverage.
+- SDK host/async source data lives under `kagari/tests/fixtures/embedding` while
+  installed typed paths, factories, iteration, error origins and scheduling keep
+  explicit Rust scenarios. Shared async support selects its final intended product
+  after fresh provider installation; it does not load a discarded synthetic program
+  before source preparation. The synthetic source-free constructor remains a
+  separate public-consumer proof, not an interchangeable source route.
 - Compiler compile-success programs use named fixture cases under
   `kagari-compiler/tests/fixtures/language_foundation`; typed lowering/emission and
   forged admission remain separate Rust owners. Compiler adoption uses existing

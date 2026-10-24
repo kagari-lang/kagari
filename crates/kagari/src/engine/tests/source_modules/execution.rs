@@ -41,7 +41,8 @@ fn unused_dependency_body_errors_prevent_compilation_with_owned_locations() {
 
 #[test]
 fn execution_report_records_code_inputs_and_ordered_host_results() {
-    let (engine, artifact, mut context, _) = host_fixture();
+    let (engine, root, mut context, _) = host_fixture();
+    let artifact = compile(&engine, root);
     context.tracing_enabled = true;
     context.inputs.unix_time_millis = 31_415;
     context.inputs.random_seed = 27;

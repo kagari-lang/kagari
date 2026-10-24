@@ -576,12 +576,12 @@ and source-free validators never depend on source analysis for test convenience.
 Scope: engine/program/embedding/AOT tests, shared supports, public-consumer targets
 and SDK example roles not owned by ordinary language cases.
 
-- [ ] Organize by session/installation, host borrowing/reentry, execution cleanup,
+- [x] Organize by session/installation, host borrowing/reentry, execution cleanup,
   async scheduling, statics/reload and native/deployment ownership.
-- [ ] Extract long fixed scripts and remove demonstrated redundant local setup;
+- [x] Extract long fixed scripts and remove demonstrated redundant local setup;
   retain trap/recovery, poll/drop/wake, generations, aliasing and code-lifetime
   sequences. Preserve current pinned reload semantics, not the queued update model.
-- [ ] Keep public API/feature isolation, source-free consumers, actual-native status,
+- [x] Keep public API/feature isolation, source-free consumers, actual-native status,
   artifact producers and source-deleted AOT checks. No universal lifecycle DSL.
 
 Exit: lifecycle tests remain explanatory Rust scenarios with explicit observations;
@@ -732,8 +732,37 @@ fewer Rust strings, fewer binaries or a different test count is not speed eviden
 | TO03 | Complete locally: parser UI pairs, lexer/parser ownership and spec rows |
 | TO04 | Complete locally: HIR UI/recovery split and package input preparation |
 | TO05 | Complete locally: lowering/admission split, adoption support and disassembly goldens |
-| TO06-TO10 | Planned, not started |
+| TO06 | Complete locally: SDK lifecycle ownership, fixed sources and preparation cleanup |
+| TO07-TO10 | Planned, not started |
 | TO11 | Pending completion of owner phases |
+
+2026-10-24 TO06: three serial SDK owner batches completed. Seventeen scripts
+(17,436 exact bytes) move to embedding fixtures; three existing aggregates expose
+11 named rows. Typed host paths and async factories/iteration have focused owners;
+all 233 reviewed test definitions remain. Five proven setup cleanups remove a
+duplicate cancellation observer and default-context wrapper, reuse one immutable
+provider-forgery baseline with fresh contexts/runtimes per mutation, avoid a
+source-module artifact discarded by one caller, and separate provider installation
+from final async program selection. The latter removes unused preliminary
+preparation/loading while preserving original source-free synthetic metadata and
+codec authoring. No mutable fixture state is shared between scenarios.
+
+Sessions/snapshots/registration, host borrows/reentry, errors/origins, cold async
+poll/drop/wake/cancel, alias/reload/statics, native product lifetime and all public
+API/lifetime fences keep their contract-specific assertions. All eight external
+targets and legitimate shared support paths, examples/producers/AOT roles remain;
+no script/workflow exact-name consumer needed updating. No product regeneration,
+production behavior, dependency or new test target.
+
+Local selection: 49 passing executions across library, public facade, adjacent
+external boundaries, one scoped-borrow compile-fail doctest and one independent
+no-feature source-free async consumer. That consumer's normal/build graph excludes
+frontend/compiler/backend crates; it is not the distinct artifact_features product
+proof. Exact payload/body/assertion/settings comparisons and workspace Clippy,
+format, structure (1,597 files, zero violations/exceptions) and diff checks passed.
+No remaining diagnostics. Full matrices, unavailable artifact products, real-DLL
+AOT/source-deleted deployment and manual measurements remain CI/platform scope.
+TO07 is next.
 
 2026-10-24 TO05: compiler, MIR/contract and bytecode checkpoints completed in
 order. Four compile-success inputs are byte-exact fixtures with named rows. Two

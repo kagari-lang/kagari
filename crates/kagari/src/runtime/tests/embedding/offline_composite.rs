@@ -107,7 +107,15 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
     let engine =
         KagariEngine::with_native_modules(Default::default(), vec![builder.finish().unwrap()])
             .unwrap();
-    let artifact = engine.compile_to_artifact(SourceFile::new("composite.kgr", "use std::collections::{HashMap, HashSet};\nuse demo as api; fn main() -> ([i32], HashMap<String, bool>, HashSet<String>, Option<i32>, Result<i32, String>) { api::echo(api::make()) } pub fn payload() -> ([i32], HashMap<String,bool>, HashSet<String>, Option<i32>, Result<i32,String>) { val map: HashMap<String,bool> = HashMap::new(); map.insert(\"yes\",true); val set: HashSet<String> = HashSet::new(); set.insert(\"name\"); ([7],map,set,Some(8),Ok(9)) }"),  ArtifactOptions::default()).unwrap();
+    let artifact = engine
+        .compile_to_artifact(
+            SourceFile::new(
+                "composite.kgr",
+                include_str!("../../../../tests/fixtures/embedding/host/composite-callbacks.kgr"),
+            ),
+            ArtifactOptions::default(),
+        )
+        .unwrap();
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
             KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())

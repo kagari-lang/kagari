@@ -28,21 +28,8 @@ use std::{
     thread,
 };
 
-const SOURCE: &str = r#"
-use test::converted_reply::read;
-pub fn items() -> Vec<i32> { Vec::from([5]) }
-pub fn push(items: Vec<i32>) { items.push(9); }
-pub fn first(items: Vec<i32>) -> i32 { items[0] }
-pub fn factory(items: Vec<i32>) -> fn()->Future<i32> {
-    async || {
-        for item in items {
-            val reply = read().await;
-            items[0] = reply[0] + item;
-        }
-        items[0]
-    }
-}
-"#;
+const SOURCE: &str =
+    include_str!("../../../../../tests/fixtures/embedding/async/output-publication.kgr");
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Boundary {
@@ -121,7 +108,7 @@ fn async_output_publication_contract() {
         let cancelled = Arc::new(AtomicUsize::new(0));
         let encoded = Arc::new(AtomicUsize::new(0));
         let dropped = Arc::new(AtomicUsize::new(0));
-        let mut f = Fixture::with_provider(Default::default(), |engine| {
+        let f = Fixture::with_source(SOURCE, Default::default(), |engine| {
             let send = sent.clone();
             let cancelled = cancelled.clone();
             let mut module =
@@ -153,7 +140,7 @@ fn async_output_publication_contract() {
             .unwrap();
             engine.install(module.finish().unwrap()).unwrap();
         });
-        f.load_source(SOURCE);
+
         let runtime = f.runtime.runtime();
         let context = ExecutionContext::default();
         let scope = f

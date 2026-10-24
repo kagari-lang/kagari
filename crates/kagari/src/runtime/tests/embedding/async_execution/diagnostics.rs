@@ -19,60 +19,51 @@ use std::{
 };
 
 // Block-bodied waiters give Await an explicit tail-expression source span.
-const SOURCE: &str = r#"
-use test::async_sdk::request;
-pub async fn crash() -> i32 { request(10).await; val zero=0; 1/zero }
-fn unwrap(result: Result<Task<i32>, SpawnError>) -> Task<i32> {
-    match result { Ok(task) => task, Err(_) => { val zero=0; val bad=1/zero; unwrap(result) } }
-}
-pub fn submit(scope: TaskScope) -> Task<i32> { unwrap(scope.spawn(async || crash().await)) }
-pub fn observe(scope: TaskScope, task: Task<i32>) -> Task<i32> { unwrap(scope.spawn(async || { task.await })) }
-pub fn other(scope: TaskScope, task: Task<i32>) -> Task<i32> { unwrap(scope.spawn(async || { task.await })) }
-pub async fn direct(task: Task<i32>) -> i32 { task.await }
-pub fn factory() -> fn()->Future<i32> { async || 7 }
-"#;
+const SOURCE: &str =
+    include_str!("../../../../../tests/fixtures/embedding/async/failure-provenance.kgr");
 
 fn fixture(stripped: bool) -> Fixture {
-    let mut f = Fixture::new();
-    let artifact = f
-        .engine
-        .compile_to_artifact(
-            SourceFile::new("async-diagnostic.kgr", SOURCE),
-            Default::default(),
-        )
-        .unwrap();
-    let artifact = if stripped {
-        let definitions = DefinitionContext::new().unwrap();
-        let mut artifact = artifact
-            .import_into(&definitions, &Default::default())
-            .unwrap()
-            .into_records();
-        for module in &mut artifact.program.modules {
-            for function in &mut module.functions {
-                function.metadata.debug = Default::default();
-            }
-        }
-        let artifact = BytecodeArtifact::from_program(
-            artifact.program,
-            Default::default(),
-            &definitions,
-            &Default::default(),
-        )
-        .unwrap();
-        DefinitionMetadata::checked(definitions.snapshot(), artifact, &Default::default()).unwrap()
-    } else {
-        artifact
-    };
-    let decoded =
-        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+    Fixture::with_prepared_program(
+        Default::default(),
+        |_| {},
+        |engine, _, _| {
+            let artifact = engine
+                .compile_to_artifact(
+                    SourceFile::new("async-diagnostic.kgr", SOURCE),
+                    Default::default(),
+                )
+                .unwrap();
+            let artifact = if stripped {
+                let definitions = DefinitionContext::new().unwrap();
+                let mut artifact = artifact
+                    .import_into(&definitions, &Default::default())
+                    .unwrap()
+                    .into_records();
+                for module in &mut artifact.program.modules {
+                    for function in &mut module.functions {
+                        function.metadata.debug = Default::default();
+                    }
+                }
+                let artifact = BytecodeArtifact::from_program(
+                    artifact.program,
+                    Default::default(),
+                    &definitions,
+                    &Default::default(),
+                )
+                .unwrap();
+                DefinitionMetadata::checked(definitions.snapshot(), artifact, &Default::default())
+                    .unwrap()
+            } else {
+                artifact
+            };
+            let decoded = BytecodeArtifact::from_bytes(
+                &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+            )
             .unwrap();
-    f.program =
-        PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
-    f.module = f
-        .runtime
-        .load_program(&f.program, Default::default())
-        .unwrap();
-    f
+            PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default())
+                .unwrap()
+        },
+    )
 }
 
 fn id(f: &Fixture, handle: &RootedValue) -> TaskId {

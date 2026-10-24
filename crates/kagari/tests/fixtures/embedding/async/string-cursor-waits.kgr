@@ -1,0 +1,18 @@
+
+use test::async_sdk::request;
+use std::iter::CollectionCursor;
+pub fn cursor() -> CollectionCursor<(u64, char)> {
+    "a-é-🙂".replace("-", "").char_indices()
+}
+pub async fn traverse(cursor: CollectionCursor<(u64, char)>) -> i32 {
+    var total = 0;
+    for (offset, scalar) in cursor {
+        val input = if offset == 0u64 && scalar == 'a' { 10 }
+            else if offset == 1u64 && scalar == 'é' { 20 }
+            else if offset == 3u64 && scalar == '🙂' { 30 }
+            else { 0 };
+        total += request(input).await;
+    }
+    if cursor.next() != None { return 0; }
+    total
+}

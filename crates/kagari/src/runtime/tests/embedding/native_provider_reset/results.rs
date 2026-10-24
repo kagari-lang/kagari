@@ -18,6 +18,7 @@ use kagari_runtime::{
 use kagari_source::source::SourceFile;
 use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
+use rstest::rstest;
 
 fn engine() -> KagariEngine {
     let language = StandardDeclarations::default();
@@ -105,47 +106,51 @@ fn artifact(engine: &KagariEngine, source: &str) -> DefinitionMetadata<KbcArtifa
         .unwrap()
 }
 
-#[test]
-fn concrete_native_results_construct_declared_interfaces_in_generic_calls() {
+#[rstest]
+#[case::generic_scalar_interface(
+    "use example::results::Factory; struct F {} impl Factory for F {} fn main() -> i32 { val f: Factory = F {}; if std::collections::list_content_equal(f.one(1), f.one(1)) {42} else {0} }"
+)]
+#[case::nested_array_function(
+    "use example::results::singleton; fn main() -> i32 { singleton([42])[0u64][0u64] }"
+)]
+#[case::nested_array_method(
+    "use example::results::Factory; struct F {} impl Factory for F {} fn main() -> i32 { val f: Factory = F {}; f.one([42])[0u64][0u64] }"
+)]
+#[case::distinct_nominal_results(
+    "use example::results::Factory; struct F {} struct Payload { val value: i32 } impl Factory for F {} fn main() -> i32 { val f: Factory = F {}; val a = f.one(20); val b = f.one(Payload { value: 22 }); a[0u64] + b[0u64].value }"
+)]
+fn concrete_native_results_construct_declared_interfaces_in_generic_calls(#[case] source: &str) {
     let engine = engine();
-    for source in [
-        "use example::results::Factory; struct F {} impl Factory for F {} fn main() -> i32 { val f: Factory = F {}; if std::collections::list_content_equal(f.one(1), f.one(1)) {42} else {0} }",
-        "use example::results::singleton; fn main() -> i32 { singleton([42])[0u64][0u64] }",
-        "use example::results::Factory; struct F {} impl Factory for F {} fn main() -> i32 { val f: Factory = F {}; f.one([42])[0u64][0u64] }",
-        "use example::results::Factory; struct F {} struct Payload { val value: i32 } impl Factory for F {} fn main() -> i32 { val f: Factory = F {}; val a = f.one(20); val b = f.one(Payload { value: 22 }); a[0u64] + b[0u64].value }",
-    ] {
-        let original = artifact(&engine, source);
-        assert!(
-            original
-                .records()
-                .program
-                .modules
-                .iter()
-                .flat_map(|m| &m.native_imports)
-                .any(|import| import.result_adapter.is_some())
-        );
-        let decoded =
-            KbcArtifact::from_bytes(&original.records().to_bytes(original.definitions()).unwrap())
-                .unwrap();
-        let program =
-            PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default())
-                .unwrap();
-        let context = ExecutionContext::default();
-        let mut runtime = engine.runtime(context.clone());
-        let loaded = runtime.load_program(&program, Default::default()).unwrap();
-        assert_eq!(
-            runtime
-                .execute(&loaded, ProgramEntry::Main, &[], &context)
-                .unwrap()
-                .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result"),
-            Value::I32(42)
-        );
-        assert_eq!(runtime.runtime().gc().active_roots(), 0);
-        runtime.runtime().collect_garbage().unwrap();
-        assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
-    }
+    let original = artifact(&engine, source);
+    assert!(
+        original
+            .records()
+            .program
+            .modules
+            .iter()
+            .flat_map(|m| &m.native_imports)
+            .any(|import| import.result_adapter.is_some())
+    );
+    let decoded =
+        KbcArtifact::from_bytes(&original.records().to_bytes(original.definitions()).unwrap())
+            .unwrap();
+    let program =
+        PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
+    let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    assert_eq!(
+        runtime
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
+            .unwrap()
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(42)
+    );
+    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    runtime.runtime().collect_garbage().unwrap();
+    assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
 }
 
 #[test]

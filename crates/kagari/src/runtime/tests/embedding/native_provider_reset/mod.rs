@@ -3,7 +3,6 @@
 mod contracts;
 mod external;
 mod results;
-mod support;
 // The source emitter and standalone artifact consumer share the reviewed provider.
 mod library;
 #[path = "../../../../../tests/support/native_provider.rs"]
@@ -12,6 +11,7 @@ use crate::{
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},
     program::PreparedProgram,
+    test_support::cancellation::CancelAt,
 };
 use contracts::alter_bindings;
 use kagari_bytecode::artifact::KbcArtifact;
@@ -155,9 +155,10 @@ fn main() -> i32 {
 
 #[test]
 fn structural_agreement_does_not_authorize_an_unknown_or_wrong_native_entry() {
+    let baseline = artifact("fn main() -> u64 { [1, 2].len() }");
     for change in 0..3 {
         let context = DefinitionContext::new().unwrap();
-        let mut original = artifact("fn main() -> u64 { [1, 2].len() }")
+        let mut original = baseline
             .import_into(&context, &Default::default())
             .unwrap()
             .into_records();
@@ -355,7 +356,7 @@ fn cancellation_boundaries_unwind_nested_provider_callbacks() {
         };
         runtime
             .runtime()
-            .set_execution_observer(support::CancelAt {
+            .set_execution_observer(CancelAt {
                 seen: Default::default(),
                 at,
                 token: context.cancellation.clone(),

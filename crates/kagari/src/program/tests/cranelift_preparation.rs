@@ -13,6 +13,7 @@ use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use kagari_vm::vm::{JitExecutionStatus, native::PreparedNativeEntry};
+use rstest::rstest;
 
 #[test]
 fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() {
@@ -106,65 +107,63 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
     }
 }
 
-#[test]
-fn unsupported_mir_selects_interpreter_before_any_script_instruction() {
+#[rstest]
+#[case::mutable_local("fn main() -> i32 { var value = 40; value += 2; value }", 42)]
+#[case::remainder("fn main() -> i32 { 42 % 5 }", 2)]
+#[case::capturing_closure(
+    "fn main() -> i32 { var count = 40; val next = || { count = count + 1; count }; next(); next() }",
+    42
+)]
+fn unsupported_mir_selects_interpreter_before_any_script_instruction(
+    #[case] source: &str,
+    #[case] expected: i32,
+) {
     let engine = KagariEngine::default();
-    for (source, expected) in [
-        ("fn main() -> i32 { var value = 40; value += 2; value }", 42),
-        ("fn main() -> i32 { 42 % 5 }", 2),
-        (
-            "fn main() -> i32 { var count = 40; val next = || { count = count + 1; count }; next(); next() }",
-            42,
-        ),
-    ] {
-        // Preserve unsupported MIR operations for this backend-boundary fixture.
-        // The native test above separately covers default constant folding.
-        let mut options = ArtifactOptions::default();
-        options.lowering.optimization = None;
-        let artifact = engine
-            .compile_to_artifact(SourceFile::new("fallback.kgr", source), options)
+    // Preserve unsupported MIR operations for this backend-boundary fixture.
+    // The native test above separately covers default constant folding.
+    let mut options = ArtifactOptions::default();
+    options.lowering.optimization = None;
+    let artifact = engine
+        .compile_to_artifact(SourceFile::new("fallback.kgr", source), options)
+        .unwrap();
+    let artifact =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
-        let artifact = BytecodeArtifact::from_bytes(
-            &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+    let program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let context = ExecutionContext {
+        jit_policy: JitPolicy::Enabled,
+        ..Default::default()
+    };
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let prepared = runtime
+        .prepare_native(
+            &program,
+            &loaded,
+            ProgramEntry::Main,
+            &mut CraneliftBackend::for_host().unwrap(),
+            &context.cancellation,
         )
         .unwrap();
-        let program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
-        let context = ExecutionContext {
-            jit_policy: JitPolicy::Enabled,
-            ..Default::default()
-        };
-        let mut runtime = engine.runtime(context.clone());
-        let loaded = runtime.load_program(&program, Default::default()).unwrap();
-        let prepared = runtime
-            .prepare_native(
-                &program,
-                &loaded,
-                ProgramEntry::Main,
-                &mut CraneliftBackend::for_host().unwrap(),
-                &context.cancellation,
-            )
-            .unwrap();
-        assert!(matches!(prepared, PreparedNativeEntry::Unsupported { .. }));
+    assert!(matches!(prepared, PreparedNativeEntry::Unsupported { .. }));
 
-        let report = runtime
-            .execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
-            .unwrap();
-        assert_eq!(
-            report
-                .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result"),
-            Value::I32(expected)
-        );
-        assert_eq!(
-            report.jit.unwrap().status,
-            JitExecutionStatus::InterpreterFallback
-        );
-        drop(report.return_value);
-        assert_eq!(runtime.runtime().gc().active_roots(), 0);
-    }
+    let report = runtime
+        .execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
+        .unwrap();
+    assert_eq!(
+        report
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(expected)
+    );
+    assert_eq!(
+        report.jit.unwrap().status,
+        JitExecutionStatus::InterpreterFallback
+    );
+    drop(report.return_value);
+    assert_eq!(runtime.runtime().gc().active_roots(), 0);
 }
 
 #[test]

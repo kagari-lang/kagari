@@ -40,7 +40,7 @@ fn insert(engine: &KagariEngine, name: &str, text: &str) -> FileId {
 
 fn host_fixture() -> (
     KagariEngine,
-    DefinitionMetadata<BytecodeArtifact>,
+    FileId,
     ExecutionContext,
     Arc<Mutex<Vec<Value>>>,
 ) {
@@ -91,8 +91,7 @@ fn host_fixture() -> (
     let context = ExecutionContext {
         ..Default::default()
     };
-    let artifact = compile(&engine, root);
-    (engine, artifact, context, calls)
+    (engine, root, context, calls)
 }
 
 mod execution;

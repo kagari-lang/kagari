@@ -1,0 +1,15 @@
+
+use test::async_sdk::request;
+pub fn version() -> i32 { 1 }
+trait Read { fn read(self) -> i32; }
+struct Saved { val value: i32 }
+impl Read for Saved { fn read(self) -> i32 { self.value + version() } }
+async fn finish<T: Read>(saved: T) -> i32 {
+    val first = request(10).await;
+    val second = request(first + version()).await;
+    saved.read() + first + second + version()
+}
+pub fn factory() -> fn() -> Future<i32> { val saved = Saved { value: 5 }; || finish(saved) }
+pub fn cold() -> Future<i32> { finish(Saved { value: 5 }) }
+pub fn native_cold() -> Future<i32> { request(10) }
+pub fn captured() -> fn() -> Future<i32> { val future = cold(); || future }

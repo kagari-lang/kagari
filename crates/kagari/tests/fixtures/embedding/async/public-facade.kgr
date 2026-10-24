@@ -1,0 +1,16 @@
+
+use test::typed::{request,touch};
+pub fn factory(value:i32) -> Future<i32> { touch(value); request(value) }
+pub async fn load(value:i32) -> i32 { request(value).await }
+pub trait Loader { fn load(self, value:i32) -> Future<i32>; }
+struct LoaderImpl {}
+impl Loader for LoaderImpl { fn load(self, value:i32) -> Future<i32> { request(value) } }
+pub fn loader() -> Loader { LoaderImpl {} }
+pub async fn pair() -> (i32,i32) { core::task::join(request(10),request(11)).await }
+pub async fn long() -> i32 { var n=0; while n<500 {n+=1;} n }
+pub async fn scoped(scope:TaskScope) -> i32 {
+    match scope.spawn(async || request(42).await) { Ok(task)=>task.await, Err(_)=>0 }
+}
+pub fn launch(scope:TaskScope) {
+    match scope.spawn(async || request(10).await) { Ok(_) => {}, Err(_) => { val zero=0; val bad=1/zero; } }
+}

@@ -20,22 +20,8 @@ use std::{
     sync::{Arc, atomic::Ordering},
 };
 
-const SOURCE: &str = r#"
-use test::async_sdk::request;
-pub fn version() -> i32 { 1 }
-trait Read { fn read(self) -> i32; }
-struct Saved { val value: i32 }
-impl Read for Saved { fn read(self) -> i32 { self.value + version() } }
-async fn finish<T: Read>(saved: T) -> i32 {
-    val first = request(10).await;
-    val second = request(first + version()).await;
-    saved.read() + first + second + version()
-}
-pub fn factory() -> fn() -> Future<i32> { val saved = Saved { value: 5 }; || finish(saved) }
-pub fn cold() -> Future<i32> { finish(Saved { value: 5 }) }
-pub fn native_cold() -> Future<i32> { request(10) }
-pub fn captured() -> fn() -> Future<i32> { val future = cold(); || future }
-"#;
+const SOURCE: &str =
+    include_str!("../../../../../tests/fixtures/embedding/async/pinned-reload.kgr");
 
 fn prepare(f: &Fixture, source: &str) -> PreparedProgram {
     let artifact = f
@@ -159,25 +145,7 @@ fn string_cursor_retains_dynamic_source_across_native_waits() {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let f = Fixture::configured_source(
-        r#"
-use test::async_sdk::request;
-use std::iter::CollectionCursor;
-pub fn cursor() -> CollectionCursor<(u64, char)> {
-    "a-é-🙂".replace("-", "").char_indices()
-}
-pub async fn traverse(cursor: CollectionCursor<(u64, char)>) -> i32 {
-    var total = 0;
-    for (offset, scalar) in cursor {
-        val input = if offset == 0u64 && scalar == 'a' { 10 }
-            else if offset == 1u64 && scalar == 'é' { 20 }
-            else if offset == 3u64 && scalar == '🙂' { 30 }
-            else { 0 };
-        total += request(input).await;
-    }
-    if cursor.next() != None { return 0; }
-    total
-}
-"#,
+        include_str!("../../../../../tests/fixtures/embedding/async/string-cursor-waits.kgr"),
         config,
     );
     let cursor = f.invoke("cursor", &[]);
