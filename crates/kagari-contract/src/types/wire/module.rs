@@ -1,6 +1,8 @@
 //! File-local module ABI facts and concrete function identities.
 use crate::types::{
-    ConcreteFunctionIdentity, ModuleContract, TraitContract, wire::PublicItemRecord,
+    ConcreteFunctionIdentity, ModuleContract, TraitContract,
+    named::wire::{FunctionOriginRecord, NamedDeclarationRecord},
+    wire::PublicItemRecord,
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -10,7 +12,10 @@ use kagari_common::{
     },
 };
 use kagari_types::{
-    declaration::wire::{declarations::TraitDefRecord, native::NativeDeclarationRecord},
+    declaration::wire::{
+        declarations::{TraitDefRecord, TypeDeclarationRecord},
+        native::NativeDeclarationRecord,
+    },
     ty::wire::WireType,
 };
 use serde::{Deserialize, Serialize};
@@ -22,6 +27,12 @@ pub struct ModuleContractRecord {
     native_declarations: Vec<NativeDeclarationRecord>,
     #[serde(deserialize_with = "crate::decode_limits::table")]
     public_items: Vec<PublicItemRecord>,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
+    private_types: Vec<TypeDeclarationRecord>,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
+    named_declarations: Vec<NamedDeclarationRecord>,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
+    function_origins: Vec<FunctionOriginRecord>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     trait_references: Vec<TraitContractRecord>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
@@ -47,6 +58,21 @@ impl ModuleContractRecord {
                 .public_items
                 .iter()
                 .map(|value| PublicItemRecord::encode(value, encoding, cancel))
+                .collect::<Result<_, _>>()?,
+            private_types: value
+                .private_types
+                .iter()
+                .map(|value| TypeDeclarationRecord::encode(value, encoding, cancel))
+                .collect::<Result<_, _>>()?,
+            named_declarations: value
+                .named_declarations
+                .iter()
+                .map(|value| NamedDeclarationRecord::encode(value, encoding, cancel))
+                .collect::<Result<_, _>>()?,
+            function_origins: value
+                .function_origins
+                .iter()
+                .map(|value| FunctionOriginRecord::encode(value, encoding, cancel))
                 .collect::<Result<_, _>>()?,
             trait_references: value
                 .trait_references
@@ -77,6 +103,21 @@ impl ModuleContractRecord {
                 .collect::<Result<_, _>>()?,
             public_items: self
                 .public_items
+                .into_iter()
+                .map(|value| value.decode(decoding, cancel))
+                .collect::<Result<_, _>>()?,
+            private_types: self
+                .private_types
+                .into_iter()
+                .map(|value| value.decode(decoding, cancel))
+                .collect::<Result<_, _>>()?,
+            named_declarations: self
+                .named_declarations
+                .into_iter()
+                .map(|value| value.decode(decoding, cancel))
+                .collect::<Result<_, _>>()?,
+            function_origins: self
+                .function_origins
                 .into_iter()
                 .map(|value| value.decode(decoding, cancel))
                 .collect::<Result<_, _>>()?,

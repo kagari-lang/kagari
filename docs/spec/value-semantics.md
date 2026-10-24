@@ -341,8 +341,12 @@ failure behavior. `===` never invokes a user callback.
 Map keys and Set elements continue to require `Eq + Hash`, including in generic
 code. A Map's values do not need those bounds. Lookup hashes the key, then uses
 the key equality selected at construction to distinguish candidate keys. Those
-[stored protocols](collection-access.md#stored-key-protocols-across-reload) remain
-pinned across reload; a later caller's `==` selection need not use the same body.
+[stored protocols](collection-access.md#stored-key-protocols-across-reload) retain
+their checked selection relationships, but each callback call uses the current
+implementation, including through host ScriptMap/ScriptSet handles. Hash/Eq bodies
+and helpers may change; compatible publication does not prove stable key behavior,
+rehash tables or pin old callbacks. Explicit content comparison is a separate
+caller-selected protocol.
 
 Users implementing these protocols must ensure:
 
@@ -352,14 +356,16 @@ Users implementing these protocols must ensure:
   consistent while the state they depend on is unchanged.
 - While a key belongs to a container, the state determining its equality and
   hash remains stable, including state reached through aliases or external
-  dependencies. Unrelated fields may still change.
+  dependencies and hot updates to Hash/Eq bodies or their helpers. Unrelated fields
+  may still change.
 - Comparison/hash callbacks do not mutate the participating key state or the
   container currently performing the operation.
 
 The language does not prove these semantic properties, freeze keys, deep-copy
 keys, observe all mutations or automatically reindex containers. Violations are
 user logic errors: lookups/removals may miss entries and logical duplicates may
-appear. They must not compromise memory safety, GC or runtime integrity. No
+appear. They must not compromise engine memory safety, GC, host-borrow safety or
+runtime integrity. No
 guarantee is made that every violation is detected or produces a diagnostic.
 Dangerous mutation reentry into the active container must be rejected with a
 trap; this is an engine integrity check, not general key-stability enforcement.

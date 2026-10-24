@@ -2,7 +2,7 @@
 use crate::{
     frame::types::compatibility::{TypeIdentity, TypeView},
     module::{
-        LoadedModule,
+        ExecutableModule,
         descriptor_index::DescriptorIndex,
         layout_identity::{LayoutIdentity, ProgramLayouts},
         layout_scope::LayoutScope,
@@ -34,7 +34,7 @@ impl<L: Clone + Eq + Hash> IdentityIndex<L> {
 
     pub(super) fn prepare(
         &mut self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         shape: Arc<L>,
         arguments: &[Ty],
         scope: Option<&LayoutScope>,

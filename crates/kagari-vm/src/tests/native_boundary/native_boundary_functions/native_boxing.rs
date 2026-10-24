@@ -15,7 +15,7 @@ use kagari_runtime::{
         conversion::KagariType,
         conversion::context::ConversionContext,
         declarations::FunctionDecl,
-        function_handle::PinnedFunction,
+        function_handle::Function,
         module::NativeModule,
         objects::Object,
         typed::NativeContext,
@@ -33,8 +33,8 @@ use std::{
     },
 };
 
-type Add = PinnedFunction<(i32, i32), i32>;
-type Callback = PinnedFunction<(), i32>;
+type Add = Function<(i32, i32), i32>;
+type Callback = Function<(), i32>;
 
 #[test]
 fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
@@ -121,12 +121,14 @@ fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
         pub fn owned(callback: fn() -> String) -> String { callback() }
     "#;
     let (vm, old) = fixture(source, Some(&module));
+    let _old_program = old;
+    let old = vm.runtime().select_program(&_old_program).unwrap();
     // Native completion can park before returning to its script caller. Its
     // frame must retain the result without repeating the callback on resume.
     let callback = vm
         .runtime()
         .bind_function_declaration::<(), String>(
-            &old,
+            &_old_program.root(),
             &text.definitions().resolve(text.id()).unwrap().to_path(),
         )
         .unwrap();
@@ -173,7 +175,7 @@ fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
     let function = vm
         .runtime()
         .bind_function_declaration::<(i32, i32), i32>(
-            &old,
+            &_old_program.root(),
             &add.definitions().resolve(add.id()).unwrap().to_path(),
         )
         .unwrap();
@@ -199,9 +201,14 @@ fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
         .execute_typed(&old, "capture", (function.clone(),))
         .unwrap();
     drop(function);
-    let current = vm
-        .reload_program(&old, "functions", compile_program(source, Some(&module)))
-        .unwrap();
+    vm.reload_program(
+        &_old_program,
+        Some("functions".into()),
+        compile_program(source, Some(&module)),
+    )
+    .unwrap();
+    let _current_program = _old_program.clone();
+    let current = vm.runtime().select_program(&_current_program).unwrap();
     assert_eq!(vm.call(&callback, ()).unwrap(), 42);
     assert_eq!(
         vm.execute_typed::<_, i32>(&current, "invoke", (returned.clone(), 21, 21))
@@ -226,6 +233,7 @@ fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
     assert_eq!(calls.load(Ordering::Relaxed), before);
     assert_eq!(vm.call(&returned, (20, 22)).unwrap(), 42);
     let (foreign, _) = fixture(source, Some(&module));
+
     assert!(foreign.call(&returned, (20, 22)).is_err());
     drop((returned, callback));
     let collected = vm.runtime().collect_garbage().unwrap();
@@ -236,7 +244,7 @@ fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
 
 #[test]
 fn generic_native_function_values_retain_applied_nominal_scopes() {
-    type Identity = PinnedFunction<(Object,), Object>;
+    type Identity = Function<(Object,), Object>;
     let module = generic_identity_module();
     let declaration = declaration_query(&module, DefinitionKind::Function, "identity");
     let source = r#"
@@ -247,11 +255,16 @@ fn generic_native_function_values_retain_applied_nominal_scopes() {
         pub fn echo(f: fn(Item) -> Item) -> fn(Item) -> Item { f }
     "#;
     let (mut vm, old) = fixture(source, Some(&module));
-    let item_type = vm.runtime().bind_type(&old, "Item", &[]).unwrap();
+    let _old_program = old;
+    let old = vm.runtime().select_program(&_old_program).unwrap();
+    let item_type = vm
+        .runtime()
+        .bind_type(&_old_program.root(), "Item", &[])
+        .unwrap();
     let identity = vm
         .runtime()
         .bind_function_application_declaration::<(Object,), Object>(
-            &old,
+            &_old_program.root(),
             &declaration,
             slice::from_ref(item_type.type_argument()),
         )
@@ -276,6 +289,8 @@ fn generic_native_function_values_retain_applied_nominal_scopes() {
             compile_program(&source.replace("i32", "i64"), Some(&module)),
         )
         .unwrap();
+    let _new_program = new;
+    let new = vm.runtime().select_program(&_new_program).unwrap();
     let other: Object = vm.execute_typed(&new, "item", ()).unwrap();
     assert!(
         vm.execute_typed::<_, Object>(&new, "invoke", (echoed.clone(), other.clone()))
@@ -302,13 +317,19 @@ fn native_function_values_cannot_invent_a_missing_nested_application() {
     "#,
         Some(&module),
     );
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let ty = ConversionContext::new(vm.runtime(), &owner)
         .unwrap()
         .type_for::<i32>()
         .unwrap();
     let function = vm
         .runtime()
-        .bind_function_application_declaration::<(i32,), i32>(&owner, &declaration, &[ty]);
+        .bind_function_application_declaration::<(i32,), i32>(
+            &_owner_program.root(),
+            &declaration,
+            &[ty],
+        );
     // No closed witness exists for the nested native application in this open
     // relay body; boxing must not invent evidence to bind an unavailable entry.
     assert_eq!(
@@ -351,11 +372,13 @@ fn a_boxed_native_entry_releases_its_obsolete_program_after_last_root() {
     NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
     module.install(&mut runtime).unwrap();
     let old = runtime.load_program("cycle", program.clone()).unwrap();
+    let _old_program = old;
+    let old = runtime.select_program(&_old_program).unwrap();
     let vm = Vm::new(runtime);
     let native = vm
         .runtime()
         .bind_function_declaration::<(i32, i32), i32>(
-            &old,
+            &_old_program.root(),
             &add.definitions().resolve(add.id()).unwrap().to_path(),
         )
         .unwrap();
@@ -371,7 +394,8 @@ fn a_boxed_native_entry_releases_its_obsolete_program_after_last_root() {
             .script_function()
             .is_none()
     );
-    vm.reload_program(&old, "cycle", program).unwrap();
+    vm.reload_program(&_old_program, Some("cycle".into()), program)
+        .unwrap();
     assert!(
         !vm.runtime()
             .collect_garbage()

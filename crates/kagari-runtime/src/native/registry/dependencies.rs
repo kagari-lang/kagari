@@ -239,11 +239,9 @@ fn inherent_matches(id: DefinitionId, expected: &ImplDecl, actual: &InherentTabl
 
 #[cfg(test)]
 mod tests {
+    use crate::test_support::native::program::ProgramFixture;
     use crate::{Runtime, RuntimeConfig};
-    use kagari_bytecode::{
-        module::BytecodeModule,
-        program::{BytecodeProgram, ModuleRef},
-    };
+    use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
     use kagari_common::identity::{
         DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext,
         metadata::DefinitionMetadata,
@@ -279,7 +277,7 @@ mod tests {
         let id = declaration
             .definition(DefinitionKind::Struct, "Player", &context.snapshot())
             .unwrap();
-        let program = BytecodeProgram {
+        let program = ProgramFixture {
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule {
                 identity: declaration.identity,
@@ -291,7 +289,8 @@ mod tests {
                 ..Default::default()
             }],
             exports: Default::default(),
-        };
+        }
+        .build(&context);
         let input =
             DefinitionMetadata::checked(context.snapshot(), program, &Default::default()).unwrap();
         let mut runtime = Runtime::new(RuntimeConfig::default());

@@ -3,7 +3,8 @@ use crate::{
     Runtime,
     closure::ClosureValueSnapshot,
     error::RuntimeError,
-    gc::GcObjectKind,
+    execution_metadata::MetadataEdge,
+    gc::{GcObjectKind, roots::RootedValue},
     native::{
         arguments::CallArguments,
         binding::NativeResult,
@@ -56,14 +57,43 @@ impl PreparedClosure {
         runtime.resolve_closure(&self.value)
     }
 
+    /// Freeze a named route for one admitted call while retaining all captures.
+    /// The returned root owns the exact selected computation, not the original
+    /// ordinary route. Retained closures reuse their existing heap identity.
+    pub(crate) fn prepare_call(&self, runtime: &Runtime) -> NativeResult<(Self, RootedValue)> {
+        let (selected, named) = {
+            let snapshot = self.snapshot(runtime)?;
+            (
+                snapshot.select_call(runtime)?,
+                snapshot.call_route().is_some(),
+            )
+        };
+        let value = if named {
+            runtime.validate_metadata(MetadataEdge::Closure(&selected))?;
+            Value::Closure(runtime.gc().alloc_closure(selected)?)
+        } else {
+            self.value
+        };
+        let root = runtime
+            .root_value(value)
+            .ok_or_else(|| RuntimeError::module_validation("selected closure root"))?;
+        Ok((Self { value }, root))
+    }
+
     /// The checked-at-use GC identity; this descriptor does not create a root.
     pub fn value(&self) -> &Value {
         &self.value
     }
 
     fn invoke(&self, cx: &CallContext<'_>, arguments: &[Value]) -> NativeResult<Value> {
-        let owner = self.snapshot(cx.runtime)?.implementation.clone();
-        (cx.invoke_script)(cx.runtime, &owner, ScriptCall::Closure(self), arguments)
+        let (prepared, _root) = self.prepare_call(cx.runtime)?;
+        let owner = prepared.snapshot(cx.runtime)?.implementation.clone();
+        (cx.invoke_script)(
+            cx.runtime,
+            &owner,
+            ScriptCall::Closure(&prepared),
+            arguments,
+        )
     }
 
     fn call<R: NativeScalar, A: CallArguments>(
@@ -127,7 +157,12 @@ impl<'call> CallableHandle<'call> {
         };
         let value = cx.argument(index)?;
         let closure = cx.runtime.resolve_closure(&value)?;
-        cx.runtime.validate_loaded_module(&closure.implementation)?;
+        if let Some(route) = closure.call_route() {
+            cx.runtime.select_call_route(route)?;
+        } else {
+            cx.runtime
+                .validate_executable_module(&closure.implementation)?;
+        }
         let expected = cx.argument_type_view(index)?;
         let Ty::Function {
             params: expected_params,
@@ -180,7 +215,7 @@ impl<'call> CallableHandle<'call> {
 
 /// An advanced traced heap edge. It does not retain its closure independently;
 /// the owning payload must trace it and remain rooted across invocation. Ordinary
-/// host storage uses PinnedFunction, and managed payload fields retain heap edges.
+/// host storage uses Function, and managed payload fields retain heap edges.
 #[derive(Debug, Clone)]
 pub struct StoredCallable(PreparedClosure);
 
@@ -197,7 +232,7 @@ impl NativePayload for StoredCallable {
 impl StoredCallable {
     /// Invoke a descriptor retained by a currently rooted native payload. The
     /// closure is validated before entering the prepared frame; callers retaining
-    /// it independently should use PinnedFunction. Returned values need a root before GC.
+    /// it independently should use Function. Returned values need a root before GC.
     pub fn call_values(
         &self,
         cx: &mut CallContext<'_>,

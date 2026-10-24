@@ -4,7 +4,7 @@ use kagari_runtime::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
     frame::ExecutionFrame,
-    module::entry::ProgramEntry,
+    module::{Module, entry::ProgramEntry},
     native::{
         binding::NativeResult,
         builder::ModuleBuilder,
@@ -13,7 +13,7 @@ use kagari_runtime::{
             context::{ConversionContext, ConversionLimits},
         },
         declarations::FunctionDecl,
-        function_handle::PinnedFunction,
+        function_handle::Function,
         typed::NativeContext,
     },
     session::{ExecutionEvent, ExecutionObserver},
@@ -21,7 +21,7 @@ use kagari_runtime::{
 };
 use kagari_stdlib::declarations::StandardDeclarations;
 use std::sync::{
-    Arc, Mutex,
+    Arc, Mutex, OnceLock,
     atomic::{AtomicUsize, Ordering},
 };
 
@@ -119,16 +119,16 @@ fn conversion_reentry(failure: Failure, observer_error: Option<RuntimeErrorKind>
         )
         .unwrap();
     let enter = module.define_function(FunctionDecl::new("enter")).unwrap();
+    let root = Arc::new(OnceLock::<Module>::new());
+    let callback_root = root.clone();
     let sink = observed.clone();
     module
         .bind(
             enter,
             move |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<()> {
-                let owner = cx.runtime().execution_root().unwrap();
-                let nested: PinnedFunction<(), i32> =
-                    cx.runtime().bind_function(&owner, "nested")?;
-                let healthy: PinnedFunction<(), i32> =
-                    cx.runtime().bind_function(&owner, "healthy")?;
+                let root = callback_root.get().expect("installed namespace");
+                let nested: Function<(), i32> = cx.runtime().bind_function(root, "nested")?;
+                let healthy: Function<(), i32> = cx.runtime().bind_function(root, "healthy")?;
                 let nested = nested.call(cx, ()).unwrap_err();
                 let termination = cx.runtime().resources().termination();
                 if termination.is_some() && observer_error.is_none() {
@@ -175,6 +175,9 @@ fn conversion_reentry(failure: Failure, observer_error: Option<RuntimeErrorKind>
         "#,
         Some(&module.finish().unwrap()),
     );
+    let _owner_program = owner;
+    root.set(_owner_program.root()).unwrap();
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let terminations = Arc::new(Mutex::new(Vec::new()));
     let session = observer_error.map(|error| {
         vm.runtime()
@@ -222,7 +225,7 @@ fn conversion_reentry(failure: Failure, observer_error: Option<RuntimeErrorKind>
         .iter()
         .map(|frame| frame.function_name.as_str())
         .collect::<Vec<_>>();
-    assert_eq!(names, ["nested", "main"]);
+    assert_eq!(names, ["fail", "nested", "enter", "main"]);
     if terminal {
         assert!(
             result.is_err(),
@@ -293,7 +296,7 @@ fn conversion_reentry(failure: Failure, observer_error: Option<RuntimeErrorKind>
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     let healthy = vm
         .runtime()
-        .bind_function::<(), i32>(&owner, "healthy")
+        .bind_function::<(), i32>(&_owner_program.root(), "healthy")
         .unwrap();
     assert_eq!(vm.call(&healthy, ()).unwrap(), 7);
     assert_eq!(effects.load(Ordering::Relaxed), completed_effects + 1);

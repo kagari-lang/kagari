@@ -70,7 +70,7 @@ fn compiles_loads_executes_and_reloads_through_embedding_api() {
         .load_program(
             &first,
             LoadOptions {
-                module_name: Some("game.main".to_owned()),
+                program_name: Some("game.main".to_owned()),
             },
         )
         .expect("module should load");
@@ -85,20 +85,22 @@ fn compiles_loads_executes_and_reloads_through_embedding_api() {
         Value::I32(1)
     );
 
-    let reloaded = runtime
+    let previous = runtime.runtime().select_program(&loaded).unwrap();
+    runtime
         .reload_program(
             &loaded,
             &second,
             ReloadOptions {
-                module_name: Some("game.main".to_owned()),
+                program_name: Some("game.main".to_owned()),
             },
         )
         .expect("compatible module should reload");
-    assert_eq!(reloaded.id, loaded.id);
-    assert_eq!(reloaded.epoch.0, loaded.epoch.0 + 1);
+    let reloaded = runtime.runtime().select_program(&loaded).unwrap();
+    assert_eq!(reloaded.id, previous.id);
+    assert_eq!(reloaded.epoch.0, previous.epoch.0 + 1);
 
     let report = runtime
-        .execute(&reloaded, ProgramEntry::Main, &[], &context)
+        .execute(&loaded, ProgramEntry::Main, &[], &context)
         .expect("reloaded entry should execute");
     assert_eq!(
         report
@@ -226,11 +228,13 @@ fn failed_reload_validation_does_not_publish_new_epoch() {
             &PreparedProgram::from_artifact(first, &Default::default(), &Default::default())
                 .unwrap(),
             LoadOptions {
-                module_name: Some("reload".to_owned()),
+                program_name: Some("reload".to_owned()),
             },
         )
         .expect("module should load");
+    let _selected_loaded = runtime.runtime().select_program(&loaded).unwrap();
     let before_count = runtime.runtime().modules().loaded_count();
+    let before_epoch = runtime.runtime().select_program(&loaded).unwrap().epoch;
 
     let error =
         PreparedProgram::from_artifact(candidate, &Default::default(), &context.cancellation)
@@ -241,8 +245,8 @@ fn failed_reload_validation_does_not_publish_new_epoch() {
     assert_eq!(error.code(), "KG_ARTIFACT_RUNTIME_ABI_MISMATCH");
     assert_eq!(runtime.runtime().modules().loaded_count(), before_count);
     assert_eq!(
-        runtime.runtime().modules().latest("reload").unwrap().epoch,
-        loaded.epoch
+        runtime.runtime().select_program(&loaded).unwrap().epoch,
+        before_epoch
     );
     assert_eq!(
         runtime
@@ -270,7 +274,7 @@ fn execute_entry_accepts_args_boundary_and_rejects_unimplemented_arguments() {
         .load_program(
             &artifact,
             LoadOptions {
-                module_name: Some("args".to_owned()),
+                program_name: Some("args".to_owned()),
             },
         )
         .expect("module should load");
@@ -312,7 +316,7 @@ fn installed_host_and_reflection_helpers_are_available() {
             )
             .unwrap(),
             LoadOptions {
-                module_name: Some("print".to_owned()),
+                program_name: Some("print".to_owned()),
             },
         )
         .expect("print module should load");
@@ -325,7 +329,7 @@ fn installed_host_and_reflection_helpers_are_available() {
             )
             .unwrap(),
             LoadOptions {
-                module_name: Some("type_of".to_owned()),
+                program_name: Some("type_of".to_owned()),
             },
         )
         .expect("type_of module should load");

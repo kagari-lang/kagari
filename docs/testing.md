@@ -16,7 +16,7 @@ Parser tests should not construct an SDK engine. Typing tests should use HIR;
 runtime ownership and installation tests should exercise runtime boundaries.
 SDK conformance tests retain the full checked source/artifact/backend path when
 that path establishes the contract. Do not remove source-free, actual-native,
-GC, cancellation or pinned-reload coverage to reduce execution time.
+GC, cancellation or publication/call-selection coverage to reduce execution time.
 
 ## Classify the contract before choosing a format
 
@@ -377,13 +377,44 @@ Select cases at the layer whose behavior changed; this table is not a local swee
 | Importer aliases, empty roots, visibility, unused bodies, implementation-only dependencies and retained scopes | `kagari-package/src/tests/analysis.rs` and the HIR import/signature owners |
 | Canonical native contracts and provider/query-setting identity | `kagari-types` native compiler-input unit case and `kagari-hir` environment-identity unit case |
 | Public export target/signature validation and malformed source-free artifacts | Compiler/bytecode export cases and runtime/VM `package_exports` unit modules |
-| Exact SDK capture, affected roots, dependency constants/generic bodies and pinned reload through decoded artifacts | `kagari/src/engine/tests/package_inputs.rs` |
+| Exact SDK capture, affected roots, frozen dependency constants, current generic bodies and publication through decoded artifacts | `kagari/src/engine/tests/package_inputs.rs` |
 | CLI discovery/selection, shared products, locked edits and standalone artifacts | `kagari-cli` project and artifact-pipeline cases |
 
 The [workspace/host example](../examples/package-workspace/README.md) is a runnable
 user workflow. It complements boundary assertions rather than duplicating another
 integration suite. CI owns the exhaustive feature/backend/platform matrix;
 `scripts/check_features.py` also checks source-free production dependencies.
+
+## Publication and executable-contract test owners
+
+The [live-installation and call-selection contract](spec/module-activation.md#live-installations-and-call-selection)
+distinguishes live `Program`/`Module` handles from exact `ExecutableModule` owners.
+Ordinary calls select current bodies; closures, cold futures and admitted work
+retain selected bodies, whose ordinary inner calls still select current bodies.
+Keep both observations in one lifecycle scenario rather than asserting that every
+value created before publication calls old code. Preserve alias-binding identity,
+failed-publication atomicity, frozen declarations, static continuity and cleanup.
+
+SDK orchestration remains in the existing `embedding/generic_reload`,
+`embedding/typed_calls` and `runtime/update` unit modules. Their source inputs live
+under `crates/kagari/tests/fixtures/embedding/{reload,typed,source-updates}/`.
+Use named `rstest` rows for shared orchestration, explicit versioned fixtures for
+substantial source changes, and guarded once-only replacements for small edits.
+Source-inspection fixtures with exact authored-definition assertions retain their
+intentional spelling; they are not ordinary formatting examples.
+
+Runtime admission and historical specialization demands belong to
+`kagari-runtime/src/module/tests/update_admission.rs`; frozen named inventory and
+forged evidence belong to `src/module/tests/package_exports/named_contracts.rs`.
+Compiler source/export cases and contract/bytecode validators retain their own
+structured assertions, including source-free rejection. Construct complete fixture
+evidence after adding functions or modules, rather than reusing a native-only
+program's earlier evidence. Runtime/stdlib composition stays in the existing
+stdlib `runtime_boundary/installation_access` owner, not a new runtime integration
+target or a dependency change to unify two test-harness type identities.
+
+Native-schema DTO/derive/Serde coverage is a separate host-conversion contract.
+It does not imply script-state snapshot/restore or migration APIs.
 
 ## Host interop contract owners
 
@@ -432,7 +463,11 @@ For a single source case, the runner performs these steps:
 4. Assert the result while it remains rooted in that runtime.
 5. Release the scalar result and assert that the execution left no active roots.
 
-JIT preparation still belongs to the loaded runtime/generation. The general
+Native compilation products retain exact executable-version evidence; runtime
+installation and entry admission must still match the selected executable. An
+obsolete product must not become a back door to an old ordinary call, even when
+JIT is disabled. Use an independent installation when testing actual execution
+of the original code alongside an updated installation. The general
 language-contract runner additionally preserves actual-native requirements,
 ordered host effects, mutations, traps, cancellation and reload assertions.
 Do not reuse a runtime, heap, host registry, cancellation token or mutable callback
@@ -458,7 +493,7 @@ the framework's truncated file description. File ordering can change ordinals;
 update affected filters rather than retaining forwarding aliases. Preserve semantic descriptions and use selected
 `--list` output to confirm exact names when needed. Do not hide a growing
 independent case list inside one serial test. Related
-sequences such as trap-then-recovery or publish-then-call-old-generation remain
+sequences such as trap-then-recovery or publish-then-resume-a-retained-body remain
 one scenario. Run its routes sequentially; let Rust's test harness schedule
 scenarios without a nested pool or a separate executable per scenario.
 

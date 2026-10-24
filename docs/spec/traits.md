@@ -389,8 +389,9 @@ Concrete `Item::make()`, generic `T::make()` and qualified
 In shared generic bodies, a bound operation's owner type is distinct from a
 value-level receiver. Only a declared `self` parameter consumes a receiver value;
 a static call forwards precisely its declared value arguments, even when empty.
-The selected operation and its checked types remain pinned to their supplying
-generation, including calls from retained closures after reload.
+The selected operation identity and lexical type evidence remain checked across
+reload; ordinary calls select the current implementation, including calls made
+from retained closure bodies. This is not runtime trait inference.
 
 ### Operation-specific bounds
 
@@ -936,12 +937,14 @@ Ambiguous calls have no selected method target and cannot enter code generation.
 
 The runtime represents script-backed interface values as generation-checked
 GC objects. Construction requires a verified implementation table and resolved
-method slots; the object retains its concrete payload and the linked dependency
-version until collection. Forged, stale or foreign handles are rejected. The
-method bindings follow trait declaration order regardless of implementation
+method slots; the object retains its concrete payload and required lexical type and
+implementation evidence until collection. Forged, stale or foreign handles are
+rejected. The method bindings follow trait declaration order regardless of implementation
 source order, and ordinal lookup checks the exact applied interface identity.
 Source calls on interface values use a verified trait method slot and enter the
-receiver's pinned implementation version through the explicit frame stack.
+current body of the receiver's checked implementation through the explicit frame
+stack. Publication does not change the selected implementation identity or infer a
+new trait implementation for an old receiver.
 The construction entry accepts verified concrete implementation tables,
 including generic impl instances and explicitly registered native impls. Native
 impls use the same declaration and method-slot validation as script impls;
@@ -1041,8 +1044,9 @@ The interface payload may retain a registered durable `HostRoot`, whose registry
 ownership, concrete type and schema are checked. Borrow tokens and path views
 cannot be retained in an interface. Boxing does not transfer ownership of the
 underlying host object to the script GC. An embedding must explicitly root the
-interface while retaining it. Interface objects and their calls pin the linked
-execution version, including across synchronous host reentry and hot reload.
+interface while retaining it. Interface objects retain checked implementation/type
+evidence; ordinary method calls select current bodies. Admitted frames retain exact
+code, and synchronous host reentry prevents publication until that scope ends.
 Tuple method parameters and results validate any nested host roots as well.
 
 See [host-interfaces.kgr](../../examples/host-interfaces.kgr) and run

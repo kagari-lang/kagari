@@ -164,16 +164,16 @@ impl Executor<'_> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{error::VmError, executor::Executor};
+    use crate::{error::VmError, executor::Executor, tests::native_program::ProgramFixture};
     use kagari_abi::representation::ValueType;
     use kagari_bytecode::{
         instruction::BytecodeInstruction,
         module::{
             BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, InstructionOrigin,
         },
-        program::{BytecodeProgram, ModuleRef},
+        program::ModuleRef,
     };
-    use kagari_common::identity::metadata::DefinitionMetadata;
+
     use kagari_contract::ids::FunctionRef;
     use kagari_runtime::{Runtime, error::RuntimeError};
 
@@ -195,7 +195,7 @@ mod tests {
             },
             ..Default::default()
         };
-        let program = BytecodeProgram {
+        let program = ProgramFixture {
             root: ModuleRef::new(0),
             exports: Default::default(),
             modules: vec![BytecodeModule {
@@ -215,14 +215,13 @@ mod tests {
         let owner = runtime
             .load_program(
                 "driver",
-                DefinitionMetadata::checked(
-                    runtime.host().definitions(),
-                    program,
-                    &Default::default(),
-                )
-                .unwrap(),
+                program
+                    .metadata(runtime.host().definitions(), &Default::default())
+                    .unwrap(),
             )
             .unwrap();
+        let _owner_program = owner;
+        let owner = runtime.select_program(&_owner_program).unwrap();
         let executor = Executor::new(&runtime, &owner, FunctionRef::new(0), &[]).unwrap();
         let error = executor
             .report_operation::<()>(Err(VmError::from(RuntimeError::resource_limit(

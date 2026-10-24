@@ -11,6 +11,7 @@ use kagari_contract::{
             validate_declarations, validate_function, validate_layouts, validate_slots,
             validate_types,
         },
+        named::origins,
         type_contract,
     },
 };
@@ -25,12 +26,34 @@ pub(super) fn validate(
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
 ) -> Result<(), TypeTransformError> {
+    origins::validate(
+        &module.function_origins,
+        &module.identity,
+        definitions,
+        cancel,
+        module.functions.iter().filter_map(|function| {
+            Some((function.identity.as_ref()?, &function.metadata.semantic))
+        }),
+        |id| {
+            closure
+                .iter()
+                .flat_map(|module| &module.named_declarations)
+                .find(|record| record.declaration == id)
+        },
+    )?;
     let validator = ApplicationValidator::new(
         cancel,
         |id| contract(id, closure, definitions),
         |id| {
             closure.iter().find_map(|owner| {
                 type_contract(&owner.identity, &owner.public_items, id, definitions)
+                    .or_else(|| {
+                        owner
+                            .private_types
+                            .iter()
+                            .find(|record| &record.declaration == id)
+                            .map(|record| &record.definition)
+                    })
                     .map(|record| (record.kind, record.generic_params.len()))
                     .or_else(|| {
                         owner
@@ -53,6 +76,8 @@ pub(super) fn validate(
         &validator,
         &module.public_items,
         &module.trait_contracts,
+        &module.private_types,
+        &module.named_declarations,
         cancel,
         definitions,
     )?;

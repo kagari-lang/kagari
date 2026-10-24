@@ -11,7 +11,7 @@ use crate::{
         construction::{ConstructionIdentity, ConstructionScope},
         operations::{OperationBindings, OperationSegment},
     },
-    module::{LoadedModule, ModuleKey},
+    module::{ExecutableModule, ModuleKey},
 };
 use kagari_types::ty::Ty;
 use std::sync::Arc;
@@ -53,7 +53,7 @@ impl ApplicationArguments {
     }
 
     pub(crate) fn new(
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         values: Vec<TypeArgument>,
         constructions: ConstructionScope,
     ) -> Result<Self, RuntimeError> {

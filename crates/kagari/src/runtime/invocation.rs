@@ -16,7 +16,7 @@ use kagari_runtime::native::{
 };
 
 impl Runtime {
-    /// Admit a cold pinned invocation using the default context.
+    /// Select and admit a cold invocation using the default context.
     /// Arguments convert and become rooted before return; neither factory nor
     /// async body runs here. Poll Runtime separately to make progress. Admission
     /// errors return now; execution/conversion errors arrive through the ticket.
@@ -128,7 +128,7 @@ impl Runtime {
     }
 
     /// Submit through an existing retained interface and its checked member binding.
-    /// Dispatch and output adapters remain pinned; this does not cast struct objects.
+    /// Selects current dispatch with checked output adapters; this does not cast struct objects.
     pub fn submit_async_interface_method<A: IntoKagariArguments, R: FromKagari + Send + 'static>(
         &mut self,
         object: &Interface<impl Sized>,

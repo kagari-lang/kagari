@@ -1,3 +1,4 @@
+use crate::tests::native_program::ProgramFixture;
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     artifact::KbcArtifact,
@@ -15,19 +16,22 @@ use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     host::{HostCallContext, HostError},
-    module::{LoadedModule, VerifiedProgram},
+    module::{Program, VerifiedProgram},
     native::{builder::ModuleBuilder, module::NativeModule},
     value::Value,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib as foundation;
-use kagari_types::declaration::logging;
+use kagari_types::{
+    declaration::logging,
+    ty::{NominalTy, Ty},
+};
 use std::{iter, sync::Arc};
 
 pub fn load_bytecode_module(
     name: &str,
     bytecode: DefinitionMetadata<BytecodeModule>,
-) -> (Runtime, LoadedModule) {
+) -> (Runtime, Program) {
     load_bytecode_module_with_runtime(standard_runtime(Default::default()), name, bytecode)
 }
 
@@ -35,7 +39,7 @@ pub fn load_bytecode_module_with_runtime(
     mut runtime: Runtime,
     name: &str,
     bytecode: DefinitionMetadata<BytecodeModule>,
-) -> (Runtime, LoadedModule) {
+) -> (Runtime, Program) {
     let loaded = runtime
         .load_program(name, module_program(bytecode))
         .expect("test module should load");
@@ -47,15 +51,12 @@ pub fn module_program(
     module: DefinitionMetadata<BytecodeModule>,
 ) -> DefinitionMetadata<BytecodeProgram> {
     let (definitions, module) = module.into_parts();
-    DefinitionMetadata::checked(
-        definitions,
-        BytecodeProgram {
-            exports: Default::default(),
-            root: ModuleRef::new(0),
-            modules: vec![module],
-        },
-        &Default::default(),
-    )
+    ProgramFixture {
+        exports: Default::default(),
+        root: ModuleRef::new(0),
+        modules: vec![module],
+    }
+    .metadata(definitions, &Default::default())
     .unwrap()
 }
 
@@ -87,7 +88,7 @@ pub fn round_trip_bytecode(
 pub fn load_bytecode_program(
     name: &str,
     program: DefinitionMetadata<BytecodeProgram>,
-) -> (Runtime, LoadedModule) {
+) -> (Runtime, Program) {
     load_bytecode_program_with_runtime(standard_runtime(Default::default()), name, program)
 }
 
@@ -95,14 +96,14 @@ pub fn load_bytecode_program_with_runtime(
     mut runtime: Runtime,
     name: &str,
     program: DefinitionMetadata<BytecodeProgram>,
-) -> (Runtime, LoadedModule) {
+) -> (Runtime, Program) {
     let loaded = runtime
         .load_program(name, program)
         .expect("test program should load");
     (runtime, loaded)
 }
 
-pub fn load_test_module(source_text: &str) -> (Runtime, LoadedModule) {
+pub fn load_test_module(source_text: &str) -> (Runtime, Program) {
     let program = compile_native_test_bytecode_with_options(source_text, &[], &Default::default());
     let mut runtime = standard_runtime(Default::default());
     let loaded = runtime
@@ -274,6 +275,20 @@ pub fn point_function_module(
     module.structures = program.records().modules[program.records().root.index()]
         .structures
         .clone();
+    let point = Ty::Struct(NominalTy {
+        declaration: module.structures[0].declaration,
+        arguments: vec![],
+        associated_types: Default::default(),
+    });
+    let metadata = &mut module.functions[0].metadata;
+    if return_type == ValueType::HeapObject {
+        metadata.semantic.result = Some(point.clone());
+    }
+    for (index, ty) in metadata.slots.iter().enumerate() {
+        if *ty == ValueType::HeapObject {
+            metadata.semantic.slots.insert(index, point.clone());
+        }
+    }
     DefinitionMetadata::checked(program.definitions().clone(), module, &Default::default()).unwrap()
 }
 

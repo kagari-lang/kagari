@@ -39,6 +39,8 @@ fn mark_sweep_traces_tuples_enum_payloads_and_cycles_without_retaining_unreachab
     "#,
         None,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let value = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
@@ -81,6 +83,8 @@ fn tracing_a_deep_heap_chain_uses_an_explicit_work_stack() {
     "#,
         None,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let value = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
@@ -102,6 +106,8 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
         include_str!("../../../../tests/fixtures/native/structural-and-identity-hash-keys.kgr"),
         None,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let Value::Tuple(values) = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
@@ -250,11 +256,7 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
     assert_eq!(runtime.gc().active_roots(), 0);
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
     let candidate = runtime
-        .stage_reload_verified_program(
-            &loaded,
-            loaded.name.clone(),
-            loaded.verified_program().clone(),
-        )
+        .stage_reload_verified_program(&_loaded_program, None, loaded.verified_program().clone())
         .unwrap();
     runtime.publish_staged_reload(candidate).unwrap();
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
@@ -272,6 +274,8 @@ fn invalid_identity_keys_are_rejected_without_container_modification() {
     "#,
         None,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let Value::Tuple(values) = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
@@ -287,6 +291,11 @@ fn invalid_identity_keys_are_rejected_without_container_modification() {
     };
     let (map, set) = (*map, *set);
     let (foreign_vm, foreign_owner) = compile("fn main() {}", None);
+    let _foreign_owner_program = foreign_owner;
+    let foreign_owner = foreign_vm
+        .runtime()
+        .select_program(&_foreign_owner_program)
+        .unwrap();
     let object = foreign_vm
         .runtime()
         .alloc_array(&foreign_owner, Ty::Builtin(BuiltinType::I32), vec![])
@@ -327,6 +336,8 @@ fn intrinsic_formatting_is_bounded_and_does_not_read_mutable_graphs() {
     "#,
         None,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let Value::GcHandle(object) = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
@@ -410,6 +421,8 @@ fn rooted_data_keeps_type_metadata_without_retaining_obsolete_module_state() {
         }"#,
         Some(&module),
     );
+    let _old_program = old;
+    let old = vm.runtime().select_program(&_old_program).unwrap();
     assert_eq!(
         vm.execute(&old, ProgramEntry::Main)
             .unwrap()
@@ -425,13 +438,14 @@ fn rooted_data_keeps_type_metadata_without_retaining_obsolete_module_state() {
     let Value::GcHandle(array) = root.value(vm.runtime().gc()).unwrap() else {
         panic!("typed array")
     };
-    let replacement = vm
-        .reload_program(
-            &old,
-            "boundary",
-            compile_program("fn main() -> i32 { 99 }", Some(&module)),
-        )
-        .unwrap();
+    vm.reload_program(
+        &_old_program,
+        Some("boundary".into()),
+        compile_program("fn main() -> i32 { 99 }", Some(&module)),
+    )
+    .unwrap();
+    let _replacement_program = _old_program.clone();
+    let replacement = vm.runtime().select_program(&_replacement_program).unwrap();
     let expected: HashSet<_> = old.members().map(|member| member.key()).collect();
     let reclaimed: HashSet<_> = vm
         .runtime()
@@ -441,7 +455,7 @@ fn rooted_data_keeps_type_metadata_without_retaining_obsolete_module_state() {
         .into_iter()
         .collect();
     assert_eq!(reclaimed, expected);
-    assert!(vm.runtime().validate_loaded_module(&old).is_err());
+    assert!(vm.runtime().validate_executable_module(&old).is_err());
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 2);
     let item = vm.runtime().gc().sequence_get(array, 0).unwrap();
     vm.runtime().gc().sequence_push(array, item).unwrap();
@@ -477,6 +491,8 @@ fn recursive_element_contracts_reject_changed_nested_layouts_after_reload() {
         }
     "#;
     let (vm, old) = compile(source, None);
+    let _old_program = old;
+    let old = vm.runtime().select_program(&_old_program).unwrap();
     let old_value = vm
         .execute(&old, ProgramEntry::Main)
         .unwrap()
@@ -487,9 +503,14 @@ fn recursive_element_contracts_reject_changed_nested_layouts_after_reload() {
     let replacement = source
         .replace("val value: i32", "val value: i32, val extra: bool")
         .replace("value: 42 }", "value: 42, extra: true }");
-    let current = vm
-        .reload_program(&old, "boundary", compile_program(&replacement, None))
-        .unwrap();
+    vm.reload_program(
+        &_old_program,
+        Some("boundary".into()),
+        compile_program(&replacement, None),
+    )
+    .unwrap();
+    let _current_program = _old_program.clone();
+    let current = vm.runtime().select_program(&_current_program).unwrap();
     let new_value = vm
         .execute(&current, ProgramEntry::Main)
         .unwrap()

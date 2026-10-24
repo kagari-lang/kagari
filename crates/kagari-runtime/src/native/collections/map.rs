@@ -14,7 +14,7 @@ use crate::{
 use kagari_types::{collection::CollectionAccess, ty::Ty};
 use std::marker::PhantomData;
 
-/// A retained map using the Hash/Eq implementation selected at construction.
+/// A retained map using current bodies of its construction-time Hash/Eq selections.
 #[derive(Debug)]
 pub struct ScriptMap<K, V> {
     handle: HashHandle,

@@ -6,11 +6,11 @@
 
 use crate::{
     error::VmError,
-    vm::{ExecutionReport, Vm, native::PreparedNativeEntry},
+    vm::{ExecutionReport, Vm, native::PreparedNativeExecution},
 };
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
-    module::LoadedModule,
+    module::ExecutableModule,
     session::{ExecutionOptions, owned::OwnedExecution},
     value::Value,
 };
@@ -18,20 +18,20 @@ use kagari_runtime::{
 pub(crate) trait FixtureExecution {
     fn execute_fixture(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         function: FunctionRef,
     ) -> Result<ExecutionReport, VmError>;
 
-    fn execute_fixture_prepared(
+    fn execute_fixture_prepared<'p>(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         function: FunctionRef,
-        prepared: &PreparedNativeEntry,
+        prepared: impl Into<PreparedNativeExecution<'p>>,
     ) -> Result<ExecutionReport, VmError>;
 
     fn start_fixture(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         function: FunctionRef,
         arguments: &[Value],
         options: ExecutionOptions,
@@ -41,34 +41,35 @@ pub(crate) trait FixtureExecution {
 impl FixtureExecution for Vm {
     fn execute_fixture(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         function: FunctionRef,
     ) -> Result<ExecutionReport, VmError> {
-        let session = self.begin_execution(owner)?;
-        self.runtime.validate_loaded_module(owner)?;
-        self.execute_selected(owner, function, "instruction fixture", &session)
+        let (owner, function) = self.select_function(owner, function)?;
+        let session = self.begin_execution(&owner)?;
+        self.execute_selected(&owner, function, "instruction fixture", &session)
     }
 
-    fn execute_fixture_prepared(
+    fn execute_fixture_prepared<'p>(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         function: FunctionRef,
-        prepared: &PreparedNativeEntry,
+        prepared: impl Into<PreparedNativeExecution<'p>>,
     ) -> Result<ExecutionReport, VmError> {
-        let session = self.begin_execution(owner)?;
-        self.runtime.validate_loaded_module(owner)?;
-        self.execute_prepared_selected(owner, function, "instruction fixture", prepared, &session)
+        let (owner, function) = self.select_function(owner, function)?;
+        let session = self.begin_execution(&owner)?;
+        self.execute_prepared_selected(&owner, function, "instruction fixture", prepared, &session)
     }
 
     fn start_fixture(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         function: FunctionRef,
         arguments: &[Value],
         options: ExecutionOptions,
     ) -> Result<OwnedExecution, VmError> {
+        let (owner, function) = self.select_function(owner, function)?;
         self.runtime
-            .start_owned_execution(owner, function, arguments, options)
+            .start_owned_execution(&owner, function, arguments, options)
             .map_err(VmError::from)
     }
 }

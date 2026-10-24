@@ -8,7 +8,7 @@ use kagari_runtime::{
 use kagari_vm::vm::Vm;
 
 #[test]
-fn rooted_child_and_parent_views_keep_old_versions_across_gc_and_reload() {
+fn rooted_child_and_parent_views_call_current_helpers_across_gc_and_reload() {
     let source = r#"
 pub trait Read { fn read(self) -> i32; }
 pub trait Child: Read {}
@@ -32,6 +32,8 @@ fn main() -> i32 { boxed().read() }
         .runtime_mut()
         .load_program("inheritance", program)
         .unwrap();
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let value = vm
         .execute(&loaded, "boxed")
         .unwrap()
@@ -68,9 +70,15 @@ fn main() -> i32 { boxed().read() }
     );
     let replacement =
         compile(&source.replace("fn answer() -> i32 { 42 }", "fn answer() -> i32 { 43 }")).unwrap();
-    let new = vm
-        .reload_artifact(&loaded, "inheritance", replacement, &Default::default())
-        .unwrap();
+    vm.reload_artifact(
+        &_loaded_program,
+        Some("inheritance".into()),
+        replacement,
+        &Default::default(),
+    )
+    .unwrap();
+    let _new_program = _loaded_program.clone();
+    let new = vm.runtime().select_program(&_new_program).unwrap();
     assert_eq!(
         vm.execute(&new, ProgramEntry::Main)
             .unwrap()
@@ -81,7 +89,7 @@ fn main() -> i32 { boxed().read() }
     );
     assert_eq!(
         vm.invoke_interface_method(&value, &method, &[]).unwrap(),
-        Value::I32(42)
+        Value::I32(43)
     );
     assert_eq!(
         loaded

@@ -2,7 +2,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::{arguments::TypeArgument, bindings::TypeBindings},
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         binding::NativeResult,
         conversion::{KagariType, context::ConversionContext},
@@ -29,7 +29,7 @@ impl AppliedSchema {
 
     pub(crate) fn prepare(
         runtime: &Runtime,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         argument: &TypeArgument,
         declaration: Arc<ManagedSchema>,
     ) -> NativeResult<Self> {

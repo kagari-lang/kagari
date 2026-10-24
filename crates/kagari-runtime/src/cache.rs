@@ -6,16 +6,18 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::BytecodeProgram,
 };
-use kagari_common::identity::{
-    ModuleIdentity, mapping::DefinitionMappingError, table::DefinitionTable,
+use kagari_common::identity::{mapping::DefinitionMappingError, table::DefinitionTable};
+use std::{
+    cell::{RefCell, RefMut},
+    collections::HashMap,
 };
-use std::{cell::RefCell, collections::HashMap};
 
 use {kagari_abi::version::KAGARI_RUNTIME_HELPER_ABI_VERSION, kagari_contract::ids::FunctionRef};
 
 use crate::{
-    module::{ModuleId, ModuleKey},
-    reload::{path_fingerprints_for_module, public_abi_fingerprints_for_module},
+    error::RuntimeError,
+    module::{InstallationId, ModuleKey},
+    reload::{ModuleEpoch, path_fingerprints_for_module, public_abi_fingerprints_for_module},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -74,18 +76,9 @@ impl ReloadDependencySnapshot {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InterpreterCacheRecord {
     pub id: InterpreterCacheId,
+    pub installation: InstallationId,
     pub module: ModuleKey,
     pub function: Option<FunctionRef>,
-    pub dependencies: ReloadDependencySnapshot,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReloadInvalidation {
-    pub module_name: String,
-    pub module_identity: ModuleIdentity,
-    pub module_fingerprint: ArtifactFingerprint,
-    pub module_id: ModuleId,
-    pub published: ModuleKey,
     pub dependencies: ReloadDependencySnapshot,
 }
 
@@ -105,6 +98,7 @@ struct InterpreterCacheRegistryInner {
 impl InterpreterCacheRegistry {
     pub fn register(
         &self,
+        installation: InstallationId,
         module: ModuleKey,
         function: Option<FunctionRef>,
         dependencies: ReloadDependencySnapshot,
@@ -116,6 +110,7 @@ impl InterpreterCacheRegistry {
             id,
             InterpreterCacheRecord {
                 id,
+                installation,
                 module,
                 function,
                 dependencies,
@@ -128,43 +123,36 @@ impl InterpreterCacheRegistry {
         self.inner.borrow().entries.get(&id).cloned()
     }
 
-    pub fn invalidate_for_reload(
+    pub(crate) fn prepare_invalidation(
         &self,
-        invalidation: &ReloadInvalidation,
-    ) -> Vec<InterpreterCacheRecord> {
-        let mut inner = self.inner.borrow_mut();
-        let mut invalidated = inner
-            .entries
-            .iter()
-            .filter_map(|(id, cache)| {
-                cache_invalidated_by_reload(cache, invalidation).then_some(*id)
-            })
-            .collect::<Vec<_>>();
-        invalidated.sort_by_key(|id| id.index());
+        installation: InstallationId,
+        published: ModuleEpoch,
+    ) -> Result<CacheInvalidation<'_>, RuntimeError> {
+        let inner = self.inner.try_borrow_mut().map_err(|_| {
+            RuntimeError::module_validation("interpreter caches borrowed during publication")
+        })?;
+        let mut invalidated = Vec::new();
         invalidated
-            .into_iter()
-            .filter_map(|id| inner.entries.remove(&id))
-            .collect()
+            .try_reserve(inner.entries.len())
+            .map_err(|_| RuntimeError::resource_limit("interpreter cache invalidation"))?;
+        invalidated.extend(inner.entries.iter().filter_map(|(id, cache)| {
+            (cache.installation == installation && cache.module.epoch != published).then_some(*id)
+        }));
+        Ok(CacheInvalidation { inner, invalidated })
     }
 }
 
-fn cache_invalidated_by_reload(
-    cache: &InterpreterCacheRecord,
-    invalidation: &ReloadInvalidation,
-) -> bool {
-    if cache.module.id == invalidation.module_id {
-        if cache.module.epoch == invalidation.published.epoch {
-            return false;
-        }
-        return true;
-    }
+/// Preallocated invalidation under an exclusive registry borrow. Dropping an
+/// uncommitted plan leaves caches unchanged if publication rejects the candidate.
+pub(crate) struct CacheInvalidation<'a> {
+    inner: RefMut<'a, InterpreterCacheRegistryInner>,
+    invalidated: Vec<InterpreterCacheId>,
+}
 
-    cache
-        .dependencies
-        .dependency_fingerprints
-        .iter()
-        .any(|dependency| {
-            dependency.module_id == invalidation.module_identity
-                && dependency.fingerprint != invalidation.module_fingerprint
-        })
+impl CacheInvalidation<'_> {
+    pub(crate) fn commit(mut self) {
+        for id in self.invalidated {
+            self.inner.entries.remove(&id);
+        }
+    }
 }

@@ -270,6 +270,7 @@ fn execution_policy_preserves_cancellation_observers_and_native_failures() {
     let enabled = context();
     let mut runtime = engine.runtime(enabled.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let _selected_loaded = runtime.runtime().select_program(&loaded).unwrap();
     let mut backend = Backend {
         mode: 3,
         ..Default::default()
@@ -342,7 +343,7 @@ fn execution_policy_preserves_cancellation_observers_and_native_failures() {
         .unwrap();
     let session = runtime
         .runtime()
-        .begin_execution(&loaded, enabled.runtime_options())
+        .begin_execution(&_selected_loaded, enabled.runtime_options())
         .unwrap();
     runtime.runtime().attach_execution_observer().unwrap();
     let report = runtime
@@ -697,18 +698,21 @@ fn reload_reuses_candidate_code_and_keeps_old_native_entries_version_pinned() {
         )
         .unwrap();
     assert_eq!(backend.calls, 2);
-    let published = runtime
+    let selected_old = runtime.runtime().select_program(&old).unwrap();
+    runtime
         .reload_program(&old, &candidate, Default::default())
         .unwrap();
+    let published = old.clone();
+    let selected_published = runtime.runtime().select_program(&published).unwrap();
     assert!(
         candidate
             .bytecode()
-            .same_version(published.verified_program())
+            .same_version(selected_published.verified_program())
     );
     assert!(
         !old_program
             .bytecode()
-            .same_version(published.verified_program())
+            .same_version(selected_published.verified_program())
     );
     let new_native = runtime
         .prepare_native(
@@ -742,10 +746,18 @@ fn reload_reuses_candidate_code_and_keeps_old_native_entries_version_pinned() {
             matches!(mismatch, EmbeddingError::Runtime { kind: RuntimeFailureKind::BytecodeVerification, message, .. } if message.contains("different function or execution version"))
         );
     }
-    for (module, native) in [(&old, &old_native), (&published, &new_native)] {
+    for (module, native) in [
+        (&selected_old, &old_native),
+        (&selected_published, &new_native),
+    ] {
+        let _session = runtime
+            .runtime()
+            .begin_execution(module, context.runtime_options())
+            .unwrap();
         assert_eq!(
             runtime
-                .execute_prepared(module, ProgramEntry::Main, &[], &context, native)
+                .backend()
+                .execute_prepared(module, ProgramEntry::Main, native)
                 .unwrap()
                 .jit
                 .unwrap()

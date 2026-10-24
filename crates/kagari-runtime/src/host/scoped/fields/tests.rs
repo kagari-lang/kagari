@@ -1,3 +1,4 @@
+use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
     native::{
@@ -5,11 +6,7 @@ use crate::{
     },
     value::Value,
 };
-use kagari_bytecode::{
-    instruction::StructId,
-    module::BytecodeModule,
-    program::{BytecodeProgram, ModuleRef},
-};
+use kagari_bytecode::{instruction::StructId, module::BytecodeModule, program::ModuleRef};
 use kagari_common::identity::{DefinitionKind, metadata::DefinitionMetadata};
 use kagari_contract::layout::{StructFieldLayout, StructLayout};
 use kagari_contract::types::PublicItem;
@@ -79,27 +76,27 @@ fn executable_inline_field_codecs_keep_paths_current_and_results_rooted() {
         .unwrap()
         .module()
         .clone();
-    let program = DefinitionMetadata::checked(
-        runtime.definition_context().snapshot(),
-        BytecodeProgram {
-            root: ModuleRef::new(0),
-            exports: Default::default(),
-            modules: vec![BytecodeModule {
-                structures,
-                public_items,
-                identity,
-                ..Default::default()
-            }],
-        },
-        &Default::default(),
-    )
+    let program = ProgramFixture {
+        root: ModuleRef::new(0),
+        exports: Default::default(),
+        modules: vec![BytecodeModule {
+            structures,
+            public_items,
+            identity,
+            ..Default::default()
+        }],
+    }
+    .metadata(runtime.definition_context().snapshot(), &Default::default())
     .unwrap();
-    let owner = runtime
+    let owner_program = runtime
         .load_program("field-codec-proof", program.clone())
         .unwrap();
+    let owner = runtime.select_program(&owner_program).unwrap();
     let player_layout = owner.struct_layout(StructId::new(0)).unwrap();
     let stats_layout = owner.struct_layout(StructId::new(1)).unwrap();
-    let player_type = runtime.bind_rust_type::<Player>(&owner).unwrap();
+    let player_type = runtime
+        .bind_rust_type::<Player>(&owner_program.root())
+        .unwrap();
     let mut changed = program.clone().into_records();
     changed.modules[0].structures[1].fields[0].ty = Ty::Builtin(BuiltinType::I64);
     for item in &mut changed.modules[0].public_items {
@@ -116,7 +113,11 @@ fn executable_inline_field_codecs_keep_paths_current_and_results_rooted() {
     )
     .unwrap();
     assert!(runtime.load_program("field-codec-proof", changed).is_err());
-    let newer = runtime.load_program("field-codec-proof", program).unwrap();
+    let staged = runtime
+        .stage_reload_program(&owner_program, None, program)
+        .unwrap();
+    runtime.publish_staged_reload(staged).unwrap();
+    let newer = runtime.select_program(&owner_program).unwrap();
     let newer_layout = newer.struct_layout(StructId::new(0)).unwrap();
     let mut player = Player {
         stats: Stats { hp: 40 },

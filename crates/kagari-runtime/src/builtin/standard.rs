@@ -4,7 +4,7 @@ use crate::{
     builtin::BuiltinError,
     error::RuntimeError,
     gc::GcHeap,
-    module::{LoadedModule, linked_execution::builtin_results::BuiltinResult},
+    module::{ExecutableModule, linked_execution::builtin_results::BuiltinResult},
     native::sequence::SequenceStorage,
     value::{MapKey, Value},
     value_semantics,
@@ -17,7 +17,7 @@ mod tests;
 
 pub fn invoke(
     runtime: &Runtime,
-    owner: &LoadedModule,
+    owner: &ExecutableModule,
     primitive: RuntimePrimitive,
     args: &[Value],
 ) -> Result<Value, BuiltinError> {

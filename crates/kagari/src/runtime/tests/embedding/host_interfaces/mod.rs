@@ -280,6 +280,8 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
             artifact_program(fixture.artifact.clone()),
         )
         .unwrap();
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let value = vm
         .execute(&loaded, "boxed")
         .unwrap()
@@ -324,9 +326,15 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
         .engine
         .emit_artifact(&checked, Default::default())
         .unwrap();
-    let new = vm
-        .reload_artifact(&loaded, "host-interfaces", artifact, &Default::default())
-        .unwrap();
+    vm.reload_artifact(
+        &_loaded_program,
+        Some("host-interfaces".into()),
+        artifact,
+        &Default::default(),
+    )
+    .unwrap();
+    let _new_program = _loaded_program.clone();
+    let new = vm.runtime().select_program(&_new_program).unwrap();
     let new_value = vm
         .execute(&new, "boxed")
         .unwrap()
@@ -563,6 +571,8 @@ fn dynamic_host_calls_enforce_permissions_and_registered_output_contracts() {
         .runtime_mut()
         .load_program("permissions", artifact_program(fixture.artifact.clone()))
         .unwrap();
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let value = vm
         .execute(&loaded, "boxed")
         .unwrap()
@@ -665,7 +675,10 @@ fn interface_method_results_validate_nested_host_roots() {
         .expect("retained execution result");
     let method = runtime
         .runtime()
-        .resolve_interface_method(&value, &fixture.method(&loaded))
+        .resolve_interface_method(
+            &value,
+            &fixture.method(&runtime.runtime().select_program(&loaded).unwrap()),
+        )
         .unwrap();
     runtime
         .runtime()

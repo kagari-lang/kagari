@@ -9,14 +9,14 @@ use crate::vm::Vm;
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, CallTarget, NativeImportId},
     module::CallableTarget,
+    program::updates::{self, EvidenceInputs},
 };
 use kagari_common::identity::{DefinitionKind, metadata::DefinitionMetadata};
 use kagari_contract::callable::shared::SharedCall;
 use kagari_runtime::{
     Runtime,
     native::{
-        conversion::context::ConversionContext, function_handle::PinnedFunction,
-        module::NativeModule,
+        conversion::context::ConversionContext, function_handle::Function, module::NativeModule,
     },
 };
 use kagari_types::callable::CallableImplementation;
@@ -100,6 +100,25 @@ fn source_free_closed_shared_application_retains_and_releases_its_environment() 
             .flat_map(|table| &table.methods)
             .all(|method| matches!(method.target, CallableTarget::Script(_)))
     );
+    // This legal producer rewrite changes the emitted call contract. Preserve
+    // source/initializer inputs, but rebuild body evidence from the new bytecode.
+    program.update_evidence = updates::build(
+        &program.modules,
+        EvidenceInputs {
+            sources: program.update_evidence.sources.clone(),
+            initializers: program.update_evidence.initializers.clone(),
+            selections: program.update_evidence.selections.clone(),
+            classifications: program
+                .update_evidence
+                .bodies
+                .iter()
+                .map(|body| (body.requirement.origin.clone(), body.classification.clone()))
+                .collect(),
+        },
+        &definitions,
+        &Default::default(),
+    )
+    .unwrap();
     let decoded = round_trip_program(
         DefinitionMetadata::checked(definitions, program, &Default::default()).unwrap(),
     );
@@ -107,6 +126,8 @@ fn source_free_closed_shared_application_retains_and_releases_its_environment() 
     NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
     module.install(&mut runtime).unwrap();
     let owner = runtime.load_program("shared-application", decoded).unwrap();
+    let _owner_program = owner;
+    let owner = runtime.select_program(&_owner_program).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute_typed::<(), i32>(&owner, "evidence", ()).unwrap(),
@@ -126,14 +147,18 @@ fn source_free_closed_shared_application_retains_and_releases_its_environment() 
     let identity = vm
         .runtime()
         .bind_function_application_declaration::<(i32,), i32>(
-            &owner,
+            &_owner_program.root(),
             &declaration,
             slice::from_ref(&argument),
         )
         .unwrap();
     let duplicate = vm
         .runtime()
-        .bind_function_application_declaration::<(i32,), i32>(&owner, &declaration, &[argument])
+        .bind_function_application_declaration::<(i32,), i32>(
+            &_owner_program.root(),
+            &declaration,
+            &[argument],
+        )
         .unwrap();
     vm.runtime().collect_garbage().unwrap();
     assert_eq!(
@@ -144,7 +169,7 @@ fn source_free_closed_shared_application_retains_and_releases_its_environment() 
     drop(identity);
     vm.runtime().collect_garbage().unwrap();
     assert_eq!(vm.call(&duplicate, (42,)).unwrap(), 42);
-    let boxed: PinnedFunction<(i32,), i32> = vm
+    let boxed: Function<(i32,), i32> = vm
         .execute_typed(&owner, "echo", (duplicate.clone(),))
         .unwrap();
     drop(duplicate);
@@ -155,13 +180,13 @@ fn source_free_closed_shared_application_retains_and_releases_its_environment() 
             .unwrap(),
         43
     );
-    // The linked program retains shared preparation after transient handles go
-    // away. Reload retires that owner, while the old callable still pins it.
+    // The linked program caches shared preparation; the named callable retains
+    // its lexical environment while ordinary invocation selects current code.
     let candidate = vm
         .runtime()
         .stage_reload_verified_program(
-            &owner,
-            "shared-application",
+            &_owner_program,
+            Some("shared-application".into()),
             owner.verified_program().clone(),
         )
         .unwrap();
@@ -171,6 +196,19 @@ fn source_free_closed_shared_application_retains_and_releases_its_environment() 
     drop(boxed);
     let collected = vm.runtime().collect_garbage().unwrap();
     assert_eq!(collected.live_objects, 0);
+    // Calling after publication populated the current native application cache.
+    // Its environment retires with that publication, not with the last handle.
+    assert!(vm.runtime().gc().stats().environments > 0);
+    let current = vm.runtime().select_program(&_owner_program).unwrap();
+    let current_key = current.key();
+    let candidate = vm
+        .runtime()
+        .stage_reload_verified_program(&_owner_program, None, current.verified_program().clone())
+        .unwrap();
+    vm.runtime().publish_staged_reload(candidate).unwrap();
+    drop(current);
+    let collected = vm.runtime().collect_garbage().unwrap();
+    assert!(collected.reclaimed_modules.contains(&current_key));
     assert!(collected.reclaimed_environments > 0);
     assert_eq!(vm.runtime().gc().stats().environments, 0);
 }

@@ -3,9 +3,11 @@ pub(crate) mod collection;
 pub(crate) mod constants;
 mod descriptor_index;
 pub(crate) mod descriptors;
+pub mod dispatch;
 pub mod entry;
 pub mod execution;
 mod exports;
+mod installation;
 pub(crate) mod layout_admission;
 mod layout_identity;
 pub(crate) mod layout_scope;
@@ -21,7 +23,7 @@ pub mod state;
 mod tests;
 use crate::{
     cache::ReloadDependencySnapshot,
-    error::RuntimeError,
+    error::{RuntimeError, RuntimeErrorKind},
     host::{HostPathDescriptorId, HostRegistryId},
     metadata::TypeId,
     module::state::{
@@ -29,6 +31,7 @@ use crate::{
         cells::{CellId, StaticCell},
     },
     module::{
+        dispatch::{PublicationDispatch, PublicationToken},
         execution::ExecutionModule,
         layout_admission::{AggregateKind, LayoutAdmissions, LayoutEndpoint},
         layout_identity::{LayoutIdentity, ProgramLayouts},
@@ -38,21 +41,29 @@ use crate::{
         staging::{CandidateLease, StagedProgram},
     },
     native::binding::LinkedNativeFunction,
-    reload::{ModuleEpoch, ModuleEpochAllocator},
+    reload::{
+        ModuleEpoch, ModuleEpochAllocator,
+        updates::{ReloadAdmission, RetainedDemands, coverage::CoverageFacts},
+    },
+    source::ProgramSourceSnapshot,
 };
 use kagari_bytecode::{
     artifact::{ArtifactFingerprint, ArtifactValidationError, validate_program_resource_limits},
     instruction::{EnumId, PathId, StructId},
     module::BytecodeModule,
     program::{
-        BytecodeProgram, ModuleRef, exports::ExportTarget, verified::VerifiedBytecodeProgram,
+        BytecodeProgram, ModuleRef,
+        exports::ExportTarget,
+        verified::{VerifiedBytecodeProgram, VerifiedProductIdentity},
     },
+    source_package::{SourcePackageError, VerifiedSourcePackage},
 };
 
 use kagari_contract::{
     exports::ProgramExports,
     ids::FunctionRef,
     layout::{EnumLayout, EnumVariantLayout, StructLayout},
+    updates::UpdateEvidence,
 };
 
 use kagari_common::{
@@ -60,6 +71,7 @@ use kagari_common::{
     identity::{
         ModuleIdentity,
         map::DefinitionContext,
+        mapping::DefinitionMappingError,
         metadata::DefinitionMetadata,
         table::{DefinitionId, DefinitionTable, DefinitionView},
     },
@@ -69,8 +81,8 @@ use std::{
     collections::{HashMap, HashSet},
     ops::Deref,
     sync::{
-        Arc, Weak,
-        atomic::{AtomicBool, Ordering},
+        Arc, Mutex, Weak,
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
 
@@ -117,15 +129,48 @@ impl ModuleEpochRetentionCounts {
     }
 }
 
+/// Non-reused identity of an installation within its supplying Runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct InstallationId(pub(crate) u64);
+
+/// A live installation identity; cloning it does not retain an executable version.
+#[derive(Debug, Clone)]
+pub struct Program {
+    pub(crate) installation: Arc<Installation>,
+}
+
+/// A live logical namespace, which need not have a physical executable slot.
+#[derive(Debug, Clone)]
+pub struct Module {
+    pub(crate) installation: Arc<Installation>,
+    pub(crate) namespace: ModuleIdentity,
+}
+
+#[derive(Debug)]
+pub(crate) struct Installation {
+    registry_owner: HostRegistryId,
+    pub(crate) id: InstallationId,
+    root_identity: ModuleIdentity,
+    current: Mutex<Option<Arc<ProgramDescriptor>>>,
+    next_declaration: AtomicU64,
+}
+
+/// One captured namespace query; never exposed as an ordinary live handle.
+#[derive(Debug)]
+pub(crate) struct ModuleSnapshot {
+    pub(crate) root: ExecutableModule,
+    pub(crate) namespace: ModuleIdentity,
+}
+
 /// A verified, linked module with immutable shared executable data.
 ///
 /// ```compile_fail
-/// fn mutate(module: &mut kagari_runtime::LoadedModule) {
+/// fn mutate(module: &mut kagari_runtime::module::ExecutableModule) {
 ///     module.bytecode.functions.clear();
 /// }
 /// ```
 #[derive(Debug, Clone)]
-pub struct LoadedModule {
+pub struct ExecutableModule {
     program: Arc<ProgramDescriptor>,
     slot: ModuleRef,
 }
@@ -134,6 +179,10 @@ pub struct LoadedModule {
 /// Host bindings and module instances are created separately for each runtime.
 #[derive(Debug, Clone)]
 pub struct VerifiedProgram {
+    product_identity: VerifiedProductIdentity,
+    source_package: Option<VerifiedSourcePackage>,
+    update_evidence: Arc<UpdateEvidence>,
+    update_coverage: Arc<CoverageFacts>,
     initializers: Arc<[HashSet<FunctionRef>]>,
     exports: Arc<ProgramExports>,
     export_targets: Arc<HashMap<DefinitionId, ExportTarget>>,
@@ -198,9 +247,20 @@ impl VerifiedProgram {
             .cloned()
             .map(Arc::new)
             .collect();
-        let definition_references =
-            Self::prepare_definition_references(&modules, &program.program().exports)
-                .expect("verified program retains bounded definition references");
+        let update_coverage = Arc::new(CoverageFacts::from_checked(
+            program.update_coverage(),
+            &program.program().modules,
+            program.definitions(),
+        ));
+        let definition_references = Self::prepare_definition_references(
+            &modules,
+            &program.program().exports,
+            &program.program().update_evidence,
+            &update_coverage,
+            None,
+            &CancellationToken::default(),
+        )
+        .expect("verified program retains bounded definition references");
         let mut allocation_work = 0;
         let mut execution: Vec<ExecutionModule> = modules
             .iter()
@@ -232,6 +292,10 @@ impl VerifiedProgram {
             .collect::<Vec<HashSet<FunctionRef>>>()
             .into();
         Self {
+            product_identity: program.product_identity(),
+            source_package: None,
+            update_evidence: Arc::new(program.program().update_evidence.clone()),
+            update_coverage,
             initializers,
             execution: execution.into(),
             root: program.program().root,
@@ -243,6 +307,53 @@ impl VerifiedProgram {
             modules,
             dependencies,
         }
+    }
+
+    /// Attach separately verified source for this canonical product without reading
+    /// or reverifying executable bodies. Exact portable identities must exist in this
+    /// retained scope; all authored references join publication/import inventory.
+    /// Cancellation, missing identities and product mismatch reject atomically.
+    pub fn with_source_package(
+        mut self,
+        package: VerifiedSourcePackage,
+        cancel: &CancellationToken,
+    ) -> Result<Self, RuntimeError> {
+        let package = package
+            .for_product(self.product_identity, &self.definitions, cancel)
+            .map_err(|error| match error {
+                SourcePackageError::Identity(DefinitionMappingError::Cancelled) => {
+                    RuntimeError::new(
+                        RuntimeErrorKind::Cancelled,
+                        "source package attachment cancelled",
+                    )
+                }
+                error => RuntimeError::module_validation(error.to_string()),
+            })?;
+        let references = Self::prepare_definition_references(
+            &self.modules,
+            &self.exports,
+            &self.update_evidence,
+            &self.update_coverage,
+            Some(&package),
+            cancel,
+        )?;
+        self.definition_references = references;
+        self.source_package = Some(package);
+        Ok(self)
+    }
+
+    /// Exact source metadata is independent of compiler inputs and execution leases.
+    pub fn source_package(&self) -> Option<&VerifiedSourcePackage> {
+        self.source_package.as_ref()
+    }
+
+    /// Independently verified publication evidence, in `definitions()`'s scope.
+    pub fn update_evidence(&self) -> &UpdateEvidence {
+        &self.update_evidence
+    }
+
+    pub(crate) fn update_coverage(&self) -> &CoverageFacts {
+        &self.update_coverage
     }
 
     pub fn root(&self) -> ModuleRef {
@@ -262,15 +373,15 @@ impl VerifiedProgram {
     pub fn definitions(&self) -> &DefinitionTable {
         &self.definitions
     }
-
-    pub(crate) fn dependencies(&self) -> &ReloadDependencySnapshot {
-        &self.dependencies
-    }
 }
 
 #[derive(Debug)]
 struct ProgramDescriptor {
+    source: ProgramSourceSnapshot,
+    installation: InstallationId,
     code: VerifiedProgram,
+    retained_demands: Arc<RetainedDemands>,
+    dispatch: Arc<PublicationDispatch>,
     layouts: ProgramLayouts,
     layout_admissions: LayoutAdmissions,
     root: ModuleRef,
@@ -290,6 +401,13 @@ pub struct LinkedModule {
     pub(crate) host_paths: Vec<HostPathDescriptorId>,
 }
 
+/// Runtime-linked capabilities and immutable native nominal authority for a publication.
+#[derive(Debug, Default)]
+pub(crate) struct LinkedProgramBindings {
+    pub members: Vec<LinkedHostBindings>,
+    pub shared_traits: HashSet<DefinitionId>,
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct LinkedHostBindings {
     pub types: HashMap<DefinitionId, TypeId>,
@@ -297,7 +415,7 @@ pub(crate) struct LinkedHostBindings {
     pub paths: Vec<HostPathDescriptorId>,
 }
 
-impl Deref for LoadedModule {
+impl Deref for ExecutableModule {
     type Target = LinkedModule;
 
     fn deref(&self) -> &LinkedModule {
@@ -305,13 +423,33 @@ impl Deref for LoadedModule {
     }
 }
 
-impl LoadedModule {
+impl ExecutableModule {
+    /// Copy immutable source metadata without retaining this executable descriptor.
+    pub fn source_snapshot(&self) -> ProgramSourceSnapshot {
+        self.program.source.clone()
+    }
+
+    /// Identity of the installation supplying this exact publication.
+    pub fn installation_id(&self) -> InstallationId {
+        self.program.installation
+    }
+
+    /// Monotonic installation requirements; this metadata does not retain old code.
+    /// A new ordinary load starts a fresh history even when its display name is reused.
+    pub fn retained_demands(&self) -> &RetainedDemands {
+        &self.program.retained_demands
+    }
+
     pub(crate) fn is_static_initializer(&self, function: FunctionRef) -> bool {
         self.program.code.initializers[self.slot.index()].contains(&function)
     }
 
     pub(crate) fn execution(&self) -> &ExecutionModule {
         &self.program.code.execution[self.slot.index()]
+    }
+
+    pub(crate) fn is_shared_native_trait(&self, declaration: DefinitionId) -> bool {
+        self.program.layouts.is_shared_native_trait(declaration)
     }
 
     pub(crate) fn host_type(&self, id: DefinitionId) -> Option<TypeId> {
@@ -429,7 +567,7 @@ impl LoadedModule {
 /// A verified layout that retains its immutable executable generation.
 #[derive(Debug, Clone)]
 pub struct EnumVariantRef {
-    module: LoadedModule,
+    module: ExecutableModule,
     id: EnumId,
     variant: u32,
     applied: Option<Arc<EnumLayout>>,
@@ -452,7 +590,7 @@ impl EnumVariantRef {
         &self.layout().variants[self.variant as usize]
     }
 
-    pub fn module(&self) -> &LoadedModule {
+    pub fn module(&self) -> &ExecutableModule {
         &self.module
     }
 }
@@ -460,6 +598,7 @@ impl EnumVariantRef {
 impl PartialEq for EnumVariantRef {
     fn eq(&self, other: &Self) -> bool {
         self.module.registry_owner == other.module.registry_owner
+            && self.module.installation_id() == other.module.installation_id()
             && self.layout().declaration == other.layout().declaration
             && self.layout().arguments == other.layout().arguments
             && self.variant().declaration == other.variant().declaration
@@ -469,7 +608,7 @@ impl PartialEq for EnumVariantRef {
 /// A verified layout that retains its immutable executable generation.
 #[derive(Debug, Clone)]
 pub struct StructLayoutRef {
-    module: LoadedModule,
+    module: ExecutableModule,
     id: StructId,
     applied: Option<Arc<StructLayout>>,
     canonical: Option<LayoutIdentity>,
@@ -508,11 +647,14 @@ impl StructLayoutRef {
             .unwrap_or(&self.module.bytecode.structures[self.id.index()])
     }
 
-    pub fn module(&self) -> &LoadedModule {
+    pub fn module(&self) -> &ExecutableModule {
         &self.module
     }
 
     pub(crate) fn matches(&self, other: &Self) -> bool {
+        if self.module.installation_id() != other.module.installation_id() {
+            return false;
+        }
         self.same_instance(other)
             || layout_admission::admit(
                 AggregateKind::Struct,
@@ -545,6 +687,9 @@ pub struct ModuleInstance {
 
 #[derive(Debug, Default)]
 pub struct ModuleStore {
+    // Separate from executable storage so teardown can revoke metadata authority
+    // even while storage is borrowed by a failing execution/collection path.
+    installations: HashMap<InstallationId, Arc<Installation>>,
     inner: RefCell<ModuleStoreInner>,
     abandoned: Arc<AtomicBool>,
 }
@@ -554,16 +699,35 @@ struct ModuleStoreInner {
     epochs: ModuleEpochAllocator,
     next_cell: u64,
     cells: HashMap<CellId, StaticCell>,
-    next_id: usize,
-    ids_by_member: HashMap<(String, ModuleIdentity), ModuleId>,
+    next_id: u64,
+    next_installation: u64,
+    ids_by_member: HashMap<(InstallationId, ModuleIdentity), ModuleId>,
     records: HashMap<ModuleKey, ModuleRecord>,
-    latest_by_name: HashMap<String, ModuleKey>,
     staged: HashMap<ModuleKey, Weak<CandidateLease>>,
     retentions: HashMap<ModuleKey, Retentions>,
 }
 
 impl ModuleStore {
-    pub(crate) fn reserve_epoch(&self, name: &str) -> Result<ModuleEpoch, RuntimeError> {
+    pub(crate) fn source_observation_owner(
+        &self,
+        publication: PublicationToken,
+        module: ModuleRef,
+    ) -> Result<Option<ExecutableModule>, RuntimeError> {
+        let inner = self.inner.try_borrow().map_err(|_| {
+            RuntimeError::module_validation("source observation module store is borrowed")
+        })?;
+        Ok(inner.records.values().find_map(|record| {
+            let owner = &record.module;
+            (owner.publication_token() == publication && owner.slot() == module)
+                .then(|| inner.available(owner.key()).cloned())
+                .flatten()
+        }))
+    }
+
+    pub(crate) fn reserve_epoch(
+        &self,
+        installation: InstallationId,
+    ) -> Result<ModuleEpoch, RuntimeError> {
         self.inner
             .try_borrow_mut()
             .map_err(|_| {
@@ -572,12 +736,12 @@ impl ModuleStore {
                 )
             })?
             .epochs
-            .reserve(name)
+            .reserve(installation)
     }
 
     pub(crate) fn retain_program(
         &self,
-        module: &LoadedModule,
+        module: &ExecutableModule,
         kind: ModuleEpochRetention,
     ) -> Option<ProgramLease> {
         let mut inner = self.inner.try_borrow_mut().ok()?;
@@ -597,17 +761,54 @@ impl ModuleStore {
 
     pub(crate) fn stage_verified_program(
         &self,
+        installation: Arc<Installation>,
         name: impl Into<String>,
         epoch: ModuleEpoch,
         program: VerifiedProgram,
-        registry_owner: HostRegistryId,
-        host_bindings: Vec<LinkedHostBindings>,
+        bindings: LinkedProgramBindings,
+        admission: Option<ReloadAdmission>,
     ) -> Result<StagedProgram, RuntimeError> {
+        let LinkedProgramBindings {
+            members: host_bindings,
+            shared_traits,
+        } = bindings;
         assert_eq!(
             program.modules.len(),
             host_bindings.len(),
             "each program member must be linked"
         );
+        let (retained_demands, expected_base) = match admission {
+            Some(admission) => (admission.demands, Some(admission.baseline)),
+            None => (
+                RetainedDemands::initial(&program)
+                    .map_err(|error| RuntimeError::module_validation(error.to_string()))?,
+                None,
+            ),
+        };
+        let previous = expected_base
+            .map(|baseline| {
+                let previous = installation.capture_current()?;
+                if previous.key() != baseline {
+                    return Err(RuntimeError::module_validation("dispatch baseline changed"));
+                }
+                Ok(previous)
+            })
+            .transpose()?;
+        let token = PublicationToken::new(installation.registry_owner, installation.id, epoch);
+        let dispatch = Arc::new(PublicationDispatch::prepare(
+            &installation,
+            token,
+            previous
+                .as_ref()
+                .map(|previous| previous.program.dispatch.as_ref()),
+            &program,
+        )?);
+        let source = ProgramSourceSnapshot::prepare(
+            installation.registry_owner,
+            dispatch.scope.clone(),
+            &program,
+            previous.as_ref().map(|previous| &previous.program.source),
+        )?;
         let name = name.into();
         let mut inner = self.inner.try_borrow_mut().map_err(|_| {
             RuntimeError::module_validation("module store is borrowed during staging")
@@ -627,12 +828,14 @@ impl ModuleStore {
             .zip(host_bindings)
             .enumerate()
             .map(|(index, (bytecode, host_bindings))| {
-                let identity = (name.clone(), bytecode.identity.clone());
+                let identity = (installation.id, bytecode.identity.clone());
                 let id = if let Some(id) = inner.ids_by_member.get(&identity).copied() {
                     id
                 } else {
-                    let id = ModuleId::new(inner.next_id);
-                    inner.next_id += 1;
+                    let id = ModuleId(inner.next_id);
+                    inner.next_id = inner.next_id.checked_add(1).ok_or_else(|| {
+                        RuntimeError::resource_limit("module identity space exhausted")
+                    })?;
                     inner.ids_by_member.insert(identity, id);
                     id
                 };
@@ -647,26 +850,30 @@ impl ModuleStore {
                     paths,
                 } = host_bindings;
                 native_links.push(native);
-                LinkedModule {
+                Ok(LinkedModule {
                     id,
                     name: display,
                     epoch,
                     bytecode,
-                    registry_owner,
+                    registry_owner: installation.registry_owner,
                     host_types: types,
                     host_paths: paths,
-                }
+                })
             })
-            .collect();
+            .collect::<Result<Vec<_>, RuntimeError>>()?;
         let program = Arc::new(ProgramDescriptor {
-            layouts: ProgramLayouts::prepare(&program.modules),
+            source,
+            installation: installation.id,
+            retained_demands,
+            dispatch,
+            layouts: ProgramLayouts::prepare(&program.modules, shared_traits),
             layout_admissions: LayoutAdmissions::default(),
             code: program,
             root,
             fingerprint,
             modules,
         });
-        let loaded = LoadedModule {
+        let loaded = ExecutableModule {
             program,
             slot: root,
         };
@@ -675,7 +882,10 @@ impl ModuleStore {
             inner.retentions.entry(key).or_default();
             inner.records.insert(key, ModuleRecord::new(member, native));
         }
-        let lease = Arc::new(CandidateLease::new(self.abandoned.clone()));
+        let lease = Arc::new(CandidateLease::new(
+            self.abandoned.clone(),
+            expected_base.is_none(),
+        ));
         inner
             .staged
             .insert(loaded.program_key(), Arc::downgrade(&lease));
@@ -683,24 +893,19 @@ impl ModuleStore {
         // cannot leave partially prepared records available as an ordinary load.
         inner.allocate_statics(&loaded)?;
         Ok(StagedProgram {
+            installation,
             module: loaded,
             lease,
-            expected_base: None,
+            expected_base,
         })
     }
 
-    pub fn loaded(&self, key: ModuleKey) -> Option<LoadedModule> {
+    pub fn loaded(&self, key: ModuleKey) -> Option<ExecutableModule> {
         self.inner.borrow().available(key).cloned()
     }
 
-    pub(crate) fn contains_module(&self, module: &LoadedModule) -> Result<bool, BorrowError> {
+    pub(crate) fn contains_module(&self, module: &ExecutableModule) -> Result<bool, BorrowError> {
         Ok(self.inner.try_borrow()?.resolve(module).is_some())
-    }
-
-    pub fn latest(&self, name: &str) -> Option<LoadedModule> {
-        let inner = self.inner.borrow();
-        let key = inner.latest_by_name.get(name)?;
-        inner.available(*key).cloned()
     }
 
     pub(crate) fn instance_snapshot(&self, key: ModuleKey) -> Option<ModuleInstance> {
@@ -723,7 +928,7 @@ impl ModuleStore {
         })
     }
 
-    pub(crate) fn is_staged(&self, module: &LoadedModule) -> bool {
+    pub(crate) fn is_staged(&self, module: &ExecutableModule) -> bool {
         self.inner
             .borrow()
             .staged
@@ -756,7 +961,7 @@ impl ModuleStore {
 
     pub(crate) fn retain_module(
         &self,
-        module: &LoadedModule,
+        module: &ExecutableModule,
         kind: ModuleEpochRetention,
     ) -> Option<ProgramLease> {
         let mut inner = self.inner.try_borrow_mut().ok()?;
@@ -792,15 +997,16 @@ impl ModuleStore {
         let Some(module) = inner.available(key) else {
             return false;
         };
-        root_programs(&inner).contains(&module.program_key())
+        root_programs(&inner, self.current_roots().unwrap()).contains(&module.program_key())
     }
 }
 
-fn root_programs(inner: &ModuleStoreInner) -> HashSet<ModuleKey> {
-    inner
-        .latest_by_name
-        .values()
-        .copied()
+fn root_programs(
+    inner: &ModuleStoreInner,
+    current: impl IntoIterator<Item = ModuleKey>,
+) -> HashSet<ModuleKey> {
+    current
+        .into_iter()
         .chain(inner.staged.keys().copied())
         .chain(
             inner
@@ -808,6 +1014,6 @@ fn root_programs(inner: &ModuleStoreInner) -> HashSet<ModuleKey> {
                 .iter()
                 .filter_map(|(key, counts)| counts.is_retained().then_some(*key)),
         )
-        .filter_map(|key| inner.available(key).map(LoadedModule::program_key))
+        .filter_map(|key| inner.available(key).map(ExecutableModule::program_key))
         .collect()
 }

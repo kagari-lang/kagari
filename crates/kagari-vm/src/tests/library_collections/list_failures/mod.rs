@@ -17,6 +17,8 @@ fn failed_array(source: &str, expected: &[i32], calls: usize) {
     let loaded = runtime
         .load_program("failure", program(source, &[&probe.module]))
         .unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     assert!(vm.execute(&loaded, ProgramEntry::Main).is_err());
     assert_eq!(probe.calls.load(Ordering::SeqCst), calls);

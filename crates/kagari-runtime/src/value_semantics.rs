@@ -297,11 +297,8 @@ pub fn builtin_order(gc: &GcHeap, a: &Value, b: &Value) -> Result<Option<Orderin
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kagari_bytecode::{
-        instruction::EnumId,
-        module::BytecodeModule,
-        program::{BytecodeProgram, ModuleRef},
-    };
+    use crate::test_support::native::program::ProgramFixture;
+    use kagari_bytecode::{instruction::EnumId, module::BytecodeModule, program::ModuleRef};
     use kagari_common::identity::{
         DefinitionKind, ModuleIdentity, map::DefinitionContext, metadata::DefinitionMetadata,
     };
@@ -352,7 +349,7 @@ mod tests {
             payload,
         };
         let program = |extra_variant: bool| {
-            let program = BytecodeProgram {
+            let program = ProgramFixture {
                 exports: Default::default(),
                 root: ModuleRef::new(0),
                 modules: vec![BytecodeModule {
@@ -389,19 +386,22 @@ mod tests {
                     ],
                     ..Default::default()
                 }],
-            };
+            }
+            .build(&context);
             DefinitionMetadata::checked(context.snapshot(), program, &Default::default()).unwrap()
         };
         let mut runtime = crate::Runtime::default();
-        let old = runtime
+        let installation = runtime
             .load_program("enum-equality", program(false))
             .unwrap();
+        let old = runtime.select_program(&installation).unwrap();
         let old_tag = crate::value::EnumTag::Declared(old.enum_variant(EnumId::new(0), 0).unwrap());
         let old_value = Value::Enum(runtime.alloc_enum(old_tag, vec![Value::I32(7)]).unwrap());
         let candidate = runtime
-            .stage_reload_program(&old, "enum-equality", program(true))
+            .stage_reload_program(&installation, None, program(true))
             .unwrap();
-        let new = runtime.publish_staged_reload(candidate).unwrap();
+        runtime.publish_staged_reload(candidate).unwrap();
+        let new = runtime.select_program(&installation).unwrap();
         let new_tag = crate::value::EnumTag::Declared(new.enum_variant(EnumId::new(0), 1).unwrap());
         let new_value = Value::Enum(runtime.alloc_enum(new_tag, vec![Value::I32(7)]).unwrap());
 
@@ -410,6 +410,20 @@ mod tests {
             crate::value::EnumTag::Declared(new.enum_variant(EnumId::new(1), 0).unwrap());
         let other_value = Value::Enum(runtime.alloc_enum(other_tag, vec![Value::I32(7)]).unwrap());
         assert!(!script_equal(runtime.gc(), &old_value, &other_value).unwrap());
+
+        let independent = runtime
+            .load_program("enum-equality", program(true))
+            .unwrap();
+        let independent = runtime.select_program(&independent).unwrap();
+        let independent_tag =
+            EnumTag::Declared(independent.enum_variant(EnumId::new(0), 1).unwrap());
+        let independent_value = Value::Enum(
+            runtime
+                .alloc_enum(independent_tag, vec![Value::I32(7)])
+                .unwrap(),
+        );
+        assert!(!script_equal(runtime.gc(), &old_value, &independent_value).unwrap());
+        assert!(!script_equal(runtime.gc(), &new_value, &independent_value).unwrap());
     }
 
     #[test]

@@ -3,7 +3,7 @@ use crate::{
     execution_metadata::applications::ApplicationId,
     frame::types::{TypeEnvironment, compatibility::TypeIdentity},
     gc::interfaces::InterfaceResultBinding,
-    module::LoadedModule,
+    module::ExecutableModule,
 };
 use kagari_bytecode::module::CallableTarget;
 use kagari_contract::standard::RuntimePrimitive;
@@ -23,7 +23,7 @@ pub(crate) struct BoundOperation {
     pub(crate) associated_interface: NominalTy,
     pub(crate) slot: u32,
     pub(crate) primitive: Option<RuntimePrimitive>,
-    pub(crate) owner: LoadedModule,
+    pub(crate) owner: ExecutableModule,
     pub(crate) target: CallableTarget,
     pub(crate) signature: Signature,
 }

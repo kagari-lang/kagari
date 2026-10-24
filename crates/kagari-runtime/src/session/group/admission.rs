@@ -37,7 +37,7 @@ impl Runtime {
             let captures = self.gc().prepare_future_pair(ids)?;
             for (index, id) in ids.iter().enumerate() {
                 let (owner, ty, scope) = self.gc().future_contract(*id)?;
-                self.validate_loaded_module(&owner)?;
+                self.validate_executable_module(&owner)?;
                 let applied = match scope {
                     Some(scope) => scope,
                     None => self

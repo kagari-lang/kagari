@@ -6,11 +6,14 @@ mod native;
 mod proofs;
 pub mod records;
 mod shared;
+#[cfg(test)]
+mod type_exports;
+pub mod updates;
 
 use crate::{
     ids::InstanceId,
     instruction::{CallTarget, ConstructionTarget as MirConstruction, Instruction},
-    program::{proofs::ProofResources, records::MirProgram},
+    program::{construction::UpdateCoverage, proofs::ProofResources, records::MirProgram},
     verify::{
         MirVerificationError, ValidatedMirModule, VerificationBudget, VerifiedMirModule, ownership,
         statics, verify_with_budget,
@@ -26,12 +29,21 @@ use kagari_common::{
 };
 use kagari_contract::{
     contracts,
-    exports::{ProgramExports, entry_function_matches, public_function_matches},
+    exports::{
+        ProgramExports, entry_function_matches, public_function_matches,
+        public_generic_function_matches,
+        type_validation::{TypeExportModule, TypeExportValidator},
+    },
     host::external::bindings_match as external_bindings_match,
     layout::LayoutValidationError,
     representation::semantic_representation,
     types as abi,
-    types::{ConcreteFunctionIdentity, PublicItem, verify::trait_references_match},
+    types::{
+        ConcreteFunctionIdentity, PublicItem,
+        named::{correspondence::validate_inventory, origins},
+        verify::trait_references_match,
+    },
+    updates::{UpdateEvidence, demands::Coverage, limits::UpdateError},
 };
 use kagari_types::{
     declaration::TypeDefKind,
@@ -50,6 +62,7 @@ pub enum ProgramErrorKind {
     Cancelled,
     InvalidGraph,
     InvalidExports,
+    Updates(UpdateError),
     Verification(MirVerificationError),
     UnresolvedFunction(DefinitionPath),
     FunctionContract(DefinitionPath),
@@ -71,6 +84,8 @@ pub struct VerifiedMirProgram {
     bindings: HashMap<ConcreteFunctionIdentity, ProgramFunctionRef>,
     definitions: DefinitionTable,
     exports: ProgramExports,
+    update_evidence: UpdateEvidence,
+    update_coverage: UpdateCoverage,
 }
 
 impl VerifiedMirProgram {
@@ -91,6 +106,21 @@ impl VerifiedMirProgram {
         &self.exports
     }
 
+    /// Checked candidate products for compiler retained-demand planning.
+    pub fn update_coverage(&self) -> Coverage<'_> {
+        Coverage {
+            evidence: &self.update_evidence,
+            methods: &self.update_coverage.methods,
+            constructions: &self.update_coverage.constructions,
+            layouts: &self.update_coverage.layouts,
+            natives: &[],
+        }
+    }
+
+    pub fn update_evidence(&self) -> &UpdateEvidence {
+        &self.update_evidence
+    }
+
     pub fn function(&self, instance: &ConcreteFunctionIdentity) -> Option<ProgramFunctionRef> {
         self.bindings.get(instance).copied()
     }
@@ -102,6 +132,7 @@ impl VerifiedMirProgram {
             MirProgram {
                 root: self.root,
                 exports: self.exports,
+                update_evidence: self.update_evidence,
                 modules: self
                     .modules
                     .into_iter()
@@ -128,6 +159,7 @@ pub fn verify_program(
         root,
         modules: inputs,
         exports,
+        update_evidence,
     } = input;
     let error = |module: &ModuleIdentity, kind| ProgramError {
         module: Box::new(module.clone()),
@@ -248,6 +280,19 @@ pub fn verify_program(
         }
         modules.push(module);
     }
+    validate_inventory(
+        modules
+            .iter()
+            .flat_map(|module| &module.abi.named_declarations),
+        &definitions,
+        cancel,
+    )
+    .map_err(|cause| {
+        error(
+            &root,
+            ProgramErrorKind::Verification(ownership::mapping_error(cause)),
+        )
+    })?;
     let Some(root_index) = indices.get(&root).copied() else {
         return Err(error(&root, ProgramErrorKind::InvalidGraph));
     };
@@ -301,6 +346,31 @@ pub fn verify_program(
                 (owner == index || dependencies.contains(&owner)).then_some(module)
             })
             .collect();
+        origins::validate(
+            &module.abi.function_origins,
+            &module.identity,
+            &definitions,
+            cancel,
+            module
+                .functions
+                .iter()
+                .map(|function| (&function.instance, &function.semantic)),
+            |id| {
+                closure
+                    .iter()
+                    .flat_map(|module| &module.abi.named_declarations)
+                    .find(|record| record.declaration == id)
+            },
+        )
+        .map_err(|cause| {
+            error(
+                &module.identity,
+                match cause {
+                    TypeTransformError::Cancelled => ProgramErrorKind::Cancelled,
+                    _ => ProgramErrorKind::InvalidGraph,
+                },
+            )
+        })?;
         if !trait_references_match(
             &module.abi.trait_references,
             |id| {
@@ -368,6 +438,14 @@ pub fn verify_program(
             |id| {
                 closure.iter().find_map(|owner| {
                     abi::type_contract(&owner.identity, &owner.abi.public_items, id, &definitions)
+                        .or_else(|| {
+                            owner
+                                .abi
+                                .private_types
+                                .iter()
+                                .find(|record| &record.declaration == id)
+                                .map(|record| &record.definition)
+                        })
                         .map(|record| (record.kind, record.generic_params.len()))
                         .or_else(|| {
                             owner
@@ -640,8 +718,19 @@ pub fn verify_program(
     cancel
         .check()
         .map_err(|_| error(&root, ProgramErrorKind::Cancelled))?;
+    let export_catalog = proofs
+        .scope((0..modules.len()).collect(), cancel)
+        .map_err(|cause| {
+            error(
+                &root,
+                match cause {
+                    TypeTransformError::Cancelled => ProgramErrorKind::Cancelled,
+                    _ => ProgramErrorKind::InvalidExports,
+                },
+            )
+        })?;
     drop(proofs);
-    construction::verify_closed_interfaces(
+    let update_coverage = construction::verify_closed_interfaces(
         &modules
             .iter()
             .map(|module| module.metadata.records())
@@ -658,36 +747,80 @@ pub fn verify_program(
             },
         )
     })?;
+    let types = TypeExportValidator::new(
+        modules.iter().map(|module| TypeExportModule {
+            identity: &module.identity,
+            public_items: &module.abi.public_items,
+            private_types: &module.abi.private_types,
+            structures: &module.structures,
+        }),
+        &export_catalog,
+        cancel,
+    )
+    .map_err(|cause| {
+        error(
+            &root,
+            match cause {
+                TypeTransformError::Cancelled => ProgramErrorKind::Cancelled,
+                _ => ProgramErrorKind::InvalidExports,
+            },
+        )
+    })?;
+    let mut generic_declarations = HashSet::new();
+    for module in &modules {
+        for record in &module.abi.named_declarations {
+            cancel
+                .check()
+                .map_err(|_| error(&root, ProgramErrorKind::Cancelled))?;
+            if public_generic_function_matches(
+                record,
+                &module.identity,
+                &module.abi.public_items,
+                &definitions,
+            ) {
+                generic_declarations.insert(record.declaration);
+            }
+        }
+    }
     exports
-        .validate(&root, &definitions, cancel, |id, entry| {
-            let instance = ConcreteFunctionIdentity {
-                declaration: id,
-                arguments: vec![],
-            };
-            let Some(binding) = bindings.get(&instance) else {
-                return false;
-            };
-            let owner = &modules[binding.module];
-            let function = &owner.functions[binding.function.index()];
-            if entry {
-                function.params.is_empty()
-                    && entry_function_matches(
+        .validate(
+            &root,
+            &definitions,
+            cancel,
+            |id, entry| {
+                if !entry && generic_declarations.contains(&id) {
+                    return true;
+                }
+                let instance = ConcreteFunctionIdentity {
+                    declaration: id,
+                    arguments: vec![],
+                };
+                let Some(binding) = bindings.get(&instance) else {
+                    return false;
+                };
+                let owner = &modules[binding.module];
+                let function = &owner.functions[binding.function.index()];
+                if entry {
+                    function.params.is_empty()
+                        && entry_function_matches(
+                            id,
+                            &owner.abi.public_items,
+                            &owner.abi.native_declarations,
+                            &function.semantic,
+                            &definitions,
+                        )
+                } else {
+                    public_function_matches(
                         id,
+                        &owner.identity,
                         &owner.abi.public_items,
-                        &owner.abi.native_declarations,
                         &function.semantic,
                         &definitions,
                     )
-            } else {
-                public_function_matches(
-                    id,
-                    &owner.identity,
-                    &owner.abi.public_items,
-                    &function.semantic,
-                    &definitions,
-                )
-            }
-        })
+                }
+            },
+            |export| types.validate(export).is_ok(),
+        )
         .map_err(|_| {
             error(
                 &root,
@@ -698,6 +831,28 @@ pub fn verify_program(
                 },
             )
         })?;
+    drop(types);
+    updates::verify(
+        &modules
+            .iter()
+            .map(|module| module.metadata.records())
+            .collect::<Vec<_>>(),
+        &update_evidence,
+        &definitions,
+        &export_catalog,
+        cancel,
+    )
+    .map_err(|cause| {
+        error(
+            &root,
+            if cause == UpdateError::Cancelled {
+                ProgramErrorKind::Cancelled
+            } else {
+                ProgramErrorKind::Updates(cause)
+            },
+        )
+    })?;
+    drop(export_catalog);
     let modules = modules.into_iter().map(ValidatedMirModule::seal).collect();
     Ok(VerifiedMirProgram {
         root,
@@ -705,5 +860,7 @@ pub fn verify_program(
         bindings,
         definitions,
         exports,
+        update_evidence,
+        update_coverage,
     })
 }

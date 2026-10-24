@@ -40,9 +40,12 @@ entrypoint.
 
 The public ABI describes a static's declaration identity, type and access contract,
 not its initializer expression, source position or live value. Exact artifact
-identity still covers the initializer code. Thus a changed initializer can produce
-a different artifact without authorizing replacement of an existing cell's fixed
-recipe. Private statics and the recursive applied schema remain independently
+identity still covers the initializer code. A changed initializer can produce a
+valid fresh-installation artifact, but compatible publication rejects changes to an
+existing direct initializer expression, checked direct bindings and locally owned
+recipe bodies, ignoring trivia. Ordinary called helper bodies may change; the cold
+cell retains its original recipe and ordinary calls select current implementations.
+Private statics and the recursive applied schema remain independently
 checked by [reload compatibility](module-activation.md#static-publication-compatibility).
 
 Loading an artifact into a fresh installation creates fresh Uninitialized cells.
@@ -50,7 +53,7 @@ Compatible publication binds existing declarations to existing cells and gives
 only new declarations new cells. The artifact contains no Ready values, Failed
 state, active initialization stack or heap snapshot. Persistent static storage
 means in-memory installation continuity, not disk persistence, process recovery
-or the proposed [explicit state replacement](../update-model-design.md#state-replacement-boundary).
+or state snapshot/restore.
 This unpublished schema uses the identifiers below without an old-schema reader.
 
 ## Current executable contract
@@ -158,6 +161,61 @@ synchronously on shared frames; results remain rooted across allocation/reentry.
 Cooperative cancellation and individual mutation commit rules remain explicit.
 Native payloads trace retained script values/callables. Artifacts contain portable
 contracts, not live heap state, Rust references or function pointers.
+
+### Public type exports
+
+Dependency-only `private_types: Vec<TypeDeclaration>` records retain full declared
+binders/bounds separately from `public_items`. Compiler emission, contract identity
+mapping/bounded codecs and independent MIR/KBC verification preserve this separation,
+so valid internal `Cell<Hidden>` applications can be verified without exporting
+`Hidden`. Missing/unknown constraints reject rather than being skipped; private
+evidence cannot authorize a public type leaf.
+
+The Program export graph carries public module edges, function leaves and type
+leaves, separately from the optional root `main` entry. Type/module spellings share
+one namespace; function spellings remain independent. Type leaves use these
+source-free records:
+
+- `Declaration(DefinitionId)`: a canonical public type/trait declaration, including
+  renamed re-exports. Its retained declaration owns kind, binders and bounds.
+- `Closed(Ty)`: a transparent alias's normalized closed semantic target, including
+  nominal arguments and associated bindings. It introduces no new nominal identity.
+- `OpenAlias { arity: u32 }`: a rejection-only marker with arity 1..4096. It grants
+  no host application or layout authority, even when the alias erases its parameters.
+
+For example, `pub type IntCell = internal::Cell<i32>;` carries the canonical
+`Cell<i32>` target, not an `IntCell` runtime declaration. The private containing
+module need not become publicly navigable. Retaining layout/proof dependencies
+never grants private-field access or additional public names.
+
+Bounded codecs preserve canonical identity remapping and reject duplicate records
+and type/module name collisions. Independent MIR and bytecode verification prove
+public declaration authority, exact declaration-owned binders, nominal kind/arity,
+closedness, associated bindings, substituted nested bounds and matching script-
+struct layouts. Public exports and dependency-only proofs remain distinct: private
+supertraits may support a public interface's proof without becoming public exports.
+Graph-local indexes and successful-proof caches share bounded work accounting and
+cancellation; they confer no authority on a changed graph. Decoding is not verification.
+
+Compiler export demand supplies otherwise-unused closed struct layouts and nested
+struct/enum applications needed for layout or structural-bound proofs, including
+cross-module targets. Demand uses the ordinary bounded layout queue in canonical
+order; runtime performs no alias expansion, type inference or compilation. Enum
+proof layouts do not make enums host ObjectTypes. Open declarations do not demand
+all possible specializations, and open-alias markers demand none.
+
+Reload compares normalized type leaves in a common identity context through the
+bounded cyclic namespace graph. Equivalent declaration/closed-alias targets agree;
+a different nominal target or applied argument does not. Existing declaration,
+member and static compatibility checks remain separate. Export records are not a
+complete frozen declaration/dependency inventory, and open-alias markers do not
+prove preservation of their source templates or bounds.
+
+This unpublished schema change retains the current format/ABI identifiers and
+requires regenerating affected development artifacts, not an old-schema reader.
+Live `Program`/`Module` handles and exact `ExecutableModule` owners have separate
+roles; [ordinary call selection](module-activation.md#live-installations-and-call-selection)
+is current within an installation.
 
 ### Unified executable slots and origins
 
@@ -504,12 +562,48 @@ read bytes
   -> publish only after module/reload validation succeeds
 ```
 
+## Retained source packages
+
+Ordinary source preparation retains an exact verified source package by default.
+Artifact export uses `ArtifactOptions::retain_source`, default `false`; hosts must
+explicitly opt in to distributing source. Source-free artifacts remain valid.
+`PreparedProgram::from_artifact` preserves a supplied verified source package even
+without the SDK `source` feature, but does not gain an immutable compilation capsule.
+Source text alone cannot enable `Runtime::update`; that API requires the exact
+publication's captured compilation context.
+
+The optional package carries physical documents, logical module mappings, complete
+authored declaration extents/fingerprints and executable-to-authored associations.
+The executable carries compiler-captured source-manifest anchors. Source-free
+validation checks bounded counts/text, executable fingerprint, complete declaration
+and association inventory, document/module identity, byte lengths, fingerprints,
+nonempty UTF-8-aligned ranges, authored kinds and generated/native origin consistency.
+Recomputed text fingerprints alone cannot replace comparison with executable anchors.
+Equal display URIs in distinct modules are allowed and do not merge their identities.
+
+These checks establish internal consistency, **not authenticity** or proof that
+untrusted bytes were produced by a trusted compiler. They do not parse source,
+fetch files, confer call authority or weaken executable verification. Attachment to
+an already verified product requires its exact product identity and definition scope.
+Source retention is independent of local/debug information and optional portable MIR;
+stripping either does not imply stripping source, and retaining MIR does not imply
+retaining source. Native/intrinsic provenance is diagnostic, never fabricated script
+text. Runtime snapshots retain source metadata without executable leases; see the
+[source inspection API](embedding-api.md#exact-source-inspection).
+
 ## Hot Reload
 
 Reload candidates may come from `.kbc` artifacts.
 
-The reload validator compares artifact metadata against the active module epoch and runtime state.
-Failed artifact reload does not replace the active module.
+The reload validator compares verified frozen declarations, retained applications,
+local static-initializer facts and runtime bindings against the installation's
+current publication. Explicit authored body provenance identifies recipe ownership;
+independent executable validation remains mandatory, without a transitive Hash/Eq
+or helper-body freeze. Admission is independent of source availability and heap
+liveness. Publication requires the [host-top-level boundary](module-activation.md#publication-boundary).
+Failed artifact reload does not replace current code or state. A successful
+low-level publication without an SDK compilation capsule makes subsequent source
+update report `MissingCompilationContext`, not reuse the previous source baseline.
 
 ## JIT Interaction
 

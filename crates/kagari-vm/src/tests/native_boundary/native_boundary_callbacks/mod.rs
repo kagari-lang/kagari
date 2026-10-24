@@ -10,7 +10,7 @@ use kagari_runtime::{
         callable::{CallableHandle, StoredCallable},
         context::CallContext,
         declarations::FunctionDecl,
-        function_handle::PinnedFunction,
+        function_handle::Function,
         storage::NativeStorage,
         typed::NativeContext,
         types::Type,
@@ -24,7 +24,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-type Callback = PinnedFunction<(i32,), i32>;
+type Callback = Function<(i32,), i32>;
 
 #[test]
 fn machine_scalar_conveniences_check_host_range_before_callback_entry() {
@@ -73,6 +73,8 @@ fn machine_scalar_conveniences_check_host_range_before_callback_entry() {
         "#,
         Some(&builder.finish().unwrap()),
     );
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     for value in [0, u32::MAX as u64 + 1, u64::MAX] {
         let before = calls.load(Ordering::SeqCst);
         let result = vm.execute_typed::<_, u64>(&owner, "unsigned", (value,));
@@ -166,6 +168,8 @@ fn function_arguments_call_captured_script_closures_synchronously() {
     "#,
         Some(&module),
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
@@ -239,6 +243,8 @@ fn retained_host_callbacks_pin_their_capture_program_across_reload() {
         pub fn run() -> i32 { invoke(1) }
     "#;
     let (vm, loaded) = compile(old, Some(&module));
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let old_key = loaded.key();
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
@@ -248,13 +254,14 @@ fn retained_host_callbacks_pin_their_capture_program_across_reload() {
             .expect("retained execution result"),
         Value::I32(42)
     );
-    let replacement = vm
-        .reload_program(
-            &loaded,
-            "boundary",
-            compile_program(&old.replace("[41]", "[99]"), Some(&module)),
-        )
-        .unwrap();
+    vm.reload_program(
+        &_loaded_program,
+        Some("boundary".into()),
+        compile_program(&old.replace("[41]", "[99]"), Some(&module)),
+    )
+    .unwrap();
+    let _replacement_program = _loaded_program.clone();
+    let replacement = vm.runtime().select_program(&_replacement_program).unwrap();
     drop(loaded);
     vm.runtime().collect_garbage().unwrap();
     assert!(vm.runtime().modules().loaded(old_key).is_some());
@@ -347,6 +354,8 @@ fn stored_callbacks_trace_captures_through_an_ordinary_native_payload() {
     "#,
         Some(&module),
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
@@ -423,6 +432,8 @@ fn ordinary_generic_value_binding_keeps_closed_types_and_shared_values() {
     "#,
         Some(&module),
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
@@ -472,6 +483,8 @@ fn sequence_and_callable_arguments_share_an_ordinary_rust_binding() {
         "use example::fold::fold; fn main() -> i32 { fold(Vec::from([9, 10]), |value| (value + 1) * 2) }",
         Some(&module),
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()

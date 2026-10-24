@@ -4,7 +4,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     module::{
-        LoadedModule,
+        ExecutableModule,
         state::{StaticFailure, StaticRecipe, StaticState},
     },
     value::Value,
@@ -40,7 +40,7 @@ impl InitializationAttempt {
 /// frame share completion, not mutable values or a lease on every historical program.
 #[derive(Debug)]
 pub(crate) struct StaticInitialization {
-    owner: LoadedModule,
+    owner: ExecutableModule,
     slot: ModuleSlot,
     recipe: StaticRecipe,
     attempt: Arc<InitializationAttempt>,
@@ -170,7 +170,7 @@ impl Runtime {
 
     pub(crate) fn prepare_static_initialization(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         slot: ModuleSlot,
     ) -> Result<Option<StaticInitialization>, RuntimeError> {
         self.validate_module_state_access(owner)?;
@@ -220,7 +220,7 @@ impl Runtime {
 
     pub(in crate::module) fn poison_static_cycle(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         slot: ModuleSlot,
     ) -> Result<(), RuntimeError> {
         let store = self.modules.inner.try_borrow().map_err(|_| {

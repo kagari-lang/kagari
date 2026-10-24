@@ -37,7 +37,7 @@ impl<S> Interface<S> {
     ) -> NativeResult<R> {
         let runtime = cx.runtime();
         let member = &binding.record.member;
-        let method = self.prepare_call(runtime, binding)?;
+        let method = self.prepare_call(runtime, binding)?.admit(runtime)?;
         let owner = method.implementation(runtime)?;
         let invoke = cx.invoke_script.ok_or_else(|| {
             RuntimeError::module_validation("call context has no execution backend")
@@ -54,7 +54,10 @@ impl<S> Interface<S> {
         conversion.decode_prepared(&binding.record.signature.result, &result)
     }
 
-    pub(super) fn prepare_call<A, R>(
+    /// Prepare a live method handle for this receiver and checked relationship.
+    /// Inspection and each new call select current code; call admission separately
+    /// freezes one computation without changing this handle or its clones.
+    pub fn prepare_call<A, R>(
         &self,
         runtime: &Runtime,
         binding: &InterfaceMethod<A, R>,
@@ -62,15 +65,15 @@ impl<S> Interface<S> {
         runtime.gc().ensure_no_native_borrow()?;
         runtime.resources().ensure_execution_allowed()?;
         let member = &binding.record.member;
-        runtime.validate_loaded_module(&member.owner)?;
-        if self.owner.program_root().key() != member.owner.program_root().key()
+        runtime.validate_executable_module(&member.owner)?;
+        if self.owner.installation_id() != member.owner.installation_id()
             || !self
                 .argument
                 .view(&self.owner)
                 .compatible(member.source.view(&member.owner))
         {
             return Err(RuntimeError::module_validation(
-                "interface binding belongs to another applied view or generation",
+                "interface binding belongs to another applied view or installation",
             ));
         }
         let value = self.root.value(runtime.gc()).ok_or_else(|| {
@@ -115,7 +118,7 @@ impl Runtime {
         options: ExecutionOptions,
     ) -> NativeResult<ExecutionSession<'_>> {
         let owner = method.implementation(self)?;
-        self.validate_loaded_module(&owner)?;
+        self.validate_executable_module(&owner)?;
         if !self.gc().validate_candidate_value(method.receiver())
             || self.resources().active_session().is_some_and(|session| {
                 session.options.phase == ExecutionPhase::CandidateInitialization

@@ -113,7 +113,7 @@ fn project_builds_select_roots_and_store_independent_artifacts() {
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
         let entries = ["answer", "tool", "value"]
             .into_iter()
-            .filter(|entry| loaded.exported_function(entry).is_some())
+            .filter(|entry| runtime.function::<(), i32>(&loaded.root(), entry).is_ok())
             .collect::<Vec<_>>();
         assert_eq!(
             entries.len(),

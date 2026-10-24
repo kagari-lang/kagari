@@ -7,17 +7,21 @@ use kagari_bytecode::{
     program::{BytecodeProgram, verified::VerifiedBytecodeProgram},
     verifier::BytecodeVerificationError,
 };
+mod contracts;
 mod exports;
+mod types;
+pub mod updates;
 
 use kagari_common::identity::{
     map::DefinitionContext, mapping::DefinitionMappingError, table::DefinitionTable,
 };
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 use crate::{
     error::RuntimeError,
-    module::{LoadedModule, ModuleId, VerifiedProgram},
+    module::{ExecutableModule, InstallationId, ModuleId, VerifiedProgram},
+    reload::updates::ReloadAdmission,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -45,8 +49,14 @@ pub enum ReloadValidationError {
     Runtime(RuntimeError),
     #[error("reload public ABI fingerprints changed")]
     PublicAbiFingerprintMismatch,
+    #[error("reload named declaration contract changed or was removed: `{declaration}`")]
+    DeclarationContractMismatch { declaration: String },
     #[error("reload public paths or entry signatures changed")]
     PublicExportMismatch,
+    #[error("reload public path preservation comparison exceeded its work limit")]
+    PublicExportComparisonLimit,
+    #[error("reload update admission failed: {0}")]
+    UpdateEvidence(String),
     #[error("reload typed path fingerprints changed")]
     PathFingerprintMismatch,
 }
@@ -61,8 +71,11 @@ impl ReloadValidationError {
             Self::Bytecode(error) => error.code(),
             Self::Runtime(error) => error.code(),
             Self::PublicAbiFingerprintMismatch => "KG_RELOAD_PUBLIC_ABI_FINGERPRINT_MISMATCH",
+            Self::DeclarationContractMismatch { .. } => "KG_RELOAD_DECLARATION_CONTRACT_MISMATCH",
             Self::PublicExportMismatch => "KG_RELOAD_PUBLIC_EXPORT_MISMATCH",
+            Self::PublicExportComparisonLimit => "KG_RELOAD_PUBLIC_EXPORT_COMPARISON_LIMIT",
             Self::PathFingerprintMismatch => "KG_RELOAD_PATH_FINGERPRINT_MISMATCH",
+            Self::UpdateEvidence(_) => "KG_RELOAD_UPDATE_EVIDENCE",
         }
     }
 }
@@ -80,76 +93,76 @@ pub fn validate_load_candidate(
 }
 
 pub fn validate_reload_artifact_candidate(
-    active: &LoadedModule,
-    candidate_name: &str,
+    active: &ExecutableModule,
     artifact: KbcArtifact,
     compatibility: &ArtifactCompatibility,
-    active_latest: Option<&LoadedModule>,
+    active_latest: Option<&ExecutableModule>,
     context: &DefinitionContext,
 ) -> Result<VerifiedArtifact, ReloadValidationError> {
     let artifact = artifact
         .into_verified(compatibility, context, &Default::default())
         .map_err(ReloadValidationError::Artifact)?;
-    validate_reload_target(active, candidate_name, active_latest)?;
+    validate_reload_target(active, active_latest)?;
     let bytecode = artifact.bytecode();
     let program = bytecode.program();
+    if active.bytecode.identity == program.modules[program.root.index()].identity {
+        exports::bytecode(active.verified_program(), bytecode)?;
+    }
     validate_reload_contracts(
         active,
         &program.modules[program.root.index()],
         program.modules.iter(),
         bytecode.definitions(),
     )?;
-    exports::bytecode(active.verified_program(), bytecode)?;
+    updates::validate_bytecode(active, bytecode)?;
     Ok(artifact)
 }
 
 pub fn validate_reload_candidate(
-    active: &LoadedModule,
-    candidate_name: &str,
+    active: &ExecutableModule,
     candidate: BytecodeProgram,
-    active_latest: Option<&LoadedModule>,
+    active_latest: Option<&ExecutableModule>,
     context: &DefinitionContext,
 ) -> Result<VerifiedBytecodeProgram, ReloadValidationError> {
-    validate_reload_target(active, candidate_name, active_latest)?;
+    validate_reload_target(active, active_latest)?;
     let verified = validate_load_candidate(candidate, context)?;
     let program = verified.program();
+    if active.bytecode.identity == program.modules[program.root.index()].identity {
+        exports::bytecode(active.verified_program(), &verified)?;
+    }
     validate_reload_contracts(
         active,
         &program.modules[program.root.index()],
         program.modules.iter(),
         verified.definitions(),
     )?;
-    exports::bytecode(active.verified_program(), &verified)?;
+    updates::validate_bytecode(active, &verified)?;
     Ok(verified)
 }
 
 pub(crate) fn validate_verified_reload_candidate(
-    active: &LoadedModule,
-    candidate_name: &str,
+    active: &ExecutableModule,
     candidate: &VerifiedProgram,
-    active_latest: Option<&LoadedModule>,
-) -> Result<(), ReloadValidationError> {
-    validate_reload_target(active, candidate_name, active_latest)?;
+) -> Result<ReloadAdmission, ReloadValidationError> {
+    if active.bytecode.identity == candidate.modules()[candidate.root().index()].identity {
+        exports::runtime(active.verified_program(), candidate)?;
+    }
     validate_reload_contracts(
         active,
         &candidate.modules()[candidate.root().index()],
         candidate.modules().iter().map(|module| module.as_ref()),
         candidate.definitions(),
     )?;
-    exports::runtime(active.verified_program(), candidate)
+    Ok(ReloadAdmission {
+        baseline: active.key(),
+        demands: updates::prepare(active, candidate)?,
+    })
 }
 
-fn validate_reload_target(
-    active: &LoadedModule,
-    candidate_name: &str,
-    active_latest: Option<&LoadedModule>,
+pub(crate) fn validate_reload_target(
+    active: &ExecutableModule,
+    active_latest: Option<&ExecutableModule>,
 ) -> Result<(), ReloadValidationError> {
-    if candidate_name != active.name {
-        return Err(ReloadValidationError::ModuleIdentityMismatch {
-            expected: active.name.clone(),
-            found: candidate_name.to_owned(),
-        });
-    }
     let Some(latest) = active_latest else {
         return Err(ReloadValidationError::ModuleNotActive {
             module_name: active.name.clone(),
@@ -157,7 +170,10 @@ fn validate_reload_target(
             active: None,
         });
     };
-    if latest.id != active.id {
+    if latest.installation_id() != active.installation_id()
+        || latest.program_identity().0 != active.program_identity().0
+        || latest.id != active.id
+    {
         return Err(ReloadValidationError::ModuleIdChanged {
             expected: active.id,
             found: latest.id,
@@ -175,7 +191,7 @@ fn validate_reload_target(
 }
 
 fn validate_reload_contracts<'a>(
-    active: &LoadedModule,
+    active: &ExecutableModule,
     root: &BytecodeModule,
     modules: impl ExactSizeIterator<Item = &'a BytecodeModule>,
     definitions: &DefinitionTable,
@@ -188,38 +204,10 @@ fn validate_reload_contracts<'a>(
     }
     let current = active
         .members()
-        .map(|module| (module.bytecode.identity.clone(), module))
-        .collect::<BTreeMap<_, _>>();
-    if current.len() != modules.len() {
-        return Err(ReloadValidationError::PublicAbiFingerprintMismatch);
-    }
-    for module in modules {
-        let previous = current
-            .get(&module.identity)
-            .ok_or(ReloadValidationError::PublicAbiFingerprintMismatch)?;
-        let previous_bytecode = previous.bytecode.as_ref();
-        let old_abi = public_abi_fingerprints_for_module(previous_bytecode, previous.definitions())
-            .map_err(identity_error)?;
-        let new_abi =
-            public_abi_fingerprints_for_module(module, definitions).map_err(identity_error)?;
-        if old_abi
-            .iter()
-            .filter(|item| !item.name.starts_with("static:"))
-            .ne(new_abi
-                .iter()
-                .filter(|item| !item.name.starts_with("static:")))
-            || old_abi
-                .iter()
-                .filter(|item| item.name.starts_with("static:"))
-                .any(|item| !new_abi.contains(item))
-        {
-            return Err(ReloadValidationError::PublicAbiFingerprintMismatch);
-        }
-        if path_fingerprints_for_module(previous_bytecode) != path_fingerprints_for_module(module) {
-            return Err(ReloadValidationError::PathFingerprintMismatch);
-        }
-    }
-    Ok(())
+        .map(|module| module.bytecode.as_ref().clone())
+        .collect::<Vec<_>>();
+    let candidate = modules.cloned().collect::<Vec<_>>();
+    contracts::validate(&current, &candidate, active.definitions(), definitions)
 }
 
 fn identity_error(error: DefinitionMappingError) -> ReloadValidationError {
@@ -257,34 +245,39 @@ pub fn path_fingerprints_for_module(module: &BytecodeModule) -> Vec<PathDescript
 /// leave gaps; an identity is never reused for a later candidate.
 #[derive(Debug, Default)]
 pub(crate) struct ModuleEpochAllocator {
-    epochs: HashMap<String, ModuleEpoch>,
+    epochs: HashMap<InstallationId, ModuleEpoch>,
 }
 
 impl ModuleEpochAllocator {
-    pub(crate) fn reserve(&mut self, module_name: &str) -> Result<ModuleEpoch, RuntimeError> {
-        let previous = self.epochs.get(module_name).map_or(0, |epoch| epoch.0);
+    pub(crate) fn reserve(
+        &mut self,
+        installation: InstallationId,
+    ) -> Result<ModuleEpoch, RuntimeError> {
+        let previous = self.epochs.get(&installation).map_or(0, |epoch| epoch.0);
         let next = previous
             .checked_add(1)
             .ok_or_else(|| RuntimeError::module_validation("module epoch space exhausted"))?;
         let epoch = ModuleEpoch(next);
-        self.epochs.insert(module_name.to_string(), epoch);
+        self.epochs.insert(installation, epoch);
         Ok(epoch)
     }
 }
 
 #[cfg(test)]
 mod epoch_tests {
+    use crate::test_support::native::program::ProgramFixture;
     use kagari_bytecode::program::ModuleRef;
 
     use super::*;
 
     #[test]
     fn reload_preflight_rejects_oversized_in_memory_programs() {
-        let oversized = BytecodeProgram {
+        let oversized = ProgramFixture {
             exports: Default::default(),
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule::default(); 1_025],
-        };
+        }
+        .build(&DefinitionContext::new().unwrap());
         assert!(matches!(
             validate_load_candidate(oversized, &DefinitionContext::new().unwrap()),
             Err(ReloadValidationError::Artifact(
@@ -296,13 +289,13 @@ mod epoch_tests {
     #[test]
     fn exhausted_epoch_space_is_rejected_without_reusing_an_identity() {
         let mut allocator = ModuleEpochAllocator::default();
-        assert_eq!(allocator.reserve("main").unwrap(), ModuleEpoch(1));
-        assert_eq!(allocator.reserve("main").unwrap(), ModuleEpoch(2));
-        allocator
-            .epochs
-            .insert("main".into(), ModuleEpoch(u64::MAX));
-        assert!(allocator.reserve("main").is_err());
-        assert_eq!(allocator.epochs["main"], ModuleEpoch(u64::MAX));
-        assert_eq!(allocator.reserve("other").unwrap(), ModuleEpoch(1));
+        let first = InstallationId(0);
+        let second = InstallationId(1);
+        assert_eq!(allocator.reserve(first).unwrap(), ModuleEpoch(1));
+        assert_eq!(allocator.reserve(first).unwrap(), ModuleEpoch(2));
+        allocator.epochs.insert(first, ModuleEpoch(u64::MAX));
+        assert!(allocator.reserve(first).is_err());
+        assert_eq!(allocator.epochs[&first], ModuleEpoch(u64::MAX));
+        assert_eq!(allocator.reserve(second).unwrap(), ModuleEpoch(1));
     }
 }

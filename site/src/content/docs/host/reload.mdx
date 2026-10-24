@@ -1,14 +1,14 @@
 ---
 title: Hot reload
-description: Prepare compatible candidates, publish atomically, and keep existing calls pinned without implicit state migration.
+description: Publish compatible code atomically, preserve static state and retained computations, and select current bodies for ordinary calls.
 ---
 
 import { page, source } from '@site/links.mjs';
 
 Suppose a running host must replace a rule without redirecting a call halfway
 through it. Compile and prepare the replacement first, ask the runtime to publish
-it, and use the returned handle for new work. Publication changes the available
-code generation, not the identity or contents of every existing object.
+it, and keep using the same live Program handle for new work. Publication changes
+the current code, not the identity or contents of every existing object.
 Read <a href={page('host/overview')}>the first host</a> for artifact preparation and
 <a href={page('host/ownership')}>scoped access</a> for host-state lifetimes.
 
@@ -17,30 +17,31 @@ Read <a href={page('host/overview')}>the first host</a> for artifact preparation
 The existing test
 <a href={source('crates/kagari/src/runtime/tests/embedding/embedding_api.rs')}>`compiles_loads_executes_and_reloads_through_embedding_api`</a>
 is a compact source reference, not a standalone tutorial executable. It compiles
-two artifacts with the same source name, `game/main.kgr`: first
+two prepared programs with the same source name, `game/main.kgr`: first
 `fn main() -> i32 { 1 }`, then `fn main() -> i32 { 2 }`. It loads the first as
 `game.main` and calls `ProgramEntry::Main`, observing a rooted result of 1.
 
 This exact **excerpt** begins after that initial load and call. `second` is the
-already compiled replacement artifact; `runtime` and `loaded` are the existing
-runtime and handle. The test supplies imports and its compilation helper.
+already compiled replacement `PreparedProgram`; `runtime` and `loaded` are the
+existing runtime and live Program handle. The test supplies imports and setup.
 
 ```rust
-    let reloaded = runtime
+    let previous = runtime.runtime().select_program(&loaded).unwrap();
+    runtime
         .reload_program(
             &loaded,
-            &PreparedProgram::from_artifact(second, &Default::default(), &Default::default())
-                .unwrap(),
+            &second,
             ReloadOptions {
-                module_name: Some("game.main".to_owned()),
+                program_name: Some("game.main".to_owned()),
             },
         )
         .expect("compatible module should reload");
-    assert_eq!(reloaded.id, loaded.id);
-    assert_eq!(reloaded.epoch.0, loaded.epoch.0 + 1);
+    let reloaded = runtime.runtime().select_program(&loaded).unwrap();
+    assert_eq!(reloaded.id, previous.id);
+    assert_eq!(reloaded.epoch.0, previous.epoch.0 + 1);
 ```
 
-Calling `execute(&reloaded, ProgramEntry::Main, &[], &context)` then returns 2.
+Calling `execute(&loaded, ProgramEntry::Main, &[], &context)` then returns 2.
 The test inspects `report.return_value.value(runtime.runtime().gc())`; it does not
 pretend the raw result owns its own lifetime. Ordinary reload itself calls neither
 version's `main` and performs no hidden candidate initialization.
@@ -51,21 +52,24 @@ shown as a **signature excerpt**, is:
 ```rust
     pub fn reload_program(
         &self,
-        previous: &LoadedModule,
+        previous: &Program,
         program: &PreparedProgram,
         options: ReloadOptions,
-    ) -> ReloadResult<LoadedModule>
+    ) -> ReloadResult<()>
 ```
 
-`ReloadOptions` currently contains `module_name: Option<String>`; its default uses
-`previous.name`. Supply the intended base handle, not an unrelated runtime's handle.
+`ReloadOptions` contains `program_name: Option<String>` for the diagnostic label.
+Supply the intended live Program, not an unrelated runtime's handle. Successful
+reload advances that installation; it does not return a replacement handle.
 Preparation has its own `ProgramPreparationError`; SDK reload errors use
 `EmbeddingError`, including `ReloadValidation { code, message }`.
 
 ## Understand the publication boundary
 
-The SDK passes the exact prepared candidate to
-`stage_reload_verified_program`, then calls `publish_staged_reload`. Staging checks
+The SDK first acquires the runtime's exclusive publication guard, stages the exact
+prepared candidate and publishes it. Publication requires a host-top-level boundary
+with no synchronous script, driver, callback or reentry scope; parked work may remain.
+Staging checks
 the candidate's module/schema and ABI contracts, public paths and signatures,
 host registrations and typed-path fingerprints. It does not install an unchecked
 body just because the source file has the same name.
@@ -84,9 +88,9 @@ Treat this as a failed update, keep serving with the existing generation, and
 report the structured code. Renaming/removing public paths or changing their
 signatures is also incompatible, not an invitation to repair callers at runtime.
 
-## Observe old and new code side by side
+## Distinguish live bindings from retained computations
 
-Publication does not rewrite retained handles. The focused SDK test
+Existing live handles observe the current publication. The focused SDK test
 <a href={source('crates/kagari/src/runtime/tests/embedding/scoped_calls.rs')}>`scoped_native_calls_accept_compatible_reloaded_descriptors`</a>
 provides a second concrete scenario. Its `prepare(offset)` helper compiles public
 `direct`, `native` and `heal` wrappers. The native wrapper adds the offset to a
@@ -98,66 +102,82 @@ registered read of host-owned `Stats.hp`. This exact **excerpt** shows the hando
     let old = runtime
         .load_program(&prepare(0), Default::default())
         .unwrap();
-    let descriptor = runtime.runtime().bind_rust_type::<Stats>(&old).unwrap();
-    let current = runtime
+    let descriptor = runtime
+        .runtime()
+        .bind_rust_type::<Stats>(&old.root())
+        .unwrap();
+    runtime
         .reload_program(&old, &prepare(100), Default::default())
         .unwrap();
+    let current = old.clone();
 ```
 
 The surrounding test registers the type/functions explicitly. With hp starting
-at 40, it calls old, current, then old code in a host scope. The native read returns
-40, 141, then 42 because each round also heals by one: current code adds 100;
-old code still adds 0. Final host hp is 43. The rule changed without copying or
-migrating that Rust object. Read the linked test for the complete checked scope.
+at 40, it calls through `old`, `current`, then `old` in a host scope. The native
+wrapper returns 140, 141, then 142 because all three calls use current code adding
+100, and each round also heals by one. Final host hp is 43. The rule changed without
+copying or migrating that Rust object. Read the linked test for the checked scope.
 
-A root call pins its dependency program. Nested calls and synchronous host reentry
-use that same version set and cancellation state, even after publication. Retained
-`PinnedFunction` handles keep their selected supplying generation rather than
-rebinding by name. Old code, metadata and dependencies stay alive while reachable;
-they become reclaimable when their remaining calls and references end.
+Ordinary named `Function` bindings, direct calls, interface calls and native callback
+calls select current implementations of their checked declarations. Created closures,
+cold Futures and admitted frames/queued invocations instead retain their selected
+bodies and matching type environments. A resumed old body still makes ordinary
+inner calls to current helpers. Synchronous reentry preserves roots, scoped borrows
+and cancellation; it does not establish an old dependency-version domain. Old exact
+code becomes reclaimable when its remaining computation and metadata owners end.
 
-## Keep static state without retargeting code
+## Keep static state and the original initializer recipe
 
-The runnable <a href={source('crates/kagari/examples/persistent_static.rs')}>persistent_static example</a>
-loads V1, initializes a counter, an object and a callback, then publishes V2 with
-changed initializer expressions and a changed `version()` function. Run it from
-the repository root:
+Consider this **illustrative source scenario**. V2 changes only `version()` to
+return 20; all direct initializer expressions and checked bindings stay unchanged.
 
-```sh
-cargo run -p kagari --example persistent_static --no-default-features --features source
+```kagari
+static var COUNT: i32 = 0;
+static val CALLBACK: fn() -> i32 = || version() + COUNT;
+static val LATE: i32 = version();
+fn version() -> i32 { 10 }
 ```
 
-It demonstrates three different kinds of continuity:
+Suppose V1 has initialized COUNT and CALLBACK, COUNT is now 2, and LATE is still
+unread. After compatible V2 publication:
 
-| After V2 publication | What the example observes |
+| Operation | Result under the publication contract |
 | --- | --- |
-| Shared cells | COUNT continues from 2 to 3, not V2's new initializer value of 100; the same object is mutated from 2 to 3. |
-| Pinned callable code | The retained V1 callback returns 13: V1's `version()` value of 10 plus the shared count of 3. V2's direct call returns 23. |
-| Fixed lazy recipe | LATE was never read in V1. Its first read through V2 still runs V1's recipe and returns 10, not 20. |
+| Increment COUNT | The same Ready cell changes from 2 to 3; publication did not reset it. |
+| Invoke CALLBACK | The retained closure body calls current `version()`, returning 20 + 3 = 23. Retaining a closure body does not pin ordinary helper calls. |
+| First read of LATE | The original V1 recipe calls current `version()` and initializes LATE to 20. |
+| Inspect an already Failed static | It remains Failed; changing a helper does not retry initialization. |
 
-Old handles also see the updated cells while retaining old code. A fresh V2
-installation gets new cells and V2 recipes instead: its first counter increment
-returns 101, its object starts at 50, and its first LATE read returns 20. Loading,
-inspection and ordinary publication do not force any of those initializers.
+Changing `COUNT`'s direct initializer from `0` to `100`, or retargeting LATE's
+checked `version` binding through an alias, is rejected even if the cell is already
+Ready. Comments and whitespace may change. Ordinary called helper bodies may change;
+there is no transitive protection or global `Unknown` freeze. A fresh independent
+installation gets fresh cells. Loading, inspection and publication force no initializer.
 
 Staging shares existing cells and keeps additions private until publication.
 A stale, invalid or abandoned candidate cannot change existing cells or active
 bindings. You may add statics in an existing module, but cannot delete, rename,
 move, or change the declared type, mutability or visibility of an existing static,
 including a private one. Relevant recursive applied schemas remain checked even
-when a cell holds None or an empty collection. This is a static-only addition
-rule, not permission to add arbitrary modules, public functions or types.
+when a cell holds None or an empty collection. Other checked additions follow the
+<a href={source('docs/spec/module-activation.md#compatible-declaration-changes')}>declaration compatibility rules</a>;
+existing signatures, layouts and trait relationships still cannot change.
 
 Publishing older code is not state rollback: it cannot remove a static added
 since that version, restore old values or retry a Failed initializer. See
 <a href={source('docs/spec/module-activation.md#static-publication-compatibility')}>static publication compatibility</a>
 and <a href={source('docs/spec/runtime.md#persistent-static-cells')}>cell ownership and GC</a>.
 
-A retained HashMap/HashSet also keeps its construction-time key Hash/Eq selections
-for lookup, insertion and removal. Whole-collection comparisons and content
-helpers instead use caller-selected protocols; reload does not reindex the table.
+Hash/Eq bodies and their ordinary helpers support normal hot updates. A retained
+HashMap/HashSet keeps its checked key relationships, but lookup, insertion and
+removal call current implementations. Host `ScriptMap`/`ScriptSet` handles select
+current callback bodies on each lookup, just like script operations. Publication
+neither rehashes tables nor pins old protocols. If an update changes a stored key's
+hash or equality, later lookup may fail: preserving stable key semantics is the
+user's responsibility, not a guarantee of compatible publication. Engine memory,
+GC/rooting, scoped-borrow, reentry and cancellation safety remain enforced.
 The <a href={source('docs/spec/collection-access.md#stored-key-protocols-across-reload')}>collection protocol contract</a>
-explains this distinction.
+explains membership versus caller-selected content operations.
 
 ## Do not confuse retention with state migration
 
@@ -166,9 +186,9 @@ state, extend a host scope, or make a taken opaque payload available again. Old
 receiver and field descriptors cannot silently switch to a new Rust layout.
 A retained generation preserves code dependencies, not expired host access.
 Static persistence does not automatically include cells in a disk snapshot or
-implement state replacement. The separate
-<a href={source('docs/update-model-design.md#state-replacement-boundary')}>state replacement proposal</a>
-requires an explicit exported data root; durably storable does not mean serializable.
+provide a state-migration protocol. Kagari provides ordinary host value access and
+conversion; applications own persistence and data transformations. Durably storable
+does not mean serializable.
 
 Static initializers are synchronous: they cannot create a cold Future, spawn,
 create an async scope or await, even through native reentry. During ordinary
@@ -185,9 +205,8 @@ Such a session may compute and mutate candidate-owned nonstatic objects, but
 cannot perform external modifications or access any static cell, even a Ready
 cell or one introduced by the candidate. Indirect calls and host reentry do not
 bypass that restriction. Publication follows session completion and revalidation;
-ordinary `reload_program` does not opt into that session for you. State replacement
-and suspended-state migration are not implicit reload features. The
+ordinary `reload_program` does not opt into that session for you. Reload does not
+migrate business state or suspended executions. The
 <a href={source('docs/spec/module-activation.md')}>activation contract</a> owns these
 rules. For current deployment/backend limits, continue to
-<a href={page('reference/status')}>status and limits</a> rather than treating a
-future update design as an available SDK operation.
+<a href={page('reference/status')}>status and limits</a>.

@@ -5,7 +5,7 @@ use crate::{
         interface::InterfaceTableRecordWire,
     },
     module::{BytecodeModule, BytecodeTypeTable, ConstantPool, PathTable},
-    program::{BytecodeProgram, ModuleRef},
+    program::{BytecodeProgram, ModuleRef, updates::mapping_error},
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -21,7 +21,14 @@ use kagari_contract::{
     layout::wire::{EnumLayoutRecord, StructLayoutRecord},
     native_import::wire::NativeImportRecord,
     statics::wire::StaticDescriptorRecord,
-    types::wire::{PublicItemRecord, module::TraitContractRecord},
+    types::{
+        named::wire::{FunctionOriginRecord, NamedDeclarationRecord},
+        wire::{PublicItemRecord, module::TraitContractRecord},
+    },
+    updates::{
+        limits::{Budget, Limits},
+        wire::UpdateEvidenceRecord,
+    },
 };
 
 use kagari_types::declaration::wire::{
@@ -37,6 +44,7 @@ pub(in crate::artifact) struct BytecodeProgramRecord {
     #[serde(deserialize_with = "kagari_contract::decode_limits::modules")]
     modules: Vec<BytecodeModuleRecord>,
     exports: ProgramExportsRecord,
+    update_evidence: UpdateEvidenceRecord,
 }
 
 impl BytecodeProgramRecord {
@@ -51,6 +59,12 @@ impl BytecodeProgramRecord {
         Ok(Self {
             root: value.root,
             exports: ProgramExportsRecord::encode(&value.exports, encoding, cancel)?,
+            update_evidence: UpdateEvidenceRecord::encode(
+                &value.update_evidence,
+                encoding,
+                &mut Budget::new(Limits::default(), cancel).map_err(mapping_error)?,
+            )
+            .map_err(mapping_error)?,
             modules: value
                 .modules
                 .iter()
@@ -70,6 +84,13 @@ impl BytecodeProgramRecord {
         Ok(BytecodeProgram {
             root: self.root,
             exports: self.exports.decode(decoding, cancel)?,
+            update_evidence: self
+                .update_evidence
+                .decode(
+                    decoding,
+                    &mut Budget::new(Limits::default(), cancel).map_err(mapping_error)?,
+                )
+                .map_err(mapping_error)?,
             modules: self
                 .modules
                 .into_iter()
@@ -112,6 +133,12 @@ pub(in crate::artifact) struct BytecodeModuleRecord {
     function_table: Vec<FunctionRecordWire>,
     #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     public_items: Vec<PublicItemRecord>,
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
+    private_types: Vec<TypeDeclarationRecord>,
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
+    named_declarations: Vec<NamedDeclarationRecord>,
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
+    function_origins: Vec<FunctionOriginRecord>,
     #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
     trait_references: Vec<TraitContractRecord>,
     #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
@@ -185,6 +212,21 @@ impl BytecodeModuleRecord {
                 .public_items
                 .iter()
                 .map(|value| PublicItemRecord::encode(value, encoding, cancel))
+                .collect::<Result<_, _>>()?,
+            private_types: value
+                .private_types
+                .iter()
+                .map(|value| TypeDeclarationRecord::encode(value, encoding, cancel))
+                .collect::<Result<_, _>>()?,
+            named_declarations: value
+                .named_declarations
+                .iter()
+                .map(|value| NamedDeclarationRecord::encode(value, encoding, cancel))
+                .collect::<Result<_, _>>()?,
+            function_origins: value
+                .function_origins
+                .iter()
+                .map(|value| FunctionOriginRecord::encode(value, encoding, cancel))
                 .collect::<Result<_, _>>()?,
             trait_references: value
                 .trait_references
@@ -266,6 +308,21 @@ impl BytecodeModuleRecord {
                 .collect::<Result<_, _>>()?,
             public_items: self
                 .public_items
+                .into_iter()
+                .map(|value| value.decode(decoding, cancel))
+                .collect::<Result<_, _>>()?,
+            private_types: self
+                .private_types
+                .into_iter()
+                .map(|value| value.decode(decoding, cancel))
+                .collect::<Result<_, _>>()?,
+            named_declarations: self
+                .named_declarations
+                .into_iter()
+                .map(|value| value.decode(decoding, cancel))
+                .collect::<Result<_, _>>()?,
+            function_origins: self
+                .function_origins
                 .into_iter()
                 .map(|value| value.decode(decoding, cancel))
                 .collect::<Result<_, _>>()?,

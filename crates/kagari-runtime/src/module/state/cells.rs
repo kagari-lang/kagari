@@ -4,7 +4,7 @@ use crate::{
     error::RuntimeError,
     frame::types::compatibility::TypeView,
     module::{
-        LoadedModule, ModuleKey, ModuleStore, ModuleStoreInner,
+        ExecutableModule, InstallationId, ModuleStore, ModuleStoreInner,
         records::ModuleRecord,
         state::{StaticRecipe, StaticState, compatibility, initialization::InitializationAttempt},
     },
@@ -22,9 +22,9 @@ pub(in crate::module) struct CellId(u64);
 #[derive(Debug)]
 pub(in crate::module) struct StaticCell {
     /// Immutable type provenance, not an executable graph root.
-    pub(in crate::module) owner: LoadedModule,
+    pub(in crate::module) owner: ExecutableModule,
     pub(in crate::module) slot: usize,
-    pub(in crate::module) lineage: ModuleKey,
+    pub(in crate::module) lineage: InstallationId,
     pub(in crate::module) state: StaticState,
     pub(in crate::module) attempt: Option<Arc<InitializationAttempt>>,
 }
@@ -62,7 +62,11 @@ impl ModuleStoreInner {
         let expected = &record.module.bytecode.module_slots.get(slot)?.contract;
         let cell = self.cells.get(record.bindings.get(slot)?)?;
         let descriptor = cell.owner.bytecode.module_slots.get(cell.slot)?;
-        if cell.lineage != record.static_lineage || &descriptor.contract != expected {
+        if cell.lineage != record.static_lineage
+            || cell.lineage != record.module.installation_id()
+            || cell.owner.installation_id() != cell.lineage
+            || &descriptor.contract != expected
+        {
             return None;
         }
         if let StaticState::Uninitialized(recipe) | StaticState::Initializing(recipe) = &cell.state
@@ -76,7 +80,7 @@ impl ModuleStoreInner {
 
     pub(in crate::module) fn allocate_statics(
         &mut self,
-        root: &LoadedModule,
+        root: &ExecutableModule,
     ) -> Result<(), RuntimeError> {
         let mut bindings = HashMap::new();
         let mut pending = Vec::new();
@@ -108,7 +112,7 @@ impl ModuleStoreInner {
                     StaticCell {
                         owner: owner.clone(),
                         slot,
-                        lineage: root.program_key(),
+                        lineage: root.installation_id(),
                         attempt: None,
                         state: StaticState::Uninitialized(StaticRecipe {
                             module: owner.clone(),
@@ -151,9 +155,16 @@ impl ModuleStore {
     /// cells are only referenced: staging never executes or mutates their state.
     pub(crate) fn bind_static_reload(
         &self,
-        baseline: &LoadedModule,
-        candidate: &LoadedModule,
+        baseline: &ExecutableModule,
+        candidate: &ExecutableModule,
     ) -> Result<(), RuntimeError> {
+        if baseline.registry_owner != candidate.registry_owner
+            || baseline.installation_id() != candidate.installation_id()
+        {
+            return Err(RuntimeError::module_validation(
+                "static reload requires the same installation",
+            ));
+        }
         let mut store = self
             .inner
             .try_borrow_mut()
@@ -204,23 +215,11 @@ impl ModuleStore {
                 "persistent static deletion, rename or move",
             ));
         }
-        // The introducing program key is the private installation lineage. A new
-        // ordinary load gets fresh cells even when the installation name is reused.
-        let lineage = store
-            .resolve(baseline)
-            .expect("checked baseline")
-            .static_lineage;
+        // Both publications already belong to the same installation. Reuse cells
+        // without changing their introducing publication or lazy initializer recipe.
         for (key, bindings) in plans {
-            for id in &bindings {
-                if let Some(cell) = store.cells.get_mut(id)
-                    && cell.owner.program_key() == candidate.program_key()
-                {
-                    cell.lineage = lineage;
-                }
-            }
             let record = store.records.get_mut(&key).expect("staged member");
             record.bindings = bindings;
-            record.static_lineage = lineage;
         }
         // Superseded candidate-only allocations have no observable owners.
         let referenced = store

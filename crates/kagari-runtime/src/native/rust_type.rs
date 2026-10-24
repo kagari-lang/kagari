@@ -3,7 +3,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
-    module::{LoadedModule, ModuleEpochRetention, retention::ProgramLease},
+    module::{ExecutableModule, Module, ModuleEpochRetention, retention::ProgramLease},
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
@@ -18,7 +18,7 @@ use std::{any::TypeId as RustTypeId, marker::PhantomData, sync::Arc};
 #[derive(Debug)]
 struct TypeRecord {
     argument: TypeArgument,
-    owner: LoadedModule,
+    owner: ExecutableModule,
     program: ProgramLease,
     catalog: DeclarationCatalog,
 }
@@ -69,7 +69,7 @@ impl<T> RustType<T> {
         &self.record.argument
     }
 
-    pub fn owner(&self) -> &LoadedModule {
+    pub fn owner(&self) -> &ExecutableModule {
         &self.record.owner
     }
 
@@ -85,12 +85,12 @@ impl<T> RustType<T> {
 impl<T: Send + 'static> RustType<T> {
     pub(crate) fn prepare(
         runtime: &Runtime,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         argument: TypeArgument,
     ) -> NativeResult<Self> {
         runtime.gc().ensure_no_native_borrow()?;
         runtime.resources().ensure_execution_allowed()?;
-        runtime.validate_loaded_module(owner)?;
+        runtime.validate_executable_module(owner)?;
         check_mapping::<T>(runtime, owner, &argument)?;
         let program = runtime
             .retain_program(owner, ModuleEpochRetention::RuntimeValue)
@@ -115,7 +115,7 @@ impl Runtime {
         parent: &RustType<T>,
         name: &str,
     ) -> NativeResult<RustField<T, F>> {
-        self.validate_loaded_module(parent.owner())?;
+        self.validate_executable_module(parent.owner())?;
         parent.type_argument().validate(self)?;
         let Ty::Struct(nominal) = parent.type_argument().ty() else {
             return Err(invalid());
@@ -157,8 +157,10 @@ impl Runtime {
     /// Custom conversion schemas do not prove Rust field layout or projectors.
     pub fn bind_rust_type<T: KagariType + Send + 'static>(
         &self,
-        owner: &LoadedModule,
+        owner: &Module,
     ) -> NativeResult<RustType<T>> {
+        let snapshot = self.capture_module(owner)?;
+        let owner = &snapshot.root;
         let cx = ConversionContext::new(self, owner)?;
         let argument = cx.type_for::<T>()?;
         RustType::prepare(self, owner, argument)
@@ -167,12 +169,12 @@ impl Runtime {
 
 pub(crate) fn check_mapping<T: Send + 'static>(
     runtime: &Runtime,
-    owner: &LoadedModule,
+    owner: &ExecutableModule,
     expected: &TypeArgument,
 ) -> NativeResult<()> {
     runtime.gc().ensure_no_native_borrow()?;
     runtime.resources().ensure_execution_allowed()?;
-    runtime.validate_loaded_module(owner)?;
+    runtime.validate_executable_module(owner)?;
     expected.validate(runtime)?;
     match expected.ty() {
         Ty::Struct(_) => {

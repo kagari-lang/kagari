@@ -17,9 +17,26 @@ use kagari_contract::{
 };
 use kagari_types::{
     callable::CallableImplementation,
-    ty::{GenericParam, Ty, substitution::TypeTransformError},
+    ty::{GenericParam, NominalTy, Ty, substitution::TypeTransformError},
 };
-use std::collections::HashSet;
+use std::{collections::HashSet, fmt, sync::Arc};
+
+#[derive(Clone)]
+pub(super) struct UpdateCoverage {
+    pub methods: Arc<Vec<ConstructionMethod>>,
+    pub constructions: Vec<ConcreteFunctionIdentity>,
+    pub layouts: Vec<Ty>,
+}
+
+impl fmt::Debug for UpdateCoverage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UpdateCoverage")
+            .field("method_count", &self.methods.len())
+            .field("constructions", &self.constructions)
+            .field("layouts", &self.layouts)
+            .finish()
+    }
+}
 
 /// Enumerate concrete interface applications reached by closed shared calls.
 /// The source planner materializes these tables; shared executable bodies remain
@@ -30,11 +47,22 @@ pub fn closed_interface_instances(
     limit: usize,
     cancel: &CancellationToken,
 ) -> Result<Vec<ConcreteFunctionIdentity>, TypeTransformError> {
+    let (bodies, methods) = collect(modules, definitions, cancel)?;
+    closed_constructions(&bodies, &methods, limit, cancel)
+}
+
+fn collect(
+    modules: &[&MirModule],
+    definitions: &DefinitionTable,
+    cancel: &CancellationToken,
+) -> Result<(Vec<ConstructionBody>, Vec<ConstructionMethod>), TypeTransformError> {
     let mut bodies = Vec::new();
     for module in modules {
+        cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
         for function in &module.functions {
             let mut steps = Vec::new();
             for instruction in function.blocks.iter().flat_map(|block| &block.instructions) {
+                cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
                 match instruction {
                     Instruction::MakeInterface {
                         target:
@@ -74,6 +102,9 @@ pub fn closed_interface_instances(
                         });
                     }
                     Instruction::MakeClosure {
+                        function: target, ..
+                    }
+                    | Instruction::MakeFuture {
                         function: target, ..
                     } => {
                         if let Some(target) = module.functions.get(target.index()) {
@@ -117,6 +148,7 @@ pub fn closed_interface_instances(
     let mut seen = HashSet::new();
     for owner in modules {
         for instance in &owner.interface_instances {
+            cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
             if !instance.arguments.iter().all(Ty::is_concrete) || !seen.insert(instance.clone()) {
                 continue;
             }
@@ -150,6 +182,7 @@ pub fn closed_interface_instances(
                 continue;
             };
             for method in &table.methods {
+                cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
                 let Some(slot) = contract
                     .methods
                     .iter()
@@ -264,15 +297,16 @@ pub fn closed_interface_instances(
             }
         }
     }
-    closed_constructions(&bodies, &methods, limit, cancel)
+    Ok((bodies, methods))
 }
 
 pub(super) fn verify_closed_interfaces(
     modules: &[&MirModule],
     definitions: &DefinitionTable,
     cancel: &CancellationToken,
-) -> Result<(), TypeTransformError> {
-    for demand in closed_interface_instances(modules, definitions, MAX_TABLE_RECORDS, cancel)? {
+) -> Result<UpdateCoverage, TypeTransformError> {
+    let (bodies, methods) = collect(modules, definitions, cancel)?;
+    for demand in closed_constructions(&bodies, &methods, MAX_TABLE_RECORDS, cancel)? {
         let Some((owner, _)) = modules.iter().find_map(|module| {
             module.abi.public_items.iter().find_map(|item| match item {
                 PublicItem::InterfaceTable(table) if table.declaration == demand.declaration => {
@@ -289,5 +323,41 @@ pub(super) fn verify_closed_interfaces(
             return Err(TypeTransformError::InvalidContract);
         }
     }
-    Ok(())
+    let mut constructions = Vec::new();
+    let mut layouts = Vec::new();
+    for module in modules {
+        cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
+        constructions.extend(
+            module
+                .interface_instances
+                .iter()
+                .filter(|instance| instance.arguments.iter().all(Ty::is_concrete))
+                .cloned(),
+        );
+        for layout in &module.structures {
+            cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
+            if layout.arguments.iter().all(Ty::is_concrete) {
+                layouts.push(Ty::Struct(NominalTy {
+                    declaration: layout.declaration,
+                    arguments: layout.arguments.clone(),
+                    associated_types: Default::default(),
+                }));
+            }
+        }
+        for layout in &module.enumerations {
+            cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
+            if layout.arguments.iter().all(Ty::is_concrete) {
+                layouts.push(Ty::Enum(NominalTy {
+                    declaration: layout.declaration,
+                    arguments: layout.arguments.clone(),
+                    associated_types: Default::default(),
+                }));
+            }
+        }
+    }
+    Ok(UpdateCoverage {
+        methods: Arc::new(methods),
+        constructions,
+        layouts,
+    })
 }

@@ -9,7 +9,7 @@ use crate::{
         waiting::{ClaimedFuture, QueuedFuture},
     },
     gc::roots::RootSet,
-    module::LoadedModule,
+    module::ExecutableModule,
     native::future::ColdFuture,
     session::{
         ExecutionId, ExecutionOptions, ExecutionPhase, ExecutionSession, SessionState,
@@ -195,7 +195,7 @@ impl Runtime {
     /// Reserve a checked entry and its rooted arguments without running script.
     pub fn start_owned_execution(
         &self,
-        module: &LoadedModule,
+        module: &ExecutableModule,
         entry: FunctionRef,
         args: &[Value],
         options: ExecutionOptions,
@@ -250,7 +250,7 @@ impl Runtime {
             ));
         };
         let (owner, ty, scope) = self.gc().future_contract(*id)?;
-        self.validate_loaded_module(&owner)?;
+        self.validate_executable_module(&owner)?;
         let future = match scope {
             Some(scope) => scope,
             None => self
@@ -315,7 +315,7 @@ impl Runtime {
     pub(crate) fn prepare_owned_branch(
         &self,
         parent: SessionId,
-        module: &LoadedModule,
+        module: &ExecutableModule,
         value: Value,
         output: TypeArgument,
     ) -> Result<OwnedExecution, RuntimeError> {
@@ -375,7 +375,7 @@ impl Runtime {
 
     fn create_owned_execution(
         &self,
-        module: &LoadedModule,
+        module: &ExecutableModule,
         options: ExecutionOptions,
         entry: OwnedStart<'_>,
     ) -> Result<OwnedExecution, RuntimeError> {
@@ -393,7 +393,7 @@ impl Runtime {
 
     fn initialize_owned_execution<'args>(
         &self,
-        module: &LoadedModule,
+        module: &ExecutableModule,
         session: ExecutionSession<'_>,
         external_cancellation: CancellationToken,
         prepare: impl FnOnce() -> Result<OwnedStart<'args>, RuntimeError>,
@@ -487,6 +487,7 @@ impl Runtime {
         self.gc().ensure_no_native_borrow()?;
         self.ensure_scheduler_open()?;
         self.validate_owned_execution(owner)?;
+        let activation = self.resources().begin_synchronous_activation()?;
         let state = self
             .resources()
             .sessions
@@ -512,6 +513,7 @@ impl Runtime {
         let session = ExecutionSession {
             id: owner.id,
             resources: self.resources(),
+            _activation: activation,
         };
         self.resume_execution_observer()?;
         ExecutionStack::resume(session)
@@ -581,6 +583,7 @@ impl Runtime {
     }
 
     pub(crate) fn require_idle_driver(&self) -> Result<(), RuntimeError> {
+        self.resources().ensure_not_publishing()?;
         if self.resources().active_session().is_some() {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
@@ -591,6 +594,7 @@ impl Runtime {
     }
 
     fn retire_execution(&self, id: SessionId) -> Result<(), RuntimeError> {
+        let _activation = self.resources().begin_synchronous_activation()?;
         let group_failure = self.close_owned_groups(id).err();
         let (mut state, frames) = self.resources().sessions.remove(id).ok_or_else(|| {
             RuntimeError::module_validation("foreign, retired or borrowed execution")

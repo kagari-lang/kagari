@@ -2,12 +2,12 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
-    module::{LoadedModule, ModuleEpochRetention},
+    module::Module,
     native::{
         binding::NativeResult,
         conversion::{KagariType, arguments::KagariArguments, context::ConversionContext},
         function_handle::{
-            PinnedFunction, PreparedFunction, Target,
+            Function, FunctionBinding,
             evidence::{EntryEvidence, EvidenceKey},
         },
         methods::InherentMember,
@@ -28,38 +28,37 @@ pub(crate) struct FunctionCache(Vec<CacheEntry>);
 struct CacheEntry {
     mapping: TypeId,
     evidence: EvidenceKey,
-    record: Weak<PreparedFunction>,
+    record: Weak<FunctionBinding>,
 }
 
 impl Runtime {
-    /// Bind a public function path relative to the installed Program root.
+    /// Bind a public function path relative to the supplied live Module.
     ///
-    /// For example, `pub use internal::calculate as damage` exposes `damage`,
-    /// including when `owner` is a dependency member. Binding consumes verified
-    /// export slots, checks the Rust argument/result types and retains the target
-    /// generation. Private paths, generic templates and missing exports fail
-    /// before execution; concrete script wrappers can expose generic applications.
+    /// For example, `pub use internal::calculate as damage` exposes `damage` in
+    /// that namespace without granting navigation to `internal`. Binding consumes
+    /// one publication's verified declaration/slot mapping and checks Rust types.
+    /// Calls select the current implementation of the originally bound declaration;
+    /// later alias retargets affect only fresh bindings. Invalid/private paths and
+    /// generic declarations without a closed entry fail before execution.
     pub fn bind_function<A: KagariArguments + 'static, R: KagariType + 'static>(
         &self,
-        owner: &LoadedModule,
+        owner: &Module,
         path: &str,
-    ) -> NativeResult<PinnedFunction<A, R>> {
+    ) -> NativeResult<Function<A, R>> {
         self.gc().ensure_no_native_borrow()?;
-        self.validate_loaded_module(owner)?;
-        let (target, function) = owner.exported_function(path).ok_or_else(|| {
-            RuntimeError::module_validation("public path has no checked executable entry")
-        })?;
+        let snapshot = self.capture_module(owner)?;
+        let (target, function) = snapshot.function_target(path)?;
         self.cache_function(EntryEvidence::script(self, &target, function)?)
     }
 
     /// Bind an explicit public declaration with an already installed closed entry.
-    /// This declaration capability is independent of Program-root path lookup;
+    /// This declaration capability is independent of relative public-path lookup;
     /// native entries can be bound without adding a source wrapper or export alias.
     pub fn bind_function_declaration<A: KagariArguments + 'static, R: KagariType + 'static>(
         &self,
-        owner: &LoadedModule,
+        owner: &Module,
         declaration: &DefinitionPath,
-    ) -> NativeResult<PinnedFunction<A, R>> {
+    ) -> NativeResult<Function<A, R>> {
         self.bind_function_application_declaration(owner, declaration, &[])
     }
 
@@ -71,12 +70,13 @@ impl Runtime {
         R: KagariType + 'static,
     >(
         &self,
-        owner: &LoadedModule,
+        owner: &Module,
         declaration: &DefinitionPath,
         arguments: &[TypeArgument],
-    ) -> NativeResult<PinnedFunction<A, R>> {
+    ) -> NativeResult<Function<A, R>> {
         self.gc().ensure_no_native_borrow()?;
-        self.validate_loaded_module(owner)?;
+        let snapshot = self.capture_module(owner)?;
+        let owner = &snapshot.root;
         for argument in arguments {
             argument.validate(self)?;
         }
@@ -119,7 +119,7 @@ impl Runtime {
         &self,
         member: &InherentMember,
         arguments: &[TypeArgument],
-    ) -> NativeResult<PinnedFunction<A, R>> {
+    ) -> NativeResult<Function<A, R>> {
         self.gc().ensure_no_native_borrow()?;
         member.applied.validate(self)?;
         let arguments = member.arguments(self, arguments)?;
@@ -142,8 +142,7 @@ impl Runtime {
     pub(super) fn cache_function<A: KagariArguments + 'static, R: KagariType + 'static>(
         &self,
         evidence: EntryEvidence,
-    ) -> NativeResult<PinnedFunction<A, R>> {
-        let invalid = || RuntimeError::module_validation("callable program retention");
+    ) -> NativeResult<Function<A, R>> {
         let member = &evidence.owner;
         let signature = &evidence.signature;
         let cx = ConversionContext::new(self, member)?;
@@ -161,21 +160,12 @@ impl Runtime {
             .find(|entry| entry.mapping == mapping && entry.evidence == evidence.key)
             .and_then(|entry| entry.record.upgrade())
         {
-            return Ok(PinnedFunction {
-                prepared: record,
+            return Ok(Function {
+                binding: record,
                 mapping: PhantomData,
             });
         }
-        let program = self
-            .retain_program(member, ModuleEpochRetention::RuntimeValue)
-            .ok_or_else(invalid)?;
-        let target = evidence.prepare(self)?;
-        let record = Arc::new(PreparedFunction {
-            owner: member.clone(),
-            signature: signature.clone(),
-            target: Target::Entry(target),
-            _program: program,
-        });
+        let record = Arc::new(FunctionBinding::Entry(evidence.bind()?));
         cache
             .0
             .try_reserve(1)
@@ -185,8 +175,8 @@ impl Runtime {
             evidence: evidence.key,
             record: Arc::downgrade(&record),
         });
-        Ok(PinnedFunction {
-            prepared: record,
+        Ok(Function {
+            binding: record,
             mapping: PhantomData,
         })
     }

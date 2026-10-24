@@ -2,7 +2,7 @@
 use crate::{
     execution_metadata::MetadataEdge,
     module::{
-        LoadedModule, ModuleKey, ModuleStore, ModuleStoreInner, records::ModuleRecord,
+        ExecutableModule, ModuleKey, ModuleStore, ModuleStoreInner, records::ModuleRecord,
         root_programs, state::StaticState,
     },
     value::Value,
@@ -16,6 +16,7 @@ use std::{
 /// Exclusive access prevents instance writes between marking and detachment.
 pub(crate) struct ProgramGraph<'a> {
     store: RefMut<'a, ModuleStoreInner>,
+    current_roots: Vec<ModuleKey>,
     abandoned: &'a AtomicBool,
     restore_abandonment: bool,
 }
@@ -30,11 +31,13 @@ pub(crate) struct DeadPrograms(Vec<ModuleKey>);
 
 impl ModuleStore {
     pub(crate) fn collection_graph(&self) -> Option<ProgramGraph<'_>> {
+        let current_roots = self.current_roots().ok()?;
         let store = self.inner.try_borrow_mut().ok()?;
         // Acknowledge before tracing. Releases racing with this collection leave
         // their own request set, including programs already reached by marking.
         Some(ProgramGraph {
             store,
+            current_roots,
             abandoned: &self.abandoned,
             restore_abandonment: self.abandoned.swap(false, Ordering::AcqRel),
         })
@@ -51,10 +54,10 @@ impl Drop for ProgramGraph<'_> {
 
 impl ProgramGraph<'_> {
     pub(crate) fn roots(&self) -> HashSet<ModuleKey> {
-        root_programs(&self.store)
+        root_programs(&self.store, self.current_roots.iter().copied())
     }
 
-    pub(crate) fn executable_edge(&self, module: &LoadedModule) -> Option<ModuleKey> {
+    pub(crate) fn executable_edge(&self, module: &ExecutableModule) -> Option<ModuleKey> {
         Some(self.store.resolve(module)?.module.program_key())
     }
 

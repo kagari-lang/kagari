@@ -1,0 +1,16 @@
+
+        use fixture::typed::Future;
+        pub trait Inspect {
+            fn read(self) -> i32 { 999 }
+            fn later(self) -> Future<i32>;
+        }
+        impl Inspect for i32 {
+            fn read(self) -> i32 { 17 }
+            fn later(self) -> Future<i32> { async { 17 } }
+        }
+        impl Inspect for bool {
+            fn read(self) -> i32 { 9 }
+            fn later(self) -> Future<i32> { async { 9 } }
+        }
+        pub fn integer() -> Inspect { 1 }
+        pub fn boolean() -> Inspect { true }

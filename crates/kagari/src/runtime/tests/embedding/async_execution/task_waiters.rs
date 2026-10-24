@@ -38,10 +38,15 @@ impl Tasks {
         let mut config = EngineConfig::default();
         config.default_runtime.async_limits.max_task_waiters = NonZeroUsize::new(2).unwrap();
         let fixture = Fixture::configured_source(SOURCE, config);
+        let selected = fixture
+            .runtime
+            .runtime()
+            .select_program(&fixture.module)
+            .unwrap();
         let scope = fixture
             .runtime
             .runtime()
-            .create_task_scope(&fixture.module, Default::default(), Arc::new(|_| Ok(())))
+            .create_task_scope(&selected, Default::default(), Arc::new(|_| Ok(())))
             .unwrap();
         Self { fixture, scope }
     }
@@ -238,7 +243,11 @@ fn scoped_task_dependency_failure_contract() {
     let other_scope = f
         .runtime
         .runtime()
-        .create_task_scope(&f.module, Default::default(), Arc::new(|_| Ok(())))
+        .create_task_scope(
+            &f.runtime.runtime().select_program(&f.module).unwrap(),
+            Default::default(),
+            Arc::new(|_| Ok(())),
+        )
         .unwrap();
     let factory = f.invoke("observe", &[f.value(&handle), Value::I32(1)]);
     let other = runtime

@@ -1,8 +1,11 @@
 use super::*;
-use crate::{tests::common::standard_runtime, vm::fixtures::FixtureExecution};
+use crate::{
+    tests::{common::standard_runtime, native_program::ProgramFixture},
+    vm::fixtures::FixtureExecution,
+};
 use kagari_bytecode::{
     instruction::{ConstantId, StructId},
-    program::{BytecodeProgram, ModuleRef, verify_program},
+    program::{ModuleRef, verify_program},
 };
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::error::RuntimeErrorKind;
@@ -15,7 +18,11 @@ fn foreign_loaded_module_is_rejected_before_execution() {
     let mut first = standard_runtime(Default::default());
     let mut second = standard_runtime(Default::default());
     let foreign = first.load_program("same", bytecode.clone()).unwrap();
+    let _foreign_program = foreign;
+    let foreign = first.select_program(&_foreign_program).unwrap();
     let local = second.load_program("same", bytecode).unwrap();
+    let _local_program = local;
+    let local = second.select_program(&_local_program).unwrap();
     assert_eq!(foreign.key(), local.key());
     let vm = Vm::new(second);
     assert!(
@@ -34,6 +41,8 @@ fn foreign_loaded_module_is_rejected_before_execution() {
 #[test]
 fn executes_simple_arithmetic_function() {
     let (runtime, loaded) = load_test_module("fn main() -> i32 { val value = 1 + 2; value }");
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let report = vm
         .execute(&loaded, ProgramEntry::Main)
@@ -57,7 +66,7 @@ fn executes_simple_arithmetic_function() {
 
 #[test]
 fn rejects_unverified_bytecode_before_publication() {
-    let mut bytecode = verified_module(
+    let bytecode = verified_module(
         vec![test_function(
             0,
             "main",
@@ -73,7 +82,14 @@ fn rejects_unverified_bytecode_before_publication() {
         )],
         vec![ConstantOperand::I32(1)],
     );
-    bytecode.function_table.clear();
+    let context = DefinitionContext::new().unwrap();
+    let mut program = ProgramFixture {
+        exports: Default::default(),
+        root: ModuleRef::new(0),
+        modules: vec![bytecode],
+    }
+    .build(&context);
+    program.modules[0].function_table.clear();
     let mut runtime = standard_runtime(RuntimeConfig {
         limits: RuntimeLimits {
             ..RuntimeLimits::default()
@@ -83,16 +99,7 @@ fn rejects_unverified_bytecode_before_publication() {
     let error = runtime
         .load_program(
             "unverified.kbc",
-            DefinitionMetadata::checked(
-                DefinitionContext::new().unwrap().snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![bytecode],
-                },
-                &Default::default(),
-            )
-            .unwrap(),
+            DefinitionMetadata::checked(context.snapshot(), program, &Default::default()).unwrap(),
         )
         .expect_err("runtime must reject unverified bytecode before publication");
 
@@ -149,13 +156,13 @@ fn rejects_unsupported_bytecode_before_publication() {
         let error = runtime
             .load_program(
                 name,
-                DefinitionMetadata::checked(
+                ProgramFixture {
+                    exports: Default::default(),
+                    root: ModuleRef::new(0),
+                    modules: vec![bytecode],
+                }
+                .metadata(
                     DefinitionContext::new().unwrap().snapshot(),
-                    BytecodeProgram {
-                        exports: Default::default(),
-                        root: ModuleRef::new(0),
-                        modules: vec![bytecode],
-                    },
                     &Default::default(),
                 )
                 .unwrap(),
@@ -192,13 +199,13 @@ fn unsupported_dynamic_invocation_is_rejected() {
     let error = runtime
         .load_program(
             "dynamic_call_capable.kbc",
-            DefinitionMetadata::checked(
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![dynamic_call],
+            }
+            .metadata(
                 DefinitionContext::new().unwrap().snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![dynamic_call],
-                },
                 &Default::default(),
             )
             .unwrap(),
@@ -211,6 +218,8 @@ fn unsupported_dynamic_invocation_is_rejected() {
 #[test]
 fn executes_if_control_flow() {
     let (runtime, loaded) = load_test_module("fn main() -> i32 { if true { 1 } else { 2 } }");
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let report = vm
         .execute(&loaded, ProgramEntry::Main)
@@ -233,6 +242,8 @@ fn callee() -> i32 { 7 }
 fn main() -> i32 { callee() }
 "#,
     );
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let report = vm
         .execute(&loaded, ProgramEntry::Main)
@@ -252,6 +263,8 @@ fn deterministic_frames_keep_caller_and_callee_storage_isolated() {
     let (runtime, loaded) = load_test_module(include_str!(
         "../../../tests/fixtures/execution/isolated-call-frames.kgr"
     ));
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let report = vm
         .execute(&loaded, ProgramEntry::Main)
@@ -285,6 +298,8 @@ fn main() -> i32 { middle() }
     let loaded = runtime
         .load_program("call_depth.kgr", bytecode)
         .expect("module should load");
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
 
     let vm = Vm::new(runtime);
     let error = vm
@@ -306,27 +321,29 @@ fn unreachable_instruction_is_a_script_trap() {
     let loaded = runtime
         .load_program(
             "trap.kbc",
-            DefinitionMetadata::checked(
-                DefinitionContext::new().unwrap().snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![verified_module(
-                        vec![test_function(
-                            0,
-                            "main",
-                            vec![BytecodeInstruction::Unreachable],
-                            ValueType::Unit,
-                            vec![],
-                        )],
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![verified_module(
+                    vec![test_function(
+                        0,
+                        "main",
+                        vec![BytecodeInstruction::Unreachable],
+                        ValueType::Unit,
                         vec![],
                     )],
-                },
+                    vec![],
+                )],
+            }
+            .metadata(
+                DefinitionContext::new().unwrap().snapshot(),
                 &Default::default(),
             )
             .unwrap(),
         )
         .expect("module should load");
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
 
     let vm = Vm::new(runtime);
     let error = vm
@@ -341,6 +358,8 @@ fn unreachable_instruction_is_a_script_trap() {
 fn executes_array_index_access() {
     let (runtime, loaded) =
         load_test_module("fn main() -> i32 { val values = [1, 2, 3]; values[1] }");
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let report = vm
         .execute(&loaded, ProgramEntry::Main)
@@ -367,6 +386,8 @@ fn main() -> i32 {
 }
 "#,
     );
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let report = vm
         .execute(&loaded, ProgramEntry::Main)
@@ -384,6 +405,8 @@ fn main() -> i32 {
 #[test]
 fn executes_tuple_literal_return() {
     let (runtime, loaded) = load_test_module("fn main() -> (bool, bool) { (true, false) }");
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let report = vm
         .execute(&loaded, ProgramEntry::Main)
@@ -416,6 +439,8 @@ fn main() -> Point {
 }
 "#,
     );
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let report = vm
         .execute(&loaded, ProgramEntry::Main)
@@ -454,18 +479,17 @@ fn lazy_static_driver_enters_hidden_initializer_but_stores_cannot_initialize() {
     let loaded = runtime
         .load_program(
             "module-slot-writes",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![module],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![module],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     assert!(vm.execute_fixture(&loaded, FunctionRef::new(0)).is_err());
     assert!(
@@ -505,39 +529,44 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
     let first_loaded = runtime
         .load_program(
             "hot_reload.kgr",
-            DefinitionMetadata::checked(
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![reloadable_value_module(1)],
+            }
+            .metadata(
                 DefinitionContext::new().unwrap().snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![reloadable_value_module(1)],
-                },
                 &Default::default(),
             )
             .unwrap(),
         )
         .expect("first module epoch should load");
+    let _first_loaded_program = first_loaded;
+    let first_loaded = runtime.select_program(&_first_loaded_program).unwrap();
     let retention = runtime
         .retain_module(&first_loaded, ModuleEpochRetention::ActiveCall)
         .unwrap();
 
     let second_loaded = runtime
         .stage_reload_program(
-            &first_loaded,
-            "hot_reload.kgr",
-            DefinitionMetadata::checked(
+            &_first_loaded_program,
+            Some("hot_reload.kgr".into()),
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![reloadable_value_module(2)],
+            }
+            .metadata(
                 DefinitionContext::new().unwrap().snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![reloadable_value_module(2)],
-                },
                 &Default::default(),
             )
             .unwrap(),
         )
         .expect("compatible reload should publish a new epoch");
-    let second_loaded = runtime.publish_staged_reload(second_loaded).unwrap();
+    let staged = second_loaded;
+    let second_loaded = staged.module().clone();
+    runtime.publish_staged_reload(staged).unwrap();
+    let _second_loaded_program = _first_loaded_program.clone();
 
     assert_eq!(
         runtime.collect_garbage().unwrap().reclaimed_modules,
@@ -548,24 +577,23 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
     let vm = Vm::new(runtime);
     let old_report = vm
         .execute_fixture(&first_loaded, FunctionRef::new(0))
-        .expect("old active epoch should remain executable");
+        .expect("an ordinary call through old evidence should select current code");
     let latest = vm
         .runtime()
-        .modules()
-        .latest("hot_reload.kgr")
+        .select_program(&_first_loaded_program)
         .expect("latest module epoch should be visible");
     let latest_report = vm
         .execute_fixture(&latest, FunctionRef::new(0))
         .expect("new call should use latest epoch");
 
     assert_eq!(second_loaded.epoch, latest.epoch);
-    assert_eq!(old_report.epoch, first_loaded.epoch.0);
+    assert_eq!(old_report.epoch, second_loaded.epoch.0);
     assert_eq!(
         old_report
             .return_value
             .value(vm.runtime().gc())
             .expect("retained execution result"),
-        Value::I32(1)
+        Value::I32(2)
     );
     assert_eq!(latest_report.epoch, second_loaded.epoch.0);
     assert_eq!(

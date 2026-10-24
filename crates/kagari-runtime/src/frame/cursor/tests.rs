@@ -3,7 +3,7 @@ use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
     frame::cursor::kernel::{RegionError, RegionExit},
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         binding::NativeResult, builder::ModuleBuilder, catalog::DeclarationCatalog,
         context::CallContext, declarations::FunctionDecl, types::Type,
@@ -23,7 +23,7 @@ use std::sync::{
 fn native_completion_fixture(
     fail_second: bool,
     discard: bool,
-) -> (Runtime, LoadedModule, Arc<AtomicUsize>) {
+) -> (Runtime, ExecutableModule, Arc<AtomicUsize>) {
     let calls = Arc::new(AtomicUsize::new(0));
     let invoked = calls.clone();
     let mut native =
@@ -103,7 +103,8 @@ fn native_completion_fixture(
     };
     let mut runtime = Runtime::default();
     native.install(&mut runtime).unwrap();
-    let loaded = runtime.load_program("completion", code).unwrap();
+    let loaded_program = runtime.load_program("completion", code).unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     (runtime, loaded, calls)
 }
 
@@ -232,7 +233,8 @@ fn collection_during_an_operand_borrow_quarantines_without_further_execution() {
         .map(|program| program.into_unverified())
         .unwrap();
     let mut runtime = Runtime::default();
-    let loaded = runtime.load_program("borrow", code).unwrap();
+    let loaded_program = runtime.load_program("borrow", code).unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     let entry = loaded
         .bytecode
         .functions

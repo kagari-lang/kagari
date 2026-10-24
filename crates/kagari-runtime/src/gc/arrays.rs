@@ -1,7 +1,7 @@
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     gc::{GcHeap, HeapObjectId},
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         sequence::{SequencePayload, SequenceStorage},
         storage_type::StorageType,
@@ -22,7 +22,7 @@ fn invalid() -> RuntimeError {
 impl GcHeap {
     pub(crate) fn alloc_array(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         element: Ty,
         elements: Vec<Value>,
     ) -> Result<HeapObjectId, RuntimeError> {
@@ -55,7 +55,7 @@ impl GcHeap {
 
     pub(crate) fn alloc_array_repeat(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         element: Ty,
         value: Value,
         count: usize,

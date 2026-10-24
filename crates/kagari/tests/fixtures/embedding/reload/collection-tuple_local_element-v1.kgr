@@ -1,0 +1,63 @@
+use std::collections::list_content_equal;
+
+fn same<T: PartialEq>(left: T, right: T) -> bool {
+    left == right
+}
+
+struct Local {}
+
+impl PartialEq for Local {
+    fn eq(self, other: Self) -> bool {
+        true
+    }
+}
+
+struct Item {
+    val value: i32
+}
+
+impl PartialEq for Item {
+    fn eq(self, other: Self) -> bool {
+        true
+    }
+}
+
+trait Boxer {
+    fn one<T: PartialEq>(self, left: T, right: T) -> bool {
+        val a = (Local {}, left);
+        val b = (Local {}, right);
+        val direct = a == b;
+        val forwarded = same(a, b);
+        val native = list_content_equal(Vec::from([a]), Vec::from([b]));
+        val collection = same(Vec::from([a]), Vec::from([b]));
+        if direct != forwarded || direct != native || direct != collection {
+            val zero = 0;
+            1 / zero;
+        }
+        direct
+    }
+}
+
+struct Factory {}
+
+impl Boxer for Factory {}
+
+trait Probe {
+    fn check(self, factory: Boxer) -> bool;
+}
+
+struct Checker {}
+
+impl Probe for Checker {
+    fn check(self, factory: Boxer) -> bool {
+        factory.one(Item { value: 1 }, Item { value: 2 })
+    }
+}
+
+pub fn make() -> Boxer {
+    Factory {}
+}
+
+pub fn probe() -> Probe {
+    Checker {}
+}

@@ -78,13 +78,13 @@ pub fn run(engine: KagariEngine, program: PreparedProgram, io: FakeIo) -> HostRe
     assert!(runtime.poll(&mut Context::from_waker(&wake)).is_pending());
     let scope = runtime.create_task_scope(&module).map_err(diagnostic)?;
     let make = runtime
-        .function::<(), Object>(&module, "job")
+        .function::<(), Object>(&module.root(), "job")
         .map_err(diagnostic)?;
     let handler = runtime
-        .function::<(TaskScope, Object), bool>(&module, "handle")
+        .function::<(TaskScope, Object), bool>(&module.root(), "handle")
         .map_err(diagnostic)?;
     let ping = runtime
-        .function::<(), i32>(&module, "ping")
+        .function::<(), i32>(&module.root(), "ping")
         .map_err(diagnostic)?;
     let job = runtime.call(&make, ()).map_err(diagnostic)?;
     let total = runtime

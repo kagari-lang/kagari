@@ -61,6 +61,8 @@ fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
             .install(&mut runtime)
             .unwrap();
             let loaded = runtime.load_program("debug-reentry.kgr", program).unwrap();
+            let _loaded_program = loaded;
+            let loaded = runtime.select_program(&_loaded_program).unwrap();
             let mut debug = DebugSession::new(&runtime).unwrap();
             let breakpoint = debug
                 .add_breakpoint(SourceBreakpoint::at_source_offset(

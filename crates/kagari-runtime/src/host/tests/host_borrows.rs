@@ -1,14 +1,12 @@
+use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
     host::{HostBorrowKind, HostBorrowTable, HostCallGuard, HostObjectId},
     metadata::TypeId,
 };
-use kagari_bytecode::{
-    module::BytecodeModule,
-    program::{BytecodeProgram, ModuleRef},
-};
-use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
+use kagari_common::identity::map::DefinitionContext;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[test]
@@ -107,21 +105,19 @@ fn guard_rejects_borrow_tokens_from_another_live_frame() {
 fn borrow_values_are_non_storable_and_fail_no_escape_validation() {
     let context = DefinitionContext::new().unwrap();
     let mut runtime = Runtime::default();
-    let module = runtime
+    let module_program = runtime
         .load_program(
             "borrow-storage",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap();
+    let module = runtime.select_program(&module_program).unwrap();
     let resources = runtime.host_scope(&[]).unwrap();
     let frame = resources.borrows();
     let token = frame

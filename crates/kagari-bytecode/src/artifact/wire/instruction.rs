@@ -24,6 +24,15 @@ use kagari_contract::{
 use kagari_types::{declaration::wire::leaf::NominalTyRecord, ty::wire::WireType};
 use serde::{Deserialize, Serialize};
 
+/// Encode an already normalized instruction without exposing editable wire records.
+pub(crate) fn canonical_record(
+    value: &BytecodeInstruction,
+    encoding: &DefinitionEncoding,
+    cancel: &CancellationToken,
+) -> Result<impl Serialize, DefinitionMappingError> {
+    BytecodeInstructionRecord::encode(value, encoding, cancel)
+}
+
 /// File-local BytecodeInstruction facts; no verification evidence is serialized.
 #[derive(Serialize, Deserialize)]
 pub(in crate::artifact) enum BytecodeInstructionRecord {

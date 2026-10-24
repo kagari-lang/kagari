@@ -14,13 +14,32 @@ use kagari_contract::{
     },
     types::{ConcreteFunctionIdentity, PublicItem, trait_contract},
 };
-use kagari_types::ty::{Ty, substitution::TypeSubstitution};
+use kagari_types::ty::{NominalTy, Ty, substitution::TypeSubstitution};
+
+use std::{fmt, sync::Arc};
+
+#[derive(Clone)]
+pub(crate) struct UpdateCoverage {
+    pub methods: Arc<Vec<ConstructionMethod>>,
+    pub constructions: Vec<ConcreteFunctionIdentity>,
+    pub layouts: Vec<Ty>,
+}
+
+impl fmt::Debug for UpdateCoverage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UpdateCoverage")
+            .field("method_count", &self.methods.len())
+            .field("constructions", &self.constructions)
+            .field("layouts", &self.layouts)
+            .finish()
+    }
+}
 
 pub(super) fn verify(
     program: &BytecodeProgram,
     definitions: &DefinitionTable,
     cancel: &CancellationToken,
-) -> Result<(), BytecodeVerificationError> {
+) -> Result<UpdateCoverage, BytecodeVerificationError> {
     let invalid = || BytecodeVerificationError::InvalidInterfaceTable;
     let mut bodies = Vec::new();
     let mut methods = Vec::new();
@@ -95,6 +114,9 @@ pub(super) fn verify(
                         }
                     }
                     BytecodeInstruction::MakeClosure {
+                        function: target, ..
+                    }
+                    | BytecodeInstruction::MakeFuture {
                         function: target, ..
                     } => {
                         let target = &module.functions[target.index()];
@@ -233,5 +255,48 @@ pub(super) fn verify(
             return Err(invalid());
         }
     }
-    Ok(())
+    let mut constructions = Vec::new();
+    let mut layouts = Vec::new();
+    for module in &program.modules {
+        for table in &module.interface_tables {
+            cancel
+                .check()
+                .map_err(|_| BytecodeVerificationError::Cancelled)?;
+            if table.arguments.iter().all(Ty::is_concrete) {
+                constructions.push(ConcreteFunctionIdentity {
+                    declaration: table.declaration,
+                    arguments: table.arguments.clone(),
+                });
+            }
+        }
+        for layout in &module.structures {
+            cancel
+                .check()
+                .map_err(|_| BytecodeVerificationError::Cancelled)?;
+            if layout.arguments.iter().all(Ty::is_concrete) {
+                layouts.push(Ty::Struct(NominalTy {
+                    declaration: layout.declaration,
+                    arguments: layout.arguments.clone(),
+                    associated_types: Default::default(),
+                }));
+            }
+        }
+        for layout in &module.enumerations {
+            cancel
+                .check()
+                .map_err(|_| BytecodeVerificationError::Cancelled)?;
+            if layout.arguments.iter().all(Ty::is_concrete) {
+                layouts.push(Ty::Enum(NominalTy {
+                    declaration: layout.declaration,
+                    arguments: layout.arguments.clone(),
+                    associated_types: Default::default(),
+                }));
+            }
+        }
+    }
+    Ok(UpdateCoverage {
+        methods: Arc::new(methods),
+        constructions,
+        layouts,
+    })
 }

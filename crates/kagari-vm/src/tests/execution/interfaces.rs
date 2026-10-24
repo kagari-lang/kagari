@@ -1,15 +1,22 @@
+mod fixtures;
+
+use self::fixtures::closure_constraint_provider;
 use super::*;
 use crate::{
     executor::Executor,
-    tests::common::{module_program, round_trip_bytecode, standard_runtime},
+    tests::{
+        common::{round_trip_bytecode, standard_runtime},
+        native_boundary::compile_without_foundation,
+    },
     vm::fixtures::FixtureExecution,
 };
 use kagari_bytecode::instruction::ConstructionTarget as BytecodeConstruction;
 use kagari_bytecode::{
     instruction::{ConstantId, StructId},
-    program::{BytecodeProgram, identity, verify_program},
+    program::{identity, verify_program},
     verifier::{BytecodeVerificationError, verify_module},
 };
+
 use kagari_contract::{ids::FunctionRef, types::PublicItem};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
@@ -17,7 +24,7 @@ use kagari_runtime::{
         driver::{ExecutionAction, ReturnAction},
         transfer::ReturnValue,
     },
-    module::{LoadedModule, entry::ProgramEntry},
+    module::{ExecutableModule, entry::ProgramEntry},
 };
 use kagari_types::ty::{NominalTy, Ty};
 use std::slice;
@@ -27,6 +34,8 @@ fn concrete_interface_object_resolves_a_linked_method_slot() {
     let (runtime, loaded) = load_test_module(
         "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { self + 1 } } fn read<T: Tag>(x: T) -> i32 { x.tag() } fn main() -> i32 { read(7) }",
     );
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let table = &loaded.bytecode.interface_tables[0];
     let method = table.methods[0].method;
     let boxed = runtime.make_interface(&loaded, 0, Value::I32(7)).unwrap();
@@ -71,6 +80,8 @@ fn interface_method_slots_follow_trait_order_even_when_impl_order_differs() {
     let (runtime, loaded) = load_test_module(
         "trait Other {} trait Pair { fn first(self) -> i32; fn second(self) -> i32; } impl Pair for i32 { fn second(self) -> i32 { 2 } fn first(self) -> i32 { 1 } } fn main() -> i32 { 0 }",
     );
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let table = loaded
         .bytecode
         .public_items
@@ -153,6 +164,8 @@ fn source_call_boxes_a_concrete_argument_for_an_interface_parameter() {
     let (runtime, loaded) = load_test_module(
         "trait Tag {} impl Tag for i32 {} fn accept(value: Tag) -> i32 { 42 } fn main() -> i32 { accept(7) }",
     );
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     assert!(
         loaded
             .bytecode
@@ -177,6 +190,8 @@ fn source_call_boxes_an_interface_with_methods() {
     let (runtime, loaded) = load_test_module(
         "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { self + 1 } } fn accept(value: Tag) -> i32 { 42 } fn main() -> i32 { accept(7) }",
     );
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
@@ -193,6 +208,8 @@ fn source_interface_method_call_dispatches_through_the_linked_slot() {
     let (runtime, loaded) = load_test_module(
         "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { self + 1 } } fn accept(value: Tag) -> i32 { value.tag() } fn main() -> i32 { accept(7) }",
     );
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
@@ -266,6 +283,8 @@ fn static_bound_calls_preserve_explicit_self_typed_arguments_and_checked_signatu
     config.gc.collection_threshold = Some(1);
     let mut runtime = standard_runtime(config);
     let loaded = runtime.load_program("static-bound", program).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
@@ -285,6 +304,8 @@ fn source_return_and_local_bindings_keep_the_boxed_interface_value() {
     let (runtime, loaded) = load_test_module(
         "trait Tag {} impl Tag for i32 {} fn make() -> Tag { 7 } fn accept(value: Tag) -> i32 { 42 } fn main() -> i32 { val value: Tag = make(); accept(value) }",
     );
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
@@ -297,25 +318,29 @@ fn source_return_and_local_bindings_keep_the_boxed_interface_value() {
 }
 
 #[test]
-fn interface_method_keeps_its_implementation_across_reload() {
+fn interface_method_selects_current_implementation_after_reload() {
     let source = "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { self + 1 } } fn read<T: Tag>(x: T) -> i32 { x.tag() } fn main() -> i32 { read(7) }";
     let first = compile_test_bytecode(source);
     let second = compile_test_bytecode(&source.replace("self + 1", "self + 2"));
     let mut runtime = standard_runtime(Default::default());
     let old = runtime.load_program("interface-reload", first).unwrap();
+    let _old_program = old;
+    let old = runtime.select_program(&_old_program).unwrap();
     let method = old.bytecode.interface_tables[0].methods[0].method;
     let old_value = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
     let old_root = runtime.root_value(old_value).unwrap();
     let candidate = runtime
-        .stage_reload_program(&old, "interface-reload", second)
+        .stage_reload_program(&_old_program, Some("interface-reload".into()), second)
         .unwrap();
-    let new = runtime.publish_staged_reload(candidate).unwrap();
+    let new = candidate.module().clone();
+    runtime.publish_staged_reload(candidate).unwrap();
+    let _new_program = _old_program.clone();
     let new_value = runtime.make_interface(&new, 0, Value::I32(7)).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
         vm.invoke_interface_method(&old_value, &method, &[])
             .unwrap(),
-        Value::I32(8)
+        Value::I32(9)
     );
     assert_eq!(
         vm.invoke_interface_method(&new_value, &method, &[])
@@ -328,7 +353,7 @@ fn interface_method_keeps_its_implementation_across_reload() {
 }
 
 #[test]
-fn interface_frame_descendants_follow_the_receivers_pinned_program() {
+fn interface_frames_and_descendants_select_current_code() {
     let source = "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { helper() + self } } fn helper() -> i32 { 1 } fn main() -> i32 { 0 }";
     let old_code = compile_test_bytecode(source);
     let new_code = compile_test_bytecode(
@@ -336,13 +361,17 @@ fn interface_frame_descendants_follow_the_receivers_pinned_program() {
     );
     let mut runtime = standard_runtime(Default::default());
     let old = runtime.load_program("interface-frames", old_code).unwrap();
+    let _old_program = old;
+    let old = runtime.select_program(&_old_program).unwrap();
     let method = old.bytecode.interface_tables[0].methods[0].method;
     let boxed = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
     let receiver_root = runtime.root_value(boxed).unwrap();
     let candidate = runtime
-        .stage_reload_program(&old, "interface-frames", new_code)
+        .stage_reload_program(&_old_program, Some("interface-frames".into()), new_code)
         .unwrap();
-    let new = runtime.publish_staged_reload(candidate).unwrap();
+    let new = candidate.module().clone();
+    runtime.publish_staged_reload(candidate).unwrap();
+    let _new_program = _old_program.clone();
     let resolved = runtime.resolve_interface_method(&boxed, &method).unwrap();
     let entry = new
         .bytecode
@@ -374,9 +403,9 @@ fn interface_frame_descendants_follow_the_receivers_pinned_program() {
     // receiver's external root are gone, even while a newer program is current.
     drop(receiver_root);
     runtime.collect_garbage().unwrap();
-    assert_eq!(stack.current().unwrap().loaded().key(), old.key());
-    stack.push(&runtime, old.slot(), helper, &[], None).unwrap();
-    assert_eq!(stack.current().unwrap().loaded().key(), old.key());
+    assert_eq!(stack.current().unwrap().loaded().key(), new.key());
+    stack.push(&runtime, new.slot(), helper, &[], None).unwrap();
+    assert_eq!(stack.current().unwrap().loaded().key(), new.key());
     stack.pop().unwrap();
     assert_eq!(
         stack
@@ -390,7 +419,7 @@ fn interface_frame_descendants_follow_the_receivers_pinned_program() {
 }
 
 #[test]
-fn source_interface_dispatch_keeps_old_method_and_descendant_after_reload() {
+fn source_interface_dispatch_selects_current_method_and_descendant_after_reload() {
     let source = "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { helper() + self } } fn helper() -> i32 { 1 } fn read(value: Tag) -> i32 { value.tag() } fn main() -> i32 { read(7) }";
     let old_code = compile_test_bytecode(source);
     let new_code = compile_test_bytecode(
@@ -400,12 +429,20 @@ fn source_interface_dispatch_keeps_old_method_and_descendant_after_reload() {
     let old = runtime
         .load_program("interface-dispatch-reload", old_code)
         .unwrap();
+    let _old_program = old;
+    let old = runtime.select_program(&_old_program).unwrap();
     let old_value = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
     let old_root = runtime.root_value(old_value).unwrap();
     let candidate = runtime
-        .stage_reload_program(&old, "interface-dispatch-reload", new_code)
+        .stage_reload_program(
+            &_old_program,
+            Some("interface-dispatch-reload".into()),
+            new_code,
+        )
         .unwrap();
-    let new = runtime.publish_staged_reload(candidate).unwrap();
+    let new = candidate.module().clone();
+    runtime.publish_staged_reload(candidate).unwrap();
+    let _new_program = _old_program.clone();
     let new_value = runtime.make_interface(&new, 0, Value::I32(7)).unwrap();
     let read = new
         .bytecode
@@ -415,7 +452,7 @@ fn source_interface_dispatch_keeps_old_method_and_descendant_after_reload() {
         .unwrap()
         .id;
     let mut old_call = Executor::new(&runtime, &new, read, &[old_value]).unwrap();
-    assert_eq!(old_call.run().unwrap(), Value::I32(8));
+    assert_eq!(old_call.run().unwrap(), Value::I32(9));
     drop(old_call);
     let mut new_call = Executor::new(&runtime, &new, read, &[new_value]).unwrap();
     assert_eq!(new_call.run().unwrap(), Value::I32(9));
@@ -446,6 +483,8 @@ fn generic_interface_and_retained_closure_keep_their_environment_after_reload() 
     let old = runtime
         .load_program("shared-reload", compile_test_bytecode(source))
         .unwrap();
+    let _old_program = old;
+    let old = runtime.select_program(&_old_program).unwrap();
     let interface = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
     let interface_root = runtime.root_value(interface).unwrap();
     let make = old
@@ -463,16 +502,18 @@ fn generic_interface_and_retained_closure_keep_their_environment_after_reload() 
     assert_eq!(source.matches("42").count(), 1);
     let candidate = runtime
         .stage_reload_program(
-            &old,
-            "shared-reload",
+            &_old_program,
+            Some("shared-reload".into()),
             compile_test_bytecode(&source.replace("42", "43")),
         )
         .unwrap();
-    let new = runtime.publish_staged_reload(candidate).unwrap();
+    let new = candidate.module().clone();
+    runtime.publish_staged_reload(candidate).unwrap();
+    let _new_program = _old_program.clone();
     runtime.collect_garbage().unwrap();
     for (name, args, expected) in [
-        ("read", vec![interface], 42),
-        ("use_closure", vec![closure], 42),
+        ("read", vec![interface], 43),
+        ("use_closure", vec![closure], 43),
         ("main", vec![], 43),
     ] {
         let entry = new
@@ -497,6 +538,8 @@ fn trapped_interface_frame_releases_its_roots_and_call_depth() {
     let (runtime, loaded) = load_test_module(
         "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { self / 0 } } fn main() -> i32 { 42 }",
     );
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let method = loaded.bytecode.interface_tables[0].methods[0].method;
     let boxed = runtime.make_interface(&loaded, 0, Value::I32(7)).unwrap();
     let vm = Vm::new(runtime);
@@ -517,6 +560,8 @@ fn interface_method_rejects_wrong_nominal_argument_before_execution() {
     let (runtime, loaded) = load_test_module(
         "struct A { val n: i32 } struct B { val n: i32 } trait Tag { fn read(self, x: A) -> i32; } impl Tag for i32 { fn read(self, x: A) -> i32 { x.n } } fn run<T: Tag>(x: T, a: A) -> i32 { x.read(a) } fn main() -> i32 { run(7, A { n: 1 }) } pub fn make_a() -> A { A { n: 5 } } pub fn make_b() -> B { B { n: 9 } }",
     );
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let method = loaded.bytecode.interface_tables[0].methods[0].method;
     let boxed = runtime.make_interface(&loaded, 0, Value::I32(7)).unwrap();
     let vm = Vm::new(runtime);
@@ -573,11 +618,21 @@ fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
     };
     assert!(verify_module(&invalid, &definitions, &Default::default()).is_err());
 
-    let decoded = round_trip_bytecode(module_program(module));
+    let context = DefinitionContext::new().unwrap();
+    let module = module
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    let program = interface_program(&context, vec![module], ModuleRef::new(0));
+    let decoded = round_trip_bytecode(
+        DefinitionMetadata::checked(context.snapshot(), program, &Default::default()).unwrap(),
+    );
     let mut runtime = standard_runtime(Default::default());
     let loaded = runtime
         .load_program("interface-instruction", decoded)
         .unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let value = vm
         .execute_fixture(&loaded, FunctionRef::new(0))
@@ -623,11 +678,24 @@ fn interface_instruction_uses_a_reachable_dependency_table() {
     );
     consumer.identity = ModuleIdentity::single_file("interface-consumer.kgr");
     consumer.dependencies = vec![ModuleRef::new(0)];
-    let program = BytecodeProgram {
-        exports: Default::default(),
-        root: ModuleRef::new(1),
-        modules: vec![dependency, consumer],
-    };
+    let result = dependency.functions[0]
+        .metadata
+        .semantic
+        .result
+        .clone()
+        .unwrap();
+    consumer.functions[0]
+        .metadata
+        .semantic
+        .slots
+        .insert(0, Ty::Builtin(BuiltinType::I32));
+    consumer.functions[0].metadata.semantic.result = Some(result.clone());
+    consumer.functions[0]
+        .metadata
+        .semantic
+        .slots
+        .insert(1, result);
+    let program = interface_program(&context, vec![dependency, consumer], ModuleRef::new(1));
     let definitions = identity::collect(
         &program.modules.iter().collect::<Vec<_>>(),
         &context,
@@ -645,6 +713,8 @@ fn interface_instruction_uses_a_reachable_dependency_table() {
 
     let mut runtime = standard_runtime(Default::default());
     let loaded = runtime.load_program("interface-consumer", decoded).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let dependency_key = loaded.member(ModuleRef::new(0)).unwrap().key();
     let vm = Vm::new(runtime);
     let value = vm
@@ -660,10 +730,10 @@ fn interface_instruction_uses_a_reachable_dependency_table() {
 }
 
 #[test]
-fn a_retained_generic_closure_pins_the_callers_constraint_generation() {
+fn a_retained_generic_closure_keeps_constraint_evidence_but_calls_current_code() {
     let source =
         include_str!("../../../tests/fixtures/execution/constraint-generation-capture.kgr");
-    fn execute(runtime: &Runtime, module: &LoadedModule, name: &str, args: &[Value]) -> Value {
+    fn execute(runtime: &Runtime, module: &ExecutableModule, name: &str, args: &[Value]) -> Value {
         let entry = module
             .bytecode
             .functions
@@ -676,38 +746,48 @@ fn a_retained_generic_closure_pins_the_callers_constraint_generation() {
             .run()
             .unwrap()
     }
-    let mut runtime = standard_runtime(Default::default());
+    // Keep this fixture focused on its registered callable constraint protocol.
+    let provider = closure_constraint_provider();
+    let compile = |text: &str| compile_without_foundation(text, Some(&provider));
+    let mut runtime = Runtime::default();
+    provider.install(&mut runtime).unwrap();
     let first = runtime
-        .load_program("constraint-reload", compile_test_bytecode(source))
+        .load_program("constraint-reload", compile(source))
         .unwrap();
+    let _first_program = first;
+    let first = runtime.select_program(&_first_program).unwrap();
     let receiver = execute(&runtime, &first, "source", &[]);
     let receiver_root = runtime.root_value(receiver).unwrap();
     assert_eq!(source.matches("42").count(), 1);
     let candidate = runtime
         .stage_reload_program(
-            &first,
-            "constraint-reload",
-            compile_test_bytecode(&source.replace("42", "43")),
+            &_first_program,
+            Some("constraint-reload".into()),
+            compile(&source.replace("42", "43")),
         )
         .unwrap();
-    let second = runtime.publish_staged_reload(candidate).unwrap();
+    let second = candidate.module().clone();
+    runtime.publish_staged_reload(candidate).unwrap();
+    let _second_program = _first_program.clone();
     let closure = execute(&runtime, &second, "make", &[receiver]);
     let closure_root = runtime.root_value(closure).unwrap();
     drop(receiver_root);
     let candidate = runtime
         .stage_reload_program(
-            &second,
-            "constraint-reload",
-            compile_test_bytecode(&source.replace("42", "44")),
+            &_second_program,
+            Some("constraint-reload".into()),
+            compile(&source.replace("42", "44")),
         )
         .unwrap();
-    let third = runtime.publish_staged_reload(candidate).unwrap();
+    let third = candidate.module().clone();
+    runtime.publish_staged_reload(candidate).unwrap();
+    let _third_program = _second_program.clone();
     let reclaimed = runtime.collect_garbage().unwrap().reclaimed_modules;
     assert!(!reclaimed.contains(&first.key()));
     assert!(!reclaimed.contains(&second.key()));
     assert_eq!(
         execute(&runtime, &third, "use_closure", &[closure]),
-        Value::I32(43)
+        Value::I32(44)
     );
     drop(closure_root);
     let reclaimed = runtime.collect_garbage().unwrap().reclaimed_modules;
@@ -779,6 +859,8 @@ fn check_type_provenance_reload(source: &str, item_constructions: usize) {
     let old = runtime
         .load_program("type-provenance", compile_test_bytecode(source))
         .unwrap();
+    let _old_program = old;
+    let old = runtime.select_program(&_old_program).unwrap();
     let interface = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
     let interface_root = runtime.root_value(interface).unwrap();
     let helper = "fn helper() -> i32 {";
@@ -802,14 +884,16 @@ fn check_type_provenance_reload(source: &str, item_constructions: usize) {
     }
     let candidate = runtime
         .stage_reload_program(
-            &old,
-            "type-provenance",
+            &_old_program,
+            Some("type-provenance".into()),
             compile_test_bytecode(&second_source),
         )
         .unwrap();
-    let second = runtime.publish_staged_reload(candidate).unwrap();
+    let second = candidate.module().clone();
+    runtime.publish_staged_reload(candidate).unwrap();
+    let _second_program = _old_program.clone();
     {
-        let item_layout = |loaded: &LoadedModule| {
+        let item_layout = |loaded: &ExecutableModule| {
             let index = loaded
                 .bytecode
                 .structures
@@ -901,18 +985,20 @@ fn check_type_provenance_reload(source: &str, item_constructions: usize) {
     }
     let candidate = runtime
         .stage_reload_program(
-            &second,
-            "type-provenance",
+            &_second_program,
+            Some("type-provenance".into()),
             compile_test_bytecode(&third_source),
         )
         .unwrap();
-    let third = runtime.publish_staged_reload(candidate).unwrap();
+    let third = candidate.module().clone();
+    runtime.publish_staged_reload(candidate).unwrap();
+    let _third_program = _second_program.clone();
     let reclaimed = runtime.collect_garbage().unwrap().reclaimed_modules;
     assert!(!reclaimed.contains(&old.key()));
     // Shared execution keeps its caller-supplied construction applications pinned.
     // Plain aggregate layout provenance alone is covered by runtime layout tests.
     assert!(!reclaimed.contains(&second.key()));
-    runtime.validate_loaded_module(&second).unwrap();
+    runtime.validate_executable_module(&second).unwrap();
     let call = third
         .bytecode
         .functions
@@ -932,7 +1018,7 @@ fn check_type_provenance_reload(source: &str, item_constructions: usize) {
     let reclaimed = runtime.collect_garbage().unwrap().reclaimed_modules;
     assert!(reclaimed.contains(&old.key()));
     assert!(reclaimed.contains(&second.key()));
-    assert!(runtime.validate_loaded_module(&second).is_err());
+    assert!(runtime.validate_executable_module(&second).is_err());
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
 }
 
@@ -997,15 +1083,23 @@ fn shared_closure_signatures_distinguish_nominal_generations() {
     let old = runtime
         .load_program("closure-scope", compile_test_bytecode(source))
         .unwrap();
+    let _old_program = old;
+    let old = runtime.select_program(&_old_program).unwrap();
     let receiver = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
     let receiver_root = runtime.root_value(receiver).unwrap();
     let next_source = source
         .replace("val value: i32", "val value: i32, val extra: bool")
         .replace("value: 1 }", "value: 1, extra: true }");
     let candidate = runtime
-        .stage_reload_program(&old, "closure-scope", compile_test_bytecode(&next_source))
+        .stage_reload_program(
+            &_old_program,
+            Some("closure-scope".into()),
+            compile_test_bytecode(&next_source),
+        )
         .unwrap();
-    let current = runtime.publish_staged_reload(candidate).unwrap();
+    let current = candidate.module().clone();
+    runtime.publish_staged_reload(candidate).unwrap();
+    let _current_program = _old_program.clone();
     let make = current
         .bytecode
         .functions

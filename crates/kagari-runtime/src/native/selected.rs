@@ -7,7 +7,7 @@ use crate::{
         EnvironmentRecord, TypeEnvironment,
         arguments::{ScopedSignature, TypeArgument},
     },
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         binding::NativeResult,
         context::{CallableOwner, LinkedCallable},
@@ -20,7 +20,7 @@ use std::{slice, sync::Arc};
 impl LinkedCallable {
     pub(crate) fn prepare(
         runtime: &Runtime,
-        caller: &LoadedModule,
+        caller: &ExecutableModule,
         caller_environment: &TypeEnvironment,
         required: &NativeCallableRequirement,
         id: OperationId,
@@ -144,7 +144,7 @@ impl LinkedCallable {
     pub(crate) fn matches_argument(
         &self,
         runtime: &Runtime,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         index: usize,
         value: &Value,
     ) -> bool {
@@ -163,7 +163,7 @@ impl LinkedCallable {
     pub(crate) fn matches_result(
         &self,
         runtime: &Runtime,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         value: &Value,
     ) -> bool {
         match &self.scoped_signature {

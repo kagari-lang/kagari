@@ -5,7 +5,7 @@ use crate::{
         links::MetadataCache,
     },
     frame::types::{TypeEnvironment, bindings::TypeBindings, compatibility::TypeView},
-    module::LoadedModule,
+    module::ExecutableModule,
     value::Value,
 };
 use kagari_bytecode::module::CallableTarget;
@@ -29,7 +29,7 @@ pub(crate) struct InterfaceMethodBinding {
 
 #[derive(Debug, Clone)]
 pub(crate) struct InterfaceResultBinding {
-    pub(crate) owner: LoadedModule,
+    pub(crate) owner: ExecutableModule,
     pub(crate) table: usize,
     pub(crate) arguments: Vec<Ty>,
     pub(crate) environment: Option<TypeEnvironment>,
@@ -52,7 +52,7 @@ pub(crate) struct InterfaceDescription {
     pub(crate) interface_type: Ty,
     pub(crate) interface_expression: Ty,
     pub(crate) environment: Option<TypeEnvironment>,
-    pub(crate) implementation: LoadedModule,
+    pub(crate) implementation: ExecutableModule,
     pub(crate) methods: Vec<Option<InterfaceMethodBinding>>,
 }
 
@@ -102,7 +102,7 @@ impl InterfaceValueSnapshot {
     pub(crate) fn matches_type(
         &self,
         ty: &Ty,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         environment: Option<&TypeBindings>,
     ) -> bool {
         self.description

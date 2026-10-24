@@ -237,7 +237,7 @@ impl FromKagari for Leaf {
     }
 }
 
-fn conversion_fixture() -> (Runtime, kagari_runtime::module::LoadedModule) {
+fn conversion_fixture() -> (Runtime, kagari_runtime::module::ExecutableModule) {
     let module = module("game::data");
     let program = program(&module);
     let mut runtime = Runtime::new(RuntimeConfig {
@@ -250,7 +250,8 @@ fn conversion_fixture() -> (Runtime, kagari_runtime::module::LoadedModule) {
     let mut modules = kagari_stdlib::modules().unwrap();
     modules.push(module);
     NativeModule::install_all(&modules, &mut runtime).unwrap();
-    let owner = runtime.load_program("dto", program).unwrap();
+    let owner_program = runtime.load_program("dto", program).unwrap();
+    let owner = runtime.select_program(&owner_program).unwrap();
     (runtime, owner)
 }
 

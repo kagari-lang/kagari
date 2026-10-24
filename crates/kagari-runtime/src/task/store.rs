@@ -3,7 +3,7 @@ use crate::{
     error_trace::asynchronous::SpawnOrigin,
     frame::{factory::QueuedFactory, types::arguments::TypeArgument},
     gc::roots::RootedValue,
-    module::LoadedModule,
+    module::ExecutableModule,
     resource::AsyncLimits,
     session::{ExecutionOptions, owned::OwnedExecution},
     task::{
@@ -150,7 +150,7 @@ pub(crate) struct TaskRecord {
     pub scope: ScopeId,
     pub signal: Arc<TaskSignal>,
     pub value: RootedValue,
-    pub owner: LoadedModule,
+    pub owner: ExecutableModule,
     pub output: TypeArgument,
     pub options: ExecutionOptions,
     pub state: TaskState,

@@ -303,6 +303,7 @@ impl NativeModule {
             }
         }
         registry.catalog.merge(&owned)?;
+        registry.owned_traits.extend(owned.traits.ids());
         let referenced = self
             .declaration
             .import_into(

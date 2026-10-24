@@ -8,7 +8,10 @@ use crate::{
         compatibility::TypeIdentity,
     },
     gc::interfaces::InterfaceResultBinding,
-    module::{LoadedModule, ModuleKey},
+    module::{
+        ExecutableModule, ModuleKey,
+        dispatch::{SelectedTarget, identity::PublicationDefinitions},
+    },
 };
 use std::sync::Arc;
 
@@ -21,9 +24,10 @@ pub(crate) struct ConstructionKey {
 
 #[derive(Debug, Clone)]
 pub(crate) struct ConstructionBinding {
+    pub(crate) lookup_scope: Option<Arc<PublicationDefinitions>>,
     pub(crate) key: ConstructionKey,
     pub(crate) interface: TypeArgument,
-    pub(crate) owner: LoadedModule,
+    pub(crate) owner: ExecutableModule,
     pub(crate) selection: Option<InterfaceResultBinding>,
     pub(crate) associated: AssociatedInterface,
 }
@@ -38,25 +42,59 @@ pub(crate) struct ConstructionIdentity {
 /// authorize a bound construction; mere program membership never grants one.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ConstructionScope {
-    programs: Arc<Vec<LoadedModule>>,
+    programs: Arc<Vec<ExecutableModule>>,
     selections: Arc<Vec<ConstructionBinding>>,
 }
 
 impl ConstructionScope {
-    pub(crate) fn new(owner: &LoadedModule) -> Self {
+    pub(crate) fn new(owner: &ExecutableModule) -> Self {
         Self {
             programs: Arc::new(vec![owner.program_root()]),
             selections: Arc::default(),
         }
     }
 
-    pub(crate) fn programs(&self) -> &[LoadedModule] {
+    pub(crate) fn transported(
+        &self,
+        runtime: &Runtime,
+        selected: &SelectedTarget,
+    ) -> Result<Self, RuntimeError> {
+        let mut scope = self.clone();
+        let mut bindings = Vec::with_capacity(self.selections.len());
+        for binding in self.selections.iter() {
+            let mut binding = binding.clone();
+            if binding.owner.installation_id() == selected.owner().installation_id() {
+                let mapping = selected.mapping_from(
+                    binding
+                        .lookup_scope
+                        .clone()
+                        .unwrap_or_else(|| binding.owner.publication_definitions()),
+                )?;
+                binding.key.receiver = Arc::new(binding.key.receiver.transported(&mapping)?);
+                binding.key.interface = Arc::new(binding.key.interface.transported(&mapping)?);
+                binding.associated = binding.associated.transported(runtime, selected)?;
+                binding.lookup_scope = Some(selected.owner().publication_definitions());
+            } else if !binding
+                .owner
+                .is_shared_native_trait(binding.associated.interface.declaration)
+            {
+                return Err(RuntimeError::module_validation(
+                    "script trait construction belongs to another installation",
+                ));
+            }
+            bindings.push(binding);
+        }
+        scope.selections = Arc::new(bindings);
+        Ok(scope)
+    }
+
+    pub(crate) fn programs(&self) -> &[ExecutableModule] {
         &self.programs
     }
 
     pub(crate) fn identity(&self) -> ConstructionIdentity {
         ConstructionIdentity {
-            programs: self.programs.iter().map(LoadedModule::key).collect(),
+            programs: self.programs.iter().map(ExecutableModule::key).collect(),
             selections: self
                 .selections
                 .iter()
@@ -71,7 +109,13 @@ impl ConstructionScope {
         interface: &TypeIdentity,
     ) -> Option<&ConstructionBinding> {
         self.selections.iter().find(|binding| {
-            binding.key.receiver.as_ref() == receiver && binding.key.interface.as_ref() == interface
+            if binding.lookup_scope.is_some() {
+                binding.key.receiver.same_contract(receiver)
+                    && binding.key.interface.same_contract(interface)
+            } else {
+                binding.key.receiver.as_ref() == receiver
+                    && binding.key.interface.as_ref() == interface
+            }
         })
     }
 
@@ -123,10 +167,10 @@ impl ConstructionScope {
 impl Runtime {
     pub(crate) fn construction_scope(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         environment: Option<&TypeEnvironment>,
     ) -> Result<ConstructionScope, RuntimeError> {
-        self.validate_loaded_module(owner)?;
+        self.validate_executable_module(owner)?;
         let mut scope = ConstructionScope::new(owner);
         if let Some(environment) = environment {
             let environment = self

@@ -10,7 +10,7 @@ use crate::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
     gc::{GcHeap, roots::RootedValue},
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         binding::NativeResult,
         conversion::context::ConversionContext,
@@ -73,7 +73,7 @@ impl<T> NativeType<T> {
         self.record.rust_type.type_argument()
     }
 
-    pub fn owner(&self) -> &LoadedModule {
+    pub fn owner(&self) -> &ExecutableModule {
         self.record.rust_type.owner()
     }
 }
@@ -85,7 +85,7 @@ impl<T: NativePayload> NativeType<T> {
         let runtime = cx.runtime();
         runtime.gc().ensure_no_native_borrow()?;
         runtime.resources().ensure_execution_allowed()?;
-        runtime.validate_loaded_module(self.owner())?;
+        runtime.validate_executable_module(self.owner())?;
         self.type_argument().validate(runtime)?;
         cx.poll()?;
         let mut object = self.record.storage.prepare_payload(

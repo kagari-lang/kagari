@@ -1,6 +1,8 @@
 use crate::{
+    Runtime,
     error::RuntimeError,
     frame::types::arguments::{ScopedSignature, TypeArgument},
+    gc::roots::RootedValue,
     module::ModuleEpochRetention,
     native::{
         binding::NativeResult,
@@ -10,7 +12,7 @@ use crate::{
             FromKagari, IntoKagari, KagariType, arguments::KagariArguments,
             context::ConversionContext,
         },
-        function_handle::{PinnedFunction, PreparedFunction, Target},
+        function_handle::{Function, FunctionBinding, PreparedFunction, Target},
         types::Type,
     },
     value::Value,
@@ -40,7 +42,7 @@ fn signature(cx: &ConversionContext<'_>, expected: &TypeArgument) -> NativeResul
     Ok(ScopedSignature { params, result })
 }
 
-impl<A: KagariArguments, R: KagariType> KagariType for PinnedFunction<A, R> {
+impl<A: KagariArguments, R: KagariType> KagariType for Function<A, R> {
     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
         Type::function(A::argument_types(catalog)?, R::kagari_type(catalog)?)
     }
@@ -52,7 +54,7 @@ impl<A: KagariArguments, R: KagariType> KagariType for PinnedFunction<A, R> {
     }
 }
 
-impl<A: KagariArguments, R: KagariType> FromKagari for PinnedFunction<A, R> {
+impl<A: KagariArguments, R: KagariType> FromKagari for Function<A, R> {
     const PRESERVES_IDENTITY: bool = true;
 
     fn from_kagari(
@@ -63,51 +65,102 @@ impl<A: KagariArguments, R: KagariType> FromKagari for PinnedFunction<A, R> {
         cx.check_type::<Self>(expected)?;
         cx.check_value(expected, value)?;
         let prepared = PreparedClosure::from_value(cx.runtime(), *value)?;
-        let owner = prepared.snapshot(cx.runtime())?.implementation.clone();
-        let signature = signature(cx, expected)?;
+        let snapshot = prepared.snapshot(cx.runtime())?;
+        let owner = snapshot.implementation.clone();
+        let route = snapshot.call_route().cloned();
+        let source_entry = snapshot.callable_target();
+        drop(snapshot);
+        if let Some(route) = &route {
+            cx.runtime().select_call_route(route)?;
+        }
+        // A named value root retains captures/evidence, not its old executable.
         let root = cx
             .runtime()
             .root_value(*value)
             .ok_or_else(|| RuntimeError::module_validation("closure handle retention"))?;
+        if let Some(route) = route {
+            return Ok(Self {
+                binding: Arc::new(FunctionBinding::NamedClosure { route, root }),
+                mapping: PhantomData,
+            });
+        }
+        let signature = signature(cx, expected)?;
         let program = cx
             .runtime()
             .retain_program(&owner, ModuleEpochRetention::RuntimeValue)
             .ok_or_else(|| RuntimeError::module_validation("closure program retention"))?;
         Ok(Self {
-            prepared: Arc::new(PreparedFunction {
+            binding: Arc::new(FunctionBinding::Closure(Arc::new(PreparedFunction {
+                source_entry,
                 owner,
                 signature: Arc::new(signature),
                 target: Target::Closure { prepared, root },
                 _program: program,
-            }),
+            }))),
             mapping: PhantomData,
         })
     }
 }
 
-impl<A: KagariArguments, R: KagariType> IntoKagari for PinnedFunction<A, R> {
+impl<A, R> Function<A, R> {
+    pub(super) fn prepare_named_closure(
+        &self,
+        runtime: &Runtime,
+        root: &RootedValue,
+    ) -> NativeResult<PreparedFunction> {
+        let value = root
+            .value(runtime.gc())
+            .ok_or_else(|| RuntimeError::module_validation("closure handle root"))?;
+        let (prepared, root) =
+            PreparedClosure::from_value(runtime, value)?.prepare_call(runtime)?;
+        let snapshot = prepared.snapshot(runtime)?;
+        let signature = snapshot.signature(runtime)?;
+        let source_entry = snapshot.callable_target();
+        let owner = snapshot.implementation.clone();
+        drop(snapshot);
+        let program = runtime
+            .retain_program(&owner, ModuleEpochRetention::RuntimeValue)
+            .ok_or_else(|| RuntimeError::module_validation("selected closure program retention"))?;
+        Ok(PreparedFunction {
+            source_entry,
+            owner,
+            signature,
+            target: Target::Closure { prepared, root },
+            _program: program,
+        })
+    }
+}
+
+impl<A: KagariArguments, R: KagariType> IntoKagari for Function<A, R> {
     fn into_kagari(
         self,
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
     ) -> NativeResult<Value> {
         cx.check_type::<Self>(expected)?;
-        self.prepared.validate(cx.runtime())?;
-        let value = match &self.prepared.target {
+        if let FunctionBinding::NamedClosure { root, .. } = self.binding.as_ref() {
+            let value = root
+                .value(cx.runtime().gc())
+                .ok_or_else(|| RuntimeError::module_validation("closure handle root"))?;
+            cx.check_value(expected, &value)?;
+            return Ok(value);
+        }
+        let prepared = self.prepare_call(cx.runtime())?;
+        let value = match &prepared.target {
             Target::Closure { root, .. } => root
                 .value(cx.runtime().gc())
                 .ok_or_else(|| RuntimeError::module_validation("closure handle root"))?,
             Target::Entry(target) => match target.target {
                 CallableTarget::Script(function) => cx.runtime().make_closure(
-                    self.owner(),
+                    prepared.owner(),
                     function,
                     vec![],
                     target.environment.clone(),
                 )?,
                 CallableTarget::Native(_) => cx.runtime().make_native_closure(
-                    self.owner(),
+                    prepared.owner(),
                     target,
-                    self.prepared.signature.clone(),
+                    prepared.signature.clone(),
                 )?,
             },
         };

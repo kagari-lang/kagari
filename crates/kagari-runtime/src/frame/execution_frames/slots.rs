@@ -1,9 +1,10 @@
 //! Public frame access cannot turn a previous physical alias into a logical value.
+use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
     frame::cursor::kernel::RegionExit,
-    module::{LoadedModule, VerifiedProgram, execution::layout::ReusedSlot},
+    module::{ExecutableModule, VerifiedProgram, execution::layout::ReusedSlot},
     value::Value,
 };
 use kagari_abi::representation::ValueType;
@@ -14,13 +15,13 @@ use kagari_bytecode::{
         BytecodeDebugMetadata, BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord,
         InstructionOrigin, LocalLiveRange,
     },
-    program::{BytecodeProgram, ModuleRef},
+    program::ModuleRef,
 };
 use kagari_common::{identity::map::DefinitionContext, span::Span};
 use kagari_contract::ids::FunctionRef;
 use std::mem::size_of;
 
-fn reused_bindings(runtime: &mut Runtime) -> LoadedModule {
+fn reused_bindings(runtime: &mut Runtime) -> ExecutableModule {
     let context = DefinitionContext::new().unwrap();
     let range = |slot, start, end| LocalLiveRange {
         slot: Slot::new(slot),
@@ -69,7 +70,7 @@ fn reused_bindings(runtime: &mut Runtime) -> LoadedModule {
         ..Default::default()
     };
     let artifact = KbcArtifact::from_program(
-        BytecodeProgram {
+        ProgramFixture {
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule {
                 types: vec![ValueType::Unit, ValueType::I32],
@@ -86,7 +87,8 @@ fn reused_bindings(runtime: &mut Runtime) -> LoadedModule {
                 ..Default::default()
             }],
             exports: Default::default(),
-        },
+        }
+        .build(&context),
         Default::default(),
         &context,
         &Default::default(),
@@ -101,12 +103,13 @@ fn reused_bindings(runtime: &mut Runtime) -> LoadedModule {
     let verified = artifact
         .into_verified(&Default::default(), &context, &Default::default())
         .unwrap();
-    runtime
+    let program = runtime
         .load_verified_program(
             "reused-bindings",
             VerifiedProgram::from_bytecode(verified.into_bytecode()),
         )
-        .unwrap()
+        .unwrap();
+    runtime.select_program(&program).unwrap()
 }
 
 #[test]

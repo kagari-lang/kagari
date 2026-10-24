@@ -1,5 +1,6 @@
 use crate::tests::bytecode::*;
 use kagari_bytecode::program::{BytecodeProgram, ModuleRef, verify_program};
+use kagari_contract::updates::UpdateEvidence;
 use kagari_types::{
     scalar::BuiltinType,
     ty::{NominalTy, Ty},
@@ -298,6 +299,14 @@ fn struct_instances_must_match_public_templates_locally_and_across_modules() {
         };
         BytecodeProgram {
             exports: Default::default(),
+            update_evidence: UpdateEvidence {
+                source_manifest: None,
+                sources: vec![],
+                bodies: vec![],
+                initializers: vec![],
+                targets: vec![],
+                selections: vec![],
+            },
             root: ModuleRef::new(1),
             modules: vec![declaration_owner, importer],
         }

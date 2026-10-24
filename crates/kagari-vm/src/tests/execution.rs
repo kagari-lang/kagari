@@ -16,7 +16,10 @@ use kagari_bytecode::{
         BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, InstructionSourceSpan,
         InterfaceTableRecord, RootSlotLayout, SafeDebugPoint, SafeDebugPointKind,
     },
-    program::ModuleRef,
+    program::{
+        BytecodeProgram, ModuleRef,
+        updates::{self, EvidenceInputs},
+    },
 };
 use kagari_common::{
     identity::{
@@ -27,7 +30,11 @@ use kagari_common::{
 use kagari_contract::statics::{StaticContract, StaticDescriptor};
 use kagari_contract::{
     ids::{DebugPointId, FunctionRef},
-    types::{InterfaceTable, PublicItem},
+    types::{
+        ConcreteFunctionIdentity, InterfaceTable, PublicItem,
+        named::{ImplementationContract, NamedContract, NamedDeclaration},
+    },
+    updates::{BodyClassification, SourceRecord},
 };
 use kagari_runtime::{
     Runtime, RuntimeConfig,
@@ -37,10 +44,12 @@ use kagari_runtime::{
 };
 use kagari_types::visibility::Visibility;
 use kagari_types::{
-    declaration::TraitDef,
+    callable::CallableImplementation,
+    declaration::{FnDecl, TraitDef},
     scalar::BuiltinType,
     ty::{NominalTy, Ty},
 };
+use std::collections::HashMap;
 
 fn test_function(
     id: usize,
@@ -238,6 +247,22 @@ fn interface_instruction_module() -> DefinitionMetadata<BytecodeModule> {
         vec![ConstantOperand::I32(7)],
     );
     module.identity = identity;
+    let result = Ty::Trait(NominalTy {
+        associated_types: Default::default(),
+        declaration: trait_id,
+        arguments: vec![],
+    });
+    module.functions[0]
+        .metadata
+        .semantic
+        .slots
+        .insert(0, Ty::Builtin(BuiltinType::I32));
+    module.functions[0].metadata.semantic.result = Some(result.clone());
+    module.functions[0]
+        .metadata
+        .semantic
+        .slots
+        .insert(1, result);
     module.public_items = vec![
         PublicItem::Trait(TraitDef {
             conversion_adapter: None,
@@ -266,6 +291,18 @@ fn interface_instruction_module() -> DefinitionMetadata<BytecodeModule> {
             methods: vec![],
         })),
     ];
+    module.named_declarations.push(NamedDeclaration {
+        declaration: impl_id,
+        visibility: Visibility::Private,
+        ambiguous_local_body: None,
+        contract: NamedContract::Implementation(ImplementationContract {
+            bridge: None,
+            generic_params: vec![],
+            bounds: vec![],
+            receiver: Ty::Builtin(BuiltinType::I32),
+            trait_type: module.functions[0].metadata.semantic.result.clone(),
+        }),
+    });
     module.interface_tables = vec![InterfaceTableRecord {
         parents: vec![],
         view: None,
@@ -274,6 +311,82 @@ fn interface_instruction_module() -> DefinitionMetadata<BytecodeModule> {
         methods: vec![],
     }];
     DefinitionMetadata::checked(context.snapshot(), module, &Default::default()).unwrap()
+}
+
+// This fixture authors an empty marker implementation, unlike the common free-function
+// helper. Keep its declaration/source inventory explicit and reuse the canonical builder.
+fn interface_program(
+    context: &DefinitionContext,
+    mut modules: Vec<BytecodeModule>,
+    root: ModuleRef,
+) -> BytecodeProgram {
+    let mut classifications = HashMap::new();
+    let mut sources = Vec::new();
+    for module in &mut modules {
+        let owner = context.intern_root(&module.identity).unwrap();
+        for function in &mut module.functions {
+            assert_eq!(function.parameter_count, 0);
+            let declaration = context
+                .intern_child(owner, DefinitionKind::Function, &function.name, 0)
+                .unwrap();
+            let identity = ConcreteFunctionIdentity {
+                declaration,
+                arguments: vec![],
+            };
+            function.identity = Some(identity.clone());
+            module.function_table[function.id.index()].identity = Some(identity.clone());
+            module.named_declarations.push(NamedDeclaration {
+                declaration,
+                visibility: Visibility::Private,
+                ambiguous_local_body: None,
+                contract: NamedContract::Function(FnDecl {
+                    name: function.name.clone(),
+                    implementation: CallableImplementation::Script,
+                    host_policy: None,
+                    method_policy: Default::default(),
+                    generic_params: vec![],
+                    bounds: vec![],
+                    params: vec![],
+                    return_type: function.metadata.semantic.result.clone().unwrap(),
+                }),
+            });
+            classifications.insert(identity, BodyClassification::Named(declaration));
+        }
+        sources.extend(module.named_declarations.iter().map(|record| {
+            SourceRecord {
+                declaration: record.declaration,
+                generic: None,
+                tokens: vec![],
+                inputs: vec![],
+                calls: vec![],
+                bodies: module
+                    .functions
+                    .iter()
+                    .filter_map(|function| function.identity.as_ref())
+                    .filter(|identity| identity.declaration == record.declaration)
+                    .cloned()
+                    .collect(),
+            }
+        }));
+    }
+    let update_evidence = updates::build(
+        &modules,
+        EvidenceInputs {
+            sources,
+            initializers: vec![],
+            selections: vec![],
+            classifications,
+        },
+        &context.snapshot(),
+        &Default::default(),
+    )
+    .unwrap();
+    BytecodeProgram {
+        root,
+        modules,
+        exports: Default::default(),
+        update_evidence,
+    }
 }
 
 mod debugger;

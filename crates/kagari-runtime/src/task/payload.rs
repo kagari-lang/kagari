@@ -4,7 +4,7 @@ use crate::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
     gc::roots::RootedValue,
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
@@ -124,7 +124,7 @@ impl Runtime {
 
     pub(crate) fn allocate_task_payload<S: NativePayload>(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         ty: TypeArgument,
         payload: S,
     ) -> NativeResult<RootedValue> {

@@ -5,14 +5,14 @@ mod native_allocations_counter;
 use kagari_common::identity::table::DefinitionId;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::analysis::AnalysisDatabase;
-use kagari_runtime::{Runtime, RuntimeConfig, module::LoadedModule, value::Value};
+use kagari_runtime::{Runtime, RuntimeConfig, module::ExecutableModule, value::Value};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{declaration::module::ModuleDecl, scalar::BuiltinType, ty::Ty};
 use kagari_vm::vm::Vm;
 use native_allocations_counter::{measured, verify_counter};
 use std::{hint::black_box, time::Instant};
 
-fn setup() -> (Vm, LoadedModule, Value, Vec<DefinitionId>) {
+fn setup() -> (Vm, ExecutableModule, Value, Vec<DefinitionId>) {
     let mut sources = SourceDatabase::default();
     let root = sources
         .set(
@@ -39,6 +39,8 @@ fn setup() -> (Vm, LoadedModule, Value, Vec<DefinitionId>) {
     )
     .unwrap();
     let loaded = runtime.load_program("measure", bytecode).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let contract = loaded
         .bytecode
         .trait_contracts

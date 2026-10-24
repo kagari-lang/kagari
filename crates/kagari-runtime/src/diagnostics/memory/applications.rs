@@ -33,7 +33,8 @@ fn method_lifecycle(
 ) -> (Phases, Counts) {
     allocations::measure(|| {
         let mut runtime = Runtime::default();
-        let loaded = runtime.load_program("memory", code.clone()).unwrap();
+        let program = runtime.load_program("memory", code.clone()).unwrap();
+        let loaded = runtime.select_program(&program).unwrap();
         let (table, definition) = loaded
             .bytecode
             .interface_tables
@@ -83,9 +84,9 @@ fn method_lifecycle(
             }
         });
         let staged = runtime
-            .stage_reload_program(&loaded, "memory", code.clone())
+            .stage_reload_program(&program, None, code.clone())
             .unwrap();
-        drop(runtime.publish_staged_reload(staged).unwrap());
+        runtime.publish_staged_reload(staged).unwrap();
         drop((root, inputs, interface, loaded));
         runtime.collect_garbage().unwrap();
         assert_eq!(runtime.gc.stats().method_applications, 0);
@@ -108,7 +109,8 @@ fn shared_lifecycle(
 ) -> (Phases, Counts) {
     allocations::measure(|| {
         let mut runtime = Runtime::default();
-        let loaded = runtime.load_program("memory", code.clone()).unwrap();
+        let program = runtime.load_program("memory", code.clone()).unwrap();
+        let loaded = runtime.select_program(&program).unwrap();
         let (function, module, target, contract) = loaded
             .bytecode
             .functions
@@ -133,6 +135,9 @@ fn shared_lifecycle(
             .unwrap();
         let body = function.metadata.semantic.generic.as_ref().unwrap();
         let owner = loaded.member(module).unwrap();
+        let selected = runtime
+            .select_call_route(&owner.bind_call_route(target).unwrap())
+            .unwrap();
         let inputs = (1..=count)
             .map(|width| {
                 let ty: Ty = Ty::Tuple(vec![Ty::Builtin(BuiltinType::I32); width]);
@@ -161,11 +166,10 @@ fn shared_lifecycle(
             if prepare {
                 for environment in &inputs {
                     runtime
-                        .prepare_shared_environment(
+                        .prepare_selected_shared_environment(
                             &loaded,
                             Some(environment.clone()),
-                            &owner,
-                            target,
+                            &selected,
                             contract,
                         )
                         .unwrap();
@@ -173,10 +177,10 @@ fn shared_lifecycle(
             }
         });
         let staged = runtime
-            .stage_reload_program(&loaded, "memory", code.clone())
+            .stage_reload_program(&program, None, code.clone())
             .unwrap();
-        drop(runtime.publish_staged_reload(staged).unwrap());
-        drop((roots, inputs, owner, loaded));
+        runtime.publish_staged_reload(staged).unwrap();
+        drop((roots, inputs, selected, owner, loaded));
         runtime.collect_garbage().unwrap();
         assert_eq!(runtime.gc.stats().environments, 0);
         let retired = snapshot();
@@ -197,7 +201,8 @@ fn witness_lifecycle(
 ) -> (Phases, Counts) {
     allocations::measure(|| {
         let mut runtime = Runtime::default();
-        let loaded = runtime.load_program("memory", code.clone()).unwrap();
+        let program = runtime.load_program("memory", code.clone()).unwrap();
+        let loaded = runtime.select_program(&program).unwrap();
         let witnesses = loaded
             .bytecode
             .functions
@@ -240,9 +245,9 @@ fn witness_lifecycle(
         });
         let old_groups = runtime.gc.stats().operation_groups;
         let staged = runtime
-            .stage_reload_program(&loaded, "memory", code.clone())
+            .stage_reload_program(&program, None, code.clone())
             .unwrap();
-        drop(runtime.publish_staged_reload(staged).unwrap());
+        runtime.publish_staged_reload(staged).unwrap();
         drop((roots, inputs, loaded));
         let collection = runtime.collect_garbage().unwrap();
         assert_eq!(collection.reclaimed_operation_groups, old_groups);

@@ -57,7 +57,7 @@ impl<T: NativeData> ManagedBuilder<T> {
         cx.runtime().gc().ensure_no_native_borrow()?;
         cx.runtime().resources().ensure_execution_allowed()?;
         cx.runtime()
-            .validate_loaded_module(self.native_type.owner())?;
+            .validate_executable_module(self.native_type.owner())?;
         cx.poll()?;
         let mut values = Vec::new();
         values

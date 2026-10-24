@@ -44,10 +44,16 @@ pub fn exhaust()->i32{val a=Vec::from([20]);for x in a {while true {}}0}
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
+    let _selected_loaded = runtime.runtime().select_program(&loaded).unwrap();
     for entry in ["fail", "nested", "manual", "trap", "exhaust"] {
         let options = context.clone();
-        let cancellation =
-            (entry == "exhaust").then(|| support::cancel_after(runtime.runtime(), &loaded, 30));
+        let cancellation = (entry == "exhaust").then(|| {
+            support::cancel_after(
+                runtime.runtime(),
+                &runtime.runtime().select_program(&loaded).unwrap(),
+                30,
+            )
+        });
         let error = runtime.execute(&loaded, entry, &[], &options).unwrap_err();
         assert!(
             !format!("{error:?}").contains("MissingFunction"),
@@ -59,14 +65,14 @@ pub fn exhaust()->i32{val a=Vec::from([20]);for x in a {while true {}}0}
         assert_eq!(runtime.runtime().gc().active_roots(), 0, "{entry}");
     }
     let rt = runtime.runtime();
-    let root = ConversionContext::new(rt, &loaded)
+    let root = ConversionContext::new(rt, &_selected_loaded)
         .unwrap()
         .encode(vec![20i32, 22])
         .unwrap();
     let Value::GcHandle(array) = root.value(rt.gc()).unwrap() else {
         panic!("Vec")
     };
-    let vector_type = ConversionContext::new(rt, &loaded)
+    let vector_type = ConversionContext::new(rt, &_selected_loaded)
         .unwrap()
         .type_for::<Vec<i32>>()
         .unwrap();
@@ -77,10 +83,10 @@ pub fn exhaust()->i32{val a=Vec::from([20]);for x in a {while true {}}0}
         cancellation: cancellation.clone(),
         ..Default::default()
     };
-    let session = rt.begin_execution(&loaded, options).unwrap();
+    let session = rt.begin_execution(&_selected_loaded, options).unwrap();
     let value = rt
         .iter_operation(
-            &loaded,
+            &_selected_loaded,
             &root.value(rt.gc()).unwrap(),
             vector_type.ty(),
             IterOp::New,
@@ -93,9 +99,16 @@ pub fn exhaust()->i32{val a=Vec::from([20]);for x in a {while true {}}0}
     drop(session);
     rt.collect_garbage().unwrap();
     for expected in [20, 22] {
-        let session = rt.begin_execution(&loaded, Default::default()).unwrap();
+        let session = rt
+            .begin_execution(&_selected_loaded, Default::default())
+            .unwrap();
         let Value::Enum(id) = rt
-            .iter_operation(&loaded, &iter.value(rt.gc()).unwrap(), &ty, IterOp::Next)
+            .iter_operation(
+                &_selected_loaded,
+                &iter.value(rt.gc()).unwrap(),
+                &ty,
+                IterOp::Next,
+            )
             .unwrap()
         else {
             panic!("Option")
@@ -108,10 +121,17 @@ pub fn exhaust()->i32{val a=Vec::from([20]);for x in a {while true {}}0}
     }
     // Structural edits commit between calls; the old cursor rejects its next read.
     rt.gc().sequence_push(array, Value::I32(1)).unwrap();
-    let session = rt.begin_execution(&loaded, Default::default()).unwrap();
+    let session = rt
+        .begin_execution(&_selected_loaded, Default::default())
+        .unwrap();
     assert!(
-        rt.iter_operation(&loaded, &iter.value(rt.gc()).unwrap(), &ty, IterOp::Next)
-            .is_err()
+        rt.iter_operation(
+            &_selected_loaded,
+            &iter.value(rt.gc()).unwrap(),
+            &ty,
+            IterOp::Next
+        )
+        .is_err()
     );
     drop(session);
     let mut other = engine.runtime(context);
@@ -120,15 +140,16 @@ pub fn exhaust()->i32{val a=Vec::from([20]);for x in a {while true {}}0}
     let other_loaded = other
         .load_program(&other_loaded_program, Default::default())
         .unwrap();
+    let _selected_other_loaded = other.runtime().select_program(&other_loaded).unwrap();
     let session = other
         .runtime()
-        .begin_execution(&other_loaded, Default::default())
+        .begin_execution(&_selected_other_loaded, Default::default())
         .unwrap();
     assert!(
         other
             .runtime()
             .iter_operation(
-                &other_loaded,
+                &_selected_other_loaded,
                 &iter.value(rt.gc()).unwrap(),
                 &ty,
                 IterOp::Next
@@ -138,9 +159,11 @@ pub fn exhaust()->i32{val a=Vec::from([20]);for x in a {while true {}}0}
     drop(session);
     drop(iter);
     rt.collect_garbage().unwrap();
-    let session = rt.begin_execution(&loaded, Default::default()).unwrap();
+    let session = rt
+        .begin_execution(&_selected_loaded, Default::default())
+        .unwrap();
     assert!(
-        rt.iter_operation(&loaded, &value, &ty, IterOp::Next)
+        rt.iter_operation(&_selected_loaded, &value, &ty, IterOp::Next)
             .is_err()
     );
     drop(session);

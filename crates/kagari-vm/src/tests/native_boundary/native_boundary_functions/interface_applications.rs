@@ -1,9 +1,10 @@
 use super::fixture;
-use crate::tests::native_boundary::compile_program;
+use super::{compile_without_foundation, fixture_without_foundation};
+
 use kagari_runtime::native::{
     binding::NativeResult, builder::ModuleBuilder, conversion::context::ConversionContext,
-    declarations::FunctionDecl, function_handle::PinnedFunction, interfaces::Interface,
-    objects::Object, typed::NativeContext,
+    declarations::FunctionDecl, function_handle::Function, interfaces::Interface, objects::Object,
+    typed::NativeContext,
 };
 use kagari_stdlib::declarations::StandardDeclarations;
 use std::{
@@ -34,6 +35,8 @@ const IDENTITY: &str = r#"
 #[test]
 fn inherited_generic_interface_bindings_require_checked_applications_and_keep_returns_alive() {
     let (vm, owner) = fixture(IDENTITY, None);
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let target: Interface = vm.execute_typed(&owner, "make", ()).unwrap();
     let item: Object = vm.execute_typed(&owner, "item", ()).unwrap();
     let cx = ConversionContext::new(vm.runtime(), &owner).unwrap();
@@ -68,7 +71,7 @@ fn inherited_generic_interface_bindings_require_checked_applications_and_keep_re
         .unwrap();
     let delayed = vm
         .runtime()
-        .bind_interface_method_application::<(Object,), PinnedFunction<(), Object>>(
+        .bind_interface_method_application::<(Object,), Function<(), Object>>(
             &target.member(vm.runtime(), "delayed").unwrap(),
             slice::from_ref(item.object_type().type_argument()),
         )
@@ -134,9 +137,12 @@ fn generic_interface_constraints_keep_selected_operations_alive_through_gc_and_r
         impl Invoke for Worker {}
         pub fn make() -> Invoke { Worker {} }
         pub fn key() -> Key<i32> { Key { tag: 1, value: 42 } }
+        pub fn wrong_key() -> Key<bool> { Key { tag: true, value: 42 } }
         pub fn evidence(target: Invoke, value: Key<i32>) -> i32 { target.invoke(value) }
     "#;
-    let (vm, old) = fixture(source, Some(&module));
+    let (vm, old) = fixture_without_foundation(source, Some(&module));
+    let _old_program = old;
+    let old = vm.runtime().select_program(&_old_program).unwrap();
     let target: Interface = vm.execute_typed(&old, "make", ()).unwrap();
     let key: Object = vm.execute_typed(&old, "key", ()).unwrap();
     let member = target.member(vm.runtime(), "invoke").unwrap();
@@ -163,16 +169,16 @@ fn generic_interface_constraints_keep_selected_operations_alive_through_gc_and_r
             .unwrap(),
         42
     );
-    let new = vm
-        .reload_program(
-            &old,
-            "functions",
-            compile_program(
-                &source.replace("collect(); self.value", "collect(); self.value + 1"),
-                Some(&module),
-            ),
-        )
-        .unwrap();
+    vm.reload_program(
+        &_old_program,
+        Some("functions".into()),
+        compile_without_foundation(
+            &source.replace("collect(); self.value", "collect(); self.value + 1"),
+            Some(&module),
+        ),
+    )
+    .unwrap();
+    let new = vm.runtime().select_program(&_old_program).unwrap();
     let new_target: Interface = vm.execute_typed(&new, "make", ()).unwrap();
     let new_key: Object = vm.execute_typed(&new, "key", ()).unwrap();
     let new_invoke = vm
@@ -183,18 +189,22 @@ fn generic_interface_constraints_keep_selected_operations_alive_through_gc_and_r
         )
         .unwrap();
     let mut cx = vm.context(&new).unwrap();
-    assert!(
+    let wrong_key: Object = vm.execute_typed(&new, "wrong_key", ()).unwrap();
+    assert!(target.call(&mut cx, &invoke, (wrong_key,)).is_err());
+    assert_eq!(calls.load(Ordering::Relaxed), 1);
+    assert_eq!(
         new_target
             .call(&mut cx, &invoke, (new_key.clone(),))
-            .is_err()
+            .unwrap(),
+        43
     );
-    assert_eq!(calls.load(Ordering::Relaxed), 1);
-    assert_eq!(target.call(&mut cx, &invoke, (key.clone(),)).unwrap(), 42);
+    assert_eq!(calls.load(Ordering::Relaxed), 2);
+    assert_eq!(target.call(&mut cx, &invoke, (key.clone(),)).unwrap(), 43);
     assert_eq!(
         new_target.call(&mut cx, &new_invoke, (new_key,)).unwrap(),
         43
     );
-    assert_eq!(calls.load(Ordering::Relaxed), 3);
+    assert_eq!(calls.load(Ordering::Relaxed), 4);
     drop(invoke);
     drop(target);
     drop(key);
@@ -206,11 +216,26 @@ fn generic_interface_constraints_keep_selected_operations_alive_through_gc_and_r
             .contains(&old.key())
     );
     drop(duplicate);
+    // Applying old lexical evidence to a new receiver publishes that evidence in
+    // the receiver publication's descriptor cache. Retire that actual owner too.
     assert!(
-        vm.runtime()
+        !vm.runtime()
             .collect_garbage()
             .unwrap()
             .reclaimed_modules
             .contains(&old.key())
     );
+    vm.reload_program(
+        &_old_program,
+        None,
+        compile_without_foundation(
+            &source.replace("collect(); self.value", "collect(); self.value + 1"),
+            Some(&module),
+        ),
+    )
+    .unwrap();
+    drop((new_invoke, new_target, cx));
+    let reclaimed = vm.runtime().collect_garbage().unwrap().reclaimed_modules;
+    assert!(reclaimed.contains(&old.key()));
+    assert!(reclaimed.contains(&new.key()));
 }

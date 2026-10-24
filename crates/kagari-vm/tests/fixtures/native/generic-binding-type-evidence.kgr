@@ -1,0 +1,9 @@
+use example::generic_helper::identity;
+
+pub struct Item {
+    pub val value: i32
+}
+
+pub fn make() -> Item {
+    identity(Item { value: 41 })
+}

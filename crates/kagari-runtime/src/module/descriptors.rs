@@ -11,7 +11,8 @@ use crate::{
     },
     frame::types::{TypeEnvironment, operations::OperationBindings},
     module::{
-        LoadedModule, ModuleKey, ModuleStore, ModuleStoreInner, descriptor_index::DescriptorIndex,
+        ExecutableModule, ModuleKey, ModuleStore, ModuleStoreInner,
+        descriptor_index::DescriptorIndex,
     },
     native::application::NativeApplication,
 };
@@ -22,7 +23,7 @@ use std::sync::Arc;
 #[derive(Debug)]
 struct Published<T> {
     value: T,
-    dependencies: Vec<LoadedModule>,
+    dependencies: Vec<ExecutableModule>,
 }
 
 impl<T> Published<T> {
@@ -132,7 +133,7 @@ impl LinkedDescriptors {
 impl ModuleStore {
     pub(crate) fn interface_call(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         environment: EnvironmentId,
         site: InterfaceCallSite,
     ) -> Option<Arc<ScopedInterfaceCall>> {
@@ -147,7 +148,7 @@ impl ModuleStore {
 
     pub(crate) fn native_application(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         import: NativeImportId,
         environment: EnvironmentId,
     ) -> Option<Arc<NativeApplication>> {
@@ -162,7 +163,7 @@ impl ModuleStore {
 
     pub(crate) fn method_application(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         key: &ApplicationKey,
     ) -> Option<ApplicationId> {
         let records = self.inner.try_borrow().ok()?;
@@ -176,7 +177,7 @@ impl ModuleStore {
 
     pub(crate) fn operation_bindings(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         environment: Option<EnvironmentId>,
         witnesses: &[OperationWitness],
     ) -> Option<OperationBindings> {
@@ -191,7 +192,7 @@ impl ModuleStore {
 
     pub(crate) fn shared_environment(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         scope: &SharedScope,
         contract: &SharedCall,
     ) -> Option<TypeEnvironment> {
@@ -208,7 +209,7 @@ impl ModuleStore {
 impl Runtime {
     pub(crate) fn publish_interface_call(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         environment: EnvironmentId,
         site: InterfaceCallSite,
         prepared: Arc<ScopedInterfaceCall>,
@@ -220,7 +221,7 @@ impl Runtime {
 
     pub(crate) fn publish_native_application(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         import: NativeImportId,
         prepared: Arc<NativeApplication>,
     ) -> Result<(), RuntimeError> {
@@ -232,7 +233,7 @@ impl Runtime {
 
     fn publish_descriptor<T: Descriptor>(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         value: T,
         install: impl FnOnce(&mut LinkedDescriptors, Published<T>) -> Result<(), RuntimeError>,
     ) -> Result<(), RuntimeError> {
@@ -258,7 +259,7 @@ impl Runtime {
 
     pub(crate) fn publish_method_application(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         key: ApplicationKey,
         prepared: ApplicationId,
     ) -> Result<(), RuntimeError> {
@@ -269,7 +270,7 @@ impl Runtime {
 
     pub(crate) fn publish_operation_bindings(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         environment: Option<EnvironmentId>,
         witnesses: &[OperationWitness],
         prepared: OperationBindings,
@@ -283,7 +284,7 @@ impl Runtime {
 
     pub(crate) fn publish_shared_environment(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         scope: SharedScope,
         contract: &SharedCall,
         prepared: TypeEnvironment,

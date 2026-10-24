@@ -15,7 +15,7 @@ use crate::{
         compatibility::{TypeIdentity, TypeView},
     },
     gc::GcHeap,
-    module::{EnumVariantRef, LoadedModule, layout_admission::NominalAdmission},
+    module::{EnumVariantRef, ExecutableModule, layout_admission::NominalAdmission},
     value::Value,
     value_check,
 };
@@ -49,7 +49,7 @@ struct TypeOrigin {
 
 #[derive(Debug)]
 struct TypeScope {
-    owner: LoadedModule,
+    owner: ExecutableModule,
     environment: Option<Arc<TypeBindings>>,
 }
 
@@ -60,7 +60,7 @@ pub(crate) struct ScopedSignature {
 }
 
 impl TypeArgument {
-    pub(crate) fn view<'a>(&'a self, owner: &'a LoadedModule) -> TypeView<'a> {
+    pub(crate) fn view<'a>(&'a self, owner: &'a ExecutableModule) -> TypeView<'a> {
         match &self.data.origin {
             Some(origin) => TypeView::prepared(
                 &origin.expression,
@@ -73,7 +73,7 @@ impl TypeArgument {
     }
 
     /// Exact immutable type/provenance identity, prepared once per supplied argument.
-    pub(crate) fn identity(&self, fallback: &LoadedModule) -> Option<Arc<TypeIdentity>> {
+    pub(crate) fn identity(&self, fallback: &ExecutableModule) -> Option<Arc<TypeIdentity>> {
         // Arguments without origins contain no nominal layouts, so their identity
         // is independent of the fallback. Nominal arguments retain their own scope.
         self.data
@@ -82,7 +82,12 @@ impl TypeArgument {
             .clone()
     }
 
-    pub(crate) fn matches_heap(&self, heap: &GcHeap, value: &Value, owner: &LoadedModule) -> bool {
+    pub(crate) fn matches_heap(
+        &self,
+        heap: &GcHeap,
+        value: &Value,
+        owner: &ExecutableModule,
+    ) -> bool {
         if let Some(matches) = self.matches_admitted(heap, value, owner) {
             return matches;
         }
@@ -92,7 +97,7 @@ impl TypeArgument {
     pub(crate) fn derive(
         &self,
         runtime: &Runtime,
-        fallback: &LoadedModule,
+        fallback: &ExecutableModule,
         derive: impl FnOnce(&Ty) -> Option<Ty>,
     ) -> Result<Self, RuntimeError> {
         let (expression, owner, environment) = match &self.data.origin {
@@ -114,7 +119,7 @@ impl TypeArgument {
     pub(crate) fn parameter(
         &self,
         runtime: &Runtime,
-        fallback: &LoadedModule,
+        fallback: &ExecutableModule,
         index: usize,
     ) -> Result<Self, RuntimeError> {
         self.validate(runtime)?;
@@ -201,7 +206,26 @@ impl TypeArgument {
         Ok(())
     }
 
-    fn matches_admitted(&self, heap: &GcHeap, value: &Value, owner: &LoadedModule) -> Option<bool> {
+    pub(crate) fn validate_for(
+        &self,
+        runtime: &Runtime,
+        owner: &ExecutableModule,
+    ) -> Result<(), RuntimeError> {
+        self.validate(runtime)?;
+        if !self.view(owner).belongs_to_installation(owner) {
+            return Err(RuntimeError::module_validation(
+                "type argument belongs to another installation",
+            ));
+        }
+        Ok(())
+    }
+
+    fn matches_admitted(
+        &self,
+        heap: &GcHeap,
+        value: &Value,
+        owner: &ExecutableModule,
+    ) -> Option<bool> {
         let admission = self.data.admission.get()?;
         Some(match value {
             Value::Struct(id) => heap
@@ -214,7 +238,12 @@ impl TypeArgument {
         })
     }
 
-    pub(crate) fn matches(&self, runtime: &Runtime, value: &Value, owner: &LoadedModule) -> bool {
+    pub(crate) fn matches(
+        &self,
+        runtime: &Runtime,
+        value: &Value,
+        owner: &ExecutableModule,
+    ) -> bool {
         if let Some(matches) = self.matches_admitted(&runtime.gc, value, owner) {
             return matches;
         }
@@ -247,17 +276,20 @@ pub(crate) fn type_parameter(ty: &Ty, index: usize) -> Option<&Ty> {
     }
 }
 
-fn contains_nominal_layout(ty: &Ty) -> bool {
+fn contains_scoped_nominal(ty: &Ty) -> bool {
     let mut pending = vec![ty];
     while let Some(ty) = pending.pop() {
         match ty {
-            Ty::Struct(_) | Ty::Enum(_) => return true,
+            // Even shared native traits retain the publication that proved their
+            // origin. Their identity is shared, but later registration cannot
+            // retroactively reclassify an older script-trait argument.
+            Ty::Struct(_) | Ty::Enum(_) | Ty::Trait(_) => return true,
             Ty::Tuple(types) => pending.extend(types),
             Ty::Function { params, result } => {
                 pending.extend(params);
                 pending.push(result);
             }
-            Ty::NativeObject(ty) | Ty::Trait(ty) => {
+            Ty::NativeObject(ty) => {
                 pending.extend(&ty.arguments);
                 pending.extend(ty.associated_types.values());
             }
@@ -275,7 +307,7 @@ impl Runtime {
         &self,
         value: &Value,
         ty: &Ty,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         environment: &TypeBindings,
     ) -> bool {
         // A mutable capture carries a cell handle; its semantic type describes
@@ -294,7 +326,7 @@ impl Runtime {
     /// this does not import foreign metadata or admit later definitions retroactively.
     pub fn resolve_type_arguments(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         types: &[Ty],
     ) -> Result<Vec<TypeArgument>, RuntimeError> {
         let cancel = Default::default();
@@ -316,7 +348,7 @@ impl Runtime {
 
     pub(crate) fn type_arguments(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         environment: Option<Arc<TypeBindings>>,
         types: &[Ty],
     ) -> Result<Vec<TypeArgument>, RuntimeError> {
@@ -329,12 +361,16 @@ impl Runtime {
         let definitions = self.definition_context().snapshot();
         let mut arguments = Vec::with_capacity(types.len());
         for expression in types {
-            if let Ty::Parameter { owner, position } = expression {
+            if let Ty::Parameter {
+                owner: binder,
+                position,
+            } = expression
+            {
                 let argument = environment
                     .as_ref()
-                    .and_then(|environment| environment.argument(owner, *position))
+                    .and_then(|environment| environment.argument(binder, *position))
                     .ok_or_else(invalid)?;
-                argument.validate(self)?;
+                argument.validate_for(self, owner)?;
                 arguments.push(argument.clone());
                 continue;
             }
@@ -345,7 +381,7 @@ impl Runtime {
             if !ty.is_concrete() || !types_in_scope([&ty], &[], &Default::default(), &definitions) {
                 return Err(invalid());
             }
-            let origin = if contains_nominal_layout(&ty) {
+            let origin = if contains_scoped_nominal(&ty) {
                 let scope = match &scope {
                     Some(scope) => Arc::clone(scope),
                     None => {
@@ -377,6 +413,7 @@ impl Runtime {
             };
             // Prepare immutable nominal meaning at type application, before a
             // value matcher or a closed native kernel consumes this argument.
+            argument.validate_for(self, owner)?;
             argument.prepare_admission(self, owner);
             arguments.push(argument);
         }
@@ -387,7 +424,7 @@ impl Runtime {
         &self,
         value: &Value,
         ty: &Ty,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         environment: Option<&TypeBindings>,
     ) -> bool {
         self.matches_type_view(value, TypeView::new(ty, owner, environment))

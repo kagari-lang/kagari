@@ -105,7 +105,7 @@ fn reject_candidate_work(f: &Fixture, scope: &TaskScopeOwner, factory: &RootedVa
     let ready = runtime.ready_tasks(scope).unwrap();
     for entry in ["cold", "native_cold", "spawn"] {
         let candidate = runtime
-            .stage_reload_verified_program(&f.module, &f.module.name, f.program.bytecode().clone())
+            .stage_reload_verified_program(&f.module, None, f.program.bytecode().clone())
             .unwrap();
         let session = runtime.begin_candidate_initialization(&candidate).unwrap();
         if entry == "spawn" {
@@ -119,7 +119,9 @@ fn reject_candidate_work(f: &Fixture, scope: &TaskScopeOwner, factory: &RootedVa
         } else {
             let error = f
                 .runtime
-                .execute(candidate.module(), entry, &[], &Default::default())
+                .backend()
+                .execute(candidate.module(), entry)
+                .map_err(EmbeddingError::from)
                 .unwrap_err();
             assert!(
                 matches!(
@@ -192,9 +194,13 @@ fn lifecycle_reload_contract() {
     let scope = f
         .runtime
         .runtime()
-        .create_task_scope(&f.module, Default::default(), Arc::new(|_| Ok(())))
+        .create_task_scope(
+            &f.runtime.runtime().select_program(&f.module).unwrap(),
+            Default::default(),
+            Arc::new(|_| Ok(())),
+        )
         .unwrap();
-    let old_key = f.module.key();
+    let old_key = f.runtime.runtime().select_program(&f.module).unwrap().key();
     let factory = f.invoke("factory", &[]);
     let future = f.invoke("cold", &[]);
     let captured = f.invoke("captured", &[]);
@@ -209,12 +215,13 @@ fn lifecycle_reload_contract() {
         &f,
         &SOURCE.replace(original_version, "pub fn version() -> i32 {\n    100\n}"),
     );
-    let current = f
-        .runtime
+    f.runtime
         .reload_program(&f.module, &replacement, Default::default())
         .unwrap();
-    assert_ne!(current.key(), old_key);
-    f.module = current;
+    assert_ne!(
+        f.runtime.runtime().select_program(&f.module).unwrap().key(),
+        old_key
+    );
     f.program = replacement;
     assert_eq!(f.value(&f.invoke("version", &[])), Value::I32(100));
     assert_eq!(
@@ -223,18 +230,18 @@ fn lifecycle_reload_contract() {
         "reload must not drive waiting or queued work"
     );
     assert!(f.runtime.runtime().modules().loaded(old_key).is_some());
-    finish_task(&f, &scope, waiting, 1);
+    finish_task(&f, &scope, waiting, 100);
     // A Future captured before publication remains cold until its queued factory runs.
     assert_eq!(task_boundary(&f, &scope, queued), TaskDriveResult::Waiting);
-    finish_task(&f, &scope, queued, 1);
-    // A retained callable can create a new cold Future from its old generation.
+    finish_task(&f, &scope, queued, 100);
+    // The retained closure keeps its body; its ordinary factory call selects current code.
     let retained = spawn(&f, &scope, &factory);
     drop(factory);
     assert_eq!(
         task_boundary(&f, &scope, retained),
         TaskDriveResult::Waiting
     );
-    finish_task(&f, &scope, retained, 1);
+    finish_task(&f, &scope, retained, 100);
     let execution = f.start_future(&future);
     drop(future);
     assert!(matches!(
@@ -246,12 +253,12 @@ fn lifecycle_reload_contract() {
         owned_boundary(&f, &execution),
         DriveResult::Waiting
     ));
-    assert_eq!(*f.inputs.lock().unwrap().last().unwrap(), 21);
+    assert_eq!(*f.inputs.lock().unwrap().last().unwrap(), 120);
     reply(&f, 30);
     let DriveResult::Complete(result) = owned_boundary(&f, &execution) else {
         panic!("completed retained Future")
     };
-    assert_eq!(f.value(&result.unwrap()), Value::I32(57));
+    assert_eq!(f.value(&result.unwrap()), Value::I32(255));
     drop(execution);
     let fresh_factory = f.invoke("factory", &[]);
     let fresh = spawn(&f, &scope, &fresh_factory);

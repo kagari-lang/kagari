@@ -21,7 +21,11 @@ identity. A package root has `path: []`; `mod combat` extends it to `["combat"]`
 Physical source origins and file revisions are separate diagnostic inputs. Runtime
 handles and epochs identify an installation/generation, not another source field
 inside `ModuleIdentity`. [Package identity](packages.md#portable-identity) defines
-relocation-stable families and exact selections.
+relocation-stable families and exact selections. Host loading returns an installed
+`Program`; public `Module` navigation is a live logical namespace capability, not
+source acquisition or a physical executable slot. The [embedding specification](embedding-api.md#installed-programs-and-public-paths)
+owns that API, and the [activation specification](module-activation.md#live-installations-and-call-selection)
+owns its lifecycle and call selection.
 
 An approved filesystem directory or virtual source tree supplies package inputs.
 The root manifest supplies a namespace, or the host supplies one; if both do, they
@@ -161,7 +165,11 @@ Scripts do not receive unrestricted file-system access through import syntax.
 
 ## Hot Reload
 
-Reload uses the same module identity as initial load.
+Reload targets the existing `Program` installation and preserves its checked module
+identities. Equal compiled names or diagnostic labels never select another
+installation. Publication returns unit success; existing Program/Module handles
+observe the latest contents. [Namespace continuity](module-activation.md#public-namespace-continuity)
+defines compatibility for retained modules and public paths.
 
 The reload candidate may come from:
 

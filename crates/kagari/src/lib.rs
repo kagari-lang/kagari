@@ -16,6 +16,8 @@ pub mod engine;
 pub mod error;
 pub mod program;
 pub mod runtime;
+#[cfg(feature = "source")]
+pub mod update;
 
 use crate::error::EmbeddingError;
 

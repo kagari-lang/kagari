@@ -32,6 +32,11 @@ use std::{
     time::Duration,
 };
 
+// Same source-free evidence authoring owner as the embedding unit fixtures.
+#[allow(dead_code)] // This consumer needs the builder, not the native-only fixture.
+#[path = "../../kagari-runtime/tests/support/native/program.rs"]
+mod native_program;
+
 #[path = "support/async_fixture.rs"]
 mod fixture;
 use fixture::{Fixture, slice};
@@ -42,7 +47,7 @@ impl Fixture {
             .runtime
             .backend()
             .start(
-                &self.module,
+                &self.runtime.runtime().select_program(&self.module).unwrap(),
                 "create",
                 &[Value::I32(input)],
                 Default::default(),
@@ -104,7 +109,7 @@ fn sdk_scheduler_source_free_wake_contract() {
     assert!(f.runtime.poll(&mut Context::from_waker(&wake)).is_pending());
     let create = f
         .runtime
-        .async_function::<(i32,), ActiveI32>(&f.module, "create")
+        .async_function::<(i32,), ActiveI32>(&f.module.root(), "create")
         .unwrap();
     for (input, expected) in [(1, 8), (21, 42)] {
         let mut ticket = f.runtime.submit_async(&create, (input,)).unwrap();
@@ -158,7 +163,7 @@ fn sdk_owned_native_wait_contract() {
         .runtime
         .backend()
         .start(
-            &f.module,
+            &f.runtime.runtime().select_program(&f.module).unwrap(),
             "wait",
             &[future.value(f.runtime.runtime().gc()).unwrap()],
             Default::default(),
@@ -234,7 +239,7 @@ fn sdk_owned_native_wait_contract() {
         .runtime
         .backend()
         .start(
-            &f.module,
+            &f.runtime.runtime().select_program(&f.module).unwrap(),
             "wait",
             &[left_future.value(f.runtime.runtime().gc()).unwrap()],
             shared.interpreter_options().unwrap(),
@@ -244,7 +249,7 @@ fn sdk_owned_native_wait_contract() {
         .runtime
         .backend()
         .start(
-            &f.module,
+            &f.runtime.runtime().select_program(&f.module).unwrap(),
             "wait",
             &[right_future.value(f.runtime.runtime().gc()).unwrap()],
             shared.interpreter_options().unwrap(),
@@ -400,7 +405,12 @@ mod native {
         let execution = f
             .runtime
             .backend()
-            .start(&f.module, "run", &[], Default::default())
+            .start(
+                &f.runtime.runtime().select_program(&f.module).unwrap(),
+                "run",
+                &[],
+                Default::default(),
+            )
             .unwrap();
         assert!(matches!(
             f.runtime.backend().drive(&execution, slice()).unwrap(),

@@ -1,0 +1,9 @@
+pub struct Cell<T> {
+    val value: T,
+}
+
+struct Hidden {}
+
+fn main() {
+    val cell = Cell { value: Hidden {} };
+}

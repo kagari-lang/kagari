@@ -5,7 +5,7 @@ use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::{
     Runtime,
     error::RuntimeErrorKind,
-    module::{LoadedModule, ModuleKey},
+    module::{ExecutableModule, ModuleKey},
     native::module::NativeModule,
     value::Value,
 };
@@ -47,6 +47,8 @@ fn generic_operation_environment_does_not_root_its_callback_cycle() {
         .runtime_mut()
         .load_program("generic-cycle", code.clone())
         .unwrap();
+    let _old_program = old;
+    let old = vm.runtime().select_program(&_old_program).unwrap();
     let closure = vm
         .execute(&old, "make")
         .unwrap()
@@ -61,7 +63,8 @@ fn generic_operation_environment_does_not_root_its_callback_cycle() {
             .is_some()
     );
     let root = vm.runtime().root_value(closure).unwrap();
-    vm.reload_program(&old, "generic-cycle", code).unwrap();
+    vm.reload_program(&_old_program, Some("generic-cycle".into()), code)
+        .unwrap();
     let retained = vm.runtime().collect_garbage().unwrap();
     assert!(retained.reclaimed_modules.is_empty());
     assert!(vm.runtime().modules().loaded(old.key()).is_some());
@@ -84,6 +87,8 @@ fn detached_environment_snapshots_cannot_republish_released_executable_dependenc
         .runtime_mut()
         .load_program("environment", code.clone())
         .unwrap();
+    let _old_program = old;
+    let old = vm.runtime().select_program(&_old_program).unwrap();
     let value = vm
         .execute(&old, "make")
         .unwrap()
@@ -91,9 +96,10 @@ fn detached_environment_snapshots_cannot_republish_released_executable_dependenc
         .value(vm.runtime().gc())
         .expect("retained execution result");
     let old_snapshot = (*vm.runtime().resolve_closure(&value).unwrap()).clone();
-    let current = vm
-        .reload_program(&old, "environment", code.clone())
+    vm.reload_program(&_old_program, Some("environment".into()), code.clone())
         .unwrap();
+    let _current_program = _old_program.clone();
+    let current = vm.runtime().select_program(&_current_program).unwrap();
     let value = vm
         .execute(&current, "make")
         .unwrap()
@@ -146,13 +152,18 @@ fn detached_environment_snapshots_cannot_republish_released_executable_dependenc
             )
             .is_ok()
     );
-    let replacement = vm.reload_program(&current, "environment", code).unwrap();
+    vm.reload_program(&_current_program, Some("environment".into()), code)
+        .unwrap();
+    let _replacement_program = _current_program.clone();
+    let replacement = vm.runtime().select_program(&_replacement_program).unwrap();
     let collected = vm.runtime().collect_garbage().unwrap();
     assert!(collected.reclaimed_environments > 0);
     assert!(collected.reclaimed_operation_groups > 0);
     assert!(collected.reclaimed_modules.contains(&current.key()));
     // Detached snapshots cannot republish the retired descriptor graph into new code.
-    vm.runtime().validate_loaded_module(&replacement).unwrap();
+    vm.runtime()
+        .validate_executable_module(&replacement)
+        .unwrap();
     let before = vm.runtime().resources().counters();
     let failure = vm
         .runtime()
@@ -174,7 +185,7 @@ fn vm() -> Vm {
     Vm::new(runtime)
 }
 
-fn assert_reclaimed(runtime: &Runtime, old: &LoadedModule, reclaimed: &HashSet<ModuleKey>) {
+fn assert_reclaimed(runtime: &Runtime, old: &ExecutableModule, reclaimed: &HashSet<ModuleKey>) {
     for member in old.members() {
         assert!(reclaimed.contains(&member.key()));
         assert!(runtime.modules().loaded(member.key()).is_none());
@@ -186,6 +197,8 @@ fn assert_reclaimed(runtime: &Runtime, old: &LoadedModule, reclaimed: &HashSet<M
 fn old_callback_cycle_is_retained_only_by_external_roots() {
     let mut vm = vm();
     let old = vm.runtime_mut().load_program("cycle", program(42)).unwrap();
+    let _old_program = old;
+    let old = vm.runtime().select_program(&_old_program).unwrap();
     let closure = vm
         .execute(&old, "make")
         .unwrap()
@@ -193,7 +206,10 @@ fn old_callback_cycle_is_retained_only_by_external_roots() {
         .value(vm.runtime().gc())
         .expect("retained execution result");
     let root = vm.runtime().root_value(closure).unwrap();
-    let current = vm.reload_program(&old, "cycle", program(99)).unwrap();
+    vm.reload_program(&_old_program, Some("cycle".into()), program(99))
+        .unwrap();
+    let _current_program = _old_program.clone();
+    let current = vm.runtime().select_program(&_current_program).unwrap();
     let first = vm.runtime().collect_garbage().unwrap();
     assert!(!first.reclaimed_modules.contains(&old.key()));
     assert_eq!(first.live_objects, 2);
@@ -227,10 +243,14 @@ fn cycles_between_obsolete_programs_are_collected_together() {
     let mut vm = vm();
     let code = program(42);
     let left = vm.runtime_mut().load_program("left", code.clone()).unwrap();
+    let _left_program = left;
+    let left = vm.runtime().select_program(&_left_program).unwrap();
     let right = vm
         .runtime_mut()
         .load_program("right", code.clone())
         .unwrap();
+    let _right_program = right;
+    let right = vm.runtime().select_program(&_right_program).unwrap();
     let from_left = vm
         .execute(&left, "make")
         .unwrap()
@@ -261,7 +281,10 @@ fn cycles_between_obsolete_programs_are_collected_together() {
         .array_set(right_array, 0, from_left)
         .unwrap();
     let root = vm.runtime().root_value(from_right).unwrap();
-    let newer_left = vm.reload_program(&left, "left", code.clone()).unwrap();
+    vm.reload_program(&_left_program, Some("left".into()), code.clone())
+        .unwrap();
+    let _newer_left_program = _left_program.clone();
+    let newer_left = vm.runtime().select_program(&_newer_left_program).unwrap();
     // The retained right callback reaches both old executable versions.
     assert!(
         vm.runtime()
@@ -270,7 +293,10 @@ fn cycles_between_obsolete_programs_are_collected_together() {
             .reclaimed_modules
             .is_empty()
     );
-    let newer_right = vm.reload_program(&right, "right", code).unwrap();
+    vm.reload_program(&_right_program, Some("right".into()), code)
+        .unwrap();
+    let _newer_right_program = _right_program.clone();
+    let newer_right = vm.runtime().select_program(&_newer_right_program).unwrap();
     drop(root);
     let collected = vm.runtime().collect_garbage().unwrap();
     assert_eq!(collected.reclaimed_objects, 4);

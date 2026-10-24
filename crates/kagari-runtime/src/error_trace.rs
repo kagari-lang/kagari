@@ -3,7 +3,7 @@ pub mod asynchronous;
 
 use crate::{
     Runtime, error::RuntimeError, error_trace::asynchronous::AsyncBoundary, frame::ExecutionFrame,
-    module::LoadedModule, resource::ResourceState, session::store::SessionId, value::Value,
+    module::ExecutableModule, resource::ResourceState, session::store::SessionId, value::Value,
     value_semantics,
 };
 use kagari_bytecode::{artifact::ArtifactFingerprint, module::CallableTarget, program::ModuleRef};
@@ -238,11 +238,11 @@ impl Runtime {
 
     pub fn forward_enum_origin(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         original: &Value,
         value: &Value,
     ) -> Result<Value, RuntimeError> {
-        self.validate_loaded_module(owner)?;
+        self.validate_executable_module(owner)?;
         self.gc
             .forward_enum_origin(original, value)
             .map(Value::Enum)

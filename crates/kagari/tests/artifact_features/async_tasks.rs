@@ -77,7 +77,9 @@ pub async fn run() -> i32 {
         PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let mut runtime = engine.runtime(Default::default());
     let module = runtime.load_program(&program, Default::default()).unwrap();
-    let run = runtime.async_function::<(), i32>(&module, "run").unwrap();
+    let run = runtime
+        .async_function::<(), i32>(&module.root(), "run")
+        .unwrap();
     let (send, ready) = mpsc::sync_channel(1);
     let wake = Waker::from(Arc::new(Notify(send)));
     let mut cx = Context::from_waker(&wake);

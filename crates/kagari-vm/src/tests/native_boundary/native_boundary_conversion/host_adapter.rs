@@ -135,6 +135,8 @@ fn host_policy_uses_native_entry_with_rooted_inputs_and_execution_session() {
         "#,
         &module,
     );
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     {
         let mut options = vm.runtime().execution_options();
         options.record_host_calls = true;
@@ -403,12 +405,19 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
     let value = runtime.gc().alloc_host_root(root).unwrap();
     let value = runtime.gc().root_execution_values(vec![value]).unwrap();
     let owner = runtime.load_program("shared-root", program).unwrap();
+    let _owner_program = owner;
     let mut vm = Vm::new(runtime);
     let argument = value.get(vm.runtime().gc(), 0).unwrap();
     vm.runtime_mut()
         .with_host_scope(|scope| {
             assert_eq!(
-                Vm::execute_scoped(scope, &owner, "main", &[argument], Default::default())?,
+                Vm::execute_scoped(
+                    scope,
+                    &_owner_program,
+                    "main",
+                    &[argument],
+                    Default::default()
+                )?,
                 Value::I32(15)
             );
             Ok(())
@@ -426,7 +435,13 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
     vm.runtime_mut()
         .with_host_scope(|scope| {
             assert_eq!(
-                Vm::execute_scoped(scope, &owner, "main", &[view_value], Default::default())?,
+                Vm::execute_scoped(
+                    scope,
+                    &_owner_program,
+                    "main",
+                    &[view_value],
+                    Default::default()
+                )?,
                 Value::I32(20)
             );
             Ok(())
@@ -448,12 +463,24 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
     vm.runtime_mut()
         .with_host_scope(|scope| {
             assert_eq!(
-                Vm::execute_scoped(scope, &owner, "read", &[readonly_value], Default::default())?,
+                Vm::execute_scoped(
+                    scope,
+                    &_owner_program,
+                    "read",
+                    &[readonly_value],
+                    Default::default()
+                )?,
                 Value::I32(20)
             );
             assert!(
-                Vm::execute_scoped(scope, &owner, "main", &[readonly_value], Default::default())
-                    .is_err()
+                Vm::execute_scoped(
+                    scope,
+                    &_owner_program,
+                    "main",
+                    &[readonly_value],
+                    Default::default()
+                )
+                .is_err()
             );
             Ok(())
         })
@@ -481,7 +508,7 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
         vm.runtime_mut()
             .with_host_scope(|scope| Vm::execute_scoped(
                 scope,
-                &owner,
+                &_owner_program,
                 "main",
                 &[foreign],
                 Default::default()

@@ -1,4 +1,5 @@
 //! Small actual-pointer fixtures isolate Miri safety from source compilation cost.
+use crate::test_support::native::program::ProgramFixture;
 mod fields;
 use crate::{
     Runtime,
@@ -6,11 +7,8 @@ use crate::{
     native::{builder::ModuleBuilder, catalog::DeclarationCatalog, storage::NativeStorage},
     value::Value,
 };
-use kagari_bytecode::{
-    module::BytecodeModule,
-    program::{BytecodeProgram, ModuleRef},
-};
-use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
+use kagari_common::identity::map::DefinitionContext;
 use std::{
     panic::{AssertUnwindSafe, catch_unwind},
     ptr,
@@ -32,23 +30,21 @@ fn external_root_actual_pointer_loans_release_and_revoke_on_all_exits() {
     // This scope uses the real checked descriptor and heap/header owner. No
     // frontend, standard-library declarations or substitute borrow model is needed.
     let context = DefinitionContext::new().unwrap();
-    let owner = runtime
+    let owner_program = runtime
         .load_program(
             "scope-proof",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap();
+
     let descriptor = runtime
-        .bind_native_type::<State>(&owner, &declaration, &[])
+        .bind_native_type::<State>(&owner_program.root(), &declaration, &[])
         .unwrap();
     let mut external = State { count: 1 };
     let mut saved = Value::Unit;
@@ -144,23 +140,20 @@ fn distinct_zero_sized_host_roots_allow_independent_unique_loans() {
     let mut runtime = Runtime::default();
     module.install(&mut runtime).unwrap();
     let context = DefinitionContext::new().unwrap();
-    let owner = runtime
+    let owner_program = runtime
         .load_program(
             "scope-proof",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap();
     let descriptor = runtime
-        .bind_native_type::<Marker>(&owner, &declaration, &[])
+        .bind_native_type::<Marker>(&owner_program.root(), &declaration, &[])
         .unwrap();
     let mut values = [Marker {}, Marker {}];
     let (first, second) = values.split_at_mut(1);

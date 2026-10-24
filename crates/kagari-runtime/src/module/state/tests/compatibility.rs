@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_support::native::program::ProgramFixture;
 use kagari_contract::{
     layout::{StructFieldLayout, StructLayout},
     types::TraitContract,
@@ -62,18 +63,21 @@ fn fixture(context: &DefinitionContext) -> BytecodeProgram {
         true,
         Visibility::Private,
     );
-    BytecodeProgram {
+    ProgramFixture {
         root: ModuleRef::new(0),
         modules: vec![module],
         exports: Default::default(),
     }
+    .build(context)
 }
 
 fn metadata(
     context: &DefinitionContext,
     code: BytecodeProgram,
 ) -> DefinitionMetadata<BytecodeProgram> {
-    DefinitionMetadata::checked(context.snapshot(), code, &Default::default()).unwrap()
+    ProgramFixture::from(code)
+        .metadata(context.snapshot(), &Default::default())
+        .unwrap()
 }
 
 #[test]
@@ -81,9 +85,10 @@ fn adding_an_unrelated_specialization_and_reordering_layouts_preserves_cells() {
     let context = DefinitionContext::new().unwrap();
     let mut runtime = Runtime::default();
     let mut code = fixture(&context);
-    let old = runtime
+    let old_program = runtime
         .load_program("boxes", metadata(&context, code.clone()))
         .unwrap();
+    let old = runtime.select_program(&old_program).unwrap();
     let boolean = boxed(&context, &code.modules[0], Ty::Builtin(BuiltinType::Bool));
     let ty = Ty::Struct(NominalTy {
         declaration: boolean.declaration,
@@ -100,9 +105,10 @@ fn adding_an_unrelated_specialization_and_reordering_layouts_preserves_cells() {
         Visibility::Private,
     );
     let candidate = runtime
-        .stage_reload_program(&old, "boxes", metadata(&context, code.clone()))
+        .stage_reload_program(&old_program, None, metadata(&context, code.clone()))
         .expect("adding Box<bool> must not change the Box<i32> storage contract");
-    let current = runtime.publish_staged_reload(candidate).unwrap();
+    let current = candidate.module().clone();
+    runtime.publish_staged_reload(candidate).unwrap();
     assert_eq!(
         cell(&runtime.modules, &old, 0),
         cell(&runtime.modules, &current, 0)
@@ -113,9 +119,10 @@ fn adding_an_unrelated_specialization_and_reordering_layouts_preserves_cells() {
     );
     code.modules[0].structures.reverse();
     let candidate = runtime
-        .stage_reload_program(&current, "boxes", metadata(&context, code))
+        .stage_reload_program(&old_program, None, metadata(&context, code))
         .expect("physical layout order is not the applied schema");
-    let next = runtime.publish_staged_reload(candidate).unwrap();
+    let next = candidate.module().clone();
+    runtime.publish_staged_reload(candidate).unwrap();
     for slot in 0..2 {
         assert_eq!(
             cell(&runtime.modules, &current, slot),
@@ -171,15 +178,16 @@ fn private_interface_signatures_follow_applied_payloads_not_layout_inventory() {
     });
     module.module_slots[0].contract.ty = ty.clone();
     module.functions[0].metadata.semantic.result = Some(ty);
-    let old = runtime
+    let old_program = runtime
         .load_program("factory", metadata(&context, code.clone()))
         .unwrap();
     let boolean = boxed(&context, &code.modules[0], Ty::Builtin(BuiltinType::Bool));
     code.modules[0].structures.insert(0, boolean);
     let candidate = runtime
-        .stage_reload_program(&old, "factory", metadata(&context, code.clone()))
+        .stage_reload_program(&old_program, None, metadata(&context, code.clone()))
         .unwrap();
-    let current = runtime.publish_staged_reload(candidate).unwrap();
+    let current = candidate.module().clone();
+    runtime.publish_staged_reload(candidate).unwrap();
     for contract in [false, true] {
         let mut changed = code.clone();
         if contract {
@@ -191,12 +199,12 @@ fn private_interface_signatures_follow_applied_payloads_not_layout_inventory() {
         VerifiedProgram::new(metadata(&context, changed.clone()), &context).unwrap();
         assert!(
             runtime
-                .stage_reload_program(&current, "factory", metadata(&context, changed))
+                .stage_reload_program(&old_program, None, metadata(&context, changed))
                 .is_err()
         );
     }
     assert_eq!(
-        runtime.modules.latest("factory").unwrap().key(),
+        runtime.modules.current_for(&current).unwrap().key(),
         current.key()
     );
 }
@@ -206,9 +214,10 @@ fn selected_specialization_and_recursive_payload_changes_are_rejected() {
     let context = DefinitionContext::new().unwrap();
     let mut runtime = Runtime::default();
     let code = fixture(&context);
-    let old = runtime
+    let old_program = runtime
         .load_program("boxes", metadata(&context, code.clone()))
         .unwrap();
+    let old = runtime.select_program(&old_program).unwrap();
     for recursive in [false, true] {
         let mut changed = code.clone();
         let boolean = boxed(
@@ -230,9 +239,9 @@ fn selected_specialization_and_recursive_payload_changes_are_rejected() {
         VerifiedProgram::new(metadata(&context, changed.clone()), &context).unwrap();
         assert!(
             runtime
-                .stage_reload_program(&old, "boxes", metadata(&context, changed))
+                .stage_reload_program(&old_program, None, metadata(&context, changed))
                 .is_err()
         );
-        assert_eq!(runtime.modules.latest("boxes").unwrap().key(), old.key());
+        assert_eq!(runtime.modules.current_for(&old).unwrap().key(), old.key());
     }
 }

@@ -1,4 +1,5 @@
 use crate::{
+    closure::{CallableObservation, ObservedCallableTarget},
     error::RuntimeError,
     native::{
         adapter::{Async, NativeAdapter},
@@ -81,6 +82,13 @@ where
                 call.allocate_result_payload(
                     FuturePayload {
                         cold: Some(ColdFuture::Native(NativeFuture {
+                            origin: Some(CallableObservation {
+                                publication: call.owner.publication_token(),
+                                module: call.owner.slot(),
+                                target: ObservedCallableTarget::NativeBinding(
+                                    call.function.declaration,
+                                ),
+                            }),
                             owner: call.owner.clone(),
                             parameters: signature.params.clone(),
                             output,

@@ -21,7 +21,10 @@ use kagari_contract::{
     ids::FunctionRef,
     native_import::NativeImport,
     statics::{StaticContract, StaticDescriptor},
-    types::{ConcreteFunctionIdentity, PublicItem},
+    types::{
+        ConcreteFunctionIdentity, PublicItem,
+        named::{NamedContract, NamedDeclaration},
+    },
 };
 use kagari_types::{
     callable::{CallableImplementation, Signature},
@@ -138,17 +141,21 @@ fn fixture() -> (DefinitionContext, KbcArtifact) {
     occurrence.metadata.semantic.result = Some(Ty::Builtin(BuiltinType::I32));
     occurrence.identity = Some(ConcreteFunctionIdentity {
         declaration: context
-            .intern_child(owner, DefinitionKind::Function, "echo", 2)
+            .intern_child(declaration, DefinitionKind::Function, "echo", 2)
             .unwrap(),
         arguments: vec![],
     });
     push_function(&mut root, occurrence);
     let artifact = KbcArtifact::from_program(
-        BytecodeProgram {
-            root: ModuleRef::new(1),
-            modules: vec![dependency, root],
-            exports: Default::default(),
-        },
+        crate::program::updates::fixtures::certify(
+            BytecodeProgram {
+                update_evidence: crate::program::updates::empty(),
+                root: ModuleRef::new(1),
+                modules: vec![dependency, root],
+                exports: Default::default(),
+            },
+            &context,
+        ),
         ArtifactBuildOptions::default(),
         &context,
         &Default::default(),
@@ -322,11 +329,15 @@ fn decoded_static_descriptors_link_supplier_body_and_debug_without_runtime_state
     };
     push_function(&mut consumer, reader);
     let artifact = KbcArtifact::from_program(
-        BytecodeProgram {
-            root: ModuleRef::new(1),
-            modules: vec![supplier, consumer],
-            exports: Default::default(),
-        },
+        crate::program::updates::fixtures::certify(
+            BytecodeProgram {
+                update_evidence: crate::program::updates::empty(),
+                root: ModuleRef::new(1),
+                modules: vec![supplier, consumer],
+                exports: Default::default(),
+            },
+            &context,
+        ),
         ArtifactBuildOptions::default(),
         &context,
         &Default::default(),
@@ -361,7 +372,7 @@ fn exact_selection_uses_raw_names_and_reports_ordered_instance_candidates() {
         vec![(0, 0)]
     );
     assert_eq!(
-        prepared.select(Some("fixture::app::echo#2")).unwrap(),
+        prepared.select(Some("fixture::app::echo::echo#2")).unwrap(),
         vec![(1, 3)]
     );
     assert_eq!(
@@ -389,7 +400,7 @@ fn exact_selection_uses_raw_names_and_reports_ordered_instance_candidates() {
     }
     for (name, slot) in [
         ("fixture::dependency::echo", "@0:0"),
-        ("fixture::app::echo#2", "@1:3"),
+        ("fixture::app::echo::echo#2", "@1:3"),
         ("fixture::app::generated\n\u{202e}name", "@1:2"),
     ] {
         assert_eq!(
@@ -627,6 +638,12 @@ fn custom_native_calls_render_verified_offline_contracts_without_providers() {
         source_name: "nonexistent/native_caller.kgr".into(),
         types: vec![ValueType::I32],
         public_items: vec![PublicItem::Function(required[0].function.clone())],
+        named_declarations: vec![NamedDeclaration {
+            declaration: required[0].declaration,
+            visibility: Visibility::Public,
+            ambiguous_local_body: None,
+            contract: NamedContract::Function(required[0].function.clone()),
+        }],
         native_declarations: required,
         native_imports: vec![import],
         ..Default::default()
@@ -679,11 +696,15 @@ fn custom_native_calls_render_verified_offline_contracts_without_providers() {
     push_function(&mut module, caller);
     push_function(&mut module, function("echo"));
     let artifact = KbcArtifact::from_program(
-        BytecodeProgram {
-            root: ModuleRef::new(0),
-            exports: Default::default(),
-            modules: vec![module],
-        },
+        crate::program::updates::fixtures::certify(
+            BytecodeProgram {
+                update_evidence: crate::program::updates::empty(),
+                root: ModuleRef::new(0),
+                exports: Default::default(),
+                modules: vec![module],
+            },
+            &context,
+        ),
         Default::default(),
         &context,
         &Default::default(),

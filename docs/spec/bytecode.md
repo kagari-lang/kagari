@@ -1170,12 +1170,13 @@ instances remain runtime-owned. `Runtime::load_program` constructs the verified
 handle for one runtime; `Runtime::load_verified_program` accepts a shared handle.
 Direct loading and reload preflight enforce the artifact's in-memory count and
 encoded-size limits before fingerprint computation.
-LoadedModule is an immutable Arc-backed handle constructed by Runtime loading.
-Clone and module queries share executable data. Public raw ModuleStore loading
-and mutation of loaded bytecode are unavailable. Handles and linked host slots
-carry registry ownership and reject another runtime, even when numeric module
-keys or slots coincide. Complete dependency pinning and state reclamation still
-belong to the remaining R10/R14 work.
+Loading returns a live `Program`; its `Module` handles identify logical members
+of that installation. Exact `ExecutableModule` owners share immutable executable
+data. Public raw ModuleStore loading and mutation of loaded bytecode are unavailable.
+Handles and linked host slots carry registry ownership and reject another runtime,
+even when numeric module keys or slots coincide. Ordinary call routes select current
+implementations; created computations and admitted frames/queues retain exact bodies.
+See [activation](module-activation.md) for publication and reclamation boundaries.
 
 Source nominal host types use `ValueType::HostHandle`, separate from `HeapObject`.
 Opaque host call operands/results must match that representation; general equality

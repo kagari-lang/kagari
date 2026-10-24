@@ -1,10 +1,19 @@
 //! Standard provider preparation shared by independent contract cases.
-use crate::{engine::KagariEngine, test_support::execution};
+use crate::{
+    engine::{
+        KagariEngine,
+        source::{CheckedModule, analysis::SourceAnalysis},
+    },
+    test_support::execution,
+};
+use kagari_common::cancellation::CancellationToken;
+use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     host::{HostCallContext, HostError},
     native::{builder::ModuleBuilder, installation::NativeInstallation},
     value::Value,
 };
+use kagari_source::{identity::FileId, source_database::SourceSnapshot};
 use std::sync::{Mutex, OnceLock};
 
 pub(super) fn engine(vector: bool) -> KagariEngine {
@@ -33,6 +42,18 @@ pub(super) fn engine(vector: bool) -> KagariEngine {
         .lock()
         .unwrap()
         .new_session(Default::default())
+}
+
+pub(super) fn check_publication(sources: SourceSnapshot, root: FileId) -> CheckedModule {
+    // This scalar publication fixture needs no native declarations; check the
+    // explicit source closure independently of the standard provider baseline.
+    let mut analysis = AnalysisDatabase::new("/language-contract").unwrap();
+    let cancel = CancellationToken::default();
+    let snapshot = analysis.snapshot(sources, &cancel).unwrap();
+    SourceAnalysis::new(snapshot, root, None)
+        .unwrap()
+        .check(&cancel)
+        .unwrap()
 }
 
 pub(super) fn installation() -> &'static NativeInstallation {

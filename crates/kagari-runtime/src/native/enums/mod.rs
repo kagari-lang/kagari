@@ -4,7 +4,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
-    module::{EnumVariantRef, LoadedModule, retention::ProgramLease},
+    module::{EnumVariantRef, ExecutableModule, retention::ProgramLease},
     native::{
         binding::NativeResult,
         conversion::{
@@ -24,7 +24,7 @@ pub struct EnumType(Arc<TypeRecord>);
 
 #[derive(Debug)]
 struct TypeRecord {
-    owner: LoadedModule,
+    owner: ExecutableModule,
     argument: TypeArgument,
     _program: ProgramLease,
 }
@@ -63,12 +63,12 @@ impl EnumType {
         &self.0.argument
     }
 
-    pub fn owner(&self) -> &LoadedModule {
+    pub fn owner(&self) -> &ExecutableModule {
         &self.0.owner
     }
 
     pub fn variant(&self, runtime: &Runtime, name: &str) -> NativeResult<EnumMember> {
-        runtime.validate_loaded_module(self.owner())?;
+        runtime.validate_executable_module(self.owner())?;
         let layout = runtime.declared_enum_variant(self.owner(), self.type_argument(), name)?;
         Ok(EnumMember {
             enum_type: self.clone(),
@@ -108,7 +108,7 @@ impl<A: IntoKagariArguments> EnumVariant<A> {
         let runtime = cx.runtime();
         runtime.gc().ensure_no_native_borrow()?;
         runtime.resources().ensure_execution_allowed()?;
-        runtime.validate_loaded_module(ty.owner())?;
+        runtime.validate_executable_module(ty.owner())?;
         cx.poll()?;
         let mut conversion = ConversionContext::new(runtime, ty.owner())?;
         let (_roots, values) = encode_arguments(&mut conversion, &record.payload, payload)?;

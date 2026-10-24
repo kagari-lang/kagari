@@ -8,7 +8,7 @@ use crate::{
     },
     frame::types::{EnvironmentRecord, compatibility::TypeView},
     gc::interfaces::InterfaceResultBinding,
-    module::LoadedModule,
+    module::ExecutableModule,
     objects::calls,
 };
 use kagari_bytecode::module::CallableTarget;
@@ -21,7 +21,7 @@ use std::sync::Arc;
 impl Runtime {
     pub(crate) fn bind_receiver_operations(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         target: CallableTarget,
         binding: &InterfaceResultBinding,
         prepared: Option<OperationGroupId>,
@@ -59,7 +59,7 @@ impl Runtime {
         let mut visited = vec![];
         while let Some(binding) = pending.pop() {
             let owner = &binding.owner;
-            self.validate_loaded_module(owner)?;
+            self.validate_executable_module(owner)?;
             let table = owner
                 .bytecode
                 .interface_tables

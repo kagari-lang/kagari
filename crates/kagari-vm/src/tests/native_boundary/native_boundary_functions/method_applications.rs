@@ -1,4 +1,5 @@
 use super::fixture;
+use super::{compile_without_foundation, fixture_without_foundation};
 use crate::tests::native_boundary::compile_program;
 use kagari_runtime::native::{conversion::context::ConversionContext, objects::Object};
 use std::slice;
@@ -23,12 +24,14 @@ const SOURCE: &str = r#"
 #[test]
 fn inherent_applications_infer_impl_arguments_and_check_method_evidence() {
     let (vm, owner) = fixture(SOURCE, None);
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let runtime = vm.runtime();
     let conversion = ConversionContext::new(runtime, &owner).unwrap();
     let i32_type = conversion.type_for::<i32>().unwrap();
     let string_type = conversion.type_for::<String>().unwrap();
     let holder = runtime
-        .bind_type(&owner, "Holder", slice::from_ref(&i32_type))
+        .bind_type(&_owner_program.root(), "Holder", slice::from_ref(&i32_type))
         .unwrap();
     let get = runtime.bind_method::<(), i32>(&holder, "get").unwrap();
     let replace = runtime
@@ -82,7 +85,9 @@ fn inherent_applications_infer_impl_arguments_and_check_method_evidence() {
             .is_err()
     );
     // A static signature that does not mention T still requires the exact impl application.
-    let other = runtime.bind_type(&owner, "Holder", &[string_type]).unwrap();
+    let other = runtime
+        .bind_type(&_owner_program.root(), "Holder", &[string_type])
+        .unwrap();
     assert!(
         runtime
             .bind_associated_function_application::<(i32,), i32>(
@@ -107,15 +112,20 @@ fn inherent_applications_infer_impl_arguments_and_check_method_evidence() {
 }
 
 #[test]
-fn inherent_application_handles_keep_old_code_pinned_after_reload() {
-    let (vm, old) = fixture(SOURCE, None);
+fn inherent_application_handles_select_current_code_after_reload() {
+    let source = SOURCE
+        .replace("String", "bool")
+        .replace("\"other\"", "true");
+    let (vm, old) = fixture_without_foundation(&source, None);
+    let _old_program = old;
+    let old = vm.runtime().select_program(&_old_program).unwrap();
     let i32_type = ConversionContext::new(vm.runtime(), &old)
         .unwrap()
         .type_for::<i32>()
         .unwrap();
     let old_type = vm
         .runtime()
-        .bind_type(&old, "Holder", slice::from_ref(&i32_type))
+        .bind_type(&_old_program.root(), "Holder", slice::from_ref(&i32_type))
         .unwrap();
     let old_get = vm
         .runtime()
@@ -126,28 +136,39 @@ fn inherent_application_handles_keep_old_code_pinned_after_reload() {
         .bind_associated_function::<(i32,), Object>(&old_type, "create")
         .unwrap();
     let object = vm.call(&old_create, (42,)).unwrap();
-    let source = SOURCE
+    let source = source
         .replace("self.calls + 1", "self.calls + 10")
         .replace("Holder::create(42)", "Holder::create(43)");
-    let new = vm
-        .reload_program(&old, "functions", compile_program(&source, None))
+    vm.reload_program(
+        &_old_program,
+        Some("functions".into()),
+        compile_without_foundation(&source, None),
+    )
+    .unwrap();
+    let _new_program = _old_program.clone();
+    let new = vm.runtime().select_program(&_new_program).unwrap();
+    let new_type = vm
+        .runtime()
+        .bind_type(&_new_program.root(), "Holder", &[i32_type])
         .unwrap();
-    let new_type = vm.runtime().bind_type(&new, "Holder", &[i32_type]).unwrap();
     let new_get = vm
         .runtime()
         .bind_method::<(), i32>(&new_type, "get")
         .unwrap();
     let replacement: Object = vm.execute_typed(&new, "make", ()).unwrap();
     let mut cx = vm.context(&new).unwrap();
-    assert!(object.call(&mut cx, &new_get, ()).is_err());
-    assert!(replacement.call(&mut cx, &old_get, ()).is_err());
+    let other: Object = vm.execute_typed(&new, "other", ()).unwrap();
+    assert!(other.call(&mut cx, &old_get, ()).is_err());
+    assert!(other.call(&mut cx, &new_get, ()).is_err());
+    assert_eq!(object.call(&mut cx, &new_get, ()).unwrap(), 42);
+    assert_eq!(replacement.call(&mut cx, &old_get, ()).unwrap(), 43);
     vm.runtime().collect_garbage().unwrap();
     assert_eq!(object.call(&mut cx, &old_get, ()).unwrap(), 42);
     assert_eq!(replacement.call(&mut cx, &new_get, ()).unwrap(), 43);
     let old_calls = vm.runtime().bind_field::<i32>(&old_type, "calls").unwrap();
     let new_calls = vm.runtime().bind_field::<i32>(&new_type, "calls").unwrap();
-    assert_eq!(object.get(&mut cx, &old_calls).unwrap(), 1);
-    assert_eq!(replacement.get(&mut cx, &new_calls).unwrap(), 10);
+    assert_eq!(object.get(&mut cx, &old_calls).unwrap(), 20);
+    assert_eq!(replacement.get(&mut cx, &new_calls).unwrap(), 20);
 }
 
 #[test]
@@ -165,9 +186,13 @@ fn nested_inherent_arguments_retain_nominal_results_and_selected_bounds() {
         pub fn evidence() -> i32 { val holder = make(); holder.read(holder.first()) }
     "#;
     let (vm, owner) = fixture(source, None);
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let runtime = vm.runtime();
     let object: Object = vm.execute_typed(&owner, "make", ()).unwrap();
-    let item = runtime.bind_type(&owner, "Item", &[]).unwrap();
+    let item = runtime
+        .bind_type(&_owner_program.root(), "Item", &[])
+        .unwrap();
     let first = runtime
         .bind_method::<(), Object>(object.object_type(), "first")
         .unwrap();
@@ -218,6 +243,8 @@ fn repeated_impl_parameters_reject_mixed_nominal_layout_scopes() {
     );
     for (source, shared_layout) in [(source, false), (shared.as_str(), true)] {
         let (mut vm, old) = fixture(source, None);
+        let _old_program = old;
+        let old = vm.runtime().select_program(&_old_program).unwrap();
         assert_eq!(
             old.bytecode
                 .structures
@@ -225,7 +252,10 @@ fn repeated_impl_parameters_reject_mixed_nominal_layout_scopes() {
                 .any(|layout| layout.arguments.iter().any(|ty| !ty.is_concrete())),
             shared_layout
         );
-        let old_item = vm.runtime().bind_type(&old, "Item", &[]).unwrap();
+        let old_item = vm
+            .runtime()
+            .bind_type(&_old_program.root(), "Item", &[])
+            .unwrap();
         let new = vm
             .runtime_mut()
             .load_program(
@@ -233,12 +263,15 @@ fn repeated_impl_parameters_reject_mixed_nominal_layout_scopes() {
                 compile_program(&source.replace("value: i32", "value: i64"), None),
             )
             .unwrap();
+        let _new_program = new;
         let runtime = vm.runtime();
-        let new_item = runtime.bind_type(&new, "Item", &[]).unwrap();
+        let new_item = runtime
+            .bind_type(&_new_program.root(), "Item", &[])
+            .unwrap();
         assert_eq!(old_item.type_argument().ty(), new_item.type_argument().ty());
         let pair = runtime
             .bind_type(
-                &old,
+                &_old_program.root(),
                 "Pair",
                 &[
                     old_item.type_argument().clone(),
@@ -249,7 +282,7 @@ fn repeated_impl_parameters_reject_mixed_nominal_layout_scopes() {
         runtime.bind_method::<(), i32>(&pair, "same").unwrap();
         let mixed = runtime
             .bind_type(
-                &old,
+                &_old_program.root(),
                 "Pair",
                 &[
                     old_item.type_argument().clone(),

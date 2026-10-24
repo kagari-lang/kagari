@@ -27,6 +27,8 @@ fn executes_source_lowered_declared_host_log() {
     let loaded = runtime
         .load_program("print.kgr", bytecode)
         .expect("print module should load");
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
 
     let vm = Vm::new(runtime);
     let report = vm
@@ -60,6 +62,8 @@ fn main()->(u64,bool,u64,bool){
     );
     let decoded = round_trip_bytecode(program);
     let (runtime, loaded) = load_bytecode_program("standard_collections.kbc", decoded);
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let report = vm
         .execute(&loaded, ProgramEntry::Main)
@@ -98,6 +102,8 @@ fn main() -> u64 {
 }
 "#,
     );
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let report = vm
         .execute(&loaded, ProgramEntry::Main)
@@ -129,6 +135,8 @@ fn main() -> i32 {
 "#,
         ),
     );
+    let program = loaded;
+    let loaded = runtime.select_program(&program).unwrap();
     let vm = Vm::new(runtime);
     let report = vm
         .execute(&loaded, ProgramEntry::Main)

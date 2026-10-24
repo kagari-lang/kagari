@@ -18,7 +18,7 @@ use kagari_runtime::{
     backend::{BackendInvocationError, native::NativeInvocationFailure},
     error::RuntimeErrorKind,
     host::HostBorrowKind,
-    module::{LoadedModule, entry::ProgramEntry},
+    module::{ExecutableModule, entry::ProgramEntry},
     resource::RuntimeLimits,
     value::Value,
 };
@@ -118,6 +118,8 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
             let loaded = runtime
                 .load_program("reentry.kgr", route(module, encoded))
                 .unwrap();
+            let _loaded_program = loaded;
+            let loaded = runtime.select_program(&_loaded_program).unwrap();
             let vm = Vm::new(runtime);
             let prepared = native_fixtures::unsupported();
             let report = if jit {
@@ -207,6 +209,8 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                 let loaded = runtime
                     .load_program("termination.kgr", route(module, encoded))
                     .unwrap();
+                let _loaded_program = loaded;
+                let loaded = runtime.select_program(&_loaded_program).unwrap();
                 let mut options = runtime.execution_options();
                 options.cancellation = token;
 
@@ -282,6 +286,8 @@ fn reentry_rejects_foreign_and_stale_inputs() {
             compile_test_bytecode("fn main() -> i32 { 7 }"),
         )
         .unwrap();
+    let _foreign_module_program = foreign_module;
+    let foreign_module = foreign.select_program(&_foreign_module_program).unwrap();
     let foreign_value = Value::Array(
         foreign
             .alloc_array(&foreign_module, Ty::Builtin(BuiltinType::I32), vec![])
@@ -303,6 +309,8 @@ fn reentry_rejects_foreign_and_stale_inputs() {
         Ok(Value::Unit)
     }).install(&mut runtime).unwrap();
     let loaded = runtime.load_program("inputs.kgr", module).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
@@ -336,7 +344,7 @@ fn reentry_uses_the_root_version_and_rejects_other_epochs() {
             .find(|f| f.name == "value")
             .unwrap()
             .id;
-        let versions = Arc::new(Mutex::new(Vec::<LoadedModule>::new()));
+        let versions = Arc::new(Mutex::new(Vec::<ExecutableModule>::new()));
         let observed = Arc::new(Mutex::new(Vec::new()));
         let targets = versions.clone();
         let values = observed.clone();
@@ -355,12 +363,17 @@ fn reentry_uses_the_root_version_and_rejects_other_epochs() {
             Ok(Value::Unit)
         }).install(&mut runtime).unwrap();
         let old = runtime.load_program("versions.kgr", first).unwrap();
+        let _old_program = old;
+        let old = runtime.select_program(&_old_program).unwrap();
         let vm = Vm::new(runtime);
         let scope = vm
             .runtime()
             .begin_execution(&old, vm.runtime().execution_options())
             .unwrap();
-        let new = vm.reload_program(&old, "versions.kgr", program(9)).unwrap();
+        vm.reload_program(&_old_program, Some("versions.kgr".into()), program(9))
+            .unwrap();
+        let _new_program = _old_program.clone();
+        let new = vm.runtime().select_program(&_new_program).unwrap();
         versions.lock().unwrap().extend([old.clone(), new.clone()]);
         vm.execute(&old, ProgramEntry::Main).unwrap();
         drop(scope);
@@ -393,6 +406,8 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
         Ok(Value::Unit)
     }).install(&mut runtime).unwrap();
     let loaded = runtime.load_program("trap.kgr", module).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
@@ -407,11 +422,7 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
     // leaked frames as well as heap values after the nested trap.
     let candidate = vm
         .runtime()
-        .stage_reload_verified_program(
-            &loaded,
-            loaded.name.clone(),
-            loaded.verified_program().clone(),
-        )
+        .stage_reload_verified_program(&_loaded_program, None, loaded.verified_program().clone())
         .unwrap();
     vm.runtime().publish_staged_reload(candidate).unwrap();
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
@@ -423,6 +434,8 @@ fn native_safepoint_reports_cancellation_at_the_current_instruction() {
     let mut runtime = runtime();
     let module = compile_test_bytecode("fn main() -> i32 { 42 }");
     let loaded = runtime.load_program("native-cancel.kgr", module).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let native = native_fixtures::install_i32::<42>(&runtime, &loaded, false);
     let token = CancellationToken::default();
     let mut options = runtime.execution_options();
@@ -461,6 +474,8 @@ fn cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect() {
             let loaded = runtime
                 .load_program("cancel.kgr", route(module, encoded))
                 .unwrap();
+            let _loaded_program = loaded;
+            let loaded = runtime.select_program(&_loaded_program).unwrap();
             let mut options = runtime.execution_options();
             options.cancellation = token;
             let vm = Vm::new(runtime);
@@ -497,8 +512,8 @@ fn cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect() {
             let candidate = vm
                 .runtime()
                 .stage_reload_verified_program(
-                    &loaded,
-                    loaded.name.clone(),
+                    &_loaded_program,
+                    None,
                     loaded.verified_program().clone(),
                 )
                 .unwrap();
@@ -528,8 +543,10 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
         .install(&mut runtime)
         .unwrap();
         let old = runtime.load_program("staged.kgr", program()).unwrap();
+        let _old_program = old;
+        let old = runtime.select_program(&_old_program).unwrap();
         let candidate = runtime
-            .stage_reload_program(&old, "staged.kgr", program())
+            .stage_reload_program(&_old_program, Some("staged.kgr".into()), program())
             .unwrap();
         let vm = Vm::new(runtime);
         let error = vm
@@ -618,6 +635,8 @@ fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
         let loaded = runtime
             .load_program("host-origin.kgr", route(module, encoded))
             .unwrap();
+        let _loaded_program = loaded;
+        let loaded = runtime.select_program(&_loaded_program).unwrap();
         let vm = Vm::new(runtime);
         let error = vm.execute(&loaded, ProgramEntry::Main).unwrap_err();
         assert_eq!(

@@ -1,5 +1,7 @@
 mod proof_visibility;
 mod static_lowering;
+mod type_exports;
+mod update_demands;
 
 use crate::{
     bytecode::{BytecodeLoweringError, lower_program_to_bytecode, lower_to_bytecode},
@@ -65,17 +67,17 @@ fn source_products_ignore_prior_module_registration_order() {
     let generic = insert(
         &mut sources,
         "generic",
-        "pub fn pass<T>(value: T) -> T { value }",
+        "pub fn pass<T>(value: T) -> T { value } pub struct Cell<T> { val value: T }",
     );
     insert(
         &mut sources,
         "facade",
-        "pub use pkg::generic::pass; pub fn value() -> i32 { pass(7) }",
+        "pub use pkg::generic::pass; pub struct Token {} pub fn value() -> i32 { pass(7) }",
     );
     let root = insert(
         &mut sources,
         "root",
-        "pub use pkg::facade as api; use pkg::generic::pass; pub fn run() -> i32 { pass(api::value()) }",
+        "pub use pkg::facade as api; use pkg::generic::pass; pub type TokenCell = pkg::generic::Cell<api::Token>; pub type IntCell = pkg::generic::Cell<i32>; pub fn run() -> i32 { pass(api::value()) }",
     );
     let input = sources.snapshot();
     let mut root_indices = Vec::new();
@@ -972,6 +974,49 @@ fn local_function_values_in_imported_default_methods_keep_source_ownership() {
     let original = bytecode(&context, &ir);
     let restored = bytecode(&context, &decoded);
     verify_bytecode_program(&restored, &context.snapshot(), &Default::default()).unwrap();
+    let origins = restored
+        .modules
+        .iter()
+        .flat_map(|module| &module.function_origins)
+        .collect::<Vec<_>>();
+    assert_eq!(origins.len(), 1);
+    let origin = origins[0];
+    assert_ne!(origin.placement, origin.authored);
+    assert_eq!(
+        context
+            .snapshot()
+            .resolve(origin.placement)
+            .unwrap()
+            .module()
+            .path,
+        ["root"]
+    );
+    assert_eq!(
+        context
+            .snapshot()
+            .resolve(origin.authored)
+            .unwrap()
+            .module()
+            .path,
+        ["api"]
+    );
+    assert!(
+        restored
+            .modules
+            .iter()
+            .flat_map(|module| &module.named_declarations)
+            .any(|record| record.declaration == origin.authored)
+    );
+    let mut forged = restored.clone();
+    let entry = forged.exports.entry.unwrap();
+    let record = forged
+        .modules
+        .iter_mut()
+        .flat_map(|module| &mut module.function_origins)
+        .next()
+        .unwrap();
+    record.authored = entry;
+    assert!(verify_bytecode_program(&forged, &context.snapshot(), &Default::default()).is_err());
     assert_eq!(
         encode_program_facts(&original, &context.snapshot(), &Default::default()).unwrap(),
         encode_program_facts(&restored, &context.snapshot(), &Default::default()).unwrap()

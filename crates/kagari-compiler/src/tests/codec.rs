@@ -16,6 +16,7 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{ModuleIdentity, map::DefinitionContext},
 };
+use kagari_contract::updates::UpdateEvidence;
 use kagari_mir::{
     codec::{MIR_FORMAT_VERSION, MIR_MAGIC, MirCodecError, decode_program, encode_program},
     function::MirModule,
@@ -161,6 +162,14 @@ fn codec_rejects_old_versions_trailing_data_truncation_and_cancelled_work() {
     let original = verify_program(
         MirProgram {
             root: root.clone(),
+            update_evidence: UpdateEvidence {
+                source_manifest: None,
+                sources: vec![],
+                bodies: vec![],
+                initializers: vec![],
+                targets: vec![],
+                selections: vec![],
+            },
             modules: vec![
                 empty(root, vec![dependency.clone()]),
                 empty(dependency, vec![]),

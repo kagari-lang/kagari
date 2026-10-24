@@ -1,17 +1,308 @@
 //! Source-free common free-function contracts, shared with VM boundary fixtures.
+use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     module::BytecodeModule,
-    program::{BytecodeProgram, ModuleRef},
+    program::{
+        BytecodeProgram, ModuleRef,
+        updates::{self, EvidenceInputs},
+    },
 };
-use kagari_common::identity::{DefinitionKind, metadata::DefinitionMetadata};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        DefinitionKind, map::DefinitionContext, mapping::DefinitionMappingError,
+        metadata::DefinitionMetadata, table::DefinitionTable,
+    },
+};
 use kagari_contract::{
+    exports::ProgramExports,
     native_import::NativeImport,
-    types::{ConcreteFunctionIdentity, PublicItem},
+    types::{
+        ConcreteFunctionIdentity, PublicItem,
+        named::{NamedContract, NamedDeclaration},
+    },
+    updates::{BodyClassification, SourceRecord, SourceToken, StaticInitializer, UpdateEvidence},
 };
 use kagari_types::{
     callable::{CallableImplementation, Signature},
-    declaration::{TypeDeclaration, TypeDefKind, module::ModuleDecl},
+    declaration::{FnDecl, Param, TypeDeclaration, TypeDefKind, module::ModuleDecl},
+    scalar::BuiltinType,
+    ty::Ty,
+    visibility::Visibility,
 };
+use std::collections::HashMap;
+
+/// Source-free monomorphic authoring input, never accepted by runtime verification.
+/// Non-scalar signatures must be explicit. Generic authored source templates cannot
+/// be recovered from executable instances and must use the compiler's producer.
+#[allow(dead_code)] // Shared with consumers that only need native contracts.
+pub struct ProgramFixture {
+    pub root: ModuleRef,
+    pub modules: Vec<BytecodeModule>,
+    pub exports: ProgramExports,
+}
+
+impl From<BytecodeProgram> for ProgramFixture {
+    fn from(program: BytecodeProgram) -> Self {
+        Self {
+            root: program.root,
+            modules: program.modules,
+            exports: program.exports,
+        }
+    }
+}
+
+#[allow(dead_code)]
+impl ProgramFixture {
+    pub fn build(mut self, context: &DefinitionContext) -> BytecodeProgram {
+        let update_evidence = evidence(&mut self.modules, context);
+        BytecodeProgram {
+            root: self.root,
+            modules: self.modules,
+            exports: self.exports,
+            update_evidence,
+        }
+    }
+
+    pub fn metadata(
+        self,
+        definitions: DefinitionTable,
+        cancel: &CancellationToken,
+    ) -> Result<DefinitionMetadata<BytecodeProgram>, DefinitionMappingError> {
+        let context = DefinitionContext::new()?;
+        // Import the authoring input before assigning missing fixture identities.
+        // The temporary empty certificate never reaches verification or a loader.
+        let input = BytecodeProgram {
+            root: self.root,
+            modules: self.modules,
+            exports: self.exports,
+            update_evidence: UpdateEvidence {
+                source_manifest: None,
+                sources: vec![],
+                bodies: vec![],
+                initializers: vec![],
+                targets: vec![],
+                selections: vec![],
+            },
+        };
+        let input = DefinitionMetadata::checked(definitions, input, cancel)?
+            .import_into(&context, cancel)?
+            .into_records();
+        let program = Self {
+            root: input.root,
+            modules: input.modules,
+            exports: input.exports,
+        }
+        .build(&context);
+        DefinitionMetadata::checked(context.snapshot(), program, cancel)
+    }
+}
+
+/// Rebuild after explicit fixture edits, not as part of admission/verification.
+#[allow(dead_code)]
+pub fn certify(mut program: BytecodeProgram, context: &DefinitionContext) -> BytecodeProgram {
+    program.update_evidence = evidence(&mut program.modules, context);
+    program
+}
+
+fn evidence(modules: &mut [BytecodeModule], context: &DefinitionContext) -> UpdateEvidence {
+    let mut classifications = HashMap::new();
+    for module in modules.iter_mut() {
+        prepare(module, context, &mut classifications);
+    }
+    let mut sources = Vec::new();
+    let mut initializers = Vec::new();
+    for module in modules.iter() {
+        for declaration in &module.named_declarations {
+            assert!(
+                !matches!(&declaration.contract, NamedContract::Function(function) if !function.generic_params.is_empty())
+                    && !matches!(&declaration.contract, NamedContract::Implementation(_)),
+                "fixture must supply genuine generic/implementation source evidence through its producer"
+            );
+            if !matches!(declaration.contract, NamedContract::Alias(_)) {
+                sources.push(SourceRecord {
+                    declaration: declaration.declaration,
+                    generic: None,
+                    tokens: vec![],
+                    inputs: vec![],
+                    calls: vec![],
+                    bodies: vec![],
+                });
+            }
+        }
+        for slot in module
+            .module_slots
+            .iter()
+            .filter(|slot| slot.contract.supplier == module.identity)
+        {
+            sources.push(SourceRecord {
+                declaration: slot.contract.declaration,
+                generic: None,
+                // These fixtures author bytecode, not Kagari source. Retain the
+                // authored recipe; build() independently extracts its canonical body.
+                tokens: vec![SourceToken {
+                    kind: 0,
+                    text: format!(
+                        "{:?}",
+                        module.functions[slot.initializer.index()].instructions
+                    ),
+                }],
+                inputs: vec![],
+                calls: vec![],
+                bodies: vec![],
+            });
+            initializers.push(StaticInitializer {
+                declaration: slot.contract.declaration,
+            });
+        }
+    }
+    let definitions = context.snapshot();
+    initializers.sort_by_key(|initializer| {
+        definitions
+            .resolve(initializer.declaration)
+            .unwrap()
+            .to_path()
+    });
+    updates::build(
+        modules,
+        EvidenceInputs {
+            sources,
+            initializers,
+            selections: vec![],
+            classifications,
+        },
+        &definitions,
+        &Default::default(),
+    )
+    .expect("fixture supplies canonical executable evidence")
+}
+
+fn prepare(
+    module: &mut BytecodeModule,
+    context: &DefinitionContext,
+    classifications: &mut HashMap<ConcreteFunctionIdentity, BodyClassification>,
+) {
+    let root = context.intern_root(&module.identity).unwrap();
+    for item in &module.public_items {
+        let (kind, name, contract) = match item {
+            PublicItem::Function(function) => (
+                DefinitionKind::Function,
+                &function.name,
+                NamedContract::Function(function.clone()),
+            ),
+            PublicItem::Const(constant) => (
+                DefinitionKind::Const,
+                &constant.name,
+                NamedContract::Constant(constant.clone()),
+            ),
+            _ => continue,
+        };
+        let declaration = context.intern_child(root, kind, name, 0).unwrap();
+        if !module
+            .named_declarations
+            .iter()
+            .any(|record| record.declaration == declaration)
+        {
+            module.named_declarations.push(NamedDeclaration {
+                declaration,
+                visibility: Visibility::Public,
+                ambiguous_local_body: None,
+                contract,
+            });
+        }
+    }
+    for function in &mut module.functions {
+        let identity = function
+            .identity
+            .get_or_insert_with(|| ConcreteFunctionIdentity {
+                declaration: context
+                    .intern_child(root, DefinitionKind::Function, &function.name, 0)
+                    .unwrap(),
+                arguments: vec![],
+            })
+            .clone();
+        module.function_table[function.id.index()].identity = Some(identity.clone());
+        let semantic = &mut function.metadata.semantic;
+        for (index, physical) in function.metadata.params.iter().enumerate() {
+            semantic.params.entry(index).or_insert_with(|| {
+                scalar(*physical).expect("fixture must declare non-scalar parameter types")
+            });
+        }
+        if semantic.result.is_none() {
+            semantic.result = Some(
+                scalar(function.metadata.return_type)
+                    .expect("fixture must declare its non-scalar result type"),
+            );
+        }
+        if let Some(slot) = module.module_slots.iter().find(|slot| {
+            slot.contract.supplier == module.identity && slot.initializer == function.id
+        }) {
+            classifications.insert(
+                identity,
+                BodyClassification::StaticInitializer(slot.contract.declaration),
+            );
+            continue;
+        }
+        if !module
+            .named_declarations
+            .iter()
+            .any(|record| record.declaration == identity.declaration)
+        {
+            assert!(
+                identity.arguments.is_empty() && semantic.generic.is_none(),
+                "generic fixtures must supply their authored declaration, not infer it from an instance"
+            );
+            module.named_declarations.push(NamedDeclaration {
+                declaration: identity.declaration,
+                visibility: Visibility::Private,
+                ambiguous_local_body: None,
+                contract: NamedContract::Function(FnDecl {
+                    name: context
+                        .snapshot()
+                        .resolve(identity.declaration)
+                        .unwrap()
+                        .last()
+                        .unwrap()
+                        .name
+                        .to_owned(),
+                    implementation: CallableImplementation::Script,
+                    host_policy: None,
+                    method_policy: Default::default(),
+                    generic_params: vec![],
+                    bounds: vec![],
+                    params: (0..function.parameter_count as usize)
+                        .map(|index| Param {
+                            name: format!("arg{index}"),
+                            mutable: false,
+                            ty: semantic.params[&index].clone(),
+                        })
+                        .collect(),
+                    return_type: semantic.result.clone().unwrap(),
+                }),
+            });
+        }
+        classifications.insert(
+            identity.clone(),
+            BodyClassification::Named(identity.declaration),
+        );
+    }
+}
+
+fn scalar(value: ValueType) -> Option<Ty> {
+    Some(Ty::Builtin(match value {
+        ValueType::Never => BuiltinType::Never,
+        ValueType::Unit => BuiltinType::Unit,
+        ValueType::Bool => BuiltinType::Bool,
+        ValueType::I32 => BuiltinType::I32,
+        ValueType::I64 => BuiltinType::I64,
+        ValueType::U64 => BuiltinType::U64,
+        ValueType::F32 => BuiltinType::F32,
+        ValueType::F64 => BuiltinType::F64,
+        ValueType::Str => BuiltinType::String,
+        ValueType::Char => BuiltinType::Char,
+        _ => return None,
+    }))
+}
 
 /// Carry every free-function contract, including unused entries, without source analysis.
 /// External schemas retain their nominal owners. Generic proofs, GC layouts and trait impls
@@ -73,7 +364,7 @@ pub fn free_function_program(
             definition: ty.clone(),
         })
         .collect();
-    let program = BytecodeProgram {
+    let program = ProgramFixture {
         exports: Default::default(),
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule {
@@ -86,15 +377,25 @@ pub fn free_function_program(
                 .map(|declaration| PublicItem::Function(declaration.function.clone()))
                 .chain(module.types.iter().cloned().map(PublicItem::Type))
                 .collect(),
+            named_declarations: native_declarations
+                .iter()
+                .map(|declaration| NamedDeclaration {
+                    declaration: declaration.declaration,
+                    visibility: if module.private_functions.contains(&declaration.declaration) {
+                        Visibility::Private
+                    } else {
+                        Visibility::Public
+                    },
+                    ambiguous_local_body: None,
+                    contract: NamedContract::Function(declaration.function.clone()),
+                })
+                .collect(),
             native_declarations,
             native_imports,
             ..Default::default()
         }],
     };
-    DefinitionMetadata::checked(
-        declarations.definitions().clone(),
-        program,
-        &Default::default(),
-    )
-    .unwrap()
+    program
+        .metadata(declarations.definitions().clone(), &Default::default())
+        .unwrap()
 }

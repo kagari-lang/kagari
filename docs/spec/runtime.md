@@ -151,7 +151,7 @@ store positional field bytes in a compact heap arena. Scalars use their exact
 semantic widths, preserving float bits; Unit needs no bytes. Managed fields retain
 a tag and full owner/slot/generation identity. Layout-directed tracing visits only
 reference fields. Safe byte codecs also serve Value-based host/reflection access.
-The layout comes from a verified `LoadedModule` and retains immutable version
+The layout comes from a verified `ExecutableModule` and retains immutable version
 metadata. Objects do not duplicate field names. Allocation requires
 a layout belonging to the receiving runtime and validates field count, payload
 storage boundaries and value representations before publishing the allocation.
@@ -529,7 +529,7 @@ Disabling automatic GC leaves that disposal to explicit collection or runtime te
 ModuleStore::loaded_count reports available members, excluding abandoned candidates;
 ResourceCounters does not maintain a second module count.
 
-Runtime::retain_module checks the supplied LoadedModule's actual installed program, including
+Runtime::retain_module checks the supplied ExecutableModule's actual installed program, including
 runtime ownership; numeric module keys alone cannot authorize retention. Clones
 share one registration, and last-drop releases eligibility without borrowing the
 module store. Active sessions and installed native code use these leases; native
@@ -560,7 +560,7 @@ so it does not keep an interface record alive after runtime teardown.
 
 ModuleStore owns each ModuleRecord by value: module instance slots, installed native
 links and mutable layout caches retire together during coordinated collection.
-LoadedModule shares only an immutable ProgramDescriptor through Arc. The descriptor
+ExecutableModule shares an immutable ProgramDescriptor through Arc. The descriptor
 contains verified code and inert identity/binding facts; it is Send + Sync and cannot
 retain installed callbacks, caches or mutable module state. Native dispatch resolves
 its binding through ModuleStore and releases the store borrow before invoking Rust.
@@ -597,9 +597,10 @@ Runtime. Runtime::resolve_closure returns a checked scoped view. ExecutionStack
 accepts a closure Value, resolves it in that runtime and roots captures in the new
 frame before execution. Native call preparation releases metadata borrows before
 script invocation; callbacks can allocate, collect and reenter normally. Stored
-callback descriptors trace identities; host-owned PinnedFunction handles retain the
-closure and its executable scope automatically. Neither form keeps runtime storage
-alive after teardown. RootedCallable has been removed.
+callback descriptors trace identities; host-owned `Function` handles retain the
+required callable state automatically. Named values use live routes without obsolete
+code leases; created closures retain exact body/capture owners. Neither form keeps
+runtime storage alive after teardown. RootedCallable has been removed.
 An explicit diagnostic snapshot copy is not an execution or retention capability.
 Holding a scoped heap view blocks mutation with a checked error and no partial
 write or accounting change; collection rejects the borrow before any detachment.
@@ -767,8 +768,10 @@ contracts. See [security](security.md) for the trust boundary.
 
 Termination stays recorded until the final session scope drops. Nested execution
 cannot replace root inputs or swallow cancellation. A fresh root starts clean.
-Nested module entries must belong to its pinned dependency program. Its central
-record retains a program lease; ending the last scope needs no module-store borrow.
+Nested entries validate installation authority and retain exact admitted executable
+owners; ordinary calls select current implementations rather than a session-wide old
+dependency set. Its central record retains the admitted root's program lease; ending
+the last scope needs no module-store borrow.
 Synchronous host callbacks reenter the existing
 explicit driver with the same runtime and root options. Each host context owns its
 borrow guard; outer scopes remain active during nested execution. SessionStore owns
@@ -792,9 +795,10 @@ reports registered host scopes for diagnostics and cleanup assertions.
 VM/SDK execution and reload publication use checked shared runtime references.
 Runtime is not Sync: these references do not authorize concurrent execution. The
 driver, store borrows and session identities enforce scoped synchronous reentry.
-ModuleStore owns version reservation along with publication, so publishing a new
-version does not invalidate a borrowed old-version session. Registration and owner
-replacement still require mutable access; a live execution guard prevents moving
+ModuleStore owns version reservation along with publication. Runtime-wide synchronous
+activation guards reject publication inside script, observers, callbacks, reentry or
+driver cleanup; parked old-version sessions may remain without blocking publication.
+Registration and owner replacement still require mutable access; a live execution guard prevents moving
 or destroying the runtime. Transfer is possible once these scopes have ended.
 Frames own their immutable loaded version; no borrowed bytecode lifetime crosses
 runtime entry. Frames and stacks do not retain a heap owner; slot access receives
@@ -840,7 +844,9 @@ The ownership model (schematic, not a Rust field listing) is:
 Prepared program -> immutable verified code and descriptors
 Runtime -> module records, installation static cells, heap, host bindings
 Module record -> loaded generation, static bindings, constants, linked metadata
-Loaded module -> pinned program descriptor and member slot
+Program / Module -> live installation / logical member
+ExecutableModule -> exact program descriptor and member slot
+CallRoute -> checked installation declaration/application, no executable lease
 Static binding -> checked installation cell identity
 ```
 
@@ -895,9 +901,13 @@ active installation / retained executable / active initializer
        Failed        -> detached bounded diagnostic only
 ```
 
-A recipe stays fixed even if first used after several publications. Once Ready,
-the value may independently retain old closures, interfaces or native selections;
-this is ordinary executable-value ownership, not a permanent historical root.
+A recipe stays fixed even if first used after several publications; its ordinary
+helper calls select current implementations rather than a pinned old dependency set.
+Publication does not reset Ready values or retry Failed cells. Once Ready,
+the value may independently retain old closure/Future bodies and lexical type or
+interface evidence. Named callable values do not retain obsolete code just to route
+later calls; ordinary calls use current implementations. Exact computation ownership
+is not a permanent historical root.
 Failed cells do not retain executable recipe edges. Pure type/layout descriptors
 are not executable or mutable-state roots. Cycles through programs, cells and
 heap values, including cross-installation cycles, can be reclaimed once external
@@ -917,18 +927,22 @@ Hot reload is coordinated through explicit module epochs.
 
 [Publication and static compatibility](module-activation.md#static-publication-compatibility)
 define the implemented contract; [reload.rs](../../crates/kagari-runtime/src/reload.rs)
-implements the staging and publication boundary.
+implements staging/commit and [publication.rs](../../crates/kagari-runtime/src/publication.rs)
+owns host-top-level synchronous admission. Frozen declaration and local static-initializer
+checks use installation inventory independently of live heap values; ordinary
+Hash/Eq and helper bodies may change. Source snapshots retain
+immutable diagnostics separately from executable leases and SDK compilation capsules.
 
 The runtime uses epochs for:
 
 - module version tracking
 - stale handle detection
 - metadata comparison across reloads
-- generation-pinned execution and shared static bindings
+- exact computation ownership, current ordinary-call selection and shared static bindings
 
 Epoch changes do not migrate values, reset static cells or implement state
-snapshot/restore. The separate [state replacement proposal](../update-model-design.md#state-replacement-boundary)
-requires an explicit exported data root.
+snapshot/restore. [Compatible publication](module-activation.md#compatible-declaration-changes)
+preserves existing values and frozen declaration contracts.
 
 ## Suspension and Ephemerality
 

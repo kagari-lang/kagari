@@ -5,6 +5,7 @@ use crate::{
         KagariEngine,
         source::{ArtifactOptions, PreparationOptions},
     },
+    error::{EmbeddingError, RuntimeFailureKind},
     program::PreparedProgram,
 };
 use kagari_codegen_cranelift::CraneliftBackend;
@@ -225,14 +226,59 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
             &Default::default(),
         )
         .unwrap();
+    let PreparedNativeEntry::Native(installed_old) = &old_native else {
+        panic!("scalar entry should compile to native code");
+    };
+    let old_entry = installed_old.artifact().code.entry.clone();
+    let independent = runtime
+        .load_program(&old_program, Default::default())
+        .unwrap();
+    let independent_native = runtime
+        .prepare_native(
+            &old_program,
+            &independent,
+            ProgramEntry::Main,
+            &mut backend,
+            &Default::default(),
+        )
+        .unwrap();
+    let selected_old = runtime.runtime().select_program(&old).unwrap();
     let outer = runtime
         .runtime()
-        .begin_execution(&old, runtime.runtime().execution_options())
+        .begin_execution(&selected_old, context.runtime_options())
         .unwrap();
-    let current = runtime
+    assert!(
+        runtime
+            .reload_program(&old, &candidate, Default::default())
+            .is_err()
+    );
+    assert_eq!(
+        runtime.runtime().select_program(&old).unwrap().key(),
+        selected_old.key()
+    );
+    assert_eq!(
+        runtime.runtime().execution_root().unwrap().key(),
+        selected_old.key()
+    );
+    // Rejected publication must not replace the admitted function's pages.
+    let report = runtime
+        .backend()
+        .execute_prepared(&selected_old, ProgramEntry::Main, &old_native)
+        .unwrap();
+    assert_eq!(
+        report
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(42)
+    );
+    assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
+    drop(report.return_value);
+    drop(outer);
+    runtime
         .reload_program(&old, &candidate, Default::default())
         .unwrap();
-    assert_eq!(runtime.runtime().execution_root().unwrap().key(), old.key());
+    let current = old.clone();
     let current_native = runtime
         .prepare_native(
             &candidate,
@@ -245,28 +291,42 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
     drop(backend);
     drop(old_program);
     drop(candidate);
-    // Publication and later compilation must not replace the old function's pages.
-    let report = runtime
-        .execute_prepared(&old, ProgramEntry::Main, &[], &context, &old_native)
-        .unwrap();
-    assert_eq!(
-        report
-            .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(42)
-    );
-    assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
-    drop(report.return_value);
-    drop(outer);
-    for (module, native, value) in [(&old, &old_native, 42), (&current, &current_native, 43)] {
+    assert_eq!(installed_old.module().key(), selected_old.key());
+    assert_eq!(installed_old.artifact().code.entry, old_entry);
+    // Retaining code memory is not authority to invoke an obsolete named body.
+    // Reject its product even when the host requests interpreter fallback.
+    for jit_policy in [JitPolicy::Enabled, JitPolicy::Disabled] {
+        let execution = ExecutionContext {
+            jit_policy,
+            ..Default::default()
+        };
+        let error = runtime
+            .execute_prepared(&old, ProgramEntry::Main, &[], &execution, &old_native)
+            .unwrap_err();
+        assert!(matches!(error, EmbeddingError::Runtime {
+            kind: RuntimeFailureKind::BytecodeVerification, message, ..
+        } if message.contains("different function or execution version")));
+    }
+    // The independent installation still selects the old product legitimately;
+    // the updated installation selects the new one. Both must run actual native code.
+    let selected_independent = runtime.runtime().select_program(&independent).unwrap();
+    let selected_current = runtime.runtime().select_program(&current).unwrap();
+    for (module, native, value) in [
+        (&selected_independent, &independent_native, 42),
+        (&selected_current, &current_native, 43),
+    ] {
+        let _session = runtime
+            .runtime()
+            .begin_execution(module, context.runtime_options())
+            .unwrap();
         let dead = runtime
             .runtime()
             .alloc_array(module, Ty::Builtin(BuiltinType::I32), vec![Value::I32(9)])
             .unwrap();
         let collections = runtime.runtime().gc().stats().collections;
         let report = runtime
-            .execute_prepared(module, ProgramEntry::Main, &[], &context, native)
+            .backend()
+            .execute_prepared(module, ProgramEntry::Main, native)
             .unwrap();
         assert_eq!(
             report

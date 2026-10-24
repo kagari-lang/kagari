@@ -8,7 +8,7 @@ use kagari_runtime::{
     error::RuntimeErrorKind,
     frame::driver::ReturnAction,
     gc::GcHeapConfig,
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{binding::NativeResult, module::NativeModule},
     value::Value,
 };
@@ -23,7 +23,7 @@ use std::{
 // existing stdlib inclusion is private to the runtime-boundary test module.
 fn invoke(
     runtime: &Runtime,
-    owner: &LoadedModule,
+    owner: &ExecutableModule,
     slot: usize,
     arguments: &[Value],
 ) -> NativeResult<Value> {
@@ -44,7 +44,7 @@ fn invoke(
     Ok(value)
 }
 
-fn fixture() -> (Runtime, LoadedModule) {
+fn fixture() -> (Runtime, ExecutableModule) {
     let modules = crate::modules().unwrap();
     let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(
@@ -87,10 +87,16 @@ pub fn clamp64(value: f64, min: f64, max: f64) -> f64 { value.clamp(min, max) }
     });
     NativeModule::install_all(&modules, &mut runtime).unwrap();
     let loaded = runtime.load_program("float-carriers", program).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     (runtime, loaded)
 }
 
-fn import(loaded: &LoadedModule, method: &str, parameter: BuiltinType) -> (LoadedModule, usize) {
+fn import(
+    loaded: &ExecutableModule,
+    method: &str,
+    parameter: BuiltinType,
+) -> (ExecutableModule, usize) {
     let mut matches = Vec::new();
     for owner in loaded.members() {
         for (slot, import) in owner.bytecode.native_imports.iter().enumerate() {
@@ -120,7 +126,7 @@ fn assert_idle(runtime: &Runtime) {
 
 fn reject_then_call(
     runtime: &Runtime,
-    target: &(LoadedModule, usize),
+    target: &(ExecutableModule, usize),
     malformed: &[Value],
     valid: &[Value],
     expected: Value,

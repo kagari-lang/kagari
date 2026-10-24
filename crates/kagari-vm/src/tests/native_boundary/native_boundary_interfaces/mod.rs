@@ -101,6 +101,8 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
     .unwrap();
     module.install(&mut runtime).unwrap();
     let loaded = runtime.load_program("shared-native", decoded).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
@@ -184,6 +186,8 @@ fn registered_default_calls_the_selected_receiver_operation() {
         "#,
         Some(&module),
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     for entry in [ProgramEntry::Main, ProgramEntry::Export("run_dynamic")] {
         assert_eq!(
             vm.execute(&loaded, entry)
@@ -210,6 +214,8 @@ fn dynamic_list_iteration_adapts_the_concrete_cursor_result() {
         "#,
         None,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
@@ -234,6 +240,8 @@ fn dynamic_iterator_adapters_round_trip_and_reject_forged_tables() {
     )
     .unwrap();
     let loaded = runtime.load_program("round-trip", decoded).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
@@ -320,6 +328,8 @@ fn dynamic_iteration_preserves_gc_roots_and_detects_invalidation() {
     "#,
         Some(&module),
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
@@ -368,6 +378,8 @@ fn script_iterator_results_use_the_same_dynamic_adapter() {
     "#,
         None,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
@@ -405,6 +417,8 @@ fn default_map_and_set_iterate_through_readonly_parent_views() {
     "#,
         None,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
@@ -486,6 +500,8 @@ fn generic_native_default_uses_the_callers_ordering_operation() {
     .unwrap();
     module.install(&mut runtime).unwrap();
     let loaded = runtime.load_program("native-constraint", decoded).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
@@ -523,6 +539,8 @@ fn main() -> i32 {
     .unwrap();
     module.install(&mut runtime).unwrap();
     let loaded = runtime.load_program("shared-helper", decoded).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
@@ -612,6 +630,8 @@ pub fn runner() -> Run { 7 }
     let old = runtime
         .load_program("native-scope", compile_program(source, Some(&module)))
         .unwrap();
+    let _old_program = old;
+    let old = runtime.select_program(&_old_program).unwrap();
     let mut vm = Vm::new(runtime);
     let receiver = vm
         .execute(&old, "receiver")
@@ -626,12 +646,14 @@ pub fn runner() -> Run { 7 }
     let candidate = vm
         .runtime_mut()
         .stage_reload_program(
-            &old,
-            "native-scope",
+            &_old_program,
+            Some("native-scope".into()),
             compile_program(&next_source, Some(&module)),
         )
         .unwrap();
-    let current = vm.runtime_mut().publish_staged_reload(candidate).unwrap();
+    let current = candidate.module().clone();
+    vm.runtime_mut().publish_staged_reload(candidate).unwrap();
+    let _current_program = _old_program.clone();
     let runner = vm
         .execute(&current, "runner")
         .unwrap()
@@ -736,6 +758,8 @@ fn main() -> i32 {
 "#,
         Some(&module),
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
@@ -812,6 +836,8 @@ fn main() -> i32 {
 "#,
         Some(&module),
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()

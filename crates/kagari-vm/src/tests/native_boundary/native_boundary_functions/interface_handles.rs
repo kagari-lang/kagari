@@ -1,5 +1,5 @@
-use super::fixture;
-use crate::tests::native_boundary::compile_program;
+use super::{fixture, fixture_without_foundation};
+use crate::tests::native_boundary::compile_without_foundation;
 use kagari_runtime::native::{
     binding::NativeResult, builder::ModuleBuilder, catalog::DeclarationCatalog,
     conversion::KagariType, declarations::FunctionDecl, interfaces::Interface,
@@ -24,17 +24,19 @@ const SOURCE: &str = r#"
 #[test]
 fn retained_interface_round_trips_preserve_application_and_aliases() {
     let (vm, owner) = fixture(SOURCE, None);
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let make = vm
         .runtime()
-        .bind_function::<(), Interface>(&owner, "make")
+        .bind_function::<(), Interface>(&_owner_program.root(), "make")
         .unwrap();
     let read = vm
         .runtime()
-        .bind_function::<(Interface,), i32>(&owner, "read")
+        .bind_function::<(Interface,), i32>(&_owner_program.root(), "read")
         .unwrap();
     let wrong = vm
         .runtime()
-        .bind_function::<(Interface,), String>(&owner, "read_string")
+        .bind_function::<(Interface,), String>(&_owner_program.root(), "read_string")
         .unwrap();
     let value = vm.call(&make, ()).unwrap();
     vm.runtime().collect_garbage().unwrap();
@@ -44,9 +46,10 @@ fn retained_interface_round_trips_preserve_application_and_aliases() {
     drop(value);
     assert_eq!(vm.call(&read, (wrapped.unwrap(),)).unwrap(), 42);
     let (foreign, foreign_owner) = fixture(SOURCE, None);
+    let _foreign_owner_program = foreign_owner;
     let foreign_read = foreign
         .runtime()
-        .bind_function::<(Interface,), i32>(&foreign_owner, "read")
+        .bind_function::<(Interface,), i32>(&_foreign_owner_program.root(), "read")
         .unwrap();
     let value = vm.call(&make, ()).unwrap();
     assert!(foreign.call(&foreign_read, (value.clone(),)).is_err());
@@ -112,6 +115,8 @@ fn typed_native_interfaces_keep_readonly_views_and_survive_collection() {
     "#,
         Some(&module),
     );
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let list: Interface<IntList> = vm.execute_typed(&owner, "make", ()).unwrap();
     assert_eq!(calls.load(Ordering::Relaxed), 1);
     vm.runtime().collect_garbage().unwrap();
@@ -137,28 +142,34 @@ fn typed_native_interfaces_keep_readonly_views_and_survive_collection() {
 }
 
 #[test]
-fn retained_interfaces_keep_the_original_dispatch_after_reload_and_thread_transfer() {
-    let source = SOURCE
-        .replace(
-            "impl<T> Read<T> for Holder<T> { fn get(self) -> T { self.value } }",
-            "impl Read<i32> for Holder<i32> { fn get(self) -> i32 { self.value + 1 } }",
-        )
-        .replace("Holder { value: 42 }", "Holder { value: 41 }");
-    let (vm, old) = fixture(&source, None);
+fn retained_interfaces_select_current_dispatch_after_reload_and_thread_transfer() {
+    let source =
+        include_str!("../../../../tests/fixtures/native/retained-interface-current-dispatch.kgr");
+    let (vm, old) = fixture_without_foundation(source, None);
+    let _old_program = old;
+    let old = vm.runtime().select_program(&_old_program).unwrap();
     let value: Interface = vm.execute_typed(&old, "make", ()).unwrap();
     let alias = value.clone();
     // Change both code and constructor data while preserving the public contract.
+    for pattern in ["Holder { value: 41 }", "self.value + 1"] {
+        assert_eq!(source.matches(pattern).count(), 1, "{pattern}");
+    }
     let source = source
         .replace("Holder { value: 41 }", "Holder { value: 7 }")
         .replace("self.value + 1", "self.value + 2");
-    let new = vm
-        .reload_program(&old, "functions", compile_program(&source, None))
-        .unwrap();
+    vm.reload_program(
+        &_old_program,
+        Some("functions".into()),
+        compile_without_foundation(&source, None),
+    )
+    .unwrap();
+    let _new_program = _old_program.clone();
+    let new = vm.runtime().select_program(&_new_program).unwrap();
     std::thread::spawn(move || {
         vm.runtime().collect_garbage().unwrap();
         assert_eq!(
             vm.execute_typed::<_, i32>(&new, "read", (value,)).unwrap(),
-            42
+            43
         );
         let new_value: Interface = vm.execute_typed(&new, "make", ()).unwrap();
         assert_eq!(

@@ -73,8 +73,17 @@ fn registered_struct_loans_use_original_host_storage_and_common_methods() {
     let module = registration();
     assert_eq!(module.declaration().types.len(), 1);
     let (mut vm, owner) = source_free_vm(SOURCE, &module);
-    let descriptor = vm.runtime().bind_rust_type::<Player>(&owner).unwrap();
-    assert!(vm.runtime().bind_rust_type::<i32>(&owner).is_err());
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
+    let descriptor = vm
+        .runtime()
+        .bind_rust_type::<Player>(&_owner_program.root())
+        .unwrap();
+    assert!(
+        vm.runtime()
+            .bind_rust_type::<i32>(&_owner_program.root())
+            .is_err()
+    );
     let mut external = Player {
         hp: 10,
         label: "external".into(),
@@ -91,7 +100,7 @@ fn registered_struct_loans_use_original_host_storage_and_common_methods() {
             let view = scope.borrow_mut(&descriptor, &mut external)?;
             let text = Vm::execute_scoped(
                 scope,
-                &owner,
+                &_owner_program,
                 "inspect",
                 &[view.value()],
                 Default::default(),
@@ -99,7 +108,7 @@ fn registered_struct_loans_use_original_host_storage_and_common_methods() {
             assert_eq!(
                 Vm::execute_scoped(
                     scope,
-                    &owner,
+                    &_owner_program,
                     "damage",
                     &[view.value(), Value::I32(3)],
                     Default::default()
@@ -123,7 +132,7 @@ fn registered_struct_loans_use_original_host_storage_and_common_methods() {
             assert!(
                 view.read(scope, |_| Vm::execute_scoped(
                     scope,
-                    &owner,
+                    &_owner_program,
                     "damage",
                     &[view.value(), Value::I32(1)],
                     Default::default()

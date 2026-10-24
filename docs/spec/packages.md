@@ -207,8 +207,10 @@ instantiation is introduced.
 For example, one Program can expose `on_login`, `tick` and `damage` without three
 build targets. `pub use private_impl::calculate as damage` exposes a public declaration
 through a private implementation module; ordinary host lookup cannot access the
-private path. VM/SDK strings select public paths relative to the Program root, even
-when called through a child-module handle. `ProgramEntry::Main` separately selects
+private path. Whole-Program VM/SDK entry execution selects paths from the root;
+ordinary sync/async function and object-type binding instead starts at the supplied
+live Module, without root fallback. See [host paths](embedding-api.md#installed-programs-and-public-paths).
+`ProgramEntry::Main` separately selects
 the root's non-generic zero-argument `main`; the convention grants no other private
 lookup. Libraries need no `main` to check, build or serve public host calls.
 
@@ -254,6 +256,9 @@ uses the existing reload API. Keep the engine environment unchanged while prepar
 candidates, or compare the resulting checked key. Advance an installed baseline only
 after successful publication. A removed family does not automatically unload an
 installation. Multiple instances and cross-Program updates remain host-coordinated.
-Reload compares public path/entry signatures and existing ABI contracts; failed
-candidates leave old code usable. Retained calls and values keep their original
-generations and dependencies. See [activation](module-activation.md).
+Reload compares frozen contracts, public paths, retained demands and local static
+initializer expressions/bindings; failed candidates leave current code and state usable.
+Created closures/Futures and admitted frames/queues retain exact bodies, while
+ordinary inner calls and existing named bindings select current implementations.
+Publication requires a host-top-level synchronous boundary; parked work may remain.
+See [activation](module-activation.md).

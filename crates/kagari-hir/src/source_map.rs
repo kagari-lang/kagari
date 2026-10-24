@@ -52,6 +52,8 @@ pub struct SourceMap {
     function_spans: Vec<Span>,
     const_spans: Vec<Span>,
     static_spans: Vec<Span>,
+    /// Full AST initializer ranges, before grouping expressions are erased.
+    static_initializer_spans: HashMap<StaticId, Span>,
     module_spans: Vec<Span>,
     trait_spans: Vec<Span>,
     trait_method_spans: Vec<Span>,
@@ -482,6 +484,16 @@ impl SourceMap {
     /// Returns the declaration span for a static in this lowering.
     pub fn static_span(&self, id: StaticId) -> Span {
         self.static_spans[id.index()]
+    }
+
+    /// Returns the complete authored initializer, including outer parentheses.
+    /// Missing recovery initializers have no range. Interpret it in the matching source.
+    pub fn static_initializer_span(&self, id: StaticId) -> Option<Span> {
+        self.static_initializer_spans.get(&id).copied()
+    }
+
+    pub(crate) fn insert_static_initializer(&mut self, id: StaticId, span: Span) {
+        self.static_initializer_spans.insert(id, span);
     }
 
     /// Returns the parameter byte range; see the [ID validity requirements](Self#panics).

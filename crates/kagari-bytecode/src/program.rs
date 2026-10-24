@@ -17,7 +17,8 @@ use kagari_contract::{
     exports::ProgramExports,
     host::external::bindings_match as external_bindings_match,
     layout, types as abi,
-    types::{InterfaceBridge, PublicItem, verify},
+    types::{InterfaceBridge, PublicItem, named::correspondence::validate_inventory, verify},
+    updates::{UpdateEvidence, limits::UpdateError},
 };
 use kagari_types::{declaration::TypeDefKind, language::Protocol, ty::Ty};
 use serde::{Deserialize, Serialize};
@@ -29,6 +30,7 @@ use std::{
 mod construction;
 pub mod exports;
 pub mod identity;
+pub mod updates;
 pub mod verified;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -52,6 +54,7 @@ pub struct BytecodeProgram {
     pub root: ModuleRef,
     pub modules: Vec<BytecodeModule>,
     pub exports: ProgramExports,
+    pub update_evidence: UpdateEvidence,
 }
 
 /// Check a complete executable graph against its retained identity prefix.
@@ -122,6 +125,18 @@ fn verify_graph_inner(
         #[cfg(test)]
         tests::after_module(cancel);
     }
+    validate_inventory(
+        program
+            .modules
+            .iter()
+            .flat_map(|module| &module.named_declarations),
+        definitions,
+        cancel,
+    )
+    .map_err(|error| match error {
+        DefinitionMappingError::Cancelled => BytecodeVerificationError::Cancelled,
+        _ => BytecodeVerificationError::InvalidPublicAbi,
+    })?;
     let mut resources =
         VerificationResources::new(program.modules.iter().collect(), definitions, cancel)?;
     let mut layouts = HashMap::new();
@@ -383,11 +398,27 @@ fn verify_graph_inner(
     if reachable.len() != program.modules.len() {
         return Err(invalid());
     }
-    construction::verify(program, definitions, cancel)?;
-    let exports = exports::verify(program, definitions, cancel)?;
+    let update_coverage = construction::verify(program, definitions, cancel)?;
+    let scope = resources.scope(&(0..program.modules.len()).collect::<Vec<_>>(), cancel)?;
+    let exports = exports::verify(program, definitions, &scope.catalog, cancel)?;
+    updates::verify(
+        &program.modules.iter().collect::<Vec<_>>(),
+        &program.update_evidence,
+        definitions,
+        &scope.catalog,
+        cancel,
+    )
+    .map_err(|cause| {
+        if cause == UpdateError::Cancelled {
+            BytecodeVerificationError::Cancelled
+        } else {
+            BytecodeVerificationError::UpdateEvidence(cause)
+        }
+    })?;
     Ok(ProgramVerification {
         suspensions,
         exports,
+        update_coverage,
     })
 }
 
@@ -414,3 +445,5 @@ mod mapping;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod type_exports;

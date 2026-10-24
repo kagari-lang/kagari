@@ -7,7 +7,7 @@ use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::types::arguments::TypeArgument,
     gc::{GcHeapConfig, HeapObjectId, roots::RootedValue},
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         binding::NativeResult,
         builder::ModuleBuilder,
@@ -29,14 +29,14 @@ use std::{
     panic::{AssertUnwindSafe, catch_unwind},
 };
 
-fn fixture() -> (Runtime, LoadedModule) {
+fn fixture() -> (Runtime, ExecutableModule) {
     fixture_with(
         None,
         "fn signature(value: Vec<Option<Result<(String, Vec<i32>), String>>>) {}",
     )
 }
 
-fn fixture_with(extra: Option<NativeModule>, source: &str) -> (Runtime, LoadedModule) {
+fn fixture_with(extra: Option<NativeModule>, source: &str) -> (Runtime, ExecutableModule) {
     let mut modules = crate::modules().unwrap();
     modules.extend(extra);
     let program = compile_program(&modules, "conversion.kgr", source);
@@ -49,6 +49,8 @@ fn fixture_with(extra: Option<NativeModule>, source: &str) -> (Runtime, LoadedMo
     });
     NativeModule::install_all(&modules, &mut runtime).unwrap();
     let loaded = runtime.load_program("conversion", program).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     (runtime, loaded)
 }
 

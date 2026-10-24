@@ -34,6 +34,8 @@ fn executes_runtime_reflect_type_of_helper() {
             vec![ConstantOperand::I32(7)],
         ),
     );
+    let program = loaded;
+    let loaded = runtime.select_program(&program).unwrap();
 
     let vm = Vm::new(runtime);
     let report = vm
@@ -76,6 +78,8 @@ fn runtime_reflection_helpers_use_declared_metadata() {
             vec![ConstantOperand::I32(7)],
         ),
     );
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
 
     let vm = Vm::new(runtime);
     assert!(
@@ -128,6 +132,8 @@ fn declared_reflection_reads_are_available() {
             )),
         )
         .unwrap();
+    let _loaded_program = loaded;
+    let loaded = metadata_only.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(metadata_only);
     assert_eq!(
         vm.execute_fixture(&loaded, FunctionRef::new(0))
@@ -184,6 +190,8 @@ fn declared_reflection_writes_are_available() {
             )),
         )
         .unwrap();
+    let _loaded_program = loaded;
+    let loaded = read_only.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(read_only);
     vm.execute_fixture(&loaded, FunctionRef::new(0)).unwrap();
 }
@@ -236,6 +244,8 @@ fn executes_runtime_reflect_get_and_set_field_helpers() {
             vec![ConstantOperand::I32(1), ConstantOperand::I32(9)],
         ),
     );
+    let program = loaded;
+    let loaded = runtime.select_program(&program).unwrap();
 
     let vm = Vm::new(runtime);
     let report = vm
@@ -253,50 +263,63 @@ fn executes_runtime_reflect_get_and_set_field_helpers() {
 
 #[test]
 fn executes_runtime_reflect_set_index_helper() {
+    let module = test_function_module(
+        "main",
+        vec![
+            BytecodeInstruction::LoadConst {
+                dst: Slot::new(0),
+                constant: ConstantId::new(0),
+            },
+            BytecodeInstruction::LoadConst {
+                dst: Slot::new(1),
+                constant: ConstantId::new(1),
+            },
+            BytecodeInstruction::MakeArray {
+                element: Ty::Builtin(BuiltinType::I32),
+                dst: Slot::new(2),
+                elements: vec![Slot::new(0), Slot::new(1)],
+            },
+            BytecodeInstruction::LoadConst {
+                dst: Slot::new(3),
+                constant: ConstantId::new(2),
+            },
+            BytecodeInstruction::Call {
+                dst: Some(Slot::new(4)),
+                callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetIndex),
+                args: vec![Slot::new(2), Slot::new(3), Slot::new(1)],
+            },
+            BytecodeInstruction::Return(Some(Slot::new(4))),
+        ],
+        ValueType::HeapObject,
+        vec![
+            ValueType::I32,
+            ValueType::I32,
+            ValueType::HeapObject,
+            ValueType::I32,
+            ValueType::HeapObject,
+        ],
+        vec![
+            ConstantOperand::I32(1),
+            ConstantOperand::I32(2),
+            ConstantOperand::I32(0),
+        ],
+    );
+    let (definitions, mut module) = module.into_parts();
+    let array = Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32)));
+    module.functions[0].metadata.semantic.result = Some(array.clone());
+    for slot in [2, 4] {
+        module.functions[0]
+            .metadata
+            .semantic
+            .slots
+            .insert(slot, array.clone());
+    }
     let (runtime, loaded) = load_bytecode_module(
         "reflect_index.kbc",
-        test_function_module(
-            "main",
-            vec![
-                BytecodeInstruction::LoadConst {
-                    dst: Slot::new(0),
-                    constant: ConstantId::new(0),
-                },
-                BytecodeInstruction::LoadConst {
-                    dst: Slot::new(1),
-                    constant: ConstantId::new(1),
-                },
-                BytecodeInstruction::MakeArray {
-                    element: Ty::Builtin(BuiltinType::I32),
-                    dst: Slot::new(2),
-                    elements: vec![Slot::new(0), Slot::new(1)],
-                },
-                BytecodeInstruction::LoadConst {
-                    dst: Slot::new(3),
-                    constant: ConstantId::new(2),
-                },
-                BytecodeInstruction::Call {
-                    dst: Some(Slot::new(4)),
-                    callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetIndex),
-                    args: vec![Slot::new(2), Slot::new(3), Slot::new(1)],
-                },
-                BytecodeInstruction::Return(Some(Slot::new(4))),
-            ],
-            ValueType::HeapObject,
-            vec![
-                ValueType::I32,
-                ValueType::I32,
-                ValueType::HeapObject,
-                ValueType::I32,
-                ValueType::HeapObject,
-            ],
-            vec![
-                ConstantOperand::I32(1),
-                ConstantOperand::I32(2),
-                ConstantOperand::I32(0),
-            ],
-        ),
+        DefinitionMetadata::checked(definitions, module, &Default::default()).unwrap(),
     );
+    let program = loaded;
+    let loaded = runtime.select_program(&program).unwrap();
 
     let vm = Vm::new(runtime);
     let report = vm
@@ -322,6 +345,8 @@ fn executes_source_lowered_type_of_helper() {
         "test.kgr",
         compile_test_bytecode("fn main() -> String { type_of(7) }"),
     );
+    let program = loaded;
+    let loaded = runtime.select_program(&program).unwrap();
     let vm = Vm::new(runtime);
     let report = vm
         .execute(&loaded, ProgramEntry::Main)
@@ -356,6 +381,8 @@ fn main() -> i32 {
 "#,
         ),
     );
+    let program = loaded;
+    let loaded = runtime.select_program(&program).unwrap();
     let vm = Vm::new(runtime);
     let report = vm
         .execute(&loaded, ProgramEntry::Main)
@@ -383,6 +410,8 @@ fn main() -> [i32] {
 "#,
         ),
     );
+    let program = loaded;
+    let loaded = runtime.select_program(&program).unwrap();
     let vm = Vm::new(runtime);
     let report = vm
         .execute(&loaded, ProgramEntry::Main)
@@ -417,6 +446,8 @@ fn main() -> i32 {
 }
 "#,
     );
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let report = vm
         .execute(&loaded, ProgramEntry::Main)
@@ -446,6 +477,8 @@ fn standard_collection_reflection_metadata_reports_runtime_categories() {
     "#,
         ),
     );
+    let program = loaded;
+    let loaded = runtime.select_program(&program).unwrap();
 
     let vm = Vm::new(runtime);
     let report = vm

@@ -13,7 +13,7 @@ use kagari_runtime::{
         collections::vector::ScriptVec,
         context::CallContext,
         declarations::SelectedCall,
-        function_handle::PinnedFunction,
+        function_handle::Function,
         scalar::NativeScalar,
         typed::NativeContext,
         value_handle::ScriptValue,
@@ -45,7 +45,7 @@ pub(crate) fn retain(declaration: &DefinitionMetadata<NativeDeclaration>) -> Nat
     NativeBinding::declared(
         declaration,
         |cx: &mut NativeContext<'_>,
-         (values, predicate): (Vector, PinnedFunction<(ScriptValue,), bool>)| {
+         (values, predicate): (Vector, Function<(ScriptValue,), bool>)| {
             values.retain(cx, |cx, value| predicate.call(cx, (value,)))
         },
     )

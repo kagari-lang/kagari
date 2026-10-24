@@ -90,7 +90,7 @@ fn run_from(
                 &engine,
                 &program,
                 LoadOptions {
-                    module_name: Some(name.into()),
+                    program_name: Some(name.into()),
                 },
                 jit,
             )?;

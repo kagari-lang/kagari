@@ -23,6 +23,11 @@ impl RemapDefinitions for KbcArtifact {
             debug: self.debug.clone(),
             signatures: self.signatures.clone(),
             portable_mir: self.portable_mir.clone(),
+            source: self
+                .source
+                .as_ref()
+                .map(|source| source.remap_definitions(mapper))
+                .transpose()?,
         })
     }
 }
@@ -36,6 +41,9 @@ impl DefinitionReferences for KbcArtifact {
         check_cancel(cancel)?;
         self.program.visit_definition_ids(visit, cancel)?;
         self.verification.visit_definition_ids(visit, cancel)?;
+        if let Some(source) = &self.source {
+            source.visit_definition_ids(visit, cancel)?;
+        }
         Ok(())
     }
 }

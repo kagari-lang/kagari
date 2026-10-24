@@ -1,0 +1,5 @@
+pub enum Wrapper<T: Eq> {
+    Value(T),
+}
+
+pub type Exported = Wrapper<Option<i32>>;

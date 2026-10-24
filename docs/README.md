@@ -119,9 +119,11 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   separately scoped. Current source/source-free adapter and Worker contracts belong in
   the [browser guide](../crates/kagari-web/README.md); measured Playground costs and
   exact-product builds belong in the [site guide](../site/README.md).
-- [Host Program/Module and public-path execution plan](host-api-refactor.md):
-  versioned metadata views, relative lookup and type exports; HM00 coordinates
-  stable callable identity with the update migration. Implementation is not started.
+- [Host API and update follow-ups](implementation-roadmap.md#host-api-and-update-execution):
+  installed Program/live Module relative binding is implemented; the
+  [embedding contract](spec/embedding-api.md#installed-programs-and-public-paths)
+  owns the API and finite generic/layout limits. Remaining preparation/tooling and
+  repair linking have separate existing owners.
 - [Editor follow-ups](implementation-roadmap.md#toolchain-distribution-and-modes):
   complete CI/platform acceptance, semantic IDE features, server-launch integration,
   marketplace publication and separately authorized old-repository administration.
@@ -138,10 +140,16 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 - [Toolchain distribution and remaining modes](implementation-roadmap.md#toolchain-distribution-and-modes):
   SDK/CLI distribution and the separate REPL proposal; source packages are
   specified above.
-- [Compatible reload and state replacement](update-model-design.md): confirmed target
-  is host-top-level serialized publication and current implementation selection on
-  ordinary calls, retaining existing Future/closure/resume bodies. The current
-  dependency-pinned runtime has not yet migrated; state replacement is separate.
+- [Compatible reload](spec/module-activation.md#live-installations-and-call-selection):
+  implemented publication contracts select current implementations
+  on ordinary calls while retaining created Future/closure bodies and admitted
+  frames/queues. Publication is serialized at an idle synchronous host boundary;
+  parked work may remain. The [source update API](spec/embedding-api.md#source-updates)
+  uses exact-publication compilation capsules, frozen declarations, local static
+  initializer comparison and retained-demand checks. Hash/Eq bodies and ordinary
+  initializer helpers may change; users own stable key semantics. The
+  [roadmap](implementation-roadmap.md#host-api-and-update-execution) records the
+  narrowed update scope and pending validation, not a queued migration framework.
 - [Interactive debugger](debugger-design.md): synchronous waiting on the executing
   host thread, followed by SDK control and IDE/DAP integration; not implemented.
 

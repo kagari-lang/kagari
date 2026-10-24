@@ -11,7 +11,8 @@ use crate::{
     },
     gc::GcHeap,
     host::HostFrameId,
-    module::{LoadedModule, retention::ProgramLease},
+    module::{ExecutableModule, retention::ProgramLease},
+    publication::SynchronousActivation,
     resource::{ResourceCounters, ResourceState},
     session::store::SessionId,
     value::Value,
@@ -171,7 +172,7 @@ pub struct ExecutionId(pub(crate) SessionId);
 /// Runtime exclusively owns their state; transfer requires Send, not Sync.
 pub trait ExecutionObserver: Any + Debug + Send {
     /// Initialize observation once for this root session, before any frame runs.
-    fn begin(&mut self, _runtime: &Runtime, _root: &LoadedModule) -> Result<(), RuntimeError> {
+    fn begin(&mut self, _runtime: &Runtime, _root: &ExecutableModule) -> Result<(), RuntimeError> {
         Ok(())
     }
 
@@ -204,7 +205,7 @@ pub(crate) struct SessionState {
     pub scopes: Cell<usize>,
     pub peak_call_depth: Cell<u32>,
     pub peak_heap_units: Cell<usize>,
-    pub root: LoadedModule,
+    pub root: ExecutableModule,
     _program: ProgramLease,
     pub options: ExecutionOptions,
     pub termination: RefCell<Option<RuntimeError>>,
@@ -217,7 +218,7 @@ pub(crate) struct SessionState {
 impl SessionState {
     pub(crate) fn new(
         id: SessionId,
-        root: LoadedModule,
+        root: ExecutableModule,
         options: ExecutionOptions,
         baseline: ResourceCounters,
         program: ProgramLease,
@@ -336,8 +337,8 @@ impl SessionState {
 /// The runtime cannot be moved or destroyed while a scope is live.
 ///
 /// ```compile_fail
-/// use kagari_runtime::{Runtime, module::LoadedModule};
-/// fn detach(runtime: Runtime, module: &LoadedModule) {
+/// use kagari_runtime::{Runtime, module::ExecutableModule};
+/// fn detach(runtime: Runtime, module: &ExecutableModule) {
 ///     let session = runtime.begin_execution(module, runtime.execution_options()).unwrap();
 ///     drop(runtime);
 ///     drop(session);
@@ -347,6 +348,7 @@ impl SessionState {
 pub struct ExecutionSession<'runtime> {
     pub(crate) id: SessionId,
     pub(crate) resources: &'runtime ResourceState,
+    pub(crate) _activation: SynchronousActivation<'runtime>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -382,7 +384,7 @@ impl ExecutionSession<'_> {
         state.host_scopes.borrow().len()
     }
 
-    pub fn root(&self) -> LoadedModule {
+    pub fn root(&self) -> ExecutableModule {
         let state = self.state();
         state.root.clone()
     }
@@ -482,12 +484,10 @@ impl Drop for CandidateSession<'_, '_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::native::program::ProgramFixture;
     use crate::value::Value;
-    use kagari_bytecode::{
-        module::BytecodeModule,
-        program::{BytecodeProgram, ModuleRef},
-    };
-    use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+    use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
+    use kagari_common::identity::map::DefinitionContext;
 
     #[test]
     fn trace_values_report_truncation_and_stop_at_a_shared_budget() {
@@ -532,21 +532,19 @@ mod tests {
     fn trace_call_limit_reports_omitted_invocations() {
         let context = DefinitionContext::new().unwrap();
         let mut runtime = crate::Runtime::default();
-        let module = runtime
+        let program = runtime
             .load_program(
                 "trace-cap",
-                DefinitionMetadata::checked(
-                    context.snapshot(),
-                    BytecodeProgram {
-                        exports: Default::default(),
-                        root: ModuleRef::new(0),
-                        modules: vec![BytecodeModule::default()],
-                    },
-                    &Default::default(),
-                )
+                ProgramFixture {
+                    exports: Default::default(),
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                }
+                .metadata(context.snapshot(), &Default::default())
                 .unwrap(),
             )
             .unwrap();
+        let module = runtime.select_program(&program).unwrap();
         let mut options = runtime.execution_options();
         options.record_host_calls = true;
         let session = runtime.begin_execution(&module, options).unwrap();

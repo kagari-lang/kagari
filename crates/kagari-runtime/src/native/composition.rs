@@ -6,7 +6,7 @@ use crate::{
     error::RuntimeError,
     frame::types::{arguments::TypeArgument, compatibility::TypeView},
     gc::roots::RootedValue,
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         binding::NativeResult,
         context::CallContext,
@@ -41,7 +41,7 @@ pub enum PairDecision {
 
 #[derive(Debug)]
 pub(crate) struct ColdComposition {
-    pub owner: LoadedModule,
+    pub owner: ExecutableModule,
     pub inputs: [TypeArgument; 2],
     pub output: TypeArgument,
     pub values: [Value; 2],
@@ -258,7 +258,7 @@ impl CallContext<'_> {
 
 pub(crate) fn future_output(
     runtime: &Runtime,
-    owner: &LoadedModule,
+    owner: &ExecutableModule,
     ty: &TypeArgument,
 ) -> NativeResult<TypeArgument> {
     let Ty::NativeObject(nominal) = ty.ty() else {

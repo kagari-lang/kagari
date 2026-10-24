@@ -31,6 +31,8 @@ pub(super) fn validate<'a>(
         &validator,
         &module.abi.public_items,
         &module.abi.trait_contracts,
+        &module.abi.private_types,
+        &module.abi.named_declarations,
         cancel,
         definitions,
     )?;

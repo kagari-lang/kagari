@@ -1,8 +1,10 @@
 //! Runtime-owned method applications, addressed by checked identities.
 use crate::{
     error::RuntimeError,
+    execution_metadata::MetadataEdge,
     frame::types::{TypeEnvironment, arguments::ScopedSignature},
     gc::{GcHeap, interfaces::InterfaceResultBinding},
+    module::dispatch::SelectedTarget,
 };
 use kagari_types::callable::Signature;
 use std::{
@@ -14,8 +16,46 @@ use std::{
 pub(crate) struct MethodApplication {
     pub(crate) signature: Signature,
     pub(crate) scoped_signature: Option<ScopedSignature>,
+    /// Applied entry facts in the relationship's publication, not a code selection.
+    /// MethodView transports these immutable facts for each admitted computation.
     pub(crate) environment: Option<TypeEnvironment>,
     pub(crate) result_adapter: Option<InterfaceResultBinding>,
+}
+
+/// An admitted computation, separate from reusable semantic application facts.
+/// Its owner publishes this graph edge before enqueueing or entering execution.
+#[derive(Debug, Clone)]
+pub(crate) struct MethodComputation {
+    pub(crate) selected: SelectedTarget,
+    pub(crate) environment: Option<TypeEnvironment>,
+}
+
+#[derive(Debug)]
+pub(crate) enum ApplicationRecord {
+    Semantic(MethodApplication),
+    Admitted(MethodComputation),
+}
+
+impl ApplicationRecord {
+    pub(crate) fn trace<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
+        let environment = match self {
+            Self::Semantic(application) => {
+                if let Some(adapter) = &application.result_adapter {
+                    pending.push(MetadataEdge::Binding(adapter));
+                }
+                &application.environment
+            }
+            Self::Admitted(computation) => {
+                pending.push(MetadataEdge::Program(computation.selected.owner()));
+                &computation.environment
+            }
+        };
+        pending.extend(
+            environment
+                .iter()
+                .map(|environment| MetadataEdge::Environment(environment.id)),
+        );
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -28,7 +68,7 @@ pub(crate) struct ApplicationId {
 #[derive(Debug)]
 struct Slot {
     generation: u64,
-    application: Option<MethodApplication>,
+    application: Option<ApplicationRecord>,
 }
 
 #[derive(Debug)]
@@ -53,6 +93,13 @@ impl ApplicationStore {
         &mut self,
         application: MethodApplication,
     ) -> Result<ApplicationId, TryReserveError> {
+        self.insert_record(ApplicationRecord::Semantic(application))
+    }
+
+    fn insert_record(
+        &mut self,
+        application: ApplicationRecord,
+    ) -> Result<ApplicationId, TryReserveError> {
         let slot = match self.free.pop() {
             Some(slot) => slot,
             None => {
@@ -76,6 +123,13 @@ impl ApplicationStore {
     }
 
     pub(crate) fn get(&self, id: ApplicationId) -> Option<&MethodApplication> {
+        match self.record(id)? {
+            ApplicationRecord::Semantic(application) => Some(application),
+            ApplicationRecord::Admitted(_) => None,
+        }
+    }
+
+    pub(crate) fn record(&self, id: ApplicationId) -> Option<&ApplicationRecord> {
         if id.owner != self.owner {
             return None;
         }
@@ -90,7 +144,7 @@ impl ApplicationStore {
     }
 
     /// The whole graph has been marked and validated before any store detaches.
-    pub(crate) fn detach(&mut self, live: &HashSet<ApplicationId>) -> Vec<MethodApplication> {
+    pub(crate) fn detach(&mut self, live: &HashSet<ApplicationId>) -> Vec<ApplicationRecord> {
         let mut retired = Vec::new();
         for (index, slot) in self.slots.iter_mut().enumerate() {
             let id = ApplicationId {
@@ -114,6 +168,31 @@ impl ApplicationStore {
 }
 
 impl GcHeap {
+    pub(crate) fn alloc_method_computation(
+        &self,
+        computation: MethodComputation,
+    ) -> Result<ApplicationId, RuntimeError> {
+        self.ensure_execution_allowed()?;
+        self.applications
+            .try_borrow_mut()
+            .map_err(|_| RuntimeError::module_validation("method application store is borrowed"))?
+            .insert_record(ApplicationRecord::Admitted(computation))
+            .map_err(|_| self.resource_limit("method computation storage"))
+    }
+
+    pub(crate) fn method_computation(
+        &self,
+        id: ApplicationId,
+    ) -> Option<Ref<'_, MethodComputation>> {
+        Ref::filter_map(self.applications.try_borrow().ok()?, |store| {
+            match store.record(id)? {
+                ApplicationRecord::Admitted(computation) => Some(computation),
+                ApplicationRecord::Semantic(_) => None,
+            }
+        })
+        .ok()
+    }
+
     pub(crate) fn alloc_method_application(
         &self,
         application: MethodApplication,

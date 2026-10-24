@@ -93,6 +93,8 @@ fn finalized_code_and_installed_runtimes_move_execute_and_release_on_other_threa
         let loaded = runtime
             .load_program("threaded-native", bytecode.clone())
             .unwrap();
+        let _loaded_program = loaded;
+        let loaded = runtime.select_program(&_loaded_program).unwrap();
         // SAFETY: this product was compiled from this exact bytecode's MIR;
         // the finalized owner retains immutable pages through invocation.
         let installed = unsafe { runtime.install_native_function(&loaded, product) }.unwrap();
@@ -167,6 +169,8 @@ fn cranelift_backend_compiles_scalar_mir_and_products_outlive_the_backend() {
                     .unwrap(),
             )
             .unwrap();
+        let _module_program = module;
+        let module = runtime.select_program(&_module_program).unwrap();
         let installed = unsafe { runtime.install_native_function(&module, code.clone()) }.unwrap();
         drop(code);
         assert_eq!(
@@ -178,22 +182,19 @@ fn cranelift_backend_compiles_scalar_mir_and_products_outlive_the_backend() {
     }
 }
 
-#[test]
-fn cranelift_backend_reports_unsupported_instructions_before_native_entry() {
+#[rstest]
+#[case::branch("fn main() -> i32 { if true { 1 } else { 2 } }")]
+#[case::local("fn main() -> i32 { val x = 1; x }")]
+#[case::division("fn main() -> i32 { 42 / 2 }")]
+#[case::char_literal("fn main() -> char { '🙂' }")]
+#[case::char_comparison("fn main() -> bool { 'a' == 'z' }")]
+#[case::reference_parameter("struct Player {} fn main(value: Ref<Player>) -> i32 { 42 }")]
+#[case::static_read("static val value: i32 = 7; fn main() -> i32 { value }")]
+#[case::static_write("static var value: i32 = 7; fn main() -> i32 { value = 9; value }")]
+fn cranelift_backend_reports_unsupported_instructions_before_native_entry(#[case] source: &str) {
     let mut backend = CraneliftBackend::for_host().unwrap();
-    for source in [
-        "fn main() -> i32 { if true { 1 } else { 2 } }",
-        "fn main() -> i32 { val x = 1; x }",
-        "fn main() -> i32 { 42 / 2 }",
-        "fn main() -> char { '🙂' }",
-        "fn main() -> bool { 'a' == 'z' }",
-        "struct Player {} fn main(value: Ref<Player>) -> i32 { 42 }",
-        "static val value: i32 = 7; fn main() -> i32 { value }",
-        "static var value: i32 = 7; fn main() -> i32 { value = 9; value }",
-    ] {
-        let error = compile(&mut backend, &mir(source)).unwrap_err();
-        assert!(error.is_unsupported(), "{error:?}");
-    }
+    let error = compile(&mut backend, &mir(source)).unwrap_err();
+    assert!(error.is_unsupported(), "{error:?}");
     // A failed compile cannot poison subsequent compilation.
     compile(&mut backend, &mir("fn main() -> i32 { 42 }")).unwrap();
 }
@@ -247,7 +248,8 @@ fn checked_i32_traps_keep_the_exact_mir_point(#[case] expression: &str) {
             .unwrap();
         let function = &bytecode.records().modules[bytecode.records().root.index()].functions[0];
         let origin = function.metadata.origins[overflow_offset].clone();
-        let module = runtime.load_program("native", bytecode).unwrap();
+        let module_program = runtime.load_program("native", bytecode).unwrap();
+        let module = runtime.select_program(&module_program).unwrap();
         let installed = unsafe { runtime.install_native_function(&module, code.clone()) }.unwrap();
         let failure = runtime.invoke_native_function(&installed).unwrap_err();
         let BackendInvocationError::RuntimeFailure(error) = failure.error else {

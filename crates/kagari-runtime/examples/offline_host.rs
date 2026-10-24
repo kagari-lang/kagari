@@ -4,20 +4,27 @@ use kagari_bytecode::{
     artifact::{ArtifactBuildOptions, KbcArtifact},
     instruction::NativeImportId,
     module::{BytecodeModule, CallableTarget},
-    program::{BytecodeProgram, ModuleRef},
+    program::{
+        BytecodeProgram, ModuleRef,
+        updates::{self, EvidenceInputs},
+    },
 };
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
 };
 use kagari_contract::{
     native_import::NativeImport,
-    types::{ConcreteFunctionIdentity, PublicItem},
+    types::{
+        ConcreteFunctionIdentity, PublicItem,
+        named::{NamedContract, NamedDeclaration},
+    },
+    updates::SourceRecord,
 };
 use kagari_runtime::{
     Runtime,
     frame::driver::ReturnAction,
     host::HostCallContext,
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{binding::NativeResult, builder::ModuleBuilder, catalog::DeclarationCatalog},
     session::TraceValue,
     value::Value,
@@ -31,6 +38,7 @@ use kagari_types::{
     },
     scalar::BuiltinType,
     ty::Ty,
+    visibility::Visibility,
 };
 use std::{collections::BTreeMap, error::Error};
 
@@ -70,7 +78,7 @@ fn cold_declarations() -> Result<DefinitionMetadata<ModuleDecl>, Box<dyn Error>>
     )?)
 }
 
-fn invoke_limit(runtime: &Runtime, owner: &LoadedModule) -> NativeResult<Value> {
+fn invoke_limit(runtime: &Runtime, owner: &ExecutableModule) -> NativeResult<Value> {
     let stack = runtime.enter_execution_stack(owner)?;
     stack.push_callable(
         runtime,
@@ -115,18 +123,46 @@ fn main() -> Result<(), Box<dyn Error>> {
         requirements: vec![],
         callables: vec![],
     };
+    let named = NamedDeclaration {
+        declaration: limit.declaration,
+        visibility: Visibility::Public,
+        ambiguous_local_body: None,
+        contract: NamedContract::Function(limit.function.clone()),
+    };
+    let source = SourceRecord {
+        declaration: limit.declaration,
+        generic: None,
+        tokens: vec![],
+        inputs: vec![],
+        calls: vec![],
+        bodies: vec![],
+    };
+    let modules = vec![BytecodeModule {
+        identity: records.identity.clone(),
+        source_name: "offline-demo".into(),
+        public_items: vec![PublicItem::Function(limit.function.clone())],
+        named_declarations: vec![named],
+        native_declarations: required,
+        native_imports: vec![import],
+        ..Default::default()
+    }];
+    let update_evidence = updates::build(
+        &modules,
+        EvidenceInputs {
+            sources: vec![source],
+            initializers: vec![],
+            selections: vec![],
+            classifications: Default::default(),
+        },
+        &definitions.snapshot(),
+        &Default::default(),
+    )?;
     let artifact = KbcArtifact::from_program(
         BytecodeProgram {
             exports: Default::default(),
             root: ModuleRef::new(0),
-            modules: vec![BytecodeModule {
-                identity: records.identity.clone(),
-                source_name: "offline-demo".into(),
-                public_items: vec![PublicItem::Function(limit.function.clone())],
-                native_declarations: required,
-                native_imports: vec![import],
-                ..Default::default()
-            }],
+            modules,
+            update_evidence,
         },
         ArtifactBuildOptions::default(),
         &definitions,
@@ -152,10 +188,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         &Default::default(),
     )?;
     let (snapshot, decoded) = decoded.into_parts();
-    let loaded = runtime.load_program(
+    let loaded_program = runtime.load_program(
         "offline-demo",
         DefinitionMetadata::checked(snapshot, decoded.program, &Default::default())?,
     )?;
+    let loaded = runtime.select_program(&loaded_program)?;
     let mut options = runtime.execution_options();
     options.record_host_calls = true;
     options.inputs.unix_time_millis = 1_000;
@@ -170,14 +207,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     drop(session);
     let (definitions, module) = loaded.to_unverified(&Default::default())?.into_parts();
     let candidate = runtime.stage_reload_program(
-        &loaded,
-        "offline-demo",
+        &loaded_program,
+        None,
         DefinitionMetadata::checked(
             definitions,
             BytecodeProgram {
                 exports: Default::default(),
                 root: ModuleRef::new(0),
                 modules: vec![module],
+                // No records changed; retain their exact certificate in the same scope.
+                // Raw reload still verifies it independently before admission.
+                update_evidence: loaded.verified_program().update_evidence().clone(),
             },
             &Default::default(),
         )?,

@@ -77,11 +77,17 @@ fn sharing(bytes: &[u8], count: usize, shared: bool) {
         runtimes.push((runtime, loaded));
     }
     let bytes = live_bytes() - before;
-    for (index, (_, loaded)) in runtimes.iter().enumerate() {
+    let first = runtimes[0]
+        .0
+        .runtime()
+        .select_program(&runtimes[0].1)
+        .unwrap();
+    for (index, (runtime, loaded)) in runtimes.iter().enumerate() {
+        let selected = runtime.runtime().select_program(loaded).unwrap();
         assert_eq!(
-            loaded
+            selected
                 .verified_program()
-                .same_version(runtimes[0].1.verified_program()),
+                .same_version(first.verified_program()),
             shared || index == 0
         );
     }

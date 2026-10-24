@@ -7,7 +7,7 @@ use crate::{
     execution_metadata::environments::EnvironmentId,
     frame::types::TypeEnvironment,
     module::{
-        EnumVariantRef, LoadedModule, StructLayoutRef,
+        EnumVariantRef, ExecutableModule, StructLayoutRef,
         execution::{
             ExecutionFunction,
             aggregates::{AggregateKind, AggregateOperand, LayoutSite},
@@ -74,7 +74,7 @@ impl LinkedFunction {
 impl FunctionLayouts {
     pub(super) fn link(
         runtime: &Runtime,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         function: &BytecodeFunction,
         prepared: &ExecutionFunction,
     ) -> Result<Option<Arc<Self>>, RuntimeError> {
@@ -162,7 +162,7 @@ impl FunctionLayouts {
     pub(crate) fn resolve<'a>(
         &'a self,
         runtime: &Runtime,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         environment: Option<&TypeEnvironment>,
         active: Option<&'a AppliedLayouts>,
         site: LayoutSite,
@@ -199,7 +199,7 @@ impl LayoutOperand {
     fn prepare(
         &self,
         runtime: &Runtime,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         environment: Option<&TypeEnvironment>,
     ) -> Result<AggregateLayout, RuntimeError> {
         #[cfg(feature = "execution-diagnostics")]

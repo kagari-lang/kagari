@@ -773,6 +773,7 @@ dependencies = [
 name = "kagari-stdlib"
 version = "0.1.0"
 dependencies = [
+ "kagari-abi",
  "kagari-bytecode",
  "kagari-common",
  "kagari-compiler",
@@ -781,6 +782,7 @@ dependencies = [
  "kagari-runtime",
  "kagari-source",
  "kagari-types",
+ "rstest",
 ]
 
 [[package]]

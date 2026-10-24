@@ -6,7 +6,11 @@ use crate::{
 use kagari_contract::{
     host, layout,
     layout::{LayoutValidationError, validate_layouts},
-    types::{inherent::native_signatures_match, verify as abi_verify},
+    types::{
+        inherent::native_signatures_match,
+        named::verify as named_verify,
+        verify::{self as abi_verify, private_types},
+    },
 };
 use kagari_types::declaration::verify::validate_native_declarations;
 use std::iter;
@@ -93,6 +97,36 @@ pub(super) fn verify(module: &MirModule, context: Context<'_>) -> Result<(), Mir
         context.error(match error {
             LayoutValidationError::Cancelled => Error::Cancelled,
             _ => Error::InvalidPublicAbi,
+        })
+    })?;
+    named_verify::validate(
+        &module.abi.named_declarations,
+        &module.abi.public_items,
+        &module.identity,
+        context.definitions,
+        context.cancel,
+    )
+    .map_err(|error| {
+        context.error(match error {
+            LayoutValidationError::Cancelled => Error::Cancelled,
+            LayoutValidationError::Limit { resource, limit } => Error::Limit { resource, limit },
+            LayoutValidationError::Invalid => Error::InvalidPublicAbi,
+        })
+    })?;
+    private_types::validate(
+        &module.abi.private_types,
+        &module.abi.public_items,
+        &module.identity,
+        &module.structures,
+        &module.enumerations,
+        context.cancel,
+        context.definitions,
+    )
+    .map_err(|error| {
+        context.error(match error {
+            LayoutValidationError::Cancelled => Error::Cancelled,
+            LayoutValidationError::Limit { resource, limit } => Error::Limit { resource, limit },
+            LayoutValidationError::Invalid => Error::InvalidPublicAbi,
         })
     })?;
     validate_native_declarations(

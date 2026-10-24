@@ -27,6 +27,8 @@ fn main() -> i32 {
     let loaded = runtime
         .load_program("adapter.kgr", compile_test_bytecode(source))
         .expect("module should load");
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut vm = Vm::new(runtime);
     let mut adapter = DebugProtocolAdapter::recording();
 
@@ -114,6 +116,8 @@ fn main() -> i32 {
     let loaded = runtime
         .load_program("adapter_step.kgr", compile_test_bytecode(source))
         .expect("module should load");
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut vm = Vm::new(runtime);
     let mut adapter = DebugProtocolAdapter::recording();
     adapter

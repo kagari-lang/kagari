@@ -7,6 +7,7 @@ use kagari_bytecode::{
     module::CallableTarget,
     program::{BytecodeProgram, ModuleRef},
 };
+use kagari_contract::updates::UpdateEvidence;
 use kagari_types::{
     declaration::host::PathAccess,
     scalar::BuiltinType,
@@ -640,6 +641,14 @@ fn abi_fingerprints_change_with_public_signatures_and_path_descriptors() {
     let path_artifact = KbcArtifact::from_program(
         BytecodeProgram {
             exports: Default::default(),
+            update_evidence: UpdateEvidence {
+                source_manifest: None,
+                sources: vec![],
+                bodies: vec![],
+                initializers: vec![],
+                targets: vec![],
+                selections: vec![],
+            },
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule {
                 types: vec![ValueType::HostHandle, ValueType::I32],

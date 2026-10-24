@@ -3,7 +3,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     module::{
-        LoadedModule,
+        ExecutableModule,
         execution::ExecutionFunction,
         linked_execution::{
             LinkedNativeBody, LinkedNativeCall, LinkedNativeCallback, LinkedVectorPrimitive,
@@ -19,10 +19,13 @@ use kagari_bytecode::{
 impl Runtime {
     pub(super) fn link_native_calls(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         function: &BytecodeFunction,
         prepared: &ExecutionFunction,
     ) -> Result<Box<[LinkedNativeCall]>, RuntimeError> {
+        if prepared.native_calls == 0 {
+            return Ok(Box::default());
+        }
         let operations: Box<[_]> = function
             .instructions
             .iter()

@@ -2,34 +2,82 @@
 use crate::{
     Runtime,
     error::RuntimeError,
+    execution_metadata::MetadataRoot,
     frame::types::arguments::ScopedSignature,
-    gc::roots::RootedValue,
-    module::{LoadedModule, ModuleEpochRetention},
+    gc::roots::{RootSet, RootedValue},
+    module::{ExecutableModule, ModuleEpochRetention, dispatch::CallRoute},
     native::{
         binding::NativeResult,
-        context::{LinkedCallable, ScriptCall},
+        context::{CallableOwner, LinkedCallable, ScriptCall},
         conversion::{KagariType, arguments::KagariArguments, context::ConversionContext},
-        function_handle::{PinnedFunction, PreparedFunction, Target},
-        stored_selection::StoredSelection,
+        function_handle::{Function, FunctionBinding, PreparedFunction, Target},
         typed::NativeContext,
     },
     value::Value,
 };
 use std::{marker::PhantomData, slice, sync::Arc};
 
-impl<A: KagariArguments, R: KagariType> PinnedFunction<A, R> {
+/// The already checked relationship and lexical environment, not a selected body lease.
+#[derive(Debug)]
+pub(super) struct SelectedBinding {
+    pub(super) route: CallRoute,
+    owner: ExecutableModule,
+    target: LinkedCallable,
+    _roots: RootSet,
+}
+
+impl SelectedBinding {
+    pub(super) fn prepare(&self, runtime: &Runtime) -> NativeResult<PreparedFunction> {
+        let selected = runtime.select_call_route(&self.route)?;
+        let mut target = self.target.clone();
+        target.environment = target
+            .environment
+            .as_ref()
+            .map(|environment| runtime.transport_environment(&self.owner, &selected, environment))
+            .transpose()?;
+        target.target = selected.target();
+        let mut roots = vec![MetadataRoot::Program(selected.owner().clone())];
+        roots.extend(
+            target
+                .environment
+                .iter()
+                .map(|environment| MetadataRoot::Environment(environment.id)),
+        );
+        target.owner =
+            CallableOwner::Pinned(selected.owner().clone(), runtime.root_metadata(roots)?);
+        PreparedFunction::selected(runtime, selected.owner(), target)
+    }
+}
+
+impl<A: KagariArguments, R: KagariType> Function<A, R> {
     pub(crate) fn from_selected(
         runtime: &Runtime,
-        caller: &LoadedModule,
+        caller: &ExecutableModule,
         target: &LinkedCallable,
     ) -> NativeResult<Self> {
-        let target = StoredSelection::new(caller, target)?.retain(runtime)?;
-        let prepared = PreparedFunction::selected(runtime, caller, target)?;
+        let prepared = PreparedFunction::selected(runtime, caller, target.clone())?;
         let cx = ConversionContext::new(runtime, &prepared.owner)?;
         A::check_types(&cx, &prepared.signature.params)?;
         cx.check_type::<R>(&prepared.signature.result)?;
+        let owner = prepared.owner.clone();
+        let route = owner.bind_call_route(target.target)?;
+        let mut target = target.clone();
+        target.owner = CallableOwner::Program(owner.slot());
+        target.scoped_signature = Some(prepared.signature.clone());
+        let roots = runtime.root_metadata(
+            target
+                .environment
+                .iter()
+                .map(|environment| MetadataRoot::Environment(environment.id))
+                .collect(),
+        )?;
         Ok(Self {
-            prepared: Arc::new(prepared),
+            binding: Arc::new(FunctionBinding::Selected(SelectedBinding {
+                route,
+                owner,
+                target,
+                _roots: roots,
+            })),
             mapping: PhantomData,
         })
     }
@@ -38,11 +86,11 @@ impl<A: KagariArguments, R: KagariType> PinnedFunction<A, R> {
 impl PreparedFunction {
     pub(crate) fn selected(
         runtime: &Runtime,
-        caller: &LoadedModule,
+        caller: &ExecutableModule,
         target: LinkedCallable,
     ) -> NativeResult<Self> {
         let owner = target.owner(caller)?;
-        runtime.validate_loaded_module(&owner)?;
+        runtime.validate_executable_module(&owner)?;
         let signature = match &target.scoped_signature {
             Some(signature) => signature.clone(),
             None => Arc::new(ScopedSignature {
@@ -57,6 +105,7 @@ impl PreparedFunction {
             .retain_program(&owner, ModuleEpochRetention::RuntimeValue)
             .ok_or_else(|| RuntimeError::module_validation("selected program retention"))?;
         Ok(Self {
+            source_entry: target.target,
             owner,
             signature,
             target: Target::Entry(target),

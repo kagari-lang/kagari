@@ -1,6 +1,7 @@
 //! Protocol-independent immutable source analysis. Queries never execute code.
 
 mod input_fingerprint;
+pub mod inputs;
 mod namespace_queries;
 pub(crate) mod source_preparation;
 
@@ -8,7 +9,7 @@ use crate::{
     AnalysisPolicy, AnalysisResult, AnalyzedModule,
     analysis::{
         body_queries::FunctionAnalysis, declaration_queries::DeclarationSnapshot,
-        error::AnalysisError, signature_queries::SignatureSnapshot,
+        error::AnalysisError, inputs::AnalysisInputs, signature_queries::SignatureSnapshot,
         source_preparation::ParsedModule,
     },
     analyze_parsed,
@@ -941,6 +942,8 @@ impl AnalysisDatabase {
             self.files = files.clone();
         }
         Ok(AnalysisSnapshot {
+            inputs: self.inputs(),
+            source: source.clone(),
             definitions: self.definitions.snapshot(),
             signatures: signature_snapshot,
             revision: source.revision(),
@@ -968,6 +971,8 @@ impl AnalysisDatabase {
 /// across later database edits.
 #[derive(Debug, Clone)]
 pub struct AnalysisSnapshot {
+    inputs: Arc<AnalysisInputs>,
+    source: SourceSnapshot,
     definitions: DefinitionTable,
     signatures: SignatureSnapshot,
     /// Returns the revision of the input source snapshot.
@@ -977,6 +982,16 @@ pub struct AnalysisSnapshot {
 }
 
 impl AnalysisSnapshot {
+    /// Declaration environment and settings captured when these facts were checked.
+    pub fn inputs(&self) -> &Arc<AnalysisInputs> {
+        &self.inputs
+    }
+
+    /// Exact supplied documents, excluding derived inline and native declaration views.
+    pub fn physical_sources(&self) -> &SourceSnapshot {
+        &self.source
+    }
+
     /// An immutable prefix of the database's explicit identity context.
     /// Local handles additionally retain their analysis/arena ownership.
     pub fn definitions(&self) -> &DefinitionTable {

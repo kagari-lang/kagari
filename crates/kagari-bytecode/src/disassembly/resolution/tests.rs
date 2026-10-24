@@ -192,11 +192,15 @@ fn verified_dynamic_dispatch_resolves_declared_member_and_signature_without_an_i
             }
         });
         let verified = VerifiedBytecodeProgram::new(
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![caller, owner],
-                exports: Default::default(),
-            },
+            crate::program::updates::fixtures::certify(
+                BytecodeProgram {
+                    update_evidence: crate::program::updates::empty(),
+                    root: ModuleRef::new(0),
+                    modules: vec![caller, owner],
+                    exports: Default::default(),
+                },
+                &context,
+            ),
             &context,
             &Default::default(),
         )
@@ -340,6 +344,7 @@ fn indexes_preserve_owner_native_signature_canonical_table_and_local_layout_sele
         ..Default::default()
     });
     let program = BytecodeProgram {
+        update_evidence: crate::program::updates::empty(),
         root: ModuleRef::new(0),
         modules: vec![caller, owner],
         exports: Default::default(),

@@ -1,9 +1,10 @@
+use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime, RuntimeConfig,
     error::{RuntimeError, RuntimeErrorKind},
     frame::{ExecutionFrame, FrameDispatch, FrameEntry, arguments::FrameArguments},
     module::{
-        LoadedModule,
+        ExecutableModule, Program,
         execution::{OperandSlot, layout::Location},
     },
     resource::RuntimeLimits,
@@ -17,9 +18,9 @@ use kagari_bytecode::{
         BytecodeFunction, BytecodeModule, CallableTarget, FunctionMetadata, FunctionRecord,
         RootSlotLayout,
     },
-    program::{BytecodeProgram, ModuleRef},
+    program::ModuleRef,
 };
-use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_common::identity::map::DefinitionContext;
 use kagari_contract::ids::FunctionRef;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use rstest::rstest;
@@ -43,14 +44,14 @@ impl ExecutionObserver for ReentrantObserver {
     }
 }
 
-pub(super) fn loaded(runtime: &mut Runtime) -> LoadedModule {
+pub(super) fn loaded(runtime: &mut Runtime) -> (Program, ExecutableModule) {
     loaded_with_instructions(runtime, vec![BytecodeInstruction::Return(None)])
 }
 
 fn loaded_with_instructions(
     runtime: &mut Runtime,
     instructions: Vec<BytecodeInstruction>,
-) -> LoadedModule {
+) -> (Program, ExecutableModule) {
     let function = {
         let fixture_instructions = instructions;
         let mut fixture_metadata: kagari_bytecode::module::FunctionMetadata = FunctionMetadata {
@@ -83,35 +84,37 @@ fn loaded_with_instructions(
     loaded_function(runtime, function)
 }
 
-fn loaded_function(runtime: &mut Runtime, function: BytecodeFunction) -> LoadedModule {
+fn loaded_function(
+    runtime: &mut Runtime,
+    function: BytecodeFunction,
+) -> (Program, ExecutableModule) {
     let context = DefinitionContext::new().unwrap();
-    runtime
+    let program = runtime
         .load_program(
             "frames",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule {
-                        types: vec![ValueType::Unit, ValueType::HeapObject],
-                        function_table: vec![FunctionRecord {
-                            id: function.id,
-                            identity: function.identity.clone(),
-                            name: function.name.clone(),
-                            params: function.metadata.params.clone(),
-                            return_type: function.metadata.return_type,
-                            effects: Default::default(),
-                        }],
-                        functions: vec![function],
-                        ..Default::default()
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule {
+                    types: vec![ValueType::Unit, ValueType::HeapObject],
+                    function_table: vec![FunctionRecord {
+                        id: function.id,
+                        identity: function.identity.clone(),
+                        name: function.name.clone(),
+                        params: function.metadata.params.clone(),
+                        return_type: function.metadata.return_type,
+                        effects: Default::default(),
                     }],
-                },
-                &Default::default(),
-            )
+                    functions: vec![function],
+                    ..Default::default()
+                }],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
-        .unwrap()
+        .unwrap();
+    let selected = runtime.select_program(&program).unwrap();
+    (program, selected)
 }
 
 #[rstest]
@@ -159,7 +162,7 @@ fn call_argument_admission_preserves_failure_precedence_and_atomicity(
     #[case] expected: RuntimeError,
 ) {
     let mut foreign = Runtime::default();
-    let foreign_module = loaded(&mut foreign);
+    let (_foreign_module_program, foreign_module) = loaded(&mut foreign);
     let foreign_value = Value::Array(
         foreign
             .alloc_array(&foreign_module, Ty::Builtin(BuiltinType::I32), vec![])
@@ -174,7 +177,7 @@ fn call_argument_admission_preserves_failure_precedence_and_atomicity(
         ..Default::default()
     });
     let params = vec![ValueType::HeapObject; 2];
-    let baseline = loaded_function(&mut runtime, {
+    let (baseline_program, baseline) = loaded_function(&mut runtime, {
         let parameter_base: usize = 0;
         let fixture_instructions = vec![BytecodeInstruction::Return(None)];
         let mut fixture_metadata: kagari_bytecode::module::FunctionMetadata = FunctionMetadata {
@@ -183,6 +186,12 @@ fn call_argument_admission_preserves_failure_precedence_and_atomicity(
             params,
             ..Default::default()
         };
+        for index in 0..2 {
+            fixture_metadata
+                .semantic
+                .params
+                .insert(index, Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))));
+        }
         if fixture_metadata.parameter_slots.is_empty() {
             fixture_metadata.parameter_slots =
                 (0..2).map(|i| Slot::new(parameter_base + i)).collect();
@@ -214,17 +223,14 @@ fn call_argument_admission_preserves_failure_precedence_and_atomicity(
             .into_parts();
         runtime
             .stage_reload_program(
-                &baseline,
-                "frames",
-                DefinitionMetadata::checked(
-                    definitions,
-                    BytecodeProgram {
-                        exports: Default::default(),
-                        root: ModuleRef::new(0),
-                        modules: vec![module],
-                    },
-                    &Default::default(),
-                )
+                &baseline_program,
+                None,
+                ProgramFixture {
+                    exports: Default::default(),
+                    root: ModuleRef::new(0),
+                    modules: vec![module],
+                }
+                .metadata(definitions, &Default::default())
                 .unwrap(),
             )
             .unwrap()
@@ -276,7 +282,7 @@ fn call_argument_admission_preserves_failure_precedence_and_atomicity(
 #[test]
 fn heap_rejection_does_not_skip_later_argument_window_validation() {
     let mut foreign = Runtime::default();
-    let foreign_module = loaded(&mut foreign);
+    let (_foreign_module_program, foreign_module) = loaded(&mut foreign);
     let foreign_value = Value::Array(
         foreign
             .alloc_array(&foreign_module, Ty::Builtin(BuiltinType::I32), vec![])
@@ -284,7 +290,7 @@ fn heap_rejection_does_not_skip_later_argument_window_validation() {
     );
     let _foreign_root = foreign.root_value(foreign_value).unwrap();
     let mut runtime = Runtime::default();
-    let module = loaded(&mut runtime);
+    let (_module_program, module) = loaded(&mut runtime);
     let stack = runtime.enter_execution_stack(&module).unwrap();
     stack
         .push(&runtime, module.slot(), FunctionRef::new(0), &[], None)
@@ -327,7 +333,7 @@ fn heap_rejection_does_not_skip_later_argument_window_validation() {
 #[test]
 fn nested_scopes_share_one_stack_and_unwind_only_their_own_roots() {
     let mut runtime = Runtime::default();
-    let module = loaded(&mut runtime);
+    let (_module_program, module) = loaded(&mut runtime);
     let outer = runtime.enter_execution_stack(&module).unwrap();
     outer
         .push(&runtime, module.slot(), FunctionRef::new(0), &[], None)
@@ -378,7 +384,7 @@ fn nested_scopes_share_one_stack_and_unwind_only_their_own_roots() {
 #[test]
 fn root_depth_peaks_follow_actual_frames_and_reset_between_roots() {
     let mut runtime = Runtime::default();
-    let module = loaded(&mut runtime);
+    let (_module_program, module) = loaded(&mut runtime);
     for depth in [2, 1] {
         let session = runtime
             .begin_execution(&module, runtime.execution_options())
@@ -400,7 +406,7 @@ fn root_depth_peaks_follow_actual_frames_and_reset_between_roots() {
 #[test]
 fn invalid_frame_access_quarantines_but_scope_cleanup_still_releases_every_root() {
     let mut runtime = Runtime::default();
-    let module = loaded(&mut runtime);
+    let (_module_program, module) = loaded(&mut runtime);
     let stack = runtime.enter_execution_stack(&module).unwrap();
     stack
         .push(&runtime, module.slot(), FunctionRef::new(0), &[], None)
@@ -430,7 +436,7 @@ fn invalid_frame_access_quarantines_but_scope_cleanup_still_releases_every_root(
 #[test]
 fn out_of_order_stack_drop_is_isolated_without_double_cleanup() {
     let mut runtime = Runtime::default();
-    let module = loaded(&mut runtime);
+    let (_module_program, module) = loaded(&mut runtime);
     let outer = runtime.enter_execution_stack(&module).unwrap();
     outer
         .push(&runtime, module.slot(), FunctionRef::new(0), &[], None)
@@ -458,7 +464,7 @@ fn out_of_order_stack_drop_is_isolated_without_double_cleanup() {
 #[test]
 fn observers_cannot_reenter_a_borrowed_stack_or_replace_the_root_observer() {
     let mut runtime = Runtime::default();
-    let module = loaded(&mut runtime);
+    let (_module_program, module) = loaded(&mut runtime);
     runtime.set_execution_observer(ReentrantObserver).unwrap();
     let stack = runtime.enter_execution_stack(&module).unwrap();
     assert!(runtime.attach_execution_observer().unwrap());
@@ -496,7 +502,7 @@ fn owned_observer_initialization_and_replacement_obey_session_and_borrow_scopes(
     }
 
     impl ExecutionObserver for Probe {
-        fn begin(&mut self, _: &Runtime, _: &LoadedModule) -> Result<(), RuntimeError> {
+        fn begin(&mut self, _: &Runtime, _: &ExecutableModule) -> Result<(), RuntimeError> {
             self.begins += 1;
             if self.begins == 1 {
                 return Err(RuntimeError::module_validation("initialization rejected"));
@@ -516,7 +522,7 @@ fn owned_observer_initialization_and_replacement_obey_session_and_borrow_scopes(
     }
 
     let mut runtime = Runtime::default();
-    let module = loaded(&mut runtime);
+    let (_module_program, module) = loaded(&mut runtime);
     runtime.set_execution_observer(Probe::default()).unwrap();
     let stack = runtime.enter_execution_stack(&module).unwrap();
     assert!(runtime.attach_execution_observer().is_err());
@@ -552,24 +558,21 @@ fn owned_observer_initialization_and_replacement_obey_session_and_borrow_scopes(
 #[test]
 fn ending_a_suspended_session_does_not_count_candidate_frames_as_leaks() {
     let mut runtime = Runtime::default();
-    let old = loaded(&mut runtime);
+    let (old_program, old) = loaded(&mut runtime);
     let outer = runtime
         .begin_execution(&old, runtime.execution_options())
         .unwrap();
     let (definitions, module) = old.to_unverified(&Default::default()).unwrap().into_parts();
     let candidate = runtime
         .stage_reload_program(
-            &old,
-            "frames",
-            DefinitionMetadata::checked(
-                definitions,
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![module],
-                },
-                &Default::default(),
-            )
+            &old_program,
+            None,
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![module],
+            }
+            .metadata(definitions, &Default::default())
             .unwrap(),
         )
         .unwrap();
@@ -624,7 +627,7 @@ fn ending_a_suspended_session_does_not_count_candidate_frames_as_leaks() {
 #[test]
 fn suspended_session_frames_cannot_be_used_during_candidate_initialization() {
     let mut runtime = Runtime::default();
-    let old = loaded(&mut runtime);
+    let (old_program, old) = loaded(&mut runtime);
     let outer = runtime.enter_execution_stack(&old).unwrap();
     outer
         .push(&runtime, old.slot(), FunctionRef::new(0), &[], None)
@@ -632,17 +635,14 @@ fn suspended_session_frames_cannot_be_used_during_candidate_initialization() {
     let (definitions, module) = old.to_unverified(&Default::default()).unwrap().into_parts();
     let candidate = runtime
         .stage_reload_program(
-            &old,
-            "frames",
-            DefinitionMetadata::checked(
-                definitions,
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![module],
-                },
-                &Default::default(),
-            )
+            &old_program,
+            None,
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![module],
+            }
+            .metadata(definitions, &Default::default())
             .unwrap(),
         )
         .unwrap();
@@ -691,7 +691,7 @@ fn native_polling_preserves_cancellation_offsets_and_cleanup() {
             },
         )
         .collect();
-    let module = loaded_function(
+    let (_module_program, module) = loaded_function(
         &mut runtime,
         BytecodeFunction {
             name: "main".into(),
@@ -750,7 +750,7 @@ fn native_polling_requires_an_active_validated_program_point() {
     );
 
     let mut runtime = Runtime::default();
-    let module = loaded(&mut runtime);
+    let (_module_program, module) = loaded(&mut runtime);
     let stack = runtime.enter_execution_stack(&module).unwrap();
     stack
         .push(&runtime, module.slot(), FunctionRef::new(0), &[], None)
@@ -764,7 +764,7 @@ fn native_polling_requires_an_active_validated_program_point() {
 #[test]
 fn interpreter_frame_fetch_preserves_instruction_offsets() {
     let mut runtime = Runtime::default();
-    let module = loaded_with_instructions(
+    let (_module_program, module) = loaded_with_instructions(
         &mut runtime,
         vec![
             BytecodeInstruction::Jump {
@@ -793,7 +793,7 @@ fn interpreter_frame_fetch_preserves_instruction_offsets() {
 #[test]
 fn frame_access_rejects_a_foreign_context_before_changing_slots_or_program_point() {
     let mut runtime = Runtime::default();
-    let module = loaded(&mut runtime);
+    let (_module_program, module) = loaded(&mut runtime);
     let foreign = Runtime::default();
     let stack = runtime.enter_execution_stack(&module).unwrap();
     assert_eq!(

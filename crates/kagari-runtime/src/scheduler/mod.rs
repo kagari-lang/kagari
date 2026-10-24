@@ -12,6 +12,7 @@ use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     gc::roots::RootedValue,
     native::binding::NativeResult,
+    publication::SynchronousActivation,
     resource::AsyncLimits,
     scheduler::{
         result::{CompletionSink, ScheduledResult, channel},
@@ -224,6 +225,7 @@ impl Drop for InvocationActivation<'_> {
 /// borrow; synchronous host reentry remains a session operation, not a new turn.
 pub struct SchedulerTurn<'runtime> {
     runtime: &'runtime Runtime,
+    _activation: SynchronousActivation<'runtime>,
 }
 
 impl SchedulerTurn<'_> {
@@ -446,8 +448,12 @@ impl Runtime {
                 "scheduler turn already active",
             ));
         }
+        let activation = self.resources().begin_synchronous_activation()?;
         self.scheduler.driving.set(true);
-        let turn = SchedulerTurn { runtime: self };
+        let turn = SchedulerTurn {
+            runtime: self,
+            _activation: activation,
+        };
         match driver {
             Some(driver) => self.scheduler.hub.update(driver, cx.waker())?,
             None => self.scheduler.hub.register_external(cx.waker())?,

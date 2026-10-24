@@ -1,4 +1,4 @@
-//! Checked public namespace edges and concrete source function leaves.
+//! Checked public namespace edges, canonical types and authored function declarations.
 
 use crate::{
     hir::item::function::FunctionKind,
@@ -9,10 +9,14 @@ use crate::{
     program::{CheckedProgram, ProgramCheckError},
     resolver::table::NameTable,
     typeck::FunctionImplementation,
+    types::TypeId,
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{MAX_IDENTITY_PATH_SEGMENTS, ModuleIdentity, table::module::ModuleHandle},
+    identity::{
+        MAX_IDENTITY_PATH_SEGMENTS, ModuleIdentity,
+        table::{DefinitionId, module::ModuleHandle},
+    },
 };
 use kagari_types::{declaration::names::NameNamespace, visibility::Visibility};
 use std::collections::{BTreeMap, HashSet};
@@ -25,6 +29,18 @@ const MAX_EXPORT_RECORDS: usize = 65_536;
 pub struct ExportNamespace {
     pub modules: BTreeMap<String, ModuleHandle>,
     pub functions: BTreeMap<String, SourceDeclRef>,
+    pub types: BTreeMap<String, TypeExport>,
+}
+
+/// Checked meaning of a public type binding, independent of its re-export spelling.
+#[derive(Debug, Clone)]
+pub enum TypeExport {
+    /// Canonical source struct, enum, trait or opaque declaration identity.
+    Declaration(DefinitionId),
+    /// A zero-parameter alias normalized in its declaring module, not the importer.
+    Closed(TypeId),
+    /// A rejection-only name; erased parameters still make an alias open.
+    OpenAlias { arity: u32 },
 }
 
 /// A finite namespace graph rooted at the selected Program module.
@@ -32,8 +48,9 @@ pub struct ExportNamespace {
 /// `pub use crate::internal::calculate as damage` records `damage` as a leaf
 /// pointing to `internal`'s original function. Public module aliases preserve
 /// cycles as edges; path lookup is bounded and never expands all possible paths.
-/// Leaves are non-generic script free functions. Generic/native APIs and associated
-/// methods use concrete free-function wrappers on this path; member binding is separate.
+/// Function leaves are script free-function declarations, including unused generics.
+/// They do not imply an executable instance; member binding is separate. Type leaves
+/// preserve declarations, normalized closed aliases and rejection-only open aliases.
 #[derive(Debug, Clone, Default)]
 pub struct ProgramExports {
     namespaces: BTreeMap<ModuleHandle, ExportNamespace>,
@@ -116,10 +133,13 @@ impl ProgramExports {
                         continue;
                     };
                     match target {
-                        ResolvedTarget::Source(source)
-                            if concrete_script_function(program, &source) =>
-                        {
+                        ResolvedTarget::Source(source) if script_function(program, &source) => {
                             exported.functions.insert(name.as_str().into(), source);
+                        }
+                        ResolvedTarget::Source(source) if category == NameNamespace::Type => {
+                            exported
+                                .types
+                                .insert(spelling.into(), checked_type_export(program, &source)?);
                         }
                         ResolvedTarget::Namespace(child) => {
                             if let Some(target) = module_handle(&child) {
@@ -146,7 +166,10 @@ impl ProgramExports {
             };
             (function.name == "main"
                 && function.params.is_empty()
-                && concrete_script_function(program, &source))
+                && script_function(program, &source)
+                && program
+                    .source_function(&source)
+                    .is_some_and(|(_, signature)| signature.generic_params.is_empty()))
             .then_some(source)
         });
         cancel.check().map_err(|_| ProgramCheckError::Cancelled)?;
@@ -190,12 +213,56 @@ fn public_target(
     }
 }
 
-fn concrete_script_function(program: &CheckedProgram, source: &SourceDeclRef) -> bool {
+fn checked_type_export(
+    program: &CheckedProgram,
+    source: &SourceDeclRef,
+) -> Result<TypeExport, ProgramCheckError> {
+    let invalid = || ProgramCheckError::Exports("missing checked public type declaration".into());
+    let module = program
+        .by_file
+        .get(&source.unit.file)
+        .map(|index| &program.modules[*index])
+        .filter(|module| source.unit.matches(&module.lowered, module.definitions()))
+        .ok_or_else(invalid)?;
+    let id = module
+        .declarations
+        .definition(source.item.local().ok_or_else(invalid)?)
+        .copied()
+        .ok_or_else(invalid)?;
+    if matches!(source.item, SourceItem::TypeAlias(_)) {
+        let alias = module
+            .declarations
+            .imported_types()
+            .alias(&id)
+            .ok_or_else(invalid)?;
+        if alias.error.is_some() {
+            return Err(invalid());
+        }
+        if !alias.parameters.is_empty() {
+            return Ok(TypeExport::OpenAlias {
+                arity: u32::try_from(alias.parameters.len()).map_err(|_| invalid())?,
+            });
+        }
+        let target = module
+            .aggregates
+            .normalize_type(module.definitions(), &alias.target);
+        let target = module
+            .aggregates
+            .canonical_value_type(module.definitions(), &target);
+        if !target.is_concrete() {
+            return Err(invalid());
+        }
+        Ok(TypeExport::Closed(target))
+    } else {
+        Ok(TypeExport::Declaration(id))
+    }
+}
+
+fn script_function(program: &CheckedProgram, source: &SourceDeclRef) -> bool {
     program
         .source_function(source)
         .is_some_and(|(module, signature)| {
             module.lowered.module.functions[signature.id.index()].kind == FunctionKind::User
-                && signature.generic_params.is_empty()
                 && matches!(signature.implementation, FunctionImplementation::Script)
         })
 }

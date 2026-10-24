@@ -134,7 +134,8 @@ fn native_lifecycle(
     allocations::measure(|| {
         let mut runtime = Runtime::default();
         provider.install(&mut runtime).unwrap();
-        let loaded = runtime.load_program("memory", code.clone()).unwrap();
+        let program = runtime.load_program("memory", code.clone()).unwrap();
+        let loaded = runtime.select_program(&program).unwrap();
         let owner = loaded
             .members()
             .find(|member| !member.bytecode.native_imports.is_empty())
@@ -213,9 +214,9 @@ fn native_lifecycle(
         }
         let repeated = snapshot();
         let staged = runtime
-            .stage_reload_program(&loaded, "memory", code.clone())
+            .stage_reload_program(&program, None, code.clone())
             .unwrap();
-        drop(runtime.publish_staged_reload(staged).unwrap());
+        runtime.publish_staged_reload(staged).unwrap();
         drop(roots);
         drop(environments);
         drop(owner);

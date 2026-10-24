@@ -1,0 +1,25 @@
+pub trait Bound {}
+
+pub trait Other {}
+
+pub fn first<T>(x: T) -> i32 where T: Bound {
+    1
+}
+
+pub fn second<U>(x: U) -> i32 where U: Bound {
+    2
+}
+
+pub fn other_bound<V>(x: V) -> i32 where V: Other {
+    3
+}
+
+pub fn other_result<W>(x: W) -> bool where W: Bound {
+    true
+}
+
+pub fn answer() -> i32 {
+    1
+}
+
+pub use crate::first as alias;

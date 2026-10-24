@@ -1,11 +1,12 @@
 //! MIR file records; semantic and verification ownership remain in the MIR owners.
 mod calls;
 mod function;
-mod instruction;
+pub(crate) mod instruction;
 
 #[cfg(test)]
 mod tests;
 
+use crate::program::updates::mapping_error;
 use crate::{
     codec::wire::function::MirModuleRecord,
     program::{VerifiedMirProgram, records::MirProgram},
@@ -20,7 +21,14 @@ use kagari_common::{
         table::wire::PortableDefinitionTable,
     },
 };
-use kagari_contract::{decode_limits, exports::wire::ProgramExportsRecord};
+use kagari_contract::{
+    decode_limits,
+    exports::wire::ProgramExportsRecord,
+    updates::{
+        limits::{Budget, Limits},
+        wire::UpdateEvidenceRecord,
+    },
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -33,6 +41,7 @@ pub(crate) struct ProgramRecord {
     modules: Vec<MirModuleRecord>,
     definitions: PortableDefinitionTable,
     exports: ProgramExportsRecord,
+    update_evidence: UpdateEvidenceRecord,
 }
 
 impl ProgramRecord {
@@ -58,6 +67,13 @@ impl ProgramRecord {
             },
             cancel,
         )?;
+        program.update_evidence().visit_definition_ids(
+            &mut |id| {
+                references.insert(*id);
+                Ok(())
+            },
+            cancel,
+        )?;
         let encoding = program.definitions().encode(references)?;
         let modules = program
             .modules()
@@ -68,6 +84,12 @@ impl ProgramRecord {
             root: program.root().clone(),
             modules,
             exports: ProgramExportsRecord::encode(program.exports(), &encoding, cancel)?,
+            update_evidence: UpdateEvidenceRecord::encode(
+                program.update_evidence(),
+                &encoding,
+                &mut Budget::new(Limits::default(), cancel).map_err(mapping_error)?,
+            )
+            .map_err(mapping_error)?,
             definitions: encoding.table,
         })
     }
@@ -84,12 +106,20 @@ impl ProgramRecord {
             .map(|module| module.decode(&decoding, cancel))
             .collect::<Result<_, _>>()?;
         let exports = self.exports.decode(&decoding, cancel)?;
+        let update_evidence = self
+            .update_evidence
+            .decode(
+                &decoding,
+                &mut Budget::new(Limits::default(), cancel).map_err(mapping_error)?,
+            )
+            .map_err(mapping_error)?;
         DefinitionMetadata::checked(
             decoding.table,
             MirProgram {
                 root: self.root,
                 modules,
                 exports,
+                update_evidence,
             },
             cancel,
         )

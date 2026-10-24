@@ -15,22 +15,28 @@ use {
     kagari_contract::native::{ExecutableFunctionArtifact, NativeCompilationProduct},
 };
 
+use kagari_bytecode::module::CallableTarget;
+
 use crate::{
     Runtime,
     backend::BackendInvocationError,
     error::{RuntimeError, RuntimeErrorKind},
     error_trace::ErrorTrace,
     jit_abi::{NATIVE_HELPERS, decode_native_value},
-    module::{LoadedModule, ModuleEpochRetention, retention::ProgramLease},
+    module::{
+        ExecutableModule, ModuleEpochRetention, dispatch::CallRoute, retention::ProgramLease,
+    },
     value::Value,
 };
 
-/// Callable native code bound to one runtime and its exact dependency versions.
+/// Native code bound to one runtime and one exact executable publication.
 /// Cloning retains code memory and module instances; its descriptor is immutable.
+/// An ordinary invocation rejects the product if its route now selects other code.
 #[derive(Debug, Clone)]
 pub struct InstalledNativeFunction {
     product: Arc<NativeCompilationProduct>,
-    module: LoadedModule,
+    module: ExecutableModule,
+    route: CallRoute,
     _retention: ProgramLease,
 }
 
@@ -39,7 +45,7 @@ impl InstalledNativeFunction {
         &self.product.artifact
     }
 
-    pub fn module(&self) -> &LoadedModule {
+    pub fn module(&self) -> &ExecutableModule {
         &self.module
     }
 }
@@ -66,10 +72,10 @@ impl Runtime {
     /// Descriptor validation cannot establish these properties for arbitrary pointers.
     pub unsafe fn install_native_function(
         &self,
-        module: &LoadedModule,
+        module: &ExecutableModule,
         product: Arc<NativeCompilationProduct>,
     ) -> Result<InstalledNativeFunction, BackendInvocationError> {
-        self.validate_loaded_module(module)
+        self.validate_executable_module(module)
             .map_err(runtime_failure)?;
         self.resources()
             .ensure_execution_allowed()
@@ -82,15 +88,20 @@ impl Runtime {
                     "native dependency was released",
                 ))
             })?;
+        let route = module
+            .bind_call_route(CallableTarget::Script(product.artifact.function))
+            .map_err(runtime_failure)?;
         Ok(InstalledNativeFunction {
+            route,
             product,
             module: module.clone(),
             _retention: retention,
         })
     }
 
-    /// Invoke installed code using the ordinary session and frame stack. Failures
-    /// after native entry never request an interpreter restart.
+    /// Invoke installed code only when it matches the current checked call target.
+    /// A stale product is rejected before entry, not treated as a fallback request.
+    /// Failures after native entry never request an interpreter restart.
     pub fn invoke_native_function(
         &self,
         installed: &InstalledNativeFunction,
@@ -99,13 +110,25 @@ impl Runtime {
             error,
             trace: self.capture_error_trace(),
         };
-        self.validate_loaded_module(&installed.module)
+        self.validate_executable_module(&installed.module)
             .map_err(runtime_failure)
             .map_err(failure)?;
         self.resources()
             .ensure_execution_allowed()
             .map_err(runtime_failure)
             .map_err(failure)?;
+        let selected = self
+            .select_call_route(&installed.route)
+            .map_err(runtime_failure)
+            .map_err(failure)?;
+        if selected.owner().key() != installed.module.key()
+            || selected.owner().program_fingerprint() != installed.module.program_fingerprint()
+            || selected.target() != CallableTarget::Script(installed.artifact().function)
+        {
+            return Err(failure(runtime_failure(RuntimeError::module_validation(
+                "installed native product does not match the current call target",
+            ))));
+        }
         // The existing native subset has no observer callbacks. Metadata alone
         // does not grant permission to bypass an attached execution observer.
         if self
@@ -122,13 +145,7 @@ impl Runtime {
             .map_err(runtime_failure)
             .map_err(failure)?;
         stack
-            .push(
-                self,
-                installed.module.slot(),
-                installed.artifact().function,
-                &[],
-                None,
-            )
+            .push_callable(self, selected.owner().clone(), selected.target(), &[], None)
             .map_err(runtime_failure)
             .map_err(failure)?;
         // Map failures while the frame still exists. The stack guard then unwinds
@@ -180,7 +197,7 @@ fn runtime_failure(error: RuntimeError) -> BackendInvocationError {
 }
 
 fn validate_product(
-    module: &LoadedModule,
+    module: &ExecutableModule,
     artifact: &ExecutableFunctionArtifact,
 ) -> Result<(), BackendInvocationError> {
     let unsupported = |reason: &str| BackendInvocationError::UnsupportedArtifact(reason.into());

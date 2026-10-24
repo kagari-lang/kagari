@@ -10,7 +10,7 @@ use kagari_runtime::{
         catalog::DeclarationCatalog,
         conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
         declarations::FunctionDecl,
-        function_handle::PinnedFunction,
+        function_handle::Function,
         module::NativeModule,
         payload::{
             Opaque,
@@ -29,7 +29,7 @@ use std::{
 };
 
 kagari_runtime::native_data! { struct State { hp: i32 } }
-type Callback = PinnedFunction<(), i32>;
+type Callback = Function<(), i32>;
 type Holder = Opaque<Managed<State>>;
 
 struct Registration {
@@ -167,11 +167,13 @@ fn registered_payload_fields_support_aliases_reentry_and_rootless_callback_cycle
         callback,
     } = registration();
     let (vm, owner) = fixture(SOURCE, Some(&module));
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let object: Holder = vm.execute_typed(&owner, "cycle", (41,)).unwrap();
     let alias = object.clone();
     let native_type = vm
         .runtime()
-        .bind_native_type::<Managed<State>>(&owner, &ty, &[])
+        .bind_native_type::<Managed<State>>(&_owner_program.root(), &ty, &[])
         .unwrap();
     let name = native_type.bind_field(vm.runtime(), &name).unwrap();
     let callback = native_type.bind_field(vm.runtime(), &callback).unwrap();
@@ -216,7 +218,7 @@ fn registered_payload_fields_support_aliases_reentry_and_rootless_callback_cycle
     // Holder/callback, the updated name, and the module string constant.
     assert_eq!(cx.collect_garbage().unwrap().live_objects, 4);
     drop((held, cx, native_type, name, callback));
-    publish_unused_version(&vm, &owner);
+    publish_unused_version(&vm, &_owner_program);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     assert_eq!(vm.runtime().gc().active_roots(), 0);
 }
@@ -230,9 +232,11 @@ fn managed_construction_and_replacement_require_every_checked_field() {
         callback,
     } = registration();
     let (vm, owner) = fixture(SOURCE, Some(&module));
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let native_type = vm
         .runtime()
-        .bind_native_type::<Managed<State>>(&owner, &ty, &[])
+        .bind_native_type::<Managed<State>>(&_owner_program.root(), &ty, &[])
         .unwrap();
     let name_field = native_type.bind_field(vm.runtime(), &name).unwrap();
     let callback_field = native_type.bind_field(vm.runtime(), &callback).unwrap();
@@ -272,6 +276,11 @@ fn managed_construction_and_replacement_require_every_checked_field() {
     let other = registration();
     assert!(native_type.bind_field(vm.runtime(), &other.name).is_err());
     let (foreign, foreign_owner) = fixture(SOURCE, Some(&module));
+    let _foreign_owner_program = foreign_owner;
+    let foreign_owner = foreign
+        .runtime()
+        .select_program(&_foreign_owner_program)
+        .unwrap();
     let callback: Callback = foreign.execute_typed(&foreign_owner, "plain", ()).unwrap();
     assert!(object.set(&mut cx, &callback_field, callback).is_err());
     assert_eq!(
@@ -297,18 +306,21 @@ fn stored_callback_keeps_old_code_and_releases_the_old_program_with_its_cycle() 
         module, callback, ..
     } = registration();
     let (vm, old) = fixture(SOURCE, Some(&module));
+    let _old_program = old;
+    let old = vm.runtime().select_program(&_old_program).unwrap();
     let object: Holder = vm.execute_typed(&old, "cycle", (41,)).unwrap();
     let field = object
         .native_type()
         .bind_field(vm.runtime(), &callback)
         .unwrap();
-    let new = vm
-        .reload_program(
-            &old,
-            "functions",
-            compile_program(&SOURCE.replace("+ 1", "+ 2"), Some(&module)),
-        )
-        .unwrap();
+    vm.reload_program(
+        &_old_program,
+        Some("functions".into()),
+        compile_program(&SOURCE.replace("+ 1", "+ 2"), Some(&module)),
+    )
+    .unwrap();
+    let _new_program = _old_program.clone();
+    let new = vm.runtime().select_program(&_new_program).unwrap();
     let mut cx = vm.context(&new).unwrap();
     assert_eq!(
         object
@@ -339,7 +351,7 @@ fn stored_callback_keeps_old_code_and_releases_the_old_program_with_its_cycle() 
     // Current holder/callback, its name, and its module string constant.
     assert_eq!(collected.live_objects, 4);
     drop((replacement, cx));
-    publish_unused_version(&vm, &new);
+    publish_unused_version(&vm, &_new_program);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
 }
 
@@ -408,13 +420,15 @@ fn failed_converters_keep_prior_initializers_and_committed_fields_rooted() {
         "pub fn callback() -> fn() -> i32 { || 42 }",
         Some(&module.finish().unwrap()),
     );
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let native_type = vm
         .runtime()
-        .bind_native_type::<Managed<()>>(&owner, &ty, &[])
+        .bind_native_type::<Managed<()>>(&_owner_program.root(), &ty, &[])
         .unwrap();
     assert!(
         vm.runtime()
-            .bind_native_type::<Managed<()>>(&owner, &wrong_ty, &[])
+            .bind_native_type::<Managed<()>>(&_owner_program.root(), &wrong_ty, &[])
             .unwrap()
             .bind_field(vm.runtime(), &wrong_token)
             .is_err()
@@ -571,6 +585,8 @@ fn generic_managed_fields_keep_their_argument_scope_across_native_calls_and_bind
         pub fn run(value: Boxed<Item>) -> i32 { read(value).value }
     "#;
     let (mut vm, old) = fixture(source, Some(&module));
+    let _old_program = old;
+    let old = vm.runtime().select_program(&_old_program).unwrap();
     let old_value: Boxed = vm.execute_typed(&old, "make", ()).unwrap();
     assert_eq!(
         vm.execute_typed::<_, i32>(&old, "run", (old_value.clone(),))
@@ -584,6 +600,8 @@ fn generic_managed_fields_keep_their_argument_scope_across_native_calls_and_bind
             compile_program(&source.replace("i32", "i64"), Some(&module)),
         )
         .unwrap();
+    let _new_program = new;
+    let new = vm.runtime().select_program(&_new_program).unwrap();
     let new_value: Boxed = vm.execute_typed(&new, "make", ()).unwrap();
     assert_eq!(
         vm.execute_typed::<_, i64>(&new, "run", (new_value.clone(),))
@@ -611,10 +629,17 @@ fn generic_managed_fields_keep_their_argument_scope_across_native_calls_and_bind
         vm.execute_typed::<_, i64>(&new, "run", (old_value.clone(),))
             .is_err()
     );
-    let new_item = vm.runtime().bind_type(&new, "Item", &[]).unwrap();
+    let new_item = vm
+        .runtime()
+        .bind_type(&_new_program.root(), "Item", &[])
+        .unwrap();
     let scoped_type = vm
         .runtime()
-        .bind_native_type::<Managed<()>>(&old, &ty, slice::from_ref(new_item.type_argument()))
+        .bind_native_type::<Managed<()>>(
+            &_old_program.root(),
+            &ty,
+            slice::from_ref(new_item.type_argument()),
+        )
         .unwrap();
     let scoped_field = scoped_type.bind_field(vm.runtime(), &value_token).unwrap();
     let mut builder = scoped_type.build(()).unwrap();

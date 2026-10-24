@@ -52,17 +52,26 @@ impl ExecutionStack<'_> {
             .calls
             .get(index)
             .ok_or_else(|| runtime.resources().quarantine("missing prepared call"))?;
-        let (module, target, shared) = match &call.target {
-            PreparedCallTarget::Static { module, target } => (*module, *target, None),
-            PreparedCallTarget::Shared { module, target } => {
-                let Some(LinkedCall::Shared(contract)) =
+        let (route, shared) = match &call.target {
+            PreparedCallTarget::Static { .. } => {
+                let Some(LinkedCall::Direct(route)) =
+                    links.as_ref().and_then(|links| links.call_contract(index))
+                else {
+                    return Err(runtime
+                        .resources()
+                        .quarantine("missing linked direct route"));
+                };
+                (route, None)
+            }
+            PreparedCallTarget::Shared { .. } => {
+                let Some(LinkedCall::Shared { route, contract }) =
                     links.as_ref().and_then(|links| links.call_contract(index))
                 else {
                     return Err(runtime
                         .resources()
                         .quarantine("missing linked shared contract"));
                 };
-                (*module, *target, Some(contract.as_ref()))
+                (route, Some(contract.as_ref()))
             }
             PreparedCallTarget::Closure(contract) => {
                 let caller = self.current()?;
@@ -121,6 +130,7 @@ impl ExecutionStack<'_> {
                 } else {
                     FrameArguments::frame(slots, &call.arguments)
                 };
+                let invocation = invocation.admit(runtime)?;
                 let view = invocation.view(runtime)?;
                 view.validate_arguments(runtime, arguments)?;
                 let loaded = view.implementation().clone();
@@ -144,18 +154,15 @@ impl ExecutionStack<'_> {
                 );
             }
         };
-        let loaded = owner.member(module).ok_or_else(|| {
-            runtime
-                .resources()
-                .quarantine("invalid prepared script module")
-        })?;
+        let selected = runtime.select_call_route(route)?;
+        let loaded = selected.owner().clone();
+        let target = selected.target();
         let arguments = FrameArguments::frame(slots, &call.arguments);
         let environment = if let Some(contract) = shared {
-            let prepared = runtime.prepare_shared_environment(
+            let prepared = runtime.prepare_selected_shared_environment(
                 &owner,
                 environment.clone(),
-                &loaded,
-                target,
+                &selected,
                 contract,
             )?;
             if arguments.len() != contract.signature.params.len()

@@ -64,6 +64,8 @@ fn source_and_artifact_cross_module_calls_match_interpreter_and_jit_fallback() {
                     ..Default::default()
                 });
                 let loaded = runtime.load_program("root", program.clone()).unwrap();
+                let _loaded_program = loaded;
+                let loaded = runtime.select_program(&_loaded_program).unwrap();
                 let vm = Vm::new(runtime);
                 let report = if jit {
                     vm.execute_prepared(
@@ -107,6 +109,8 @@ fn cross_module_debug_frames_keep_their_member_identity() {
     let loaded = runtime
         .load_program("root", fixture("pub fn answer() -> i32 { 40 + 2 }"))
         .unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let dependency = loaded
         .members()
         .find(|member| member.bytecode.identity.path == ["dependency"])

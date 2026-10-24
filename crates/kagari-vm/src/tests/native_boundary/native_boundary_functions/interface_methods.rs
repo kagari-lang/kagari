@@ -1,4 +1,5 @@
 use super::fixture;
+use super::{compile_without_foundation, fixture_without_foundation};
 use crate::tests::native_boundary::compile_program;
 use kagari_common::cancellation::CancellationToken;
 use kagari_runtime::native::{
@@ -27,6 +28,8 @@ const SOURCE: &str = r#"
 #[test]
 fn prepared_interface_members_call_inherited_and_default_methods_on_multiple_receivers() {
     let (vm, owner) = fixture(SOURCE, None);
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let player: Interface = vm.execute_typed(&owner, "make", (100,)).unwrap();
     let second: Interface = vm.execute_typed(&owner, "make", (40,)).unwrap();
     let member = player.member(vm.runtime(), "get").unwrap();
@@ -80,6 +83,11 @@ fn prepared_interface_members_call_inherited_and_default_methods_on_multiple_rec
     );
     assert_eq!(player.call(&mut cx, &get, ()).unwrap(), 100);
     let (foreign, foreign_owner) = fixture(SOURCE, None);
+    let _foreign_owner_program = foreign_owner;
+    let foreign_owner = foreign
+        .runtime()
+        .select_program(&_foreign_owner_program)
+        .unwrap();
     assert!(
         player
             .call(&mut foreign.context(&foreign_owner).unwrap(), &get, ())
@@ -96,6 +104,8 @@ fn interface_method_results_use_existing_native_and_inherited_adapters() {
     "#,
         None,
     );
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let list: Interface = vm.execute_typed(&owner, "make", ()).unwrap();
     let registered = StandardDeclarations::default()
         .list()
@@ -153,6 +163,8 @@ fn interface_calls_preserve_associated_object_outputs_and_public_access() {
     "#,
         None,
     );
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let value: Interface = vm.execute_typed(&owner, "make", ()).unwrap();
     let hidden: Interface = vm.execute_typed(&owner, "hidden", ()).unwrap();
     assert!(hidden.member(vm.runtime(), "read").is_err());
@@ -183,6 +195,8 @@ fn interface_calls_preserve_associated_object_outputs_and_public_access() {
 #[test]
 fn retained_interface_calls_cannot_escape_candidate_initialization() {
     let (vm, old) = fixture(SOURCE, None);
+    let _old_program = old;
+    let old = vm.runtime().select_program(&_old_program).unwrap();
     let old_value: Interface = vm.execute_typed(&old, "make", (100,)).unwrap();
     let old_get = vm
         .runtime()
@@ -190,7 +204,11 @@ fn retained_interface_calls_cannot_escape_candidate_initialization() {
         .unwrap();
     let candidate = vm
         .runtime()
-        .stage_reload_program(&old, "functions", compile_program(SOURCE, None))
+        .stage_reload_program(
+            &_old_program,
+            Some("functions".into()),
+            compile_program(SOURCE, None),
+        )
         .unwrap();
     {
         let _session = vm
@@ -216,7 +234,7 @@ fn retained_interface_calls_cannot_escape_candidate_initialization() {
 }
 
 #[test]
-fn interface_dispatch_collects_during_reentry_and_pins_old_default_code() {
+fn interface_dispatch_collects_during_reentry_and_selects_current_default_code() {
     let calls = Arc::new(AtomicUsize::new(0));
     let observed = calls.clone();
     let mut builder = ModuleBuilder::new(
@@ -245,7 +263,9 @@ fn interface_dispatch_collects_during_reentry_and_pins_old_default_code() {
         "use example::interface_methods::collect;\n{}",
         SOURCE.replace("self.get() - amount", "collect(); self.get() - amount")
     );
-    let (vm, old) = fixture(&source, Some(&module));
+    let (vm, old) = fixture_without_foundation(&source, Some(&module));
+    let _old_program = old;
+    let old = vm.runtime().select_program(&_old_program).unwrap();
     let player: Interface = vm.execute_typed(&old, "make", (100,)).unwrap();
     let member = player.member(vm.runtime(), "damage").unwrap();
     let damage = vm
@@ -257,28 +277,30 @@ fn interface_dispatch_collects_during_reentry_and_pins_old_default_code() {
         .bind_interface_method::<(i32,), i32>(&member)
         .unwrap();
     drop(member);
-    let new = vm
-        .reload_program(
-            &old,
-            "functions",
-            compile_program(
-                &source.replace("self.get() - amount", "self.get() - amount - 1"),
-                Some(&module),
-            ),
-        )
-        .unwrap();
+    vm.reload_program(
+        &_old_program,
+        Some("functions".into()),
+        compile_without_foundation(
+            &source.replace("self.get() - amount", "self.get() - amount - 1"),
+            Some(&module),
+        ),
+    )
+    .unwrap();
+    let _new_program = _old_program.clone();
+    let new = vm.runtime().select_program(&_new_program).unwrap();
     let new_player: Interface = vm.execute_typed(&new, "make", (100,)).unwrap();
     let new_damage = vm
         .runtime()
         .bind_interface_method::<(i32,), i32>(&new_player.member(vm.runtime(), "damage").unwrap())
         .unwrap();
     let mut cx = vm.context(&new).unwrap();
-    assert!(new_player.call(&mut cx, &damage, (10,)).is_err());
-    assert!(player.call(&mut cx, &new_damage, (10,)).is_err());
     assert_eq!(calls.load(Ordering::Relaxed), 0);
-    assert_eq!(player.call(&mut cx, &damage, (10,)).unwrap(), 90);
-    assert_eq!(new_player.call(&mut cx, &new_damage, (10,)).unwrap(), 89);
+    assert_eq!(new_player.call(&mut cx, &damage, (10,)).unwrap(), 89);
+    assert_eq!(player.call(&mut cx, &new_damage, (10,)).unwrap(), 89);
     assert_eq!(calls.load(Ordering::Relaxed), 2);
+    assert_eq!(player.call(&mut cx, &damage, (10,)).unwrap(), 89);
+    assert_eq!(new_player.call(&mut cx, &new_damage, (10,)).unwrap(), 89);
+    assert_eq!(calls.load(Ordering::Relaxed), 4);
     drop(player);
     drop(damage);
     assert!(

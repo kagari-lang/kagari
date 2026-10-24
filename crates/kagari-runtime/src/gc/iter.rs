@@ -3,7 +3,7 @@ use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::types::{arguments::TypeArgument, compatibility::TypeView},
     gc::{GcHeap, GcObjectKind, HeapObjectId, storage::HeapObject},
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         binding::NativeResult,
         sequence::SequencePayload,
@@ -129,7 +129,7 @@ impl GcHeap {
         source: &Value,
         ty: &TypeArgument,
         item: TypeArgument,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
     ) -> Result<Value, RuntimeError> {
         let scope = IterTypeScope {
             source: ty,
@@ -143,7 +143,7 @@ impl GcHeap {
         source: &Value,
         ty: &Ty,
         traversal: Option<(Ty, StringTraversal)>,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         scope: Option<IterTypeScope<'_>>,
     ) -> Result<Value, RuntimeError> {
         self.ensure_execution_allowed()?;
@@ -233,7 +233,7 @@ impl GcHeap {
         source: &Value,
         ty: &Ty,
         kind: StringIterKind,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
     ) -> Result<Value, RuntimeError> {
         if !kind.valid_source(ty) {
             return Err(invalid());

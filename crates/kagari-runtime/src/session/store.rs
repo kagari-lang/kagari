@@ -2,7 +2,7 @@
 use crate::{
     error::RuntimeError,
     frame::ExecutionFrame,
-    module::{LoadedModule, retention::ProgramLease},
+    module::{ExecutableModule, retention::ProgramLease},
     resource::ResourceCounters,
     session::{ExecutionOptions, SessionState},
 };
@@ -80,7 +80,7 @@ impl SessionStore {
 
     pub(crate) fn insert(
         &self,
-        root: LoadedModule,
+        root: ExecutableModule,
         options: ExecutionOptions,
         baseline: ResourceCounters,
         program: ProgramLease,
@@ -181,35 +181,31 @@ impl SessionStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::native::program::ProgramFixture;
     use crate::{Runtime, module::ModuleEpochRetention};
-    use kagari_bytecode::{
-        module::BytecodeModule,
-        program::{BytecodeProgram, ModuleRef},
-    };
-    use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+    use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
+    use kagari_common::identity::map::DefinitionContext;
 
-    fn module() -> (Runtime, LoadedModule) {
+    fn module() -> (Runtime, ExecutableModule) {
         let context = DefinitionContext::new().unwrap();
         let mut runtime = Runtime::default();
-        let module = runtime
+        let program = runtime
             .load_program(
                 "sessions",
-                DefinitionMetadata::checked(
-                    context.snapshot(),
-                    BytecodeProgram {
-                        exports: Default::default(),
-                        root: ModuleRef::new(0),
-                        modules: vec![BytecodeModule::default()],
-                    },
-                    &Default::default(),
-                )
+                ProgramFixture {
+                    exports: Default::default(),
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                }
+                .metadata(context.snapshot(), &Default::default())
                 .unwrap(),
             )
             .unwrap();
+        let module = runtime.select_program(&program).unwrap();
         (runtime, module)
     }
 
-    fn insert(store: &SessionStore, runtime: &Runtime, module: &LoadedModule) -> SessionId {
+    fn insert(store: &SessionStore, runtime: &Runtime, module: &ExecutableModule) -> SessionId {
         let lease = runtime
             .retain_module(module, ModuleEpochRetention::ActiveCall)
             .unwrap();

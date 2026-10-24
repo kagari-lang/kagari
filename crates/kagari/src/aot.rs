@@ -13,7 +13,7 @@ use kagari_contract::{
         NativeBundleManifest,
     },
 };
-use kagari_runtime::module::{LoadedModule, entry::ProgramEntry};
+use kagari_runtime::module::{Program, entry::ProgramEntry};
 use kagari_vm::vm::native::PreparedNativeEntry;
 use libloading::Library;
 use std::{
@@ -155,8 +155,12 @@ impl AotBundle {
     pub fn install(
         &self,
         runtime: &Runtime,
-        loaded: &LoadedModule,
+        program: &Program,
     ) -> Result<PreparedNativeEntry, AotError> {
+        let loaded = runtime
+            .runtime()
+            .select_program(program)
+            .map_err(|error| AotError(error.to_string()))?;
         if !self
             .program
             .bytecode()
@@ -168,7 +172,7 @@ impl AotBundle {
         }
         let (owner, function) = self
             .entry()
-            .resolve(loaded)
+            .resolve(&loaded)
             .ok_or_else(|| AotError("entry missing".into()))?;
         if owner.slot().index() != self.manifest.module as usize
             || function.index() != self.manifest.function as usize

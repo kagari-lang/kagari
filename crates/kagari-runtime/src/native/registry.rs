@@ -85,6 +85,8 @@ pub(crate) struct NativeRegistry {
     pub(crate) catalog: DeclarationCatalog,
     pub(crate) path_bindings: DefinitionMap<Vec<HostPathAdapter>>,
     pub(crate) trait_references: DefinitionMap<BTreeMap<DefinitionId, TraitDef>>,
+    // Only declarations published by providers, never their foreign requirements.
+    pub(crate) owned_traits: HashSet<DefinitionId>,
 }
 
 impl Default for NativeRegistry {
@@ -93,6 +95,7 @@ impl Default for NativeRegistry {
         let context = catalog.types.context().clone();
         Self {
             metadata: MetadataSnapshot::default(),
+            owned_traits: HashSet::new(),
             entries: DefinitionMap::new(context.clone()),
             storage: DefinitionMap::new(context.clone()),
             trait_references: DefinitionMap::new(context.clone()),
@@ -109,11 +112,15 @@ impl NativeRegistry {
         let expected = definitions
             .lookup_root(&module.identity)
             .and_then(|root| self.trait_references.get_id(root));
-        if expected.map_or(0, BTreeMap::len) != module.trait_references.len()
-            || module.trait_references.iter().any(|reference| {
-                expected.and_then(|expected| expected.get(&reference.declaration))
-                    != Some(&reference.abi)
-            })
+        // Every installed module has a registry entry, including an empty set.
+        // Source-owned modules instead carry requirements proved against their
+        // verified executable dependency closure; they are not native contracts.
+        if let Some(expected) = expected
+            && (expected.len() != module.trait_references.len()
+                || module
+                    .trait_references
+                    .iter()
+                    .any(|reference| expected.get(&reference.declaration) != Some(&reference.abi)))
         {
             return Err(RuntimeError::module_validation(
                 "source trait references differ from their installed module contracts",

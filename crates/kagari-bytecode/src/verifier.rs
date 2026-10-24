@@ -25,14 +25,17 @@ use kagari_contract::{
     decode_limits::{MAX_INSTRUCTIONS, MAX_TABLE_RECORDS},
     host,
     ids::FunctionRef,
-    layout,
-    layout::StructFieldLayout,
+    layout::{self, LayoutValidationError, StructFieldLayout},
     operations::BinaryOp as MirBinaryOp,
     representation::semantic_representation,
     standard::RuntimePrimitive,
     types::{
-        InterfaceBridge, InterfaceTable, PublicItem, inherent::native_signatures_match, verify,
+        InterfaceBridge, InterfaceTable, PublicItem,
+        inherent::native_signatures_match,
+        named::verify as named_verify,
+        verify::{self, private_types},
     },
+    updates::limits::UpdateError,
 };
 use kagari_types::{
     callable::CallableImplementation,
@@ -60,6 +63,8 @@ pub enum BytecodeVerificationError {
     InvalidProgramGraph,
     #[error("invalid public export graph or callable target")]
     InvalidProgramExports,
+    #[error("{0}")]
+    UpdateEvidence(UpdateError),
     #[error("invalid struct layouts")]
     InvalidStructLayout,
     #[error("invalid enum layouts")]
@@ -170,6 +175,7 @@ impl BytecodeVerificationError {
     pub fn code(&self) -> &'static str {
         match self {
             Self::Cancelled => "KG_BYTECODE_CANCELLED",
+            Self::UpdateEvidence(_) => "KG_BYTECODE_UPDATE_EVIDENCE",
             Self::InvalidProgramExports => "KG_BYTECODE_INVALID_PROGRAM_EXPORTS",
             Self::InvalidProgramGraph => "KG_BYTECODE_INVALID_PROGRAM_GRAPH",
             Self::InvalidStructLayout => "KG_BYTECODE_INVALID_STRUCT_LAYOUT",
@@ -286,6 +292,30 @@ pub(super) fn verify_module_with_program(
     }
     verify::validate(&module.public_items, &module.identity, &cancel, definitions)
         .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
+    named_verify::validate(
+        &module.named_declarations,
+        &module.public_items,
+        &module.identity,
+        definitions,
+        &cancel,
+    )
+    .map_err(|error| match error {
+        LayoutValidationError::Cancelled => BytecodeVerificationError::Cancelled,
+        _ => BytecodeVerificationError::InvalidPublicAbi,
+    })?;
+    private_types::validate(
+        &module.private_types,
+        &module.public_items,
+        &module.identity,
+        &module.structures,
+        &module.enumerations,
+        &cancel,
+        definitions,
+    )
+    .map_err(|error| match error {
+        LayoutValidationError::Cancelled => BytecodeVerificationError::Cancelled,
+        _ => BytecodeVerificationError::InvalidPublicAbi,
+    })?;
     validate_native_declarations(
         &module.native_declarations,
         &module.identity,

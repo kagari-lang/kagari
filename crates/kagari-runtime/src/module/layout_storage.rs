@@ -2,7 +2,7 @@
 use crate::{
     frame::types::compatibility::TypeIdentity,
     host::HostRegistryId,
-    module::{ModuleKey, StructLayoutRef, layout_identity::LayoutIdentity},
+    module::{InstallationId, ModuleKey, StructLayoutRef, layout_identity::LayoutIdentity},
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::instruction::StructId;
@@ -13,6 +13,7 @@ use std::sync::Arc;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct StructStorageKey {
     registry: HostRegistryId,
+    installation: InstallationId,
     owner: ModuleKey,
     identity: StorageIdentity,
 }
@@ -33,6 +34,7 @@ impl StructLayoutRef {
     pub(crate) fn storage_key(&self) -> StructStorageKey {
         StructStorageKey {
             registry: self.module.registry_owner,
+            installation: self.module.installation_id(),
             owner: self.module.key(),
             identity: match self.canonical {
                 Some(identity) => StorageIdentity::Canonical(identity),

@@ -93,7 +93,11 @@ fn async_failure_provenance_contract() {
         let scope = f
             .runtime
             .runtime()
-            .create_task_scope(&f.module, Default::default(), Arc::new(|_| Ok(())))
+            .create_task_scope(
+                &f.runtime.runtime().select_program(&f.module).unwrap(),
+                Default::default(),
+                Arc::new(|_| Ok(())),
+            )
             .unwrap();
         let capability = f.value(scope.capability());
         let producer = f.invoke("submit", slice::from_ref(&capability));
@@ -121,7 +125,11 @@ fn async_failure_provenance_contract() {
         );
         assert_eq!(
             report.origin.factory.code_fingerprint,
-            f.module.program_fingerprint()
+            f.runtime
+                .runtime()
+                .select_program(&f.module)
+                .unwrap()
+                .program_fingerprint()
         );
         let original = report.outcome.unwrap_err();
         assert_eq!(original.error.kind(), RuntimeErrorKind::ScriptTrap);
@@ -158,7 +166,13 @@ fn async_failure_provenance_contract() {
             let CallableTarget::Script(function) = site.target else {
                 panic!("script await")
             };
-            let owner = f.module.member(site.module).unwrap();
+            let owner = f
+                .runtime
+                .runtime()
+                .select_program(&f.module)
+                .unwrap()
+                .member(site.module)
+                .unwrap();
             assert!(matches!(
                 owner.bytecode.functions[function.index()].instructions[site.instruction_offset],
                 BytecodeInstruction::Await { .. }
@@ -262,7 +276,11 @@ fn async_failure_provenance_contract() {
         assert!(host_report.origin.site.is_none());
         assert_eq!(
             host_report.origin.factory.code_fingerprint,
-            f.module.program_fingerprint()
+            f.runtime
+                .runtime()
+                .select_program(&f.module)
+                .unwrap()
+                .program_fingerprint()
         );
         assert_eq!(f.value(&host_report.outcome.unwrap()), Value::I32(7));
         drop((factory, hosted, tail, left, right, queued, dependent));
@@ -283,7 +301,7 @@ fn async_failure_provenance_contract() {
         assert_eq!(
             runtime
                 .modules()
-                .retention_counts(f.module.key())
+                .retention_counts(f.runtime.runtime().select_program(&f.module).unwrap().key())
                 .runtime_values,
             0,
             "diagnostics own no executable-version leases"

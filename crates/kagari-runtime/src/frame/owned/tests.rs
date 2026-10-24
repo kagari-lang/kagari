@@ -1,9 +1,10 @@
+use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
     frame::{ExecutionStack, NativeEntryState},
     gc::retention_probe::{measure, replace_cell},
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         binding::NativeResult,
         storage::{NativePayload, NativeStorage},
@@ -19,7 +20,7 @@ use kagari_bytecode::{
         BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, InstructionOrigin,
         RootSlotLayout,
     },
-    program::{BytecodeProgram, ModuleRef},
+    program::ModuleRef,
 };
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_contract::ids::FunctionRef;
@@ -37,7 +38,7 @@ pub(in crate::frame) fn module(
     runtime: &mut Runtime,
     aliases: usize,
     scalar: bool,
-) -> LoadedModule {
+) -> ExecutableModule {
     let types = vec![
         if scalar {
             ValueType::I32
@@ -64,7 +65,7 @@ pub(in crate::frame) fn module(
         instructions: vec![BytecodeInstruction::Return(None)],
         ..Default::default()
     };
-    let program = BytecodeProgram {
+    let program = ProgramFixture {
         root: ModuleRef::new(0),
         exports: Default::default(),
         modules: vec![BytecodeModule {
@@ -80,11 +81,13 @@ pub(in crate::frame) fn module(
             functions: vec![function],
             ..Default::default()
         }],
-    };
+    }
+    .build(runtime.definition_context());
     let program =
         DefinitionMetadata::checked(runtime.host().definitions(), program, &Default::default())
             .unwrap();
-    runtime.load_program("parking", program).unwrap()
+    let program = runtime.load_program("parking", program).unwrap();
+    runtime.select_program(&program).unwrap()
 }
 
 fn graph(runtime: &Runtime, size: usize, cyclic: bool) -> Value {
@@ -111,7 +114,7 @@ pub(in crate::frame) fn set_frame(runtime: &Runtime, stack: &ExecutionStack<'_>,
 
 fn fixture(
     runtime: &Runtime,
-    module: &LoadedModule,
+    module: &ExecutableModule,
     shape: &str,
     depth: usize,
     aliases: usize,

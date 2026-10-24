@@ -1,14 +1,12 @@
+use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
     error::RuntimeError,
     host_scope::scoped::{HostScope, RefMut},
     native::{builder::ModuleBuilder, catalog::DeclarationCatalog, rust_type::RustField},
 };
-use kagari_bytecode::{
-    module::BytecodeModule,
-    program::{BytecodeProgram, ModuleRef},
-};
-use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
+use kagari_common::identity::map::DefinitionContext;
 use kagari_derive::KagariValue;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -36,23 +34,25 @@ fn scoped_generated_fields_check_prefix_loans_and_resolve_replacements() {
     let mut runtime = Runtime::default();
     module.install(&mut runtime).unwrap();
     let context = DefinitionContext::new().unwrap();
-    let owner = runtime
+    let owner_program = runtime
         .load_program(
             "field-proof",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap();
-    let player_type = runtime.bind_rust_type::<Player>(&owner).unwrap();
-    let stats_type = runtime.bind_rust_type::<Stats>(&owner).unwrap();
+
+    let player_type = runtime
+        .bind_rust_type::<Player>(&owner_program.root())
+        .unwrap();
+    let stats_type = runtime
+        .bind_rust_type::<Stats>(&owner_program.root())
+        .unwrap();
     let stats_field = runtime
         .bind_rust_field::<Player, Stats>(&player_type, "stats")
         .unwrap();

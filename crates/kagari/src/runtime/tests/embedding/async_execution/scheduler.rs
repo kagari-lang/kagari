@@ -6,7 +6,7 @@ use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::ExecutionFrame,
     gc::roots::RootedValue,
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         binding::NativeResult, completion::CompletionStatus, conversion::context::ConversionContext,
     },
@@ -248,7 +248,7 @@ fn scheduler_conversion_context_results_and_local_cancellation() {
         .runtime
         .backend()
         .start(
-            &f.module,
+            &f.runtime.runtime().select_program(&f.module).unwrap(),
             "value",
             &[],
             options.interpreter_options().unwrap(),
@@ -362,7 +362,12 @@ fn scheduler_failure_overflow_shutdown_and_ticket_teardown() {
     assert!(
         f.runtime
             .backend()
-            .start(&f.module, "value", &[], Default::default())
+            .start(
+                &f.runtime.runtime().select_program(&f.module).unwrap(),
+                "value",
+                &[],
+                Default::default()
+            )
             .is_err()
     );
     let mut other = Fixture::source(SOURCE);
@@ -393,7 +398,12 @@ fn scheduler_receiver_drop_during_conversion_retires_output() {
     let execution = f
         .runtime
         .backend()
-        .start(&f.module, "value", &[], Default::default())
+        .start(
+            &f.runtime.runtime().select_program(&f.module).unwrap(),
+            "value",
+            &[],
+            Default::default(),
+        )
         .unwrap();
     let ticket = f
         .runtime
@@ -427,7 +437,7 @@ fn scheduler_receiver_drop_during_conversion_retires_output() {
 struct RejectEntry(Option<RuntimeError>);
 
 impl ExecutionObserver for RejectEntry {
-    fn begin(&mut self, _: &CoreRuntime, _: &LoadedModule) -> NativeResult<()> {
+    fn begin(&mut self, _: &CoreRuntime, _: &ExecutableModule) -> NativeResult<()> {
         self.0.take().map_or(Ok(()), Err)
     }
 
@@ -477,7 +487,12 @@ fn scheduler_entry_failure_is_an_outcome_and_preserves_other_work() {
             let execution = f
                 .runtime
                 .backend()
-                .start(&f.module, "value", &[], Default::default())
+                .start(
+                    &f.runtime.runtime().select_program(&f.module).unwrap(),
+                    "value",
+                    &[],
+                    Default::default(),
+                )
                 .unwrap();
             f.runtime
                 .runtime()
@@ -558,7 +573,12 @@ fn scheduler_fatal_entry_failure_drains_other_work() {
             let execution = f
                 .runtime
                 .backend()
-                .start(&f.module, "value", &[], Default::default())
+                .start(
+                    &f.runtime.runtime().select_program(&f.module).unwrap(),
+                    "value",
+                    &[],
+                    Default::default(),
+                )
                 .unwrap();
             f.runtime
                 .runtime()
@@ -613,7 +633,12 @@ fn scheduler_off_driver_result_drop_fault_wakes_io_driver() {
     let execution = f
         .runtime
         .backend()
-        .start(&f.module, "value", &[], Default::default())
+        .start(
+            &f.runtime.runtime().select_program(&f.module).unwrap(),
+            "value",
+            &[],
+            Default::default(),
+        )
         .unwrap();
     let completed = f
         .runtime
@@ -660,7 +685,12 @@ fn scheduler_cleanup_fault_drains_without_later_poll() {
         let execution = f
             .runtime
             .backend()
-            .start(&f.module, "value", &[], Default::default())
+            .start(
+                &f.runtime.runtime().select_program(&f.module).unwrap(),
+                "value",
+                &[],
+                Default::default(),
+            )
             .unwrap();
         let fault = CleanupFault;
         let mut cancelled = f
@@ -710,7 +740,12 @@ fn scheduler_conversion_fault_drains_other_invocations() {
     let execution = f
         .runtime
         .backend()
-        .start(&f.module, "value", &[], Default::default())
+        .start(
+            &f.runtime.runtime().select_program(&f.module).unwrap(),
+            "value",
+            &[],
+            Default::default(),
+        )
         .unwrap();
     let mut broken = f
         .runtime

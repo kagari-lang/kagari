@@ -1,0 +1,52 @@
+pub fn value() -> i32 {
+    10
+}
+
+pub fn other() -> i32 {
+    7
+}
+
+pub use crate::value as selected;
+
+pub fn named() -> fn() -> i32 {
+    fn local() -> i32 {
+        10
+    }
+    local
+}
+
+pub fn closure() -> fn() -> i32 {
+    || 100 + value()
+}
+
+pub struct Item {
+    pub val amount: i32
+}
+
+impl Item {
+    pub fn read(self) -> i32 {
+        self.amount + value()
+    }
+}
+
+pub trait Read {
+    fn read(self) -> i32;
+}
+
+impl Read for Item {
+    fn read(self) -> i32 {
+        self.amount + value()
+    }
+}
+
+pub fn make() -> Item {
+    Item { amount: 1 }
+}
+
+pub fn view() -> Read {
+    make()
+}
+
+pub fn evidence() -> i32 {
+    make().read()
+}

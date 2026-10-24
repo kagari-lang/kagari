@@ -5,7 +5,7 @@ use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
 use kagari_common::identity::DefinitionKind;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::analysis::AnalysisDatabase;
-use kagari_runtime::{Runtime, module::LoadedModule, value::Value};
+use kagari_runtime::{Runtime, module::ExecutableModule, value::Value};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib as foundation;
 use kagari_vm::vm::Vm;
@@ -58,6 +58,8 @@ fn unused_interface_methods_do_not_increase_repeated_dispatch_allocations() {
         )
         .unwrap();
         let loaded = runtime.load_program("interface-width", program).unwrap();
+        let _loaded_program = loaded;
+        let loaded = runtime.select_program(&_loaded_program).unwrap();
         let contract = loaded
             .bytecode
             .trait_contracts
@@ -278,7 +280,7 @@ pub fn make() -> List<i32> { Sequence { items: Vec::from([3, 1, 2]) } }
     }
 }
 
-fn load(source: &str) -> (Vm, LoadedModule) {
+fn load(source: &str) -> (Vm, ExecutableModule) {
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("interface-cache.kgr", source.into(), SourceLayer::Base)
@@ -306,5 +308,7 @@ fn load(source: &str) -> (Vm, LoadedModule) {
     )
     .unwrap();
     let loaded = runtime.load_program("interface-cache", program).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     (Vm::new(runtime), loaded)
 }

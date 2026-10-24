@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_support::native::program::ProgramFixture;
 use kagari_bytecode::artifact::{ArtifactBuildOptions, KbcArtifact};
 use kagari_contract::types::PublicItem;
 use kagari_types::declaration::{TypeDeclaration, path::HostPathDeclaration};
@@ -147,7 +148,7 @@ fn index_and_virtual_path_fingerprints_follow_resolved_contracts() {
         definition: records.types[0].clone(),
     };
     let artifact = KbcArtifact::from_program(
-        BytecodeProgram {
+        ProgramFixture {
             root: ModuleRef::new(0),
             exports: Default::default(),
             modules: vec![BytecodeModule {
@@ -162,7 +163,8 @@ fn index_and_virtual_path_fingerprints_follow_resolved_contracts() {
                     .collect(),
                 ..Default::default()
             }],
-        },
+        }
+        .build(&context),
         ArtifactBuildOptions::default(),
         &context,
         &Default::default(),

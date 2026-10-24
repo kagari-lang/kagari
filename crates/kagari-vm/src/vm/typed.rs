@@ -10,11 +10,11 @@ use crate::{
 use kagari_runtime::{
     error::RuntimeError,
     host_scope::scoped::HostScope,
-    module::{LoadedModule, entry::ProgramEntry},
+    module::{ExecutableModule, Program, entry::ProgramEntry},
     native::{
         binding::NativeResult,
         conversion::{FromKagari, arguments::IntoKagariArguments, context::ConversionContext},
-        function_handle::PinnedFunction,
+        function_handle::Function,
         typed::NativeContext,
     },
     session::ExecutionOptions,
@@ -27,17 +27,18 @@ impl Vm {
     /// uses the interpreter's ordinary checked entry, session and trap cleanup.
     pub fn execute_scoped<'entry>(
         scope: &HostScope<'_, '_>,
-        module: &LoadedModule,
+        program: &Program,
         entry: impl Into<ProgramEntry<'entry>>,
         arguments: &[Value],
         options: ExecutionOptions,
     ) -> NativeResult<Value> {
         let entry = entry.into();
-        let (owner, function) = entry
-            .resolve(module)
-            .ok_or_else(|| RuntimeError::module_validation("missing scoped entry"))?;
         scope.execute(arguments, |runtime, arguments| {
-            runtime.validate_loaded_module(&owner)?;
+            let module = runtime.select_program(program)?;
+            let (owner, function) = entry
+                .resolve(&module)
+                .ok_or_else(|| RuntimeError::module_validation("missing scoped entry"))?;
+            runtime.validate_executable_module(&owner)?;
             let body = &owner.bytecode.functions[function.index()];
             let semantic = &body.metadata.semantic;
             if semantic.generic.is_some() || arguments.len() != usize::from(body.parameter_count) {
@@ -66,32 +67,39 @@ impl Vm {
     }
 
     /// Access and call typed handles with the interpreter's synchronous service.
-    pub fn context<'a>(&'a self, owner: &'a LoadedModule) -> Result<NativeContext<'a>, VmError> {
+    pub fn context<'a>(
+        &'a self,
+        owner: &'a ExecutableModule,
+    ) -> Result<NativeContext<'a>, VmError> {
         NativeContext::with_invoker(&self.runtime, owner, invoke_script).map_err(VmError::from)
     }
 
     pub fn call<A: IntoKagariArguments, R: FromKagari>(
         &self,
-        function: &PinnedFunction<A, R>,
+        function: &Function<A, R>,
         arguments: A,
     ) -> Result<R, VmError> {
-        let mut cx = self.context(function.owner())?;
-        function.call(&mut cx, arguments).map_err(VmError::from)
+        let prepared = function.prepare_call(&self.runtime)?;
+        let mut cx = self.context(prepared.owner())?;
+        prepared
+            .call_with_options(&mut cx, arguments, self.runtime.execution_options())
+            .map_err(VmError::from)
     }
 
     /// Execute a public path or explicit root entry with an owned typed result.
     /// Conversion uses the verified target's semantic signature and supplying module.
     pub fn execute_typed<'a, A: IntoKagariArguments, R: FromKagari>(
         &self,
-        module: &LoadedModule,
+        module: &ExecutableModule,
         entry: impl Into<ProgramEntry<'a>>,
         arguments: A,
     ) -> Result<R, VmError> {
-        self.runtime.validate_loaded_module(module)?;
+        self.runtime.validate_executable_module(module)?;
         let entry = entry.into();
         let (owner, function) = entry
             .resolve(module)
             .ok_or_else(|| VmError::MissingFunction(entry.label().to_owned()))?;
+        let (owner, function) = self.select_function(&owner, function)?;
         let module = &owner;
         let body = module
             .bytecode

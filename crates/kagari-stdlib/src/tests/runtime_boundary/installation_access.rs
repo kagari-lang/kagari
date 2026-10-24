@@ -1,10 +1,8 @@
 use super::support;
+use rstest::rstest;
 
 use crate::{declarations::StandardDeclarations, namespaces};
-use kagari_bytecode::{
-    module::BytecodeModule,
-    program::{BytecodeProgram, ModuleRef},
-};
+use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata},
@@ -31,8 +29,13 @@ use kagari_runtime::{
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::declaration::{NativeDeclaration, TraitDef, host::HostCallPolicy};
-use std::collections::BTreeSet;
-use support::native::{invoke::invoke, program::free_function_program};
+use support::{
+    native::{
+        invoke::invoke,
+        program::{ProgramFixture, free_function_program},
+    },
+    update_publication::publish_without_execution,
+};
 
 #[test]
 fn installed_function_needs_no_execution_permissions() {
@@ -63,6 +66,8 @@ fn installed_function_needs_no_execution_permissions() {
     assert_eq!(runtime.modules().loaded_count(), 0);
     module.install(&mut runtime).unwrap();
     let loaded = runtime.load_program("installed", program).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     assert_eq!(invoke(&runtime, &loaded, 0, &[]).unwrap(), Value::I32(42));
 }
 
@@ -92,6 +97,8 @@ fn host_cancellation_is_sticky_even_when_the_handler_returns_success() {
     let mut runtime = Runtime::default();
     module.install(&mut runtime).unwrap();
     let loaded = runtime.load_program("cancel", program).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let session = runtime
         .begin_execution(
             &loaded,
@@ -117,8 +124,10 @@ fn host_cancellation_is_sticky_even_when_the_handler_returns_success() {
     runtime.resources().poll_execution().unwrap();
 }
 
-#[test]
-fn ordinary_installed_traits_require_exact_contracts_without_calls() {
+#[rstest]
+#[case::public_contract(false)]
+#[case::private_contract(true)]
+fn ordinary_installed_traits_require_exact_contracts_without_calls(#[case] private: bool) {
     let context = DefinitionContext::new().unwrap();
     let mut builder = ModuleBuilder::new(
         "example::plain",
@@ -153,15 +162,12 @@ fn ordinary_installed_traits_require_exact_contracts_without_calls() {
         } else {
             module.public_items.push(PublicItem::Trait(contract));
         }
-        DefinitionMetadata::checked(
-            context.snapshot(),
-            BytecodeProgram {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![module],
-            },
-            &Default::default(),
-        )
+        ProgramFixture {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![module],
+        }
+        .metadata(context.snapshot(), &Default::default())
         .unwrap()
     };
     // A plain declaration alone has no native privilege or installation dependency.
@@ -173,21 +179,20 @@ fn ordinary_installed_traits_require_exact_contracts_without_calls() {
     let active = runtime
         .load_program("registered", program(contract.clone(), false))
         .unwrap();
+    let _active_program = active;
     runtime
         .load_program("private", program(contract.clone(), true))
         .unwrap();
     let mut forged = contract;
     forged.methods[0].params[0].name = "forged_receiver".into();
-    for private in [false, true] {
-        let candidate = program(forged.clone(), private);
-        VerifiedProgram::new(candidate.clone(), &context).unwrap();
-        assert!(runtime.load_program("forged", candidate.clone()).is_err());
-        assert!(
-            runtime
-                .stage_reload_program(&active, "registered", candidate)
-                .is_err()
-        );
-    }
+    let candidate = program(forged.clone(), private);
+    VerifiedProgram::new(candidate.clone(), &context).unwrap();
+    assert!(runtime.load_program("forged", candidate.clone()).is_err());
+    assert!(
+        runtime
+            .stage_reload_program(&_active_program, Some("registered".into()), candidate)
+            .is_err()
+    );
 }
 
 #[test]
@@ -227,19 +232,16 @@ fn native_declarations_require_exact_installation_without_calls() {
         callable_requirements: vec![],
     };
     let program = |contract: NativeDeclaration| {
-        DefinitionMetadata::checked(
-            context.snapshot(),
-            BytecodeProgram {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule {
-                    identity: declaration.identity.clone(),
-                    native_declarations: vec![contract],
-                    ..Default::default()
-                }],
-            },
-            &Default::default(),
-        )
+        ProgramFixture {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule {
+                identity: declaration.identity.clone(),
+                native_declarations: vec![contract],
+                ..Default::default()
+            }],
+        }
+        .metadata(context.snapshot(), &Default::default())
         .unwrap()
     };
     let mut runtime = Runtime::default();
@@ -253,6 +255,7 @@ fn native_declarations_require_exact_installation_without_calls() {
     let active = runtime
         .load_program("registered", program(contract.clone()))
         .unwrap();
+    let _active_program = active;
     let mut forged = contract;
     forged.function.return_type = Type::bool().abi().clone();
     VerifiedProgram::new(program(forged.clone()), &context).unwrap();
@@ -263,7 +266,7 @@ fn native_declarations_require_exact_installation_without_calls() {
     );
     assert!(
         runtime
-            .stage_reload_program(&active, "registered", program(forged))
+            .stage_reload_program(&_active_program, Some("registered".into()), program(forged))
             .is_err()
     );
 }
@@ -286,13 +289,13 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
     let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
-    let modules = lower_program_to_bytecode(&mir, &Default::default())
+    let compiled = lower_program_to_bytecode(&mir, &Default::default())
         .map(|program| program.into_unverified())
         .unwrap()
         .import_into(&context, &Default::default())
         .unwrap()
-        .into_records()
-        .modules;
+        .into_records();
+    let modules = &compiled.modules;
     for (index, module) in modules
         .iter()
         .enumerate()
@@ -307,44 +310,12 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
             .into_records();
         let base = modules[index].clone();
         let program = |module| {
-            let mut modules = modules.clone();
-            modules[index] = module;
-            let mut included = BTreeSet::new();
-            let mut pending = vec![index];
-            while let Some(index) = pending.pop() {
-                if included.insert(index) {
-                    pending.extend(
-                        modules[index]
-                            .dependencies
-                            .iter()
-                            .map(|owner| owner.index()),
-                    );
-                }
-            }
-            let order = included.into_iter().collect::<Vec<_>>();
-            let reference =
-                |index| ModuleRef::new(order.iter().position(|owner| *owner == index).unwrap());
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: reference(index),
-                    modules: order
-                        .iter()
-                        .map(|index| {
-                            let mut module = modules[*index].clone();
-                            module.dependencies = module
-                                .dependencies
-                                .iter()
-                                .map(|owner| reference(owner.index()))
-                                .collect();
-                            module
-                        })
-                        .collect(),
-                },
-                &Default::default(),
-            )
-            .unwrap()
+            // Retain the producer's complete proof/evidence closure rather than
+            // extracting modules and losing authored generic/default-body records.
+            let mut program = compiled.clone();
+
+            program.modules[index] = module;
+            DefinitionMetadata::checked(context.snapshot(), program, &Default::default()).unwrap()
         };
         let mut runtime = Runtime::default();
         assert!(
@@ -392,15 +363,12 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
         .find(|module| module.identity == namespaces::module("core", "fmt"))
         .unwrap();
     let program = |module| {
-        DefinitionMetadata::checked(
-            context.snapshot(),
-            BytecodeProgram {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![module],
-            },
-            &Default::default(),
-        )
+        ProgramFixture {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![module],
+        }
+        .metadata(context.snapshot(), &Default::default())
         .unwrap()
     };
     let base = BytecodeModule {
@@ -419,6 +387,7 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
     let active = runtime
         .load_program("public_core", program(base.clone()))
         .unwrap();
+    let _active_program = active;
     let mut forged = base;
     let contract = forged
         .public_items
@@ -443,7 +412,7 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
     );
     // Staging rejects the changed public ABI before installation validation.
     assert!(matches!(
-        runtime.stage_reload_program(&active, "public_core", forged),
+        runtime.stage_reload_program(&_active_program, Some("public_core".into()), forged),
         Err(ReloadValidationError::PublicAbiFingerprintMismatch)
     ));
     let root = context.intern_root(&format_module.identity).unwrap();
@@ -466,4 +435,94 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
             .contains("private reserved or native trait lacks an installed contract"),
         "{error}"
     );
+}
+
+fn standard_code(text: &str) -> VerifiedProgram {
+    let mut source = SourceDatabase::default();
+    let root = source
+        .set("exports.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut analysis = AnalysisDatabase::default();
+    analysis.set_native_modules(crate::catalog::shared().unwrap());
+    let checked = analysis
+        .snapshot(source.snapshot(), &Default::default())
+        .unwrap()
+        .check_program(root, &Default::default())
+        .unwrap();
+    let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let code = lower_program_to_bytecode(&mir, &Default::default())
+        .unwrap()
+        .into_unverified();
+    VerifiedProgram::new(code, &DefinitionContext::new().unwrap()).unwrap()
+}
+
+fn standard_runtime() -> Runtime {
+    let mut runtime = Runtime::default();
+    NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
+    runtime
+}
+
+#[test]
+fn native_initializer_accepts_unchanged_inventory_and_executable_additions() {
+    let source = "use std::hash::Hash; static var STATE: i64 = 7.hash(); fn main() {}";
+    let mut runtime = standard_runtime();
+    let loaded_program = runtime
+        .load_verified_program("exports", standard_code(source))
+        .unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
+    assert!(
+        loaded
+            .verified_program()
+            .modules()
+            .iter()
+            .any(|module| !module.native_imports.is_empty())
+    );
+    publish_without_execution(
+        &mut runtime,
+        &loaded_program,
+        loaded.verified_program().clone(),
+    );
+    let candidate = format!("{source} pub fn added() -> i32 {{ 1 }}");
+    publish_without_execution(&mut runtime, &loaded_program, standard_code(&candidate));
+}
+
+#[rstest]
+#[case::helper_body(|source: &str| source.replace(
+            "hash_helper() -> i64 { 1i64 }",
+            "hash_helper() -> i64 { 2i64 }",
+        ))]
+#[case::hash_body(|source: &str| source.replace("hash_helper() }", "hash_helper() + 1i64 }"))]
+#[case::equality_body(|source: &str| source.replace("-> bool { true }", "-> bool { false }"))]
+fn unused_generic_key_protocols_allow_body_and_helper_updates(
+    #[case] candidate: fn(&str) -> String,
+) {
+    let source = r#"
+        use std::hash::Hash;
+        struct Key<T> { val value: T }
+        fn hash_helper() -> i64 { 1i64 }
+        impl<T> PartialEq for Key<T> { fn eq(self, other: Self) -> bool { true } }
+        impl<T> Eq for Key<T> {}
+        impl<T> Hash for Key<T> { fn hash(self) -> i64 { hash_helper() } }
+        fn main() {}
+    "#;
+    let mut runtime = standard_runtime();
+    let loaded_program = runtime
+        .load_verified_program("exports", standard_code(source))
+        .unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
+    let facts = loaded.verified_program();
+    assert!(facts.update_evidence().initializers.is_empty());
+    for name in ["hash", "eq"] {
+        assert!(facts.update_evidence().sources.iter().any(|source| {
+            facts
+                .definitions()
+                .resolve(source.declaration)
+                .is_ok_and(|view| {
+                    view.module() == &loaded.bytecode.identity
+                        && view.last().is_some_and(|part| part.name == name)
+                })
+        }));
+    }
+    let candidate = candidate(source);
+    publish_without_execution(&mut runtime, &loaded_program, standard_code(&candidate));
 }

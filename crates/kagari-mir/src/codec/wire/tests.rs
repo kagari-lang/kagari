@@ -16,12 +16,18 @@ use kagari_common::identity::{
 };
 use kagari_contract::{
     exports::wire::ProgramExportsRecord,
+    layout::{EnumLayout, EnumVariantLayout},
     numeric::NumericConversion,
     operations::BinaryOp,
     statics::{StaticContract, StaticDescriptor},
     types::{ConcreteFunctionIdentity, PublicItem},
 };
-use kagari_types::{scalar::BuiltinType, ty::Ty, visibility::Visibility};
+use kagari_types::{
+    declaration::{TypeDeclaration, TypeDef, TypeDefKind, VariantDef},
+    scalar::BuiltinType,
+    ty::{GenericParam, Ty},
+    visibility::Visibility,
+};
 use std::collections::HashSet;
 
 fn module(context: &DefinitionContext, name: &str) -> MirModule {
@@ -78,6 +84,12 @@ fn module(context: &DefinitionContext, name: &str) -> MirModule {
 // without exposing an unverified encoder through the production codec API.
 fn forged(context: &DefinitionContext, modules: &[MirModule]) -> Vec<u8> {
     let cancel = Default::default();
+    let mut modules = modules.to_vec();
+    // Malformed extraction inputs are intentional on this unverified encoder route.
+    // Successful fixtures carry real evidence; malformed ones still cross all
+    // ordinary executable validation before the mandatory evidence boundary.
+    let update_evidence = crate::program::updates::fixtures::evidence(&mut modules, context)
+        .unwrap_or_else(|_| crate::program::updates::empty());
     let mut references = HashSet::new();
     modules
         .to_vec()
@@ -97,9 +109,99 @@ fn forged(context: &DefinitionContext, modules: &[MirModule]) -> Vec<u8> {
             .map(|module| MirModuleRecord::encode(module, &encoding, &cancel).unwrap())
             .collect(),
         exports: ProgramExportsRecord::encode(&Default::default(), &encoding, &cancel).unwrap(),
+        update_evidence: kagari_contract::updates::wire::UpdateEvidenceRecord::encode(
+            &update_evidence,
+            &encoding,
+            &mut kagari_contract::updates::limits::Budget::new(Default::default(), &cancel)
+                .unwrap(),
+        )
+        .unwrap(),
         definitions: encoding.table,
     };
     options().serialize(&(Header::current(), record)).unwrap()
+}
+
+#[test]
+fn private_types_codec_checks_enum_payloads_without_exporting_the_declaration() {
+    let context = DefinitionContext::new().unwrap();
+    let mut module = module(&context, "private-enum");
+    module.functions.clear();
+    let root = context.intern_root(&module.identity).unwrap();
+    let choice = context
+        .intern_child(root, DefinitionKind::Enum, "Choice", 0)
+        .unwrap();
+    let variant = context
+        .intern_child(choice, DefinitionKind::Variant, "Value", 0)
+        .unwrap();
+    let parameter = GenericParam {
+        owner: choice,
+        position: 0,
+    };
+    module.abi.private_types.push(TypeDeclaration {
+        declaration: choice,
+        definition: TypeDef {
+            name: "Choice".into(),
+            kind: TypeDefKind::Enum,
+            generic_params: vec![parameter.clone()],
+            bounds: vec![],
+            fields: vec![],
+            variants: vec![VariantDef {
+                name: "Value".into(),
+                reports_failure: false,
+                payload: vec![parameter.as_type()],
+            }],
+        },
+    });
+    module.enumerations.push(EnumLayout {
+        declaration: choice,
+        arguments: vec![parameter.as_type()],
+        variants: vec![EnumVariantLayout {
+            declaration: variant,
+            reports_failure: false,
+            payload: vec![parameter.as_type()],
+        }],
+    });
+    let bytes = forged(&context, &[module.clone()]);
+    let decoded = decode_program(&bytes, &Default::default()).unwrap();
+    let owner = &decoded.modules()[0];
+    assert!(owner.abi.public_items.is_empty());
+    assert!(owner.external_types.is_empty());
+    assert_eq!(owner.abi.private_types.len(), 1);
+    let definition = &owner.abi.private_types[0];
+    assert_eq!(
+        definition.definition.generic_params[0].owner,
+        definition.declaration
+    );
+    assert_eq!(
+        definition.definition.variants[0].payload[0],
+        owner.enumerations[0].variants[0].payload[0]
+    );
+    assert_eq!(
+        encode_program(&decoded, &Default::default()).unwrap(),
+        bytes
+    );
+    for corruption in 0..4 {
+        let mut invalid = module.clone();
+        match corruption {
+            0 => {
+                invalid.abi.private_types[0].definition.variants[0].payload[0] =
+                    Ty::Builtin(BuiltinType::Bool)
+            }
+            1 => invalid.abi.private_types[0].definition.variants[0].reports_failure = true,
+            2 => invalid.abi.private_types[0].definition.variants[0].name = "Other".into(),
+            3 => {
+                invalid.enumerations[0].arguments[0] = Ty::Parameter {
+                    owner: root,
+                    position: 0,
+                }
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            decode_program(&forged(&context, &[invalid]), &Default::default()).is_err(),
+            "corruption {corruption}"
+        );
+    }
 }
 
 #[test]
@@ -272,7 +374,10 @@ fn codec_preserves_static_identity_supplier_and_hidden_initializer_contract() {
             2 => invalid[1].dependencies.clear(),
             _ => invalid[1].module_slots[0].contract.mutable = true,
         }
-        assert!(decode_program(&forged(&context, &invalid), &Default::default()).is_err());
+        assert!(
+            decode_program(&forged(&context, &invalid), &Default::default()).is_err(),
+            "static contract mutation {mutation}"
+        );
         if mutation < 2 {
             assert!(
                 verify_mir(
@@ -295,11 +400,15 @@ fn codec_rejects_forged_control_flow_instead_of_accepting_serialized_proof() {
     let context = DefinitionContext::new().unwrap();
     let mut module = module(&context, "root");
     verify_program(
-        MirProgram {
-            root: module.identity.clone(),
-            modules: vec![module.clone()],
-            exports: Default::default(),
-        },
+        crate::program::updates::fixtures::certify(
+            MirProgram {
+                update_evidence: crate::program::updates::empty(),
+                root: module.identity.clone(),
+                modules: vec![module.clone()],
+                exports: Default::default(),
+            },
+            &context,
+        ),
         &context,
         &Default::default(),
     )
@@ -343,11 +452,15 @@ fn whole_program_analysis_budget_cannot_be_reset_by_splitting_modules() {
         })
         .collect::<Vec<_>>();
     verify_program(
-        MirProgram {
-            root: modules[0].identity.clone(),
-            modules: vec![modules[0].clone()],
-            exports: Default::default(),
-        },
+        crate::program::updates::fixtures::certify(
+            MirProgram {
+                update_evidence: crate::program::updates::empty(),
+                root: modules[0].identity.clone(),
+                modules: vec![modules[0].clone()],
+                exports: Default::default(),
+            },
+            &context,
+        ),
         &context,
         &Default::default(),
     )

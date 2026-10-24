@@ -1,0 +1,13 @@
+use core::hash::Hash;
+
+pub fn primitive() -> Hash {
+    42
+}
+
+pub fn tuple() -> Hash {
+    (42, true)
+}
+
+pub fn version() -> i32 {
+    2
+}

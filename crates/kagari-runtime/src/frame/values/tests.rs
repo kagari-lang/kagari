@@ -1,3 +1,4 @@
+use crate::test_support::native::program::ProgramFixture;
 mod measurements;
 
 use super::*;
@@ -5,7 +6,7 @@ use crate::{
     Runtime,
     error::RuntimeErrorKind,
     frame::{execution_frames::loaded, types::EnvironmentRecord},
-    module::execution::layout::Location,
+    module::{Program, execution::layout::Location},
     native::{
         application::NativeApplication,
         binding::{Codec, LinkedNativeFunction, NativeBinding},
@@ -15,40 +16,37 @@ use crate::{
 use kagari_bytecode::{
     instruction::{NativeImportId, Slot},
     module::{BytecodeModule, CallableTarget},
-    program::{BytecodeProgram, ModuleRef},
+    program::ModuleRef,
 };
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
-    metadata::DefinitionMetadata,
 };
 use kagari_contract::ids::FunctionRef;
 use kagari_types::{callable::Signature, scalar::BuiltinType, ty::Ty};
 use std::mem::size_of;
 
-fn module() -> (Runtime, LoadedModule) {
+fn module() -> (Runtime, Program, ExecutableModule) {
     let mut runtime = Runtime::default();
-    let module = runtime
+    let module_program = runtime
         .load_program(
             "windows",
-            DefinitionMetadata::checked(
-                runtime.host().definitions(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(runtime.host().definitions(), &Default::default())
             .unwrap(),
         )
         .unwrap();
-    (runtime, module)
+    let module = runtime.select_program(&module_program).unwrap();
+    (runtime, module_program, module)
 }
 
 #[test]
 fn frame_generation_failure_terminates_session_before_unwind() {
     let mut runtime = Runtime::default();
-    let owner = loaded(&mut runtime);
+    let (_owner_program, owner) = loaded(&mut runtime);
     let stack = runtime.enter_execution_stack(&owner).unwrap();
     stack
         .push(&runtime, owner.slot(), FunctionRef::new(0), &[], None)
@@ -105,7 +103,7 @@ fn frame_generation_failure_terminates_session_before_unwind() {
 
 #[test]
 fn frame_windows_reject_foreign_and_reused_identities() {
-    let (_runtime, module) = module();
+    let (_runtime, _program, module) = module();
     let mut values = ExecutionValues::default();
     let mut foreign = ExecutionValues::default();
     let arguments = FrameArguments::plain(&[Value::I32(42)]);
@@ -160,7 +158,7 @@ fn frame_windows_reject_foreign_and_reused_identities() {
 
 #[test]
 fn trimming_out_of_order_holes_preserves_live_and_reused_identities() {
-    let (_runtime, module) = module();
+    let (_runtime, _program, module) = module();
     for width in [0, 2] {
         let mut values = ExecutionValues::default();
         let allocate = |values: &mut ExecutionValues, value: i32| {
@@ -234,7 +232,7 @@ fn trimming_out_of_order_holes_preserves_live_and_reused_identities() {
 
 #[test]
 fn retiring_an_outer_window_does_not_unroot_a_suspended_inner_window() {
-    let (_runtime, module) = module();
+    let (_runtime, _program, module) = module();
     let mut values = ExecutionValues::default();
     let first = values
         .allocate(
@@ -328,7 +326,7 @@ fn retiring_an_outer_window_does_not_unroot_a_suspended_inner_window() {
 
 #[test]
 fn register_arguments_survive_growth_reordering_and_repeated_sources() {
-    let (_runtime, module) = module();
+    let (_runtime, _program, module) = module();
     let mut values = ExecutionValues::default();
     let caller = values
         .allocate(
@@ -438,7 +436,7 @@ fn scalar_windows_preserve_bits_initialization_and_managed_roots() {
         size_of::<Location>(),
         size_of::<Window>()
     );
-    let (_runtime, module) = module();
+    let (_runtime, _program, module) = module();
     let mut values = ExecutionValues::default();
     let slots = values
         .allocate(
@@ -487,7 +485,7 @@ fn scalar_windows_preserve_bits_initialization_and_managed_roots() {
 
 #[test]
 fn char_windows_preserve_the_tag_in_scalar_transfers() {
-    let (_runtime, module) = module();
+    let (_runtime, _program, module) = module();
     let mut layout = scalar_layout();
     Arc::get_mut(&mut layout).unwrap().locations[0] = Location {
         operand: OperandSlot::new(0, false),
@@ -547,7 +545,7 @@ fn char_windows_preserve_the_tag_in_scalar_transfers() {
 
 #[test]
 fn invalid_scalar_admission_never_publishes_a_partial_frame() {
-    let (_runtime, module) = module();
+    let (_runtime, _program, module) = module();
     let mut values = ExecutionValues::default();
     assert!(
         values
@@ -634,7 +632,7 @@ fn invalid_scalar_admission_never_publishes_a_partial_frame() {
 
 #[test]
 fn native_application_eviction_keeps_active_window_edges_without_host_roots() {
-    let (runtime, loaded) = module();
+    let (runtime, loaded_program, loaded) = module();
     let declaration = runtime
         .definition_context()
         .intern(&DefinitionPath {
@@ -741,7 +739,7 @@ fn native_application_eviction_keeps_active_window_edges_without_host_roots() {
     assert!(runtime.gc.environment(selected_id).is_none());
     assert_eq!(runtime.gc.stats().environments, 128);
     let candidate = runtime
-        .stage_reload_verified_program(&loaded, "windows", loaded.verified_program().clone())
+        .stage_reload_verified_program(&loaded_program, None, loaded.verified_program().clone())
         .unwrap();
     runtime.publish_staged_reload(candidate).unwrap();
     runtime.collect_garbage().unwrap();

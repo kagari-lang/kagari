@@ -2,13 +2,14 @@
 
 pub mod analysis;
 pub(crate) mod compilation;
+pub(crate) mod inputs;
 
 use crate::{
     BytecodeArtifact, CompileResult,
     engine::{
         KagariEngine,
         packages::PackageBuildInput,
-        source::{analysis::SourceAnalysis, compilation::Compilation},
+        source::{analysis::SourceAnalysis, compilation::Compilation, inputs::CheckedInputs},
     },
     error::EmbeddingError,
     program::PreparedProgram,
@@ -61,7 +62,7 @@ fn analysis_error(error: AnalysisError) -> EmbeddingError {
 pub struct CheckedModule {
     pub source_name: String,
     program: CheckedProgram,
-    package_inputs: Option<PackageBuildInput>,
+    inputs: Arc<CheckedInputs>,
 }
 
 impl CheckedModule {
@@ -73,21 +74,24 @@ impl CheckedModule {
         &self.program
     }
 
-    /// Exact captured source closure when compiled through `compile_package`.
+    pub(crate) fn inputs(&self) -> &Arc<CheckedInputs> {
+        &self.inputs
+    }
+
+    /// Acquisition provenance when compiled through `compile_package`.
     ///
-    /// Retains source bytes, dependency aliases and selections independently of
-    /// later source edits or engine queries. Manually supplied source snapshots
-    /// have no acquisition provenance and return `None`.
+    /// Retains the original acquisition bytes, aliases and selections independently
+    /// of later edits. Detached candidates retain this provenance; their capsule's
+    /// physical sources own the edited bytes. Explicit snapshots return `None`.
     pub fn package_inputs(&self) -> Option<&ProgramInputs> {
-        self.package_inputs.as_ref().map(PackageBuildInput::sources)
+        self.inputs.provenance().map(PackageBuildInput::sources)
     }
 
     /// The checked package's source, provider and query-setting input identity.
     /// Lowering options and emitted bytes are separate artifact-storage inputs.
+    /// Detached edits return `None`, never the original acquisition's stale identity.
     pub fn package_fingerprint(&self) -> Option<&str> {
-        self.package_inputs
-            .as_ref()
-            .map(PackageBuildInput::fingerprint)
+        self.inputs.package_fingerprint()
     }
 }
 
@@ -117,6 +121,8 @@ impl Default for PreparationOptions {
 
 #[derive(Debug, Clone)]
 pub struct ArtifactOptions {
+    /// Explicitly export the exact authored source package. Independent of debug/MIR options.
+    pub retain_source: bool,
     pub build: ArtifactBuildOptions,
     pub lowering: MirLoweringOptions,
     /// Controls native input generated from the same verified MIR as bytecode.
@@ -127,6 +133,7 @@ pub struct ArtifactOptions {
 impl Default for ArtifactOptions {
     fn default() -> Self {
         Self {
+            retain_source: false,
             build: ArtifactBuildOptions::default(),
             lowering: MirLoweringOptions {
                 optimization: Some(PassOptions::default()),
@@ -202,11 +209,7 @@ impl KagariEngine {
         cancel: &CancellationToken,
     ) -> CompileResult<SourceAnalysis> {
         let root = self.set_source(source.name(), source.text().to_owned(), SourceLayer::Base)?;
-        Ok(SourceAnalysis {
-            snapshot: self.analyze(self.source_snapshot(), cancel)?,
-            root,
-            package_inputs: None,
-        })
+        SourceAnalysis::new(self.analyze(self.source_snapshot(), cancel)?, root, None)
     }
 
     /// Checks one captured package and its complete declared dependency closure.
@@ -255,11 +258,11 @@ impl KagariEngine {
                 message: format!("captured package root is absent: {root}"),
             })?
             .id();
-        Ok(SourceAnalysis {
-            snapshot: self.analyze(source, cancel)?,
-            root: file,
-            package_inputs: Some(PackageBuildInput::capture(self, inputs, cancel)?),
-        })
+        SourceAnalysis::new(
+            self.analyze(source, cancel)?,
+            file,
+            Some(PackageBuildInput::capture(self, inputs, cancel)?),
+        )
     }
 
     pub fn set_source(
@@ -353,12 +356,7 @@ impl KagariEngine {
         file: FileId,
         cancel: &CancellationToken,
     ) -> CompileResult<CheckedModule> {
-        SourceAnalysis {
-            snapshot: self.analyze(source, cancel)?,
-            root: file,
-            package_inputs: None,
-        }
-        .check(cancel)
+        SourceAnalysis::new(self.analyze(source, cancel)?, file, None)?.check(cancel)
     }
 
     /// Lower captured checked source directly into reusable executable input.
@@ -371,7 +369,7 @@ impl KagariEngine {
         options: PreparationOptions,
     ) -> CompileResult<PreparedProgram> {
         let compilation = Compilation::lower(checked, &options.lowering)?;
-        let prepared = PreparedProgram::from_compilation(compilation, &options);
+        let prepared = PreparedProgram::from_compilation(compilation, &options)?;
         options
             .lowering
             .cancel

@@ -8,7 +8,7 @@ use crate::{
     execution_metadata::MetadataEdge,
     frame::types::{EnvironmentRecord, TypeEnvironment},
     gc::GcHeap,
-    module::LoadedModule,
+    module::ExecutableModule,
 };
 use std::{
     cell::Ref,
@@ -33,7 +33,7 @@ struct Slot {
 #[derive(Debug)]
 pub(crate) struct PublishedEnvironment {
     record: EnvironmentRecord,
-    dependencies: Vec<LoadedModule>,
+    dependencies: Vec<ExecutableModule>,
 }
 
 #[derive(Debug)]
@@ -161,7 +161,7 @@ impl Runtime {
         // GC validates and detaches the whole graph atomically. Candidate program
         // leases can expire independently, so availability is checked on every entry.
         for owner in &published.dependencies {
-            self.validate_loaded_module(owner)?;
+            self.validate_executable_module(owner)?;
         }
         Ok(())
     }

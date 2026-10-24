@@ -101,17 +101,20 @@ fn scoped_native_calls_accept_compatible_reloaded_descriptors() {
     let old = runtime
         .load_program(&prepare(0), Default::default())
         .unwrap();
-    let descriptor = runtime.runtime().bind_rust_type::<Stats>(&old).unwrap();
-    let current = runtime
+    let descriptor = runtime
+        .runtime()
+        .bind_rust_type::<Stats>(&old.root())
+        .unwrap();
+    runtime
         .reload_program(&old, &prepare(100), Default::default())
         .unwrap();
+    let current = old.clone();
     let mut stats = Stats { hp: 40 };
     runtime
         .with_host_scope(|scope| {
             let view = scope.borrow_mut(&descriptor, &mut stats)?;
-            for (loaded, hp, offset) in [(&old, 40, 0), (&current, 41, 100), (&old, 42, 0)] {
-                for (entry, expected) in [("direct", hp), ("native", hp + offset), ("heal", hp + 1)]
-                {
+            for (loaded, hp) in [(&old, 40), (&current, 41), (&old, 42)] {
+                for (entry, expected) in [("direct", hp), ("native", hp + 100), ("heal", hp + 1)] {
                     assert_eq!(
                         Runtime::execute_scoped(scope, loaded, entry, &[view.value()], &context)?,
                         Value::I32(expected)
@@ -200,7 +203,10 @@ fn scoped_entries_use_explicit_sdk_context_and_the_common_pack_adapter() {
         PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let mut runtime = engine.runtime(ExecutionContext::default());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
-    let player_type = runtime.runtime().bind_rust_type::<Player>(&loaded).unwrap();
+    let player_type = runtime
+        .runtime()
+        .bind_rust_type::<Player>(&loaded.root())
+        .unwrap();
     let observations = Arc::new(AtomicUsize::new(0));
     runtime
         .runtime()

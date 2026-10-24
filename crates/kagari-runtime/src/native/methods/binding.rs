@@ -5,7 +5,7 @@ use crate::{
     native::{
         binding::NativeResult,
         conversion::{KagariType, arguments::KagariArguments},
-        function_handle::PinnedFunction,
+        function_handle::Function,
         methods::{InherentMember, InherentType, Method},
     },
 };
@@ -60,7 +60,7 @@ impl Runtime {
         &self,
         object_type: &impl InherentType,
         name: &str,
-    ) -> NativeResult<PinnedFunction<A, R>> {
+    ) -> NativeResult<Function<A, R>> {
         self.bind_associated_function_application(object_type, name, &[])
     }
 
@@ -70,7 +70,7 @@ impl Runtime {
     >(
         &self,
         member: &InherentMember,
-    ) -> NativeResult<PinnedFunction<A, R>> {
+    ) -> NativeResult<Function<A, R>> {
         self.bind_associated_function_application_declaration(member, &[])
     }
 
@@ -82,7 +82,7 @@ impl Runtime {
         object_type: &impl InherentType,
         name: &str,
         arguments: &[TypeArgument],
-    ) -> NativeResult<PinnedFunction<A, R>> {
+    ) -> NativeResult<Function<A, R>> {
         self.bind_associated_function_application_declaration(&object_type.method(name)?, arguments)
     }
 
@@ -93,7 +93,7 @@ impl Runtime {
         &self,
         member: &InherentMember,
         arguments: &[TypeArgument],
-    ) -> NativeResult<PinnedFunction<A, R>> {
+    ) -> NativeResult<Function<A, R>> {
         if member.has_receiver {
             return Err(RuntimeError::module_validation(
                 "instance method requires a receiver",

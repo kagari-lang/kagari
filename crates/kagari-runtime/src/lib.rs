@@ -19,8 +19,8 @@ use crate::{
     host_scope::HostResourceScope,
     metadata::{TypeId, TypeRegistry},
     module::{
-        LoadedModule, ModuleEpochRetention, ModuleKey, ModuleStore, VerifiedProgram,
-        staging::StagedProgram,
+        ExecutableModule, Installation, ModuleEpochRetention, ModuleKey, ModuleStore, Program,
+        VerifiedProgram, dispatch::PublicationToken, staging::StagedProgram,
     },
     native::{
         callable::PreparedClosure, completion::CompletionRegistry,
@@ -29,6 +29,7 @@ use crate::{
     },
     objects::{invocation::MethodInvocation, method::BoundReceiver},
     reflection::ReflectionError,
+    reload::updates::ReloadAdmission,
     resource::{AsyncLimits, ResourceState, RuntimeLimits},
     scheduler::Scheduler,
     session::{
@@ -68,6 +69,7 @@ pub mod metadata;
 pub mod module;
 pub mod native;
 pub mod numeric;
+pub mod publication;
 pub mod range;
 pub mod reflection;
 pub mod reload;
@@ -78,23 +80,47 @@ mod test_support;
 mod value_check;
 
 pub mod session;
+pub mod source;
 pub mod task;
 pub mod value;
 pub mod value_semantics;
 
 /// Verified and linked reload data that has not changed any runtime entry.
 struct PreparedReload {
-    baseline: LoadedModule,
+    installation: Arc<Installation>,
+    admission: ReloadAdmission,
+    baseline: ExecutableModule,
     name: String,
     program: VerifiedProgram,
     bindings: Vec<module::LinkedHostBindings>,
 }
 
+/// Fully linked initial installation that is not yet visible as a live Program.
+///
+/// Use its token for fallible host association work before `Runtime::publish_staged_load`.
+/// Dropping it abandons the existing candidate lease; ordinary collection reclaims
+/// its storage. It exposes neither executable entry authority nor a live Program.
+#[derive(Debug)]
+#[must_use]
+pub struct StagedLoad {
+    installation: Arc<Installation>,
+    program: StagedProgram,
+}
+
+impl StagedLoad {
+    /// Exact precommit association identity, without code ownership or entry authority.
+    /// Publication preserves this token; an abandoned token never becomes live.
+    pub fn publication_token(&self) -> PublicationToken {
+        self.program.module().publication_token()
+    }
+}
+
 /// Installed candidate whose entry has not been activated.
 #[derive(Debug)]
 pub struct StagedReload {
+    target: Program,
     initialization_error: RefCell<Option<RuntimeError>>,
-    baseline: LoadedModule,
+    baseline: ExecutableModule,
     program: StagedProgram,
 }
 
@@ -107,7 +133,7 @@ impl StagedReload {
         self.initialization_error.borrow_mut().get_or_insert(error);
     }
 
-    pub fn module(&self) -> &LoadedModule {
+    pub fn module(&self) -> &ExecutableModule {
         self.program.module()
     }
 }
@@ -207,7 +233,7 @@ impl Runtime {
         self.resources().quarantine(reason)
     }
 
-    pub fn execution_root(&self) -> Option<LoadedModule> {
+    pub fn execution_root(&self) -> Option<ExecutableModule> {
         self.resources()
             .active_session()
             .map(|session| session.root.clone())
@@ -215,7 +241,7 @@ impl Runtime {
 
     pub fn enter_execution_stack(
         &self,
-        module: &LoadedModule,
+        module: &ExecutableModule,
     ) -> Result<ExecutionStack<'_>, RuntimeError> {
         self.gc.ensure_no_native_borrow()?;
         let session = self.begin_execution(module, self.execution_options())?;
@@ -277,11 +303,12 @@ impl Runtime {
         &self,
         candidate: &'candidate StagedReload,
     ) -> Result<CandidateSession<'_, 'candidate>, RuntimeError> {
+        let _activation = self.resources().begin_synchronous_activation()?;
         self.reject_static_initialization("candidate session switch")?;
         if let Some(error) = candidate.initialization_error() {
             return Err(error);
         }
-        self.validate_loaded_module(candidate.module())?;
+        self.validate_executable_module(candidate.module())?;
         if self.is_candidate_initialization() {
             return Err(RuntimeError::execution_phase_violation(
                 "nested candidate initialization",
@@ -308,7 +335,7 @@ impl Runtime {
 
     pub fn begin_execution(
         &self,
-        module: &LoadedModule,
+        module: &ExecutableModule,
         options: ExecutionOptions,
     ) -> Result<ExecutionSession<'_>, RuntimeError> {
         self.begin_execution_inner(module, options, ExecutionEntry::Program)
@@ -316,10 +343,11 @@ impl Runtime {
 
     fn begin_execution_inner(
         &self,
-        module: &LoadedModule,
+        module: &ExecutableModule,
         options: ExecutionOptions,
         entry: ExecutionEntry,
     ) -> Result<ExecutionSession<'_>, RuntimeError> {
+        let activation = self.resources().begin_synchronous_activation()?;
         self.ensure_scheduler_open()?;
         self.gc.ensure_no_native_borrow()?;
         if self.modules.is_staged(module)
@@ -330,7 +358,7 @@ impl Runtime {
                 "staged modules require the candidate session entry",
             ));
         }
-        self.validate_loaded_module(module)?;
+        self.validate_executable_module(module)?;
         let phase = self
             .resources()
             .active_session()
@@ -407,6 +435,7 @@ impl Runtime {
         let guard = ExecutionSession {
             id,
             resources: self.resources(),
+            _activation: activation,
         };
         self.resources().poll_execution()?;
         Ok(guard)
@@ -590,11 +619,13 @@ impl Runtime {
         function: Option<FunctionRef>,
         dependencies: ReloadDependencySnapshot,
     ) -> Option<InterpreterCacheId> {
-        self.modules.loaded(module)?;
-        Some(
-            self.interpreter_caches
-                .register(module, function, dependencies),
-        )
+        let executable = self.modules.loaded(module)?;
+        Some(self.interpreter_caches.register(
+            executable.installation_id(),
+            module,
+            function,
+            dependencies,
+        ))
     }
 
     pub fn interpreter_cache(&self, id: InterpreterCacheId) -> Option<InterpreterCacheRecord> {
@@ -627,6 +658,7 @@ impl Runtime {
 
     /// Collect unreachable heap objects and module instances in one graph traversal.
     pub fn collect_garbage(&self) -> Result<GcCollection, RuntimeError> {
+        self.resources().ensure_not_publishing()?;
         self.gc.ensure_no_native_borrow()?;
         self.resources().ensure_execution_allowed()?;
         self.gc.collect(&self.modules, &self.host.gc_roots())
@@ -688,7 +720,7 @@ impl Runtime {
     /// Invoke a checked primitive value operation.
     pub fn invoke_standard_builtin(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         intrinsic: RuntimePrimitive,
         args: &[value::Value],
     ) -> Result<value::Value, BuiltinError> {

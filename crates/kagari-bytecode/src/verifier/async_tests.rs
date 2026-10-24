@@ -5,14 +5,28 @@ use crate::{
         BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, LocalLiveRange,
         RootSlotLayout,
     },
-    program::{BytecodeProgram, ModuleRef, verified::VerifiedBytecodeProgram, verify_program},
+    program::{
+        BytecodeProgram, ModuleRef,
+        updates::{self, EvidenceInputs},
+        verified::VerifiedBytecodeProgram,
+        verify_program,
+    },
     verifier::BytecodeVerificationError,
 };
 use kagari_abi::representation::ValueType;
 use kagari_common::identity::{DefinitionKind, ModuleIdentity, map::DefinitionContext};
-use kagari_contract::{ids::FunctionRef, types::PublicItem};
+use kagari_contract::{
+    ids::FunctionRef,
+    types::{ConcreteFunctionIdentity, PublicItem, named::NamedContract},
+    updates::BodyClassification,
+};
 use kagari_types::{
-    declaration::{TypeDef, TypeDefKind, module::ModuleDecl, native::NativeStorageLayout},
+    declaration::{
+        TypeDeclaration, TypeDef, TypeDefKind,
+        host::{HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess},
+        module::ModuleDecl,
+        native::NativeStorageLayout,
+    },
     scalar::BuiltinType,
     ty::{GenericParam, NominalTy, Ty},
 };
@@ -56,71 +70,98 @@ fn program(context: &DefinitionContext) -> BytecodeProgram {
         return_type: metadata.return_type,
         effects: metadata.effects,
     };
-    BytecodeProgram {
-        exports: Default::default(),
-        root: ModuleRef::new(0),
-        modules: vec![BytecodeModule {
-            identity: owner.identity,
-            types: vec![ValueType::Unit, ValueType::HeapObject],
-            public_items: vec![PublicItem::Type(TypeDef {
-                name: "Future".into(),
-                kind: TypeDefKind::NativeStorage(NativeStorageLayout::Future),
-                generic_params: vec![GenericParam {
-                    owner: id,
-                    position: 0,
+    crate::program::updates::fixtures::certify(
+        BytecodeProgram {
+            update_evidence: crate::program::updates::empty(),
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule {
+                identity: owner.identity,
+                types: vec![ValueType::Unit, ValueType::HeapObject],
+                public_items: vec![PublicItem::Type(TypeDef {
+                    name: "Future".into(),
+                    kind: TypeDefKind::NativeStorage(NativeStorageLayout::Future),
+                    generic_params: vec![GenericParam {
+                        owner: id,
+                        position: 0,
+                    }],
+                    bounds: vec![],
+                    fields: vec![],
+                    variants: vec![],
+                })],
+                function_table: vec![record],
+                functions: vec![{
+                    let parameter_base: usize = 2;
+                    let fixture_instructions = vec![
+                        I::Move {
+                            dst: Slot::new(0),
+                            src: Slot::new(parameter_base),
+                        },
+                        I::Await {
+                            dst: Slot::new(1),
+                            value: Slot::new(0),
+                            future,
+                        },
+                        I::Return(Some(Slot::new(1))),
+                    ];
+                    let mut fixture_metadata: crate::module::FunctionMetadata = metadata;
+                    if fixture_metadata.parameter_slots.is_empty() {
+                        fixture_metadata.parameter_slots =
+                            (0..1).map(|i| Slot::new(parameter_base + i)).collect();
+                    }
+                    if fixture_metadata.origins.is_empty() {
+                        fixture_metadata.origins = (0..fixture_instructions.len())
+                            .map(|instruction| crate::module::InstructionOrigin {
+                                span: Default::default(),
+                                line: None,
+                                column: None,
+                                instruction,
+                            })
+                            .collect();
+                    }
+                    BytecodeFunction {
+                        id: FunctionRef::new(0),
+                        identity: None,
+                        name: "wait".into(),
+                        parameter_count: 1,
+                        slot_count: u32::try_from(fixture_metadata.slots.len()).unwrap(),
+                        metadata: fixture_metadata,
+                        instructions: fixture_instructions,
+                    }
                 }],
-                bounds: vec![],
-                fields: vec![],
-                variants: vec![],
-            })],
-            function_table: vec![record],
-            functions: vec![{
-                let parameter_base: usize = 2;
-                let fixture_instructions = vec![
-                    I::Move {
-                        dst: Slot::new(0),
-                        src: Slot::new(parameter_base),
-                    },
-                    I::Await {
-                        dst: Slot::new(1),
-                        value: Slot::new(0),
-                        future,
-                    },
-                    I::Return(Some(Slot::new(1))),
-                ];
-                let mut fixture_metadata: crate::module::FunctionMetadata = metadata;
-                if fixture_metadata.parameter_slots.is_empty() {
-                    fixture_metadata.parameter_slots =
-                        (0..1).map(|i| Slot::new(parameter_base + i)).collect();
-                }
-                if fixture_metadata.origins.is_empty() {
-                    fixture_metadata.origins = (0..fixture_instructions.len())
-                        .map(|instruction| crate::module::InstructionOrigin {
-                            span: Default::default(),
-                            line: None,
-                            column: None,
-                            instruction,
-                        })
-                        .collect();
-                }
-                BytecodeFunction {
-                    id: FunctionRef::new(0),
-                    identity: None,
-                    name: "wait".into(),
-                    parameter_count: 1,
-                    slot_count: u32::try_from(fixture_metadata.slots.len()).unwrap(),
-                    metadata: fixture_metadata,
-                    instructions: fixture_instructions,
-                }
+                ..Default::default()
             }],
-            ..Default::default()
-        }],
-    }
+        },
+        context,
+    )
 }
 
 fn loop_program(context: &DefinitionContext) -> BytecodeProgram {
     let mut program = program(context);
     let module = &mut program.modules[0];
+    let root = context.intern_root(&module.identity).unwrap();
+    let host = context
+        .intern_child(root, DefinitionKind::Struct, "HostRoot", 0)
+        .unwrap();
+    let definition = TypeDef {
+        name: "HostRoot".into(),
+        kind: TypeDefKind::Host(HostTypePolicy {
+            ownership: HostTypeOwnership::HostRoot,
+            reflection: HostReflectionPolicy::Metadata,
+            path_access: PathAccess::ReadWrite,
+        }),
+        generic_params: vec![],
+        bounds: vec![],
+        fields: vec![],
+        variants: vec![],
+    };
+    module
+        .public_items
+        .push(PublicItem::Type(definition.clone()));
+    module.external_types.push(TypeDeclaration {
+        declaration: host,
+        definition,
+    });
     module
         .types
         .extend([ValueType::Bool, ValueType::HostHandle]);
@@ -148,6 +189,7 @@ fn loop_program(context: &DefinitionContext) -> BytecodeProgram {
     ];
     function.metadata.parameter_slots = (6..10).map(Slot::new).collect();
     function.metadata.semantic.params.insert(1, array.clone());
+    function.metadata.semantic.params.insert(3, Ty::Host(host));
     function
         .metadata
         .semantic
@@ -221,7 +263,8 @@ fn loop_program(context: &DefinitionContext) -> BytecodeProgram {
         target: JumpTarget::new(8),
     };
     module.function_table[0].params = function.metadata.params.clone();
-    program
+    module.named_declarations.clear();
+    crate::program::updates::fixtures::certify(program, context)
 }
 
 #[test]
@@ -303,6 +346,13 @@ fn async_flow_validation_contract() {
     function.instructions[7] = I::Jump {
         target: JumpTarget::new(1),
     };
+    backedge.update_evidence = crate::program::updates::project(
+        &backedge.modules,
+        &backedge.update_evidence,
+        &context.snapshot(),
+        &Default::default(),
+    )
+    .unwrap();
     verify_program(&backedge, &context.snapshot(), &Default::default()).unwrap();
 }
 
@@ -391,6 +441,38 @@ fn async_factory_artifact_contract() {
     let future = factory.metadata.semantic.params[&0].clone();
     factory.id = FunctionRef::new(1);
     factory.name = "factory".into();
+    let factory_identity = ConcreteFunctionIdentity {
+        declaration: context
+            .intern_child(
+                context.intern_root(&module.identity).unwrap(),
+                DefinitionKind::Function,
+                "factory",
+                0,
+            )
+            .unwrap(),
+        arguments: vec![],
+    };
+    let resume_identity = ConcreteFunctionIdentity {
+        declaration: context
+            .intern_child(
+                factory_identity.declaration,
+                DefinitionKind::Function,
+                "$resume",
+                0,
+            )
+            .unwrap(),
+        arguments: factory_identity.arguments.clone(),
+    };
+    module.functions[0].identity = Some(resume_identity.clone());
+    module.function_table[0].identity = Some(resume_identity.clone());
+    factory.identity = Some(factory_identity.clone());
+    let declaration = &mut module.named_declarations[0];
+    declaration.declaration = factory_identity.declaration;
+    let NamedContract::Function(signature) = &mut declaration.contract else {
+        unreachable!()
+    };
+    signature.name = factory.name.clone();
+    signature.return_type = future.clone();
     factory.metadata.effects.may_suspend = false;
     factory.metadata.semantic.result = Some(future.clone());
     factory.metadata.semantic.slots.insert(1, future.clone());
@@ -402,13 +484,38 @@ fn async_factory_artifact_contract() {
     };
     module.function_table.push(FunctionRecord {
         id: factory.id,
-        identity: None,
+        identity: factory.identity.clone(),
         name: factory.name.clone(),
         params: factory.metadata.params.clone(),
         return_type: factory.metadata.return_type,
         effects: factory.metadata.effects,
     });
     module.functions.push(factory);
+    let mut sources = valid.update_evidence.sources.clone();
+    sources[0].declaration = factory_identity.declaration;
+    sources[0].bodies = vec![resume_identity.clone()];
+    valid.update_evidence = updates::build(
+        &valid.modules,
+        EvidenceInputs {
+            sources,
+            initializers: vec![],
+            selections: vec![],
+            classifications: [
+                (
+                    resume_identity,
+                    BodyClassification::Resume(factory_identity.clone()),
+                ),
+                (
+                    factory_identity.clone(),
+                    BodyClassification::Named(factory_identity.declaration),
+                ),
+            ]
+            .into(),
+        },
+        &context.snapshot(),
+        &Default::default(),
+    )
+    .unwrap();
     let artifact = KbcArtifact::from_program(
         valid.clone(),
         Default::default(),

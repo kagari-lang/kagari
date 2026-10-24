@@ -45,8 +45,26 @@ impl ExecutionStack<'_> {
         return_dst: Option<Slot>,
         prepared: Option<&PreparedCall>,
     ) -> Result<ExecutionAction, RuntimeError> {
-        runtime.validate_loaded_module(&closure.implementation)?;
+        let selected = closure.select_call(runtime)?;
+        self.push_exact_closure(runtime, &selected, explicit, return_dst, prepared)
+    }
+
+    /// Queue admission has already selected this body; starting it must not select again.
+    pub(super) fn push_exact_closure(
+        &self,
+        runtime: &Runtime,
+        closure: &ClosureValueSnapshot,
+        explicit: FrameArguments<'_>,
+        return_dst: Option<Slot>,
+        prepared: Option<&PreparedCall>,
+    ) -> Result<ExecutionAction, RuntimeError> {
+        runtime.validate_executable_module(&closure.implementation)?;
         let script_function = match &closure.target {
+            ClosureTarget::Named(_) => {
+                return Err(RuntimeError::module_validation(
+                    "exact closure entry requires selection",
+                ));
+            }
             ClosureTarget::Native(native) => {
                 if !closure.captures.is_empty()
                     || native.signature.params.len() != explicit.len()

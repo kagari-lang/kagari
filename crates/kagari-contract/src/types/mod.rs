@@ -13,8 +13,8 @@ use kagari_common::{
 };
 use kagari_types::{
     declaration::{
-        AssociatedTypeFamily, ConstDef, FnDecl, NativeDeclaration, Param, TraitDef, TypeDef,
-        verify::types_in_scope,
+        AssociatedTypeFamily, ConstDef, FnDecl, NativeDeclaration, Param, TraitDef,
+        TypeDeclaration, TypeDef, verify::types_in_scope,
     },
     ty::{GenericBound, GenericParam, NominalTy, Ty, substitution::TypeSubstitution},
 };
@@ -25,6 +25,7 @@ pub mod applications;
 pub mod identity;
 pub mod inherent;
 pub mod matching;
+pub mod named;
 pub mod proofs;
 pub mod verify;
 
@@ -34,7 +35,14 @@ pub mod wire;
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ModuleContract {
     pub native_declarations: Vec<NativeDeclaration>,
+    /// Authored named contracts, independent of public paths and reachability.
+    pub named_declarations: Vec<named::NamedDeclaration>,
+    /// Explicit imported-local executable placement to authored declaration links.
+    pub function_origins: Vec<named::FunctionOrigin>,
     pub public_items: Vec<PublicItem>,
+    /// Retained private nominal declarations for linked type and layout proofs.
+    /// These belong to this module and never grant public export authority.
+    pub private_types: Vec<TypeDeclaration>,
     /// Exact foreign source requirements; these do not define or export a trait.
     pub trait_references: Vec<TraitContract>,
     pub trait_contracts: Vec<TraitContract>,

@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_support::native::program::{ProgramFixture, certify};
 use crate::value::EnumTag;
 use kagari_bytecode::{
     artifact::KbcArtifact,
@@ -62,11 +63,12 @@ fn imported_program(context: &DefinitionContext) -> BytecodeProgram {
     let mut alias = consumer.clone();
     alias.identity.path = vec!["alias".into()];
     consumer.dependencies.push(ModuleRef::new(2));
-    BytecodeProgram {
+    ProgramFixture {
         exports: Default::default(),
         root: ModuleRef::new(1),
         modules: vec![supplier, consumer, alias],
     }
+    .build(context)
 }
 
 #[test]
@@ -85,12 +87,13 @@ fn source_free_imports_round_trip_and_bind_to_one_cell_without_initializing() {
         .into_verified(&Default::default(), &other, &Default::default())
         .unwrap();
     let mut runtime = Runtime::default();
-    let loaded = runtime
+    let loaded_program = runtime
         .load_verified_program(
             "imports",
             VerifiedProgram::from_bytecode(verified.into_bytecode()),
         )
         .unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
     let owner = loaded.member(ModuleRef::new(0)).unwrap();
     let alias = loaded.member(ModuleRef::new(2)).unwrap();
     assert_eq!(
@@ -181,7 +184,9 @@ fn source_free_verification_rejects_forged_static_contracts_and_initializer_auth
                 writable.modules[0].public_items = vec![PublicItem::Static(
                     writable.modules[0].module_slots[0].contract.clone(),
                 )];
+                let writable = certify(writable, &context);
                 VerifiedBytecodeProgram::new(writable, &context, &Default::default()).unwrap();
+                code = certify(code, &context);
             }
             6 => {
                 code.modules[1].functions[0].instructions[0] = BytecodeInstruction::Call {
@@ -211,15 +216,17 @@ fn persistent_cell_callback_cycles_follow_joint_graph_edges_and_retirement() {
         result: Box::new(Ty::Builtin(BuiltinType::Unit)),
     };
     let code = program(callback, true);
-    let old = runtime.load_program("callbacks", code.clone()).unwrap();
+    let old_program = runtime.load_program("callbacks", code.clone()).unwrap();
+    let old = runtime.select_program(&old_program).unwrap();
     let closure = runtime
         .make_closure(&old, FunctionRef::new(0), vec![], None)
         .unwrap();
     ready(&runtime, &old, 0, closure);
     let candidate = runtime
-        .stage_reload_program(&old, "callbacks", code.clone())
+        .stage_reload_program(&old_program, None, code.clone())
         .unwrap();
-    let current = runtime.publish_staged_reload(candidate).unwrap();
+    let current = candidate.module().clone();
+    runtime.publish_staged_reload(candidate).unwrap();
     assert!(
         !runtime
             .collect_garbage()
@@ -242,8 +249,11 @@ fn persistent_cell_callback_cycles_follow_joint_graph_edges_and_retirement() {
     );
     assert!(!runtime.gc().validate_value(&closure));
     let root = runtime.root_value(replacement).unwrap();
-    // An ordinary new installation retires the old domain, unlike compatible reload.
-    let fresh = runtime.load_program("callbacks", code).unwrap();
+    // Loading the same label preserves the previous installation. Explicit
+    // retirement removes its current root; the retained value still owns the cycle.
+    runtime.modules.retire_installations();
+    let fresh_program = runtime.load_program("callbacks", code).unwrap();
+    let fresh = runtime.select_program(&fresh_program).unwrap();
     assert!(
         !runtime
             .collect_garbage()
@@ -313,18 +323,20 @@ fn empty_variant_does_not_hide_changed_private_payload_schema() {
         true,
         Visibility::Private,
     );
-    let mut code = BytecodeProgram {
+    let mut code = ProgramFixture {
         root: ModuleRef::new(0),
         modules: vec![module],
         exports: Default::default(),
-    };
-    let old = runtime
+    }
+    .build(&context);
+    let old_program = runtime
         .load_program(
             "choice",
             DefinitionMetadata::checked(context.snapshot(), code.clone(), &Default::default())
                 .unwrap(),
         )
         .unwrap();
+    let old = runtime.select_program(&old_program).unwrap();
     let empty_value = Value::Enum(
         runtime
             .alloc_enum(
@@ -336,13 +348,14 @@ fn empty_variant_does_not_hide_changed_private_payload_schema() {
     ready(&runtime, &old, 0, empty_value);
     let compatible = runtime
         .stage_reload_program(
-            &old,
-            "choice",
+            &old_program,
+            None,
             DefinitionMetadata::checked(context.snapshot(), code.clone(), &Default::default())
                 .unwrap(),
         )
         .unwrap();
-    let current = runtime.publish_staged_reload(compatible).unwrap();
+    let current = compatible.module().clone();
+    runtime.publish_staged_reload(compatible).unwrap();
     code.modules[0].enumerations[0].variants[1].payload =
         vec![Ty::Array(Box::new(Ty::Builtin(BuiltinType::Bool)))];
     VerifiedProgram::new(
@@ -353,8 +366,8 @@ fn empty_variant_does_not_hide_changed_private_payload_schema() {
     assert!(
         runtime
             .stage_reload_program(
-                &current,
-                "choice",
+                &old_program,
+                None,
                 DefinitionMetadata::checked(context.snapshot(), code, &Default::default()).unwrap()
             )
             .is_err()
@@ -366,7 +379,7 @@ fn empty_variant_does_not_hide_changed_private_payload_schema() {
         empty_value
     );
     assert_eq!(
-        runtime.modules.latest("choice").unwrap().key(),
+        runtime.modules.current_for(&current).unwrap().key(),
         current.key()
     );
 }
@@ -375,12 +388,13 @@ fn empty_variant_does_not_hide_changed_private_payload_schema() {
 fn allocation_failure_invalidates_candidate_records_without_touching_published_cells() {
     let mut runtime = Runtime::default();
     let code = program(scalar(), true);
-    let old = runtime.load_program("exhaustion", code.clone()).unwrap();
+    let old_program = runtime.load_program("exhaustion", code.clone()).unwrap();
+    let old = runtime.select_program(&old_program).unwrap();
     ready(&runtime, &old, 0, Value::I32(42));
     runtime.modules.inner.borrow_mut().next_cell = u64::MAX;
     assert!(
         runtime
-            .stage_reload_program(&old, "exhaustion", code)
+            .stage_reload_program(&old_program, None, code)
             .is_err()
     );
     let unavailable = runtime
@@ -394,10 +408,7 @@ fn allocation_failure_invalidates_candidate_records_without_touching_published_c
         .collect::<Vec<_>>();
     assert_eq!(unavailable.len(), 1);
     assert!(runtime.modules.loaded(unavailable[0]).is_none());
-    assert_eq!(
-        runtime.modules.latest("exhaustion").unwrap().key(),
-        old.key()
-    );
+    assert_eq!(runtime.modules.current_for(&old).unwrap().key(), old.key());
     assert_eq!(
         runtime.read_module_slot(&old, ModuleSlot::new(0)).unwrap(),
         Value::I32(42)
@@ -422,8 +433,10 @@ fn cycles_between_retired_installation_cells_are_collectible_together() {
         },
         true,
     );
-    let left = runtime.load_program("left", code.clone()).unwrap();
-    let right = runtime.load_program("right", code.clone()).unwrap();
+    let left_program = runtime.load_program("left", code.clone()).unwrap();
+    let left = runtime.select_program(&left_program).unwrap();
+    let right_program = runtime.load_program("right", code.clone()).unwrap();
+    let right = runtime.select_program(&right_program).unwrap();
     let from_left = runtime
         .make_closure(&left, FunctionRef::new(0), vec![], None)
         .unwrap();
@@ -432,7 +445,8 @@ fn cycles_between_retired_installation_cells_are_collectible_together() {
         .unwrap();
     ready(&runtime, &left, 0, from_right);
     ready(&runtime, &right, 0, from_left);
-    runtime.load_program("left", code.clone()).unwrap();
+    let root = runtime.root_value(from_left).unwrap();
+    runtime.modules.retire_installations();
     assert!(
         runtime
             .collect_garbage()
@@ -440,10 +454,10 @@ fn cycles_between_retired_installation_cells_are_collectible_together() {
             .reclaimed_modules
             .is_empty()
     );
-    runtime.load_program("right", code).unwrap();
+    drop(root);
     let reclaimed = runtime.collect_garbage().unwrap();
     assert!(reclaimed.reclaimed_modules.contains(&left.key()));
     assert!(reclaimed.reclaimed_modules.contains(&right.key()));
     assert_eq!(reclaimed.live_objects, 0);
-    assert_eq!(runtime.modules.inner.borrow().cells.len(), 2);
+    assert!(runtime.modules.inner.borrow().cells.is_empty());
 }

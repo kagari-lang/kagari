@@ -73,6 +73,8 @@ fn direct_calls_use_public_paths_and_require_explicit_private_entry_selection() 
             VerifiedProgram::from_bytecode(decoded.into_bytecode()),
         )
         .unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let fallback = PreparedNativeEntry::Unsupported {
         backend: BackendId::new("export-fixture"),

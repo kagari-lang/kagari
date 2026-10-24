@@ -7,10 +7,14 @@ use crate::{
         arguments::{ScopedSignature, TypeArgument},
         compatibility::TypeView,
     },
-    module::{LoadedModule, ModuleKey},
+    module::{
+        ExecutableModule, ModuleKey,
+        dispatch::{CallRoute, identity::PublicationDefinitions},
+    },
     native::{
         binding::NativeResult,
         context::{CallableOwner, LinkedCallable},
+        function_handle::PreparedFunction,
     },
 };
 use kagari_bytecode::{
@@ -19,7 +23,7 @@ use kagari_bytecode::{
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{callable::shared::SharedCall, ids::FunctionRef};
-use kagari_types::ty::Ty;
+use kagari_types::{callable::Signature, ty::Ty};
 use std::{slice, sync::Arc};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -29,19 +33,82 @@ pub(super) struct EvidenceKey {
     shared: Option<(ModuleKey, FunctionRef, usize)>,
 }
 
+/// Checked binding metadata, with no executable lease or environment root.
+#[derive(Debug)]
+pub(super) struct EntryBinding {
+    route: CallRoute,
+    signature: Signature,
+    shared: Option<(Arc<PublicationDefinitions>, SharedCall)>,
+}
+
+impl EntryBinding {
+    pub(super) fn route(&self) -> &CallRoute {
+        &self.route
+    }
+
+    pub(super) fn prepare(&self, runtime: &Runtime) -> NativeResult<PreparedFunction> {
+        let selected = runtime.select_call_route(&self.route)?;
+        let owner = selected.owner();
+        let shared = self
+            .shared
+            .as_ref()
+            .map(|(scope, contract)| {
+                selected
+                    .mapping_from(scope.clone())?
+                    .remap(contract, &Default::default())
+                    .map(|metadata| metadata.into_records())
+            })
+            .transpose()?;
+        let signature = match &shared {
+            Some(contract) => contract.signature.clone(),
+            None => selected
+                .mapping()
+                .remap(&self.signature, &Default::default())?
+                .into_records(),
+        };
+        let scoped_signature = Arc::new(ScopedSignature {
+            params: runtime.resolve_type_arguments(owner, &signature.params)?,
+            result: runtime
+                .resolve_type_arguments(owner, slice::from_ref(&signature.result))?
+                .pop()
+                .ok_or_else(missing)?,
+        });
+        let environment = shared
+            .as_ref()
+            .map(|contract| {
+                runtime.prepare_selected_shared_environment(owner, None, &selected, contract)
+            })
+            .transpose()?;
+        let mut roots = vec![MetadataRoot::Program(owner.clone())];
+        roots.extend(
+            environment
+                .iter()
+                .map(|environment| MetadataRoot::Environment(environment.id)),
+        );
+        let target = LinkedCallable {
+            environment,
+            scoped_signature: Some(scoped_signature),
+            owner: CallableOwner::Pinned(owner.clone(), runtime.root_metadata(roots)?),
+            target: selected.target(),
+            params: signature.params.clone().into_boxed_slice(),
+            result: signature.result.clone(),
+            primitive: None,
+        };
+        PreparedFunction::selected(runtime, owner, target)
+    }
+}
+
 pub(super) struct EntryEvidence {
-    pub(super) owner: LoadedModule,
+    pub(super) owner: ExecutableModule,
     pub(super) key: EvidenceKey,
     pub(super) signature: Arc<ScopedSignature>,
-    params: Vec<Ty>,
-    result: Ty,
-    shared: Option<(LoadedModule, SharedCall)>,
+    shared: Option<(ExecutableModule, SharedCall)>,
 }
 
 impl EntryEvidence {
     pub(super) fn script(
         runtime: &Runtime,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         target: FunctionRef,
     ) -> NativeResult<Self> {
         let function = owner
@@ -76,14 +143,14 @@ impl EntryEvidence {
 
     pub(super) fn find(
         runtime: &Runtime,
-        root: &LoadedModule,
+        root: &ExecutableModule,
         declaration: DefinitionId,
         arguments: &[TypeArgument],
     ) -> NativeResult<Self> {
         root.definitions()
             .resolve(declaration)
             .map_err(|_| missing())?;
-        let same_arguments = |owner: &LoadedModule, types: &[Ty]| {
+        let same_arguments = |owner: &ExecutableModule, types: &[Ty]| {
             types.len() == arguments.len()
                 && types.iter().zip(arguments).all(|(ty, argument)| {
                     ty.is_concrete()
@@ -165,8 +232,7 @@ impl EntryEvidence {
                         },
                         owner,
                         signature,
-                        params: contract.signature.params.clone(),
-                        result: contract.signature.result.clone(),
+
                         shared: Some((carrier.clone(), contract.as_ref().clone())),
                     });
                 }
@@ -177,7 +243,7 @@ impl EntryEvidence {
 
     fn closed(
         runtime: &Runtime,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         target: CallableTarget,
         params: Vec<Ty>,
         result: Ty,
@@ -197,45 +263,26 @@ impl EntryEvidence {
                 shared: None,
             },
             signature,
-            params,
-            result,
             shared: None,
         })
     }
 
-    pub(super) fn prepare(&self, runtime: &Runtime) -> NativeResult<LinkedCallable> {
-        let environment = self
-            .shared
-            .as_ref()
-            .map(|(carrier, contract)| {
-                runtime.prepare_shared_environment(
-                    carrier,
-                    None,
-                    &self.owner,
-                    self.key.target,
-                    contract,
-                )
-            })
-            .transpose()?;
-        let owner = if let Some(environment) = &environment {
-            let roots = runtime.root_metadata(vec![
-                MetadataRoot::Program(self.owner.clone()),
-                MetadataRoot::Environment(environment.id),
-            ])?;
-            CallableOwner::Pinned(self.owner.clone(), roots)
-        } else {
-            // PreparedFunction already owns a program lease. Only an executable
-            // environment needs an additional metadata root.
-            CallableOwner::Program(self.owner.slot())
-        };
-        Ok(LinkedCallable {
-            environment,
-            scoped_signature: Some(self.signature.clone()),
-            owner,
-            target: self.key.target,
-            params: self.params.clone().into_boxed_slice(),
-            result: self.result.clone(),
-            primitive: None,
+    pub(super) fn bind(&self) -> NativeResult<EntryBinding> {
+        Ok(EntryBinding {
+            route: self.owner.bind_call_route(self.key.target)?,
+            signature: Signature {
+                params: self
+                    .signature
+                    .params
+                    .iter()
+                    .map(|argument| argument.ty().clone())
+                    .collect(),
+                result: self.signature.result.ty().clone(),
+            },
+            shared: self
+                .shared
+                .as_ref()
+                .map(|(carrier, contract)| (carrier.publication_definitions(), contract.clone())),
         })
     }
 }

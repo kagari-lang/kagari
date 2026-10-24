@@ -2,7 +2,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::{arguments::TypeArgument, bindings::TypeBindings},
-    module::LoadedModule,
+    module::{ExecutableModule, Module},
     native::{
         binding::NativeResult,
         payload::{NativeType, TypeRecord, managed::AppliedSchema},
@@ -21,7 +21,7 @@ use std::{marker::PhantomData, sync::Arc};
 impl Runtime {
     pub fn bind_native_type<T: NativePayload>(
         &self,
-        owner: &LoadedModule,
+        owner: &Module,
         declaration: &TypeRef,
         arguments: &[TypeArgument],
     ) -> NativeResult<NativeType<T>> {
@@ -35,14 +35,14 @@ impl Runtime {
 
     pub fn bind_native_type_declaration<T: NativePayload>(
         &self,
-        owner: &LoadedModule,
+        owner: &Module,
         declaration: DefinitionId,
         definitions: &DefinitionTable,
         arguments: &[TypeArgument],
     ) -> NativeResult<NativeType<T>> {
         self.gc().ensure_no_native_borrow()?;
-        self.resources().ensure_execution_allowed()?;
-        self.validate_loaded_module(owner)?;
+        let snapshot = self.capture_module(owner)?;
+        let owner = &snapshot.root;
         let id = self
             .definition_context()
             .import(definitions, [declaration])
@@ -86,12 +86,12 @@ impl Runtime {
 
     pub(crate) fn prepare_native_type<T: Send + 'static>(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         argument: TypeArgument,
     ) -> NativeResult<NativeType<T>> {
         self.gc().ensure_no_native_borrow()?;
         self.resources().ensure_execution_allowed()?;
-        self.validate_loaded_module(owner)?;
+        self.validate_executable_module(owner)?;
         argument.validate(self)?;
         let Ty::NativeObject(nominal) = argument.ty() else {
             return Err(invalid());

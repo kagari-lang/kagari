@@ -10,7 +10,7 @@ use crate::{
         BorrowEpoch, FrameBorrowRecord, HostBorrowKind, HostBorrowOwner, HostBorrowTable,
         HostCallGuard, HostFrameId, HostObjectId,
     },
-    module::{LoadedModule, ModuleEpochRetention, retention::ProgramLease},
+    module::{ExecutableModule, ModuleEpochRetention, retention::ProgramLease},
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
@@ -48,7 +48,7 @@ pub(super) struct ScopedRoot {
     object: HostObjectId,
     pointer: *mut (),
     places: Vec<ScopedPlace>,
-    owner: LoadedModule,
+    owner: ExecutableModule,
     access: ReferenceAccess,
     _program: ProgramLease,
     catalog: DeclarationCatalog,
@@ -106,7 +106,7 @@ impl HostBorrowTable {
         access: ReferenceAccess,
     ) -> NativeResult<ScopedHostView> {
         runtime.resources().poll_execution()?;
-        runtime.validate_loaded_module(descriptor.owner())?;
+        runtime.validate_executable_module(descriptor.owner())?;
         descriptor.type_argument().validate(runtime)?;
         let program = runtime
             .retain_program(descriptor.owner(), ModuleEpochRetention::RuntimeValue)
@@ -216,7 +216,7 @@ impl HostBorrowTable {
         view: ScopedHostView,
         expected: &TypeArgument,
         access: ReferenceAccess,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
     ) -> bool {
         view.access.permits(access)
             && self
@@ -346,7 +346,7 @@ impl HostBorrowTable {
         field: &fields::ScopedField,
     ) -> NativeResult<ScopedHostView> {
         runtime.resources().poll_execution()?;
-        runtime.validate_loaded_module(&field.owner)?;
+        runtime.validate_executable_module(&field.owner)?;
         field.target.validate(runtime)?;
         let place = self.with_root(view, |root| {
             let parent = &root.places[view.place];
@@ -458,7 +458,7 @@ impl Runtime {
         &self,
         value: &Value,
         target: &Ty,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         environment: Option<&TypeBindings>,
         access: ReferenceAccess,
     ) -> bool {

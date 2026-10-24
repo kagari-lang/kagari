@@ -1,31 +1,48 @@
 use crate::source::{
     logging, lower,
     lower::{MirLoweringError, instances::MirLoweringOptions},
+    program::update_requests::RequestQueue,
+    source_package::build_source_manifest,
 };
-use kagari_mir::instruction::ConstructionTarget as MirConstruction;
-mod exports;
-use kagari_common::identity::{
-    ModuleIdentity, mapping::DefinitionMappingError, scoped::DefinitionReferences,
-    table::module::ModuleHandle,
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        ModuleIdentity, mapping::DefinitionMappingError, metadata::DefinitionMetadata,
+        scoped::DefinitionReferences,
+    },
 };
-use kagari_contract::types::{ConcreteFunctionIdentity, PublicItem};
+use kagari_contract::{
+    types::{ConcreteFunctionIdentity, PublicItem, named::NamedDeclaration},
+    updates::{
+        BodyApplication, DemandEnvelope, DemandRequests,
+        demands::{
+            NativeClosure, check_coverage, expand_requests, publication_demands, union_demands,
+        },
+        limits::{Budget, UpdateError},
+    },
+};
 use kagari_hir::{
     program::CheckedProgram, resolver::resolved::ResolvedName, typeck::FunctionImplementation,
 };
 use kagari_mir::{
     function::MirModule,
-    instruction::{CallTarget, Instruction},
+    instruction::{CallTarget, ConstructionTarget as MirConstruction, Instruction},
     program::{
         ProgramError, ProgramErrorKind, VerifiedMirProgram,
-        construction::closed_interface_instances, records::MirProgram, verify_program,
+        construction::closed_interface_instances, records::MirProgram, updates, verify_program,
     },
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{
     callable::CallableImplementation,
-    ty::{GenericParam, substitution::TypeTransformError},
+    ty::{GenericParam, Ty, substitution::TypeTransformError},
 };
 use std::collections::{BTreeSet, HashMap, HashSet};
+
+mod exports;
+mod update_records;
+mod update_requests;
+mod update_source;
 
 #[derive(Debug)]
 pub enum SourceProgramError {
@@ -34,6 +51,10 @@ pub enum SourceProgramError {
         error: MirLoweringError,
     },
     Verification(ProgramError),
+    Update {
+        stage: &'static str,
+        error: UpdateError,
+    },
 }
 
 impl From<ProgramError> for SourceProgramError {
@@ -42,12 +63,104 @@ impl From<ProgramError> for SourceProgramError {
     }
 }
 
+/// Retain exact checked private trait contracts used by foreign source impls.
+/// Source checking already established lexical access. Portable linking consumes
+/// the copied requirement rather than resolving source privacy or trait syntax.
+fn attach_private_trait_requirements(
+    modules: &mut [MirModule],
+    cancel: &CancellationToken,
+) -> Result<(), MirLoweringError> {
+    let mut private = HashMap::new();
+    for module in modules.iter() {
+        cancel.check().map_err(|_| MirLoweringError::Cancelled)?;
+        for contract in &module.abi.trait_contracts {
+            private.insert(
+                contract.declaration,
+                (module.identity.clone(), contract.clone()),
+            );
+        }
+    }
+    for module in modules {
+        let mut retained = module
+            .abi
+            .trait_references
+            .iter()
+            .map(|reference| reference.declaration)
+            .collect::<HashSet<_>>();
+        for item in &module.abi.public_items {
+            cancel.check().map_err(|_| MirLoweringError::Cancelled)?;
+            let PublicItem::InterfaceTable(table) = item else {
+                continue;
+            };
+            let Ty::Trait(interface) = &table.trait_type else {
+                continue;
+            };
+            if let Some((owner, contract)) = private.get(&interface.declaration)
+                && owner != &module.identity
+                && retained.insert(contract.declaration)
+            {
+                module.abi.trait_references.push(contract.clone());
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn lower_program_to_mir(
     program: &CheckedProgram,
     options: &MirLoweringOptions,
 ) -> Result<VerifiedMirProgram, SourceProgramError> {
+    lower_program(program, options, None)
+}
+
+/// Compile candidate code for all retained installation demands as well as new source.
+/// The retained metadata and implementation headers must share their identity scope.
+/// Semantic implementation correspondence is resolved before any requests are planned;
+/// missing current declarations fail rather than falling back to historical code.
+pub fn lower_program_to_mir_with_demands(
+    program: &CheckedProgram,
+    options: &MirLoweringOptions,
+    retained: &DefinitionMetadata<DemandEnvelope>,
+    implementation_headers: &[NamedDeclaration],
+) -> Result<VerifiedMirProgram, SourceProgramError> {
+    lower_program(program, options, Some((retained, implementation_headers)))
+}
+
+fn lower_program(
+    program: &CheckedProgram,
+    options: &MirLoweringOptions,
+    retained: Option<(&DefinitionMetadata<DemandEnvelope>, &[NamedDeclaration])>,
+) -> Result<VerifiedMirProgram, SourceProgramError> {
     let context = program.root().definition_context();
     let root = program.root().lowered.source.module_identity().clone();
+    let source_inputs = update_records::collect(program, &options.cancel).map_err(|error| {
+        SourceProgramError::Lowering {
+            module: Box::new(root.clone()),
+            error,
+        }
+    })?;
+    let source_manifest = build_source_manifest(program, &options.cancel).map_err(|error| {
+        SourceProgramError::Lowering {
+            module: Box::new(root.clone()),
+            error: error.into(),
+        }
+    })?;
+    let mut retained = retained
+        .map(|(metadata, headers)| {
+            update_requests::import_retained(
+                metadata,
+                headers,
+                &source_inputs.declarations,
+                &context,
+                &options.cancel,
+            )
+        })
+        .transpose()
+        .map_err(|error| SourceProgramError::Lowering {
+            module: Box::new(root.clone()),
+            error: error.into(),
+        })?
+        .unwrap_or_default();
     // The root catalog already owns checked facts for the entire dependency
     // closure, including caller-private generic arguments. Per-module catalogs
     // cannot select those arguments' implementations in foreign bodies.
@@ -69,29 +182,49 @@ pub fn lower_program_to_mir(
         .find(|module| *module.lowered.source.module_identity() == root)
         .expect("checked root module")
         .aggregates;
-    let mut requests: HashMap<ModuleHandle, Vec<ConcreteFunctionIdentity>> = HashMap::new();
+    let exports =
+        exports::lower(program, &options.cancel).map_err(|error| SourceProgramError::Lowering {
+            module: Box::new(root.clone()),
+            error: error.into(),
+        })?;
+    let layout_requests = exports::layout_requests(&exports, &context.snapshot(), &options.cancel)
+        .map_err(|error| SourceProgramError::Lowering {
+            module: Box::new(root.clone()),
+            error: error.into(),
+        })?;
+    let mut requests = RequestQueue::default();
+    requests.layouts(layout_requests);
     let mut seen = HashSet::new();
+    let mut update_budget = Budget::new(Default::default(), &options.cancel).map_err(|error| {
+        SourceProgramError::Update {
+            stage: "initialize update budget",
+            error,
+        }
+    })?;
     loop {
         options.cancel.check().map_err(|_| ProgramError {
             module: Box::new(root.clone()),
             kind: ProgramErrorKind::Cancelled,
         })?;
         let mut modules = Vec::new();
+        let mut classifications = Vec::new();
+        let mut source_bodies = Vec::new();
         let mut remaining = options.clone();
         for module in &authoring_modules {
             let identity = module.lowered.source.module_identity();
-            let demanded = requests
-                .get(
-                    &module
-                        .names
-                        .catalog
-                        .definitions()
-                        .lookup_module(identity)
-                        .expect("checked source module"),
-                )
-                .map(Vec::as_slice)
-                .unwrap_or_default();
-            let lowered = lower::lower_to_mir_with_requests(
+            let handle = module
+                .names
+                .catalog
+                .definitions()
+                .lookup_module(identity)
+                .expect("checked source module");
+            let empty_requests = DemandRequests::default();
+            let demanded = requests.module(handle).unwrap_or(&empty_requests);
+            let lower::LoweredModule {
+                module: lowered,
+                classifications: module_classifications,
+                source_bodies: module_source_bodies,
+            } = lower::lower_to_mir_with_requests(
                 module,
                 &remaining,
                 demanded,
@@ -115,6 +248,9 @@ pub fn lower_program_to_mir(
                     error,
                 }
             })?;
+            classifications.extend(module_classifications);
+            source_bodies.extend(module_source_bodies);
+
             // These budgets apply to the whole source closure, not once per module.
             remaining.max_generic_instances -= lowered
                 .functions
@@ -149,6 +285,12 @@ pub fn lower_program_to_mir(
                 .sum::<usize>();
             modules.push(lowered.into_unverified().into_records());
         }
+        attach_private_trait_requirements(&mut modules, &options.cancel).map_err(|error| {
+            SourceProgramError::Lowering {
+                module: Box::new(root.clone()),
+                error,
+            }
+        })?;
         logging::attach(&mut modules, &context, &options.cancel).map_err(|error| {
             SourceProgramError::Lowering {
                 module: Box::new(root.clone()),
@@ -183,20 +325,39 @@ pub fn lower_program_to_mir(
                     )
             })
             .collect();
-        for instance in modules.iter().flat_map(callable_demands) {
+        let callable_requests = modules.iter().map(callable_demands).collect::<Vec<_>>();
+        for application in callable_requests
+            .iter()
+            .flat_map(|requests| &requests.shared)
+        {
+            options.cancel.check().map_err(|_| ProgramError {
+                module: Box::new(root.clone()),
+                kind: ProgramErrorKind::Cancelled,
+            })?;
+            if !materialized.contains(&application.body) {
+                changed |= requests
+                    .shared(application.clone(), &definitions)
+                    .map_err(|error| SourceProgramError::Lowering {
+                        module: Box::new(root.clone()),
+                        error,
+                    })?;
+            }
+        }
+        for instance in callable_requests
+            .into_iter()
+            .flat_map(|requests| requests.functions)
+        {
             options.cancel.check().map_err(|_| ProgramError {
                 module: Box::new(root.clone()),
                 kind: ProgramErrorKind::Cancelled,
             })?;
             if !materialized.contains(&instance) && seen.insert(instance.clone()) {
-                requests
-                    .entry(
-                        definitions
-                            .module_of(instance.declaration)
-                            .expect("checked request owner"),
-                    )
-                    .or_default()
-                    .push(instance);
+                requests.function(instance, &definitions).map_err(|error| {
+                    SourceProgramError::Lowering {
+                        module: Box::new(root.clone()),
+                        error,
+                    }
+                })?;
                 changed = true;
             }
         }
@@ -268,13 +429,11 @@ pub fn lower_program_to_mir(
                 .is_some_and(|module| module.interface_instances.contains(&instance));
             if !materialized && seen.insert(instance.clone()) {
                 requests
-                    .entry(
-                        definitions
-                            .module_of(instance.declaration)
-                            .expect("checked request owner"),
-                    )
-                    .or_default()
-                    .push(instance);
+                    .construction(instance, &definitions)
+                    .map_err(|error| SourceProgramError::Lowering {
+                        module: Box::new(root.clone()),
+                        error,
+                    })?;
                 changed = true;
             }
         }
@@ -425,14 +584,12 @@ pub fn lower_program_to_mir(
                     },
                 };
                 if seen.insert(instance.clone()) {
-                    requests
-                        .entry(
-                            definitions
-                                .module_of(instance.declaration)
-                                .expect("checked request owner"),
-                        )
-                        .or_default()
-                        .push(instance);
+                    requests.function(instance, &definitions).map_err(|error| {
+                        SourceProgramError::Lowering {
+                            module: Box::new(root.clone()),
+                            error,
+                        }
+                    })?;
                     changed = true;
                 }
             }
@@ -469,77 +626,172 @@ pub fn lower_program_to_mir(
             module.dependencies = dependencies.into_iter().collect();
         }
         if !changed {
-            let exports = exports::lower(program, &options.cancel).map_err(|error| {
-                SourceProgramError::Lowering {
-                    module: Box::new(root.clone()),
-                    error: error.into(),
-                }
+            let mut evidence = updates::build(
+                &modules,
+                updates::EvidenceInputs {
+                    sources: update_records::attach_bodies(
+                        &source_inputs.sources,
+                        source_bodies,
+                        &options.cancel,
+                    )
+                    .map_err(|error| SourceProgramError::Lowering {
+                        module: Box::new(root.clone()),
+                        error: error.into(),
+                    })?,
+                    initializers: source_inputs.initializers.clone(),
+                    selections: vec![],
+                    classifications: classifications.into_iter().collect(),
+                },
+                &definitions,
+                &options.cancel,
+            )
+            .map_err(|error| SourceProgramError::Update {
+                stage: "capture preoptimization evidence",
+                error,
             })?;
-            return verify_program(
+            evidence.source_manifest = Some(source_manifest.clone());
+            let (modules, evidence) = update_records::optimize(
+                modules, evidence, &context, options,
+            )
+            .map_err(|error| SourceProgramError::Lowering {
+                module: Box::new(root.clone()),
+                error,
+            })?;
+            let candidate = verify_program(
                 MirProgram {
-                    root,
+                    root: root.clone(),
                     modules,
-                    exports,
+                    exports: exports.clone(),
+                    update_evidence: evidence,
                 },
                 &context,
                 &options.cancel,
             )
-            .map_err(SourceProgramError::Verification);
+            .map_err(SourceProgramError::Verification)?;
+            let current = publication_demands(candidate.update_evidence(), &mut update_budget)
+                .map_err(|error| SourceProgramError::Update {
+                    stage: "collect publication demands",
+                    error,
+                })?;
+            retained = union_demands(
+                &retained,
+                &current,
+                candidate.definitions(),
+                &mut update_budget,
+            )
+            .map_err(|error| SourceProgramError::Update {
+                stage: "union retained demands",
+                error,
+            })?;
+            let natives = candidate
+                .modules()
+                .iter()
+                .flat_map(|module| module.native_applications())
+                .map(|import| NativeClosure {
+                    import,
+                    callbacks: None,
+                })
+                .collect::<Vec<_>>();
+            let mut coverage = candidate.update_coverage();
+            coverage.natives = &natives;
+            let proofs = update_requests::proof_catalog(
+                candidate.modules(),
+                candidate.definitions(),
+                &options.cancel,
+            )
+            .map_err(|error| SourceProgramError::Update {
+                stage: "prepare candidate retained-demand proofs",
+                error: error.into(),
+            })?;
+            let batch = expand_requests(&retained, &coverage, &proofs, &mut update_budget)
+                .map_err(|error| SourceProgramError::Update {
+                    stage: "expand retained requests",
+                    error,
+                })?;
+            if batch.is_empty() {
+                check_coverage(&retained, &coverage, &proofs, &mut update_budget).map_err(
+                    |error| SourceProgramError::Update {
+                        stage: "validate final retained coverage",
+                        error,
+                    },
+                )?;
+                return Ok(candidate);
+            }
+            let owner = context
+                .snapshot()
+                .lookup_module(&root)
+                .expect("checked root module");
+            if !requests
+                .apply(
+                    batch,
+                    catalog,
+                    candidate.definitions(),
+                    owner,
+                    &options.cancel,
+                )
+                .map_err(|error| SourceProgramError::Lowering {
+                    module: Box::new(root.clone()),
+                    error,
+                })?
+            {
+                // An unchanged batch cannot gain coverage by repeating lowering.
+                return Err(SourceProgramError::Update {
+                    stage: "materialize retained requests",
+                    error: UpdateError::MissingCoverage,
+                });
+            }
         }
     }
 }
 
 // Already emitted shared bodies need no source declaration demand. Generated
 // adapters have executable contracts but deliberately have no authored declaration.
-fn callable_demands(module: &MirModule) -> impl Iterator<Item = ConcreteFunctionIdentity> + '_ {
-    let script = module
+fn callable_demands(module: &MirModule) -> DemandRequests {
+    let mut requests = DemandRequests::default();
+    for instruction in module
         .functions
         .iter()
         .flat_map(|function| &function.blocks)
         .flat_map(|block| &block.instructions)
-        .flat_map(|instruction| match instruction {
+    {
+        match instruction {
             Instruction::Call {
                 callee: CallTarget::Shared(contract),
                 ..
-            } if contract.implementation == CallableImplementation::Script
-                && module
+            } if contract.implementation == CallableImplementation::Script => {
+                if !module
                     .functions
                     .iter()
-                    .any(|function| function.instance == contract.instance) =>
-            {
-                vec![]
+                    .any(|function| function.instance == contract.instance)
+                {
+                    requests.shared.push(BodyApplication {
+                        body: contract.instance.clone(),
+                        arguments: contract.arguments.clone(),
+                    });
+                }
             }
             Instruction::Call {
                 callee: CallTarget::Shared(contract),
                 ..
-            } => vec![ConcreteFunctionIdentity {
-                declaration: contract.instance.declaration,
-                arguments: if matches!(contract.implementation, CallableImplementation::Script) {
-                    (0..contract.arguments.len())
-                        .map(|position| {
-                            GenericParam {
-                                owner: contract.instance.declaration,
-                                position,
-                            }
-                            .as_type()
-                        })
-                        .collect()
-                } else {
-                    contract.instance.arguments.clone()
-                },
-            }],
+            } => {
+                requests.functions.push(contract.instance.clone());
+            }
             Instruction::Call {
                 callee: CallTarget::SourceFunction(contract),
                 ..
-            } => vec![ConcreteFunctionIdentity {
-                declaration: contract.declaration,
-                arguments: contract.arguments.clone(),
-            }],
-            _ => vec![],
-        });
-    script.chain(
+            } => {
+                requests.functions.push(ConcreteFunctionIdentity {
+                    declaration: contract.declaration,
+                    arguments: contract.arguments.clone(),
+                });
+            }
+            _ => {}
+        }
+    }
+    requests.functions.extend(
         module
             .selected_callables()
             .map(|call| call.instance.clone()),
-    )
+    );
+    requests
 }

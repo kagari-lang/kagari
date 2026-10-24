@@ -1,0 +1,23 @@
+static var count: i32 = 0;
+
+static val cold: i32 = 7;
+
+static val unused: i32 = fail();
+
+fn fail() -> i32 {
+    val zero = 0;
+    1 / zero
+}
+
+pub fn tick() -> i32 {
+    count += 1;
+    count
+}
+
+pub fn read_cold() -> i32 {
+    cold
+}
+
+pub fn read_added() -> i32 {
+    0
+}

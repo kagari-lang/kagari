@@ -17,7 +17,7 @@ use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::types::arguments::TypeArgument,
     gc::{GcHeapConfig, roots::RootedValue},
-    module::{LoadedModule, entry::ProgramEntry},
+    module::{Program, entry::ProgramEntry},
     native::{
         binding::NativeResult,
         builder::ModuleBuilder,
@@ -54,6 +54,8 @@ fn conversion_limits_terminate_only_active_sessions_and_release_scratch_roots() 
     .finish()
     .unwrap();
     let (vm, owner) = source_free_vm("pub fn main() {}", &module);
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let runtime = vm.runtime();
     let input = ConversionContext::new(runtime, &owner)
         .unwrap()
@@ -132,6 +134,8 @@ fn script_objects_cross_typed_entries_without_exposing_heap_ids() {
     "#,
         &module,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let player: Object = vm.execute_typed(&loaded, "make", ()).unwrap();
     let hp = vm
         .runtime()
@@ -191,6 +195,8 @@ fn ordinary_native_callbacks_mutate_retained_collections_through_typed_handles()
     "#,
         &module.finish().unwrap(),
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let values: ScriptVec<i32> = vm.execute_typed(&loaded, ProgramEntry::Main, ()).unwrap();
     vm.runtime().collect_garbage().unwrap();
     let mut cx = NativeContext::new(vm.runtime(), &loaded).unwrap();
@@ -278,6 +284,8 @@ fn typed_instance_method_receives_its_receiver_separately_from_tuple_arguments()
     "#,
         &module,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     assert!(
         script_equal(
             vm.runtime().gc(),
@@ -292,7 +300,7 @@ fn typed_instance_method_receives_its_receiver_separately_from_tuple_arguments()
     );
 }
 
-fn source_free_vm(source: &str, module: &NativeModule) -> (Vm, LoadedModule) {
+fn source_free_vm(source: &str, module: &NativeModule) -> (Vm, Program) {
     let program = compile_program(source, Some(module));
     let program = round_trip_program(program);
     let mut runtime = Runtime::new(RuntimeConfig {
@@ -383,6 +391,8 @@ fn owned_native_arguments_and_business_results_survive_gc_and_source_free_loadin
     "#,
         &module,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
@@ -391,7 +401,7 @@ fn owned_native_arguments_and_business_results_survive_gc_and_source_free_loadin
             .expect("retained execution result"),
         Value::I32(42)
     );
-    publish_unused_version(&vm, &loaded);
+    publish_unused_version(&vm, &_loaded_program);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
 }
 
@@ -446,6 +456,8 @@ fn typed_concrete_result_uses_the_compiler_selected_interface_adapter() {
     "#,
         &module,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
@@ -519,6 +531,8 @@ fn failed_output_preserves_callback_effects_and_traps_release_conversion_roots()
     "#,
         &module,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     assert!(vm.execute(&loaded, ProgramEntry::Main).is_err());
     assert_eq!(effects.load(Ordering::SeqCst), 1);
     assert!(vm.execute(&loaded, "fails").is_err());
@@ -572,6 +586,8 @@ fn typed_host_entries_convert_composites_and_retain_returned_handles() {
     "#,
         &module,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     type Data = Result<Option<Vec<(String, i32)>>, String>;
     for value in [
         Ok(Some(vec![("雪".into(), 42)])),
@@ -645,6 +661,8 @@ fn typed_entry_signature_rejection_precedes_effects_and_data_failure_preserves_t
     "#,
         &module,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     assert!(
         vm.execute_typed::<_, String>(&loaded, "run", (42i32,))
             .is_err()
@@ -682,6 +700,8 @@ fn moving_a_result_out_of_its_report_keeps_it_rooted_without_manual_registration
     "#,
         &module,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let result = vm.execute(&loaded, "make").unwrap().return_value;
     let clone = result.clone();
     drop(result);
@@ -734,6 +754,8 @@ fn native_collect_polls_between_iterator_steps_and_releases_the_failed_call() {
         "use example::typed::gather; fn main() -> Vec<i32> { gather() } pub fn healthy() -> i32 { 42 }",
         &module,
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let mut options = vm.runtime().execution_options();
     options.cancellation = cancellation;
     let session = vm.runtime().begin_execution(&loaded, options).unwrap();

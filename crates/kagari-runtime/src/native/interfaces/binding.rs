@@ -3,7 +3,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::arguments::{ScopedSignature, TypeArgument},
-    module::{LoadedModule, ModuleEpochRetention, retention::ProgramLease},
+    module::{ExecutableModule, ModuleEpochRetention, retention::ProgramLease},
     native::{
         binding::NativeResult,
         conversion::{KagariType, arguments::KagariArguments, context::ConversionContext},
@@ -12,6 +12,7 @@ use crate::{
             applications::{ApplicationEvidence, AppliedMethod},
         },
     },
+    source::FunctionSourceTarget,
 };
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath,
@@ -33,7 +34,7 @@ use std::{
 pub struct InterfaceMember {
     pub(super) source: TypeArgument,
     pub(super) interface: TypeArgument,
-    pub(super) owner: LoadedModule,
+    pub(super) owner: ExecutableModule,
     pub(super) slot: usize,
     declaration: DefinitionId,
     pub(super) contract: TraitDef,
@@ -49,12 +50,35 @@ impl InterfaceMember {
     pub fn definitions(&self) -> &DefinitionTable {
         self.owner.definitions()
     }
+
+    pub fn owner(&self) -> &ExecutableModule {
+        &self.owner
+    }
 }
 
 #[derive(Debug)]
 pub struct InterfaceMethod<A, R> {
     pub(super) record: Arc<MethodRecord>,
     mapping: PhantomData<fn(A) -> R>,
+}
+
+impl<A, R> InterfaceMethod<A, R> {
+    /// Report the declaring trait/member with no observed body. This binding has
+    /// no receiver; use a rooted method selection to inspect an implementation.
+    pub fn source_target(&self) -> FunctionSourceTarget {
+        let member = self.member();
+        let declaration = member
+            .definitions()
+            .resolve(member.declaration())
+            .expect("checked interface member declaration")
+            .to_path();
+        FunctionSourceTarget::unobserved_member(member.owner(), declaration)
+    }
+
+    /// Checked member identity; receiver-specific dispatch is selected by Interface.
+    pub fn member(&self) -> &InterfaceMember {
+        &self.record.member
+    }
 }
 
 impl<A, R> Clone for InterfaceMethod<A, R> {
@@ -105,12 +129,12 @@ impl<S> Interface<S> {
 
 fn resolve_member(
     runtime: &Runtime,
-    source_owner: &LoadedModule,
+    source_owner: &ExecutableModule,
     source: &TypeArgument,
     accepts: impl Fn(DefinitionId, &str) -> bool,
 ) -> NativeResult<InterfaceMember> {
     runtime.gc().ensure_no_native_borrow()?;
-    runtime.validate_loaded_module(source_owner)?;
+    runtime.validate_executable_module(source_owner)?;
     source.validate(runtime)?;
     let definitions = source_owner.definitions();
     let mut contracts = BTreeMap::new();
@@ -211,7 +235,7 @@ impl Runtime {
     /// Prepare against an installed applied trait before constructing a value.
     pub fn interface_member(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         interface: &TypeArgument,
         name: &str,
     ) -> NativeResult<InterfaceMember> {
@@ -220,7 +244,7 @@ impl Runtime {
 
     pub fn interface_member_declaration(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         interface: &TypeArgument,
         declaration: &DefinitionPath,
     ) -> NativeResult<InterfaceMember> {
@@ -250,7 +274,7 @@ impl Runtime {
         arguments: &[TypeArgument],
     ) -> NativeResult<InterfaceMethod<A, R>> {
         self.gc().ensure_no_native_borrow()?;
-        self.validate_loaded_module(&member.owner)?;
+        self.validate_executable_module(&member.owner)?;
         member.source.validate(self)?;
         if member.contract.methods[member.slot].generic_params.len() != arguments.len() {
             return Err(invalid());

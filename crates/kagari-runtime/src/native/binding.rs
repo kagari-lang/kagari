@@ -6,7 +6,7 @@ use crate::{
         TypeEnvironment, arguments::ScopedSignature, compatibility::TypeView,
         operations::OperationBindings,
     },
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         catalog::DeclarationCatalog,
         context::{CallContext, LinkedCallable, LinkedOperation},
@@ -251,7 +251,7 @@ impl LinkedNativeFunction {
     pub(crate) fn prepare_signature(
         &self,
         runtime: &Runtime,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
     ) -> NativeResult<()> {
         let params = runtime.type_arguments(owner, None, &self.signature.params)?;
         let result = runtime
@@ -271,7 +271,7 @@ impl LinkedNativeFunction {
 
     pub(crate) fn check_requirement(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         key: &SelectedCall,
     ) -> NativeResult<()> {
         let (declaration, definitions) = match &self.binding.requirement_owner {
@@ -289,7 +289,7 @@ impl LinkedNativeFunction {
     pub(crate) fn apply(
         &self,
         runtime: &Runtime,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         environment: TypeEnvironment,
         operations: &OperationBindings,
     ) -> NativeResult<Self> {

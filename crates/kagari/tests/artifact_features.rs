@@ -12,7 +12,7 @@ use kagari_bytecode::{
     program::{identity, verify_program},
 };
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
-use kagari_runtime::module::entry::ProgramEntry;
+use kagari_runtime::{module::entry::ProgramEntry, native::objects::Object};
 use kagari_types::ty::Ty;
 use std::sync::{
     Arc,
@@ -116,6 +116,55 @@ fn portable_artifact_executes_without_source_compilation() {
         );
         assert!(!runtime.runtime().is_quarantined(), "{entry:?}");
     }
+
+    // The decoded export graph, not frontend state or a root-reset adapter, owns
+    // relative lookup through a namespace-only facade into a private item owner.
+    let cells = loaded.module("host_api").unwrap().module("cells").unwrap();
+    assert!(loaded.module("alias_model").is_err());
+    let root_answer = runtime
+        .function::<(), i32>(&loaded.root(), "answer")
+        .unwrap();
+    let answer = runtime.function::<(), i32>(&cells, "answer").unwrap();
+    assert_eq!(runtime.call(&root_answer, ()).unwrap(), -1);
+    assert_eq!(runtime.call(&answer, ()).unwrap(), 42);
+    let executor = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+    let root_async = runtime
+        .async_function::<(), i32>(&loaded.root(), "answer_async")
+        .unwrap();
+    let answer_async = runtime
+        .async_function::<(), i32>(&cells, "answer_async")
+        .unwrap();
+    assert_eq!(
+        executor
+            .block_on(runtime.call_async(&root_async, ()).unwrap())
+            .unwrap(),
+        -1
+    );
+    assert_eq!(
+        executor
+            .block_on(runtime.call_async(&answer_async, ()).unwrap())
+            .unwrap(),
+        42
+    );
+
+    let closed = runtime.object_type(&cells, "SharedCell").unwrap();
+    let field = runtime.field::<i32>(&closed, "value").unwrap();
+    let make = runtime.function::<(), Object>(&cells, "make_cell").unwrap();
+    let cell = runtime.call(&make, ()).unwrap();
+    assert_eq!(runtime.get(&cell, &field).unwrap(), 42);
+    runtime.set(&cell, &field, 43).unwrap();
+    assert_eq!(runtime.get(&cell, &field).unwrap(), 43);
+    let unused = runtime.object_type(&cells, "UnusedCell").unwrap();
+    runtime.field::<i32>(&unused, "value").unwrap();
+    // A structurally identical, different nominal layout cannot access this cell.
+    let wrong_field = runtime.field::<i32>(&unused, "value").unwrap();
+    assert!(runtime.get(&cell, &wrong_field).is_err());
+    assert_eq!(runtime.get(&cell, &field).unwrap(), 43);
+    drop(cell);
+    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    assert_eq!(runtime.runtime().collect_garbage().unwrap().live_objects, 0);
 }
 
 #[test]
@@ -156,7 +205,7 @@ fn source_free_native_bindings_execute_and_release_scopes() {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let mut runtime = engine(config, Default::default()).runtime(context.clone());
-    let mut loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let loaded = runtime.load_program(&program, Default::default()).unwrap();
     for _ in 0..3 {
         for entry in ["required_methods", "fixed_array_construction"] {
             assert_eq!(
@@ -177,7 +226,7 @@ fn source_free_native_bindings_execute_and_release_scopes() {
         assert!(!runtime.runtime().is_quarantined());
         // Release the version's constant roots before checking for leaked native
         // scopes/results; the replacement cache has not been materialized.
-        loaded = runtime
+        runtime
             .reload_program(&loaded, &program, Default::default())
             .unwrap();
         runtime.runtime().collect_garbage().unwrap();

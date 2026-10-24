@@ -350,6 +350,7 @@ fn cancellation_boundaries_unwind_nested_provider_callbacks() {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
+        let _selected_loaded = runtime.runtime().select_program(&loaded).unwrap();
         let options = kagari_runtime::session::ExecutionOptions {
             cancellation: context.cancellation.clone(),
             ..Default::default()
@@ -362,7 +363,10 @@ fn cancellation_boundaries_unwind_nested_provider_callbacks() {
                 token: context.cancellation.clone(),
             })
             .unwrap();
-        let session = runtime.runtime().begin_execution(&loaded, options).unwrap();
+        let session = runtime
+            .runtime()
+            .begin_execution(&_selected_loaded, options)
+            .unwrap();
         runtime.runtime().attach_execution_observer().unwrap();
         match runtime.execute(&loaded, ProgramEntry::Main, &[], &context) {
             Ok(report) => {

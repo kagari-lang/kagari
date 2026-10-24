@@ -5,7 +5,7 @@ use kagari_runtime::{
     Runtime,
     error::RuntimeErrorKind,
     gc::{HeapObjectId, roots::RootedValue},
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
@@ -76,7 +76,7 @@ impl<'de> Deserialize<'de> for Reentrant {
     }
 }
 
-fn fixture() -> (Rc<Runtime>, LoadedModule) {
+fn fixture() -> (Rc<Runtime>, ExecutableModule) {
     let module = module();
     let program = program_for_source(
         &module,
@@ -86,7 +86,8 @@ fn fixture() -> (Rc<Runtime>, LoadedModule) {
     let mut modules = kagari_stdlib::modules().unwrap();
     modules.push(module);
     NativeModule::install_all(&modules, &mut runtime).unwrap();
-    let owner = runtime.load_program("serde", program).unwrap();
+    let owner_program = runtime.load_program("serde", program).unwrap();
+    let owner = runtime.select_program(&owner_program).unwrap();
     (Rc::new(runtime), owner)
 }
 

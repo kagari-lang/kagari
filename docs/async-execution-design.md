@@ -118,8 +118,8 @@ them when no handles or explicit host roots retain them. Scope bookkeeping must
 not retain all completed tasks indefinitely. Keeping a completed Task reachable
 must not retain its entire execution stack. Await cancellation/failure follows
 the terminal-execution rules below, without adding an outer Result to the output.
-Neither Future nor Task is a cross-runtime value, serialized continuation or
-state-replacement payload. Publication must not silently retarget retained code.
+Neither Future nor Task is a cross-runtime value or serialized continuation.
+Publication must not silently retarget retained code.
 
 ### Async closure syntax and evaluation
 
@@ -345,7 +345,9 @@ occurs on the exclusive driver.
 
 ## Host driving and session ownership
 
-The SDK binds a pinned `AsyncFunction<A, R>` with `Runtime::async_function`.
+The SDK binds `AsyncFunction<A, R>` with `Runtime::async_function`. A named binding
+selects the current implementation at invocation admission; the admitted queue then
+retains that exact factory and output scope, even before its first poll.
 `call_async` admits a cold invocation and returns `Call<'_, R>`, an exclusive
 borrowing Future that drives the shared bounded scheduler when awaited. No second
 pump is needed. `submit_async` instead returns `PendingCall<R>`, a nonborrowing,
@@ -381,9 +383,10 @@ guard grants exclusive driving access and restores runtime state when it exits.
 Attempted concurrent or recursive driving is rejected.
 
 Independent roots must not be mistaken for synchronous nested reentry. Nested
-calls share the caller's cancellation state and versions; a separate host-started
-root has its own cancellation state. Scheduling does not add work charging or
-runtime heap quotas. Host services own task admission and queue capacity.
+calls share the caller's cancellation state and installation authority, but ordinary
+calls select current implementations rather than a retained old dependency set.
+A separate host-started root has its own cancellation state. Scheduling does not
+add work charging or runtime heap quotas. Host services own task admission and queue capacity.
 
 ## Waiting and completion lifecycle
 
@@ -522,7 +525,9 @@ and their traced sources without a Rust borrow, storage pointer or iteration
 lease. Another execution may structurally mutate a source while the loop is
 parked; the resumed cursor traps before its next source read. Nonstructural
 replacements remain visible. Suspension does not copy sources or restart iter/next.
-Native adapters retain source and callback GC edges and pinned executable selections.
+Native adapters retain source and callback GC edges and checked selections.
+Ordinary callback calls select current implementations; created closures retain
+exact bodies.
 Custom script iterators retain ordinary rooted state and own their consistency
 rules. Their iter and next calls remain synchronous; awaiting in a loop body needs
 no async iterator protocol.
@@ -542,22 +547,26 @@ host operations, or request an explicit host transaction.
 
 ## Reload and authority
 
-The [update model](update-model-design.md) distinguishes compatible publication
-from state replacement. The retention rules below describe compatible publication.
-State replacement closes admission and drains or explicitly cancels all work that
-can access the old state before snapshotting; cancellation must complete cleanup.
-No task/continuation is serialized into the new runtime. Late completion identities
-remain tied to the old scope/runtime and cannot mutate restored state. Cancelling
-local work does not undo remote RPC effects or resurrect jobs if replacement aborts.
+The [publication contract](spec/module-activation.md#live-installations-and-call-selection)
+preserves live state and selected computations under compatible code changes.
+It provides no task/continuation serialization or transfer to another runtime.
+Late completion identities remain tied to their original scope/runtime; cancelling
+local work does not undo remote RPC effects.
 
-Cold Futures and callable captures retain their resolved code before execution;
-spawn or first await must not resolve them again against the latest publication.
-An execution pins its dependency program and native implementation owners through
-all waits, following [module activation](spec/module-activation.md). Publication
-does not retarget a retained binding or continuation; the host explicitly binds
-against the new module to select it. Results are converted using
-the waiting execution's types and provider contract, never the latest registration.
-Suspended executions are not automatically migrated to new code.
+Created closures, cold Futures and admitted frames/queued invocations retain their
+exact body/provider and lexical type environment through waits. First drive or await
+does not reselect an already admitted computation. Named function values and ordinary
+typed bindings instead follow checked current-call routes without obsolete executable
+leases. An old resumed body retains its instructions, while its ordinary inner calls
+select current implementations; no rebinding is required for an existing named handle.
+Results still convert using the admitted execution's types and provider contract.
+Suspended state is not migrated or serialized by compatible publication.
+
+[Module activation](spec/module-activation.md) owns the implemented publication
+boundary: no active synchronous execution, driver, observer, callback/reentry or
+cleanup scope may remain. Parked executions do not block publication. While the
+publication guard is held, script entry/resumption, driver consumption and another
+publication reject; producer-side completion notifications may still mark readiness.
 
 Host retention policy, unfinished-job limits and deadlines bound old-generation retention. The host
 may cancel old executions under an explicit deployment policy; publication does
@@ -577,9 +586,9 @@ in candidate initialization, even though cold construction does not itself start
 | Syntax and HIR | Async declarations, closures/blocks and await expressions, Future/Task types, capture and control-flow boundaries, diagnostics and suspension restrictions |
 | Compiler and MIR | Explicit await control flow, captured/live values, effects, source origins and verified resume points; no RPC-specific lowering |
 | ABI and bytecode | Portable async call contracts and bounded validation of task/result types, resume destinations, initialization, roots and non-suspendable resources |
-| Runtime | Shared scheduler, structured ownership/dependencies, execution/task state, provider operations, completion identities, GC retention, limits, cancellation and pinned generations |
+| Runtime | Shared scheduler, structured ownership/dependencies, execution/task state, provider operations, completion identities, GC retention, limits, cancellation, exact computation ownership and current ordinary-call selection |
 | VM | Generic bounded driving, wait/resume transitions and logical async stacks |
-| SDK and host | Typed pinned binding, driving Calls/result tickets, Runtime poll/close, managed scopes/events, registration, host readiness and IO integration |
+| SDK and host | Typed callable binding and exact invocation admission, driving Calls/result tickets, Runtime poll/close, managed scopes/events, registration, host readiness and IO integration |
 | Native backends | Recognize unsupported suspendable execution before entry and use checked interpreter fallback |
 
 The interpreter can preserve explicit frames and resume positions; implementation
@@ -783,9 +792,10 @@ Task or task-scope capabilities, including values hidden behind cells/interfaces
 This intentionally conservative rule prevents deferred work from escaping through
 mutable aliases. It is checked at runtime/activation as well as in known source
 contexts; no general effect/capability framework is introduced. Compatible reload
-keeps cold and parked code/type/provider generations pinned. New calls through
-retained bindings still use their original generation; selecting the new publication
-requires explicit binding. State replacement remains outside this contract.
+retains exact cold/parked computation bodies, types and provider contracts. New
+admissions through retained named bindings and ordinary inner calls use current
+implementations, as described under [reload and authority](#reload-and-authority).
+State replacement remains outside this contract.
 
 ## Contract coverage
 
@@ -794,4 +804,5 @@ artifact and host-driven execution. [Session tests](../crates/kagari-vm/src/test
 and [native boundaries](../crates/kagari-vm/src/tests/native_boundary.rs) own cleanup,
 reentry and runtime safety. Use deterministic host completion/dispatch fixtures;
 preserve cold-effect timing, single Future drive, shared Task results, cancellation,
-GC, pinned reload and source-free rejection. CI owns the full feature/backend matrix.
+GC, exact admitted-body retention/current ordinary-call selection across reload
+and source-free rejection. CI owns the full feature/backend matrix.

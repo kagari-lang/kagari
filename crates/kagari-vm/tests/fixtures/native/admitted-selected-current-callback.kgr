@@ -1,0 +1,20 @@
+use example::admitted::{ Step, invoke };
+
+pub struct Counter {
+    pub var value: i32
+}
+
+impl Step for Counter {
+    fn step(self) -> i32 {
+        self.value += 1;
+        self.value
+    }
+}
+
+pub fn make() -> Counter {
+    Counter { value: 1 }
+}
+
+pub fn evidence() -> i32 {
+    invoke(make())
+}

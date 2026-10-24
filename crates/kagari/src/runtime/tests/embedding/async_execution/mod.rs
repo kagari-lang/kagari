@@ -1,4 +1,5 @@
 //! Source factories, nested awaits and owned iteration across real native waits.
+use super::native_program;
 use crate::{
     engine::{KagariEngine, builder::KagariEngineBuilder},
     program::PreparedProgram,
@@ -67,10 +68,12 @@ impl Fixture {
                 .execute(&self.module, entry, arguments, &Default::default())
                 .map(|report| report.return_value);
         }
-        let owner =
-            self.runtime
-                .backend()
-                .start(&self.module, entry, arguments, Default::default())?;
+        let owner = self.runtime.backend().start(
+            &self.runtime.runtime().select_program(&self.module).unwrap(),
+            entry,
+            arguments,
+            Default::default(),
+        )?;
         for _ in 0..1000 {
             match self.runtime.backend().drive(&owner, slice())? {
                 DriveResult::Complete(result) => return result.map_err(EmbeddingError::from),

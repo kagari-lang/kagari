@@ -6,7 +6,7 @@ use crate::{
         values::{ExecutionValues, FrameMetadata, FrameSlots},
     },
     module::{
-        LoadedModule,
+        ExecutableModule,
         execution::{
             OperandSlot,
             layout::{FrameLayout, Location},
@@ -85,7 +85,7 @@ impl Control {
         }
     }
 
-    fn allocate(&self, values: &mut ExecutionValues, module: &LoadedModule) -> FrameSlots {
+    fn allocate(&self, values: &mut ExecutionValues, module: &ExecutableModule) -> FrameSlots {
         values
             .allocate(
                 self.width,
@@ -104,7 +104,7 @@ impl Control {
     fn fill(
         &self,
         values: &mut ExecutionValues,
-        module: &LoadedModule,
+        module: &ExecutableModule,
         slots: &mut Vec<FrameSlots>,
     ) {
         for _ in 0..self.depth {
@@ -115,7 +115,7 @@ impl Control {
     fn fragment(
         &self,
         values: &mut ExecutionValues,
-        module: &LoadedModule,
+        module: &ExecutableModule,
         slots: &mut [FrameSlots],
     ) {
         for index in (0..self.depth).step_by(2) {
@@ -142,7 +142,7 @@ impl Control {
 #[ignore = "manual release-profile storage timing; never run concurrently with builds or diagnostics"]
 #[cfg(not(feature = "execution-diagnostics"))]
 fn window_storage_timing() {
-    let (_runtime, module) = module();
+    let (_runtime, _program, module) = module();
     for (depth, width, order) in CASES {
         let control = Control::new(depth, width, order);
         let mut values = ExecutionValues::default();
@@ -178,7 +178,7 @@ fn window_storage_timing() {
 #[ignore = "manual allocation/transition counts, not throughput"]
 #[cfg(feature = "execution-diagnostics")]
 fn window_storage_counts() {
-    let (_runtime, module) = module();
+    let (_runtime, _program, module) = module();
     for (depth, width, order) in CASES {
         let control = Control::new(depth, width, order);
         let mut slots = Vec::with_capacity(depth);

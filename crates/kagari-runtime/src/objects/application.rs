@@ -38,9 +38,12 @@ impl Runtime {
         for argument in arguments {
             argument.validate(self)?;
         }
-        constructions.extend(&ConstructionScope::new(view.implementation()));
-        let arguments =
-            ApplicationArguments::new(view.implementation(), arguments.to_vec(), constructions)?;
+        constructions.extend(&ConstructionScope::new(view.proof_implementation()));
+        let arguments = ApplicationArguments::new(
+            view.proof_implementation(),
+            arguments.to_vec(),
+            constructions,
+        )?;
         drop(view);
         method.invocation =
             self.apply_method_invocation(method.invocation, &arguments, operations)?;
@@ -71,7 +74,7 @@ impl Runtime {
             drop(view);
             return Ok(method);
         }
-        let owner = view.implementation().clone();
+        let owner = view.proof_implementation().clone();
         let identity = view.identity();
         drop(view);
         let receiver_operations = method.receiver_operations(self)?;
@@ -123,7 +126,7 @@ impl Runtime {
             arguments.values().to_vec(),
         )?;
         let mut constructions =
-            self.construction_scope(view.implementation(), view.receiver_environment())?;
+            self.construction_scope(view.proof_implementation(), view.receiver_environment())?;
         constructions.extend(arguments.constructions());
         binders.set_constructions(constructions.clone());
         binders.include(view.receiver_environment().cloned())?;
@@ -140,7 +143,7 @@ impl Runtime {
             adapter
         });
         let params = self.type_arguments(
-            view.implementation(),
+            view.proof_implementation(),
             binders
                 .as_ref()
                 .map(|environment| environment.types.clone()),
@@ -148,7 +151,7 @@ impl Runtime {
         )?;
         let result = self
             .type_arguments(
-                view.implementation(),
+                view.proof_implementation(),
                 binders
                     .as_ref()
                     .map(|environment| environment.types.clone()),
@@ -172,7 +175,7 @@ impl Runtime {
                 self.definition_context(),
                 view.entry_parameters().to_vec(),
                 self.type_arguments(
-                    view.implementation(),
+                    view.proof_implementation(),
                     binders.map(|environment| environment.types.clone()),
                     view.entry_arguments(),
                 )?,

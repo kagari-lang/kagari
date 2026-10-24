@@ -1,0 +1,54 @@
+use std::collections::{ List, list_content_equal };
+
+struct Local {}
+
+impl PartialEq for Local {
+    fn eq(self, other: Self) -> bool {
+        true
+    }
+}
+
+struct Item {
+    val value: i32
+}
+
+impl PartialEq for Item {
+    fn eq(self, other: Self) -> bool {
+        true
+    }
+}
+
+fn pack<T>(value: T) -> List<(Local, T)> {
+    Vec::from([(Local {}, value)])
+}
+
+trait Boxer {
+    fn one<T>(self, value: T) -> List<(Local, T)> {
+        val make = || pack(value);
+        make()
+    }
+}
+
+struct Factory {}
+
+impl Boxer for Factory {}
+
+trait Probe {
+    fn check(self, factory: Boxer) -> bool;
+}
+
+struct Checker {}
+
+impl Probe for Checker {
+    fn check(self, factory: Boxer) -> bool {
+        list_content_equal(factory.one(Item { value: 1 }), factory.one(Item { value: 2 }))
+    }
+}
+
+pub fn make() -> Boxer {
+    Factory {}
+}
+
+pub fn probe() -> Probe {
+    Checker {}
+}

@@ -10,18 +10,20 @@ mod resource_termination;
 mod script_values;
 mod selected_methods;
 mod shared_application;
-use super::compile_program;
+use super::{compile_program, compile_without_foundation};
 use crate::tests::native_boundary::support::round_trip_program;
 use crate::{error::VmError, vm::Vm};
+use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::cancellation::CancellationToken;
+use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
     gc::GcHeapConfig,
-    module::LoadedModule,
+    module::Program,
     native::{
         binding::NativeResult, builder::ModuleBuilder, conversion::KagariType,
-        declarations::FunctionDecl, function_handle::PinnedFunction, module::NativeModule,
+        declarations::FunctionDecl, function_handle::Function, module::NativeModule,
         objects::Object, typed::NativeContext, types::Type,
     },
     resource::RuntimeLimits,
@@ -32,10 +34,21 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-type ScalarCallback = PinnedFunction<(i32,), i32>;
+type ScalarCallback = Function<(i32,), i32>;
 
-pub(super) fn fixture(source: &str, module: Option<&NativeModule>) -> (Vm, LoadedModule) {
-    let program = round_trip_program(compile_program(source, module));
+pub(super) fn fixture(source: &str, module: Option<&NativeModule>) -> (Vm, Program) {
+    fixture_program(compile_program(source, module), module)
+}
+
+fn fixture_without_foundation(source: &str, module: Option<&NativeModule>) -> (Vm, Program) {
+    fixture_program(compile_without_foundation(source, module), module)
+}
+
+fn fixture_program(
+    program: DefinitionMetadata<BytecodeProgram>,
+    module: Option<&NativeModule>,
+) -> (Vm, Program) {
+    let program = round_trip_program(program);
     let mut runtime = Runtime::new(RuntimeConfig {
         gc: GcHeapConfig {
             collection_threshold: Some(1),
@@ -86,35 +99,37 @@ fn bound_entries_check_visibility_signature_and_return_retained_objects() {
     "#,
         Some(&module.finish().unwrap()),
     );
+    let _owner_program = owner;
     assert!(
         vm.runtime()
-            .bind_function::<(), i32>(&owner, "private")
+            .bind_function::<(), i32>(&_owner_program.root(), "private")
             .is_err()
     );
     assert!(
         vm.runtime()
-            .bind_function::<(), i32>(&owner, "make")
+            .bind_function::<(), i32>(&_owner_program.root(), "make")
             .is_err()
     );
     assert!(
         vm.runtime()
-            .bind_function::<(i32,), Object>(&owner, "make")
+            .bind_function::<(i32,), Object>(&_owner_program.root(), "make")
             .is_err()
     );
     assert_eq!(calls.load(Ordering::Relaxed), 0);
     let make = vm
         .runtime()
-        .bind_function::<(), Object>(&owner, "make")
+        .bind_function::<(), Object>(&_owner_program.root(), "make")
         .unwrap();
     let read = vm
         .runtime()
-        .bind_function::<(Object,), i32>(&owner, "read")
+        .bind_function::<(Object,), i32>(&_owner_program.root(), "read")
         .unwrap();
     let player = vm.call(&make, ()).unwrap();
     vm.runtime().collect_garbage().unwrap();
     assert_eq!(vm.call(&read, (player.clone(),)).unwrap(), 42);
     assert_eq!(calls.load(Ordering::Relaxed), 1);
     let (foreign, _) = fixture("pub fn main() {}", None);
+
     assert!(foreign.call(&make, ()).is_err());
     assert_eq!(calls.load(Ordering::Relaxed), 1);
     drop(player);
@@ -133,7 +148,7 @@ fn typed_closures_reenter_native_and_retain_captures_until_last_handle() {
                 FunctionDecl::new("apply")
                     .parameter(
                         "callback",
-                        <PinnedFunction<(i32,), i32>>::kagari_type(module.declarations()).unwrap(),
+                        <Function<(i32,), i32>>::kagari_type(module.declarations()).unwrap(),
                     )
                     .parameter("value", Type::i32())
                     .returns(Type::i32()),
@@ -143,7 +158,7 @@ fn typed_closures_reenter_native_and_retain_captures_until_last_handle() {
             .bind(
                 registered_function.clone(),
                 move |cx: &mut NativeContext<'_>,
-                      (callback, value): (PinnedFunction<(i32,), i32>, i32)|
+                      (callback, value): (Function<(i32,), i32>, i32)|
                       -> NativeResult<i32> {
                     *saved.lock().unwrap() = Some(callback.clone());
                     cx.collect_garbage()?;
@@ -180,9 +195,10 @@ fn typed_closures_reenter_native_and_retain_captures_until_last_handle() {
     "#,
         Some(&module.finish().unwrap()),
     );
+    let _owner_program = owner;
     let main = vm
         .runtime()
-        .bind_function::<(), i32>(&owner, "main")
+        .bind_function::<(), i32>(&_owner_program.root(), "main")
         .unwrap();
     assert_eq!(vm.call(&main, ()).unwrap(), 42);
     let callback = remembered.lock().unwrap().take().unwrap();
@@ -190,7 +206,7 @@ fn typed_closures_reenter_native_and_retain_captures_until_last_handle() {
     assert_eq!(vm.call(&callback, (2,)).unwrap(), 43);
     let invoke = vm
         .runtime()
-        .bind_function::<(PinnedFunction<(i32,), i32>,), i32>(&owner, "use_callback")
+        .bind_function::<(Function<(i32,), i32>,), i32>(&_owner_program.root(), "use_callback")
         .unwrap();
     assert_eq!(vm.call(&invoke, (callback.clone(),)).unwrap(), 43);
     drop(callback);
@@ -198,7 +214,7 @@ fn typed_closures_reenter_native_and_retain_captures_until_last_handle() {
 }
 
 #[test]
-fn returned_closures_and_bound_functions_remain_pinned_after_reload() {
+fn returned_closures_retain_bodies_while_bound_functions_select_current() {
     let source = |answer| {
         format!(
             r#"
@@ -213,12 +229,23 @@ fn returned_closures_and_bound_functions_remain_pinned_after_reload() {
             "#
         )
     };
-    let (vm, old) = fixture(&source(41), None);
+    let (vm, old) = fixture_without_foundation(&source(41), None);
+    let _old_program = old;
+    let old = vm.runtime().select_program(&_old_program).unwrap();
     let answer = vm
         .runtime()
-        .bind_function::<(), i32>(&old, "again::answer")
+        .bind_function::<(), i32>(&_old_program.root(), "again::answer")
         .unwrap();
-    assert_eq!(answer.owner().bytecode.identity.path, ["implementation"]);
+    assert_eq!(
+        answer
+            .prepare_call(vm.runtime())
+            .unwrap()
+            .owner()
+            .bytecode
+            .identity
+            .path,
+        ["implementation"]
+    );
     for inaccessible in [
         "main",
         "value",
@@ -228,26 +255,32 @@ fn returned_closures_and_bound_functions_remain_pinned_after_reload() {
     ] {
         assert!(
             vm.runtime()
-                .bind_function::<(), i32>(answer.owner(), inaccessible)
+                .bind_function::<(), i32>(&_old_program.root(), inaccessible)
                 .is_err(),
             "{inaccessible}"
         );
     }
     let duplicate = vm
         .runtime()
-        .bind_function::<(), i32>(answer.owner(), "answer")
+        .bind_function::<(), i32>(&_old_program.root(), "answer")
         .unwrap();
     let make = vm
         .runtime()
-        .bind_function::<(), PinnedFunction<(), i32>>(&old, "make")
+        .bind_function::<(), Function<(), i32>>(&_old_program.root(), "make")
         .unwrap();
     let closure = vm.call(&make, ()).unwrap();
-    let new = vm
-        .reload_program(&old, "functions", compile_program(&source(42), None))
-        .unwrap();
+    let prepared = answer.prepare_call(vm.runtime()).unwrap();
+    vm.reload_program(
+        &_old_program,
+        Some("functions".into()),
+        compile_without_foundation(&source(42), None),
+    )
+    .unwrap();
+    let _new_program = _old_program.clone();
+    let new = vm.runtime().select_program(&_new_program).unwrap();
     let new_answer = vm
         .runtime()
-        .bind_function::<(), i32>(&new, "answer")
+        .bind_function::<(), i32>(&_new_program.root(), "answer")
         .unwrap();
     {
         let mut cx = vm.context(&new).unwrap();
@@ -255,28 +288,38 @@ fn returned_closures_and_bound_functions_remain_pinned_after_reload() {
             .runtime()
             .begin_execution(&new, vm.runtime().execution_options())
             .unwrap();
-        assert_eq!(answer.call(&mut cx, ()).unwrap(), 41);
+        assert_eq!(answer.call(&mut cx, ()).unwrap(), 42);
+        assert_eq!(
+            prepared
+                .call_with_options::<_, i32>(&mut cx, (), vm.runtime().execution_options())
+                .unwrap(),
+            41
+        );
         assert_eq!(closure.call(&mut cx, ()).unwrap(), 41);
         assert_eq!(new_answer.call(&mut cx, ()).unwrap(), 42);
     }
+    drop(prepared);
     drop(answer);
     drop(make);
-    drop(closure);
     assert!(
         !vm.runtime()
             .collect_garbage()
             .unwrap()
             .reclaimed_modules
-            .contains(&old.key())
+            .contains(&old.key()),
+        "the retained closure keeps its exact body alive"
     );
-    drop(duplicate);
+    drop(closure);
     assert!(
         vm.runtime()
             .collect_garbage()
             .unwrap()
             .reclaimed_modules
-            .contains(&old.key())
+            .contains(&old.key()),
+        "ordinary handles must not retain obsolete executable bodies"
     );
+    assert_eq!(vm.call(&duplicate, ()).unwrap(), 42);
+    drop(duplicate);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
 }
 
@@ -286,13 +329,14 @@ fn public_script_function_handles_can_be_passed_back_as_callable_values() {
         "pub fn double(x: i32) -> i32 { x * 2 } pub fn use_callback(callback: fn(i32) -> i32) -> i32 { callback(21) }",
         None,
     );
+    let _owner_program = owner;
     let double = vm
         .runtime()
-        .bind_function::<(i32,), i32>(&owner, "double")
+        .bind_function::<(i32,), i32>(&_owner_program.root(), "double")
         .unwrap();
     let invoke = vm
         .runtime()
-        .bind_function::<(PinnedFunction<(i32,), i32>,), i32>(&owner, "use_callback")
+        .bind_function::<(Function<(i32,), i32>,), i32>(&_owner_program.root(), "use_callback")
         .unwrap();
     assert_eq!(vm.call(&invoke, (double,)).unwrap(), 42);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
@@ -311,7 +355,7 @@ fn typed_reentry_traps_cancellation_and_depth_exhaustion_release_execution_state
                 FunctionDecl::new("apply")
                     .parameter(
                         "callback",
-                        <PinnedFunction<(i32,), i32>>::kagari_type(module.declarations()).unwrap(),
+                        <Function<(i32,), i32>>::kagari_type(module.declarations()).unwrap(),
                     )
                     .parameter("value", Type::i32())
                     .returns(Type::i32()),
@@ -321,7 +365,7 @@ fn typed_reentry_traps_cancellation_and_depth_exhaustion_release_execution_state
             .bind(
                 registered_function.clone(),
                 |cx: &mut NativeContext<'_>,
-                 (callback, value): (PinnedFunction<(i32,), i32>, i32)|
+                 (callback, value): (Function<(i32,), i32>, i32)|
                  -> NativeResult<i32> { callback.call(cx, (value,)) },
             )
             .map(|()| registered_function)
@@ -336,17 +380,19 @@ fn typed_reentry_traps_cancellation_and_depth_exhaustion_release_execution_state
     "#,
         Some(&module.finish().unwrap()),
     );
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let divide = vm
         .runtime()
-        .bind_function::<(i32,), i32>(&owner, "divide")
+        .bind_function::<(i32,), i32>(&_owner_program.root(), "divide")
         .unwrap();
     let recurse = vm
         .runtime()
-        .bind_function::<(i32,), i32>(&owner, "recurse")
+        .bind_function::<(i32,), i32>(&_owner_program.root(), "recurse")
         .unwrap();
     let healthy = vm
         .runtime()
-        .bind_function::<(), i32>(&owner, "healthy")
+        .bind_function::<(), i32>(&_owner_program.root(), "healthy")
         .unwrap();
     assert!(vm.call(&divide, (0,)).is_err());
     assert!(
@@ -374,18 +420,27 @@ fn typed_reentry_traps_cancellation_and_depth_exhaustion_release_execution_state
 fn retained_entry_cannot_escape_candidate_initialization_isolation() {
     let source = "pub fn answer() -> i32 { 42 }";
     let (vm, old) = fixture(source, None);
+    let _old_program = old;
+    let old = vm.runtime().select_program(&_old_program).unwrap();
     let old_function = vm
         .runtime()
-        .bind_function::<(), i32>(&old, "answer")
+        .bind_function::<(), i32>(&_old_program.root(), "answer")
         .unwrap();
     let candidate = vm
         .runtime()
-        .stage_reload_program(&old, "functions", compile_program(source, None))
+        .stage_reload_program(
+            &_old_program,
+            Some("functions".into()),
+            compile_program(source, None),
+        )
         .unwrap();
     let new_function = vm
         .runtime()
-        .bind_function::<(), i32>(candidate.module(), "answer")
+        .bind_function::<(), i32>(&_old_program.root(), "answer")
         .unwrap();
+    let prepared = new_function.prepare_call(vm.runtime()).unwrap();
+    assert_eq!(prepared.owner().key(), old.key());
+    assert_ne!(prepared.owner().key(), candidate.module().key());
     {
         let _session = vm
             .runtime()
@@ -394,7 +449,9 @@ fn retained_entry_cannot_escape_candidate_initialization_isolation() {
         assert!(
             matches!(vm.call(&old_function, ()), Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ExecutionPhaseViolation)
         );
-        assert_eq!(vm.call(&new_function, ()).unwrap(), 42);
+        assert!(
+            matches!(vm.call(&new_function, ()), Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ExecutionPhaseViolation)
+        );
     }
     assert_eq!(vm.call(&old_function, ()).unwrap(), 42);
 }
@@ -429,10 +486,11 @@ fn native_declaration_handles_bind_checked_installed_entries_directly() {
         "use example::functions::add; pub fn main() -> i32 { add(20, 22) }",
         Some(&module.finish().unwrap()),
     );
+    let _owner_program = owner;
     let function = vm
         .runtime()
         .bind_function_declaration::<(i32, i32), i32>(
-            &owner,
+            &_owner_program.root(),
             &add.definitions().resolve(add.id()).unwrap().to_path(),
         )
         .unwrap();

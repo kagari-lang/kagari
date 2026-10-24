@@ -1,8 +1,15 @@
 //! Immutable lexical type facts, without executable selection or environment edges.
 use crate::{
+    Runtime,
     error::RuntimeError,
-    frame::types::{arguments::TypeArgument, compatibility::TypeView},
-    module::LoadedModule,
+    frame::types::{EnvironmentRecord, arguments::TypeArgument, compatibility::TypeView},
+    module::{
+        ExecutableModule,
+        dispatch::{
+            SelectedTarget,
+            identity::{PublicationDefinitions, PublicationMapping},
+        },
+    },
 };
 use kagari_common::identity::{map::DefinitionContext, table::DefinitionId};
 use kagari_contract::callable::generic::GenericBody;
@@ -13,14 +20,15 @@ use kagari_types::{
         substitution::{normalize_projections, substitute_parameters},
     },
 };
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, slice, sync::Arc};
 
 /// Checked associated-type facts; contains no selected operation or environment.
 #[derive(Debug, Clone)]
 pub(crate) struct AssociatedInterface {
+    pub(crate) lookup_scope: Option<Arc<PublicationDefinitions>>,
     pub(crate) receiver: Ty,
     pub(crate) interface: NominalTy,
-    pub(crate) owner: LoadedModule,
+    pub(crate) owner: ExecutableModule,
     pub(crate) outputs: BTreeMap<DefinitionId, TypeArgument>,
 }
 
@@ -33,7 +41,100 @@ pub(crate) struct TypeBindings {
     pub(super) associated_interfaces: Arc<Vec<AssociatedInterface>>,
 }
 
+impl AssociatedInterface {
+    pub(crate) fn transported(
+        &self,
+        runtime: &Runtime,
+        selected: &SelectedTarget,
+    ) -> Result<Self, RuntimeError> {
+        if self.owner.installation_id() != selected.owner().installation_id() {
+            if !self
+                .owner
+                .is_shared_native_trait(self.interface.declaration)
+            {
+                return Err(RuntimeError::module_validation(
+                    "script trait output belongs to another installation",
+                ));
+            }
+            return Ok(self.clone());
+        }
+        let mapping = selected.mapping_from(
+            self.lookup_scope
+                .clone()
+                .unwrap_or_else(|| self.owner.publication_definitions()),
+        )?;
+        let mut outputs = BTreeMap::new();
+        for (member, ty) in &self.interface.associated_types {
+            let output = match self.outputs.get(member) {
+                Some(output) => output.clone(),
+                None => runtime
+                    .type_arguments(&self.owner, None, slice::from_ref(ty))?
+                    .pop()
+                    .ok_or_else(|| RuntimeError::module_validation("associated output scope"))?,
+            };
+            outputs.insert(mapping.map(*member)?, output);
+        }
+        for (member, output) in &self.outputs {
+            outputs.insert(mapping.map(*member)?, output.clone());
+        }
+        Ok(Self {
+            lookup_scope: Some(selected.owner().publication_definitions()),
+            receiver: mapping
+                .remap(&self.receiver, &Default::default())?
+                .into_records(),
+            interface: mapping
+                .remap(&self.interface, &Default::default())?
+                .into_records(),
+            owner: self.owner.clone(),
+            outputs,
+        })
+    }
+}
+
+impl EnvironmentRecord {
+    pub(crate) fn transported(
+        &self,
+        runtime: &Runtime,
+        selected: &SelectedTarget,
+        mapping: &PublicationMapping,
+    ) -> Result<Self, RuntimeError> {
+        Ok(Self {
+            types: Arc::new(self.types.transported(runtime, selected, mapping)?),
+            constructions: self.constructions.transported(runtime, selected)?,
+            parent: self.parent,
+            operations: self.operations.transported(runtime, selected)?,
+        })
+    }
+}
+
 impl TypeBindings {
+    fn transported(
+        &self,
+        runtime: &Runtime,
+        selected: &SelectedTarget,
+        mapping: &PublicationMapping,
+    ) -> Result<Self, RuntimeError> {
+        Ok(Self {
+            definitions: self.definitions.clone(),
+            parameters: mapping
+                .remap(&self.parameters.to_vec(), &Default::default())?
+                .into_records()
+                .into(),
+            arguments: self.arguments.clone(),
+            parent: self
+                .parent
+                .as_ref()
+                .map(|parent| parent.transported(runtime, selected, mapping).map(Arc::new))
+                .transpose()?,
+            associated_interfaces: Arc::new(
+                self.associated_interfaces
+                    .iter()
+                    .map(|fact| fact.transported(runtime, selected))
+                    .collect::<Result<_, _>>()?,
+            ),
+        })
+    }
+
     pub(crate) fn new(
         definitions: &DefinitionContext,
         parameters: Vec<GenericParam>,
@@ -160,6 +261,7 @@ impl TypeBindings {
                     interface: applied,
                     owner,
                     outputs,
+                    ..
                 } = fact;
                 (ty == receiver
                     && applied.declaration == interface.declaration

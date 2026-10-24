@@ -8,7 +8,7 @@ use crate::{
         InterfaceDescription, InterfaceMethodBinding, InterfaceParentBinding,
         InterfaceResultBinding, InterfaceValueSnapshot,
     },
-    module::LoadedModule,
+    module::ExecutableModule,
     objects::calls,
     value::Value,
 };
@@ -21,7 +21,7 @@ use std::sync::Arc;
 impl Runtime {
     pub(super) fn prepare_interface_snapshot(
         &self,
-        implementation: &LoadedModule,
+        implementation: &ExecutableModule,
         table_index: usize,
         arguments: &[TypeArgument],
         construction_environment: Option<&TypeEnvironment>,

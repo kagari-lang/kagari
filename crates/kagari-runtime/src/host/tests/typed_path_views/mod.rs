@@ -1,3 +1,4 @@
+use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
@@ -7,15 +8,11 @@ use crate::{
         HostSchemaEpoch, PreparedHostPathWrite,
     },
     metadata::{AbiFingerprint, TypeId, TypeKind, TypeRegistration},
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{builder::ModuleBuilder, module::NativeModule},
     value::Value,
 };
-use kagari_bytecode::{
-    instruction::BinaryOp,
-    module::BytecodeModule,
-    program::{BytecodeProgram, ModuleRef},
-};
+use kagari_bytecode::{instruction::BinaryOp, module::BytecodeModule, program::ModuleRef};
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext,
     metadata::DefinitionMetadata, table::DefinitionId,
@@ -37,23 +34,21 @@ use kagari_types::{
 };
 use std::sync::{Arc, Mutex};
 
-fn allocation_owner(runtime: &mut Runtime) -> LoadedModule {
+fn allocation_owner(runtime: &mut Runtime) -> ExecutableModule {
     let context = DefinitionContext::new().unwrap();
-    runtime
+    let program = runtime
         .load_program(
             "allocation-owner",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
-        .unwrap()
+        .unwrap();
+    runtime.select_program(&program).unwrap()
 }
 
 fn path_mutation_runtime() -> Runtime {

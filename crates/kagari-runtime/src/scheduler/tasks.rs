@@ -3,7 +3,7 @@ use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
     error_trace::asynchronous::SpawnOrigin,
-    module::LoadedModule,
+    module::ExecutableModule,
     native::binding::NativeResult,
     scheduler::WorkKey,
     session::ExecutionOptions,
@@ -37,7 +37,7 @@ impl Runtime {
     /// ownership until those callers migrate. Scope-owner drop still cancels jobs.
     pub fn create_scheduled_task_scope(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         options: ExecutionOptions,
     ) -> NativeResult<TaskScopeOwner> {
         self.create_task_scope_inner(

@@ -1,11 +1,11 @@
 //! Host entry conversion delegates to the VM's common runtime conversion scope.
 use crate::{RunResult, context::ExecutionContext, error::EmbeddingError, runtime::Runtime};
 use kagari_runtime::{
-    module::{LoadedModule, entry::ProgramEntry},
+    module::{ExecutableModule, Program, entry::ProgramEntry},
     native::{
         binding::NativeResult,
         conversion::{FromKagari, arguments::IntoKagariArguments},
-        function_handle::PinnedFunction,
+        function_handle::Function,
         typed::NativeContext,
     },
 };
@@ -17,7 +17,7 @@ impl Runtime {
     /// own values. Traps and unwinds release the execution session automatically.
     pub fn with_context<R>(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         context: &ExecutionContext,
         access: impl FnOnce(&mut NativeContext<'_>) -> NativeResult<R>,
     ) -> RunResult<R> {
@@ -43,7 +43,7 @@ impl Runtime {
 
     pub fn call<A: IntoKagariArguments, R: FromKagari>(
         &mut self,
-        function: &PinnedFunction<A, R>,
+        function: &Function<A, R>,
         arguments: A,
     ) -> RunResult<R> {
         self.call_with_context(function, arguments, &self.default_context.clone())
@@ -51,36 +51,38 @@ impl Runtime {
 
     pub fn call_with_context<A: IntoKagariArguments, R: FromKagari>(
         &mut self,
-        function: &PinnedFunction<A, R>,
+        function: &Function<A, R>,
         arguments: A,
         context: &ExecutionContext,
     ) -> RunResult<R> {
         context.validate_for_execute("bound function")?;
+        let prepared = function.prepare_call(self.runtime())?;
         let mut cx = self
             .vm
-            .context(function.owner())
+            .context(prepared.owner())
             .map_err(EmbeddingError::vm)?;
-        function
+        prepared
             .call_with_options(&mut cx, arguments, context.runtime_options())
             .map_err(|error| EmbeddingError::vm(VmError::RuntimeError(error)))
     }
 
     pub fn execute_typed<'a, A: IntoKagariArguments, R: FromKagari>(
         &self,
-        module: &LoadedModule,
+        program: &Program,
         entry: impl Into<ProgramEntry<'a>>,
         arguments: A,
         context: &ExecutionContext,
     ) -> RunResult<R> {
         let entry = entry.into();
         context.validate_for_execute(entry.label())?;
+        let module = self.runtime().select_program(program)?;
         let _session = self
             .vm
             .runtime()
-            .begin_execution(module, context.runtime_options())
+            .begin_execution(&module, context.runtime_options())
             .map_err(|error| EmbeddingError::vm(VmError::RuntimeError(error)))?;
         self.vm
-            .execute_typed(module, entry, arguments)
+            .execute_typed(&module, entry, arguments)
             .map_err(EmbeddingError::vm)
     }
 }

@@ -11,7 +11,7 @@ use kagari_mir::ids::InstanceId;
 use kagari_runtime::{
     backend::BackendInvocationError,
     error::RuntimeError,
-    module::{LoadedModule, entry::ProgramEntry},
+    module::{Program, entry::ProgramEntry},
 };
 use kagari_vm::vm::native::PreparedNativeEntry;
 use {
@@ -69,19 +69,19 @@ impl Runtime {
     pub fn prepare_native<'a>(
         &self,
         program: &PreparedProgram,
-        module: &LoadedModule,
+        installed: &Program,
         entry: impl Into<ProgramEntry<'a>>,
         backend: &mut dyn CodegenBackend,
         cancel: &CancellationToken,
     ) -> Result<PreparedNativeEntry, NativePreparationError> {
         check_cancel(cancel)?;
-        self.runtime().validate_loaded_module(module)?;
+        let module = self.runtime().select_program(installed)?;
         if !program.bytecode().same_version(module.verified_program()) {
             return Err(NativePreparationError::WrongVersion);
         }
         let entry = entry.into();
         let (owner, function) = entry
-            .resolve(module)
+            .resolve(&module)
             .ok_or_else(|| NativePreparationError::MissingEntry(entry.label().into()))?;
         let module = &owner;
         let configuration = backend.configuration();

@@ -1,0 +1,19 @@
+trait Tag {}
+
+impl Tag for i32 {}
+
+struct Hidden<T: Tag> {
+    val value: T,
+}
+
+enum Nested<T: Tag> {
+    Value(Hidden<T>),
+}
+
+pub struct Cell<T> {
+    val value: T,
+}
+
+fn main() {
+    val cell = Cell { value: Nested::Value(Hidden { value: 1 }) };
+}

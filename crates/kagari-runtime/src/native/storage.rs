@@ -8,7 +8,7 @@ use crate::{
         compatibility::TypeView,
     },
     gc::GcHeap,
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         binding::NativeResult,
         context::{LinkedCallable, LinkedOperation},
@@ -65,7 +65,7 @@ pub trait NativePayload: Any + Debug + Send {
 
 pub struct StorageContext<'call> {
     pub(crate) runtime: &'call Runtime,
-    pub(crate) owner: &'call LoadedModule,
+    pub(crate) owner: &'call ExecutableModule,
     pub(crate) ty: &'call Ty,
     pub(crate) scope: Option<&'call TypeArgument>,
     pub(crate) selected: &'call [LinkedOperation],
@@ -118,7 +118,7 @@ impl<'call> StorageContext<'call> {
         StorageType::prepare_scoped(self.type_parameter(index)?, self.owner).map(Arc::new)
     }
 
-    pub fn owner(&self) -> &'call LoadedModule {
+    pub fn owner(&self) -> &'call ExecutableModule {
         self.owner
     }
 
@@ -305,7 +305,7 @@ impl NativeStorage {
         heap: &GcHeap,
         ty: &Ty,
         payload: S,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
     ) -> NativeResult<NativeObject> {
         if self.entries.rust_type != TypeId::of::<S>() {
             return Err(RuntimeError::module_validation(
@@ -320,7 +320,7 @@ impl NativeStorage {
         heap: &GcHeap,
         ty: &Ty,
         payload: Box<dyn Any + Send>,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
     ) -> NativeResult<NativeObject> {
         let mut valid = true;
         (self.entries.trace)(payload.as_ref(), &mut |value| {
@@ -360,7 +360,7 @@ pub(crate) struct NativeObject {
     pub(crate) charge: HeapCharge,
     payload: Box<dyn Any + Send>,
     pub(crate) ty: Ty,
-    _owner: LoadedModule,
+    _owner: ExecutableModule,
     pub(crate) scope: Option<TypeArgument>,
     pub(crate) selected: Arc<[StoredSelection]>,
 }
@@ -388,7 +388,7 @@ impl NativeObject {
             .expect("validated extraction payload type")
     }
 
-    pub(crate) fn owner(&self) -> &LoadedModule {
+    pub(crate) fn owner(&self) -> &ExecutableModule {
         &self._owner
     }
 

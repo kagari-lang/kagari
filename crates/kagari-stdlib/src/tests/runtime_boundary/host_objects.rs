@@ -7,7 +7,7 @@ use kagari_runtime::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
     gc::GcHeapConfig,
-    module::LoadedModule,
+    module::Program,
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
@@ -96,7 +96,7 @@ fn runtime() -> Runtime {
     runtime
 }
 
-fn fixture() -> (Runtime, LoadedModule) {
+fn fixture() -> (Runtime, Program) {
     let mut runtime = runtime();
     let owner = runtime.load_program("objects", program(SOURCE)).unwrap();
     (runtime, owner)
@@ -114,7 +114,11 @@ fn player(cx: &mut NativeContext<'_>, ty: &ObjectType, hp: i32) -> Object {
 #[test]
 fn prepared_fields_preserve_aliases_and_public_access_after_gc() {
     let (runtime, owner) = fixture();
-    let ty = runtime.bind_type(&owner, "Player", &[]).unwrap();
+    let _owner_program = owner;
+    let owner = runtime.select_program(&_owner_program).unwrap();
+    let ty = runtime
+        .bind_type(&_owner_program.root(), "Player", &[])
+        .unwrap();
     let hp = runtime.bind_field::<i32>(&ty, "hp").unwrap();
     let name = runtime
         .bind_field_declaration::<String>(&ty.field("name").unwrap())
@@ -137,19 +141,31 @@ fn prepared_fields_preserve_aliases_and_public_access_after_gc() {
     drop(alias);
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
 
-    let hidden = runtime.bind_type(&owner, "Hidden", &[]).unwrap();
+    let hidden = runtime
+        .bind_type(&_owner_program.root(), "Hidden", &[])
+        .unwrap();
     assert!(runtime.bind_field::<i32>(&hidden, "secret").is_err());
     assert!(runtime.bind_field::<i32>(&hidden, "internal").is_err());
     assert!(runtime.bind_field::<i32>(&hidden, "visible").is_ok());
     assert!(hidden.builder().is_err());
-    assert!(runtime.bind_type(&owner, "Private", &[]).is_err());
+    assert!(
+        runtime
+            .bind_type(&_owner_program.root(), "Private", &[])
+            .is_err()
+    );
 }
 
 #[test]
 fn object_reads_retain_children_and_failed_construction_releases_temporaries() {
     let (runtime, owner) = fixture();
-    let player_type = runtime.bind_type(&owner, "Player", &[]).unwrap();
-    let pair_type = runtime.bind_type(&owner, "Pair", &[]).unwrap();
+    let _owner_program = owner;
+    let owner = runtime.select_program(&_owner_program).unwrap();
+    let player_type = runtime
+        .bind_type(&_owner_program.root(), "Player", &[])
+        .unwrap();
+    let pair_type = runtime
+        .bind_type(&_owner_program.root(), "Pair", &[])
+        .unwrap();
     let first = runtime.bind_field::<Object>(&pair_type, "first").unwrap();
     let second = runtime.bind_field::<Object>(&pair_type, "second").unwrap();
     let hp = runtime.bind_field::<i32>(&player_type, "hp").unwrap();
@@ -180,8 +196,14 @@ fn object_reads_retain_children_and_failed_construction_releases_temporaries() {
 #[test]
 fn fields_reject_foreign_runtimes_and_unrelated_nominal_types() {
     let (runtime, owner) = fixture();
-    let ty = runtime.bind_type(&owner, "Player", &[]).unwrap();
-    let other = runtime.bind_type(&owner, "Other", &[]).unwrap();
+    let _owner_program = owner;
+    let owner = runtime.select_program(&_owner_program).unwrap();
+    let ty = runtime
+        .bind_type(&_owner_program.root(), "Player", &[])
+        .unwrap();
+    let other = runtime
+        .bind_type(&_owner_program.root(), "Other", &[])
+        .unwrap();
     let hp = runtime.bind_field::<i32>(&ty, "hp").unwrap();
     let mut cx = NativeContext::new(&runtime, &owner).unwrap();
     let object = player(&mut cx, &other, 10);
@@ -189,6 +211,8 @@ fn fields_reject_foreign_runtimes_and_unrelated_nominal_types() {
     assert!(object.set(&mut cx, &hp, 20).is_err());
     let object = player(&mut cx, &ty, 10);
     let (foreign, foreign_owner) = fixture();
+    let _foreign_owner_program = foreign_owner;
+    let foreign_owner = foreign.select_program(&_foreign_owner_program).unwrap();
     assert!(foreign.bind_field::<i32>(&ty, "hp").is_err());
     let mut foreign_cx = NativeContext::new(&foreign, &foreign_owner).unwrap();
     assert!(object.get(&mut foreign_cx, &hp).is_err());
@@ -215,7 +239,11 @@ impl IntoKagari for FailAfterGc {
 #[test]
 fn a_failed_conversion_preserves_earlier_commits_and_never_publishes_partial_writes() {
     let (runtime, owner) = fixture();
-    let ty = runtime.bind_type(&owner, "Player", &[]).unwrap();
+    let _owner_program = owner;
+    let owner = runtime.select_program(&_owner_program).unwrap();
+    let ty = runtime
+        .bind_type(&_owner_program.root(), "Player", &[])
+        .unwrap();
     let hp = runtime.bind_field::<i32>(&ty, "hp").unwrap();
     let failing = runtime.bind_field::<FailAfterGc>(&ty, "hp").unwrap();
     let mut cx = NativeContext::new(&runtime, &owner).unwrap();
@@ -234,9 +262,17 @@ fn a_failed_conversion_preserves_earlier_commits_and_never_publishes_partial_wri
 #[test]
 fn applied_fields_preserve_nominal_arguments() {
     let (runtime, owner) = fixture();
-    let player_type = runtime.bind_type(&owner, "Player", &[]).unwrap();
+    let _owner_program = owner;
+    let owner = runtime.select_program(&_owner_program).unwrap();
+    let player_type = runtime
+        .bind_type(&_owner_program.root(), "Player", &[])
+        .unwrap();
     let cell_type = runtime
-        .bind_type(&owner, "Cell", &[player_type.type_argument().clone()])
+        .bind_type(
+            &_owner_program.root(),
+            "Cell",
+            &[player_type.type_argument().clone()],
+        )
         .unwrap();
     let value = runtime.bind_field::<Object>(&cell_type, "value").unwrap();
     let hp = runtime.bind_field::<i32>(&player_type, "hp").unwrap();
@@ -254,16 +290,22 @@ fn applied_fields_preserve_nominal_arguments() {
 #[test]
 fn binding_handles_pin_old_versions_but_the_cache_does_not() {
     let (runtime, old) = fixture();
-    let ty = runtime.bind_type(&old, "Player", &[]).unwrap();
+    let _old_program = old;
+    let old = runtime.select_program(&_old_program).unwrap();
+    let ty = runtime
+        .bind_type(&_old_program.root(), "Player", &[])
+        .unwrap();
     let hp = runtime.bind_field::<i32>(&ty, "hp").unwrap();
     let duplicate = runtime.bind_field::<i32>(&ty, "hp").unwrap();
     let object = player(&mut NativeContext::new(&runtime, &old).unwrap(), &ty, 50);
     let candidate = runtime
-        .stage_reload_program(&old, "objects", program(SOURCE))
+        .stage_reload_program(&_old_program, Some("objects".into()), program(SOURCE))
         .unwrap();
     let new = candidate.module().clone();
     runtime.publish_staged_reload(candidate).unwrap();
-    let new_ty = runtime.bind_type(&new, "Player", &[]).unwrap();
+    let new_ty = runtime
+        .bind_type(&_old_program.root(), "Player", &[])
+        .unwrap();
     let new_hp = runtime.bind_field::<i32>(&new_ty, "hp").unwrap();
     let mut cx = NativeContext::new(&runtime, &new).unwrap();
     runtime.collect_garbage().unwrap();
@@ -287,17 +329,28 @@ fn binding_handles_pin_old_versions_but_the_cache_does_not() {
             .reclaimed_modules
             .contains(&old.key())
     );
-    assert!(runtime.bind_type(&old, "Player", &[]).is_err());
+    assert!(runtime.validate_executable_module(&old).is_err());
+    assert!(
+        runtime
+            .bind_type(&_old_program.root(), "Player", &[])
+            .is_ok()
+    );
 }
 
 #[test]
 fn nested_dynamic_handles_store_heap_edges_and_cycles_are_collectible() {
     let (runtime, owner) = fixture();
-    let node_type = runtime.bind_type(&owner, "Node", &[]).unwrap();
+    let _owner_program = owner;
+    let owner = runtime.select_program(&_owner_program).unwrap();
+    let node_type = runtime
+        .bind_type(&_owner_program.root(), "Node", &[])
+        .unwrap();
     let next = runtime
         .bind_field::<Option<Object>>(&node_type, "next")
         .unwrap();
-    let bag_type = runtime.bind_type(&owner, "Bag", &[]).unwrap();
+    let bag_type = runtime
+        .bind_type(&_owner_program.root(), "Bag", &[])
+        .unwrap();
     let items = runtime
         .bind_field::<Vec<Option<Object>>>(&bag_type, "items")
         .unwrap();
@@ -349,6 +402,8 @@ fn nested_dynamic_handles_store_heap_edges_and_cycles_are_collectible() {
 #[test]
 fn collection_handles_preserve_identity_access_and_traversal_invalidation() {
     let (runtime, owner) = fixture();
+    let _owner_program = owner;
+    let owner = runtime.select_program(&_owner_program).unwrap();
     let mut cx = NativeContext::new(&runtime, &owner).unwrap();
     let values = cx.create_vec(vec![1i32, 2, 3]).unwrap();
     let alias = values.clone();
@@ -404,7 +459,11 @@ fn collection_handles_preserve_identity_access_and_traversal_invalidation() {
 #[test]
 fn collection_removals_return_retained_objects_and_reject_readonly_widening() {
     let (runtime, owner) = fixture();
-    let node_type = runtime.bind_type(&owner, "Node", &[]).unwrap();
+    let _owner_program = owner;
+    let owner = runtime.select_program(&_owner_program).unwrap();
+    let node_type = runtime
+        .bind_type(&_owner_program.root(), "Node", &[])
+        .unwrap();
     let next = runtime
         .bind_field::<Option<Object>>(&node_type, "next")
         .unwrap();
@@ -418,7 +477,9 @@ fn collection_removals_return_retained_objects_and_reject_readonly_widening() {
     let read = values.pop(&mut cx).unwrap().unwrap();
     runtime.collect_garbage().unwrap();
     assert!(read.get(&mut cx, &next).unwrap().is_none());
-    let bag_type = runtime.bind_type(&owner, "Bag", &[]).unwrap();
+    let bag_type = runtime
+        .bind_type(&_owner_program.root(), "Bag", &[])
+        .unwrap();
     let items = runtime
         .bind_field::<ScriptVec<Option<Object>>>(&bag_type, "items")
         .unwrap();
@@ -440,6 +501,8 @@ fn collection_removals_return_retained_objects_and_reject_readonly_widening() {
     shared.push(&mut cx, None).unwrap();
     assert_eq!(bag.get(&mut cx, &items).unwrap().len(&cx).unwrap(), 2);
     let (foreign, foreign_owner) = fixture();
+    let _foreign_owner_program = foreign_owner;
+    let foreign_owner = foreign.select_program(&_foreign_owner_program).unwrap();
     let mut foreign_cx = NativeContext::new(&foreign, &foreign_owner).unwrap();
     assert!(shared.get(&mut foreign_cx, 0).is_err());
     assert!(shared.push(&mut foreign_cx, None).is_err());
@@ -454,7 +517,11 @@ fn collection_removals_return_retained_objects_and_reject_readonly_widening() {
 #[test]
 fn typed_handles_and_bindings_move_with_exclusive_runtime_ownership() {
     let (runtime, owner) = fixture();
-    let ty = runtime.bind_type(&owner, "Player", &[]).unwrap();
+    let _owner_program = owner;
+    let owner = runtime.select_program(&_owner_program).unwrap();
+    let ty = runtime
+        .bind_type(&_owner_program.root(), "Player", &[])
+        .unwrap();
     let hp = runtime.bind_field::<i32>(&ty, "hp").unwrap();
     let (object, values) = {
         let mut cx = NativeContext::new(&runtime, &owner).unwrap();

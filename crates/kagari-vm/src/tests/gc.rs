@@ -44,6 +44,8 @@ fn frame_roots_preserve_returned_objects_across_calls_and_collection_safepoints(
                 program
             };
             let loaded = runtime.load_program("gc.kgr", program).unwrap();
+            let _loaded_program = loaded;
+            let loaded = runtime.select_program(&_loaded_program).unwrap();
             let vm = Vm::new(runtime);
             let report = if jit {
                 vm.execute_prepared(&loaded, ProgramEntry::Main, &native_fixtures::unsupported())
@@ -81,6 +83,8 @@ fn closures_keep_captured_objects_and_cells_alive_across_collection() {
     ));
     let mut runtime = runtime();
     let loaded = runtime.load_program("closure_gc.kgr", module).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, ProgramEntry::Main).unwrap();
     assert_eq!(
@@ -103,6 +107,8 @@ fn closure_handles_reject_other_runtimes_and_reclaimed_slots() {
     let loaded = owner_runtime
         .load_program("closure_handles.kgr", module)
         .unwrap();
+    let _loaded_program = loaded;
+    let loaded = owner_runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(owner_runtime);
     let value = vm
         .execute(&loaded, "make")
@@ -152,7 +158,9 @@ fn rooted_closure_retains_its_old_program_after_new_publish() {
     let new = compile_test_bytecode("pub fn make() -> fn() -> i32 { || 42 }");
     let mut runtime = runtime();
     let loaded = runtime.load_program("closure_epoch.kgr", old).unwrap();
-    let mut vm = Vm::new(runtime);
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
+    let vm = Vm::new(runtime);
     let closure = vm
         .execute(&loaded, "make")
         .unwrap()
@@ -160,10 +168,8 @@ fn rooted_closure_retains_its_old_program_after_new_publish() {
         .value(vm.runtime().gc())
         .expect("retained execution result");
     let rooted = vm.runtime().root_value(closure).unwrap();
-    let replacement = vm
-        .runtime_mut()
-        .load_program("closure_epoch.kgr", new)
-        .unwrap();
+    vm.reload_program(&_loaded_program, None, new).unwrap();
+    let replacement = vm.runtime().select_program(&_loaded_program).unwrap();
     drop(loaded);
     vm.runtime().collect_garbage().unwrap();
     let snapshot = vm
@@ -171,7 +177,7 @@ fn rooted_closure_retains_its_old_program_after_new_publish() {
         .resolve_closure(&rooted.value(vm.runtime().gc()).unwrap())
         .unwrap();
     vm.runtime()
-        .validate_loaded_module(&snapshot.implementation)
+        .validate_executable_module(&snapshot.implementation)
         .unwrap();
     assert_ne!(snapshot.implementation.key(), replacement.key());
     drop(rooted);
@@ -182,6 +188,8 @@ fn native_scalar_execution_visits_the_same_collection_safepoint() {
     let mut runtime = runtime();
     let module = compile_test_bytecode("fn main() -> i32 { 42 }");
     let loaded = runtime.load_program("gc.kgr", module).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let dead = runtime
         .alloc_array(&loaded, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
         .unwrap();
@@ -209,6 +217,8 @@ fn traps_release_frame_roots_and_call_depth() {
     {
         let mut runtime = runtime();
         let loaded = runtime.load_program("gc.kgr", module.clone()).unwrap();
+        let _loaded_program = loaded;
+        let loaded = runtime.select_program(&_loaded_program).unwrap();
         let vm = Vm::new(runtime);
         assert!(vm.execute(&loaded, ProgramEntry::Main).is_err());
         assert_eq!(vm.runtime().gc().active_roots(), 0);
@@ -227,6 +237,8 @@ fn cloned_debug_bindings_keep_inspected_objects_alive_after_the_session_is_repla
         ..Default::default()
     });
     let loaded = runtime.load_program("gc.kgr", module).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut session = DebugSession::new(&runtime).unwrap();
     session
         .add_breakpoint(SourceBreakpoint::at_source_offset(
@@ -265,6 +277,8 @@ fn growing_execution_windows_keep_outer_values_alive_and_release_them_on_return(
     ));
     let mut runtime = runtime();
     let loaded = runtime.load_program("growing_windows", program).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, ProgramEntry::Main).unwrap();
     assert_eq!(

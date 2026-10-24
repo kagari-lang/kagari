@@ -11,7 +11,7 @@ use crate::{
         },
     },
     gc::{HeapObjectId, interfaces::InterfaceValueSnapshot},
-    module::{self, LoadedModule},
+    module::{self, ExecutableModule},
     objects::invocation::MethodInvocation,
     value,
     value::{EnumTag, Value},
@@ -38,23 +38,23 @@ mod operations;
 impl Runtime {
     pub fn alloc_array(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         element: Ty,
         elements: Vec<Value>,
     ) -> Result<HeapObjectId, RuntimeError> {
-        self.validate_loaded_module(owner)?;
+        self.validate_executable_module(owner)?;
         self.validate_heap_payloads(&elements)?;
         self.gc.alloc_array(owner, element, elements)
     }
 
     pub fn alloc_array_repeat(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         element: Ty,
         value: Value,
         count: usize,
     ) -> Result<HeapObjectId, RuntimeError> {
-        self.validate_loaded_module(owner)?;
+        self.validate_executable_module(owner)?;
         self.validate_heap_payloads(slice::from_ref(&value))?;
         self.gc.alloc_array_repeat(owner, element, value, count)
     }
@@ -95,7 +95,7 @@ impl Runtime {
     /// The resulting heap object retains the table's entire execution version.
     pub fn make_interface(
         &self,
-        implementation: &LoadedModule,
+        implementation: &ExecutableModule,
         table_index: usize,
         data: value::Value,
     ) -> Result<value::Value, RuntimeError> {
@@ -114,7 +114,7 @@ impl Runtime {
     /// and retained construction applications. A shared caller supplies its environment.
     pub fn make_interface_applied(
         &self,
-        implementation: &LoadedModule,
+        implementation: &ExecutableModule,
         table_index: usize,
         arguments: &[TypeArgument],
         construction_environment: Option<&TypeEnvironment>,
@@ -224,12 +224,38 @@ impl Runtime {
 
     pub fn make_closure(
         &self,
-        implementation: &LoadedModule,
+        implementation: &ExecutableModule,
         function: FunctionRef,
         captures: Vec<value::Value>,
         environment: Option<TypeEnvironment>,
     ) -> Result<value::Value, RuntimeError> {
-        self.validate_loaded_module(implementation)?;
+        let mut snapshot = self.prepare_closure(implementation, function, captures, environment)?;
+        snapshot.bind_named(self)?;
+        self.validate_metadata(MetadataEdge::Closure(&snapshot))?;
+        self.gc.alloc_closure(snapshot).map(Value::Closure)
+    }
+
+    /// Cold computation creation has already selected its resume body and values.
+    pub(crate) fn make_retained_closure(
+        &self,
+        implementation: &ExecutableModule,
+        function: FunctionRef,
+        captures: Vec<Value>,
+        environment: Option<TypeEnvironment>,
+    ) -> Result<Value, RuntimeError> {
+        let snapshot = self.prepare_closure(implementation, function, captures, environment)?;
+        self.validate_metadata(MetadataEdge::Closure(&snapshot))?;
+        self.gc.alloc_closure(snapshot).map(Value::Closure)
+    }
+
+    fn prepare_closure(
+        &self,
+        implementation: &ExecutableModule,
+        function: FunctionRef,
+        captures: Vec<Value>,
+        environment: Option<TypeEnvironment>,
+    ) -> Result<ClosureValueSnapshot, RuntimeError> {
+        self.validate_executable_module(implementation)?;
         if implementation.is_static_initializer(function) {
             return Err(RuntimeError::module_validation(
                 "static initializer is not a callable value",
@@ -277,19 +303,17 @@ impl Runtime {
             }
         }
         self.validate_heap_payloads(&captures)?;
-        let snapshot = ClosureValueSnapshot {
+        Ok(ClosureValueSnapshot {
             environment,
             implementation: implementation.clone(),
             target: ClosureTarget::Script(function),
             captures,
-        };
-        self.validate_metadata(MetadataEdge::Closure(&snapshot))?;
-        self.gc.alloc_closure(snapshot).map(Value::Closure)
+        })
     }
 
     pub fn iter_operation(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         value: &value::Value,
         ty: &Ty,
         op: IterOp,
@@ -303,12 +327,12 @@ impl Runtime {
 
     pub(crate) fn iter_operation_with_type(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         value: &Value,
         ty: &TypeArgument,
         op: IterOp,
     ) -> Result<Value, RuntimeError> {
-        self.validate_loaded_module(owner)?;
+        self.validate_executable_module(owner)?;
         ty.validate(self)?;
         match op {
             IterOp::String(kind) => self.gc.new_string_iter(value, ty.ty(), kind, owner),
@@ -363,7 +387,7 @@ impl Runtime {
 
     pub(crate) fn check_iterator_contract(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         value: &Value,
         ty: &TypeArgument,
     ) -> Result<(), RuntimeError> {

@@ -1,10 +1,8 @@
 //! Source-free nominal checks and optional origin forwarding at the policy boundary.
 use super::*;
-use crate::{error_trace::ErrorTrace, module::LoadedModule};
-use kagari_bytecode::{
-    module::BytecodeModule,
-    program::{BytecodeProgram, ModuleRef},
-};
+use crate::test_support::native::program::ProgramFixture;
+use crate::{error_trace::ErrorTrace, module::ExecutableModule};
+use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, map::DefinitionContext, metadata::DefinitionMetadata,
 };
@@ -24,7 +22,7 @@ impl PairPolicy for Unused {
     }
 }
 
-fn fixture(runtime: &mut Runtime) -> (LoadedModule, Vec<TypeArgument>, VariantRef, VariantRef) {
+fn fixture(runtime: &mut Runtime) -> (ExecutableModule, Vec<TypeArgument>, VariantRef, VariantRef) {
     let definitions = DefinitionContext::new().unwrap();
     let identity = ModuleIdentity::single_file("pair-origin.kgr");
     let root = definitions.intern_root(&identity).unwrap();
@@ -65,25 +63,23 @@ fn fixture(runtime: &mut Runtime) -> (LoadedModule, Vec<TypeArgument>, VariantRe
             }],
         })
         .collect();
-    let owner = runtime
+    let owner_program = runtime
         .load_program(
             "pair-origin",
-            DefinitionMetadata::checked(
-                definitions.snapshot(),
-                BytecodeProgram {
-                    root: ModuleRef::new(0),
-                    exports: Default::default(),
-                    modules: vec![BytecodeModule {
-                        identity,
-                        enumerations: layouts,
-                        ..Default::default()
-                    }],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                root: ModuleRef::new(0),
+                exports: Default::default(),
+                modules: vec![BytecodeModule {
+                    identity,
+                    enumerations: layouts,
+                    ..Default::default()
+                }],
+            }
+            .metadata(definitions.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap();
+    let owner = runtime.select_program(&owner_program).unwrap();
     let types = types
         .into_iter()
         .map(|(declaration, success, payload)| {

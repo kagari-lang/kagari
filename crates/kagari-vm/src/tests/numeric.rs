@@ -135,6 +135,8 @@ fn direct_local_overflow_keeps_the_old_destination_and_prior_commit() {
             .set_execution_observer(CommitObserver(states.clone()))
             .unwrap();
         let loaded = runtime.load_program("local-commit", program).unwrap();
+        let _loaded_program = loaded;
+        let loaded = runtime.select_program(&_loaded_program).unwrap();
         let vm = Vm::new(runtime);
         let session = vm
             .runtime()
@@ -175,6 +177,8 @@ fn check(source: &str, entries: &[String], traps: bool) {
     for (route, program) in [("direct", source_program), ("decoded", decoded)] {
         let mut runtime = standard_runtime(Default::default());
         let loaded = runtime.load_program("numeric", program).unwrap();
+        let _loaded_program = loaded;
+        let loaded = runtime.select_program(&_loaded_program).unwrap();
         let vm = Vm::new(runtime);
         for entry in entries {
             let result = vm.execute(&loaded, entry.as_str());
@@ -367,6 +371,8 @@ fn scalar_field_overflow_preserves_prior_effects_and_does_not_commit() {
     for program in [program, decoded] {
         let mut runtime = standard_runtime(Default::default());
         let loaded = runtime.load_program("field-overflow", program).unwrap();
+        let _loaded_program = loaded;
+        let loaded = runtime.select_program(&_loaded_program).unwrap();
         let function = |name| {
             loaded
                 .bytecode

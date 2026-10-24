@@ -143,6 +143,7 @@ impl Runtime {
 
 impl Drop for Runtime {
     fn drop(&mut self) {
+        self.modules().retire_installations();
         let _ = self.close();
     }
 }

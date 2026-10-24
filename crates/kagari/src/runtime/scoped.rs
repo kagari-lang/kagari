@@ -2,7 +2,7 @@
 use crate::{RunResult, context::ExecutionContext, error::EmbeddingError, runtime::Runtime};
 use kagari_runtime::{
     host_scope::scoped::HostScope,
-    module::{LoadedModule, entry::ProgramEntry},
+    module::{Program, entry::ProgramEntry},
     value::Value,
 };
 use kagari_vm::vm::Vm;
@@ -38,14 +38,14 @@ impl Runtime {
     /// results within that scope before returning them to the host.
     pub fn execute_scoped<'entry>(
         scope: &HostScope<'_, '_>,
-        module: &LoadedModule,
+        program: &Program,
         entry: impl Into<ProgramEntry<'entry>>,
         arguments: &[Value],
         context: &ExecutionContext,
     ) -> RunResult<Value> {
         let entry = entry.into();
         context.validate_for_execute(entry.label())?;
-        Vm::execute_scoped(scope, module, entry, arguments, context.runtime_options())
+        Vm::execute_scoped(scope, program, entry, arguments, context.runtime_options())
             .map_err(EmbeddingError::from)
     }
 }

@@ -36,7 +36,8 @@ fn layout_lifecycle(
 ) -> (Phases, Counts) {
     allocations::measure(|| {
         let mut runtime = Runtime::default();
-        let loaded = runtime.load_program("memory", code.clone()).unwrap();
+        let program = runtime.load_program("memory", code.clone()).unwrap();
+        let loaded = runtime.select_program(&program).unwrap();
         let structure = loaded
             .bytecode
             .structures
@@ -111,9 +112,9 @@ fn layout_lifecycle(
             }
         });
         let staged = runtime
-            .stage_reload_program(&loaded, "memory", code.clone())
+            .stage_reload_program(&program, None, code.clone())
             .unwrap();
-        drop(runtime.publish_staged_reload(staged).unwrap());
+        runtime.publish_staged_reload(staged).unwrap();
         drop((inputs, nominal, loaded));
         runtime.collect_garbage().unwrap();
         let retired = snapshot();
@@ -134,7 +135,8 @@ fn admission_lifecycle(
 ) -> (Phases, Counts) {
     allocations::measure(|| {
         let mut runtime = Runtime::default();
-        let old = runtime.load_program("memory", code.clone()).unwrap();
+        let program = runtime.load_program("memory", code.clone()).unwrap();
+        let old = runtime.select_program(&program).unwrap();
         let structure = StructId::new(
             old.bytecode
                 .structures
@@ -150,9 +152,10 @@ fn admission_lifecycle(
                 .unwrap(),
         );
         let staged = runtime
-            .stage_reload_program(&old, "memory", code.clone())
+            .stage_reload_program(&program, None, code.clone())
             .unwrap();
-        let loaded = runtime.publish_staged_reload(staged).unwrap();
+        runtime.publish_staged_reload(staged).unwrap();
+        let loaded = runtime.select_program(&program).unwrap();
         // Both sides prepare the complete producer/consumer layouts as setup inputs.
         let inputs = (1..=count)
             .map(|width| {
@@ -186,9 +189,9 @@ fn admission_lifecycle(
             }
         });
         let staged = runtime
-            .stage_reload_program(&loaded, "memory", code.clone())
+            .stage_reload_program(&program, None, code.clone())
             .unwrap();
-        drop(runtime.publish_staged_reload(staged).unwrap());
+        runtime.publish_staged_reload(staged).unwrap();
         drop((inputs, old, loaded));
         runtime.collect_garbage().unwrap();
         let retired = snapshot();

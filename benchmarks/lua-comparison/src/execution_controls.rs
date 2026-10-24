@@ -7,7 +7,7 @@ use kagari::{
     program::PreparedProgram,
     runtime::Runtime,
 };
-use kagari_runtime::{module::LoadedModule, session::owned::OwnedExecution, value::Value};
+use kagari_runtime::{module::ExecutableModule, session::owned::OwnedExecution, value::Value};
 use kagari_source::source::SourceFile;
 use kagari_vm::vm::owned::DriveResult;
 use std::{hint::black_box, num::NonZeroUsize, time::Instant};
@@ -27,7 +27,7 @@ const CASES: [(usize, &str); 4] = [(1, "tail"), (32, "tail"), (256, "forward"), 
 
 struct Fixture {
     runtime: Runtime,
-    module: LoadedModule,
+    module: ExecutableModule,
     context: ExecutionContext,
 }
 
@@ -35,7 +35,8 @@ impl Fixture {
     fn new(engine: &KagariEngine, program: &PreparedProgram) -> Self {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
-        let module = runtime.load_program(program, Default::default()).unwrap();
+        let program = runtime.load_program(program, Default::default()).unwrap();
+        let module = runtime.runtime().select_program(&program).unwrap();
         Self {
             runtime,
             module,

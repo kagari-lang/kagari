@@ -12,8 +12,10 @@ use kagari_common::{
     span::Span,
 };
 use kagari_contract::{
-    contracts, contracts::ContractError, effects::EffectSet,
-    types::inherent::executable_signature_matches,
+    contracts,
+    contracts::ContractError,
+    effects::EffectSet,
+    types::{inherent::executable_signature_matches, named::verify::signature_matches},
 };
 use kagari_types::ty::Ty;
 use std::{collections::HashSet, ops::Deref};
@@ -375,6 +377,12 @@ fn verify_function(
         &function.instance,
         &function.semantic,
         context.definitions,
+    ) || !signature_matches(
+        &module.abi.named_declarations,
+        &function.instance,
+        &function.semantic,
+        context.definitions,
+        context.cancel,
     ) || !function.semantic.types_valid(
         Some(&function.instance),
         context.cancel,

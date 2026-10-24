@@ -1,15 +1,16 @@
+use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
     gc::GcHeap,
     host::{DynamicPathArguments, HostObjectId, HostPathDescriptorRegistration, HostSchemaEpoch},
-    module::{LoadedModule, StructLayoutRef},
+    module::{ExecutableModule, StructLayoutRef},
     native::{builder::ModuleBuilder, storage::NativeStorage},
     value::Value,
 };
 use kagari_bytecode::{
     instruction::StructId,
     module::{BytecodeModule, InterfaceTableRecord},
-    program::{BytecodeProgram, ModuleRef},
+    program::ModuleRef,
 };
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, map::DefinitionContext, metadata::DefinitionMetadata,
@@ -123,59 +124,57 @@ pub fn interface_value_with(runtime: &mut Runtime, concrete_type: Ty, data: Valu
     let declaration = |kind, name: &str| context.intern_child(root, kind, name, 0).unwrap();
     let trait_id = declaration(DefinitionKind::Trait, "Tag");
     let impl_id = declaration(DefinitionKind::Impl, "");
-    let module = runtime
+    let program = runtime
         .load_program(
             "interface-fixture",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule {
-                        identity,
-                        public_items: vec![
-                            PublicItem::Trait(TraitDef {
-                                conversion_adapter: None,
-                                associated_consts: Vec::new(),
-                                supertraits: Vec::new(),
-                                associated_types: Vec::new(),
-                                name: "Tag".into(),
-                                generic_params: vec![],
-                                bounds: vec![],
-                                methods: vec![],
-                            }),
-                            PublicItem::InterfaceTable(Box::new(InterfaceTable {
-                                associated_type_families: Vec::new(),
-                                associated_consts: Vec::new(),
-                                bridge: None,
-                                declaration: impl_id,
-                                name: String::new(),
-                                generic_params: vec![],
-                                bounds: vec![],
-                                trait_type: Ty::Trait(NominalTy {
-                                    associated_types: Default::default(),
-                                    declaration: trait_id,
-                                    arguments: vec![],
-                                }),
-                                for_type: concrete_type,
-                                methods: vec![],
-                            })),
-                        ],
-                        interface_tables: vec![InterfaceTableRecord {
-                            parents: vec![],
-                            view: None,
-                            arguments: Vec::new(),
-                            declaration: impl_id,
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule {
+                    identity,
+                    public_items: vec![
+                        PublicItem::Trait(TraitDef {
+                            conversion_adapter: None,
+                            associated_consts: Vec::new(),
+                            supertraits: Vec::new(),
+                            associated_types: Vec::new(),
+                            name: "Tag".into(),
+                            generic_params: vec![],
+                            bounds: vec![],
                             methods: vec![],
-                        }],
-                        ..Default::default()
+                        }),
+                        PublicItem::InterfaceTable(Box::new(InterfaceTable {
+                            associated_type_families: Vec::new(),
+                            associated_consts: Vec::new(),
+                            bridge: None,
+                            declaration: impl_id,
+                            name: String::new(),
+                            generic_params: vec![],
+                            bounds: vec![],
+                            trait_type: Ty::Trait(NominalTy {
+                                associated_types: Default::default(),
+                                declaration: trait_id,
+                                arguments: vec![],
+                            }),
+                            for_type: concrete_type,
+                            methods: vec![],
+                        })),
+                    ],
+                    interface_tables: vec![InterfaceTableRecord {
+                        parents: vec![],
+                        view: None,
+                        arguments: Vec::new(),
+                        declaration: impl_id,
+                        methods: vec![],
                     }],
-                },
-                &Default::default(),
-            )
+                    ..Default::default()
+                }],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap();
+    let module = runtime.select_program(&program).unwrap();
     runtime.make_interface(&module, 0, data).unwrap()
 }
 
@@ -206,54 +205,50 @@ pub fn layout(runtime: &mut Runtime, name: &str, fields: &[(&str, Ty, bool)]) ->
             }
         })
         .collect();
-    let module = runtime
+    let program = runtime
         .load_program(
             name,
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule {
-                        structures: vec![StructLayout {
-                            arguments: Vec::new(),
-                            declaration,
-                            fields,
-                        }],
-                        ..Default::default()
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule {
+                    structures: vec![StructLayout {
+                        arguments: Vec::new(),
+                        declaration,
+                        fields,
                     }],
-                },
-                &Default::default(),
-            )
+                    ..Default::default()
+                }],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap();
+    let module = runtime.select_program(&program).unwrap();
     module.struct_layout(StructId::new(0)).unwrap()
 }
 
 #[allow(dead_code)] // Shared fixture is compiled by tests that only need nominal layouts.
-pub fn allocation_owner(runtime: &mut Runtime) -> LoadedModule {
+pub fn allocation_owner(runtime: &mut Runtime) -> ExecutableModule {
     let context = DefinitionContext::new().unwrap();
-    runtime
+    let program = runtime
         .load_program(
             "allocation-owner",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
-        .unwrap()
+        .unwrap();
+    runtime.select_program(&program).unwrap()
 }
 
 /// Install private ordinary enum layouts for scalar/array semantic boundary tests.
 #[allow(dead_code)]
-pub fn enum_owner(runtime: &mut Runtime, payloads: Vec<Ty>) -> LoadedModule {
+pub fn enum_owner(runtime: &mut Runtime, payloads: Vec<Ty>) -> ExecutableModule {
     let (context, payloads) = type_scope(runtime, payloads);
     let identity = ModuleIdentity::single_file("enum-fixture.kgr");
     let root = context.intern_root(&identity).unwrap();
@@ -277,30 +272,28 @@ pub fn enum_owner(runtime: &mut Runtime, payloads: Vec<Ty>) -> LoadedModule {
             }
         })
         .collect();
-    runtime
+    let program = runtime
         .load_program(
             "enum-fixture",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule {
-                        identity,
-                        enumerations,
-                        ..Default::default()
-                    }],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule {
+                    identity,
+                    enumerations,
+                    ..Default::default()
+                }],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
-        .unwrap()
+        .unwrap();
+    runtime.select_program(&program).unwrap()
 }
 
 /// Load registered sequence contracts for tests of growth and detached leases.
 #[allow(dead_code)]
-pub fn sequence_owner(runtime: &mut Runtime) -> LoadedModule {
+pub fn sequence_owner(runtime: &mut Runtime) -> ExecutableModule {
     let mut builder = ModuleBuilder::new("kagari-alloc::vec", &Default::default()).unwrap();
     let mut vector = builder.define_type("Vec").unwrap();
     vector.type_parameter("T").unwrap();
@@ -314,30 +307,28 @@ pub fn sequence_owner(runtime: &mut Runtime) -> LoadedModule {
         .unwrap()
         .into_records();
     module.install(runtime).unwrap();
-    runtime
+    let program = runtime
         .load_program(
             "sequence-fixture",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule {
-                        identity: declaration.identity.clone(),
-                        public_items: declaration
-                            .types
-                            .iter()
-                            .cloned()
-                            .map(PublicItem::Type)
-                            .collect(),
-                        ..Default::default()
-                    }],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule {
+                    identity: declaration.identity.clone(),
+                    public_items: declaration
+                        .types
+                        .iter()
+                        .cloned()
+                        .map(PublicItem::Type)
+                        .collect(),
+                    ..Default::default()
+                }],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
-        .unwrap()
+        .unwrap();
+    runtime.select_program(&program).unwrap()
 }
 
 /// Adopt runtime-owned nominal inputs into an independent authoring scope.

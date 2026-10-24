@@ -7,7 +7,7 @@ use crate::{
         ExecutionStack, FrameDispatch, FrameEntry, arguments::FrameArguments,
         types::arguments::TypeArgument,
     },
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         binding::NativeResult,
         future::{ColdFuture, FuturePayload},
@@ -86,7 +86,7 @@ impl ExecutionStack<'_> {
                 return Err(invalid());
             }
         }
-        let closure = runtime.make_closure(owner, function, values, environment)?;
+        let closure = runtime.make_retained_closure(owner, function, values, environment)?;
         let _root = runtime.root_value(closure).ok_or_else(invalid)?;
         let Ty::NativeObject(nominal) = future.ty() else {
             return Err(invalid());
@@ -148,7 +148,7 @@ impl Runtime {
     pub(crate) fn checked_future_resume(
         &self,
         value: Value,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         output: &TypeArgument,
     ) -> NativeResult<Ref<'_, ClosureValueSnapshot>> {
         let invalid = || RuntimeError::module_validation("script Future resume contract");
@@ -156,7 +156,7 @@ impl Runtime {
         let ClosureTarget::Script(function) = closure.target else {
             return Err(invalid());
         };
-        self.validate_loaded_module(&closure.implementation)?;
+        self.validate_executable_module(&closure.implementation)?;
         let target = closure
             .implementation
             .bytecode

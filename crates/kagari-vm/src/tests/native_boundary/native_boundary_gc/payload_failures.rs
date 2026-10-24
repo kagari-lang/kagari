@@ -80,6 +80,8 @@ fn tracing_panic_quarantines_without_sweeping_a_partial_graph() {
     let native = module(&faults);
     let source = "use fixture::payload::{Payload, new}; fn main() -> Payload { new() }";
     let (vm, loaded) = compile(source, Some(&native));
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let value = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
@@ -87,8 +89,12 @@ fn tracing_panic_quarantines_without_sweeping_a_partial_graph() {
         .value(vm.runtime().gc())
         .expect("retained execution result");
     let root = vm.runtime().root_value(value).unwrap();
-    vm.reload_program(&loaded, "boundary", compile_program(source, Some(&native)))
-        .unwrap();
+    vm.reload_program(
+        &_loaded_program,
+        Some("boundary".into()),
+        compile_program(source, Some(&native)),
+    )
+    .unwrap();
     let before = vm.runtime().gc().stats();
     let counters = vm.runtime().resources().counters();
     faults.trace.store(true, Ordering::SeqCst);
@@ -122,6 +128,8 @@ fn destructor_panics_dispose_each_detached_payload_once_and_quarantine() {
         "use fixture::payload::{Payload, new}; fn main() -> (Payload, Payload) { (new(), new()) }",
         Some(&module(&faults)),
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let values = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
@@ -160,12 +168,20 @@ fn retiring_static_installation_disposes_payloads_once_even_when_destructors_pan
         fn main() { val a = first; val b = second; }
     "#;
     let (mut vm, old) = compile(source, Some(&native));
+    let _old_program = old;
+    let old = vm.runtime().select_program(&_old_program).unwrap();
     drop(vm.execute(&old, ProgramEntry::Main).unwrap());
     let staged = vm
         .runtime()
-        .stage_reload_program(&old, "boundary", compile_program(source, Some(&native)))
+        .stage_reload_program(
+            &_old_program,
+            Some("boundary".into()),
+            compile_program(source, Some(&native)),
+        )
         .unwrap();
-    let current = vm.runtime().publish_staged_reload(staged).unwrap();
+    let current = staged.module().clone();
+    vm.runtime().publish_staged_reload(staged).unwrap();
+    let _current_program = _old_program.clone();
     vm.runtime().collect_garbage().unwrap();
     assert_eq!(faults.drops.load(Ordering::SeqCst), 0);
     drop(vm.execute(&current, ProgramEntry::Main).unwrap());
@@ -173,6 +189,8 @@ fn retiring_static_installation_disposes_payloads_once_even_when_destructors_pan
         .runtime_mut()
         .load_program("boundary", compile_program("fn main() {}", None))
         .unwrap();
+    let _replacement_program = replacement;
+    let replacement = vm.runtime().select_program(&_replacement_program).unwrap();
     faults.drop.store(true, Ordering::SeqCst);
     let error = vm.runtime().collect_garbage().unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
@@ -199,6 +217,8 @@ fn roots_do_not_keep_heap_payloads_alive_after_teardown() {
         "use fixture::payload::{Payload, new}; fn main() -> Payload { new() }",
         Some(&module(&faults)),
     );
+    let _loaded_program = loaded;
+    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let session = vm
         .runtime()
         .begin_execution(&loaded, vm.runtime().execution_options())

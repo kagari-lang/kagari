@@ -66,6 +66,8 @@ fn alias(state: State, kind: i32) -> bool {
     let mut runtime = Runtime::new(config);
     NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
     let loaded = runtime.load_program("interface-identity", program).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let declaration = loaded
         .bytecode
         .trait_contracts

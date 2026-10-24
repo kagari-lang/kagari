@@ -123,6 +123,7 @@ fn main() {
     let program =
         PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let _selected_loaded = runtime.runtime().select_program(&loaded).unwrap();
     let report = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap();
@@ -151,7 +152,7 @@ fn main() {
     );
     println!(
         "{} modules, result {:?}",
-        loaded.members().count(),
+        _selected_loaded.members().count(),
         report
             .return_value
             .value(runtime.runtime().gc())

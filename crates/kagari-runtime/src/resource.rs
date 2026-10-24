@@ -2,6 +2,7 @@ use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     execution_state::ExecutionState,
     frame::values::ExecutionValues,
+    publication::PublicationState,
     session::{
         SessionState,
         store::{SessionId, SessionStore},
@@ -101,6 +102,7 @@ pub struct ResourceState {
     #[cfg(test)]
     lifetime: Arc<()>,
     active_session: Cell<Option<SessionId>>,
+    pub(crate) publication: PublicationState,
     pub(crate) sessions: SessionStore,
     pub(crate) frame_values: RefCell<ExecutionValues>,
     execution: ExecutionState,
@@ -168,6 +170,7 @@ impl ResourceState {
             #[cfg(test)]
             lifetime: Arc::new(()),
             active_session: Cell::new(None),
+            publication: PublicationState::default(),
             sessions: SessionStore::default(),
             frame_values: RefCell::default(),
             execution: Default::default(),

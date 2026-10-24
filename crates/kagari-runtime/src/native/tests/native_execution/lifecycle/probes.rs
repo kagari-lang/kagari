@@ -34,9 +34,10 @@ fn domain_lifecycle(
                 (!retained_installation).then(|| NativeInstallation::prepare(&[]).unwrap());
             let owner = installation.as_ref().or(independent.as_ref()).unwrap();
             let mut runtime = owner.runtime(Default::default());
-            let loaded = runtime
+            let loaded_program = runtime
                 .load_verified_program("domain", input.clone())
                 .unwrap();
+            let loaded = runtime.select_program(&loaded_program).unwrap();
             let graph = loaded
                 .verified_program()
                 .modules()
@@ -137,7 +138,8 @@ fn provenance_lifecycle(
 ) -> (ProvenanceResult, Counts) {
     allocations::measure(|| {
         let mut runtime = runtime();
-        let mut current = runtime.load_program("provenance", input.clone()).unwrap();
+        let current_program = runtime.load_program("provenance", input.clone()).unwrap();
+        let mut current = runtime.select_program(&current_program).unwrap();
         let mut holders = Vec::with_capacity(count);
         let mut graphs = Vec::with_capacity(count);
         let mut keys = Vec::with_capacity(count);
@@ -179,9 +181,10 @@ fn provenance_lifecycle(
             };
             holders.push(holder);
             let candidate = runtime
-                .stage_reload_program(&current, "provenance", input.clone())
+                .stage_reload_program(&current_program, None, input.clone())
                 .unwrap();
-            current = runtime.publish_staged_reload(candidate).unwrap();
+            runtime.publish_staged_reload(candidate).unwrap();
+            current = runtime.select_program(&current_program).unwrap();
         }
         runtime.collect_garbage().unwrap();
         let modules_registered = keys
@@ -215,7 +218,7 @@ fn provenance_lifecycle(
                 Holder::None => {}
                 Holder::Layout(layout) => {
                     assert!(layout.layout().fields.is_empty());
-                    assert!(runtime.validate_loaded_module(layout.module()).is_err());
+                    assert!(runtime.validate_executable_module(layout.module()).is_err());
                 }
                 Holder::Type(argument) => {
                     let Ty::Struct(nominal) = argument.ty() else {

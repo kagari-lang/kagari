@@ -73,6 +73,8 @@ fn run(text: &str) -> Value {
     let loaded = runtime
         .load_program("sort", program(text, &[&library]))
         .unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     vm.execute(&loaded, ProgramEntry::Main)
         .unwrap()
@@ -191,6 +193,8 @@ fn comparator_failure_stops_callbacks_and_preserves_original_elements() {
     let loaded = runtime
         .load_program("sort", program(source, &[&library, &probe.module]))
         .unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     assert!(vm.execute(&loaded, ProgramEntry::Main).is_err());
     assert_eq!(probe.calls.load(Ordering::SeqCst), 3);
@@ -270,6 +274,8 @@ fn callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots() 
         let loaded = runtime
             .load_program("sort", program(&source, &[&library, &probe.module]))
             .unwrap();
+        let _loaded_program = loaded;
+        let loaded = runtime.select_program(&_loaded_program).unwrap();
         let vm = Vm::new(runtime);
         let error = vm.execute(&loaded, ProgramEntry::Main).unwrap_err();
         assert!(

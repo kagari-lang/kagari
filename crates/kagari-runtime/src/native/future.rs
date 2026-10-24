@@ -2,9 +2,10 @@
 mod registration;
 use crate::{
     Runtime,
+    closure::CallableObservation,
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         binding::NativeResult,
         completion::{Completion, CompletionRegistry, Operation, OperationPoll},
@@ -107,7 +108,7 @@ where
 
 struct TypedPending<R> {
     operation: Operation<R>,
-    owner: LoadedModule,
+    owner: ExecutableModule,
     output: TypeArgument,
 }
 
@@ -142,7 +143,8 @@ impl<R: IntoKagari + Send + 'static> PendingNative for TypedPending<R> {
 
 #[derive(Debug)]
 pub(crate) struct NativeFuture {
-    owner: LoadedModule,
+    pub(crate) origin: Option<CallableObservation>,
+    owner: ExecutableModule,
     parameters: Vec<TypeArgument>,
     output: TypeArgument,
     pub(crate) values: Vec<Value>,
@@ -265,6 +267,7 @@ mod tests {
             + parameters.capacity() * size_of::<TypeArgument>();
         let payload = FuturePayload {
             cold: Some(ColdFuture::Native(NativeFuture {
+                origin: None,
                 owner: owner.clone(),
                 parameters,
                 output,
@@ -277,11 +280,15 @@ mod tests {
             .unwrap();
         let id = runtime.gc().alloc_native(object).unwrap();
         let root = runtime.root_value(Value::GcHandle(id)).unwrap();
+        // This synthetic producer has no binding identity. Observation neither
+        // invents one nor starts/claims the producer (Unstarted would panic).
+        assert_eq!(runtime.observe_callable_value(&root).unwrap(), None);
         assert_eq!(
             runtime.gc().stats().current_retained_bytes,
             (backing + size_of::<FuturePayload>()) as u128
         );
         let cold = runtime.gc().take_cold_future(id).unwrap();
+        assert_eq!(runtime.observe_callable_value(&root).unwrap(), None);
         assert_eq!(runtime.gc().stats().current_heap_units, 1);
         assert_eq!(
             runtime.gc().stats().current_retained_bytes,

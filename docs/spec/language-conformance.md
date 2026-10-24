@@ -82,17 +82,35 @@ occur only in explicitly invoked functions.
 
 This suite establishes a common format and execution matrix. It does not replace
 focused subsystem checks for publication isolation, stale candidates or retained
-old-version dependency closures. The shared publication fixture now complements these focused checks with source-based
-publication, stale-candidate rejection and pinned old dependency calls.
+selected computations. The shared publication fixture complements these checks
+with source-based publication and ordinary current dependency calls from an old body.
 
-`published_reload` supplies a compatible source/dependency fixture with the expected
-new result. The harness prepares a second candidate against the
-same baseline, publishes the chosen version, calls the old root while its session
-remains pinned, then calls the new entry. Publishing the now-stale candidate must
-return `ModuleNotActive`, release its module resources, and leave the new entry
-unchanged. The fixture changes a dependency result from 42 to 99, so observing 42
-inside the old session proves that cross-module dispatch retained its old closure.
-Both entry versions use the selected interpreter/JIT route.
+`published_reload` supplies a compatible source/dependency fixture and the expected
+result of a preselected old computation after publication. The harness queues the
+old entry, prepares a second candidate against the same baseline, and publishes
+at host top level with no active synchronous execution scope. The queued v1 body
+adds 1 to its dependency result; v2 adds 2 and changes that dependency from 42 to 99.
+The initial result is 43, the retained v1 computation returns 100, and new entry
+calls return 101, including calls through the old executable handle. Thus retained
+body selection does not pin subsequent ordinary dependency calls.
+
+Publishing the now-stale candidate must return `ModuleNotActive`, release its
+module resources, and leave the new entry unchanged. Source and decoded-artifact
+routes both check the retained computation through the owned interpreter driver;
+new calls use the selected interpreter/JIT route. JIT routes also prepare the
+publicly re-exported scalar dependency as native code and require that old exact
+product to reject version mismatch, even when fallback is explicitly requested.
+The root's cross-module call uses the backend's unsupported-input interpreter
+fallback to the current entry; it does not authorize reuse of mismatched native code.
+
+This scalar publication fixture uses a finite, independently checked declaration
+environment with no native declarations. It still goes through checked analysis,
+preparation, artifact verification and normal publication validation. It does not
+establish default-Engine or custom-key callback coverage by itself. Validation of
+normal standard-foundation body updates, local static-initializer comparison and
+current host/script Hash/Eq calls belongs to the focused checks recorded in the
+[roadmap](../implementation-roadmap.md#host-api-and-update-execution); a global
+`Unknown` body freeze is not part of the publication contract.
 
 R02 acceptance evidence (run the shared command above):
 
@@ -103,7 +121,7 @@ R02 acceptance evidence (run the shared command above):
 | Value/expression contract | Scalar/tuple/enum values, mutable identity and aliases, shallow copies, evaluation order, overflow and compound assignment |
 | Failure contract | Rooted post-trap array contents, rejected writes, cancellation and call-depth termination and cleanup |
 | Module contract | Diamond and cyclic imports link without executing code at load time |
-| Activation contract | Successful publication, stale candidate rejection, pinned old dependency closure |
+| Activation contract | Host-top-level publication, stale candidate rejection, retained old body with current dependency calls, exact native version validation |
 | Backend/load equivalence | Fresh source/artifact × interpreter/JIT runtimes; selected scalar fixtures require native invocation |
 
 This accepts the R02 test entry and its initial contract cases. It does not mark the

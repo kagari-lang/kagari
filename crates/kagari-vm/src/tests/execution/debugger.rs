@@ -1,9 +1,12 @@
 use super::*;
 use crate::{
-    tests::common::{compile_test_bytecode_with_options, round_trip_bytecode, standard_runtime},
+    tests::{
+        common::{compile_test_bytecode_with_options, round_trip_bytecode, standard_runtime},
+        native_program::ProgramFixture,
+    },
     vm::fixtures::FixtureExecution,
 };
-use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
+use kagari_bytecode::program::ModuleRef;
 use kagari_compiler::source::lower::instances::MirLoweringOptions;
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::module::entry::ProgramEntry;
@@ -41,6 +44,8 @@ pub fn overflow() -> i32 { choose(true, 2147483647) }
                 let loaded = runtime
                     .load_program("branch-debug.kgr", program.clone())
                     .unwrap();
+                let _loaded_program = loaded;
+                let loaded = runtime.select_program(&_loaded_program).unwrap();
                 let mut session = DebugSession::new(&runtime).unwrap();
                 let offset = source.find("y + 7").unwrap();
                 let breakpoint = session
@@ -118,6 +123,8 @@ fn main() -> i32 {
     let loaded = runtime
         .load_program("debug.kgr", compile_test_bytecode(source))
         .expect("debug module should load");
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut session = DebugSession::new(&runtime).expect("debug session should be allowed");
     let constant_pc = loaded
         .bytecode
@@ -237,6 +244,8 @@ fn main() -> i32 {
     let loaded = runtime
         .load_program("lexical.kgr", compile_test_bytecode(source))
         .unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut session = DebugSession::new(&runtime).unwrap();
     let inside = session
         .add_breakpoint(SourceBreakpoint::at_source_offset(
@@ -328,18 +337,20 @@ fn debug_session_supports_step_into_and_trap_pause_events() {
     let loaded = runtime
         .load_program(
             "debug_trap.kbc",
-            DefinitionMetadata::checked(
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![verified_module(vec![main], vec![ConstantOperand::I32(1)])],
+            }
+            .metadata(
                 DefinitionContext::new().unwrap().snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![verified_module(vec![main], vec![ConstantOperand::I32(1)])],
-                },
                 &Default::default(),
             )
             .unwrap(),
         )
         .expect("trap module should load");
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut session = DebugSession::new(&runtime).expect("debug session should be allowed");
     session.step_into().expect("step should be allowed");
 

@@ -1,3 +1,4 @@
+use crate::runtime::tests::embedding::native_program::ProgramFixture;
 use crate::{
     BytecodeArtifact,
     context::ExecutionContext,
@@ -16,7 +17,7 @@ use kagari_bytecode::{
         BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, PathRecord,
         RootSlotLayout,
     },
-    program::{BytecodeProgram, ModuleRef},
+    program::ModuleRef,
 };
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, map::DefinitionContext, metadata::DefinitionMetadata,
@@ -25,7 +26,10 @@ use kagari_contract::{
     exports::ProgramExports,
     ids::FunctionRef,
     native_import::NativeImport,
-    types::{ConcreteFunctionIdentity, PublicItem},
+    types::{
+        ConcreteFunctionIdentity, PublicItem,
+        named::{NamedContract, NamedDeclaration},
+    },
 };
 use kagari_runtime::{
     host::{
@@ -245,7 +249,7 @@ fn host_path_artifact(
         }
     }
     let artifact = KbcArtifact::from_program(
-        BytecodeProgram {
+        ProgramFixture {
             exports: ProgramExports {
                 entry: Some(main),
                 ..Default::default()
@@ -321,6 +325,12 @@ fn host_path_artifact(
                     identity: module.identity.clone(),
                     source_name: "native:game".into(),
                     external_types: vec![schema],
+                    named_declarations: vec![NamedDeclaration {
+                        declaration: make.declaration,
+                        visibility: Visibility::Public,
+                        ambiguous_local_body: None,
+                        contract: NamedContract::Function(make.function.clone()),
+                    }],
                     native_declarations: vec![make.clone()],
                     public_items: vec![
                         PublicItem::Type(module.types[0].clone()),
@@ -329,7 +339,8 @@ fn host_path_artifact(
                     ..Default::default()
                 },
             ],
-        },
+        }
+        .build(&definitions),
         ArtifactBuildOptions::default(),
         &definitions,
         &Default::default(),
@@ -385,11 +396,13 @@ fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
             &PreparedProgram::from_artifact(first, &Default::default(), &Default::default())
                 .unwrap(),
             LoadOptions {
-                module_name: Some("reload_paths".to_owned()),
+                program_name: Some("reload_paths".to_owned()),
             },
         )
         .expect("module should load");
+    let _selected_loaded = runtime.runtime().select_program(&loaded).unwrap();
     let before_count = runtime.runtime().modules().loaded_count();
+    let before_epoch = runtime.runtime().select_program(&loaded).unwrap().epoch;
 
     let error = runtime
         .reload_program(
@@ -397,7 +410,7 @@ fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
             &PreparedProgram::from_artifact(candidate, &Default::default(), &Default::default())
                 .unwrap(),
             ReloadOptions {
-                module_name: Some("reload_paths".to_owned()),
+                program_name: Some("reload_paths".to_owned()),
             },
         )
         .expect_err("changed typed path fingerprints should reject reload");
@@ -409,13 +422,8 @@ fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
     assert!(message.contains("typed path fingerprints"));
     assert_eq!(runtime.runtime().modules().loaded_count(), before_count);
     assert_eq!(
-        runtime
-            .runtime()
-            .modules()
-            .latest("reload_paths")
-            .unwrap()
-            .epoch,
-        loaded.epoch
+        runtime.runtime().select_program(&loaded).unwrap().epoch,
+        before_epoch
     );
 }
 
@@ -466,7 +474,7 @@ fn installed_host_path_mutation_uses_declared_access() {
             &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
                 .unwrap(),
             LoadOptions {
-                module_name: Some("set_path".to_owned()),
+                program_name: Some("set_path".to_owned()),
             },
         )
         .expect("module should load");
@@ -525,7 +533,7 @@ fn installed_host_path_reads_need_no_permission_flags() {
             &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
                 .unwrap(),
             LoadOptions {
-                module_name: Some("read_secure_path".to_owned()),
+                program_name: Some("read_secure_path".to_owned()),
             },
         )
         .expect("module should load");

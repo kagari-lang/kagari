@@ -5,7 +5,7 @@ use crate::{
         cursor::kernel::RegionExit,
         driver::{ExecutionAction, ReturnAction},
     },
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         adapter::NativeAdapter,
         assembly::{
@@ -205,7 +205,7 @@ fn assembly(provenance: Provenance, counts: Counts) -> NativeResult<ModuleAssemb
 // The selected operation is an installed native override, not a simulated result.
 fn invoke_selected(
     runtime: &Runtime,
-    _: &LoadedModule,
+    _: &ExecutableModule,
     target: ScriptCall<'_>,
     arguments: &[Value],
 ) -> NativeResult<Value> {
@@ -223,7 +223,7 @@ fn invoke_selected(
 
 // Enter through the compiled caller so shared defaults receive their checked
 // generic environment and selected operations from the actual call site.
-fn execute_main(runtime: &Runtime, loaded: &LoadedModule) -> Value {
+fn execute_main(runtime: &Runtime, loaded: &ExecutableModule) -> Value {
     let (owner, entry) = loaded.entry_function().expect("script main");
     let stack = runtime.enter_execution_stack(&owner).unwrap();
     stack
@@ -315,7 +315,8 @@ fn authored_and_sealed_tokens_execute_the_actual_selected_default_call() {
         for module in modules {
             module.install(&mut runtime).unwrap();
         }
-        let loaded = runtime.load_program("selected-default", bytecode).unwrap();
+        let loaded_program = runtime.load_program("selected-default", bytecode).unwrap();
+        let loaded = runtime.select_program(&loaded_program).unwrap();
         loaded
             .members()
             .find_map(|owner| {

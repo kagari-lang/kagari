@@ -9,7 +9,7 @@ use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::ExecutionFrame,
     gc::roots::RootSet,
-    module::{LoadedModule, ModuleId},
+    module::{ExecutableModule, ModuleId},
     session::{ExecutionEvent, ExecutionId, ExecutionObserver},
     value::Value,
 };
@@ -258,7 +258,7 @@ impl DebugSession {
 
     pub(crate) fn resolve_module(
         &mut self,
-        member: &LoadedModule,
+        member: &ExecutableModule,
         runtime: &Runtime,
     ) -> Result<(), VmError> {
         let module_id = member.id;
@@ -566,7 +566,7 @@ fn source_span_for(function: &BytecodeFunction, instruction_offset: usize) -> Sp
 }
 
 impl ExecutionObserver for DebugSession {
-    fn begin(&mut self, runtime: &Runtime, root: &LoadedModule) -> Result<(), RuntimeError> {
+    fn begin(&mut self, runtime: &Runtime, root: &ExecutableModule) -> Result<(), RuntimeError> {
         for member in root.members() {
             self.resolve_module(&member, runtime)
                 .map_err(observation_error)?;

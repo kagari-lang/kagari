@@ -18,12 +18,12 @@ use kagari_contract::{
         evidence::EvidenceRef,
         witness::OperationWitness,
     },
-    types::PublicItem,
+    types::{PublicItem, named::NamedContract},
 };
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{
-        AssociatedTypeDef, FnDecl, path::HostPathSegmentDeclaration,
+        AssociatedTypeDef, FnDecl, TypeDef, path::HostPathSegmentDeclaration,
         requirement::NativeCallableRequirement,
     },
     ty::{GenericBound, Ty},
@@ -40,6 +40,31 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
         *total = total.saturating_add(length);
         length <= MAX_ARTIFACT_NESTED_RECORDS && *total <= MAX_ARTIFACT_TABLE_RECORDS
     };
+    for record in &module.named_declarations {
+        let valid = match &record.contract {
+            NamedContract::Function(value) => {
+                add(value.generic_params.len())
+                    && add(value.bounds.len())
+                    && add(value.params.len())
+                    && add_abi_bounds(&value.bounds, &mut add)
+                    && add_function_contract(value, &mut add)
+            }
+            NamedContract::Constant(_) => true,
+            NamedContract::Alias(value) => {
+                add(value.generic_params.len())
+                    && add(value.bounds.len())
+                    && add_abi_bounds(&value.bounds, &mut add)
+            }
+            NamedContract::Implementation(value) => {
+                add(value.generic_params.len())
+                    && add(value.bounds.len())
+                    && add_abi_bounds(&value.bounds, &mut add)
+            }
+        };
+        if !valid {
+            return false;
+        }
+    }
     if !add(module.trait_references.len()) {
         return false;
     }
@@ -196,6 +221,11 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
             return false;
         }
     }
+    for declaration in &module.private_types {
+        if !add_type_definition(&declaration.definition, &mut add) {
+            return false;
+        }
+    }
     for item in &module.public_items {
         let valid = match item {
             PublicItem::Function(item) => {
@@ -206,17 +236,7 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
                     && add_function_contract(item, &mut add)
             }
             PublicItem::Const(_) | PublicItem::Static(_) => true,
-            PublicItem::Type(item) => {
-                add(item.generic_params.len())
-                    && add(item.bounds.len())
-                    && add_abi_bounds(&item.bounds, &mut add)
-                    && add(item.fields.len())
-                    && add(item.variants.len())
-                    && item
-                        .variants
-                        .iter()
-                        .all(|variant| add(variant.payload.len()))
-            }
+            PublicItem::Type(item) => add_type_definition(item, &mut add),
             PublicItem::Trait(item) => {
                 if !add(item.associated_consts.len()) {
                     return false;
@@ -367,11 +387,49 @@ pub(super) fn function_abi_type_limit(function: &FnDecl) -> bool {
     bounds_type_limit(&function.bounds)
 }
 
+fn add_type_definition(ty: &TypeDef, add: &mut impl FnMut(usize) -> bool) -> bool {
+    add(ty.generic_params.len())
+        && add(ty.bounds.len())
+        && add_abi_bounds(&ty.bounds, add)
+        && add(ty.fields.len())
+        && add(ty.variants.len())
+        && ty.variants.iter().all(|variant| add(variant.payload.len()))
+}
+
+fn type_definition_limit(ty: &TypeDef) -> bool {
+    bounds_type_limit(&ty.bounds)
+        && ty.fields.iter().all(|field| field.ty.within_wire_limits())
+        && ty
+            .variants
+            .iter()
+            .all(|variant| variant.payload.iter().all(Ty::within_wire_limits))
+}
+
 pub(super) fn module_abi_type_limit(
     module: &BytecodeModule,
     definitions: &DefinitionTable,
 ) -> bool {
     let valid = |ty: &Ty| ty.within_wire_limits();
+    if !module
+        .named_declarations
+        .iter()
+        .all(|record| match &record.contract {
+            NamedContract::Function(value) => {
+                function_abi_type_limit(value)
+                    && value.params.iter().all(|param| valid(&param.ty))
+                    && valid(&value.return_type)
+            }
+            NamedContract::Constant(value) => valid(&value.ty),
+            NamedContract::Alias(value) => bounds_type_limit(&value.bounds) && valid(&value.target),
+            NamedContract::Implementation(value) => {
+                bounds_type_limit(&value.bounds)
+                    && valid(&value.receiver)
+                    && value.trait_type.as_ref().is_none_or(valid)
+            }
+        })
+    {
+        return false;
+    }
     if !module.path_declarations.iter().all(|path| {
         path.segments.len() <= 256
             && path.segments.iter().all(|segment| match segment {
@@ -467,6 +525,10 @@ pub(super) fn module_abi_type_limit(
             .module_slots
             .iter()
             .all(|slot| valid(&slot.contract.ty))
+        && module
+            .private_types
+            .iter()
+            .all(|declaration| type_definition_limit(&declaration.definition))
         && module.public_items.iter().all(|item| match item {
             PublicItem::Function(item) => {
                 function_abi_type_limit(item)
@@ -475,14 +537,7 @@ pub(super) fn module_abi_type_limit(
             }
             PublicItem::Const(item) => valid(&item.ty),
             PublicItem::Static(item) => valid(&item.ty),
-            PublicItem::Type(item) => {
-                bounds_type_limit(&item.bounds)
-                    && item.fields.iter().all(|field| valid(&field.ty))
-                    && item
-                        .variants
-                        .iter()
-                        .all(|variant| variant.payload.iter().all(&valid))
-            }
+            PublicItem::Type(item) => type_definition_limit(item),
             PublicItem::Trait(item) => {
                 associated_type_limit(&item.associated_types)
                     && bounds_type_limit(&item.bounds)
@@ -560,6 +615,9 @@ pub(super) fn program_count_limit(
                 module.paths.len(),
                 module.function_table.len(),
                 module.public_items.len(),
+                module.private_types.len(),
+                module.named_declarations.len(),
+                module.function_origins.len(),
                 module.trait_contracts.len(),
                 module.trait_references.len(),
             ]

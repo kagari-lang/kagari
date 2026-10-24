@@ -6,7 +6,7 @@ use std::borrow::Cow;
 use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
-    module::LoadedModule,
+    module::ExecutableModule,
     value::Value,
 };
 
@@ -47,7 +47,7 @@ impl From<RuntimeError> for BuiltinError {
 
 pub fn invoke_standard(
     runtime: &Runtime,
-    owner: &LoadedModule,
+    owner: &ExecutableModule,
     intrinsic: RuntimePrimitive,
     args: &[Value],
 ) -> Result<Value, BuiltinError> {

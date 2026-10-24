@@ -15,6 +15,8 @@ fn candidate_heap_mutations_cannot_modify_preexisting_containers() {
     )
     .unwrap();
     let baseline = runtime.load_program("main", program.clone()).unwrap();
+    let _baseline_program = baseline;
+    let baseline = runtime.select_program(&_baseline_program).unwrap();
     let mut vm = Vm::new(runtime);
     let Value::Tuple(values) = vm
         .execute(&baseline, "containers")
@@ -32,7 +34,7 @@ fn candidate_heap_mutations_cannot_modify_preexisting_containers() {
     let (array, map, set) = (*array, *map, *set);
     let runtime = vm.runtime_mut();
     let candidate = runtime
-        .stage_reload_program(&baseline, "main", program)
+        .stage_reload_program(&_baseline_program, Some("main".into()), program)
         .unwrap();
     let retained = runtime
         .root_value(

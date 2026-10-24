@@ -31,10 +31,18 @@ const SOURCE: &str = r#"
 #[test]
 fn enum_factories_preserve_nominal_identity_payloads_and_empty_unit_distinction() {
     let (vm, owner) = fixture(SOURCE, None);
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let runtime = vm.runtime();
-    let item_type = runtime.bind_type(&owner, "Item", &[]).unwrap();
+    let item_type = runtime
+        .bind_type(&_owner_program.root(), "Item", &[])
+        .unwrap();
     let packet = runtime
-        .bind_enum_type(&owner, "Packet", slice::from_ref(item_type.type_argument()))
+        .bind_enum_type(
+            &_owner_program.root(),
+            "Packet",
+            slice::from_ref(item_type.type_argument()),
+        )
         .unwrap();
     let data = runtime
         .bind_enum_variant::<(Object, String)>(&packet, "Data")
@@ -43,8 +51,16 @@ fn enum_factories_preserve_nominal_identity_payloads_and_empty_unit_distinction(
     let unit = runtime
         .bind_enum_variant_declaration::<((),)>(&packet.variant(runtime, "Unit").unwrap())
         .unwrap();
-    assert!(runtime.bind_enum_type(&owner, "Hidden", &[]).is_err());
-    assert!(runtime.bind_enum_type(&owner, "Packet", &[]).is_err());
+    assert!(
+        runtime
+            .bind_enum_type(&_owner_program.root(), "Hidden", &[])
+            .is_err()
+    );
+    assert!(
+        runtime
+            .bind_enum_type(&_owner_program.root(), "Packet", &[])
+            .is_err()
+    );
     assert!(
         runtime
             .bind_enum_variant::<((),)>(&packet, "Empty")
@@ -59,7 +75,7 @@ fn enum_factories_preserve_nominal_identity_payloads_and_empty_unit_distinction(
     assert!(runtime.bind_enum_variant::<()>(&packet, "Missing").is_err());
     let item: Object = vm.execute_typed(&owner, "item", (42,)).unwrap();
     let read = runtime
-        .bind_function::<(ScriptValue,), i32>(&owner, "read")
+        .bind_function::<(ScriptValue,), i32>(&_owner_program.root(), "read")
         .unwrap();
     let mut cx = vm.context(&owner).unwrap();
     let value = data
@@ -78,8 +94,17 @@ fn enum_factories_preserve_nominal_identity_payloads_and_empty_unit_distinction(
         .unwrap()
         .type_for::<i32>()
         .unwrap();
-    assert!(runtime.bind_enum_type(&owner, "Packet", &[other]).is_err());
+    assert!(
+        runtime
+            .bind_enum_type(&_owner_program.root(), "Packet", &[other])
+            .is_err()
+    );
     let (foreign, foreign_owner) = fixture("pub fn main() {}", None);
+    let _foreign_owner_program = foreign_owner;
+    let foreign_owner = foreign
+        .runtime()
+        .select_program(&_foreign_owner_program)
+        .unwrap();
     assert!(
         empty
             .create(&mut foreign.context(&foreign_owner).unwrap(), ())
@@ -93,19 +118,33 @@ fn enum_factories_preserve_nominal_identity_payloads_and_empty_unit_distinction(
 #[test]
 fn enum_variant_handles_keep_old_layouts_alive_and_release_them_after_reload() {
     let (vm, old) = fixture(SOURCE, None);
-    let item_type = vm.runtime().bind_type(&old, "Item", &[]).unwrap();
+    let _old_program = old;
+    let old = vm.runtime().select_program(&_old_program).unwrap();
+    let item_type = vm
+        .runtime()
+        .bind_type(&_old_program.root(), "Item", &[])
+        .unwrap();
     let packet = vm
         .runtime()
-        .bind_enum_type(&old, "Packet", slice::from_ref(item_type.type_argument()))
+        .bind_enum_type(
+            &_old_program.root(),
+            "Packet",
+            slice::from_ref(item_type.type_argument()),
+        )
         .unwrap();
     let data = vm
         .runtime()
         .bind_enum_variant::<(Object, String)>(&packet, "Data")
         .unwrap();
     let item: Object = vm.execute_typed(&old, "item", (42,)).unwrap();
-    let new = vm
-        .reload_program(&old, "functions", compile_program(SOURCE, None))
-        .unwrap();
+    vm.reload_program(
+        &_old_program,
+        Some("functions".into()),
+        compile_program(SOURCE, None),
+    )
+    .unwrap();
+    let _new_program = _old_program.clone();
+    let new = vm.runtime().select_program(&_new_program).unwrap();
     let mut cx = vm.context(&new).unwrap();
     let value = data.create(&mut cx, (item, String::new())).unwrap();
     assert!(
@@ -146,10 +185,19 @@ impl IntoKagari for FailAfterGc {
 #[test]
 fn failed_enum_payload_conversion_roots_earlier_fields_and_publishes_nothing() {
     let (vm, owner) = fixture(SOURCE, None);
-    let item_type = vm.runtime().bind_type(&owner, "Item", &[]).unwrap();
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
+    let item_type = vm
+        .runtime()
+        .bind_type(&_owner_program.root(), "Item", &[])
+        .unwrap();
     let packet = vm
         .runtime()
-        .bind_enum_type(&owner, "Packet", slice::from_ref(item_type.type_argument()))
+        .bind_enum_type(
+            &_owner_program.root(),
+            "Packet",
+            slice::from_ref(item_type.type_argument()),
+        )
         .unwrap();
     let data = vm
         .runtime()
@@ -169,11 +217,15 @@ fn failed_enum_payload_conversion_roots_earlier_fields_and_publishes_nothing() {
 #[test]
 fn registered_enum_templates_construct_without_script_constructor_roots() {
     let (vm, owner) = fixture("pub struct Item { pub var value: i32 }", None);
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let runtime = vm.runtime();
-    let item_type = runtime.bind_type(&owner, "Item", &[]).unwrap();
+    let item_type = runtime
+        .bind_type(&_owner_program.root(), "Item", &[])
+        .unwrap();
     let optional = runtime
         .bind_enum_type_declaration(
-            &owner,
+            &_owner_program.root(),
             &binding::option_declaration(),
             slice::from_ref(item_type.type_argument()),
         )
@@ -209,6 +261,8 @@ fn enum_bindings_reject_unwitnessed_bounds_and_incompatible_payload_scopes() {
         pub fn shared() -> Restricted<i32> { val factory: Factory = 0; factory.wrap(1) }
     "#;
     let (vm, owner) = fixture(source, None);
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     assert!(
         owner
             .bytecode
@@ -221,22 +275,30 @@ fn enum_bindings_reject_unwitnessed_bounds_and_incompatible_payload_scopes() {
     let float = conversion.type_for::<f64>().unwrap();
     let restricted = vm
         .runtime()
-        .bind_enum_type(&owner, "Restricted", &[integer])
+        .bind_enum_type(&_owner_program.root(), "Restricted", &[integer])
         .unwrap();
     vm.runtime()
         .bind_enum_variant::<()>(&restricted, "Empty")
         .unwrap();
     assert!(
         vm.runtime()
-            .bind_enum_type(&owner, "Restricted", &[float])
+            .bind_enum_type(&_owner_program.root(), "Restricted", &[float])
             .is_err()
     );
 
     let (mut vm, old) = fixture(SOURCE, None);
-    let old_item = vm.runtime().bind_type(&old, "Item", &[]).unwrap();
+    let _old_program = old;
+    let old_item = vm
+        .runtime()
+        .bind_type(&_old_program.root(), "Item", &[])
+        .unwrap();
     let old_packet = vm
         .runtime()
-        .bind_enum_type(&old, "Packet", slice::from_ref(old_item.type_argument()))
+        .bind_enum_type(
+            &_old_program.root(),
+            "Packet",
+            slice::from_ref(old_item.type_argument()),
+        )
         .unwrap();
     let old_data = vm
         .runtime()
@@ -250,11 +312,20 @@ fn enum_bindings_reject_unwitnessed_bounds_and_incompatible_payload_scopes() {
         .runtime_mut()
         .load_program("independent", compile_program(&changed, None))
         .unwrap();
-    let new_item = vm.runtime().bind_type(&new, "Item", &[]).unwrap();
+    let _new_program = new;
+    let new = vm.runtime().select_program(&_new_program).unwrap();
+    let new_item = vm
+        .runtime()
+        .bind_type(&_new_program.root(), "Item", &[])
+        .unwrap();
     assert_eq!(new_item.type_argument().ty(), old_item.type_argument().ty());
     assert!(
         vm.runtime()
-            .bind_enum_type(&old, "Packet", slice::from_ref(new_item.type_argument()))
+            .bind_enum_type(
+                &_old_program.root(),
+                "Packet",
+                slice::from_ref(new_item.type_argument())
+            )
             .is_err()
     );
     let item: Object = vm.execute_typed(&new, "item", (42i64,)).unwrap();
@@ -289,6 +360,8 @@ fn registered_variant_identities_bind_directly_and_move_with_the_runtime() {
     "#,
         Some(&module),
     );
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let element = ConversionContext::new(vm.runtime(), &owner)
         .unwrap()
         .type_for::<i32>()
@@ -296,7 +369,7 @@ fn registered_variant_identities_bind_directly_and_move_with_the_runtime() {
     let applied = vm
         .runtime()
         .bind_enum_type_declaration(
-            &owner,
+            &_owner_program.root(),
             &event.definitions().resolve(event.id()).unwrap().to_path(),
             &[element],
         )

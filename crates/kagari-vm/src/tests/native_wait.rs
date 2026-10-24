@@ -2,27 +2,30 @@
 use crate::{
     error::VmError,
     executor::Executor,
-    tests::common::round_trip_bytecode,
+    tests::{common::round_trip_bytecode, native_program::ProgramFixture},
     vm::{Vm, fixtures::FixtureExecution, owned::DriveResult},
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     instruction::{BytecodeInstruction as I, CallTarget, NativeImportId, Slot},
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, RootSlotLayout},
-    program::{BytecodeProgram, ModuleRef},
+    program::ModuleRef,
 };
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_contract::{
     ids::FunctionRef,
     native_import::NativeImport,
     representation::semantic_representation,
-    types::{ConcreteFunctionIdentity, PublicItem},
+    types::{
+        ConcreteFunctionIdentity, PublicItem,
+        named::{NamedContract, NamedDeclaration},
+    },
 };
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::{RuntimeError, RuntimeErrorKind},
     gc::roots::RootedValue,
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         adapter::Async,
         binding::NativeResult,
@@ -40,7 +43,7 @@ use kagari_runtime::{
     session::ExecutionOptions,
     value::Value,
 };
-use kagari_types::{callable::Signature, scalar::BuiltinType, ty::Ty};
+use kagari_types::{callable::Signature, scalar::BuiltinType, ty::Ty, visibility::Visibility};
 use std::{
     num::NonZeroUsize,
     slice::from_ref,
@@ -110,7 +113,7 @@ type PendingReplies = Vec<(i32, Completion<i32>)>;
 
 struct Fixture {
     vm: Vm,
-    module: LoadedModule,
+    module: ExecutableModule,
     sent: Arc<Mutex<PendingReplies>>,
     starts: Arc<AtomicUsize>,
     cancels: Arc<AtomicUsize>,
@@ -305,6 +308,15 @@ impl Fixture {
                 .map(PublicItem::Type)
                 .chain(declaration.functions.into_iter().map(PublicItem::Function))
                 .collect(),
+            named_declarations: native_declarations
+                .iter()
+                .map(|entry| NamedDeclaration {
+                    declaration: entry.declaration,
+                    visibility: Visibility::Public,
+                    ambiguous_local_body: None,
+                    contract: NamedContract::Function(entry.function.clone()),
+                })
+                .collect(),
             native_declarations,
             types: vec![ValueType::Unit, ValueType::I32, ValueType::HeapObject],
             function_table: functions
@@ -322,26 +334,23 @@ impl Fixture {
             ..Default::default()
         };
         let decoded = round_trip_bytecode(
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![
-                        module,
-                        BytecodeModule {
-                            identity: vector_declaration.identity,
-                            public_items: vector_declaration
-                                .types
-                                .into_iter()
-                                .map(PublicItem::Type)
-                                .collect(),
-                            ..Default::default()
-                        },
-                    ],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![
+                    module,
+                    BytecodeModule {
+                        identity: vector_declaration.identity,
+                        public_items: vector_declaration
+                            .types
+                            .into_iter()
+                            .map(PublicItem::Type)
+                            .collect(),
+                        ..Default::default()
+                    },
+                ],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         );
         let mut config = RuntimeConfig::default();
@@ -350,6 +359,8 @@ impl Fixture {
         vector.install(&mut runtime).unwrap();
         native.install(&mut runtime).unwrap();
         let module = runtime.load_program("native-wait", decoded).unwrap();
+        let _module_program = module;
+        let module = runtime.select_program(&_module_program).unwrap();
         Self {
             vm: Vm::new(runtime),
             module,

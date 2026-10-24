@@ -22,7 +22,7 @@ use kagari_runtime::{
     frame::ExecutionFrame,
     gc::GcHeap,
     host::{HostCallContext, HostError},
-    module::{LoadedModule, entry::ProgramEntry},
+    module::{Program, entry::ProgramEntry},
     native::{
         builder::ModuleBuilder, conversion::context::ConversionContext, module::NativeModule,
         types::Type,
@@ -41,10 +41,15 @@ use kagari_types::{
 };
 use kagari_vm::{
     error::VmError,
-    vm::{ExecutionReport, JitExecutionStatus, native::PreparedNativeEntry},
+    vm::{
+        ExecutionReport, JitExecutionStatus,
+        native::{PreparedNativeEntry, PreparedNativeExecution},
+        owned::DriveResult,
+    },
 };
 use std::{
     cell::Cell,
+    num::NonZeroUsize,
     sync::{Arc, Mutex},
 };
 
@@ -117,11 +122,17 @@ struct RecordingHost {
     log: Vec<String>,
 }
 
+struct PublishedReload<'a> {
+    candidate: &'a Case<'a>,
+    selected_result: fn(&GcHeap) -> Value,
+    native_entry: &'a str,
+}
+
 struct Case<'a> {
     name: &'static str,
     source: &'a str,
     modules: &'a [(&'a str, &'a str)],
-    published_reload: Option<&'a Case<'a>>,
+    published_reload: Option<PublishedReload<'a>>,
     expected: Expected,
     calls: &'static [&'static str],
     committed: &'static [&'static str],
@@ -235,7 +246,7 @@ fn observe_vector() -> DefinitionMetadata<ModuleDecl> {
     DefinitionMetadata::checked(definitions, declaration, &Default::default()).unwrap()
 }
 
-fn compile(case: &Case<'_>) -> Option<RoutePrograms> {
+fn compile(case: &Case<'_>, publication: bool) -> Option<RoutePrograms> {
     let mut sources = SourceDatabase::default();
     let mut root = None;
     for (name, text) in case
@@ -257,7 +268,14 @@ fn compile(case: &Case<'_>) -> Option<RoutePrograms> {
         root = Some(sources.set(&uri, text.into(), SourceLayer::Base).unwrap());
     }
     let engine = preparation::engine(case.vector.is_some());
-    let checked = engine.compile_snapshot(sources.snapshot(), root.unwrap(), &Default::default());
+    let checked = if publication {
+        Ok(preparation::check_publication(
+            sources.snapshot(),
+            root.unwrap(),
+        ))
+    } else {
+        engine.compile_snapshot(sources.snapshot(), root.unwrap(), &Default::default())
+    };
     if let Expected::Diagnostic(code) = case.expected {
         let Err(EmbeddingError::Diagnostics { diagnostics }) = checked else {
             let outcome = checked.map(|_| "checked successfully");
@@ -308,14 +326,15 @@ impl RoutePrograms {
 }
 
 fn run_routes(case: &Case<'_>) {
-    let Some(programs) = compile(case) else {
+    let Some(programs) = compile(case, case.published_reload.is_some()) else {
         return;
     };
     // Interpreter and JIT routes consume the same checked input. Validate direct
     // and serialized products separately; every route still gets a fresh runtime.
     let candidate = case
         .published_reload
-        .map(|case| compile(case).expect("published candidate must compile"));
+        .as_ref()
+        .map(|reload| compile(reload.candidate, true).expect("published candidate must compile"));
     for route in Route::ALL {
         run(
             case,
@@ -364,11 +383,12 @@ fn assert_outcome(
 fn execute_route(
     runtime: &Runtime,
     program: &PreparedProgram,
-    loaded: &LoadedModule,
+    loaded: &Program,
     case: &Case<'_>,
     route: Route,
     backend: &mut CraneliftBackend,
 ) -> Result<ExecutionReport, VmError> {
+    let selected = runtime.runtime().select_program(loaded)?;
     match route {
         Route::Jit | Route::ArtifactJit => {
             let prepared = runtime
@@ -391,7 +411,7 @@ fn execute_route(
             // matrix. Native preparation uses the public SDK's trusted handoff.
             let outcome = runtime
                 .vm
-                .execute_prepared(loaded, ProgramEntry::Main, &prepared);
+                .execute_prepared(&selected, ProgramEntry::Main, &prepared);
             if case.require_native
                 && let Ok(report) = &outcome
             {
@@ -402,7 +422,7 @@ fn execute_route(
             }
             outcome
         }
-        _ => runtime.vm.execute(loaded, ProgramEntry::Main),
+        _ => runtime.vm.execute(&selected, ProgramEntry::Main),
     }
 }
 
@@ -479,8 +499,9 @@ fn run(
     let loaded = runtime
         .load_verified_program(case.name, module.bytecode().clone())
         .unwrap_or_else(|error| panic!("{} ({route:?}): {error}", case.name));
+    let selected = runtime.select_program(&loaded).unwrap();
     let retained = case.vector.map(|(initial, _)| {
-        let mut conversion = ConversionContext::new(&runtime, &loaded).unwrap();
+        let mut conversion = ConversionContext::new(&runtime, &selected).unwrap();
         let rooted = conversion.encode(initial.to_vec()).unwrap();
         *observed_vector.lock().unwrap() = Some(rooted.value(runtime.gc()).unwrap());
         rooted
@@ -505,7 +526,7 @@ fn run(
     let session = (case.cancel_call.is_some() || case.cancel_at.is_some()).then(|| {
         let mut options = vm.runtime().execution_options();
         options.cancellation = cancellation.clone();
-        vm.runtime().begin_execution(&loaded, options).unwrap()
+        vm.runtime().begin_execution(&selected, options).unwrap()
     });
     if case.cancel_at.is_some() {
         vm.runtime().attach_execution_observer().unwrap();
@@ -515,33 +536,120 @@ fn run(
         let outcome = execute_route(&vm, module, &loaded, case, route, &mut backend);
         assert_outcome(vm.runtime(), case, route, attempt, outcome);
     }
-    if let Some(candidate) = case.published_reload {
+    if let Some(reload) = &case.published_reload {
+        let candidate = reload.candidate;
         let program = candidate_program.expect("published candidate must compile");
-        let outer = vm
-            .runtime()
-            .begin_execution(&loaded, vm.runtime().execution_options())
+        let old_native = matches!(route, Route::Jit | Route::ArtifactJit).then(|| {
+            [
+                ProgramEntry::Main,
+                ProgramEntry::Export(reload.native_entry),
+            ]
+            .map(|entry| {
+                let prepared = vm
+                    .prepare_native(module, &loaded, entry, &mut backend, &Default::default())
+                    .unwrap();
+                if matches!(entry, ProgramEntry::Export(_)) {
+                    assert!(
+                        matches!(prepared, PreparedNativeEntry::Native(_)),
+                        "{} ({route:?}): dependency must be native: {prepared:?}",
+                        case.name
+                    );
+                }
+                (entry, prepared)
+            })
+        });
+        // Queue the exact old body before publication; no synchronous activation
+        // remains while the host publishes. Its ordinary calls still select current.
+        let old_execution = vm
+            .vm
+            .start(
+                &selected,
+                ProgramEntry::Main,
+                &[],
+                vm.runtime().execution_options(),
+            )
             .unwrap();
         let stale = vm
             .runtime()
-            .stage_reload_verified_program(&loaded, case.name, program.bytecode().clone())
+            .stage_reload_verified_program(&loaded, None, program.bytecode().clone())
             .unwrap();
-        let current = vm
-            .reload_program(&loaded, program, Default::default())
+        vm.reload_program(&loaded, program, Default::default())
             .unwrap();
-        assert_eq!(
-            vm.runtime().modules().latest(case.name).unwrap().key(),
-            current.key()
+        let current = loaded.clone();
+        let current_selected = vm.runtime().select_program(&current).unwrap();
+        assert_ne!(current_selected.key(), selected.key());
+        assert!(vm.runtime().execution_root().is_none());
+        let DriveResult::Complete(result) = vm
+            .vm
+            .drive(&old_execution, NonZeroUsize::new(1024).unwrap())
+            .unwrap()
+        else {
+            panic!(
+                "{} ({route:?}): queued scalar entry must complete",
+                case.name
+            );
+        };
+        let result = result.unwrap();
+        assert!(
+            script_equal(
+                vm.runtime().gc(),
+                &result.value(vm.runtime().gc()).unwrap(),
+                &(reload.selected_result)(vm.runtime().gc()),
+            )
+            .unwrap(),
+            "{} ({route:?}): old body must call the current dependency",
+            case.name
         );
-        assert_ne!(current.key(), loaded.key());
-        assert_eq!(vm.runtime().execution_root().unwrap().key(), loaded.key());
+        drop(result);
+        if let Some(entries) = &old_native {
+            for (entry, prepared) in entries {
+                match prepared {
+                    PreparedNativeEntry::Native(_) => {
+                        // An exact native product cannot be reused for the current
+                        // entry, even when the host explicitly requests fallback.
+                        for fallback_reason in [None, Some("interpret current entry")] {
+                            let error = vm
+                                .vm
+                                .execute_prepared(
+                                    &selected,
+                                    *entry,
+                                    PreparedNativeExecution {
+                                        prepared,
+                                        fallback_reason,
+                                    },
+                                )
+                                .unwrap_err();
+                            assert!(
+                                matches!(
+                                    error.cause(),
+                                    VmError::RuntimeError(error)
+                                        if error.kind() == RuntimeErrorKind::ModuleValidation
+                                ),
+                                "{} ({route:?}): {error:?}",
+                                case.name
+                            );
+                        }
+                    }
+                    PreparedNativeEntry::Unsupported { .. } => {
+                        let outcome =
+                            vm.vm
+                                .execute_prepared(&selected, ProgramEntry::Main, prepared);
+                        assert_eq!(
+                            outcome.as_ref().unwrap().jit.as_ref().unwrap().status,
+                            JitExecutionStatus::InterpreterFallback
+                        );
+                        assert_outcome(vm.runtime(), candidate, route, 0, outcome);
+                    }
+                }
+            }
+        }
         assert_outcome(
             vm.runtime(),
-            case,
+            candidate,
             route,
-            case.repeat,
-            execute_route(&vm, module, &loaded, case, route, &mut backend),
+            0,
+            vm.vm.execute(&selected, ProgramEntry::Main),
         );
-        drop(outer);
         assert_outcome(
             vm.runtime(),
             candidate,
@@ -556,8 +664,8 @@ fn run(
             Err(ReloadValidationError::ModuleNotActive { .. })
         ));
         assert_eq!(
-            vm.runtime().modules().latest(case.name).unwrap().key(),
-            current.key()
+            vm.runtime().select_program(&current).unwrap().key(),
+            current_selected.key()
         );
         assert_eq!(
             vm.runtime().modules().loaded_count(),

@@ -1,10 +1,8 @@
 use super::*;
+use crate::test_support::native::program::ProgramFixture;
 use crate::{Runtime, test_support::layouts::allocation_owner};
-use kagari_bytecode::{
-    module::BytecodeModule,
-    program::{BytecodeProgram, ModuleRef},
-};
-use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
+use kagari_common::identity::map::DefinitionContext;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::thread;
 
@@ -248,24 +246,25 @@ fn root_leases_outlive_runtime_without_owning_its_storage() {
 #[test]
 fn metadata_roots_retain_programs_until_the_last_external_lease_drops() {
     let program = || {
-        DefinitionMetadata::checked(
+        ProgramFixture {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule::default()],
+        }
+        .metadata(
             DefinitionContext::new().unwrap().snapshot(),
-            BytecodeProgram {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
             &Default::default(),
         )
         .unwrap()
     };
     let mut runtime = Runtime::default();
-    let old = runtime.load_program("metadata-root", program()).unwrap();
+    let old_program = runtime.load_program("metadata-root", program()).unwrap();
+    let old = runtime.select_program(&old_program).unwrap();
     let roots = runtime
         .root_metadata(vec![MetadataRoot::Program(old.clone())])
         .unwrap();
     let candidate = runtime
-        .stage_reload_program(&old, "metadata-root", program())
+        .stage_reload_program(&old_program, None, program())
         .unwrap();
     runtime.publish_staged_reload(candidate).unwrap();
     let other = Runtime::default();
@@ -296,28 +295,32 @@ fn metadata_roots_retain_programs_until_the_last_external_lease_drops() {
 #[test]
 fn rejected_metadata_replacement_keeps_the_original_program_reachable() {
     let program = || {
-        DefinitionMetadata::checked(
+        ProgramFixture {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule::default()],
+        }
+        .metadata(
             DefinitionContext::new().unwrap().snapshot(),
-            BytecodeProgram {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
             &Default::default(),
         )
         .unwrap()
     };
     let mut runtime = Runtime::default();
-    let old = runtime.load_program("roots", program()).unwrap();
+    let old_program = runtime.load_program("roots", program()).unwrap();
+    let old = runtime.select_program(&old_program).unwrap();
     let roots = runtime
         .root_metadata(vec![MetadataRoot::Program(old.clone())])
         .unwrap();
     let candidate = runtime
-        .stage_reload_program(&old, "roots", program())
+        .stage_reload_program(&old_program, None, program())
         .unwrap();
-    let current = runtime.publish_staged_reload(candidate).unwrap();
+    runtime.publish_staged_reload(candidate).unwrap();
+
+    let current = runtime.select_program(&old_program).unwrap();
     let mut other = Runtime::default();
-    let foreign = other.load_program("roots", program()).unwrap();
+    let foreign_program = other.load_program("roots", program()).unwrap();
+    let foreign = other.select_program(&foreign_program).unwrap();
     let before = runtime.gc().active_roots();
     assert!(
         roots
@@ -357,7 +360,7 @@ fn rejected_metadata_replacement_keeps_the_original_program_reachable() {
             .reclaimed_modules
             .is_empty()
     );
-    assert!(runtime.validate_loaded_module(&current).is_ok());
+    assert!(runtime.validate_executable_module(&current).is_ok());
     assert!(!runtime.is_quarantined());
     drop(roots);
     assert_eq!(runtime.gc().active_roots(), 0);

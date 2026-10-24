@@ -25,7 +25,7 @@ impl NativeContext<'_> {
         value: &TypeArgument,
     ) -> NativeResult<ScriptMap<K, V>> {
         self.runtime()
-            .bind_map_constructor(self.conversion.owner(), key, value)?
+            .bind_map_constructor_exact(self.conversion.owner(), key, value)?
             .call(self, ())
     }
 
@@ -39,7 +39,7 @@ impl NativeContext<'_> {
         element: &TypeArgument,
     ) -> NativeResult<ScriptSet<T>> {
         self.runtime()
-            .bind_set_constructor(self.conversion.owner(), element)?
+            .bind_set_constructor_exact(self.conversion.owner(), element)?
             .call(self, ())
     }
 }

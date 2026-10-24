@@ -647,6 +647,10 @@ impl Lowerer {
 
     fn lower_static(&mut self, definition: &StaticDef) -> StaticItem {
         let id = self.source_map.push_static(syntax_span(definition));
+        if let Some(initializer) = definition.initializer() {
+            self.source_map
+                .insert_static_initializer(id, syntax_span(&initializer));
+        }
         if let Some(name) = definition.name() {
             self.source_map
                 .insert_item_name(Item::Static(id), token_span(&name));

@@ -88,7 +88,8 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
-    let root = ConversionContext::new(runtime.runtime(), &loaded)
+    let _selected_loaded = runtime.runtime().select_program(&loaded).unwrap();
+    let root = ConversionContext::new(runtime.runtime(), &_selected_loaded)
         .unwrap()
         .encode(vec![7i32])
         .unwrap();

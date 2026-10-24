@@ -101,11 +101,15 @@ fn prepare(function: BytecodeFunction) -> PreparedDisassembly {
         ..Default::default()
     };
     let artifact = KbcArtifact::from_program(
-        BytecodeProgram {
-            root: ModuleRef::new(0),
-            modules: vec![module],
-            exports: Default::default(),
-        },
+        crate::program::updates::fixtures::certify(
+            BytecodeProgram {
+                update_evidence: crate::program::updates::empty(),
+                root: ModuleRef::new(0),
+                modules: vec![module],
+                exports: Default::default(),
+            },
+            &context,
+        ),
         ArtifactBuildOptions::default(),
         &context,
         &Default::default(),

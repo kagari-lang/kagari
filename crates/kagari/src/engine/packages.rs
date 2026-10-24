@@ -2,8 +2,12 @@
 
 use crate::{CompileResult, engine::KagariEngine, error::EmbeddingError};
 use kagari_common::cancellation::CancellationToken;
+use kagari_hir::analysis::inputs::AnalysisInputs;
 use kagari_package::{identity::PackageFamily, project::ProjectInputs, snapshot::ProgramInputs};
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 /// Captured sources and the compilation environment expected for one Program.
 /// This is input identity, not successful source checking or executable evidence.
@@ -11,6 +15,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub struct PackageBuildInput {
     source: ProgramInputs,
     fingerprint: String,
+    environment: Arc<AnalysisInputs>,
 }
 
 impl PackageBuildInput {
@@ -22,7 +27,13 @@ impl PackageBuildInput {
         Ok(Self {
             fingerprint: engine.package_fingerprint(source, cancel)?,
             source: source.clone(),
+            environment: engine.analysis.borrow().inputs(),
         })
+    }
+
+    /// Declaration-only environment captured alongside this package input identity.
+    pub fn environment(&self) -> &Arc<AnalysisInputs> {
+        &self.environment
     }
 
     pub fn sources(&self) -> &ProgramInputs {

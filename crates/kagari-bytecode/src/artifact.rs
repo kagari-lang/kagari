@@ -5,10 +5,11 @@ use crate::{
     module::{BytecodeDebugMetadata, BytecodeModule, RootSlotLayout},
     native_input::PortableMir,
     program::{
-        BytecodeProgram, identity,
+        BytecodeProgram, identity, updates as program_updates,
         verified::{ProgramVerification, VerifiedBytecodeProgram},
         verify_graph,
     },
+    source_package::{self, SourcePackageError, VerifiedSourcePackage},
     verifier::BytecodeVerificationError,
 };
 use bincode::{DefaultOptions, ErrorKind, Options};
@@ -29,13 +30,16 @@ use kagari_contract::{
     },
     effects::EffectSet,
     ids::FunctionRef,
+    source::SourcePackage,
     types::{PublicItem, wire::PublicItemRecord},
+    updates::limits::{Budget, Limits},
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, io, io::Write};
 
 mod limits;
-mod wire;
+mod source;
+pub(crate) mod wire;
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
 pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 116;
@@ -70,6 +74,10 @@ pub fn validate_program_resource_limits(
     if let Some(reason) = program_count_limit(program, definitions) {
         return Err(ArtifactValidationError::ResourceLimit(reason));
     }
+    let mut budget =
+        Budget::new(Limits::default(), cancel).map_err(program_updates::mapping_error)?;
+    program_updates::preflight(&program.update_evidence, definitions, cancel, &mut budget)
+        .map_err(program_updates::mapping_error)?;
     let portable = wire::encode_program(program, definitions, cancel)?;
     if exceeds_encoded_size(&portable) {
         return Err(ArtifactValidationError::ResourceLimit(
@@ -130,6 +138,8 @@ pub struct KbcArtifact {
     pub debug: Option<DebugMetadata>,
     pub signatures: Option<ArtifactSignatures>,
     pub portable_mir: Option<PortableMir>,
+    /// Optional exact source; unrelated to stepping metadata or portable MIR.
+    pub source: Option<SourcePackage>,
 }
 
 /// Executable contents retained after complete envelope and compatibility validation.
@@ -138,6 +148,7 @@ pub struct KbcArtifact {
 pub struct VerifiedArtifact {
     bytecode: VerifiedBytecodeProgram,
     portable_mir: Option<PortableMir>,
+    source: Option<VerifiedSourcePackage>,
 }
 
 impl VerifiedArtifact {
@@ -149,6 +160,22 @@ impl VerifiedArtifact {
         self.portable_mir.as_ref()
     }
 
+    pub fn source_package(&self) -> Option<&VerifiedSourcePackage> {
+        self.source.as_ref()
+    }
+
+    /// Preserve all optional products when transferring prepared ownership.
+    pub fn into_parts(
+        self,
+    ) -> (
+        VerifiedBytecodeProgram,
+        Option<PortableMir>,
+        Option<VerifiedSourcePackage>,
+    ) {
+        (self.bytecode, self.portable_mir, self.source)
+    }
+
+    /// Extract only executable bytes, deliberately discarding optional products.
     pub fn into_bytecode(self) -> VerifiedBytecodeProgram {
         self.bytecode
     }
@@ -164,14 +191,24 @@ impl KbcArtifact {
         cancel: &CancellationToken,
     ) -> Result<VerifiedArtifact, ArtifactValidationError> {
         let verification = self.validate_execution(requirements, context, cancel)?;
+        let bytecode = VerifiedBytecodeProgram::from_verified(
+            self.program,
+            verification,
+            context.snapshot(),
+            cancel,
+        )?;
+        let source = self
+            .source
+            .map(|source| {
+                DefinitionMetadata::checked(context.snapshot(), source, cancel).map(|metadata| {
+                    VerifiedSourcePackage::from_validated(metadata, bytecode.product_identity())
+                })
+            })
+            .transpose()?;
         Ok(VerifiedArtifact {
-            bytecode: VerifiedBytecodeProgram::from_verified(
-                self.program,
-                verification,
-                context.snapshot(),
-                cancel,
-            )?,
+            bytecode,
             portable_mir: self.portable_mir,
+            source,
         })
     }
 
@@ -232,6 +269,7 @@ impl KbcArtifact {
             debug.as_ref(),
             signatures.as_ref(),
             portable_mir.as_ref(),
+            None,
         );
         let mut artifact = Self {
             header: ArtifactHeader {
@@ -252,6 +290,7 @@ impl KbcArtifact {
             debug,
             signatures,
             portable_mir,
+            source: None,
         };
         artifact.validate_resource_limits(&definitions, cancel)?;
         artifact.header.content_hash = artifact.compute_content_hash(&definitions)?;
@@ -266,6 +305,9 @@ impl KbcArtifact {
         definitions: &DefinitionTable,
         cancel: &CancellationToken,
     ) -> Result<(), ArtifactValidationError> {
+        if let Some(source) = &self.source {
+            source.validate_limits(cancel)?;
+        }
         if let Some(reason) = artifact_count_limit(self, definitions) {
             return Err(ArtifactValidationError::ResourceLimit(reason));
         }
@@ -388,9 +430,13 @@ impl KbcArtifact {
                 self.debug.as_ref(),
                 self.signatures.as_ref(),
                 self.portable_mir.as_ref(),
+                self.source.as_ref(),
             )
         {
             return Err(ArtifactValidationError::TableMismatch);
+        }
+        if let Some(source) = &self.source {
+            source_package::validate_records(source, &self.program, &definitions, cancel)?;
         }
         Ok(verification)
     }
@@ -543,16 +589,27 @@ impl ArtifactFingerprint {
         Ok(Self::of_serialized(&(record, encoding.table)))
     }
 
+    pub(crate) fn checked_program(
+        program: &BytecodeProgram,
+        definitions: &DefinitionTable,
+        cancel: &CancellationToken,
+    ) -> Result<Self, DefinitionMappingError> {
+        cancel
+            .check()
+            .map_err(|_| DefinitionMappingError::Cancelled)?;
+        let fingerprint = Self::of_serialized(&wire::encode_program(program, definitions, cancel)?);
+        cancel
+            .check()
+            .map_err(|_| DefinitionMappingError::Cancelled)?;
+        Ok(fingerprint)
+    }
+
     /// Hash an executable program's canonical referenced closure.
     pub fn of_program(
         program: &BytecodeProgram,
         definitions: &DefinitionTable,
     ) -> Result<Self, DefinitionMappingError> {
-        Ok(Self::of_serialized(&wire::encode_program(
-            program,
-            definitions,
-            &CancellationToken::default(),
-        )?))
+        Self::checked_program(program, definitions, &CancellationToken::default())
     }
 
     /// Hash an executable module's canonical referenced closure.
@@ -688,6 +745,7 @@ impl ArtifactTables {
         debug: Option<&DebugMetadata>,
         signatures: Option<&ArtifactSignatures>,
         portable_mir: Option<&PortableMir>,
+        source: Option<&SourcePackage>,
     ) -> Self {
         let mut tables = Self::from_program(program);
         if let Some(debug) = debug {
@@ -715,6 +773,13 @@ impl ArtifactTables {
                     portable_mir,
                 )),
             });
+        }
+        if let Some(source) = source {
+            push_section(
+                &mut tables.sections,
+                ArtifactSectionId::ExactSource,
+                source.documents.len() + source.declarations.len() + source.executables.len(),
+            );
         }
         tables
     }
@@ -748,6 +813,7 @@ pub enum ArtifactSectionId {
     Debug,
     Signatures,
     PortableMir,
+    ExactSource,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -994,6 +1060,8 @@ pub struct ArtifactSignature {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ArtifactValidationError {
+    #[error("invalid exact source package: {0}")]
+    Source(SourcePackageError),
     #[error("artifact identity conversion failed: {0}")]
     Identity(#[from] DefinitionMappingError),
     #[error("invalid KBC magic bytes {0:?}")]
@@ -1055,6 +1123,7 @@ impl From<Box<ErrorKind>> for ArtifactCodecError {
 impl ArtifactValidationError {
     pub fn code(&self) -> &'static str {
         match self {
+            Self::Source(_) => "KG_ARTIFACT_SOURCE_PACKAGE",
             Self::Identity(_) => "KG_ARTIFACT_IDENTITY",
             Self::InvalidMagic(_) => "KG_ARTIFACT_INVALID_MAGIC",
             Self::FormatVersionMismatch { .. } => "KG_ARTIFACT_FORMAT_VERSION_MISMATCH",

@@ -117,8 +117,8 @@ The current workspace product names are:
 The SDK package and directory are `kagari`, imported as `kagari`; the CLI package
 remains `kagari-cli` and provides only the `kg` binary. Consumers, feature checks,
 examples and current documentation use these names. No forwarding SDK package or
-compatibility command is retained. The [Host API plan](host-api-refactor.md) owns
-API evolution independently; naming changes do not activate that refactor.
+compatibility command is retained. The [embedding specification](spec/embedding-api.md#installed-programs-and-public-paths)
+owns the installed Program/live Module API independently of product naming.
 
 Focused rename validation passed: SDK typed-call and Cranelift preparation cases,
 CLI parsing/artifact execution, and the standalone source-free async consumer
@@ -395,15 +395,15 @@ Module-level `static val`/`static var`, lazy initialization, compatible shared s
 source-free verification and source/editor tooling are implemented. Lasting ownership
 belongs to [persistent module state](architecture.md#persistent-module-state),
 [declarations](spec/modules.md#persistent-module-statics), [activation](spec/module-activation.md)
-and [runtime cells](spec/runtime.md#persistent-static-cells). The
-[runnable example](../crates/kagari/examples/persistent_static.rs) demonstrates shared
-state versus pinned callbacks, untouched old recipes and fresh installations.
+and [runtime cells](spec/runtime.md#persistent-static-cells). Static continuity
+preserves cells and original recipes, while ordinary helper and named callback calls
+select current implementations under the [publication contract](spec/module-activation.md#live-installations-and-call-selection).
 Completed phase ledgers are retained in Git history, not a second execution queue.
 
 Focused local source/decoded tests cover full durable-value families, three-generation
 publication, candidate isolation, cancellation, collecting reentry, failure poisoning
-and retirement. Map/Set lookup now uses construction-pinned protocols; content
-comparison remains caller-selected. Syntax/HIR/formatter/lint/disassembly tests,
+and retirement. Map/Set lookup preserves checked key relationships but selects
+current callback bodies; content comparison remains caller-selected. Syntax/HIR/formatter/lint/disassembly tests,
 grammar audits, Tree-sitter CLI corpus/query checks, TextMate checks, the runnable
 example and required Rust quality checks passed. Full workspace/backend/feature
 and platform validation remains CI-only; no performance acceptance is claimed.
@@ -417,11 +417,11 @@ inventory acceptance, before claiming the editor matrix passed. Earlier editor-h
 validation predates this syntax addition. No tool version was spoofed or upgraded.
 
 Semantic LSP handlers and static-watch UI remain separately deferred tooling, not
-implied by HIR facts or non-forcing runtime snapshots. The existing
-[update proposal](update-model-design.md) still owns state replacement/migration;
-static persistence does not implement it, disk recovery, callback rebinding, generic
-associated statics or general additive reload. The pre-existing equality receiver
-mismatch remains in [review](review.md#hash-lookup-equality-receiver-clarification).
+implied by HIR facts or non-forcing runtime snapshots. Static persistence does not
+provide disk recovery, callback rebinding or generic associated statics.
+[Compatible additions](spec/module-activation.md#compatible-declaration-changes)
+are implemented separately and preserve existing static cells and contracts. The
+pre-existing equality receiver mismatch remains in [review](review.md#hash-lookup-equality-receiver-clarification).
 RL02/RL03 must reuse the current initializer/frame/state owners rather than replaying
 the replaced raw-slot model. Push and deployment remain unauthorized.
 
@@ -772,20 +772,12 @@ asset consistency. The native Node test rerun is blocked by a missing Windows
 addon for Node 24.15.0; passing CLI checks do not establish that suite or CI passed.
 
 Remaining scope stays separate: native JIT/AOT suspension, Rust async-closure
-registration, dynamic/race/timeout combinators, arbitrary Object-to-trait casts,
-generated host views, and the [confirmed current-call update migration](update-model-design.md#calls-retained-objects-and-new-trait-implementations).
-That migration retains existing Future/closure/resume bodies, but selects current
-implementations for subsequent ordinary calls; it is not implemented by the completed
-async work. The [Host Program/Module plan](host-api-refactor.md) scopes HM00-HM04 to
-stable Program/Module handles, relative public lookup, checked type exports and
-reload compatibility. Existing handles must query the latest published contents of
-their installation; existing function bindings call current implementations without
-reacquisition/rebinding. HM00 must settle representation, internal version retention
-and the UP handoff. The user-prioritized
-[alias prerequisite](host-api-refactor.md#transparent-generic-alias-prerequisite)
-is locally complete. Joint HM00/UP00 remains authorized but paused and incomplete;
-HM/UP implementation phases have not started.
-Broader preparation/tooling remains deferred.
+registration, dynamic/race/timeout combinators, arbitrary Object-to-trait casts and
+generated host views. [Current-call publication](spec/module-activation.md#live-installations-and-call-selection)
+is implemented: existing Future/closure/resume bodies retain their selected code,
+while ordinary inner calls use current implementations. Installed Program/live
+Module relative binding is also implemented; remaining preparation/tooling work
+stays with [host/update follow-ups](#host-api-and-update-execution).
 
 ## Text literals and String traversal
 
@@ -821,27 +813,176 @@ remain outside this delivered scope.
 
 ## Host API and update execution
 
-HM/UP implementation and phased commits are authorized on 2026-10-23. The user
-subsequently prioritized transparent generic type aliases first; that prerequisite
-is now locally complete. HM/UP remain paused. On resumption, the order remains the
-incomplete joint HM00 + UP00 checkpoint, followed by HM01, UP01, HM02, UP02, HM03,
-HM04, UP03, UP04 and UP05.
-The [Host API plan](host-api-refactor.md) and
-[update plan](update-model-design.md) retain their own ledgers and acceptance.
-HM owns live Program/Module lookup and verified type exports; UP owns stable
-current-call dispatch, source Update batches, exact-source inspection and later
-explicit state replacement. Existing public semantics remain unchanged until the
-owning migration. MS, wider native expansion and repair-program linking are separate.
+Installed Program/live Module navigation, relative sync/async and object-type
+binding, source-free type exports and exact executable ownership are implemented.
+Their lasting owners are the [embedding API](spec/embedding-api.md#installed-programs-and-public-paths),
+[public type exports](spec/artifacts.md#public-type-exports),
+[namespace continuity](spec/module-activation.md#public-namespace-continuity) and
+[runtime architecture](architecture.md#live-installations-and-publication).
+Transparent generic alias semantics belong to [syntax](spec/syntax.md#transparent-type-aliases)
+and [module names](spec/modules.md#transparent-alias-names), not a completed phase ledger.
 
-The first audit found the missing transparent-alias language capability; the user
-resolved that scope question by explicitly authorizing generic aliases before HM/UP.
-The [finite prerequisite ledger](host-api-refactor.md#transparent-generic-alias-prerequisite)
-is the single owner of scope, implementation progress, validation and compiler
-resource limits. Alias implementation, review repairs and local acceptance are
-complete. HM/UP remain paused and incomplete, not resumed or completed by alias work.
-This prerequisite does not implement HM host export schemas, export-driven layout
-roots or UP dispatch. The linked ledger retains concise focused evidence; full CI
-remains unrun.
+The approved HM and UP00-UP02 implementation is complete: full Program loading,
+module-relative function/type lookup, reusable live handles, compatible hot reload,
+[source Update](spec/embedding-api.md#source-updates) and
+[exact source inspection](spec/embedding-api.md#exact-source-inspection).
+The completed HM and update plans are retired; Git owns their historical ledgers.
+No carried HM/UP01/UP02 implementation errors were reported at their local handoff.
+
+**User scope correction (2026-10-24):** remove UP03 state snapshots, `StateSchema`
+and migration, UP04 `ActorState`/state replacement, and UP05's related integration
+scope. These are cancelled, not deferred or prerequisites for another plan.
+Existing general [Serde conversion and `KagariSchema` registration](spec/embedding-api.md#typed-native-registration)
+remain; they do not provide special state-replacement support. MS remains an
+independent, unstarted plan; repair-program linking keeps its existing review owner.
+
+**UP03/UP04 removal local validation (before the body-update adjustment below):**
+at that checkpoint, the crate tree matched the pre-UP03 HM/UP02 baseline (`89845df8`). The existing Serde/object-conversion contract target passed
+16 tests, source-update regressions passed 11 tests, and `host_objects` plus
+`serde_interop` ran successfully. These cover the removed helpers' conversion
+consumers and representative retained loading/binding/reload behavior; the full
+workspace/feature/backend/platform matrix remains CI-only and unrun. Default and
+Serde-enabled workspace all-target Clippy, formatting, structure (1,627 Rust files)
+and diff checks passed. Documentation link/content checks found no new broken
+links; two pre-existing missing targets remain unrelated. An initial SDK test link
+failure referenced stale removed helper symbols; cleaning only `kagari-runtime`
+build products and rerunning the selected tests resolved it without code changes.
+
+**User-approved body-update scope adjustment (2026-10-24):** Hash/Eq bodies and
+ordinary helpers support normal hot updates. Users own stable key semantics while
+keys are stored; no automatic rehash or pinned old protocol execution is introduced.
+Existing static declarations, types, mutability/access and recursive schemas remain
+frozen. Direct initializer expressions (trivia ignored) and checked direct bindings
+remain unchanged, but ordinary called helpers may change. Ready/Failed cells retain
+their states; a cold cell retains its original recipe and ordinary calls select
+current implementations. UP03/UP04 removal above remains in force.
+
+The old transitive protected-root/dependency model and installation-wide `Unknown`
+freeze are replaced by static-only local comparison and explicit authored body
+provenance. Recipe-owned generated bodies are distinguished from ordinary callees;
+source-free verification still independently reconciles inventory, provenance and
+executable facts. Frozen declarations/signatures/types/layouts/trait relationships,
+retained executable demands and all host-boundary safety checks remain mandatory.
+Host ScriptMap/ScriptSet lookup must select current callback bodies like script
+lookup, preserving roots, no-borrow-across-callback rules, reentry and cancellation.
+The former default-foundation freeze is removed; the default-Engine body/source
+update regression passes, including previously retained live handles.
+
+**Source rationale:** [Rust std HashMap](https://doc.rust-lang.org/std/collections/struct.HashMap.html)
+(living standard-library documentation reviewed 2026-10-24) assigns changing stored
+key hash/equality to user logic errors. This supports separating key semantics from
+body-update admission, not blindly importing Rust's no-UB or containment promises:
+Kagari must independently retain engine memory, GC/rooting and host-borrow safety,
+without guaranteeing lookup after a broken user key contract.
+[Java SE 25 redefinition](https://docs.oracle.com/en/java/javase/25/docs/api/java.instrument/java/lang/instrument/Instrumentation.html#redefineClasses(java.lang.instrument.ClassDefinition...))
+retains active method bodies, uses new bodies for new invocations and leaves static
+values unchanged without rerunning initializers. Kagari applies that distinction to
+its own installation/GC/cold-recipe owners, not JVM class loading or concurrency.
+No performance claim follows from either source.
+
+**Body-update adjustment ledger:**
+
+- Implementation, specifications and the site reload page reflect this approved
+  scope. The removed dependency graph has no compatibility reader or fallback freeze.
+  Static-generated identities use initializer-relative non-trivia positions; MIR and
+  bytecode independently check immediate lexical parents and inherited arguments even
+  when optimizations remove closure/future creation instructions.
+- Selected local coverage: default-Engine body/source updates; mutable Hash/Eq/helper
+  bodies through script and host handles; unchanged direct initializer with changed
+  helper; direct-expression/binding rejection including trivia and locally generated
+  bodies; Ready/Failed/cold continuity; source-free provenance/executable forgery and
+  retained-demand checks; collecting reentry/cancellation/borrow cleanup. These are
+  representative affected boundaries, not a full workspace sweep. The
+  `persistent_static` executable example now demonstrates unchanged Ready values,
+  current helpers in cold recipes and live named handles.
+- Docs-only checks: 812 local links across 22 modified documentation files passed
+  path/Markdown-heading checks with no findings; the reload page passed standalone
+  MDX syntax compilation. Rust std HashMap and Java SE 25 reference pages were
+  fetched and reviewed. Scoped documentation `git diff --check` passed. No Cargo,
+  behavioral tests or full site/product build ran for this documentation handoff.
+- Local contract validation passed: `cargo test -p kagari-contract --lib updates::
+  --no-fail-fast` covered 32 cases after the one invalid demand-union fixture was
+  repaired and rerun. `cargo test -p kagari-runtime --test update_admission` covered
+  six cases after two failures were fixed and rerun. SDK `runtime::update::tests::`
+  covered 11 cases after the default-foundation case was fixed and rerun. Its failure
+  was missing implicit proof-method identities in comparison correspondence, not an
+  incompatible user update; original verified proof names now supply those identities.
+- `cargo test -p kagari-bytecode -p kagari-mir --lib program::updates::tests::
+  --no-fail-fast` passed 12 cases; bytecode `async_factory_artifact_contract` passed.
+  Focused HIR source-fact and compiler static-lowering/provenance tests passed;
+  `source::program::update_records::tests::static_` was rerun after independent
+  generated-parent verification and passed both round-trip cases. Forged source-free
+  lexical ownership now rejects even without a creation instruction.
+- VM `native_boundary_hash_handles` passed nine cases and `execution::statics` passed
+  15. Individual GC key-retention and source-free shared-native lifetime cases passed;
+  SDK `key_callback_traps_and_reentry_release_guards_without_partial_insertion` passed.
+  Both VM `interface_instruction_` cases passed after migrating their authored fixture.
+  VM fixture/example constructors still naming the removed evidence fields initially
+  blocked compilation; they now provide initializer inventory and body provenance.
+- SDK `embedding::generic_reload` covered 14 cases: ten passed initially, and all four
+  failing cases passed focused reruns. Missing native applications now produce compiler
+  preparation requests while strict runtime coverage still rejects missing imports.
+  The corresponding contract repair regression passed. Nested symbolic native arguments
+  exposed an older top-level-only binder scan; the compiler now reconstructs the complete
+  checked owner scope, including unused leading parameters. The focused
+  `nested_native_application_retains_unused_leading_binder` and two foundation-lowering
+  cases passed. Body-only artifact tests retain independent candidate preparation;
+  the primitive-application-change fixture explicitly uses retained-demand expansion.
+- `cargo run -p kagari --example persistent_static` passed. The disposable feature
+  artifact was regenerated with `cargo run -p kagari --example regenerate_feature_artifact`.
+  `cargo test -p kagari --test artifact_features portable_fixture_matches_source_emission`
+  and `cargo test -p kagari --no-default-features --test artifact_features
+  portable_artifact_executes_without_source_compilation` passed. Old development
+  artifacts must be regenerated; no published-format compatibility change is claimed.
+- Local acceptance passed: structure checker (1,627 Rust files, zero violations),
+  `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+  the same workspace Clippy command with `--features kagari/serde`, and `git diff --check`.
+  Selected failures above were repaired without weakening checks. Full workspace tests,
+  standalone dependency-isolated feature consumers, the complete backend/platform matrix
+  and full site build remain CI-only or unrun; these results do not establish CI acceptance.
+
+Remaining host scope stays here or with existing owners, not a replacement HM queue:
+
+- Preparation/tooling coherence: unify text/file/artifact workflows where still
+  needed, keeping tooling snapshots explicit, editor overlays out of ordinary
+  compilation, multi-module diagnostics and source-free consumers intact. Direct
+  preparation already avoids mandatory encode/decode; do not reimplement it.
+  Shareable products require proven ownership, never unsafe Send/Sync additions;
+  [MS](multi-runtime-sharing-plan.md) owns frozen-product sharing and per-Runtime costs.
+- Known source-update preparation gap (compiler planner/correspondence owner): retained
+  intrinsic tuple protocol bridges can fail `Compilation::lower_with_demands` with
+  `Identity(InvalidContract)`. Reproduction uses the source and body-only replacement
+  from `shared_tuple_adapter_uses_current_operations_for_each_argument` in
+  `crates/kagari/src/runtime/tests/embedding/generic_reload.rs`, but prepares the replacement
+  with `ExpandRetainedApplications` rather than its normal `BodyOnlyArtifact` mode.
+  That experiment failed before publication at `update_requests::import_retained`:
+  retained `Impl(4)::eq` is a generated bridge, absent from the candidate's pre-lowering
+  authored declaration inventory. Independent complete artifact preparation and all
+  existing tuple body-update assertions pass. Repair requires semantic bridge demand
+  reconstruction/correspondence after candidate generated owners exist, including bridges
+  no longer reached by current source. Do not copy occurrence numbers, discard demands
+  or weaken admission. This previously existing planner boundary is deferred, not fixed
+  or hidden by the body-update policy change; source updates are not universally accepted.
+- Host generic expansion: open-alias application, broader host type reflection and
+  missing executable application preparation are outside the finite
+  [object-binding contract](spec/embedding-api.md#public-object-types-and-binding-errors).
+  Any extension needs checked compiler-owned evidence, not a runtime type-expression
+  parser or specialization fallback.
+- Configuration/error/tooling cleanup: owner-scoped options and structured stage
+  causes must preserve nested execution protection and distinguish backend fallback
+  from invalid code/runtime failure. No generic permission matrix or new core scheduler.
+- Explicit unload policy is separate from compatible reload. Handle drop implies
+  neither cancellation nor state reset; business rollback and cross-Actor atomicity
+  remain host responsibilities.
+- [Temporary repair programs and cross-installation linking](review.md#runtime-loaded-programs-referencing-existing-installations)
+  still need versioned compilation contracts, explicit installation bindings and
+  lifetime validation. Their declarations remain outside the game's compatible-update
+  inventory.
+- [R13](review.md#r13--type-and-layout-provenance-retains-retired-code),
+  [SA21 call costs](review.md#call-boundary-cost-follow-up),
+  [artifact reachability](review.md#artifact-reachability-follow-up) and
+  [native expansion](review.md#native-expansion-gates) keep their existing owners;
+  live lookup/current calls do not complete them or establish a speedup.
 
 ## Other queued designs
 
@@ -850,7 +991,7 @@ require a concrete task; implemented foundations are not prerequisites to replay
 
 | Track | Scope and dependencies |
 | --- | --- |
-| [Multi-Runtime program sharing](multi-runtime-sharing-plan.md) | MS00-MS05 planned, unstarted: measure current same-product multi-Runtime costs; eliminate whole-code identity remapping copies and duplicated pure link preparation; establish safe cross-thread frozen-product reuse. Keep player heaps/statics/host borrows and installation publication private. MS00 freezes numerical memory/performance gates and the HM/UP identity/dispatch handoff before implementation. R13 type-only retention, cross-installation repair linking, global updates and native expansion remain separate. No capacity or speed claim from source LOC or historical tiny-program data. |
+| [Multi-Runtime program sharing](multi-runtime-sharing-plan.md) | MS00-MS05 planned, unstarted: measure current same-product multi-Runtime costs; eliminate whole-code identity remapping copies and duplicated pure link preparation; establish safe cross-thread frozen-product reuse. Keep player heaps/statics/host borrows and installation publication private. MS00 freezes numerical memory/performance gates and preserves the implemented installation identity/current-dispatch contracts before changing shared owners. R13 type-only retention, cross-installation repair linking, global updates and native expansion remain separate. No capacity or speed claim from source LOC or historical tiny-program data. |
 | [Interactive debugger](debugger-design.md) | Confirmed synchronous waiting at safe debug points, preserving the executing host thread's Rust call chain. Pause control, inspection lifecycle and SDK/DAP integration are queued and unstarted; no whole-execution continuation migration or automatic process-wide freeze. Lifecycle defaults and CLI spellings remain proposals. |
 
 ## Open review and documentation work
@@ -1046,7 +1187,7 @@ Ordinary collection-interface ownership is implemented. Current contracts live i
 [collection semantics](spec/collection-access.md), [value semantics](spec/value-semantics.md)
 and [architecture](architecture.md#library-identities-and-representation-boundaries).
 Trait markers and receiver comparison forwarding are removed. Explicit stdlib
-content protocols/helpers and pinned interface methods are validated by focused
+content protocols/helpers and checked interface methods are validated by focused
 source, artifact and reload tests.
 Exhaustive workspace and feature/backend validation remain CI-owned; local focused
 results do not claim those unrun checks. The queued items below are not activated

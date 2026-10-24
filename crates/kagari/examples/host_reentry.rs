@@ -101,13 +101,14 @@ fn main() {
     let mut runtime = engine.runtime(context.clone());
 
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let _selected_loaded = runtime.runtime().select_program(&loaded).unwrap();
     runtime
         .runtime()
         .set_execution_observer(StackDepth::default())
         .unwrap();
     let session = runtime
         .runtime()
-        .begin_execution(&loaded, runtime.runtime().execution_options())
+        .begin_execution(&_selected_loaded, runtime.runtime().execution_options())
         .unwrap();
     runtime.runtime().attach_execution_observer().unwrap();
     assert_eq!(

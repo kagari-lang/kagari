@@ -96,11 +96,16 @@ fn one_registered_pair_method_serves_opaque_and_external_receivers() {
     "#,
         &module,
     );
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let treasury_type = vm
         .runtime()
-        .bind_native_type::<Treasury>(&owner, &treasury, &[])
+        .bind_native_type::<Treasury>(&_owner_program.root(), &treasury, &[])
         .unwrap();
-    let inventory_type = vm.runtime().bind_rust_type::<Inventory>(&owner).unwrap();
+    let inventory_type = vm
+        .runtime()
+        .bind_rust_type::<Inventory>(&_owner_program.root())
+        .unwrap();
     let opaque = treasury_type
         .create(
             &mut NativeContext::new(vm.runtime(), &owner).unwrap(),
@@ -120,7 +125,7 @@ fn one_registered_pair_method_serves_opaque_and_external_receivers() {
             assert_eq!(
                 Vm::execute_scoped(
                     scope,
-                    &owner,
+                    &_owner_program,
                     "owned",
                     &[raw, inventory.value()],
                     Default::default()
@@ -130,7 +135,7 @@ fn one_registered_pair_method_serves_opaque_and_external_receivers() {
             assert_eq!(
                 Vm::execute_scoped(
                     scope,
-                    &owner,
+                    &_owner_program,
                     "external",
                     &[treasury.value(), inventory.value()],
                     Default::default()
@@ -223,10 +228,16 @@ fn common_bind_accepts_free_borrowed_packs_and_rejects_overlap_before_callbacks(
         include_str!("../../../../tests/fixtures/native/scoped-borrow-packs.kgr"),
         &module,
     );
-    let player_type = vm.runtime().bind_rust_type::<Player>(&owner).unwrap();
+    let _owner_program = owner;
+    let owner = vm.runtime().select_program(&_owner_program).unwrap();
+    let player_type = vm
+        .runtime()
+        .bind_rust_type::<Player>(&_owner_program.root())
+        .unwrap();
     // Inspect the already decoded source-free program; forged field capability
     // facts must fail without trusting source analysis or runtime view contents.
     let portable = BytecodeProgram {
+        update_evidence: owner.verified_program().update_evidence().clone(),
         root: owner.slot(),
         exports: Default::default(),
         modules: owner
@@ -236,6 +247,7 @@ fn common_bind_accepts_free_borrowed_packs_and_rejects_overlap_before_callbacks(
             .map(|module| module.as_ref().clone())
             .collect(),
     };
+    verify_program(&portable, owner.definitions(), &Default::default()).unwrap();
     for reference in [None, Some(ReferenceAccess::Mutable)] {
         let mut forged = portable.clone();
         let inspect = forged.modules[owner.slot().index()]
@@ -275,13 +287,19 @@ fn common_bind_accepts_free_borrowed_packs_and_rejects_overlap_before_callbacks(
             let second = scope.borrow_mut(&player_type, &mut other)?;
             let stats = whole.field(scope, &stats_field)?;
             assert_eq!(
-                Vm::execute_scoped(scope, &owner, "tick", &[whole.value()], Default::default())?,
+                Vm::execute_scoped(
+                    scope,
+                    &_owner_program,
+                    "tick",
+                    &[whole.value()],
+                    Default::default()
+                )?,
                 Value::I32(70)
             );
             assert_eq!(
                 Vm::execute_scoped(
                     scope,
-                    &owner,
+                    &_owner_program,
                     "inspect",
                     &[whole.value()],
                     Default::default()
@@ -291,7 +309,7 @@ fn common_bind_accepts_free_borrowed_packs_and_rejects_overlap_before_callbacks(
             assert!(
                 Vm::execute_scoped(
                     scope,
-                    &owner,
+                    &_owner_program,
                     "duplicate",
                     &[stats.value()],
                     Default::default()
@@ -303,7 +321,7 @@ fn common_bind_accepts_free_borrowed_packs_and_rejects_overlap_before_callbacks(
             assert_eq!(
                 Vm::execute_scoped(
                     scope,
-                    &owner,
+                    &_owner_program,
                     "replace",
                     &[whole.value()],
                     Default::default()
@@ -317,7 +335,7 @@ fn common_bind_accepts_free_borrowed_packs_and_rejects_overlap_before_callbacks(
             assert_eq!(
                 Vm::execute_scoped(
                     scope,
-                    &owner,
+                    &_owner_program,
                     "once",
                     &[whole.value(), second.value()],
                     Default::default()
@@ -326,7 +344,7 @@ fn common_bind_accepts_free_borrowed_packs_and_rejects_overlap_before_callbacks(
             );
             let renamed = Vm::execute_scoped(
                 scope,
-                &owner,
+                &_owner_program,
                 "rename",
                 &[whole.value()],
                 Default::default(),

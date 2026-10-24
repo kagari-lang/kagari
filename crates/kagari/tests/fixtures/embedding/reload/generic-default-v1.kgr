@@ -1,0 +1,90 @@
+use std::cmp::{ Ordering };
+
+trait Read {
+    fn read(self) -> bool;
+}
+
+trait Keep {
+    fn keep<T: Ord + Default + Read>(self, a: T, b: T) -> fn(i32) -> bool {
+        val early: Read = a;
+        |mode| if mode == 1 {
+            T::default() == a
+        } else if mode == 2 {
+            early.read()
+        } else if mode == 3 {
+            val late: Read = a;
+            late.read()
+        } else {
+            a.cmp(b) == Ordering::Less
+        }
+    }
+}
+
+impl Keep for i32 {}
+
+struct Rank {
+    val value: i32
+}
+
+impl Read for Rank {
+    fn read(self) -> bool {
+        true
+    }
+}
+
+impl Default for Rank {
+    fn default() -> Self {
+        Rank { value: 1 }
+    }
+}
+
+impl PartialEq for Rank {
+    fn eq(self, other: Self) -> bool {
+        self.value == other.value
+    }
+}
+
+impl Eq for Rank {}
+
+impl PartialOrd for Rank {
+    fn partial_cmp(self, other: Self) -> Option<Ordering> {
+        self.value.partial_cmp(other.value)
+    }
+}
+
+impl Ord for Rank {
+    fn cmp(self, other: Self) -> Ordering {
+        self.value.cmp(other.value)
+    }
+}
+
+trait Run {
+    fn run(self) -> bool;
+    fn selected_default(self) -> bool;
+    fn constructed(self) -> bool;
+    fn late_constructed(self) -> bool;
+}
+
+struct Saved {
+    val callback: fn(i32) -> bool
+}
+
+impl Run for Saved {
+    fn run(self) -> bool {
+        (self.callback)(0)
+    }
+    fn selected_default(self) -> bool {
+        (self.callback)(1)
+    }
+    fn constructed(self) -> bool {
+        (self.callback)(2)
+    }
+    fn late_constructed(self) -> bool {
+        (self.callback)(3)
+    }
+}
+
+pub fn make() -> Run {
+    val keeper: Keep = 0;
+    Saved { callback: keeper.keep(Rank { value: 1 }, Rank { value: 2 }) }
+}

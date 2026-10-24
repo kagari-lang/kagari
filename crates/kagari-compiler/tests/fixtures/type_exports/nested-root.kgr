@@ -1,0 +1,11 @@
+struct Cell {}
+
+pub use pkg::facade::Nested as Int;
+
+pub use pkg::types::IntCell as Again;
+
+pub type Bool = pkg::types::Cell<bool>;
+
+pub type Erased<T> = pkg::types::Cell<u32>;
+
+pub type Wrapped = (pkg::types::Cell<u64>, bool);

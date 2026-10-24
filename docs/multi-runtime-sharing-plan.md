@@ -4,9 +4,12 @@
 
 Status: planned; implementation not started. Requested after `ca3c4f3e` on
 2026-10-23 for a game server with one Actor/Runtime per player and a shared game
-project potentially containing hundreds of thousands of source lines. The working
-tree also contains confirmed HM/UP API refinements; preserve them when activating.
-This request authorizes this document, not implementation, commits or publication.
+project potentially containing hundreds of thousands of source lines. HM live
+handles and UP00-UP02 compatible publication are now implemented; preserve their
+[installation and dispatch contracts](spec/module-activation.md#live-installations-and-call-selection)
+when activating. Cancellation of the state snapshot/migration/replacement framework
+does not cancel MS or create a prerequisite for it. This request authorizes this
+document, not implementation, commits or publication.
 
 The [roadmap](implementation-roadmap.md) owns activation. This plan owns MS00-MS05,
 its bounded design decisions, measurements, acceptance and progress ledger. Do not
@@ -37,7 +40,7 @@ In scope:
 - Small, explicit Runtime-local binding/state records with complete validation.
 - A safe cross-thread frozen-product ownership boundary and preparation-cache owner.
 - Same-image multi-installation correctness, memory, setup and execution evidence.
-- An explicit HM/UP handoff for installation identities and publication selection.
+- Preservation of implemented installation identities and publication selection.
 
 Out of scope: cross-Runtime GC or object sharing; automatic global updates; Actor
 frameworks; new unload/state-migration semantics; source-free repair-program linking;
@@ -131,18 +134,19 @@ bounded and attributed. Binding resolves paths once; hot calls do not perform st
 lookup or cross-domain normalization. No global mutable inline cache may create
 cross-player contention or hide missing preparation.
 
-The confirmed HM/UP target remains: Program/Module handles query their own
+The implemented host contract remains: Program/Module handles query their own
 installation's latest published contents; stable callable handles select current
 implementations without rebinding. Immutable versions and implementation tables may
 be shared, but each installation owns its publication choice. Updating player A
 must not switch player B. A shared image is not a shared global mutable dispatch table.
 
-UP owns host-top-level serialized publication, current-call dispatch and retained
+The [activation specification](spec/module-activation.md#publication-boundary)
+owns host-top-level serialized publication, current-call dispatch and retained
 Future/closure/resume semantics. Sharing must not add a concurrent publication
 system or force a per-player full copy of the dispatch image. Retained old
-computations keep needed bodies/state; their ordinary calls follow the implemented
-UP checkpoint. Until that migration lands, pinned tests describe current behavior,
-not the final target. Record sequencing rather than silently expanding MS into UP.
+computations keep needed bodies/state; their ordinary calls select current
+implementations. Reuse these implemented contracts rather than replaying update
+implementation or introducing state-replacement support.
 
 Runtime owns installed state. Ordinary Program/Module Drop does not unload, cancel
 or reset it; update/reload succeed with unit rather than replacement handles. Shared
@@ -239,7 +243,7 @@ and a bounded scope decision, not an unlimited sequence of local workarounds.
 
 ## Phases
 
-### MS00 — Freeze baseline, ownership and HM/UP handoff
+### MS00 — Freeze baseline, ownership and publication invariants
 
 - Inspect current implementation/consumers and record actual sharing by product,
   context, host-provider set and Runtime instance. Select fixtures and test owners.
@@ -247,11 +251,12 @@ and a bounded scope decision, not an unlimited sequence of local workarounds.
   installation floor and real state; freeze numerical acceptance and uncertainty.
 - Choose identity, frozen-product/cache ownership and Send/Sync representation.
   Record validation relocation, field-by-field shared/local responsibility and
-  publication selection; choose the HM/UP order before changing shared owners.
+  publication selection against the implemented host/update contracts before
+  changing shared owners.
 
 Acceptance: reproducible baseline and finite gates, no unresolved identity/authority
-or thread-safety choice, explicit cross-plan ordering. No claimed large-game capacity
-from tiny or synthetic input. If current architecture requires a larger migration,
+or thread-safety choice, explicit preservation of installation/publication contracts.
+No claimed large-game capacity from tiny or synthetic input. If current architecture requires a larger migration,
 request that scope decision rather than adding hidden phases.
 
 ### MS01 — Share immutable code through identity admission
@@ -300,8 +305,8 @@ validate native product sharing only within currently supported actual-native ca
 - Update one installation while another stays unchanged; share immutable replacement
   products where valid. Failed publication changes neither installation's state.
 - Verify selected old computation cleanup and no new accidental lifetime extension.
-  Record pre-UP pinned behavior versus post-UP current-call acceptance explicitly;
-  MS does not substitute for implementing UP or close R13 without its own evidence.
+  Preserve implemented current-call selection and exact retained-body semantics;
+  MS does not close R13 without its own evidence.
 
 Acceptance: independent publication and no state leakage, stale/foreign/native
 rejection and cancellation/trap cleanup. Run the frozen memory/lifetime measurements;
@@ -317,9 +322,9 @@ report any inherited R13 retention separately rather than hiding it in teardown.
   retire this plan; Git history retains the execution ledger.
 
 Acceptance: all scoped correctness and frozen performance gates pass, no carried
-integration failure, no unmeasured large-project/NUMA/native claims. HM/UP status is
-reported independently; MS completion does not certify unimplemented current-call
-semantics. Full CI/platform/backend acceptance remains separate until actually run.
+integration failure, no unmeasured large-project/NUMA/native claims. Existing
+host/update contracts remain mandatory regression boundaries, not unimplemented
+prerequisites. Full CI/platform/backend acceptance remains separate until actually run.
 
 ## Verification and checkpoint policy
 
@@ -360,7 +365,7 @@ meaningful source-free/negative coverage when refreshing affected fixtures.
 ## Progress ledger
 
 - [x] Plan requested and authored; source evidence and published references recorded.
-- [ ] MS00 — Baseline, numerical gates, identity/product decisions and HM/UP sequence.
+- [ ] MS00 — Baseline, numerical gates, identity/product decisions and publication invariants.
 - [ ] MS01 — Shared code through checked identity admission.
 - [ ] MS02 — Shared link recipes and private instance bindings.
 - [ ] MS03 — Safe cross-thread frozen products and preparation-cache ownership.

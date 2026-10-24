@@ -177,6 +177,13 @@ impl FunctionLowerer<'_, '_> {
                 .callable_coercion(expr_id)
                 .cloned()
             {
+                // Keep the pre-coercion receiver's checked type for the closure
+                // capture proof; the expression result below is the callable value.
+                let captured = self.semantic_type(&receiver)?;
+                self.function
+                    .semantic
+                    .registers
+                    .insert(value.temp.index(), captured);
                 let function = self.planner.enqueue_callable(
                     &self.instance,
                     CallableInstance {

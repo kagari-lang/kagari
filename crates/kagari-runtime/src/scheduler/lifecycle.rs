@@ -97,6 +97,7 @@ impl Runtime {
         }
         // Mark teardown before callbacks: a reentrant close cannot repeat it.
         self.scheduler.closed.set(true);
+        self.modules().retire_installations();
         let mut failure = self.check_scheduler_fault().err();
         let controls = self
             .tasks

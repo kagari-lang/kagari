@@ -3,13 +3,15 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::{arguments::TypeArgument, compatibility::TypeView},
-    module::{EnumVariantRef, LoadedModule, StructLayoutRef, layout_admission::NominalAdmission},
+    module::{
+        EnumVariantRef, ExecutableModule, StructLayoutRef, layout_admission::NominalAdmission,
+    },
 };
 use kagari_bytecode::instruction::StructId;
 use kagari_types::ty::Ty;
 
 impl TypeArgument {
-    pub(crate) fn prepare_admission(&self, runtime: &Runtime, fallback: &LoadedModule) {
+    pub(crate) fn prepare_admission(&self, runtime: &Runtime, fallback: &ExecutableModule) {
         if self.data.admission.get().is_some() || !matches!(self.ty(), Ty::Struct(_) | Ty::Enum(_))
         {
             return;
@@ -22,7 +24,7 @@ impl TypeArgument {
     fn nominal_admission(
         &self,
         runtime: &Runtime,
-        fallback: &LoadedModule,
+        fallback: &ExecutableModule,
     ) -> Option<NominalAdmission> {
         // Missing identities retain full comparisons. Cache only successful facts:
         // detached preparation must not poison later installed application admission.
@@ -44,10 +46,10 @@ impl TypeArgument {
 impl Runtime {
     pub(crate) fn prepare_struct_layout(
         &self,
-        fallback: &LoadedModule,
+        fallback: &ExecutableModule,
         applied: &TypeArgument,
     ) -> Result<StructLayoutRef, RuntimeError> {
-        applied.validate(self)?;
+        applied.validate_for(self, fallback)?;
         let Ty::Struct(nominal) = applied.ty() else {
             return Err(RuntimeError::module_validation(
                 "conversion requires a struct type",
@@ -68,7 +70,7 @@ impl Runtime {
 
     pub(crate) fn prepare_struct_application(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         id: StructId,
         arguments: &[TypeArgument],
     ) -> Result<StructLayoutRef, RuntimeError> {
@@ -78,7 +80,7 @@ impl Runtime {
             .get(id.index())
             .ok_or_else(|| RuntimeError::module_validation("missing struct layout"))?;
         for argument in arguments {
-            argument.validate(self)?;
+            argument.validate_for(self, owner)?;
         }
         for (compiled, supplied) in template.arguments.iter().zip(arguments) {
             if compiled.is_concrete()
@@ -103,7 +105,7 @@ impl Runtime {
 
     pub(crate) fn prepare_enum_variants(
         &self,
-        fallback: &LoadedModule,
+        fallback: &ExecutableModule,
         applied: &TypeArgument,
     ) -> Result<Vec<EnumVariantRef>, RuntimeError> {
         match self.prepare_enum_layout(fallback, applied)? {
@@ -114,9 +116,10 @@ impl Runtime {
 
     pub(crate) fn prepare_enum_layout(
         &self,
-        fallback: &LoadedModule,
+        fallback: &ExecutableModule,
         applied: &TypeArgument,
     ) -> Result<Option<EnumVariantRef>, RuntimeError> {
+        applied.validate_for(self, fallback)?;
         let Ty::Enum(nominal) = applied.ty() else {
             return Err(RuntimeError::module_validation(
                 "native operation requires an enum type",

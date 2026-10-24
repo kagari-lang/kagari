@@ -1,14 +1,12 @@
+use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
     error::RuntimeError,
     native::{builder::ModuleBuilder, catalog::DeclarationCatalog},
     value::Value,
 };
-use kagari_bytecode::{
-    module::BytecodeModule,
-    program::{BytecodeProgram, ModuleRef},
-};
-use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
+use kagari_common::identity::map::DefinitionContext;
 use kagari_derive::KagariValue;
 use kagari_types::reference::ReferenceAccess;
 use std::{
@@ -40,22 +38,22 @@ fn atomic_generated_path_packs_release_conflicts_errors_and_unwinds() {
     let mut runtime = Runtime::default();
     module.install(&mut runtime).unwrap();
     let context = DefinitionContext::new().unwrap();
-    let owner = runtime
+    let owner_program = runtime
         .load_program(
             "pack-proof",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
-                &Default::default(),
-            )
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
             .unwrap(),
         )
         .unwrap();
-    let player_type = runtime.bind_rust_type::<Player>(&owner).unwrap();
+
+    let player_type = runtime
+        .bind_rust_type::<Player>(&owner_program.root())
+        .unwrap();
     let stats_field = runtime
         .bind_rust_field::<Player, Stats>(&player_type, "stats")
         .unwrap();

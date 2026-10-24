@@ -3,14 +3,14 @@ use crate::tests::runtime_boundary::support::{compile_program, native::invoke::i
 use kagari_runtime::{
     Runtime,
     error::RuntimeErrorKind,
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{conversion::context::ConversionContext, module::NativeModule},
     value::Value,
 };
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::collections::BTreeMap;
 
-fn fixture() -> (Runtime, LoadedModule, BTreeMap<String, usize>) {
+fn fixture() -> (Runtime, ExecutableModule, BTreeMap<String, usize>) {
     let modules = crate::modules().unwrap();
     let program = compile_program(
         &modules,
@@ -46,6 +46,8 @@ fn slice(value: String, start: u64, end: u64) -> String { value.slice(start, end
     let mut runtime = Runtime::default();
     NativeModule::install_all(&modules, &mut runtime).unwrap();
     let owner = runtime.load_program("collection_indices", program).unwrap();
+    let _owner_program = owner;
+    let owner = runtime.select_program(&_owner_program).unwrap();
     (runtime, owner, slots)
 }
 

@@ -7,7 +7,7 @@ use kagari_bytecode::{
         BytecodeInstruction as I, CallTarget, ConstantId, ConstantOperand, NativeImportId, Slot,
     },
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, RootSlotLayout},
-    program::{BytecodeProgram, ModuleRef},
+    program::ModuleRef,
 };
 use kagari_common::identity::{
     DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata,
@@ -17,10 +17,13 @@ use kagari_contract::{
     ids::FunctionRef,
     native_import::NativeImport,
     representation::semantic_representation,
-    types::{ConcreteFunctionIdentity, PublicItem},
+    types::{
+        ConcreteFunctionIdentity, PublicItem,
+        named::{NamedContract, NamedDeclaration},
+    },
 };
 use kagari_runtime::{
-    module::LoadedModule,
+    module::Program,
     native::{
         adapter::Async,
         builder::ModuleBuilder,
@@ -37,6 +40,7 @@ use kagari_types::{
     declaration::{FnDecl, Param, module::ModuleDecl},
     scalar::BuiltinType,
     ty::Ty,
+    visibility::Visibility,
 };
 use std::{
     num::NonZeroUsize,
@@ -45,6 +49,8 @@ use std::{
         atomic::{AtomicUsize, Ordering},
     },
 };
+
+use super::native_program::ProgramFixture;
 
 fn function(
     id: usize,
@@ -269,6 +275,15 @@ fn synthetic_program(
             callables: vec![],
         }],
         public_items,
+        named_declarations: request
+            .iter()
+            .map(|entry| NamedDeclaration {
+                declaration: entry.declaration,
+                visibility: Visibility::Public,
+                ambiguous_local_body: None,
+                contract: NamedContract::Function(entry.function.clone()),
+            })
+            .collect(),
         native_declarations: request,
         types: vec![ValueType::Unit, ValueType::I32, ValueType::HeapObject],
         function_table: functions
@@ -306,11 +321,12 @@ fn synthetic_program(
         ..Default::default()
     };
     let artifact = KbcArtifact::from_program(
-        BytecodeProgram {
+        ProgramFixture {
             exports,
             root: ModuleRef::new(0),
             modules: vec![application, foundation],
-        },
+        }
+        .build(&definitions),
         Default::default(),
         &definitions,
         &Default::default(),
@@ -327,7 +343,7 @@ pub(super) struct Fixture {
     #[cfg(feature = "source")]
     pub(super) engine: KagariEngine,
     pub(super) runtime: Runtime,
-    pub(super) module: LoadedModule,
+    pub(super) module: Program,
     pub(super) program: PreparedProgram,
     pub(super) starts: Arc<AtomicUsize>,
     pub(super) cancels: Arc<AtomicUsize>,

@@ -8,20 +8,26 @@ use crate::{
     tests::native_fixtures,
     vm::{JitExecutionStatus, Vm, owned::DriveResult},
 };
-use kagari_bytecode::instruction::ModuleSlot;
+use kagari_bytecode::{instruction::ModuleSlot, program::BytecodeProgram};
+use kagari_common::identity::metadata::DefinitionMetadata;
+use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
     frame::ExecutionFrame,
-    module::{LoadedModule, ModuleEpochRetention, entry::ProgramEntry, state::StaticState},
+    module::{ExecutableModule, ModuleEpochRetention, entry::ProgramEntry, state::StaticState},
     native::{
         adapter::Async, builder::ModuleBuilder, completion::Completion, declarations::FunctionDecl,
         future::NativeStart, types::Type,
     },
+    reload::ReloadValidationError,
     session::{ExecutionEvent, ExecutionObserver},
     task::{CancellationCause, drive::TaskDriveResult},
     value::Value,
 };
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use rstest::rstest;
 use std::{
     num::NonZeroUsize,
     sync::{
@@ -30,7 +36,7 @@ use std::{
     },
 };
 
-fn call(vm: &Vm, loaded: &LoadedModule, name: &str) -> Value {
+fn call(vm: &Vm, loaded: &ExecutableModule, name: &str) -> Value {
     vm.execute(loaded, name)
         .unwrap()
         .return_value
@@ -38,7 +44,7 @@ fn call(vm: &Vm, loaded: &LoadedModule, name: &str) -> Value {
         .unwrap()
 }
 
-fn state(runtime: &Runtime, loaded: &LoadedModule, name: &str) -> StaticState {
+fn state(runtime: &Runtime, loaded: &ExecutableModule, name: &str) -> StaticState {
     let index = loaded
         .bytecode
         .module_slots
@@ -52,42 +58,43 @@ fn state(runtime: &Runtime, loaded: &LoadedModule, name: &str) -> StaticState {
         .clone()
 }
 
+// Keep scalar cell-state fixtures independent of the standard source catalog.
+// Imported initializer dispatch also exercises the complete foundation below.
+fn compile_scalar_static_bytecode(text: &str) -> DefinitionMetadata<BytecodeProgram> {
+    let mut sources = SourceDatabase::default();
+    let root = sources
+        .set("test.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut analysis = AnalysisDatabase::default();
+    let checked = analysis
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap()
+        .check_program(root, &Default::default())
+        .unwrap();
+    let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    lower_program_to_bytecode(&mir, &Default::default())
+        .unwrap()
+        .into_unverified()
+}
+
 #[test]
 fn source_and_decoded_statics_are_lazy_shared_on_reload_and_keep_fixed_recipes() {
-    let first = compile_test_bytecode(
-        r#"
-        static var count: i32 = 0;
-        static val cold: i32 = 7;
-        static val unused: i32 = fail();
-        fn fail() -> i32 { val zero = 0; 1 / zero }
-        pub fn tick() -> i32 { count += 1; count }
-        pub fn read_cold() -> i32 { cold }
-        pub fn read_added() -> i32 { 0 }
-    "#,
-    );
-    let second = compile_test_bytecode(
-        r#"
-        static val added: i32 = 5;
-        static val unused: i32 = fail();
-        static val cold: i32 = 90;
-        static var count: i32 = 100;
-        fn fail() -> i32 { val zero = 0; 1 / zero }
-        pub fn tick() -> i32 { count += 1; count }
-        pub fn read_cold() -> i32 { cold }
-        pub fn read_added() -> i32 { added }
-    "#,
-    );
-    let third = compile_test_bytecode(
-        r#"
-        static var count: i32 = 200;
-        static val cold: i32 = 900;
-        static val unused: i32 = fail();
-        static val added: i32 = 50;
-        fn fail() -> i32 { val zero = 0; 1 / zero }
-        pub fn tick() -> i32 { count += 10; count }
-        pub fn read_cold() -> i32 { cold }
-        pub fn read_added() -> i32 { added }
-    "#,
+    let first = compile_scalar_static_bytecode(include_str!(
+        "../../../tests/fixtures/execution/static-recipes-initial.kgr"
+    ));
+    let second = compile_scalar_static_bytecode(include_str!(
+        "../../../tests/fixtures/execution/static-recipes-added.kgr"
+    ));
+    let third_source = include_str!("../../../tests/fixtures/execution/static-recipes-current.kgr");
+    let third = compile_scalar_static_bytecode(third_source);
+    for pattern in ["count: i32 = 0", "cold: i32 = 7", "added: i32 = 5"] {
+        assert_eq!(third_source.matches(pattern).count(), 1, "{pattern}");
+    }
+    let changed_recipes = compile_scalar_static_bytecode(
+        &third_source
+            .replace("count: i32 = 0", "count: i32 = 200")
+            .replace("cold: i32 = 7", "cold: i32 = 900")
+            .replace("added: i32 = 5", "added: i32 = 50"),
     );
     for decoded in [false, true] {
         let code = |program| {
@@ -99,6 +106,8 @@ fn source_and_decoded_statics_are_lazy_shared_on_reload_and_keep_fixed_recipes()
         };
         let mut runtime = standard_runtime(Default::default());
         let old = runtime.load_program("state", code(first.clone())).unwrap();
+        let _old_program = old;
+        let old = runtime.select_program(&_old_program).unwrap();
         let retained = runtime
             .retain_module(&old, ModuleEpochRetention::CompiledArtifact)
             .unwrap();
@@ -110,9 +119,11 @@ fn source_and_decoded_statics_are_lazy_shared_on_reload_and_keep_fixed_recipes()
         assert_eq!(call(&vm, &old, "tick"), Value::I32(1));
         let candidate = vm
             .runtime_mut()
-            .stage_reload_program(&old, "state", code(second.clone()))
+            .stage_reload_program(&_old_program, Some("state".into()), code(second.clone()))
             .unwrap();
-        let current = vm.runtime_mut().publish_staged_reload(candidate).unwrap();
+        let current = candidate.module().clone();
+        vm.runtime_mut().publish_staged_reload(candidate).unwrap();
+        let _current_program = _old_program.clone();
         vm.runtime().collect_garbage().unwrap();
         assert_eq!(call(&vm, &current, "tick"), Value::I32(2));
         assert_eq!(call(&vm, &old, "tick"), Value::I32(3));
@@ -122,26 +133,43 @@ fn source_and_decoded_statics_are_lazy_shared_on_reload_and_keep_fixed_recipes()
             .unwrap();
         let candidate = vm
             .runtime_mut()
-            .stage_reload_program(&current, "state", code(third.clone()))
+            .stage_reload_program(&_current_program, Some("state".into()), code(third.clone()))
             .unwrap();
-        let latest = vm.runtime_mut().publish_staged_reload(candidate).unwrap();
+        let latest = candidate.module().clone();
+        vm.runtime_mut().publish_staged_reload(candidate).unwrap();
+        let _latest_program = _current_program.clone();
         vm.runtime().collect_garbage().unwrap();
         assert_eq!(call(&vm, &latest, "tick"), Value::I32(13));
-        assert_eq!(call(&vm, &old, "tick"), Value::I32(14));
-        assert_eq!(call(&vm, &current, "tick"), Value::I32(15));
+        assert_eq!(call(&vm, &old, "tick"), Value::I32(23));
+        assert_eq!(call(&vm, &current, "tick"), Value::I32(33));
         assert_eq!(call(&vm, &latest, "read_cold"), Value::I32(7));
         assert_eq!(call(&vm, &latest, "read_added"), Value::I32(5));
         assert!(matches!(
             state(vm.runtime(), &current, "unused"),
             StaticState::Uninitialized(_)
         ));
+        assert!(matches!(
+            vm.runtime().stage_reload_program(
+                &_latest_program,
+                Some("state".into()),
+                code(changed_recipes.clone())
+            ),
+            Err(ReloadValidationError::UpdateEvidence(_))
+        ));
         let fresh = vm
             .runtime_mut()
-            .load_program("fresh", code(third.clone()))
+            .load_program("state", code(changed_recipes.clone()))
             .unwrap();
+        let _fresh_program = fresh;
+        let fresh = vm.runtime().select_program(&_fresh_program).unwrap();
+        assert_ne!(fresh.id, latest.id);
         assert_eq!(call(&vm, &fresh, "tick"), Value::I32(210));
         assert_eq!(call(&vm, &fresh, "read_cold"), Value::I32(900));
         assert_eq!(call(&vm, &fresh, "read_added"), Value::I32(50));
+        assert!(matches!(
+            state(vm.runtime(), &latest, "count"),
+            StaticState::Ready(Value::I32(33))
+        ));
         drop(retained_second);
         drop(retained);
         assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
@@ -164,16 +192,18 @@ fn candidate_indirect_reads_and_writes_cannot_touch_shared_or_private_cells() {
     );
     let mut runtime = standard_runtime(Default::default());
     let old = runtime
-        .load_program("candidate", compile_test_bytecode(source))
+        .load_program("candidate", compile_scalar_static_bytecode(source))
         .unwrap();
+    let _old_program = old;
+    let old = runtime.select_program(&_old_program).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(call(&vm, &old, "tick"), Value::I32(1));
     let staged = vm
         .runtime()
         .stage_reload_program(
-            &old,
-            "candidate",
-            round_trip_bytecode(compile_test_bytecode(&candidate_source)),
+            &_old_program,
+            Some("candidate".into()),
+            round_trip_bytecode(compile_scalar_static_bytecode(&candidate_source)),
         )
         .unwrap();
     {
@@ -199,7 +229,9 @@ fn candidate_indirect_reads_and_writes_cannot_touch_shared_or_private_cells() {
         state(vm.runtime(), &old, "cold"),
         StaticState::Uninitialized(_)
     ));
-    let current = vm.runtime().publish_staged_reload(staged).unwrap();
+    let current = staged.module().clone();
+    vm.runtime().publish_staged_reload(staged).unwrap();
+    let _current_program = _old_program.clone();
     assert!(matches!(
         state(vm.runtime(), &current, "added"),
         StaticState::Uninitialized(_)
@@ -223,20 +255,26 @@ fn runtime_transfer_preserves_ready_failed_and_unstarted_recipe_ownership() {
     "#;
     let mut runtime = standard_runtime(Default::default());
     let old = runtime
-        .load_program("transfer", compile_test_bytecode(source))
+        .load_program("transfer", compile_scalar_static_bytecode(source))
         .unwrap();
+    let _old_program = old;
+    let old = runtime.select_program(&_old_program).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(call(&vm, &old, "tick"), Value::I32(1));
     assert!(vm.execute(&old, "fail").is_err());
     let staged = vm
         .runtime()
         .stage_reload_program(
-            &old,
-            "transfer",
-            round_trip_bytecode(compile_test_bytecode(&source.replace("= 7;", "= 90;"))),
+            &_old_program,
+            Some("transfer".into()),
+            round_trip_bytecode(compile_scalar_static_bytecode(
+                &source.replace("{ cold }", "{ cold + 0 }"),
+            )),
         )
         .unwrap();
-    let current = vm.runtime().publish_staged_reload(staged).unwrap();
+    let current = staged.module().clone();
+    vm.runtime().publish_staged_reload(staged).unwrap();
+    let _current_program = _old_program.clone();
     let vm = std::thread::spawn(move || {
         vm.runtime().collect_garbage().unwrap();
         assert!(matches!(
@@ -294,6 +332,8 @@ fn task_cancellation_leaves_unstarted_statics_cold_and_poisoned_attempts_durable
         let loaded = runtime
             .load_program("task_static", round_trip_bytecode(program.clone()))
             .unwrap();
+        let _loaded_program = loaded;
+        let loaded = runtime.select_program(&_loaded_program).unwrap();
         let vm = Vm::new(runtime);
         let factory = vm.execute(&loaded, "factory").unwrap();
         let scope = vm
@@ -371,29 +411,53 @@ fn task_cancellation_leaves_unstarted_statics_cold_and_poisoned_attempts_durable
     }
 }
 
-#[test]
-fn imported_static_executes_its_fixed_supplier_generation_not_the_callers_module() {
-    let source = r#"
-        mod provider {
-            pub static val value: i32 = helper();
-            fn helper() -> i32 { 7 }
-        }
-        use self::provider::value;
-        pub fn read() -> i32 { value }
-    "#;
-    let first = compile_test_bytecode(source);
-    let second = compile_test_bytecode(&source.replace("{ 7 }", "{ 90 }"));
+#[rstest]
+#[case::scalar_catalog(false)]
+#[case::foundation_catalog(true)]
+fn imported_static_keeps_ready_values_and_calls_current_helpers_on_first_access(
+    #[case] foundation: bool,
+) {
+    let source =
+        include_str!("../../../tests/fixtures/execution/imported-static-current-helper.kgr");
+    let helper = "fn helper() -> i32 {\n        7\n    }";
+    assert_eq!(source.matches("value: i32 = helper()").count(), 1);
+    assert_eq!(source.matches(helper).count(), 1);
+    let compile = |source: &str| {
+        round_trip_bytecode(if foundation {
+            compile_test_bytecode(source)
+        } else {
+            compile_scalar_static_bytecode(source)
+        })
+    };
     let mut runtime = standard_runtime(Default::default());
-    let old = runtime
-        .load_program("imports", round_trip_bytecode(first))
-        .unwrap();
-    let staged = runtime
-        .stage_reload_program(&old, "imports", round_trip_bytecode(second))
-        .unwrap();
-    let current = runtime.publish_staged_reload(staged).unwrap();
-    runtime.collect_garbage().unwrap();
+    let program = runtime.load_program("imports", compile(source)).unwrap();
+    let old = runtime.select_program(&program).unwrap();
+    assert_eq!(runtime.resources().counters().peak_call_depth, 0);
     let vm = Vm::new(runtime);
-    assert_eq!(call(&vm, &current, "read"), Value::I32(7));
+    assert_eq!(call(&vm, &old, "read_ready"), Value::I32(7));
+    let changed_expression = source.replace("value: i32 = helper()", "value: i32 = helper() + 1");
+    assert!(matches!(
+        vm.runtime().stage_reload_program(
+            &program,
+            Some("imports".into()),
+            compile(&changed_expression)
+        ),
+        Err(ReloadValidationError::UpdateEvidence(_))
+    ));
+    assert_eq!(
+        vm.runtime().select_program(&program).unwrap().key(),
+        old.key()
+    );
+    let changed_helper = source.replace(helper, "fn helper() -> i32 {\n        90\n    }");
+    let staged = vm
+        .runtime()
+        .stage_reload_program(&program, Some("imports".into()), compile(&changed_helper))
+        .unwrap();
+    let current = staged.module().clone();
+    vm.runtime().publish_staged_reload(staged).unwrap();
+    vm.runtime().collect_garbage().unwrap();
+    assert_eq!(call(&vm, &current, "read_ready"), Value::I32(7));
+    assert_eq!(call(&vm, &current, "read"), Value::I32(90));
     assert!(
         vm.runtime()
             .collect_garbage()
@@ -401,7 +465,9 @@ fn imported_static_executes_its_fixed_supplier_generation_not_the_callers_module
             .reclaimed_modules
             .contains(&old.key())
     );
-    assert_eq!(call(&vm, &current, "read"), Value::I32(7));
+    assert_eq!(call(&vm, &current, "read"), Value::I32(90));
+    assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
+    assert_eq!(vm.runtime().gc().active_roots(), 0);
 }
 
 #[test]
@@ -448,6 +514,8 @@ fn initialization_precedes_rhs_and_index_once_with_unused_read_effects_preserved
                     },
                 )
                 .unwrap();
+            let _loaded_program = loaded;
+            let loaded = runtime.select_program(&_loaded_program).unwrap();
             let vm = Vm::new(runtime);
             assert_eq!(call(&vm, &loaded, "run"), Value::I32(expected));
         }
@@ -490,6 +558,8 @@ fn static_projection_commit_uses_current_contents_of_the_captured_root() {
                     },
                 )
                 .unwrap();
+            let _loaded_program = loaded;
+            let loaded = runtime.select_program(&_loaded_program).unwrap();
             let vm = Vm::new(runtime);
             assert_eq!(
                 call(&vm, &loaded, "run"),
@@ -527,6 +597,8 @@ fn static_projection_bounds_are_checked_after_rhs_with_effects_preserved() {
                     },
                 )
                 .unwrap();
+            let _loaded_program = loaded;
+            let loaded = runtime.select_program(&_loaded_program).unwrap();
             let vm = Vm::new(runtime);
             if succeeds {
                 assert_eq!(call(&vm, &loaded, "run"), Value::I32(3));
@@ -564,6 +636,10 @@ fn cycles_and_traps_poison_only_started_cells_without_replaying_effects() {
             "static val bad: i32 = initialize();",
             "static val bad: i32 = 42;",
         ));
+        let repaired_helper = compile_test_bytecode(&source.replace(
+            &format!("val saved = good; {initializer}"),
+            "val saved = good; 42",
+        ));
         for decoded in [false, true] {
             let mut runtime = standard_runtime(Default::default());
             let loaded = runtime
@@ -576,6 +652,8 @@ fn cycles_and_traps_poison_only_started_cells_without_replaying_effects() {
                     },
                 )
                 .unwrap();
+            let _loaded_program = loaded;
+            let loaded = runtime.select_program(&_loaded_program).unwrap();
             let mut vm = Vm::new(runtime);
             assert!(vm.execute(&loaded, "read").is_err());
             assert_eq!(call(&vm, &loaded, "count"), Value::I32(1));
@@ -601,21 +679,33 @@ fn cycles_and_traps_poison_only_started_cells_without_replaying_effects() {
             let StaticState::Failed(original_failure) = state(vm.runtime(), &loaded, "bad") else {
                 unreachable!()
             };
-            let mut current = loaded;
-            for _ in 0..2 {
+            assert!(matches!(
+                vm.runtime().stage_reload_program(
+                    &_loaded_program,
+                    Some("poison".into()),
+                    if decoded {
+                        round_trip_bytecode(repaired.clone())
+                    } else {
+                        repaired.clone()
+                    }
+                ),
+                Err(ReloadValidationError::UpdateEvidence(_))
+            ));
+            for candidate in [&program, &repaired_helper] {
                 let staged = vm
                     .runtime_mut()
                     .stage_reload_program(
-                        &current,
-                        "poison",
+                        &_loaded_program,
+                        Some("poison".into()),
                         if decoded {
-                            round_trip_bytecode(repaired.clone())
+                            round_trip_bytecode(candidate.clone())
                         } else {
-                            repaired.clone()
+                            candidate.clone()
                         },
                     )
                     .unwrap();
-                current = vm.runtime_mut().publish_staged_reload(staged).unwrap();
+                let current = staged.module().clone();
+                vm.runtime_mut().publish_staged_reload(staged).unwrap();
                 vm.runtime().collect_garbage().unwrap();
                 assert!(vm.execute(&current, "read").is_err());
                 assert_eq!(call(&vm, &current, "count"), Value::I32(1));
@@ -635,6 +725,8 @@ fn cycles_and_traps_poison_only_started_cells_without_replaying_effects() {
                     },
                 )
                 .unwrap();
+            let _fresh_program = fresh;
+            let fresh = vm.runtime().select_program(&_fresh_program).unwrap();
             assert_eq!(call(&vm, &fresh, "read"), Value::I32(42));
             assert_eq!(call(&vm, &fresh, "count"), Value::I32(0));
             assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
@@ -668,6 +760,8 @@ fn native_reentry_cannot_swallow_a_cycle_and_commit_success() {
     let loaded = runtime
         .load_program("reentry", round_trip_bytecode(code))
         .unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     assert!(vm.execute(&loaded, "read").is_err());
     let StaticState::Failed(failure) = state(vm.runtime(), &loaded, "value") else {
@@ -731,6 +825,8 @@ fn managed_return_gc_observer_failure_and_cancellation_settle_initializer_frames
     for mode in 0..3 {
         let mut runtime = standard_runtime(Default::default());
         let loaded = runtime.load_program("cleanup", code.clone()).unwrap();
+        let _loaded_program = loaded;
+        let loaded = runtime.select_program(&_loaded_program).unwrap();
         runtime
             .set_execution_observer(InitializerObserver { mode })
             .unwrap();
@@ -769,7 +865,7 @@ fn managed_return_gc_observer_failure_and_cancellation_settle_initializer_frames
     }
 }
 
-fn runtime_error_is_not_new_cancellation(vm: &Vm, loaded: &LoadedModule) {
+fn runtime_error_is_not_new_cancellation(vm: &Vm, loaded: &ExecutableModule) {
     let error = vm
         .runtime()
         .read_module_slot(loaded, ModuleSlot::new(0))
@@ -793,6 +889,8 @@ fn owned_slices_never_publish_a_parked_initializing_cell() {
             ),
         )
         .unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let execution = vm
         .start(&loaded, ProgramEntry::Main, &[], Default::default())
@@ -831,6 +929,8 @@ fn unsupported_native_static_entry_falls_back_before_initialization() {
             ),
         )
         .unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     for expected in [1, 2] {
         let report = vm
@@ -878,6 +978,8 @@ fn indirect_native_future_construction_is_denied_without_provider_submission() {
     let mut runtime = standard_runtime(Default::default());
     native.install(&mut runtime).unwrap();
     let loaded = runtime.load_program("native_future", program).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     assert!(vm.execute(&loaded, "read").is_err());
     let StaticState::Failed(failure) = state(vm.runtime(), &loaded, "value") else {
@@ -903,6 +1005,8 @@ fn indirect_script_future_construction_is_denied_during_initialization() {
             ),
         )
         .unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     assert!(vm.execute(&loaded, "read").is_err());
     let StaticState::Failed(failure) = state(vm.runtime(), &loaded, "value") else {

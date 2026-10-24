@@ -33,6 +33,8 @@ fn content_callbacks_preserve_effects_and_release_roots_on_all_exits() {
     let loaded = runtime
         .load_program("collection-callbacks", program)
         .unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let declaration = loaded
         .bytecode
         .trait_contracts

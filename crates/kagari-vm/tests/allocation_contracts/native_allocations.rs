@@ -10,7 +10,7 @@ use kagari_runtime::{
         cursor::kernel::RegionExit,
         driver::{ExecutionAction, ReturnAction},
     },
-    module::LoadedModule,
+    module::ExecutableModule,
     native::{
         binding::NativeResult,
         builder::ModuleBuilder,
@@ -80,7 +80,7 @@ fn module() -> NativeModule {
     module.finish().unwrap()
 }
 
-fn load() -> (Runtime, LoadedModule) {
+fn load() -> (Runtime, ExecutableModule) {
     let module = module();
     let mut sources = SourceDatabase::default();
     let root = sources
@@ -117,6 +117,8 @@ fn load() -> (Runtime, LoadedModule) {
     NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
     module.install(&mut runtime).unwrap();
     let loaded = runtime.load_program("allocation", program).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     (runtime, loaded)
 }
 
@@ -128,7 +130,7 @@ struct CallSite {
 }
 
 impl CallSite {
-    fn find(loaded: &LoadedModule, name: &str) -> Self {
+    fn find(loaded: &ExecutableModule, name: &str) -> Self {
         let function = loaded
             .bytecode
             .functions
@@ -159,7 +161,7 @@ impl CallSite {
 
 fn unexpected_callback(
     _: &Runtime,
-    _: &LoadedModule,
+    _: &ExecutableModule,
     _: ScriptCall<'_>,
     _: &[Value],
 ) -> NativeResult<Value> {
@@ -168,7 +170,7 @@ fn unexpected_callback(
 
 fn sample(
     runtime: &Runtime,
-    loaded: &LoadedModule,
+    loaded: &ExecutableModule,
     site: &CallSite,
     arguments: &[Value],
     calls: usize,

@@ -1,18 +1,13 @@
 use super::compile_program;
 use crate::vm::Vm;
-use kagari_bytecode::{
-    module::BytecodeModule,
-    program::{BytecodeProgram, ModuleRef},
-};
-use kagari_common::identity::{
-    DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata,
-};
+use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
+use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
     host::{HostCallContext, HostObjectId, HostSchemaEpoch},
     metadata::TypeId,
-    module::{LoadedModule, entry::ProgramEntry},
+    module::{ExecutableModule, entry::ProgramEntry},
     native::{
         builder::ModuleBuilder, declarations::FunctionDecl, module::NativeModule, types::Type,
     },
@@ -40,7 +35,7 @@ use std::sync::{
 // Reuse the runtime contract owners without another invocation or ABI implementation.
 #[path = "../../../../../kagari-runtime/tests/support/native/invoke.rs"]
 mod native_invocation;
-use crate::tests::native_program;
+use crate::tests::native_program::{self, ProgramFixture};
 
 fn host_policy(parameters: usize) -> HostCallPolicy {
     HostCallPolicy {
@@ -54,7 +49,7 @@ fn host_policy(parameters: usize) -> HostCallPolicy {
 
 fn native_slot(
     runtime: &Runtime,
-    owner: &LoadedModule,
+    owner: &ExecutableModule,
     provider: &NativeModule,
     name: &str,
 ) -> usize {
@@ -74,22 +69,23 @@ fn runtime() -> Runtime {
     runtime
 }
 
-fn allocation_owner(runtime: &mut Runtime) -> LoadedModule {
-    runtime
+fn allocation_owner(runtime: &mut Runtime) -> ExecutableModule {
+    let program = runtime
         .load_program(
             "allocation-owner",
-            DefinitionMetadata::checked(
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(
                 DefinitionContext::new().unwrap().snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
                 &Default::default(),
             )
             .unwrap(),
         )
-        .unwrap()
+        .unwrap();
+    runtime.select_program(&program).unwrap()
 }
 
 #[test]
@@ -112,6 +108,8 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
         None,
     );
     let loaded = runtime.load_program("host-composites", program).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut vm = Vm::new(runtime);
     let Value::Tuple(values) = vm
         .execute(&loaded, "fixtures")
@@ -356,6 +354,8 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
     let owner = runtime
         .load_program("composite-boundaries", program)
         .unwrap();
+    let _owner_program = owner;
+    let owner = runtime.select_program(&_owner_program).unwrap();
     for (index, (good, bad, calls)) in checks.into_iter().enumerate() {
         let echo = native_slot(runtime, &owner, &provider, &format!("echo{index}"));
         let output = native_slot(runtime, &owner, &provider, &format!("bad{index}"));
@@ -405,6 +405,8 @@ fn composite_arguments_are_rooted_during_callbacks_and_reject_foreign_or_stale_h
     let program = native_program::free_function_program(&provider.to_declaration());
     provider.install(&mut runtime).unwrap();
     let entry = runtime.load_program("rooted-composite", program).unwrap();
+    let _entry_program = entry;
+    let entry = runtime.select_program(&_entry_program).unwrap();
     let id = native_slot(&runtime, &entry, &provider, "echo");
     let array = runtime
         .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
@@ -470,6 +472,8 @@ fn owned_composites_cannot_hide_frame_scoped_host_borrows() {
     let program = native_program::free_function_program(&provider.to_declaration());
     provider.install(&mut runtime).unwrap();
     let entry = runtime.load_program("owned-composite", program).unwrap();
+    let _entry_program = entry;
+    let entry = runtime.select_program(&_entry_program).unwrap();
     let id = native_slot(&runtime, &entry, &provider, "consume");
     for unique in [false, true] {
         let scope = runtime.host_scope(&[]).unwrap();
@@ -523,6 +527,8 @@ fn native_hash_payloads_reject_host_roots_and_frame_borrows_before_mutation() {
         None,
     );
     let loaded = runtime.load_program("host-storage", program).unwrap();
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut vm = Vm::new(runtime);
     let Value::Tuple(values) = vm
         .execute(&loaded, ProgramEntry::Main)

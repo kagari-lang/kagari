@@ -70,13 +70,14 @@ fn main() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let selected = runtime.runtime().select_program(&loaded).unwrap();
     let Ty::NativeObject(nominal) = config_type.abi() else {
         unreachable!()
     };
     let descriptor = runtime
         .runtime()
         .bind_native_type_declaration::<Config>(
-            &loaded,
+            &loaded.root(),
             nominal.declaration,
             config_type.definitions().unwrap(),
             &[],
@@ -84,7 +85,7 @@ fn main() {
         .unwrap();
     let config = descriptor
         .create(
-            &mut NativeContext::new(runtime.runtime(), &loaded).unwrap(),
+            &mut NativeContext::new(runtime.runtime(), &selected).unwrap(),
             Config { multiplier: 2 },
         )
         .unwrap();

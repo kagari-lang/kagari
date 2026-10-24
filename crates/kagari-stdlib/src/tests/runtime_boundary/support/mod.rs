@@ -7,6 +7,8 @@ use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use std::sync::Arc;
 
 pub(super) mod native;
+#[path = "../../../../../kagari-runtime/tests/support/update_publication.rs"]
+pub(super) mod update_publication;
 
 /// Compile an unencoded program from the caller's exact native modules and source identity.
 pub(super) fn compile_program(

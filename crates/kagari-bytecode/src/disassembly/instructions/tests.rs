@@ -85,6 +85,7 @@ impl Fixture {
             args: vec![],
         };
         let program = BytecodeProgram {
+            update_evidence: crate::program::updates::empty(),
             root: ModuleRef::new(1),
             modules: vec![
                 BytecodeModule {

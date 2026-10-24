@@ -6,13 +6,23 @@ use crate::{
     },
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef, verified::VerifiedBytecodeProgram},
+    verifier::BytecodeVerificationError,
 };
 use bincode::{DefaultOptions, Options};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext},
 };
-use kagari_types::ty::Ty;
+use kagari_contract::{
+    layout::{StructFieldLayout, StructLayout},
+    types::{PublicItem, TraitContract},
+};
+use kagari_types::{
+    declaration::{FieldDef, TraitDef, TypeDeclaration, TypeDef, TypeDefKind},
+    scalar::BuiltinType,
+    ty::{GenericBound, GenericParam, NominalTy, Ty},
+    visibility::Visibility,
+};
 use std::io::Cursor;
 
 fn codec() -> impl Options {
@@ -24,10 +34,200 @@ fn codec() -> impl Options {
 }
 
 #[test]
+fn private_types_round_trip_preserves_bounds_and_rejects_forged_authority() {
+    let context = DefinitionContext::new().unwrap();
+    let identity = ModuleIdentity::single_file("private-types");
+    let root = context.intern_root(&identity).unwrap();
+    let hidden = context
+        .intern_child(root, DefinitionKind::Struct, "Hidden", 0)
+        .unwrap();
+    let leaf = context
+        .intern_child(root, DefinitionKind::Struct, "Leaf", 0)
+        .unwrap();
+    let field = context
+        .intern_child(hidden, DefinitionKind::Field, "value", 0)
+        .unwrap();
+    let marker = context
+        .intern_child(root, DefinitionKind::Trait, "Marker", 0)
+        .unwrap();
+    let unknown = context
+        .intern_child(root, DefinitionKind::Trait, "Unknown", 0)
+        .unwrap();
+    let foreign_root = context
+        .intern_root(&ModuleIdentity::single_file("other"))
+        .unwrap();
+    let foreign = context
+        .intern_child(foreign_root, DefinitionKind::Struct, "Hidden", 0)
+        .unwrap();
+    let parameter = GenericParam {
+        owner: hidden,
+        position: 0,
+    };
+    let mut module = BytecodeModule {
+        identity,
+        private_types: vec![
+            TypeDeclaration {
+                declaration: hidden,
+                definition: TypeDef {
+                    name: "Hidden".into(),
+                    kind: TypeDefKind::Struct,
+                    generic_params: vec![parameter.clone()],
+                    bounds: vec![GenericBound {
+                        ty: parameter.as_type(),
+                        constraints: vec![NominalTy {
+                            declaration: marker,
+                            arguments: vec![],
+                            associated_types: Default::default(),
+                        }],
+                    }],
+                    variants: vec![],
+                    fields: vec![FieldDef {
+                        host_policy: None,
+                        visibility: Visibility::Private,
+                        name: "value".into(),
+                        ty: parameter.as_type(),
+                        mutable: false,
+                    }],
+                },
+            },
+            // Declaration-only evidence must not force an otherwise unused layout.
+            TypeDeclaration {
+                declaration: leaf,
+                definition: TypeDef {
+                    name: "Leaf".into(),
+                    kind: TypeDefKind::Struct,
+                    generic_params: vec![],
+                    bounds: vec![],
+                    variants: vec![],
+                    fields: vec![],
+                },
+            },
+        ],
+        trait_contracts: vec![TraitContract {
+            declaration: marker,
+            abi: TraitDef {
+                name: "Marker".into(),
+                generic_params: vec![],
+                bounds: vec![],
+                supertraits: vec![],
+                methods: vec![],
+                associated_types: vec![],
+                associated_consts: vec![],
+                conversion_adapter: None,
+            },
+        }],
+        ..Default::default()
+    };
+    module.structures.push(StructLayout {
+        declaration: hidden,
+        arguments: vec![parameter.as_type()],
+        fields: vec![StructFieldLayout {
+            declaration: field,
+            name: "value".into(),
+            ty: parameter.as_type(),
+            visibility: Visibility::Private,
+            mutable: false,
+        }],
+    });
+    let artifact = KbcArtifact::from_program(
+        BytecodeProgram {
+            update_evidence: crate::program::updates::empty(),
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![module],
+        },
+        Default::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
+    let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
+    let decoded = KbcArtifact::from_bytes(&bytes).unwrap();
+    let imported = decoded.import_into(&context, &Default::default()).unwrap();
+    assert_eq!(
+        imported.records().program.modules[0].private_types,
+        artifact.program.modules[0].private_types
+    );
+    assert!(
+        imported.records().program.modules[0]
+            .public_items
+            .is_empty()
+    );
+    assert!(
+        imported.records().program.modules[0]
+            .external_types
+            .is_empty()
+    );
+    assert_eq!(
+        decoded.records().to_bytes(decoded.definitions()).unwrap(),
+        bytes
+    );
+    imported
+        .records()
+        .validate_for_loader(&Default::default(), &context, &Default::default())
+        .unwrap();
+
+    for corruption in 0..13 {
+        let mut forged = artifact.clone();
+        let module = &mut forged.program.modules[0];
+        match corruption {
+            0 => module.private_types[0].declaration = foreign,
+            1 => module.private_types[0].definition.generic_params[0].owner = leaf,
+            2 => module.private_types[0].definition.generic_params[0].position = 1,
+            3 => module.private_types[0].definition.name = "Wrong".into(),
+            4 => module.private_types[0].definition.kind = TypeDefKind::Enum,
+            5 => module.private_types.push(module.private_types[0].clone()),
+            6 => module
+                .public_items
+                .push(PublicItem::Type(module.private_types[0].definition.clone())),
+            7 => module.private_types[0].definition.fields[0].ty = Ty::Builtin(BuiltinType::Bool),
+            8 => module.private_types[0].definition.fields[0].visibility = Visibility::Public,
+            9 => module.private_types[0].definition.fields[0].mutable = true,
+            10 => module.private_types[0].definition.bounds[0].constraints[0].declaration = hidden,
+            11 => module.private_types[0].definition.bounds[0].constraints[0].declaration = unknown,
+            12 => {
+                let invalid_application = Ty::Struct(NominalTy {
+                    declaration: leaf,
+                    arguments: vec![Ty::Builtin(BuiltinType::I32)],
+                    associated_types: Default::default(),
+                });
+                module.private_types[0].definition.fields[0].ty = invalid_application.clone();
+                module.structures[0].fields[0].ty = invalid_application;
+            }
+            _ => unreachable!(),
+        }
+        let bytes = forged.to_bytes(&context.snapshot()).unwrap();
+        let decoded = KbcArtifact::from_bytes(&bytes).unwrap();
+        let imported = decoded.import_into(&context, &Default::default()).unwrap();
+        let result = imported.records().validate_for_loader(
+            &Default::default(),
+            &context,
+            &Default::default(),
+        );
+        assert!(
+            matches!(result, Err(ArtifactValidationError::Bytecode(_))),
+            "corruption {corruption}: {result:?}"
+        );
+        if corruption <= 10 {
+            assert!(
+                matches!(
+                    result,
+                    Err(ArtifactValidationError::Bytecode(
+                        BytecodeVerificationError::InvalidPublicAbi
+                    ))
+                ),
+                "corruption {corruption}: {result:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn consuming_artifact_verification_rejects_changed_code_and_envelope() {
     let context = DefinitionContext::new().unwrap();
     let artifact = KbcArtifact::from_program(
         BytecodeProgram {
+            update_evidence: crate::program::updates::empty(),
             exports: Default::default(),
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule::default()],
@@ -81,6 +281,7 @@ fn consuming_artifact_verification_rejects_changed_code_and_envelope() {
 fn bytecode_seal_rejects_in_memory_resource_exhaustion() {
     let context = DefinitionContext::new().unwrap();
     let oversized = BytecodeProgram {
+        update_evidence: crate::program::updates::empty(),
         exports: Default::default(),
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default(); MAX_ARTIFACT_MODULES + 1],
@@ -95,6 +296,7 @@ fn bytecode_seal_rejects_in_memory_resource_exhaustion() {
 fn memory_artifacts_reject_oversized_strings_before_fingerprinting() {
     let context = DefinitionContext::new().unwrap();
     let valid = BytecodeProgram {
+        update_evidence: crate::program::updates::empty(),
         exports: Default::default(),
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
@@ -133,6 +335,7 @@ fn decoder_rejects_old_versions_trailing_bytes_and_oversized_lengths() {
     let context = DefinitionContext::new().unwrap();
     let artifact = KbcArtifact::from_program(
         BytecodeProgram {
+            update_evidence: crate::program::updates::empty(),
             exports: Default::default(),
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule::default()],
@@ -217,6 +420,7 @@ fn artifact_preserves_portable_virtual_path_declarations() {
     module.path_declarations.push(path.clone());
     let artifact = KbcArtifact::from_program(
         BytecodeProgram {
+            update_evidence: crate::program::updates::empty(),
             exports: Default::default(),
             root: ModuleRef::new(0),
             modules: vec![module],

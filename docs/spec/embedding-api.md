@@ -382,7 +382,7 @@ IR consumes these facts to emit generic enum operations with nominal layouts;
 linking encodes module-local enum and variant slots. Source, standard and registered
 native enums share checked generic instantiation, ordered tuple fields and pinned
 layouts. Unsupported enum operations use the existing JIT fallback before entry.
-`LoadedModule::enum_variant` returns a verified `EnumVariantRef` retaining its
+`ExecutableModule::enum_variant` returns a verified `EnumVariantRef` retaining its
 generation. Registered native bodies use scoped type arguments and
 `CallContext::allocate_enum`; host construction uses
 `Runtime::make_enum_member(owner, applied_type, member, fields)`. Both validate
@@ -431,8 +431,11 @@ HostRegistry
 ModuleLoader
   resolves source modules, bytecode artifacts, package roots, and imports
 
-LoadedModule
-  identifies a successfully loaded module epoch
+Program / Module
+  identify a live installation and one of its logical modules
+
+ExecutableModule
+  owns one exact executable version for admitted execution or advanced use
 
 ExecutionContext
   carries cancellation, fixed logical time,
@@ -440,6 +443,111 @@ ExecutionContext
 ```
 
 The actual Rust API may split these objects across crates, but the same ownership boundaries must be preserved.
+
+## Installed programs and public paths
+
+`PreparedProgram` is a verified preparation product. `Runtime::load_program`
+returns a `Program` identifying one installation; loading the same product again
+creates independent state and authority, even with the same display label.
+`Program::root()` constructs its root `Module`. `Program::module(path)` starts at
+that root; `Module::module(path)` starts at the supplied logical namespace.
+Navigation reads the installation's latest published contents, not an immutable
+public snapshot. Aliases retain canonical namespace identity; a namespace need not
+have a physical executable slot. Retained handles need no reacquisition after reload.
+
+The SDK surface is:
+
+```text
+Runtime::load_program(&mut self, &PreparedProgram, LoadOptions) -> LoadResult<Program>
+Runtime::reload_program(&self, &Program, &PreparedProgram, ReloadOptions) -> ReloadResult<()>
+Program::root(&self) -> Module
+Program::module(&self, path: &str) -> Result<Module, RuntimeError>
+Module::module(&self, path: &str) -> Result<Module, RuntimeError>
+Runtime::object_type(&self, &Module, path: &str) -> RunResult<ObjectType>
+```
+
+`function` and `async_function` also bind relative to a supplied `Module`; neither
+falls back to the Program root. Whole-program `execute`, `execute_prepared` and
+native entry preparation instead take `Program` and explicitly select its current
+root. `ProgramEntry::Main` retains its separate private-root-entry capability.
+There is no implicit Program-to-Module conversion or legacy `LoadedModule` alias.
+`LoadOptions.program_name` and `ReloadOptions.program_name` are diagnostic labels,
+not compiled or installation identities; reload changes the label only on success.
+Source `update` and prepared reload target the same installation and return unit
+success, not replacement handles. See [source updates](#source-updates).
+
+Paths contain 1..64 nonempty ASCII identifier segments separated by `::`. The
+whole syntax is validated before graph traversal. Empty paths/components,
+leading/trailing separators, `crate`/`self`/`super`, filesystem paths and generic
+expressions are not accepted. `root()` is the explicit zero-segment operation.
+One bounded checked public-graph traversal serves module, function and type lookup;
+it follows aliases/cycles without flattening them or searching implicit packages.
+Type/module names share a namespace; a same-spelling function does not shadow them.
+
+A public leaf does not grant access to its private containing module. For example,
+`pub use internal::User as Player` permits binding `Player`, not navigating
+`internal` or accessing private fields. Binding does not execute script, initialize
+statics, invoke host handlers or compile a missing specialization. Function binding
+resolves the path once to installation + canonical declaration + checked application/
+signature. [Call selection](module-activation.md#live-installations-and-call-selection)
+owns invocation and retained-computation semantics; changing an alias affects fresh
+lookup, not the declaration of a retained binding.
+
+For a complete runnable example, see
+[host_objects](../../crates/kagari/examples/host_objects.rs): it navigates a
+namespace-only facade, binds relative functions/types, retains an object and reuses
+its handles after compatible publication. Simplified pseudocode:
+
+```text
+program = runtime.load_program(prepared, options)
+users = program.module("api::users")
+score = runtime.function(users, "score")
+player_type = runtime.object_type(users, "Avatar")
+runtime.reload_program(program, replacement, options)
+runtime.function(users, "selected")  // fresh lookup in the latest namespace
+runtime.call(score, ())              // original declaration's current implementation
+```
+
+### Public object types and binding errors
+
+SDK `object_type` accepts no explicit type arguments. It binds public nongeneric
+script structs, renamed exports and supported closed transparent aliases to script
+structs, including closed generic applications with verified layouts. Core
+`bind_type(&Module, path, &[TypeArgument])` also supports generic struct declarations
+with exact explicit arity and existing checked layout/template evidence. The
+advanced `bind_type_declaration` route remains installation-scoped and does not
+expose private namespaces. No route parses strings such as `Cell<i32>` or asks the
+runtime to synthesize missing applications.
+
+Closed aliases accept no additional host arguments. Open aliases, including
+`type Erased<T> = User`, are unsupported for host application even with arguments.
+Enum, trait, scalar, native/opaque and other non-script-struct targets never become
+`ObjectType` handles. [Public type exports](artifacts.md#public-type-exports) owns
+the source-free schema, declaration/binder proof and compiler-owned layout demand;
+valid unsupported exports still compile. Supported export-only closed layouts need
+no constructor/body use to become bindable.
+
+Binding first admits the runtime/installation and borrow scope, then resolves
+syntax, public visibility/kind, argument contract and executable evidence. Private
+and absent names are indistinguishable. Failures have no script effects:
+
+| Condition | Core error kind / diagnostic |
+| --- | --- |
+| Malformed or overlong path | `TypedPathValidation`: `invalid public path` |
+| Missing/private name | `TypedPathValidation`: `public path not found` |
+| Public name of another requested kind | `TypedPathValidation`: `public path has wrong target kind` |
+| Non-object type | `TypedPathValidation`: `type is not a script object` |
+| Open alias | `TypedPathValidation`: `open generic alias is not supported for host binding` |
+| Wrong arity or arguments on a closed alias | `TypedPathValidation`: `type argument count mismatch` |
+| Generic declaration without executable application | `ModuleValidation`: `missing executable function application` or `missing executable struct application` |
+| Foreign runtime, unknown installation or closed handle | `StaleHandle`, never same-name fallback |
+| Poisoned metadata cell or impossible verified target | `EngineFault`, never missing-path fallback |
+
+SDK mapping preserves `TypedPathValidation`, maps `StaleHandle` to
+`StaleModuleOrHostRoot` and module verification failures to `BytecodeVerification`.
+Artifact forgery rejects during verification through the existing contract/export
+validation family. Publication admission/errors remain owned by
+[module activation](module-activation.md#publication-boundary).
 
 ## Compile and Load Flow
 
@@ -456,9 +564,10 @@ compile_source(source, compile_options) -> CompileResult<CheckedModule>
 emit_artifact(checked_module, artifact_options) -> CompileResult<DefinitionMetadata<BytecodeArtifact>>
 compile_to_artifact(source, artifact_options) -> CompileResult<DefinitionMetadata<BytecodeArtifact>>
 prepare_artifact(artifact, compatibility, cancellation) -> PreparedProgram
-load_program(prepared_program, load_options) -> LoadResult<LoadedModule>
-execute(module, entry, args, execution_context) -> RunResult<Value>
-reload_program(previous, prepared_candidate, reload_options) -> ReloadResult<LoadedModule>
+load_program(prepared_program, load_options) -> LoadResult<Program>
+execute(program, entry, args, execution_context) -> RunResult<Value>
+reload_program(program, prepared_candidate, reload_options) -> ReloadResult<()>
+update(program, update_batch) -> ReloadResult<()>
 ```
 
 Convenience functions may combine these operations for CLI use, but the underlying phases remain separate.
@@ -471,14 +580,12 @@ construction; live object roots and scoped host access belong to the runtime.
 following [module-activation.md](module-activation.md). Validation errors retain their
 reload codes.
 Reload preserves the existing module identities, public ABI and typed-path contracts.
-It also requires equivalent public namespace/function paths and an unchanged optional
-root-entry signature. Public aliases may select different canonical functions when
-parameter and result types match; parameter names and private implementation targets
-are not public-path identities. Nominal type identities still must match. Cyclic alias
-graphs are compared as finite graphs, so equivalent cycles may have different internal
-shapes. Removing/renaming a public path, changing its signature or changing the separate
-`main` entry contract fails with `KG_RELOAD_PUBLIC_EXPORT_MISMATCH` after the existing
-module checks. Previously bound calls retain their supplying generation.
+[Public namespace continuity](module-activation.md#public-namespace-continuity)
+defines compatible paths, canonical namespace identities, alias retargeting and the
+separate root-entry contract. Export mismatches report
+`KG_RELOAD_PUBLIC_EXPORT_MISMATCH` after the existing module checks. Compatible
+additions still require frozen contracts, retained demands and local static-initializer
+comparison, not merely ABI signature equality.
 
 At the runtime layer, `stage_reload_verified_program` (used by the SDK),
 `stage_reload_program` and `stage_reload_artifact` return an owned
@@ -526,13 +633,14 @@ At the lower-level API, Vm starts a session from core runtime defaults automatic
 Hosts can select explicit ExecutionOptions with
 `kagari_runtime::Runtime::begin_execution` and keep the returned ExecutionSession
 alive while driving the VM. Nested scopes inherit
-the pinned dependency program, cancellation and call-depth limit.
+the installation authority, cancellation and call-depth limit. Exact admitted
+bodies are retained separately from current ordinary-call selection.
 Dropping the final scope releases the session; dropping an outer handle early does
 not reset a still-active nested scope. ExecutionSession::counters reports root-call
 lifecycle peaks and elapsed time; Runtime counters track live occupancy and
 runtime peaks. Synchronous script
-reentry is available through HostCallContext and kagari_vm::reenter, using a
-LoadedModule and FunctionRef from the pinned root program. Its returned
+reentry is available through HostCallContext and kagari_vm::reenter, using
+an exact `ExecutableModule` and checked `FunctionRef` for the admitted entry. Its returned
 RootedValue remains alive across collection; ordinary raw Value copies do not.
 See [host-interop.md](host-interop.md) for scope and error rules. The `host_reentry`
 example demonstrates this boundary: `cargo run -p kagari --example host_reentry`.
@@ -557,7 +665,7 @@ an owning handle. It uses the installed entry's closed semantic signature; missi
 generic execution evidence is rejected without source analysis. Argument and return
 type mismatches fail before entry, while a data-dependent return conversion failure
 preserves completed script effects. Conversion and execution share the active
-session's cancellation and pinned program. The explicit named-entry policy matches
+session's cancellation and exact admitted entry. The explicit named-entry policy matches
 `execute`.
 
 ### Scoped external host entry
@@ -663,7 +771,7 @@ and the [scope contract](host-interop.md).
 ## Retained objects and prepared calls
 
 `Object`, `Opaque<T>`, `ScriptVec<T>`, `ScriptMap<K, V>`, `ScriptSet<T>`,
-`Interface` and `PinnedFunction<A, R>` retain the values needed by the host. Clones
+`Interface` and `Function<A, R>` retain the values needed by the host. Clones
 preserve identity and share retention; dropping the last handle permits collection.
 `ScriptValue` forwards an exact declared generic value without erasing its type.
 Ordinary field/collection reads and callback results need no manual root operation.
@@ -681,23 +789,29 @@ names do not participate in selection. Ordinary typed paths can accept arguments
 the explicit root entry remains zero-argument.
 
 Core `kagari_runtime::Runtime::bind_function`, exposed by SDK `Runtime::function`,
-resolves verified public paths from the Program root, including re-exports into
-dependencies, and returns a typed `PinnedFunction`.
-Passing a child module handle does not change that lookup root. Private declarations,
-private `main` and public generic templates are absent from ordinary host lookup;
-use a concrete public script wrapper for a generic source application. Explicit
-public declaration/application binding remains available for installed native entries
-and other existing checked executable evidence. Both routes validate the complete
-Rust signature and retain the supplying Program generation before execution.
+resolves verified public paths relative to the supplied `Module`, including
+re-exports into dependencies, and returns a typed `Function`. Async binding uses
+the same [public-path contract](#installed-programs-and-public-paths), with no root
+fallback. Private declarations and private `main` are absent from ordinary lookup.
+Public generic declarations are discoverable for source updates without executable
+applications; declaration discovery alone grants no typed call authority. Binding
+requires an existing executable target and never specializes a template at runtime.
+A concrete public script wrapper can supply an ordinary typed entry.
+Explicit public declaration/application binding remains available for installed
+native entries and other existing checked executable evidence. Both binding routes
+validate the complete Rust signature. Named bindings retain a checked live route,
+not an obsolete executable lease; invocation selects and admits the exact current target.
 
 Prepare `Field<T>` and `Method<A, R>` once from the installed applied type, then
 reuse them. Native and script inherent members share declaration/name binding;
-method tuples exclude the receiver. Associated functions return PinnedFunction.
+method tuples exclude the receiver. Associated functions return `Function`.
 Generic binding consumes installed executable evidence and retains each supplied
 type's lexical scope; it does not infer new implementations at runtime. Interface
-and selected calls retain their checked implementations, including inherited,
-default and static members. Handles reject foreign runtimes and incompatible
-applications or generations; old handles keep their selected version after reload.
+and selected calls retain their checked implementation identity and evidence,
+including inherited, default and static members, while ordinary calls use its current
+body. Handles reject foreign runtimes and incompatible applications or layouts.
+Created closures/Futures and admitted frames/queues retain exact bodies; their ordinary
+inner calls are current. Retaining a named function value does not pin old code.
 
 `Runtime::with_context(owner, execution, |cx| ...)` opens SDK host access
 with cancellation, execution phase and backend policy. Field reads/writes and
@@ -733,7 +847,7 @@ Preauthored native catalogs can use `NativeBinding::declared` and
 `SelectedCall::from_declaration`; ordinary registration uses `bind` and
 FunctionBuilder::requires. Both consume the same validated declaration, scope and
 selected-operation machinery. RootedCallable is removed; independently retained
-host callbacks use PinnedFunction. CallContext, borrowed native views and traced
+host callbacks use `Function`. CallContext, borrowed native views and traced
 StoredCallable remain advanced adapters for concrete storage/iterator operations,
 with explicit rooting obligations. They are not a second ownership model.
 
@@ -822,8 +936,10 @@ Engine invariant violations may panic in debug builds, but production APIs still
 
 Reload is explicit.
 
-The host supplies a validated `PreparedProgram` candidate for an existing module id.
-The SDK retains that exact verified identity during staging and publication.
+The host supplies a validated `PreparedProgram` candidate for an existing live
+`Program`, not a label or raw module id. `reload_program` returns `ReloadResult<()>`;
+the same live handles observe the new publication. The SDK retains the candidate's
+exact verified identity during staging and publication.
 The runtime validates:
 
 - public ABI fingerprints
@@ -834,8 +950,121 @@ The runtime validates:
 - bytecode verifier metadata
 - JIT artifact dependencies, if JIT is enabled
 
-If validation succeeds, the new epoch is published.
-If validation fails, the existing active epoch remains active.
+Publication requires a serialized host-top-level boundary with no active synchronous
+script, driver, callback or reentry scope; parked executions may remain. The
+[activation contract](module-activation.md) also requires frozen declarations,
+retained executable demands and unchanged direct static initializers with preserved
+checked bindings. Hash/Eq bodies and ordinary initializer helpers may change.
+If validation succeeds, code, dispatch and source association advance atomically.
+If it fails, the existing publication and static state remain unchanged. See
+[compatible declaration changes](module-activation.md#compatible-declaration-changes)
+for allowed additions and frozen contracts. This API has no state snapshot, migration
+or Actor state-replacement mode; general Serde conversion remains independent.
+
+## Source updates
+
+With the SDK `source` feature, `kagari::update::Update` builds a detached batch;
+`Runtime::update(&Program, Update) -> ReloadResult<()>` checks and publishes it.
+The builder does not compile or publish. Its operations are:
+
+- `replace_function(target, definition)`: one complete authored definition, not a
+  body fragment. `target` is a checked public path or an opaque `SourceDeclaration`.
+  The replacement stays in its original owner/import context and cannot rename the
+  target or change a frozen callable contract. A locator can address private
+  functions, methods and named locals without granting permission to call them.
+- `replace_file(name, text)`: replace a captured physical document, preserving its
+  module mapping. Names normalize against the captured source root without IO.
+- `add_file(module, name, text)`: add a document with an explicit `ModuleIdentity`
+  in an already captured package, allowing a new module in the candidate closure.
+- `with_cancellation(token)`: choose a submission cancellation token.
+
+For an existing `program` with a replaceable public `answer` declaration:
+
+```rust,ignore
+use kagari::update::Update;
+
+let mut update = Update::new();
+update.replace_function("answer", "pub fn answer() -> i32 { 42 }");
+runtime.update(&program, update)?;
+```
+
+This illustrates submission; admission still checks frozen declarations, local
+static initializers, executable validity and retained demands. The standard
+foundation does not impose a global `Unknown` body freeze. Hash/Eq bodies and
+ordinary helpers called by static initializers are eligible for normal body updates;
+their callers' user-level semantic obligations remain the application's responsibility.
+Retained compiler-generated tuple protocol bridges currently have a source-demand
+preparation limitation; see the [known preparation gap](../implementation-roadmap.md#host-api-and-update-execution).
+A compatible body change may still fail preparation there without publishing anything.
+
+One batch is atomic and limited to 1,024 edits and 64 MiB of replacement UTF-8.
+Empty batches, duplicate targets (including aliases), overlapping edits, invalid
+mappings and incomplete definitions reject. Submission rechecks one complete detached
+candidate with retained demands; it performs no filesystem discovery, dependency
+acquisition, deletion, initializer execution or host callback. Unchanged captured
+inputs retain their identities, and engine/editor source sessions are not mutated.
+The complete resulting physical documents and aggregate retained text are also
+preflighted against the 64 MiB source limit before allocation/replay, counting
+unchanged inputs, replacements and additions. Checked UTF-8 ranges/overlap and
+arithmetic are independent of edit order; copying observes cancellation. A fresh
+submission token is used unless explicitly supplied, not a stale preparation token.
+
+A small edit can still require complete candidate preparation; the API makes no
+constant-time patch or minimal-rebuild promise. Source batches compile in process
+for interpreter/optional JIT execution, not AOT patch delivery. Native preparation
+remains explicit, with exact-product validation and pre-entry fallback under the
+[JIT contract](jit.md); no hidden backend callback is retained in Runtime.
+
+Source preparation retains an immutable compilation capsule: physical bytes and
+origins, module/package mappings and declaration environment, selected root,
+acquisition provenance, compiler identity and preparation settings. The SDK associates
+it with the **exact publication token**, before core commit, and rolls back the
+association on failure. A later low-level reload without its own capsule makes source
+update fail with `MissingCompilationContext`; it never reuses an older SDK baseline.
+An artifact's retained source package supplies diagnostics, not this compilation
+capsule, even when all visible source text is present.
+
+## Exact source inspection
+
+Runtime inspection works without source analysis. The SDK forwards to the core
+`kagari_runtime::source` owner:
+
+| API | Selection and retention |
+| --- | --- |
+| `source_snapshot(&Program)` | Captures one current `ProgramSourceSnapshot`, including its publication and optional verified source package |
+| `snapshot.declarations()` / `snapshot.function(&declaration)` | Opaque authored locators and definitions from that snapshot; stable locators can resolve in a later publication of the same installation |
+| `function_source(&FunctionSourceTarget)` | Selects a live route now, or reads a copied exact observation without selecting newer code |
+| `value_source_target(&RootedValue)` | Captures the observed callable/Future body without polling or claiming it |
+| `frame_source_target(&ExecutionFrame)` | Captures the exact body from the active session's safe frame view; copied public fields are not frame authority |
+
+Callable/member `source_target` APIs derive checked current routes from ordinary
+named handles, including bound interface implementations; an exact closure handle
+instead supplies its retained observation. These APIs do not repeat public-name
+or trait implementation lookup. An unbound interface member has a declaration but no
+observed implementation body and reports `NoObservedBody`. A value observation is an
+exact snapshot of what was observed, not a new live binding.
+
+`SourceQuery::Available` provides the complete authored definition, display URI,
+UTF-8 byte range, fingerprint, exact `publication`, `last_source_change`, and known
+executable/application provenance. Publication identity and last text change are
+separate: unchanged text can be present in a newer executable publication. Generated
+closure/resume/adaptor bodies associate with their authored owner, not fabricated
+standalone source. Native/intrinsic origins never masquerade as script text;
+`SourceQuery::Unavailable` preserves known identity/provenance and a reason such as
+`NativeOrigin`, `MissingPackage` or `NoObservedBody`.
+
+Snapshots and exact observation tokens retain immutable diagnostic metadata only:
+no executable lease, GC root, private-call authority or filesystem text fallback.
+Hosts can retain old source after the old computation/code is gone. Runtime queries
+still validate runtime identity/liveness. Equal display URIs in distinct logical
+modules do not collapse module/declaration identities. Source retention is independent
+of optional local/debug metadata and retained MIR; see
+[artifact source packages](artifacts.md#retained-source-packages). Current-source
+inspection captures selection at query time, not proof that a later call ran that
+body. Multi-frame tasks use their available safe frame observations rather than a
+fabricated single function; a consumed/composed Future may have no observed body.
+Runtime keeps no automatic unbounded source history. Hosts retaining historical
+snapshots own their count/byte budget, independently of executable lifetime.
 
 ## Artifact API
 
@@ -874,6 +1103,14 @@ execution path. The current SDK requires explicit `prepare_native` and
 `execute_prepared`; compile-on-load, first-call and threshold scheduling are future
 policy choices, not implemented automatic schedulers. Ordinary `execute` requires
 `JitPolicy::Disabled`.
+
+With `native`, `Runtime::prepared_program(&Program) -> RunResult<PreparedProgram>`
+creates a fresh preparation-side cache over the installation's current verified
+bytecode and optional MIR. After a source update, use it with explicit native
+preparation; Runtime retains neither that cache wrapper nor a codegen backend.
+Native products must match the selected body/version/configuration, never just a
+stable callable identity. Native preparation failure leaves code, statics and source
+unchanged; it does not undo an already successful source publication.
 
 ## Debugger API
 
@@ -957,12 +1194,13 @@ chosen default; per-operation overrides do not replace it. Bind once with
 `function::<A, R>(&module, name)` or `async_function::<A, R>(&module, name)`.
 The latter returns `kagari_runtime::native::function_handle::asynchronous::AsyncFunction<A, R>`:
 a checked callable and the retained lexical output scope of exactly one `Future<R>`
-layer. Both handles remain generation-pinned across reload; binding against a newly
-published module is explicit. Callable binding takes `&self` and requires
+layer. Named bindings select current implementations at invocation admission;
+created Futures and admitted queues retain the selected factory/body and output scope.
+Callable binding takes `&self` and requires
 `A: KagariArguments + 'static, R: KagariType + 'static`; binding checks type mappings,
 whereas invocation requires value conversions. All binding operations return `RunResult`.
 
-- `call(&mut self, &PinnedFunction<A, R>, A) -> RunResult<R>` uses the default context.
+- `call(&mut self, &Function<A, R>, A) -> RunResult<R>` uses the default context.
 - `call_async(&mut self, &AsyncFunction<A, R>, A) -> RunResult<Call<'_, R>>`
   admits a cold invocation and returns an exclusive borrowing, driving Future.
 - `submit_async(&mut self, &AsyncFunction<A, R>, A) -> RunResult<PendingCall<R>>`
@@ -1035,10 +1273,11 @@ as free calls. Interface binding requires an existing script-provided `Interface
 not an arbitrary Object. Every access/invocation operation above has a
 `_with_context` variant with final `&ExecutionContext`, preserving cancellation,
 deterministic inputs, recording, observers and backend-policy checks. There is no
-arbitrary Object-to-trait cast, implicit specialization or latest-version handle. Concrete
+arbitrary Object-to-trait cast or implicit specialization. Concrete
 member instantiations must already have checked executable evidence in the program.
 The [host_objects example](../../crates/kagari/examples/host_objects.rs) executes
-binding, object round trips, direct await, submission and pinned reload.
+binding, object round trips, direct await, submission and exact admitted computation
+retention across reload.
 
 Typed interpreter calls/accessors, async admission and scope creation require
 `JitPolicy::Disabled`; native execution retains its explicit preparation and

@@ -8,16 +8,34 @@ use kagari_bytecode::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, ModuleIdentity, map::DefinitionContext, table::DefinitionId},
+    identity::{
+        DefinitionKind, ModuleIdentity, PackageId,
+        map::DefinitionContext,
+        metadata::DefinitionMetadata,
+        table::{DefinitionId, DefinitionTable},
+    },
 };
-use kagari_contract::{exports::ExportNamespace, types::PublicItem};
+use kagari_contract::{
+    exports::{ExportNamespace, TypeExport},
+    types::PublicItem,
+};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_mir::{
     codec::{decode_program, encode_program},
     program::{ProgramErrorKind, VerifiedMirProgram, records::MirProgram, verify_program},
+    verify::{MirVerificationError, MirVerificationErrorKind},
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_types::{scalar::BuiltinType, ty::Ty};
+use kagari_types::{
+    declaration::{
+        TypeDef, TypeDefKind,
+        host::{HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess},
+        module::ModuleDecl,
+    },
+    scalar::BuiltinType,
+    ty::Ty,
+};
+use std::sync::Arc;
 
 fn compiled() -> VerifiedMirProgram {
     let mut source = SourceDatabase::default();
@@ -29,12 +47,29 @@ fn compiled() -> VerifiedMirProgram {
             pub fn calculate(value: i32) -> i32 { value }
             fn secret() -> i32 { 2 }
             pub fn main() -> i32 { 3 }
+            pub struct User { pub val value: i32 }
+            pub struct Cell<T> { val value: T }
+            pub type IntCell = Cell<i32>;
+            pub enum Packet<T> { Data(T) }
+            pub trait Marker {}
+            pub type Alias = User;
+            pub type Erased<T> = User;
         }
         pub mod api { pub fn tick() -> i32 { 4 } }
         pub use crate::hidden::calculate as damage;
+        pub use crate::hidden::{User as Model, Packet, Marker, Alias, IntCell, Erased};
+        pub use host::api::Token;
+        pub type Count = i32;
+        pub type Pair = (i32, bool);
+        pub type Message = hidden::Packet<i32>;
+        pub type Interface = hidden::Marker;
+        pub type Handle = Token;
         pub use crate as again;
         pub fn api() -> bool { true }
         pub fn generic<T>(value: T) -> T { value }
+        pub fn unused<T>(value: T) -> T { value }
+        pub use crate::unused as unused_alias;
+        fn private_generic<T>(value: T) -> T { value }
         pub fn wrapper() -> i32 { generic(5) }
         fn main() -> i32 { 6 }
     "#
@@ -42,7 +77,29 @@ fn compiled() -> VerifiedMirProgram {
             SourceLayer::Base,
         )
         .unwrap();
+    let context = DefinitionContext::new().unwrap();
+    let mut native = ModuleDecl::new(ModuleIdentity {
+        package: PackageId("host".into()),
+        path: vec!["api".into()],
+    });
+    native.types.push(TypeDef {
+        name: "Token".into(),
+        kind: TypeDefKind::Host(HostTypePolicy {
+            ownership: HostTypeOwnership::Opaque,
+            reflection: HostReflectionPolicy::Hidden,
+            path_access: PathAccess::None,
+        }),
+        generic_params: vec![],
+        bounds: vec![],
+        fields: vec![],
+        variants: vec![],
+    });
+    native.collect_definitions(&context).unwrap();
+    let native = Arc::new(
+        DefinitionMetadata::checked(context.snapshot(), native, &Default::default()).unwrap(),
+    );
     let mut analysis = AnalysisDatabase::default();
+    analysis.set_native_modules(vec![native]);
     let checked = analysis
         .snapshot(source.snapshot(), &Default::default())
         .unwrap()
@@ -55,7 +112,9 @@ fn function(program: &MirProgram, module: &[&str], name: &str) -> DefinitionId {
     program
         .modules
         .iter()
-        .find(|owner| owner.identity.path == module)
+        .find(|owner| {
+            owner.identity.package == program.root.package && owner.identity.path == module
+        })
         .unwrap()
         .functions
         .iter()
@@ -63,6 +122,65 @@ fn function(program: &MirProgram, module: &[&str], name: &str) -> DefinitionId {
         .unwrap()
         .instance
         .declaration
+}
+
+fn assert_type_exports(namespace: &ExportNamespace, definitions: &DefinitionTable) {
+    let TypeExport::Declaration(model) = &namespace.types["Model"] else {
+        panic!("public struct declaration")
+    };
+    let TypeExport::Closed(Ty::Struct(alias)) = &namespace.types["Alias"] else {
+        panic!("closed struct alias")
+    };
+    assert_eq!(*model, alias.declaration);
+    assert!(alias.arguments.is_empty());
+    let model = definitions.resolve(*model).unwrap();
+    assert_eq!(model.module().path, ["hidden"]);
+    assert_eq!(model.last().unwrap().name, "User");
+    let TypeExport::Closed(Ty::Struct(cell)) = &namespace.types["IntCell"] else {
+        panic!("unused closed generic struct alias")
+    };
+    assert_eq!(cell.arguments, [Ty::Builtin(BuiltinType::I32)]);
+    let declaration = definitions.resolve(cell.declaration).unwrap();
+    assert_eq!(declaration.module().path, ["hidden"]);
+    assert_eq!(declaration.last().unwrap().name, "Cell");
+    let TypeExport::Declaration(packet) = &namespace.types["Packet"] else {
+        panic!("unused public enum")
+    };
+    let TypeExport::Closed(Ty::Enum(message)) = &namespace.types["Message"] else {
+        panic!("closed enum alias")
+    };
+    assert_eq!(*packet, message.declaration);
+    assert_eq!(message.arguments, [Ty::Builtin(BuiltinType::I32)]);
+    let TypeExport::Declaration(marker) = &namespace.types["Marker"] else {
+        panic!("unused public trait")
+    };
+    let TypeExport::Closed(Ty::Trait(interface)) = &namespace.types["Interface"] else {
+        panic!("closed interface alias")
+    };
+    assert_eq!(*marker, interface.declaration);
+    let TypeExport::Declaration(token) = &namespace.types["Token"] else {
+        panic!("unused opaque declaration")
+    };
+    assert_eq!(
+        namespace.types["Handle"],
+        TypeExport::Closed(Ty::Host(*token))
+    );
+    assert_eq!(
+        namespace.types["Count"],
+        TypeExport::Closed(Ty::Builtin(BuiltinType::I32))
+    );
+    assert_eq!(
+        namespace.types["Pair"],
+        TypeExport::Closed(Ty::Tuple(vec![
+            Ty::Builtin(BuiltinType::I32),
+            Ty::Builtin(BuiltinType::Bool)
+        ]))
+    );
+    assert_eq!(
+        namespace.types["Erased"],
+        TypeExport::OpenAlias { arity: 1 }
+    );
+    assert!(!namespace.modules.contains_key("hidden"));
 }
 
 #[test]
@@ -81,6 +199,22 @@ fn source_free_exports_preserve_aliases_cycles_and_separate_entry() {
         .unwrap()
         .into_records();
     let root = &editable.root;
+    assert_type_exports(&editable.exports.namespaces[root], &context.snapshot());
+    let hidden = editable
+        .modules
+        .iter()
+        .find(|module| module.identity.path == ["hidden"])
+        .unwrap();
+    for name in ["User", "Packet", "Marker"] {
+        assert!(
+            hidden
+                .abi
+                .public_items
+                .iter()
+                .any(|item| item.name() == name)
+        );
+    }
+    assert!(!editable.exports.namespaces.contains_key(&hidden.identity));
     let damage = function(&editable, &["hidden"], "calculate");
     assert_eq!(editable.exports.function(root, "damage"), Some(damage));
     assert_eq!(
@@ -107,7 +241,7 @@ fn source_free_exports_preserve_aliases_cycles_and_separate_entry() {
         "main",
         "hidden::calculate",
         "secret",
-        "generic",
+        "private_generic",
         "::damage",
         "damage::",
     ] {
@@ -141,6 +275,22 @@ fn source_free_exports_preserve_aliases_cycles_and_separate_entry() {
         .into_bytecode();
     let program = verified.program();
     let root = &program.modules[program.root.index()].identity;
+    assert_type_exports(&program.exports.namespaces[root], &fresh.snapshot());
+    let hidden = program
+        .modules
+        .iter()
+        .find(|module| module.identity.path == ["hidden"])
+        .unwrap();
+    for name in ["User", "Packet", "Marker"] {
+        assert!(hidden.public_items.iter().any(|item| item.name() == name));
+    }
+    assert!(!program.exports.namespaces.contains_key(&hidden.identity));
+    let opaque = program
+        .modules
+        .iter()
+        .find(|module| module.identity.package.0 == "host")
+        .unwrap();
+    assert!(opaque.public_items.iter().any(|item| matches!(item, PublicItem::Type(ty) if ty.name == "Token" && matches!(ty.kind, TypeDefKind::Host(_)))));
     for (path, name) in [
         ("damage", "calculate"),
         ("again::damage", "calculate"),
@@ -155,6 +305,28 @@ fn source_free_exports_preserve_aliases_cycles_and_separate_entry() {
         assert_eq!(body.identity.as_ref().unwrap().declaration, id);
         assert!(body.identity.as_ref().unwrap().arguments.is_empty());
     }
+    for name in ["generic", "unused"] {
+        let declaration = program.exports.function(root, name).unwrap();
+        assert_eq!(
+            fresh
+                .snapshot()
+                .resolve(declaration)
+                .unwrap()
+                .last()
+                .unwrap()
+                .name,
+            name
+        );
+        assert!(
+            !verified.export_targets().contains_key(&declaration),
+            "a declaration export must not fabricate a concrete callable slot"
+        );
+    }
+    assert_eq!(
+        program.exports.function(root, "unused_alias"),
+        program.exports.function(root, "unused")
+    );
+    assert!(program.exports.function(root, "private_generic").is_none());
     assert!(program.exports.function(root, "main").is_none());
     let entry = verified.export_targets()[&program.exports.entry.unwrap()];
     assert_eq!(entry.module, program.root);
@@ -188,7 +360,7 @@ fn executable_export_validation_rejects_forged_authority_and_dangling_graphs() {
         .import_into(&context, &Default::default())
         .unwrap()
         .into_records();
-    for corruption in 0..8 {
+    for corruption in 0..10 {
         let mut forged = raw.clone();
         let hidden = function(&forged, &["hidden"], "secret");
         let foreign_main = function(&forged, &["hidden"], "main");
@@ -273,6 +445,27 @@ fn executable_export_validation_rejects_forged_authority_and_dangling_graphs() {
                     .semantic
                     .result = None;
             }
+            8 => {
+                let definitions = context.snapshot();
+                let private = definitions
+                    .lookup_child(
+                        definitions.lookup_root(&forged.root).unwrap(),
+                        DefinitionKind::Function,
+                        "private_generic",
+                        0,
+                    )
+                    .unwrap();
+                forged
+                    .exports
+                    .namespaces
+                    .get_mut(&forged.root)
+                    .unwrap()
+                    .functions
+                    .insert("stolen_generic".into(), private);
+            }
+            9 => {
+                forged.exports.entry = forged.exports.function(&forged.root, "unused");
+            }
             _ => unreachable!(),
         }
         let mut forged_bytecode = bytecode.clone();
@@ -307,16 +500,22 @@ fn executable_export_validation_rejects_forged_authority_and_dangling_graphs() {
         }
         let error = verify_bytecode(&forged_bytecode, &context.snapshot(), &Default::default())
             .unwrap_err();
-        if matches!(corruption, 6 | 7) {
-            // Bytecode's existing semantic-flow verifier detects the signature
-            // mismatch or omission before the final export binding check.
-            assert!(matches!(
-                error,
-                BytecodeVerificationError::InvalidOperation {
-                    reason: "invalid collection access flow",
-                    ..
-                }
-            ));
+        if corruption == 6 {
+            // The named inventory now rejects disagreement with public ABI before
+            // executable flow or export binding can confer callable authority.
+            assert_eq!(error, BytecodeVerificationError::InvalidPublicAbi);
+        } else if corruption == 7 {
+            // Missing executable result metadata is rejected before export binding.
+            assert!(
+                matches!(
+                    error,
+                    BytecodeVerificationError::InvalidOperation {
+                        reason: "invalid collection access flow",
+                        ..
+                    }
+                ),
+                "bytecode corruption {corruption}: {error:?}"
+            );
         } else {
             assert_eq!(
                 error,
@@ -324,15 +523,25 @@ fn executable_export_validation_rejects_forged_authority_and_dangling_graphs() {
                 "bytecode corruption {corruption}"
             );
         }
-        assert!(
-            matches!(
-                verify_program(forged, &context, &Default::default())
-                    .unwrap_err()
-                    .kind,
-                ProgramErrorKind::InvalidExports
+        let error = verify_program(forged, &context, &Default::default()).unwrap_err();
+        let expected = match corruption {
+            6 => matches!(
+                error.kind,
+                ProgramErrorKind::Verification(MirVerificationError {
+                    kind: MirVerificationErrorKind::InvalidPublicAbi,
+                    ..
+                })
             ),
-            "corruption {corruption}"
-        );
+            7 => matches!(
+                error.kind,
+                ProgramErrorKind::Verification(MirVerificationError {
+                    kind: MirVerificationErrorKind::InvalidParameterLayout,
+                    ..
+                })
+            ),
+            _ => matches!(error.kind, ProgramErrorKind::InvalidExports),
+        };
+        assert!(expected, "MIR corruption {corruption}: {error:?}");
     }
     let cancel = CancellationToken::default();
     cancel.cancel();

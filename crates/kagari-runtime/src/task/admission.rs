@@ -4,7 +4,7 @@ use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     error_trace::asynchronous::SpawnOrigin,
     gc::roots::RootedValue,
-    module::LoadedModule,
+    module::ExecutableModule,
     native::binding::NativeResult,
     scheduler::{WorkKey, wake::WakeHub},
     session::{ExecutionOptions, ExecutionPhase},
@@ -28,7 +28,7 @@ use std::{
 impl Runtime {
     pub fn create_task_scope(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         options: ExecutionOptions,
         dispatcher: Arc<dyn TaskDispatcher>,
     ) -> NativeResult<TaskScopeOwner> {
@@ -37,7 +37,7 @@ impl Runtime {
 
     pub(crate) fn create_task_scope_inner(
         &self,
-        owner: &LoadedModule,
+        owner: &ExecutableModule,
         options: ExecutionOptions,
         dispatcher: Arc<dyn TaskDispatcher>,
         scheduler: Option<Arc<WakeHub>>,
@@ -45,7 +45,7 @@ impl Runtime {
         self.ensure_scheduler_open()?;
         self.reject_static_initialization("TaskScope creation")?;
         self.require_idle_driver()?;
-        self.validate_loaded_module(owner)?;
+        self.validate_executable_module(owner)?;
         if options.phase != ExecutionPhase::Ordinary {
             return Err(RuntimeError::execution_phase_violation(
                 "TaskScope creation",
