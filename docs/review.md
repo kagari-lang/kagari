@@ -39,8 +39,8 @@ lifetime safety remain required.
   and evidence are recorded below.
 - [Generated tuple bridges in source updates](#generated-tuple-bridges-in-source-updates):
   retained-demand identity mapping runs before candidate generated implementations exist.
-- [Runtime-loaded repair programs](#runtime-loaded-programs-referencing-existing-installations):
-  compile new maintenance code against versioned public contracts and explicitly
+- [Temporary scripts](#temporary-scripts-referencing-existing-installations):
+  compile newly supplied code against versioned public contracts and explicitly
   link existing installations without duplicating game objects or statics.
 - [Native expansion gates](#native-expansion-gates): requirements for future native
   coverage, not defects caused by the intentionally limited backend.
@@ -1056,25 +1056,27 @@ required only by retained execution; retain rejection of incompatible contracts
 and no-publication-on-failure assertions. Ordinary calls must still select current
 implementations. This is an engine responsibility, not a host-side workaround.
 
-## Runtime-loaded programs referencing existing installations
+## Temporary scripts referencing existing installations
 
 This unimplemented requirement is separate from the implemented
 [installed Program/live Module API](spec/embedding-api.md#installed-programs-and-public-paths)
 and [current-call publication](spec/module-activation.md#live-installations-and-call-selection).
 Public navigation alone does not link independently loaded installations.
 
-Related user requirement: execute newly supplied game-maintenance code against
+Related user requirement: execute newly supplied temporary scripts against
 current player objects and game services, without reloading the game or creating a
-second copy of its state. For example, a repair function accepts the retained
-Player object, updates its level through public methods and returns. The change
-must affect the original object; calls into game services must use the existing
-installation's static cells.
+second copy of its state. Uses include queries, diagnostics, administration and data
+changes; repairing player data is one example, not the capability's definition.
+For a mutation example, a script function accepts the retained Player object,
+updates its level through public methods and returns. The change must affect the
+original object; calls into game services must use the existing installation's
+static cells.
 
-Temporary use is a host lifetime choice, not another executable kind. The repair
-code should be an ordinary Program with the same verification, typed calls, GC,
+Temporary use is a host lifetime choice, not another executable kind. A temporary
+script should be an ordinary Program with the same verification, typed calls, GC,
 cancellation and async scheduler as long-lived programs. Do not introduce a
 TemporaryProgram, separate evaluator, privileged visibility mode or duplicate
-load/call surface. One-shot repair and persistent administration tools differ in
+load/call surface. One-shot scripts and persistent administration tools differ in
 how long the host retains and invokes their handles.
 
 Current [loading](../crates/kagari-runtime/src/loading.rs) installs a complete
@@ -1098,7 +1100,7 @@ explicit reference from new code to an existing installation:
 - Reuse ordinary function/object bindings and call/call_async after loading. Access
   remains public and checked. Execution is serialized by the existing runtime
   driver; suspension does not freeze shared game state. Completed mutations survive
-  later traps and program retirement. Transactional repair requires an explicit
+  later traps and program retirement. Transactional script operations require an explicit
   business transaction or validation/commit operation, not implicit rollback.
 
 As a comparative mechanism, [.NET AssemblyLoadContext shared dependencies](https://learn.microsoft.com/en-us/dotnet/core/dependency-loading/understanding-assemblyloadcontext#shared-dependencies)
@@ -1111,22 +1113,22 @@ without confusing those with pinning ordinary method bodies. Exact API and linke
 representation remain undecided; this capability is not implemented by the
 current source compilation and load_program entrypoints alone.
 
-### Reload boundary for independently loaded repair programs
+### Reload boundary for independently loaded temporary scripts
 
-A repair program references the game; it does not become part of the game's own
+A temporary script references the game; it does not become part of the game's own
 module/export inventory. Current [reload validation](../crates/kagari-runtime/src/reload.rs)
 compares the selected active Program with its candidate, not all code loaded in
 the Runtime. Preserve that boundary when adding installation references:
 
 ```text
-Target before: repair computation -> game declaration in installation A (v1 body)
-Update: compare game v1 with game v2, not (game v1 + repair) with game v2
-Target after: retained repair computation -> same game declaration (v2 body)
-Retained repair body/resume state is unchanged; its next ordinary call uses v2
+Target before: temporary script computation -> game declaration in installation A (v1 body)
+Update: compare game v1 with game v2, not (game v1 + temporary script) with game v2
+Target after: retained script computation -> same game declaration (v2 body)
+Retained script body/resume state is unchanged; its next ordinary call uses v2
 ```
 
-A later game update must not need the repair source or its function definitions.
-Injecting repair declarations into the game's own Program would instead make their
+A later game update must not need the temporary script's source or its function
+definitions. Injecting script declarations into the game's own Program would make their
 absence relevant to its compatibility checks; that is not the proposed model.
 An ordinary Program is not automatically in the same update unit as every program
 that it references. Retaining selected old computations does not waive game v2's
@@ -1134,12 +1136,13 @@ existing signature, layout, export or static compatibility requirements. This is
 the target behavior with explicit installation linking, not evidence that ordinary
 current-call dispatch already supplies the missing cross-installation linker.
 
-When repair has finished and no code-bearing references remain, its code may be
-reclaimed according to ordinary ownership. Player mutations remain. A selected
-repair computation, closure, precreated Future or task retains the body/resume/
-capture state it needs, plus required type/native evidence; do not require the next
-game artifact to reproduce repair code or unload reachable code. A captured callback
-stored in game state may therefore keep its repair body alive. Ordinary calls from
+When temporary script execution has finished and no code-bearing references remain,
+its code may be reclaimed according to ordinary ownership. Completed mutations
+remain. A selected script computation, closure, precreated Future or task retains
+the body/resume/capture state it needs, plus required type/native evidence; do not
+require the next game artifact to reproduce temporary script code or unload reachable
+code. A captured callback stored in game state may therefore keep its script body
+alive. Ordinary calls from
 that body into the game select the current implementation through stable identity,
 without preparing/binding again merely to observe game v2. This does not migrate
 the callback's capture layout or substitute a new body into a precreated Future.
@@ -1147,7 +1150,7 @@ Exact cross-installation lifetime/linker representation remains deferred.
 
 On activation, cover shared object identity and static state, rejected dependency
 identity/version mismatches, source-free metadata limits, game reload without any
-repair declarations, suspended/retained repair across reload calling current game
+temporary script declarations, suspended/retained scripts across reload calling current game
 methods, escaped callbacks retaining capture-compatible bodies, fixed trait/type
 relationships with current method bodies, and cleanup after final owners end.
 Persistent REPL environments remain separate; this linking requirement does not

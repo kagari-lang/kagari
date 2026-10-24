@@ -807,7 +807,7 @@ and migration, UP04 `ActorState`/state replacement, and UP05's related integrati
 scope. These are cancelled, not deferred or prerequisites for another plan.
 Existing general [Serde conversion and `KagariSchema` registration](spec/embedding-api.md#typed-native-registration)
 remain; they do not provide special state-replacement support. MS remains an
-independent, unstarted plan; repair-program linking keeps its existing review owner.
+independent, unstarted plan; temporary-script linking keeps its existing review owner.
 
 **UP03/UP04 removal local validation (before the body-update adjustment below):**
 at that checkpoint, the crate tree matched the pre-UP03 HM/UP02 baseline (`89845df8`). The existing Serde/object-conversion contract target passed
@@ -936,7 +936,7 @@ Remaining host scope stays here or with existing owners, not a replacement HM qu
 - Explicit unload policy is separate from compatible reload. Handle drop implies
   neither cancellation nor state reset; business rollback and cross-Actor atomicity
   remain host responsibilities.
-- [Temporary repair programs and cross-installation linking](review.md#runtime-loaded-programs-referencing-existing-installations)
+- [Temporary scripts and cross-installation linking](review.md#temporary-scripts-referencing-existing-installations)
   still need versioned compilation contracts, explicit installation bindings and
   lifetime validation. Their declarations remain outside the game's compatible-update
   inventory.
