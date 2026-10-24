@@ -107,7 +107,7 @@ fn verified(
         &modules,
         updates::EvidenceInputs {
             sources: original.sources,
-            roots: original.roots,
+            initializers: original.initializers,
             selections: original.selections,
             classifications: original
                 .bodies

@@ -13,7 +13,7 @@ use kagari_contract::{
         ConcreteFunctionIdentity,
         named::{NamedContract, NamedDeclaration},
     },
-    updates::{BodyClassification, Dependency, ProtectedRoot, RootKind, SourceRecord, SourceToken},
+    updates::{BodyClassification, SourceRecord, SourceToken, StaticInitializer},
 };
 use kagari_types::{
     callable::CallableImplementation,
@@ -35,7 +35,7 @@ pub(crate) fn certify(
         prepare(module, context, &mut classifications);
     }
     let mut sources = Vec::new();
-    let mut roots = Vec::new();
+    let mut initializers = Vec::new();
     for module in &program.modules {
         for declaration in &module.named_declarations {
             if !matches!(declaration.contract, NamedContract::Alias(_)) {
@@ -45,7 +45,7 @@ pub(crate) fn certify(
                     tokens: vec![],
                     inputs: vec![],
                     calls: vec![],
-                    dependencies: vec![],
+                    bodies: vec![],
                 });
             }
         }
@@ -63,23 +63,17 @@ pub(crate) fn certify(
                 }],
                 inputs: vec![],
                 calls: vec![],
-                dependencies: vec![],
+                bodies: vec![],
             });
-            roots.push(ProtectedRoot {
-                declaration: ConcreteFunctionIdentity {
-                    declaration: slot.contract.declaration,
-                    arguments: vec![],
-                },
-                kind: RootKind::StaticInitializer,
-                dependencies: vec![Dependency::Source(slot.contract.declaration)],
-                selections: vec![],
+            initializers.push(StaticInitializer {
+                declaration: slot.contract.declaration,
             });
         }
     }
     let definitions = context.snapshot();
-    roots.sort_by_key(|root| {
+    initializers.sort_by_key(|initializer| {
         definitions
-            .resolve(root.declaration.declaration)
+            .resolve(initializer.declaration)
             .unwrap()
             .to_path()
     });
@@ -87,7 +81,7 @@ pub(crate) fn certify(
         &program.modules,
         EvidenceInputs {
             sources,
-            roots,
+            initializers,
             selections: vec![],
             classifications,
         },

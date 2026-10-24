@@ -420,7 +420,9 @@ Relevant metadata includes:
 - dynamic index shape
 - schema epoch or ABI fingerprint
 
-If a reload changes a registered host path incompatibly, the new module fails validation or requires an explicit migration/compatibility rule.
+If a reload changes a registered host path incompatibly, the candidate fails
+validation. Compatible publication does not migrate host paths or relax their
+registered contracts.
 
 Existing active calls continue using the module epoch they started with.
 New calls use the latest successfully published module and its validated path metadata.

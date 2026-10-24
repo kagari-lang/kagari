@@ -901,7 +901,9 @@ active installation / retained executable / active initializer
        Failed        -> detached bounded diagnostic only
 ```
 
-A recipe stays fixed even if first used after several publications. Once Ready,
+A recipe stays fixed even if first used after several publications; its ordinary
+helper calls select current implementations rather than a pinned old dependency set.
+Publication does not reset Ready values or retry Failed cells. Once Ready,
 the value may independently retain old closure/Future bodies and lexical type or
 interface evidence. Named callable values do not retain obsolete code just to route
 later calls; ordinary calls use current implementations. Exact computation ownership
@@ -926,8 +928,9 @@ Hot reload is coordinated through explicit module epochs.
 [Publication and static compatibility](module-activation.md#static-publication-compatibility)
 define the implemented contract; [reload.rs](../../crates/kagari-runtime/src/reload.rs)
 implements staging/commit and [publication.rs](../../crates/kagari-runtime/src/publication.rs)
-owns host-top-level synchronous admission. Frozen/protected dependency checks use
-installation inventory independently of live heap values. Source snapshots retain
+owns host-top-level synchronous admission. Frozen declaration and local static-initializer
+checks use installation inventory independently of live heap values; ordinary
+Hash/Eq and helper bodies may change. Source snapshots retain
 immutable diagnostics separately from executable leases and SDK compilation capsules.
 
 The runtime uses epochs for:
@@ -938,8 +941,8 @@ The runtime uses epochs for:
 - exact computation ownership, current ordinary-call selection and shared static bindings
 
 Epoch changes do not migrate values, reset static cells or implement state
-snapshot/restore. The separate [state replacement proposal](../update-model-design.md#state-replacement-boundary)
-requires an explicit exported data root.
+snapshot/restore. [Compatible publication](module-activation.md#compatible-declaration-changes)
+preserves existing values and frozen declaration contracts.
 
 ## Suspension and Ephemerality
 

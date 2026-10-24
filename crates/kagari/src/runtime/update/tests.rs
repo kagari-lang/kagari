@@ -31,8 +31,8 @@ fn engine() -> KagariEngine {
 }
 
 fn check(sources: SourceSnapshot, root: FileId) -> CheckedModule {
-    // Ordinary patch tests need a finite provider closure. The separate foundation
-    // control keeps the standard library's unknown protected edges observable.
+    // Explicit source snapshots exercise detached compilation independently of the
+    // default engine's installed providers, covered by the foundation test below.
     let mut analysis = AnalysisDatabase::new("/source-updates").unwrap();
     let cancel = CancellationToken::default();
     let snapshot = analysis.snapshot(sources, &cancel).unwrap();
@@ -468,7 +468,7 @@ fn generic_alias_retargeting_compares_binders_bounds_and_results_without_instanc
 }
 
 #[test]
-fn standard_foundation_protection_rejects_body_updates_without_changing_source() {
+fn standard_foundation_accepts_body_updates_and_advances_live_handles_and_source() {
     let engine = engine();
     let prepared = engine
         .compile_to_program(
@@ -479,21 +479,24 @@ fn standard_foundation_protection_rejects_body_updates_without_changing_source()
     let mut runtime = engine.runtime(Default::default());
     let program = runtime.load_program(&prepared, Default::default()).unwrap();
     let answer = declaration(&runtime, &program, "answer");
+    let function = runtime
+        .function::<(), i32>(&program.root(), "answer")
+        .unwrap();
+    let original = runtime.source_snapshot(&program).unwrap();
     let token = runtime.runtime().publication_token(&program).unwrap();
     let mut update = Update::new();
     update.replace_function("answer", "pub fn answer() -> i32 { 2 }");
-    let error = runtime.update(&program, update).unwrap_err();
-    assert!(
-        matches!(error, EmbeddingError::ReloadValidation { ref message, .. }
-        if message.contains("protected declaration") && message.contains("unknown dependency edge")),
-        "{error:?}"
-    );
-    assert_eq!(
+    runtime.update(&program, update).unwrap();
+    assert_ne!(
         runtime.runtime().publication_token(&program).unwrap(),
         token
     );
-    assert!(text(&runtime, &program, &answer).contains("{ 1 }"));
-    assert_eq!(call(&runtime, &program, "answer"), 1);
+    assert!(text(&runtime, &program, &answer).contains("{ 2 }"));
+    assert!(
+        matches!(original.function(&answer), SourceQuery::Available(source) if source.text.contains("{ 1 }"))
+    );
+    assert_eq!(runtime.call(&function, ()).unwrap(), 2);
+    assert_eq!(call(&runtime, &program, "answer"), 2);
 }
 
 #[test]

@@ -274,17 +274,6 @@ fn enum_payload(
 
 impl ConversionContext<'_> {
     pub(crate) fn snapshot_sequence(&self, value: &Value) -> NativeResult<(RootSet, usize)> {
-        self.snapshot_sequence_with_poll(value, &mut || self.poll())
-    }
-
-    /// The internal poll runs before reservation and each copied/rooted edge.
-    /// It must not allocate in the heap, collect, or invoke script/native code.
-    pub(crate) fn snapshot_sequence_with_poll(
-        &self,
-        value: &Value,
-        poll: &mut dyn FnMut() -> NativeResult<()>,
-    ) -> NativeResult<(RootSet, usize)> {
-        poll()?;
         let Value::GcHandle(array) = value else {
             return Err(RuntimeError::module_validation(
                 "Vec conversion requires a nominal sequence",
@@ -301,7 +290,6 @@ impl ConversionContext<'_> {
             .try_reserve_exact(count)
             .map_err(|_| self.runtime().resources().limit("Vec conversion snapshot"))?;
         for index in 0..count {
-            poll()?;
             self.poll()?;
             snapshot.push(
                 self.runtime()
@@ -315,7 +303,8 @@ impl ConversionContext<'_> {
         let roots = self
             .runtime()
             .gc()
-            .root_execution_values_with_poll(snapshot, poll)?;
+            .root_execution_values(snapshot)
+            .ok_or_else(|| RuntimeError::module_validation("Vec conversion snapshot roots"))?;
         Ok((roots, count))
     }
 }

@@ -28,7 +28,7 @@ use kagari_contract::{
     types::ConcreteFunctionIdentity,
     updates::{
         BodyApplication, BodyClassification, BodyRecord, BodyRequirement, CallRequirement,
-        CanonicalInstruction, CanonicalOperand, Dependency, UnknownDependency, UnknownReason,
+        CanonicalInstruction, CanonicalOperand, UnknownReason,
         limits::{Budget, UpdateError},
     },
 };
@@ -91,7 +91,6 @@ pub(super) fn extract(
         instructions: vec![],
         actual_format: FORMAT,
         actual_instructions: vec![],
-        dependencies: vec![],
     };
     let mut header = vec![bytes(
         &(
@@ -240,7 +239,6 @@ pub(super) fn extract(
                     .contract
                     .declaration;
                 operands.push(CanonicalOperand::Declaration(declaration));
-                body.dependencies.push(Dependency::Source(declaration));
                 *slot = ModuleSlot::new(0);
             }
             BytecodeInstruction::LoadConst { constant, .. } => {
@@ -475,31 +473,6 @@ pub(super) fn extract(
             operands,
         });
     }
-    for dependency in &mut body.dependencies {
-        budget.visit()?;
-        if let Dependency::Source(declaration) = dependency {
-            *declaration = context.source(*declaration);
-        }
-        let Dependency::Body(target) = dependency else {
-            continue;
-        };
-        if context.bodies.contains(target) {
-            continue;
-        }
-        let edge = body.requirement.calls.iter().position(
-            |call| matches!(call, CallRequirement::Shared(call) if &call.instance == target),
-        );
-        if let Some(edge) = edge {
-            let mut native = false;
-            for import in modules.iter().flat_map(|module| &module.native_imports) {
-                budget.visit()?;
-                native |= &import.instance == target;
-            }
-            if native {
-                *dependency = Dependency::Unknown(UnknownDependency { edge: edge as u32 });
-            }
-        }
-    }
     body.instructions = body.actual_instructions.clone();
     Ok(body)
 }
@@ -598,27 +571,7 @@ fn add_call(
     requirement: CallRequirement,
     budget: &mut Budget<'_>,
 ) -> Result<(), UpdateError> {
-    let operand = call(&mut body.requirement.calls, requirement.clone(), budget)?;
-    let CanonicalOperand::Call(edge) = operand else {
-        return Err(UpdateError::InvalidEvidence);
-    };
-    let dependency = match &requirement {
-        CallRequirement::Direct(target) => Some(Dependency::Source(target.declaration)),
-        CallRequirement::RetainedBody(target) => Some(Dependency::Body(target.body.clone())),
-        CallRequirement::Shared(target) => Some(Dependency::Body(target.instance.clone())),
-        CallRequirement::Interface(_)
-        | CallRequirement::Native(_)
-        | CallRequirement::Operation(_)
-        | CallRequirement::Construction(_)
-        | CallRequirement::Unknown(_) => Some(Dependency::Unknown(UnknownDependency { edge })),
-        _ => None,
-    };
-    if let Some(dependency) = dependency
-        && !body.dependencies.contains(&dependency)
-    {
-        body.dependencies.push(dependency);
-    }
-    operands.push(CanonicalOperand::Call(edge));
+    operands.push(call(&mut body.requirement.calls, requirement, budget)?);
     Ok(())
 }
 
@@ -650,9 +603,26 @@ fn classification_contract(
     | BodyClassification::Async(parent)
     | BodyClassification::Resume(parent)
     | BodyClassification::Adapter(parent) = classification
-        && (Some(parent) == function.identity.as_ref() || !context.bodies.contains(parent))
     {
-        return Err(UpdateError::InvalidEvidence);
+        budget.visit()?;
+        let identity = function
+            .identity
+            .as_ref()
+            .ok_or(UpdateError::InvalidEvidence)?;
+        // Creation instructions may be folded away. Lexical ownership comes from
+        // the executable identity, not a retained call or certificate association.
+        // Callable adapters use receiver/interface arguments, not inherited ones.
+        if !context.bodies.contains(parent)
+            || context
+                .definitions
+                .parent(identity.declaration)
+                .map_err(DefinitionMappingError::from)?
+                != Some(parent.declaration)
+            || (!matches!(classification, BodyClassification::Adapter(_))
+                && identity.arguments != parent.arguments)
+        {
+            return Err(UpdateError::InvalidEvidence);
+        }
     }
     if let BodyClassification::StaticInitializer(id) = classification
         && !module.module_slots.iter().any(|slot| {

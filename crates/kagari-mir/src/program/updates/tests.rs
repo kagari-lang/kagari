@@ -122,9 +122,9 @@ fn fixture() -> (DefinitionContext, MirProgram) {
                 tokens: vec![],
                 inputs: vec![],
                 calls: vec![],
-                dependencies: vec![],
+                bodies: vec![],
             }],
-            roots: vec![],
+            initializers: vec![],
             selections: vec![],
             classifications: [(instance, BodyClassification::Named(declaration))].into(),
         },
@@ -184,6 +184,91 @@ fn update_evidence_mir_is_mandatory_and_checks_the_complete_body() {
     forged.update_evidence.bodies[0].classification =
         BodyClassification::Closure(forged.modules[0].functions[0].instance.clone());
     assert!(verify_program(forged, &context, &Default::default()).is_err());
+}
+
+#[test]
+fn generated_parent_requires_immediate_identity_and_inherited_arguments() {
+    let (context, mut program) = fixture();
+    let module = &mut program.modules[0];
+    let declaration = module.functions[0].instance.declaration;
+    let NamedContract::Function(contract) = &mut module.abi.named_declarations[0].contract else {
+        unreachable!()
+    };
+    contract.generic_params.push(GenericParam {
+        owner: declaration,
+        position: 0,
+    });
+    module.functions[0].instance.arguments = vec![Ty::Builtin(BuiltinType::I32)];
+    let parent = module.functions[0].instance.clone();
+    let mut other = module.functions[0].clone();
+    other.id = InstanceId::new(1);
+    other.instance.arguments = vec![Ty::Builtin(BuiltinType::I64)];
+    let other_parent = other.instance.clone();
+    let mut child = module.functions[0].clone();
+    child.id = InstanceId::new(2);
+    child.instance.declaration = context
+        .intern_child(declaration, DefinitionKind::Function, "closure_0", 0)
+        .unwrap();
+    let child_identity = child.instance.clone();
+    let mut nested = child.clone();
+    nested.id = InstanceId::new(3);
+    nested.instance.declaration = context
+        .intern_child(
+            child.instance.declaration,
+            DefinitionKind::Function,
+            "$resume",
+            0,
+        )
+        .unwrap();
+    let nested_identity = nested.instance.clone();
+    module.functions.extend([other, child, nested]);
+    let mut sources = program.update_evidence.sources.clone();
+    sources[0].bodies = vec![child_identity.clone(), nested_identity.clone()];
+    program.update_evidence = build(
+        &program.modules,
+        EvidenceInputs {
+            sources,
+            initializers: vec![],
+            selections: vec![],
+            classifications: [
+                (parent.clone(), BodyClassification::Named(declaration)),
+                (other_parent.clone(), BodyClassification::Named(declaration)),
+                (
+                    child_identity.clone(),
+                    BodyClassification::Closure(parent.clone()),
+                ),
+                (nested_identity, BodyClassification::Resume(child_identity)),
+            ]
+            .into(),
+        },
+        &context.snapshot(),
+        &Default::default(),
+    )
+    .unwrap();
+    verify_program(program.clone(), &context, &Default::default()).unwrap();
+    // No creation survives. An existing specialization of the same declaration
+    // still cannot become the owner of a child with different concrete arguments.
+    for classification in [
+        BodyClassification::Closure(other_parent.clone()),
+        BodyClassification::Async(other_parent.clone()),
+        BodyClassification::Resume(other_parent),
+    ] {
+        let mut forged = program.clone();
+        forged.update_evidence.bodies[2].classification = classification;
+        assert!(verify_program(forged, &context, &Default::default()).is_err());
+    }
+    // Skipping an immediate generated parent is not lexical ownership, even if
+    // the proposed ancestor has the same arguments and authored provenance.
+    for classification in [
+        BodyClassification::Closure(parent.clone()),
+        BodyClassification::Async(parent.clone()),
+        BodyClassification::Resume(parent.clone()),
+        BodyClassification::Adapter(parent),
+    ] {
+        let mut forged = program.clone();
+        forged.update_evidence.bodies[3].classification = classification;
+        assert!(verify_program(forged, &context, &Default::default()).is_err());
+    }
 }
 
 #[test]
@@ -252,7 +337,7 @@ fn update_evidence_default_selection_has_impl_identity_and_trait_source() {
     let instance = module.functions[0].instance.clone();
     let mut sources = program.update_evidence.sources.clone();
     sources[0].declaration = source;
-    sources[0].dependencies.clear();
+    sources[0].bodies.clear();
     let mut owner = sources[0].clone();
     owner.declaration = implementation;
     sources.push(owner);
@@ -260,7 +345,7 @@ fn update_evidence_default_selection_has_impl_identity_and_trait_source() {
         &program.modules,
         EvidenceInputs {
             sources,
-            roots: vec![],
+            initializers: vec![],
             selections: vec![],
             classifications: [(instance.clone(), BodyClassification::Named(selected))].into(),
         },
@@ -271,8 +356,8 @@ fn update_evidence_default_selection_has_impl_identity_and_trait_source() {
     assert_eq!(program.update_evidence.targets[0].application, instance);
     assert!(
         program.update_evidence.sources[0]
-            .dependencies
-            .contains(&Dependency::Body(instance.clone()))
+            .bodies
+            .contains(&instance)
     );
     assert!(
         program
@@ -289,7 +374,7 @@ fn update_evidence_default_selection_has_impl_identity_and_trait_source() {
         bytes
     );
     let mut detached = program.clone();
-    detached.update_evidence.sources[0].dependencies.clear();
+    detached.update_evidence.sources[0].bodies.clear();
     assert!(verify_program(detached, &context, &Default::default()).is_err());
     let mut closure = program.clone();
     closure.update_evidence.bodies[0].classification = BodyClassification::Closure(instance);
@@ -372,7 +457,7 @@ fn bridge_classification_requires_its_local_table_method_and_exact_body() {
             std::slice::from_ref(module),
             EvidenceInputs {
                 sources: vec![],
-                roots: vec![],
+                initializers: vec![],
                 selections: vec![],
                 classifications: [(instance.clone(), classification)].into(),
             },

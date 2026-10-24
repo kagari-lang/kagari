@@ -1,10 +1,20 @@
 #![cfg(feature = "source")]
 use crate::test_support::cancellation as support;
-use crate::{BytecodeArtifact, engine::KagariEngine, program::PreparedProgram, runtime::Runtime};
+use crate::{
+    BytecodeArtifact,
+    engine::{
+        KagariEngine,
+        source::{ArtifactOptions, compilation::Compilation},
+    },
+    program::PreparedProgram,
+    runtime::Runtime,
+};
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::{
-    Runtime as CoreRuntime, RuntimeConfig, module::Program, native::module::NativeModule,
+    Runtime as CoreRuntime, RuntimeConfig,
+    module::{ExecutableModule, Program},
+    native::module::NativeModule,
     value::Value,
 };
 use kagari_source::source::SourceFile;
@@ -171,9 +181,20 @@ trait Keep {
 impl Keep for i32 {}
 fn make_callback() -> fn() -> i32 { val provider: Keep = 0; provider.keep(Reader {}) }
 struct Key { val value: i32 }
-impl PartialEq for Key { fn eq(self, other: Self) -> bool { self.value % 10 == other.value % 10 } }
+impl PartialEq for Key { fn eq(self, other: Self) -> bool {
+    EQ_BODY = 1; EQ_HELPER = eq_marker(); self.value % 10 == other.value % 10
+} }
 impl Eq for Key {}
-impl Hash for Key { fn hash(self) -> i64 { 1i64 } }
+impl Hash for Key { fn hash(self) -> i64 { HASH_BODY = 1; HASH_HELPER = hash_marker(); 1i64 } }
+static var HASH_BODY: i32 = 0;
+static var HASH_HELPER: i32 = 0;
+static var EQ_BODY: i32 = 0;
+static var EQ_HELPER: i32 = 0;
+fn hash_marker() -> i32 { 3 }
+fn eq_marker() -> i32 { 3 }
+pub fn reset_markers() { HASH_BODY = 0; HASH_HELPER = 0; EQ_BODY = 0; EQ_HELPER = 0; }
+pub fn markers() -> i32 { HASH_BODY * 1000 + HASH_HELPER * 100 + EQ_BODY * 10 + EQ_HELPER }
+pub fn hash_observed() -> i32 { HASH_BODY * 10 + HASH_HELPER }
 fn version() -> i32 { 10 }
 static var STATE: i32 = 1;
 static var CALLBACK: fn() -> i32 = make_callback();
@@ -248,16 +269,18 @@ pub fn replace() { CALLBACK = make_callback(); VIEW = Reader {}; }
 "#;
 
 #[test]
-fn persistent_static_callbacks_and_interfaces_keep_generations() {
+fn persistent_static_callbacks_and_interfaces_call_current_helpers() {
     let source = STATIC_PINNING_SOURCE;
-    // Existing initializer dependencies stay frozen. Explicit assignment may
-    // install new values made by newly added, unprotected code.
+    // Initializer expressions stay fixed; retained values call current helpers.
+    // Explicit assignment still replaces cells without changing their saved aliases.
     let replacement = format!(
-        "{}\nstruct UpdatedReader {{}}\nimpl Read for UpdatedReader {{ fn read(self) -> i32 {{ 20 + STATE }} }}",
-        source.replace(
-            "CALLBACK = make_callback(); VIEW = Reader {};",
-            "CALLBACK = || 20 + STATE; VIEW = UpdatedReader {};",
-        )
+        "{}\nstruct UpdatedReader {{}}\nimpl Read for UpdatedReader {{ fn read(self) -> i32 {{ 30 + STATE }} }}",
+        source
+            .replace("fn version() -> i32 { 10 }", "fn version() -> i32 { 20 }")
+            .replace(
+                "CALLBACK = make_callback(); VIEW = Reader {};",
+                "CALLBACK = || 30 + STATE; VIEW = UpdatedReader {};",
+            )
     );
     for decoded in [false, true] {
         let engine = KagariEngine::default();
@@ -279,29 +302,30 @@ fn persistent_static_callbacks_and_interfaces_keep_generations() {
             static_call(&runtime, &current, "fresh_lookup"),
             Value::Bool(true)
         );
-        assert_eq!(static_call(&runtime, &current, "current"), Value::I32(30));
-        assert_eq!(static_call(&runtime, &current, "function"), Value::I32(10));
-        static_call(&runtime, &current, "replace");
         assert_eq!(static_call(&runtime, &current, "current"), Value::I32(50));
-        assert_eq!(static_call(&runtime, &current, "saved"), Value::I32(30));
-        assert_eq!(static_call(&runtime, &old, "current"), Value::I32(50));
+        assert_eq!(static_call(&runtime, &current, "function"), Value::I32(20));
+        static_call(&runtime, &current, "replace");
+        assert_eq!(static_call(&runtime, &current, "current"), Value::I32(70));
+        assert_eq!(static_call(&runtime, &current, "saved"), Value::I32(50));
+        assert_eq!(static_call(&runtime, &old, "current"), Value::I32(70));
     }
 }
 
 #[test]
-fn persistent_static_hash_comparators_reject_changes_and_preserve_values() {
+fn persistent_static_hash_comparators_use_current_bodies_and_helpers() {
     let source = STATIC_PINNING_SOURCE;
-    let replacement = source
+    let bodies = source
+        .replace("HASH_BODY = 1;", "HASH_BODY = 2;")
+        .replace("EQ_BODY = 1;", "EQ_BODY = 2;");
+    let helpers = bodies
         .replace(
-            "self.value % 10 == other.value % 10",
-            "self.value == other.value",
+            "fn hash_marker() -> i32 { 3 }",
+            "fn hash_marker() -> i32 { 4 }",
         )
-        .replace("{ 1i64 }", "{ 2i64 }");
-    let mut results = Vec::new();
+        .replace("fn eq_marker() -> i32 { 3 }", "fn eq_marker() -> i32 { 4 }");
     for decoded in [false, true] {
         let engine = KagariEngine::default();
         let first = prepare_static_program(&engine, source, decoded);
-        let second = prepare_static_program(&engine, &replacement, decoded);
         let mut runtime = engine.runtime(Default::default());
         let old = runtime.load_program(&first, Default::default()).unwrap();
         for entry in ["map_lookup", "set_lookup"] {
@@ -311,16 +335,17 @@ fn persistent_static_hash_comparators_reject_changes_and_preserve_values() {
             static_call(&runtime, &old, "compare_contents"),
             Value::I32(15)
         );
-        assert_eq!(
+        for (updated, expected) in [(&bodies, 2323), (&helpers, 2424)] {
+            let candidate = prepare_static_program(&engine, updated, decoded);
             runtime
-                .reload_program(&old, &second, Default::default())
-                .unwrap_err()
-                .code(),
-            "KG_RELOAD_UPDATE_EVIDENCE"
-        );
-        runtime
-            .reload_program(&old, &first, Default::default())
-            .unwrap();
+                .reload_program(&old, &candidate, Default::default())
+                .unwrap();
+            for entry in ["map_lookup", "set_lookup"] {
+                static_call(&runtime, &old, "reset_markers");
+                assert_eq!(static_call(&runtime, &old, entry), Value::Bool(true));
+                assert_eq!(static_call(&runtime, &old, "markers"), Value::I32(expected));
+            }
+        }
         let current = old.clone();
         assert_eq!(
             static_call(&runtime, &current, "compare_contents"),
@@ -335,15 +360,22 @@ fn persistent_static_hash_comparators_reject_changes_and_preserve_values() {
             Value::Bool(true)
         );
         for entry in ["map_lookup", "set_lookup", "mutate_keys"] {
-            results.push((decoded, entry, static_call(&runtime, &current, entry)));
+            assert_eq!(static_call(&runtime, &current, entry), Value::Bool(true));
+        }
+        let changed_hash = helpers
+            .replace("HASH_BODY = 2;", "HASH_BODY = 3;")
+            .replace("hash_marker(); 1i64", "hash_marker(); 2i64");
+        let candidate = prepare_static_program(&engine, &changed_hash, decoded);
+        runtime
+            .reload_program(&old, &candidate, Default::default())
+            .unwrap();
+        for entry in ["map_lookup", "set_lookup"] {
+            static_call(&runtime, &old, "reset_markers");
+            // Changed hashes need not find old entries. Only current dispatch is asserted.
+            let _ = static_call(&runtime, &old, entry);
+            assert_eq!(static_call(&runtime, &old, "hash_observed"), Value::I32(34));
         }
     }
-    assert!(
-        results
-            .iter()
-            .all(|(_, _, result)| *result == Value::Bool(true)),
-        "retained collection lookups: {results:?}"
-    );
 }
 
 fn prepare(engine: &KagariEngine, source: &str) -> DefinitionMetadata<BytecodeProgram> {
@@ -353,6 +385,32 @@ fn prepare(engine: &KagariEngine, source: &str) -> DefinitionMetadata<BytecodePr
             Default::default(),
         )
         .unwrap();
+    decode_program(artifact)
+}
+
+fn prepare_with_demands(
+    engine: &KagariEngine,
+    source: &str,
+    baseline: &ExecutableModule,
+) -> DefinitionMetadata<BytecodeProgram> {
+    let checked = engine
+        .compile_source(SourceFile::new("generic-reload.kgr", source))
+        .unwrap();
+    let options = ArtifactOptions::default();
+    let demands = baseline.retained_demands();
+    let compilation = Compilation::lower_with_demands(
+        &checked,
+        &options.lowering,
+        demands.metadata(),
+        demands.implementation_headers(),
+    )
+    .unwrap();
+    decode_program(compilation.export(options).unwrap())
+}
+
+fn decode_program(
+    artifact: DefinitionMetadata<BytecodeArtifact>,
+) -> DefinitionMetadata<BytecodeProgram> {
     let (definitions, artifact) =
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap()
@@ -361,7 +419,7 @@ fn prepare(engine: &KagariEngine, source: &str) -> DefinitionMetadata<BytecodePr
 }
 
 #[test]
-fn retained_local_function_values_pin_generations_and_clean_up_all_exits() {
+fn retained_local_function_values_call_current_bodies_and_clean_up_all_exits() {
     let source = r#"
 trait Run { fn run(self, mode: i32) -> i32; }
 struct Saved { val callback: fn(i32) -> i32 }
@@ -421,7 +479,7 @@ pub fn make() -> Run {
     assert!(vm.runtime().modules().loaded(old_key).is_some());
     let fresh_root = vm.execute(&current, "make").unwrap().return_value;
     let fresh = fresh_root.value(vm.runtime().gc()).unwrap();
-    for (value, expected) in [(&saved, 42), (&fresh, 43)] {
+    for (value, expected) in [(&saved, 43), (&fresh, 43)] {
         assert_eq!(
             vm.invoke_interface_method(value, &run, &[Value::I32(0)])
                 .unwrap(),
@@ -447,7 +505,7 @@ pub fn make() -> Run {
     assert_eq!(
         vm.invoke_interface_method(&saved, &run, &[Value::I32(0)])
             .unwrap(),
-        Value::I32(42)
+        Value::I32(43)
     );
     drop((saved_root, fresh_root));
     assert_eq!(vm.runtime().gc().active_roots(), 0);
@@ -462,7 +520,7 @@ pub fn make() -> Run {
 }
 
 #[test]
-fn retained_generic_default_and_override_closures_pin_types_and_operations_after_reload() {
+fn retained_generic_default_and_override_closures_use_current_operations_after_reload() {
     let method = "fn keep<T: Ord + Default + Read>(self, a: T, b: T) -> fn(i32) -> bool { val early: Read = a; |mode| if mode == 1 { T::default() == a } else if mode == 2 { early.read() } else if mode == 3 { val late: Read = a; late.read() } else { a.cmp(b) == Ordering::Less } }";
     for implementation in [String::new(), method.to_owned()] {
         let source = format!(
@@ -561,7 +619,7 @@ pub fn make() -> Run {{
         let fresh_root = vm.runtime().root_value(fresh).unwrap();
         assert_eq!(
             vm.invoke_interface_method(&saved, &run, &[]).unwrap(),
-            Value::Bool(true)
+            Value::Bool(false)
         );
         assert_eq!(
             vm.invoke_interface_method(&fresh, &run, &[]).unwrap(),
@@ -570,7 +628,7 @@ pub fn make() -> Run {{
         assert_eq!(
             vm.invoke_interface_method(&saved, &selected_default, &[])
                 .unwrap(),
-            Value::Bool(true)
+            Value::Bool(false)
         );
         assert_eq!(
             vm.invoke_interface_method(&fresh, &selected_default, &[])
@@ -580,7 +638,7 @@ pub fn make() -> Run {{
         assert_eq!(
             vm.invoke_interface_method(&saved, &constructed, &[])
                 .unwrap(),
-            Value::Bool(true)
+            Value::Bool(false)
         );
         assert_eq!(
             vm.invoke_interface_method(&fresh, &constructed, &[])
@@ -590,7 +648,7 @@ pub fn make() -> Run {{
         assert_eq!(
             vm.invoke_interface_method(&saved, &late_constructed, &[])
                 .unwrap(),
-            Value::Bool(true)
+            Value::Bool(false)
         );
         assert_eq!(
             vm.invoke_interface_method(&fresh, &late_constructed, &[])
@@ -611,7 +669,7 @@ pub fn make() -> Run {{
 }
 
 #[test]
-fn retained_generic_try_calls_keep_the_selected_carrier_generation() {
+fn retained_generic_try_calls_use_current_carrier_operations() {
     let source = r#"
 use core::ops::{Try, FromResidual, ControlFlow};
 use core::convert::Infallible;
@@ -703,7 +761,7 @@ pub fn make_stopped()->Run {val keeper:Keep=0; Saved {callback:keeper.keep(Carri
     let fresh_stopped_root = vm.runtime().root_value(fresh_stopped).unwrap();
     assert_eq!(
         vm.invoke_interface_method(&saved, &run, &[]).unwrap(),
-        Value::I32(42)
+        Value::I32(43)
     );
     assert_eq!(
         vm.invoke_interface_method(&fresh, &run, &[]).unwrap(),
@@ -728,7 +786,7 @@ pub fn make_stopped()->Run {val keeper:Keep=0; Saved {callback:keeper.keep(Carri
 }
 
 #[test]
-fn content_helper_retains_interface_iteration_generation_in_a_new_caller() {
+fn content_helper_uses_current_interface_iteration_for_retained_values() {
     let source = r#"
 use std::collections::{List, list_content_equal};
 use std::iter::CollectionCursor;
@@ -784,7 +842,7 @@ pub fn probe() -> Probe { Checker {} }
         .unwrap();
     let method =
         ModuleDecl::method_id(contract.declaration, "same", current.definitions()).unwrap();
-    for (root, expected) in [(&saved, true), (&fresh, false)] {
+    for (root, expected) in [(&saved, false), (&fresh, false)] {
         let value = root.value(vm.runtime().gc()).unwrap();
         assert_eq!(
             vm.invoke_interface_method(
@@ -809,49 +867,68 @@ pub fn probe() -> Probe { Checker {} }
 }
 
 #[test]
-fn shared_collection_comparison_retains_the_callers_nominal_generation() {
-    assert_shared_collection_comparison_reloading(SHARED_COLLECTION_SOURCE, false, |source| {
-        source.replace("bool { true }", "bool { false }")
-    });
+fn shared_collection_comparison_uses_current_nominal_operations() {
+    assert_shared_collection_comparison_reloading(
+        SHARED_COLLECTION_SOURCE,
+        false,
+        ReloadPreparation::BodyOnlyArtifact,
+        |source| source.replace("bool { true }", "bool { false }"),
+    );
 }
 
 #[test]
 fn shared_collection_comparison_accepts_new_primitive_applications_after_reload() {
-    assert_shared_collection_comparison_reloading(SHARED_COLLECTION_SOURCE, false, |source| {
-        source
-            .replace("Item { value: 1 }", "0.0f32 / 0.0f32")
-            .replace("Item { value: 2 }", "0.0f32 / 0.0f32")
-    });
+    assert_shared_collection_comparison_reloading(
+        SHARED_COLLECTION_SOURCE,
+        false,
+        ReloadPreparation::ExpandRetainedApplications,
+        |source| {
+            source
+                .replace("Item { value: 1 }", "0.0f32 / 0.0f32")
+                .replace("Item { value: 2 }", "0.0f32 / 0.0f32")
+        },
+    );
 }
 
 #[test]
-fn content_helper_selects_element_operations_in_the_callers_generation() {
+fn content_helper_selects_current_element_operations() {
     let source = mixed_generation_collection_source();
-    // Element comparison belongs to the helper caller; iteration remains pinned to the view.
-    assert_shared_collection_comparison_reloading(&source, false, |source| {
-        source.replace(
-            "impl PartialEq for Local { fn eq(self, other: Self) -> bool { true } }",
-            "impl PartialEq for Local { fn eq(self, other: Self) -> bool { false } }",
-        )
-    });
+    // Retained views preserve type evidence, not the bodies used by iteration or Eq.
+    assert_shared_collection_comparison_reloading(
+        &source,
+        false,
+        ReloadPreparation::BodyOnlyArtifact,
+        |source| {
+            source.replace(
+                "impl PartialEq for Local { fn eq(self, other: Self) -> bool { true } }",
+                "impl PartialEq for Local { fn eq(self, other: Self) -> bool { false } }",
+            )
+        },
+    );
 }
 
 #[test]
 fn shared_collection_comparison_composes_the_new_argument_operation() {
     let source = mixed_generation_collection_source();
-    assert_shared_collection_comparison_reloading(&source, false, |source| {
-        source.replace("bool { true }", "bool { false }")
-    });
+    assert_shared_collection_comparison_reloading(
+        &source,
+        false,
+        ReloadPreparation::BodyOnlyArtifact,
+        |source| source.replace("bool { true }", "bool { false }"),
+    );
     let same_nominal = source
         .replace("Item { value: 1 }", "Local {}")
         .replace("Item { value: 2 }", "Local {}");
-    assert_shared_collection_comparison_reloading(&same_nominal, false, |source| {
-        source.replace("bool { true }", "bool { false }")
-    });
+    assert_shared_collection_comparison_reloading(
+        &same_nominal,
+        false,
+        ReloadPreparation::BodyOnlyArtifact,
+        |source| source.replace("bool { true }", "bool { false }"),
+    );
 }
 
 #[test]
-fn shared_tuple_adapter_preserves_each_arguments_generation() {
+fn shared_tuple_adapter_uses_current_operations_for_each_argument() {
     let source = r#"
 use std::collections::list_content_equal;
 fn same<T: PartialEq>(left: T, right: T) -> bool { left == right }
@@ -883,21 +960,32 @@ impl Probe for Checker {
 pub fn make() -> Boxer { Factory {} }
 pub fn probe() -> Probe { Checker {} }
 "#;
-    assert_shared_collection_comparison_reloading(source, true, |source| {
-        source.replace(
-            "impl PartialEq for Local { fn eq(self, other: Self) -> bool { true } }",
-            "impl PartialEq for Local { fn eq(self, other: Self) -> bool { false } }",
-        )
-    });
-    assert_shared_collection_comparison_reloading(source, false, |source| {
-        source.replace("bool { true }", "bool { false }")
-    });
+    assert_shared_collection_comparison_reloading(
+        source,
+        false,
+        ReloadPreparation::BodyOnlyArtifact,
+        |source| {
+            source.replace(
+                "impl PartialEq for Local { fn eq(self, other: Self) -> bool { true } }",
+                "impl PartialEq for Local { fn eq(self, other: Self) -> bool { false } }",
+            )
+        },
+    );
+    assert_shared_collection_comparison_reloading(
+        source,
+        false,
+        ReloadPreparation::BodyOnlyArtifact,
+        |source| source.replace("bool { true }", "bool { false }"),
+    );
     let same_nominal = source
         .replace("Item { value: 1 }", "Local {}")
         .replace("Item { value: 2 }", "Local {}");
-    assert_shared_collection_comparison_reloading(&same_nominal, false, |source| {
-        source.replace("bool { true }", "bool { false }")
-    });
+    assert_shared_collection_comparison_reloading(
+        &same_nominal,
+        false,
+        ReloadPreparation::BodyOnlyArtifact,
+        |source| source.replace("bool { true }", "bool { false }"),
+    );
 }
 
 fn mixed_generation_collection_source() -> String {
@@ -931,14 +1019,22 @@ pub fn make() -> Boxer { Factory {} }
 pub fn probe() -> Probe { Checker {} }
 "#;
 
+enum ReloadPreparation {
+    /// Preserve the application inventory and test independently compiled artifacts.
+    BodyOnlyArtifact,
+    /// New source uses replace old applications still required by retained callers.
+    ExpandRetainedApplications,
+}
+
 fn assert_shared_collection_comparison_reloading(
     source: &str,
     new_expected: bool,
+    preparation: ReloadPreparation,
     replacement: impl FnOnce(&str) -> String,
 ) {
     let engine = KagariEngine::default();
     let original = prepare(&engine, source);
-    let replacement = prepare(&engine, &replacement(source));
+    let replacement_source = replacement(source);
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
     let mut runtime = CoreRuntime::new(config);
@@ -949,6 +1045,12 @@ fn assert_shared_collection_comparison_reloading(
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
     let old_key = old.key();
+    let replacement = match preparation {
+        ReloadPreparation::BodyOnlyArtifact => prepare(&engine, &replacement_source),
+        ReloadPreparation::ExpandRetainedApplications => {
+            prepare_with_demands(&engine, &replacement_source, &old)
+        }
+    };
     let vm = Vm::new(runtime);
     let factory = vm.execute(&old, "make").unwrap().return_value;
     let old_probe = vm.execute(&old, "probe").unwrap().return_value;
@@ -971,7 +1073,7 @@ fn assert_shared_collection_comparison_reloading(
         .unwrap();
     let method =
         ModuleDecl::method_id(contract.declaration, "check", current.definitions()).unwrap();
-    for (probe, expected) in [(&old_probe, true), (&fresh_probe, new_expected)] {
+    for (probe, expected) in [(&old_probe, new_expected), (&fresh_probe, new_expected)] {
         assert_eq!(
             vm.invoke_interface_method(
                 &probe.value(vm.runtime().gc()).unwrap(),
@@ -995,7 +1097,7 @@ fn assert_shared_collection_comparison_reloading(
 }
 
 #[test]
-fn bound_construction_uses_the_callers_generation_with_an_old_shared_provider() {
+fn bound_construction_uses_current_operations_with_an_old_shared_provider() {
     let source = r#"
 trait Read { fn read(self) -> bool; }
 struct Item { val value: i32 }
@@ -1017,7 +1119,10 @@ impl Probe for Checker {
 pub fn make() -> Boxer { Factory {} }
 pub fn probe() -> Probe { Checker {} }
 "#;
-    assert_shared_collection_comparison_reloading(source, false, |source| {
-        source.replace("bool { true }", "bool { false }")
-    });
+    assert_shared_collection_comparison_reloading(
+        source,
+        false,
+        ReloadPreparation::BodyOnlyArtifact,
+        |source| source.replace("bool { true }", "bool { false }"),
+    );
 }

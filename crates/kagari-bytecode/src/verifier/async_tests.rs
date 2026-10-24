@@ -452,7 +452,19 @@ fn async_factory_artifact_contract() {
             .unwrap(),
         arguments: vec![],
     };
-    let resume_identity = module.functions[0].identity.clone().unwrap();
+    let resume_identity = ConcreteFunctionIdentity {
+        declaration: context
+            .intern_child(
+                factory_identity.declaration,
+                DefinitionKind::Function,
+                "$resume",
+                0,
+            )
+            .unwrap(),
+        arguments: factory_identity.arguments.clone(),
+    };
+    module.functions[0].identity = Some(resume_identity.clone());
+    module.function_table[0].identity = Some(resume_identity.clone());
     factory.identity = Some(factory_identity.clone());
     let declaration = &mut module.named_declarations[0];
     declaration.declaration = factory_identity.declaration;
@@ -481,12 +493,12 @@ fn async_factory_artifact_contract() {
     module.functions.push(factory);
     let mut sources = valid.update_evidence.sources.clone();
     sources[0].declaration = factory_identity.declaration;
-    sources[0].dependencies.clear();
+    sources[0].bodies = vec![resume_identity.clone()];
     valid.update_evidence = updates::build(
         &valid.modules,
         EvidenceInputs {
             sources,
-            roots: vec![],
+            initializers: vec![],
             selections: vec![],
             classifications: [
                 (

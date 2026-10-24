@@ -11,18 +11,16 @@ are removed. Current contracts live in the specifications and architecture; CI
 status and activation belong to the [roadmap](implementation-roadmap.md).
 
 Update direction changed after the historical reviews below: the
-[confirmed update design](update-model-design.md#calls-retained-objects-and-new-trait-implementations)
+[implemented publication contract](spec/module-activation.md#live-installations-and-call-selection)
 uses host-top-level serialized publication, retained computation bodies and current
 implementation selection on subsequent ordinary calls. Ordinary Program/Module
 handles query the latest published contents within the same installation; existing
 function handles call the latest implementation without reacquisition or rebinding.
-These confirmed public semantics are not implemented by the current pinned runtime;
-internal computation retention and explicit version-specific source/debug inspection
-are distinct. Historical pinned-dependency observations remain evidence of the
-current implementation, not a requirement to preserve that dispatch policy in UP.
-Reconcile affected optimization/native findings
-with the migration before implementation; type, root and executable lifetime safety
-remain required.
+Internal computation retention and explicit version-specific source/debug inspection
+are distinct. Historical pinned-dependency observations describe the old runtime,
+not the current dispatch policy. Reconcile affected optimization/native findings
+with implemented current-call selection before acting; type, root and executable
+lifetime safety remain required.
 
 - [Engineering a Compiler review](#engineering-a-compiler-chapter-review): chapter-led
   assessment at `5b57c9a8`, reconciled with current storage/optimization boundaries.
@@ -977,8 +975,10 @@ mismatch: [value semantics](spec/value-semantics.md)
 describes the query as the equality receiver for map/set lookup, while
 [hash operations](../crates/kagari-stdlib/src/foundation/hash/operations.rs) passes
 `[stored, query]` to selected equality. The persistent-state fix deliberately
-changes protocol ownership (construction-pinned lookup versus caller-selected
-content comparison), not operand order.
+changes protocol ownership (stored checked key relationships versus caller-selected
+content comparison), not operand order. Both now select current callback bodies
+under [compatible publication](spec/collection-access.md#stored-key-protocols-across-reload);
+that policy adjustment does not resolve this receiver-order finding.
 
 For an asymmetric or observably effectful equality implementation, receiver order
 can change results or completed effects. Reconcile the intended rule with the
@@ -1080,9 +1080,9 @@ identity/version mismatches, source-free metadata limits, game reload without an
 repair declarations, suspended/retained repair across reload calling current game
 methods, escaped callbacks retaining capture-compatible bodies, fixed trait/type
 relationships with current method bodies, and cleanup after final owners end.
-Keep whole-program replacement/state migration and persistent REPL environments
-separate. This is a recorded requirement
-and proposed contract only, with no implementation authorization or executed
+Persistent REPL environments remain separate; this linking requirement does not
+introduce a state-migration framework. This is a recorded requirement and proposed
+contract only, with no implementation authorization or executed
 behavioral acceptance for cross-installation linking.
 
 ## Artifact reachability follow-up

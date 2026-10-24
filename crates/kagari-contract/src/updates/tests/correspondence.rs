@@ -23,10 +23,7 @@ struct SplitHeaders {
 impl SplitHeaders {
     fn new(split: bool) -> Self {
         let fixture = Fixture::new();
-        let mut evidence = fixture.evidence();
-        evidence.roots[0]
-            .dependencies
-            .push(Dependency::Unknown(UnknownDependency { edge: 7 }));
+        let mut evidence = fixture.initializer_evidence();
         let owners: Vec<_> = (0..if split { 2 } else { 1 })
             .map(|index| {
                 fixture
@@ -65,39 +62,40 @@ impl SplitHeaders {
                 ambiguous_local_body: None,
                 contract: NamedContract::Implementation(ImplementationContract {
                     bridge: None,
-                    generic_params: vec![parameter.clone()],
+                    generic_params: vec![parameter],
                     bounds: vec![],
-                    receiver: receiver.clone(),
+                    receiver,
                     trait_type: None,
                 }),
             });
             evidence.sources.push(SourceRecord {
                 declaration: owner,
-                generic: Some(GenericBody {
-                    parameters: vec![parameter],
-                    bounds: vec![],
-                }),
-                tokens: vec![SourceToken {
-                    kind: 1,
-                    text: "impl".into(),
-                }],
-                inputs: vec![CanonicalOperand::Type(receiver)],
-                calls: vec![CallRequirement::Direct(fixture.identity("helper"))],
-                dependencies: members.iter().copied().map(Dependency::Source).collect(),
+                generic: None,
+                tokens: vec![],
+                inputs: vec![],
+                calls: vec![],
+                bodies: vec![],
             });
         }
         for (member, name) in members.into_iter().zip(["a", "b"]) {
+            let mut body = fixture.body(name, vec![]);
+            body.requirement.origin.declaration = member;
+            body.classification = BodyClassification::Named(member);
             evidence.sources.push(SourceRecord {
                 declaration: member,
                 generic: None,
-                tokens: vec![SourceToken {
-                    kind: 2,
-                    text: name.into(),
-                }],
+                tokens: vec![],
                 inputs: vec![],
                 calls: vec![],
-                dependencies: vec![],
+                bodies: vec![body.requirement.origin.clone()],
             });
+            evidence.targets.push(CurrentTarget {
+                application: body.requirement.origin.clone(),
+                body: body.requirement.origin.clone(),
+                module: 0,
+                function: FunctionRef::new(evidence.bodies.len()),
+            });
+            evidence.bodies.push(body);
         }
         Self {
             fixture,
@@ -140,9 +138,11 @@ impl SplitHeaders {
     }
 
     fn admit(&self) -> Result<(), UpdateError> {
-        let bodies: Vec<_> = ["hash", "helper", "handler"]
-            .into_iter()
-            .map(|name| self.fixture.identity(name))
+        let bodies: Vec<_> = self
+            .evidence
+            .bodies
+            .iter()
+            .map(|body| body.requirement.origin.clone())
             .collect();
         validate_inventory(
             &self.evidence,
@@ -150,7 +150,7 @@ impl SplitHeaders {
                 sources: &self.source_inventory,
                 bodies: &bodies,
                 targets: &self.evidence.targets,
-                roots: &self.evidence.roots,
+                initializers: &self.evidence.initializers,
                 selections: &self.evidence.selections,
             },
             &self.fixture.context.snapshot(),
@@ -160,7 +160,7 @@ impl SplitHeaders {
 }
 
 #[test]
-fn equal_split_headers_coalesce_after_import_without_losing_members_or_unknown_freeze() {
+fn equal_split_headers_coalesce_without_losing_member_provenance() {
     let mut split = SplitHeaders::new(true);
     let mut merged = SplitHeaders::new(false);
     split.attach_manifest();
@@ -178,7 +178,7 @@ fn equal_split_headers_coalesce_after_import_without_losing_members_or_unknown_f
         )
         .unwrap();
     assert_eq!(
-        compare_protected(raw.records(), raw.records(), &mut split.fixture.budget()),
+        compare_initializers(raw.records(), raw.records(), &mut split.fixture.budget()),
         Err(UpdateError::InvalidEvidence)
     );
     let old = import_verified_evidence(
@@ -203,37 +203,62 @@ fn equal_split_headers_coalesce_after_import_without_losing_members_or_unknown_f
     assert_eq!(split.evidence.sources.len(), 5);
     assert_eq!(old.records().sources.len(), 4);
     assert_eq!(old.records(), new.records());
-    let header = &old.records().sources[1];
-    assert_eq!(header.dependencies.len(), 2);
-    for dependency in &header.dependencies {
-        let Dependency::Source(member) = dependency else {
-            panic!()
-        };
+    for source in &old.records().sources[2..] {
+        assert_eq!(source.bodies.len(), 1);
+        assert!(old.records().bodies.iter().any(|body| {
+            body.requirement.origin == source.bodies[0]
+                && body.classification == BodyClassification::Named(source.declaration)
+        }));
+    }
+    compare_initializers(old.records(), new.records(), &mut split.fixture.budget()).unwrap();
+    let mut changed = new.records().clone();
+    changed.bodies[3].actual_instructions[0].opcode = 99;
+    compare_initializers(old.records(), &changed, &mut split.fixture.budget()).unwrap();
+}
+
+#[test]
+fn corresponding_header_provenance_is_unioned_without_merging_executable_bodies() {
+    let mut split = SplitHeaders::new(true);
+    for index in 0..2 {
+        let body = split.evidence.sources[3 + index].bodies.pop().unwrap();
+        split.evidence.sources[1 + index].bodies.push(body);
+    }
+    split.admit().unwrap();
+    let imported = import_verified_evidence(
+        &mut DeclarationCorrespondence::new().unwrap(),
+        &split.evidence,
+        &split.headers,
+        &split.fixture.context.snapshot(),
+        &mut split.fixture.budget(),
+    )
+    .unwrap();
+    let header = &imported.records().sources[1];
+    assert_eq!(header.bodies.len(), 2);
+    assert_ne!(header.bodies[0], header.bodies[1]);
+    assert_eq!(imported.records().bodies.len(), split.evidence.bodies.len());
+    for body in &header.bodies {
         assert!(
-            old.records()
-                .sources
+            imported
+                .records()
+                .bodies
                 .iter()
-                .any(|source| source.declaration == *member)
+                .any(|record| &record.requirement.origin == body)
         );
     }
-    compare_protected(old.records(), new.records(), &mut split.fixture.budget()).unwrap();
-    let mut changed = new.records().clone();
-    changed.sources[2].tokens[0].text.push('!');
-    assert!(matches!(
-        compare_protected(old.records(), &changed, &mut split.fixture.budget()),
-        Err(UpdateError::ProtectedChange {
-            unknown_edge: Some(7),
-            ..
-        })
-    ));
-    let mut added = new.records().clone();
-    let mut source = added.sources[2].clone();
-    source.declaration = added.bodies[2].requirement.origin.declaration;
-    added.sources.push(source);
-    assert!(matches!(
-        compare_protected(old.records(), &added, &mut split.fixture.budget()),
-        Err(UpdateError::ProtectedChange { .. })
-    ));
+    // Distinct authored headers cannot both claim the same original executable.
+    let duplicate = split.evidence.sources[1].bodies[0].clone();
+    split.evidence.sources[2].bodies.push(duplicate);
+    assert_eq!(
+        import_verified_evidence(
+            &mut DeclarationCorrespondence::new().unwrap(),
+            &split.evidence,
+            &split.headers,
+            &split.fixture.context.snapshot(),
+            &mut split.fixture.budget(),
+        )
+        .unwrap_err(),
+        UpdateError::InvalidEvidence,
+    );
 }
 
 #[test]
@@ -271,20 +296,27 @@ fn comparison_projection_validates_physical_manifest_before_coalescing() {
 }
 
 #[test]
-fn conflicting_header_records_are_not_unioned_or_silently_dropped() {
+fn initializer_facts_on_corresponding_headers_are_not_silently_dropped() {
     let mut split = SplitHeaders::new(true);
     let original = split.evidence.clone();
-    for field in 0..5 {
+    for field in 0..4 {
         split.evidence = original.clone();
         let source = &mut split.evidence.sources[2];
         match field {
-            0 => source.tokens[0].text.push('!'),
+            0 => source.tokens.push(SourceToken {
+                kind: 1,
+                text: "!".into(),
+            }),
             1 => source.inputs.push(CanonicalOperand::Signed(99)),
-            2 => source.calls.clear(),
+            2 => source
+                .calls
+                .push(CallRequirement::Direct(split.fixture.identity("helper"))),
             3 => {
-                source.dependencies.pop();
+                source.generic = Some(GenericBody {
+                    parameters: vec![],
+                    bounds: vec![],
+                });
             }
-            4 => source.generic = None,
             _ => unreachable!(),
         }
         split.admit().unwrap();
@@ -335,9 +367,7 @@ fn only_distinct_original_authored_inherent_headers_can_coalesce() {
         declaration: duplicate,
         ..split.evidence.sources[3].clone()
     };
-    for source in &mut split.evidence.sources[1..3] {
-        source.dependencies[1] = Dependency::Source(duplicate);
-    }
+    split.evidence.sources[4].bodies.clear();
     assert_eq!(
         import_verified_evidence(
             &mut DeclarationCorrespondence::new().unwrap(),

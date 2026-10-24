@@ -13,7 +13,7 @@ use kagari_contract::{
         AuthoredDeclaration, AuthoredKind, ExecutableOrigin, ExecutableSource, SourcePackage,
         checked_text_fingerprint,
     },
-    updates::{BodyClassification, Dependency},
+    updates::BodyClassification,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -27,11 +27,11 @@ pub(super) fn executable_sources(
     for source in &evidence.sources {
         check_cancel(cancel)?;
         source_ids.insert(source.declaration);
-        for dependency in &source.dependencies {
-            if let Dependency::Body(body) = dependency
-                && owners
-                    .insert(body, source.declaration)
-                    .is_some_and(|old| old != source.declaration)
+        for body in &source.bodies {
+            check_cancel(cancel)?;
+            if owners
+                .insert(body, source.declaration)
+                .is_some_and(|old| old != source.declaration)
             {
                 return Err(SourcePackageError::OriginMismatch);
             }
@@ -69,7 +69,7 @@ pub(super) fn executable_sources(
             BodyClassification::Named(id) => {
                 // Default implementations can be placed under a different named
                 // declaration without a named-local FunctionOrigin. Their existing
-                // checked source-body edge, not placement-name equality, owns the tie.
+                // checked source-body ownership, not placement-name equality, owns the tie.
                 if placements
                     .get(id)
                     .is_some_and(|expected| *expected != authored)

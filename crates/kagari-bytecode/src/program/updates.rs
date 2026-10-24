@@ -15,7 +15,7 @@ pub(crate) fn empty() -> UpdateEvidence {
         source_manifest: None,
         sources: vec![],
         bodies: vec![],
-        roots: vec![],
+        initializers: vec![],
         targets: vec![],
         selections: vec![],
     }
@@ -32,8 +32,8 @@ use kagari_contract::updates::wire::UpdateEvidenceRecord;
 use kagari_contract::{
     types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
     updates::{
-        BodyClassification, BodyRecord, CallRequirement, CanonicalOperand, Dependency,
-        ProtectedRoot, SourceRecord, UpdateEvidence,
+        BodyClassification, BodyRecord, CallRequirement, CanonicalOperand, SourceRecord,
+        StaticInitializer, UpdateEvidence,
         admission::{self, Inventory},
         limits::{Budget, Limits, MAX_NESTED, UpdateError},
     },
@@ -44,12 +44,12 @@ use std::collections::{HashMap, HashSet};
 /// Call before optimization; source-free producers must supply the same contracts.
 pub struct EvidenceInputs {
     pub sources: Vec<SourceRecord>,
-    pub roots: Vec<ProtectedRoot>,
+    pub initializers: Vec<StaticInitializer>,
     pub selections: Vec<CallRequirement>,
     pub classifications: HashMap<ConcreteFunctionIdentity, BodyClassification>,
 }
 
-/// Capture protected bodies before simplification. This does not grant a verifier seal.
+/// Capture executable bodies before simplification. This does not grant a verifier seal.
 pub fn build(
     modules: &[BytecodeModule],
     inputs: EvidenceInputs,
@@ -62,7 +62,7 @@ pub fn build(
         source_manifest: None,
         sources: inputs.sources,
         bodies: vec![],
-        roots: inputs.roots,
+        initializers: inputs.initializers,
         targets: vec![],
         selections: inputs.selections,
     };
@@ -94,20 +94,20 @@ pub fn build(
     }
     // Associate named/static recipes without rescanning every unused template.
     let mut source_indices = HashMap::new();
-    let mut dependencies = Vec::new();
+    let mut source_bodies = Vec::new();
     for (index, source) in evidence.sources.iter().enumerate() {
         budget.visit()?;
-        if source.dependencies.len() > MAX_NESTED
+        if source.bodies.len() > MAX_NESTED
             || source_indices.insert(source.declaration, index).is_some()
         {
             return Err(UpdateError::InvalidEvidence);
         }
         let mut seen = HashSet::new();
-        for dependency in &source.dependencies {
+        for body in &source.bodies {
             budget.visit()?;
-            seen.insert(dependency.clone());
+            seen.insert(body.clone());
         }
-        dependencies.push(seen);
+        source_bodies.push(seen);
     }
     for body in &evidence.bodies {
         budget.visit()?;
@@ -117,12 +117,12 @@ pub fn build(
             _ => None,
         };
         if let Some(index) = source.and_then(|id| source_indices.get(&id)).copied() {
-            let dependency = Dependency::Body(body.requirement.origin.clone());
-            if dependencies[index].insert(dependency.clone()) {
-                if evidence.sources[index].dependencies.len() >= MAX_NESTED {
+            let origin = body.requirement.origin.clone();
+            if source_bodies[index].insert(origin.clone()) {
+                if evidence.sources[index].bodies.len() >= MAX_NESTED {
                     return Err(UpdateError::LimitExceeded);
                 }
-                evidence.sources[index].dependencies.push(dependency);
+                evidence.sources[index].bodies.push(origin);
             }
         }
     }
@@ -189,22 +189,13 @@ pub(crate) fn verify(
         };
         if let Some(id) = source {
             let source = sources.get(&id).ok_or(UpdateError::InvalidEvidence)?;
-            if !source
-                .dependencies
-                .contains(&Dependency::Body(body.requirement.origin.clone()))
-            {
+            if !source.bodies.contains(&body.requirement.origin) {
                 return Err(UpdateError::InvalidEvidence);
             }
         }
     }
     for (declared, actual) in evidence.bodies.iter().zip(&actual) {
         admission::validate_executable_edges(declared, actual, &mut budget)?;
-        for dependency in &actual.dependencies {
-            budget.visit()?;
-            if !declared.dependencies.contains(dependency) {
-                return Err(UpdateError::InvalidEvidence);
-            }
-        }
     }
     admission::validate_semantics(
         evidence,

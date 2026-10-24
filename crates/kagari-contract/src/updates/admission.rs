@@ -5,7 +5,7 @@ use crate::{
     types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
     updates::{
         BodyClassification, BodyRecord, CallRequirement, CanonicalOperand, CurrentTarget,
-        Dependency, ProtectedRoot, RootKind, UpdateEvidence,
+        StaticInitializer, UpdateEvidence,
         limits::{Budget, MAX_APPLICATIONS, MAX_NESTED, UpdateError},
         wire::UpdateEvidenceRecord,
     },
@@ -23,7 +23,7 @@ pub struct Inventory<'a> {
     pub sources: &'a [DefinitionId],
     pub bodies: &'a [ConcreteFunctionIdentity],
     pub targets: &'a [CurrentTarget],
-    pub roots: &'a [ProtectedRoot],
+    pub initializers: &'a [StaticInitializer],
     pub selections: &'a [CallRequirement],
 }
 
@@ -68,7 +68,7 @@ pub fn validate_inventory(
     if !bodies.is_empty()
         || evidence.bodies.len() != inventory.bodies.len()
         || evidence.targets != inventory.targets
-        || evidence.roots != inventory.roots
+        || evidence.initializers != inventory.initializers
         || evidence.selections != inventory.selections
     {
         return Err(UpdateError::InvalidEvidence);
@@ -218,7 +218,7 @@ pub(crate) fn validate_shape(
         budget.visit()?;
         nested(source.inputs.len())?;
         nested(source.calls.len())?;
-        nested(source.dependencies.len())?;
+        nested(source.bodies.len())?;
         for operand in &source.inputs {
             operand_valid(operand, source.calls.len())?;
         }
@@ -231,7 +231,6 @@ pub(crate) fn validate_shape(
         }
         nested(body.captures.len())?;
         nested(body.requirement.calls.len())?;
-        nested(body.dependencies.len())?;
         nested(body.signature.params.len())?;
         if let Some(generic) = &body.requirement.generic {
             nested(generic.parameters.len())?;
@@ -271,44 +270,59 @@ pub(crate) fn validate_shape(
     if source_ids.len() != evidence.sources.len() {
         return Err(UpdateError::InvalidEvidence);
     }
-    for dependencies in evidence
-        .sources
-        .iter()
-        .map(|source| &source.dependencies)
-        .chain(evidence.bodies.iter().map(|body| &body.dependencies))
-        .chain(evidence.roots.iter().map(|root| &root.dependencies))
-    {
-        nested(dependencies.len())?;
-        for dependency in dependencies {
+    let mut owners = HashMap::new();
+    for source in &evidence.sources {
+        for body in &source.bodies {
             budget.visit()?;
-            match dependency {
-                Dependency::Source(id) if !source_ids.contains_key(id) => {
-                    return Err(UpdateError::InvalidEvidence);
-                }
-                Dependency::Body(id) if !body_ids.contains_key(id) => {
-                    return Err(UpdateError::MissingBody(id.clone()));
-                }
-                _ => {}
+            if !body_ids.contains_key(body) {
+                return Err(UpdateError::MissingBody(body.clone()));
+            }
+            if owners.insert(body, source.declaration).is_some() {
+                return Err(UpdateError::InvalidEvidence);
             }
         }
     }
-    let mut roots = HashSet::new();
-    for root in &evidence.roots {
+    let mut initializers = HashSet::new();
+    for initializer in &evidence.initializers {
         budget.visit()?;
-        nested(root.selections.len())?;
-        if root.kind == RootKind::StaticInitializer
-            && (!root
-                .dependencies
-                .contains(&Dependency::Source(root.declaration.declaration))
-                || source_ids
-                    .get(&root.declaration.declaration)
-                    .is_none_or(|source| source.tokens.is_empty()))
+        if !initializers.insert(initializer.declaration)
+            || source_ids
+                .get(&initializer.declaration)
+                .is_none_or(|source| source.tokens.is_empty())
         {
             return Err(UpdateError::InvalidEvidence);
         }
-        if root.dependencies.is_empty() || !roots.insert((&root.declaration, root.kind)) {
-            return Err(UpdateError::InvalidEvidence);
+    }
+    let mut recipes = HashSet::new();
+    for body in &evidence.bodies {
+        budget.visit()?;
+        match &body.classification {
+            BodyClassification::StaticInitializer(declaration) => {
+                if !initializers.contains(declaration)
+                    || owners.get(&body.requirement.origin) != Some(declaration)
+                {
+                    return Err(UpdateError::InvalidEvidence);
+                }
+                recipes.insert(*declaration);
+            }
+            BodyClassification::Closure(parent)
+            | BodyClassification::Async(parent)
+            | BodyClassification::Resume(parent)
+            | BodyClassification::Adapter(parent) => {
+                if !body_ids.contains_key(parent) {
+                    return Err(UpdateError::MissingBody(parent.clone()));
+                }
+                if let Some(owner) = owners.get(&body.requirement.origin)
+                    && owners.get(parent) != Some(owner)
+                {
+                    return Err(UpdateError::InvalidEvidence);
+                }
+            }
+            BodyClassification::Named(_) | BodyClassification::IntrinsicAdapter(_) => {}
         }
+    }
+    if recipes != initializers {
+        return Err(UpdateError::InvalidEvidence);
     }
     Ok(())
 }

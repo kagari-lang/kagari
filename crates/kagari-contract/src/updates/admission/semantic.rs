@@ -66,11 +66,7 @@ pub(super) fn validate<'a>(
     for call in &evidence.selections {
         validator.call(call, &Scope::new(None), budget)?;
     }
-    for root in &evidence.roots {
-        for call in &root.selections {
-            validator.call(call, &Scope::new(None), budget)?;
-        }
-    }
+
     Ok(())
 }
 

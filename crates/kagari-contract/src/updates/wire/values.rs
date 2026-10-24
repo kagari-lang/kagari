@@ -16,7 +16,7 @@ use crate::{
     source::{manifest::SourceManifest, wire::SourceManifestRecord},
     types::{ConcreteFunctionIdentity, wire::module::ConcreteFunctionIdentityRecord},
     updates::{
-        RootKind, UnknownDependency, UnknownReason,
+        UnknownReason,
         limits::{Budget, MAX_RECORDS, UpdateError},
     },
 };
@@ -106,17 +106,7 @@ macro_rules! plain {
     )* };
 }
 
-plain!(
-    u8,
-    u32,
-    u64,
-    i64,
-    String,
-    FunctionRef,
-    RootKind,
-    UnknownReason,
-    UnknownDependency
-);
+plain!(u8, u32, u64, i64, String, FunctionRef, UnknownReason);
 
 impl WireValue for DefinitionId {
     type Record = PortableDefinitionRef;

@@ -13,7 +13,6 @@ use crate::{
         binding::NativeResult,
         context::{LinkedCallable, LinkedOperation},
         payload::{data::NativeData, managed::ManagedSchema, take::NativeTake},
-        sequence::SequencePayload,
         storage_type::StorageType,
         stored_selection::StoredSelection,
     },
@@ -316,34 +315,6 @@ impl NativeStorage {
         self.object(heap, ty, Box::new(payload), owner)
     }
 
-    /// Standard sequence storage exposes its finite immediate payload directly,
-    /// so admission can stop on cancellation instead of invoking an uninterruptible
-    /// arbitrary NativePayload::trace implementation.
-    pub(crate) fn prepare_sequence_payload(
-        &self,
-        heap: &GcHeap,
-        ty: &Ty,
-        payload: SequencePayload,
-        owner: &ExecutableModule,
-        poll: &mut dyn FnMut() -> NativeResult<()>,
-    ) -> NativeResult<NativeObject> {
-        poll()?;
-        if self.entries.rust_type != TypeId::of::<SequencePayload>() {
-            return Err(RuntimeError::module_validation(
-                "native sequence payload type mismatch",
-            ));
-        }
-        for value in payload.values.traced() {
-            poll()?;
-            if !value.is_default_heap_payload(heap) || !heap.validate_value(value) {
-                return Err(RuntimeError::module_validation(
-                    "native sequence retained an invalid script value",
-                ));
-            }
-        }
-        self.finish_object(ty, Box::new(payload), owner)
-    }
-
     fn object(
         &self,
         heap: &GcHeap,
@@ -360,15 +331,6 @@ impl NativeStorage {
                 "native factory retained an invalid script value",
             ));
         }
-        self.finish_object(ty, payload, owner)
-    }
-
-    fn finish_object(
-        &self,
-        ty: &Ty,
-        payload: Box<dyn Any + Send>,
-        owner: &ExecutableModule,
-    ) -> NativeResult<NativeObject> {
         let charge = (self.entries.charge)(payload.as_ref())?
             .with_shallow_bytes(size_of_val(payload.as_ref()))?;
         Ok(NativeObject {

@@ -106,8 +106,11 @@ fallback to the current entry; it does not authorize reuse of mismatched native 
 This scalar publication fixture uses a finite, independently checked declaration
 environment with no native declarations. It still goes through checked analysis,
 preparation, artifact verification and normal publication validation. It does not
-bypass or establish update support under the standard foundation's protected
-`Unknown` dependencies; the focused source-update tests retain that rejection case.
+establish default-Engine or custom-key callback coverage by itself. Validation of
+normal standard-foundation body updates, local static-initializer comparison and
+current host/script Hash/Eq calls belongs to the focused checks recorded in the
+[roadmap](../implementation-roadmap.md#host-api-and-update-execution); a global
+`Unknown` body freeze is not part of the publication contract.
 
 R02 acceptance evidence (run the shared command above):
 

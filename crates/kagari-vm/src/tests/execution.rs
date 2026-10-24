@@ -352,20 +352,28 @@ fn interface_program(
             });
             classifications.insert(identity, BodyClassification::Named(declaration));
         }
-        sources.extend(module.named_declarations.iter().map(|record| SourceRecord {
-            declaration: record.declaration,
-            generic: None,
-            tokens: vec![],
-            inputs: vec![],
-            calls: vec![],
-            dependencies: vec![],
+        sources.extend(module.named_declarations.iter().map(|record| {
+            SourceRecord {
+                declaration: record.declaration,
+                generic: None,
+                tokens: vec![],
+                inputs: vec![],
+                calls: vec![],
+                bodies: module
+                    .functions
+                    .iter()
+                    .filter_map(|function| function.identity.as_ref())
+                    .filter(|identity| identity.declaration == record.declaration)
+                    .cloned()
+                    .collect(),
+            }
         }));
     }
     let update_evidence = updates::build(
         &modules,
         EvidenceInputs {
             sources,
-            roots: vec![],
+            initializers: vec![],
             selections: vec![],
             classifications,
         },

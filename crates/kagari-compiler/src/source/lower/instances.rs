@@ -234,6 +234,8 @@ pub(super) struct InstancePlanner<'a> {
     keys: HashMap<InstanceKey, InstanceId>,
     // One receiving identity per authored local declaration for this planner.
     local_function_placements: HashMap<DefinitionId, DefinitionId>,
+    // Shared by all generated descendants of one initializer in this planner.
+    static_lexical_tokens: HashMap<(ModuleHandle, StaticId), Vec<Span>>,
     generic_count: usize,
     operation_depth: usize,
     interfaces: HashSet<(DefinitionId, Vec<TypeId>)>,
@@ -340,6 +342,7 @@ impl<'a> InstancePlanner<'a> {
             native_targets: Vec::new(),
             keys: HashMap::new(),
             local_function_placements: HashMap::new(),
+            static_lexical_tokens: HashMap::new(),
             generic_count: 0,
             operation_depth: 0,
             interfaces: Default::default(),
@@ -981,12 +984,15 @@ impl<'a> InstancePlanner<'a> {
         span: Span,
     ) -> Result<InstanceId, MirLoweringError> {
         self.check()?;
+        let position = self
+            .static_lexical_position(parent, span)?
+            .map_or(closure.index(), |position| position as usize);
         let declaration = self
             .context
             .intern_child(
                 parent.key.declaration,
                 DefinitionKind::Function,
-                &format!("closure_{}", closure.index()),
+                &format!("closure_{position}"),
                 0,
             )
             .map_err(DefinitionMappingError::from)?;

@@ -62,12 +62,14 @@ identity remain mandatory; business-state coordination belongs to the host.
 Live `Program`/`Module` handles identify an installation; exact `ExecutableModule`
 owners retain selected code. Named function values and typed `Function` bindings
 follow current implementations without retaining obsolete executable leases.
-Persistent statics are preserved, and protected Hash/Eq and static-initializer
-transitive dependencies restrict compatible changes independently of live values.
-Unknown protected dependencies conservatively freeze the installation inventory:
-even a simple engine-prepared body patch can reject with the standard foundation.
-This is a deliberate safety restriction, not a promise that every standard-library
-program is currently updatable. Publication never resets or implicitly migrates state.
+Persistent static states and original initializer recipes are preserved. Existing
+direct initializer expressions and checked bindings remain fixed, ignoring trivia;
+ordinary called helpers may change and select current implementations. Hash/Eq bodies
+also support normal hot updates: users own stable key semantics, with no automatic
+rehash or pinned old protocol execution. Frozen declaration/type/layout contracts,
+independent executable validation, retained demands and engine memory/GC/borrow
+safety remain mandatory; no transitive or global `Unknown` body freeze applies.
+Publication never resets or implicitly migrates state.
 
 Verified MIR supplies interpreter/native lowering facts. Serialized programs are
 bounded and validated before execution, without a source frontend. Backends share
@@ -102,8 +104,10 @@ Borrowed `Call` drives its invocation without a separate pump; submitted `Pendin
 receives results while the host drives Runtime separately. Managed Tasks can continue
 under that external driver after a handler returns. See the
 [embedding contract](spec/embedding-api.md#typed-async-calls-scheduling-and-native-waits).
-Package distribution, explicit state replacement and broader async composition
-remain separate work. [Public-path binding](spec/embedding-api.md#installed-programs-and-public-paths)
+Package distribution and broader async composition remain separate work. The
+update scope is compatible code publication, not a state snapshot, migration or
+Actor state-replacement framework; ordinary Serde value conversion remains available.
+[Public-path binding](spec/embedding-api.md#installed-programs-and-public-paths)
 is module-relative; generic declaration discovery for source updates still requires
 separate executable evidence for typed calls, never runtime specialization.
 

@@ -42,8 +42,10 @@ The public ABI describes a static's declaration identity, type and access contra
 not its initializer expression, source position or live value. Exact artifact
 identity still covers the initializer code. A changed initializer can produce a
 valid fresh-installation artifact, but compatible publication rejects changes to an
-existing protected initializer/dependency closure and never replaces its fixed
-recipe. Private statics and the recursive applied schema remain independently
+existing direct initializer expression, checked direct bindings and locally owned
+recipe bodies, ignoring trivia. Ordinary called helper bodies may change; the cold
+cell retains its original recipe and ordinary calls select current implementations.
+Private statics and the recursive applied schema remain independently
 checked by [reload compatibility](module-activation.md#static-publication-compatibility).
 
 Loading an artifact into a fresh installation creates fresh Uninitialized cells.
@@ -51,7 +53,7 @@ Compatible publication binds existing declarations to existing cells and gives
 only new declarations new cells. The artifact contains no Ready values, Failed
 state, active initialization stack or heap snapshot. Persistent static storage
 means in-memory installation continuity, not disk persistence, process recovery
-or the proposed [explicit state replacement](../update-model-design.md#state-replacement-boundary).
+or state snapshot/restore.
 This unpublished schema uses the identifiers below without an old-schema reader.
 
 ## Current executable contract
@@ -594,8 +596,10 @@ text. Runtime snapshots retain source metadata without executable leases; see th
 Reload candidates may come from `.kbc` artifacts.
 
 The reload validator compares verified frozen declarations, retained applications,
-protected transitive dependencies and runtime bindings against the installation's
-current publication. Admission is independent of source availability and heap
+local static-initializer facts and runtime bindings against the installation's
+current publication. Explicit authored body provenance identifies recipe ownership;
+independent executable validation remains mandatory, without a transitive Hash/Eq
+or helper-body freeze. Admission is independent of source availability and heap
 liveness. Publication requires the [host-top-level boundary](module-activation.md#publication-boundary).
 Failed artifact reload does not replace current code or state. A successful
 low-level publication without an SDK compilation capsule makes subsequent source

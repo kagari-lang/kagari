@@ -109,7 +109,7 @@ fn main() {}
         source_manifest: None,
         sources: vec![],
         bodies: vec![],
-        roots: vec![],
+        initializers: vec![],
         targets: vec![],
         selections: vec![],
     };

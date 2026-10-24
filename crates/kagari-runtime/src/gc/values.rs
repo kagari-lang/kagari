@@ -41,33 +41,17 @@ impl GcHeap {
 
     /// Construct immutable membership; updates publish another tuple sharing its members.
     pub fn alloc_tuple(&self, members: Vec<Value>) -> Result<Value, RuntimeError> {
-        self.alloc_tuple_with_poll(members, &mut || Ok(()))
-    }
-
-    pub(crate) fn alloc_tuple_with_poll(
-        &self,
-        members: Vec<Value>,
-        poll: &mut dyn FnMut() -> Result<(), RuntimeError>,
-    ) -> Result<Value, RuntimeError> {
         self.ensure_execution_allowed()?;
-        poll()?;
-        // Immutable membership makes these construction-time facts stable. Check
-        // all immediate edges in one pollable pass; nested tuples carry the same
-        // already-validated properties, not a recursively rescanned value tree.
-        let mut properties = TupleProperties {
-            storable: true,
-            ephemeral: false,
-            host_borrow: false,
-        };
-        for value in &members {
-            poll()?;
-            if !self.validate_value(value) {
-                return Err(RuntimeError::module_validation("invalid tuple member"));
-            }
-            properties.storable &= value.is_storable(self);
-            properties.ephemeral |= value.contains_ephemeral(self);
-            properties.host_borrow |= value.contains_host_borrow(self);
+        if !members.iter().all(|value| self.validate_value(value)) {
+            return Err(RuntimeError::module_validation("invalid tuple member"));
         }
+        // Immutable membership makes these construction-time facts stable. They
+        // avoid revisiting a shared aggregate graph on every publication check.
+        let properties = TupleProperties {
+            storable: members.iter().all(|value| value.is_storable(self)),
+            ephemeral: members.iter().any(|value| value.contains_ephemeral(self)),
+            host_borrow: members.iter().any(|value| value.contains_host_borrow(self)),
+        };
         self.alloc_object(HeapObject::Tuple(TupleData {
             members,
             properties,

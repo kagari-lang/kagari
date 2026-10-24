@@ -211,7 +211,7 @@ impl SharedFixture {
             source_manifest: None,
             sources: vec![],
             bodies,
-            roots: vec![],
+            initializers: vec![],
             targets,
             selections: vec![],
         }

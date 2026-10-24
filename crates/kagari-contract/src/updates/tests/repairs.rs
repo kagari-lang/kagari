@@ -47,16 +47,17 @@ fn actual_arithmetic_and_call_index_meaning_are_independently_checked() {
         validate_executable_edges(&declared, &extracted, &mut f.budget()),
         Err(UpdateError::InvalidEvidence)
     );
-    let old = f.evidence();
+    let old = f.initializer_evidence();
     let mut candidate = old.clone();
-    candidate.bodies[1].actual_instructions[0].opcode = 99;
+    candidate.bodies[0].actual_instructions[0].opcode = 99;
+    assert_eq!(old.sources, candidate.sources);
     assert!(matches!(
-        compare_protected(&old, &candidate, &mut f.budget()),
-        Err(UpdateError::ProtectedChange { .. })
+        compare_initializers(&old, &candidate, &mut f.budget()),
+        Err(UpdateError::InitializerChange { .. })
     ));
     let mut candidate = old.clone();
-    candidate.bodies[1].actual_format += 1;
-    assert!(compare_protected(&old, &candidate, &mut f.budget()).is_err());
+    candidate.bodies[0].actual_format += 1;
+    assert!(compare_initializers(&old, &candidate, &mut f.budget()).is_err());
 }
 
 #[test]
@@ -205,7 +206,7 @@ fn one_walker_batches_all_missing_products_then_strictly_revalidates() {
 }
 
 #[test]
-fn unknown_preserves_uncalled_published_targets_and_never_claims_protected_closure() {
+fn unknown_preserves_uncalled_published_targets_without_freezing_bodies() {
     let f = Fixture::new();
     let mut old = f.evidence();
     old.bodies[2].requirement.calls = vec![CallRequirement::Unknown(UnknownReason::FunctionValue)];
@@ -233,18 +234,37 @@ fn unknown_preserves_uncalled_published_targets_and_never_claims_protected_closu
         .functions,
         [missing]
     );
-    old.roots[0]
-        .selections
-        .push(CallRequirement::Unknown(UnknownReason::NativeReentry));
     let mut candidate = old.clone();
-    candidate.bodies.push(f.body("added", vec![]));
-    assert!(matches!(
-        compare_protected(&old, &candidate, &mut f.budget()),
-        Err(UpdateError::ProtectedChange {
-            unknown_edge: Some(_),
-            ..
-        })
-    ));
+    candidate.bodies[0].actual_instructions[0].opcode = 99;
+    let added = f.body("added", vec![]);
+    let added_identity = added.requirement.origin.clone();
+    candidate.targets.push(CurrentTarget {
+        application: added_identity.clone(),
+        body: added_identity.clone(),
+        module: 0,
+        function: FunctionRef::new(candidate.bodies.len()),
+    });
+    candidate.bodies.push(added);
+    compare_initializers(&old, &candidate, &mut f.budget()).unwrap();
+    assert_eq!(
+        check_coverage(
+            &history,
+            &coverage(&candidate),
+            &f.catalog(),
+            &mut f.budget(),
+        ),
+        Err(UpdateError::MissingBody(added_identity)),
+    );
+    let published = publication_demands(&candidate, &mut f.budget()).unwrap();
+    let demands =
+        union_demands(&history, &published, &f.context.snapshot(), &mut f.budget()).unwrap();
+    check_coverage(
+        &demands,
+        &coverage(&candidate),
+        &f.catalog(),
+        &mut f.budget(),
+    )
+    .unwrap();
 }
 
 #[test]
@@ -335,6 +355,62 @@ fn checked_shared_native_registration_and_unknown_callbacks_are_supported() {
     assert_eq!(
         check_coverage(&envelope, &coverage(&candidate), &catalog, &mut f.budget()),
         Err(UpdateError::MissingNative(native.instance.clone()))
+    );
+    assert_eq!(
+        expand_requests(&envelope, &coverage(&candidate), &catalog, &mut f.budget()).unwrap(),
+        DemandRequests {
+            functions: vec![native.instance.clone()],
+            ..Default::default()
+        },
+    );
+    let invalid_natives = [NativeClosure {
+        import: &invalid,
+        callbacks: None,
+    }];
+    available.natives = &invalid_natives;
+    assert_eq!(
+        expand_requests(&envelope, &available, &catalog, &mut f.budget()),
+        Err(UpdateError::InvalidEvidence),
+    );
+
+    // A retained concrete import must be requested even when current source only
+    // calls a different application. Supplying the request never proves coverage.
+    let mut concrete = native.clone();
+    concrete.generic = None;
+    concrete.instance.arguments = vec![Ty::Builtin(BuiltinType::I32)];
+    let mut retained = publication_demands(&candidate, &mut f.budget()).unwrap();
+    retained
+        .requirements
+        .push(CallRequirement::Native(Box::new(concrete.clone())));
+    let mut available = coverage(&candidate);
+    available.natives = &natives;
+    assert_eq!(
+        check_coverage(&retained, &available, &catalog, &mut f.budget()),
+        Err(UpdateError::MissingNative(concrete.instance.clone())),
+    );
+    assert_eq!(
+        expand_requests(&retained, &available, &catalog, &mut f.budget()).unwrap(),
+        DemandRequests {
+            functions: vec![concrete.instance.clone()],
+            ..Default::default()
+        },
+    );
+    let supplied = [
+        NativeClosure {
+            import: &native,
+            callbacks: None,
+        },
+        NativeClosure {
+            import: &concrete,
+            callbacks: None,
+        },
+    ];
+    available.natives = &supplied;
+    check_coverage(&retained, &available, &catalog, &mut f.budget()).unwrap();
+    assert!(
+        expand_requests(&retained, &available, &catalog, &mut f.budget())
+            .unwrap()
+            .is_empty()
     );
 }
 

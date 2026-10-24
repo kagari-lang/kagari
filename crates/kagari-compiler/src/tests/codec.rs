@@ -166,7 +166,7 @@ fn codec_rejects_old_versions_trailing_data_truncation_and_cancelled_work() {
                 source_manifest: None,
                 sources: vec![],
                 bodies: vec![],
-                roots: vec![],
+                initializers: vec![],
                 targets: vec![],
                 selections: vec![],
             },

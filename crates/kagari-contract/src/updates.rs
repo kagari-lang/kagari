@@ -1,7 +1,7 @@
 //! Bounded publication evidence, independent of source analysis and executable storage.
 //!
-//! Producers supply complete source templates (including unused declarations), pre-
-//! simplification canonical bodies, and checked selections. Executable verifiers must
+//! Producers supply complete authored provenance, canonical static initializer facts,
+//! pre-simplification canonical bodies, and checked selections. Executable verifiers must
 //! reconcile these records with their own inventory and surviving instructions; wire
 //! records never certify their own completeness. Import publications and retained
 //! demands through one `DeclarationCorrespondence` before comparing them.
@@ -9,9 +9,9 @@
 pub mod admission;
 pub mod correspondence;
 pub mod demands;
+pub mod initializers;
 pub mod limits;
 mod mapping;
-pub mod protected;
 #[doc(hidden)]
 pub mod wire;
 
@@ -41,15 +41,17 @@ pub struct UpdateEvidence {
     pub source_manifest: Option<SourceManifest>,
     pub sources: Vec<SourceRecord>,
     pub bodies: Vec<BodyRecord>,
-    pub roots: Vec<ProtectedRoot>,
+    pub initializers: Vec<StaticInitializer>,
     pub targets: Vec<CurrentTarget>,
     /// Complete checked selection relationships, including otherwise unused ones.
     pub selections: Vec<CallRequirement>,
 }
 
-/// Canonical checked source, not source locations or a text hash. For `static X =
-/// f(1 + 2)`, tokens retain `1`, `+`, `2` separately; inputs retain f's resolved ID
-/// and checked constants/types. Whitespace/comments are omitted by the collector.
+/// Authored executable provenance and local static initializer facts.
+/// For `static X = f(1 + 2)`, tokens retain `1`, `+`, `2` separately; inputs retain
+/// f's resolved ID and checked constants/types, not f's implementation. The collector
+/// omits whitespace/comments. Ordinary declarations leave generic/tokens/inputs/calls
+/// empty; their bodies still identify all executable applications they authored.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceRecord {
     pub declaration: DefinitionId,
@@ -57,7 +59,7 @@ pub struct SourceRecord {
     pub tokens: Vec<SourceToken>,
     pub inputs: Vec<CanonicalOperand>,
     pub calls: Vec<CallRequirement>,
-    pub dependencies: Vec<Dependency>,
+    pub bodies: Vec<ConcreteFunctionIdentity>,
 }
 
 /// Token kind belongs to the collector's stable token vocabulary; payload is exact.
@@ -105,7 +107,6 @@ pub struct BodyRecord {
     /// simplification/lowering changes the canonical executable representation.
     pub actual_format: u32,
     pub actual_instructions: Vec<CanonicalInstruction>,
-    pub dependencies: Vec<Dependency>,
 }
 
 /// Historical body edges survive replacement without retaining executable leases.
@@ -162,37 +163,15 @@ pub enum UnknownReason {
     NativeReentry,
 }
 
-/// Source edges preserve inputs erased by optimization. Body edges are exact
-/// origins; calls separately describe current-call and retained-body semantics.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Dependency {
-    Source(DefinitionId),
-    Body(ConcreteFunctionIdentity),
-    Unknown(UnknownDependency),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct UnknownDependency {
-    /// Local edge number, used to report the unknown cause within the root closure.
-    pub edge: u32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum RootKind {
-    KeyHash,
-    KeyEq,
-    StaticInitializer,
-}
-
+/// Independently inventoried static declaration whose local initializer is immutable.
+/// Source facts and executable ownership live in `sources` and body classifications;
+/// ordinary callees are not part of the initializer's owned computation.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProtectedRoot {
-    pub declaration: ConcreteFunctionIdentity,
-    pub kind: RootKind,
-    pub dependencies: Vec<Dependency>,
-    pub selections: Vec<CallRequirement>,
+pub struct StaticInitializer {
+    pub declaration: DefinitionId,
 }
 
-/// Placement is publication-local and is deliberately excluded from protected body
+/// Placement is publication-local and is deliberately excluded from initializer body
 /// equality. The referenced body owns its signature/binder/capture contract.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CurrentTarget {
@@ -217,6 +196,7 @@ pub struct DemandEnvelope {
 /// these records support the existing importer for the return trip to compiler IDs.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct DemandRequests {
+    /// Script targets or native import applications, prepared by the function planner.
     pub functions: Vec<ConcreteFunctionIdentity>,
     /// Exact shared entry plus checked binder arguments; not a monomorphization.
     pub shared: Vec<BodyApplication>,

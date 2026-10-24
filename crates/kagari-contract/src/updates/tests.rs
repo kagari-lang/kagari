@@ -1,4 +1,5 @@
 mod correspondence;
+mod initializers;
 mod native;
 mod repairs;
 mod shared;
@@ -19,8 +20,8 @@ use crate::{
             Coverage, NativeClosure, check_coverage, expand_requests, publication_demands,
             union_demands,
         },
+        initializers::compare_initializers,
         limits::{Budget, Limits, UpdateError},
-        protected::compare_protected,
         wire::UpdateEvidenceRecord,
         *,
     },
@@ -93,7 +94,6 @@ impl Fixture {
                 opcode: 1,
                 operands: vec![CanonicalOperand::Signed(1)],
             }],
-            dependencies: vec![],
         }
     }
 
@@ -110,21 +110,10 @@ impl Fixture {
         let sources = vec![SourceRecord {
             declaration: hash.requirement.origin.declaration,
             generic: None,
-            tokens: vec![SourceToken {
-                kind: 1,
-                text: "helper".into(),
-            }],
-            inputs: vec![CanonicalOperand::Declaration(
-                helper.requirement.origin.declaration,
-            )],
+            tokens: vec![],
+            inputs: vec![],
             calls: vec![],
-            dependencies: vec![Dependency::Body(hash.requirement.origin.clone())],
-        }];
-        let roots = vec![ProtectedRoot {
-            declaration: hash.requirement.origin.clone(),
-            kind: RootKind::KeyHash,
-            dependencies: vec![Dependency::Source(hash.requirement.origin.declaration)],
-            selections: vec![],
+            bodies: vec![hash.requirement.origin.clone()],
         }];
         let bodies = vec![hash, helper, handler];
         let targets = bodies
@@ -141,10 +130,28 @@ impl Fixture {
             source_manifest: None,
             sources,
             bodies,
-            roots,
+            initializers: vec![],
             targets,
             selections: vec![],
         }
+    }
+
+    fn initializer_evidence(&self) -> UpdateEvidence {
+        let mut evidence = self.evidence();
+        let declaration = evidence.sources[0].declaration;
+        evidence
+            .initializers
+            .push(StaticInitializer { declaration });
+        evidence.sources[0].tokens = vec![SourceToken {
+            kind: 1,
+            text: "helper".into(),
+        }];
+        evidence.sources[0].inputs = vec![CanonicalOperand::Declaration(
+            self.identity("helper").declaration,
+        )];
+        evidence.bodies[0].classification = BodyClassification::StaticInitializer(declaration);
+        evidence.targets.remove(0);
+        evidence
     }
 
     fn catalog(&self) -> ProofCatalog<'static> {
@@ -167,31 +174,28 @@ fn coverage(evidence: &UpdateEvidence) -> Coverage<'_> {
 }
 
 #[test]
-fn transitive_helper_and_arithmetic_are_frozen_but_unrelated_code_is_not() {
+fn initializer_references_stay_fixed_but_ordinary_callees_can_change() {
     let f = Fixture::new();
-    let old = f.evidence();
+    let mut old = f.initializer_evidence();
+    old.bodies[1]
+        .requirement
+        .calls
+        .push(CallRequirement::Direct(f.identity("handler")));
     let mut candidate = old.clone();
     candidate.bodies[2].instructions[0].opcode = 2;
-    compare_protected(&old, &candidate, &mut f.budget()).unwrap();
     candidate.bodies[1].instructions[0].opcode = 3;
-    assert!(matches!(
-        compare_protected(&old, &candidate, &mut f.budget()),
-        Err(UpdateError::ProtectedChange { .. })
-    ));
-    assert_eq!(
-        old.bodies[1].requirement.calls,
-        candidate.bodies[1].requirement.calls
-    );
-    candidate = old.clone();
+    compare_initializers(&old, &candidate, &mut f.budget()).unwrap();
     candidate.sources[0].inputs[0] = CanonicalOperand::Declaration(f.identity("other").declaration);
-    assert!(compare_protected(&old, &candidate, &mut f.budget()).is_err());
+    assert!(matches!(
+        compare_initializers(&old, &candidate, &mut f.budget()),
+        Err(UpdateError::InitializerChange { .. })
+    ));
 }
 
 #[test]
 fn initializer_tokens_remain_frozen_even_when_instructions_are_identical() {
     let f = Fixture::new();
-    let mut old = f.evidence();
-    old.roots[0].kind = RootKind::StaticInitializer;
+    let mut old = f.initializer_evidence();
     old.sources[0].tokens = vec![
         SourceToken {
             kind: 2,
@@ -212,35 +216,26 @@ fn initializer_tokens_remain_frozen_even_when_instructions_are_identical() {
         text: "3".into(),
     }];
     assert_eq!(old.bodies, candidate.bodies);
-    assert!(compare_protected(&old, &candidate, &mut f.budget()).is_err());
+    assert!(compare_initializers(&old, &candidate, &mut f.budget()).is_err());
 }
 
 #[test]
-fn unknown_freezes_additions_unrelated_bodies_and_selections_not_slots() {
+fn unknown_calls_do_not_freeze_unrelated_code_inventory_or_placement() {
     let f = Fixture::new();
-    let mut old = f.evidence();
-    old.bodies[0]
-        .dependencies
-        .push(Dependency::Unknown(UnknownDependency { edge: 7 }));
+    let mut old = f.initializer_evidence();
+    old.bodies[0].requirement.calls.extend([
+        CallRequirement::Unknown(UnknownReason::FunctionValue),
+        CallRequirement::Unknown(UnknownReason::InterfaceDispatch),
+        CallRequirement::Unknown(UnknownReason::NativeReentry),
+    ]);
     let mut candidate = old.clone();
     candidate.targets[0].function = FunctionRef::new(9);
-    compare_protected(&old, &candidate, &mut f.budget()).unwrap();
     candidate.bodies[2].instructions[0].opcode = 9;
-    assert!(matches!(
-        compare_protected(&old, &candidate, &mut f.budget()),
-        Err(UpdateError::ProtectedChange {
-            unknown_edge: Some(7),
-            ..
-        })
-    ));
-    candidate = old.clone();
     candidate.bodies.push(f.body("added", vec![]));
-    assert!(compare_protected(&old, &candidate, &mut f.budget()).is_err());
-    candidate = old.clone();
     candidate
         .selections
         .push(CallRequirement::Layout(Ty::Builtin(BuiltinType::I32)));
-    assert!(compare_protected(&old, &candidate, &mut f.budget()).is_err());
+    compare_initializers(&old, &candidate, &mut f.budget()).unwrap();
 }
 
 #[test]
@@ -261,7 +256,7 @@ fn missing_unused_body_is_not_an_empty_certificate() {
         sources: &sources,
         bodies: &bodies,
         targets: &old.targets,
-        roots: &old.roots,
+        initializers: &old.initializers,
         selections: &old.selections,
     };
     validate_inventory(&old, &inventory, &f.context.snapshot(), &mut f.budget()).unwrap();
@@ -305,7 +300,6 @@ fn old_only_demand_requires_candidate_specialization_and_union_keeps_old_edges()
 fn substitution_closes_old_shared_body_calls_without_compiling() {
     let f = Fixture::new();
     let mut candidate = f.evidence();
-    candidate.roots.clear();
     let mut shared = f.body("shared", vec![]);
     let parameter = GenericParam {
         owner: shared.requirement.origin.declaration,
@@ -361,7 +355,7 @@ fn substitution_closes_old_shared_body_calls_without_compiling() {
 #[test]
 fn bounded_wire_roundtrip_and_correspondence_do_not_depend_on_process_ids() {
     let f = Fixture::new();
-    let original = f.evidence();
+    let original = f.initializer_evidence();
     let mut references = vec![];
     original
         .visit_definition_ids(
@@ -390,7 +384,7 @@ fn bounded_wire_roundtrip_and_correspondence_do_not_depend_on_process_ids() {
         .import(&decoded, [], &decoding.table, &f.cancel)
         .unwrap();
     assert_eq!(old.records(), new.records());
-    compare_protected(old.records(), new.records(), &mut f.budget()).unwrap();
+    compare_initializers(old.records(), new.records(), &mut f.budget()).unwrap();
     let invalid = u64::MAX.to_le_bytes();
     assert!(codec.deserialize::<UpdateEvidenceRecord>(&invalid).is_err());
 }
@@ -532,7 +526,7 @@ fn limits_and_cancellation_fail_instead_of_truncating() {
     )
     .unwrap();
     assert_eq!(
-        compare_protected(&evidence, &evidence, &mut budget),
+        compare_initializers(&evidence, &evidence, &mut budget),
         Err(UpdateError::LimitExceeded)
     );
     let mut budget = Budget::new(
@@ -600,7 +594,7 @@ fn limits_and_cancellation_fail_instead_of_truncating() {
     let mut budget = f.budget();
     f.cancel.cancel();
     assert_eq!(
-        compare_protected(&evidence, &evidence, &mut budget),
+        compare_initializers(&evidence, &evidence, &mut budget),
         Err(UpdateError::Cancelled)
     );
 }

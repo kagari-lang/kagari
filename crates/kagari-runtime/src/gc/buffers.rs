@@ -133,27 +133,12 @@ impl GcHeap {
         contract: &StorageType,
         elements: Vec<Value>,
     ) -> Result<SequenceStorage, RuntimeError> {
-        self.prepare_buffer_values_with_poll(contract, elements, &mut || {
-            self.resources.poll_execution()
-        })
-    }
-
-    pub(crate) fn prepare_buffer_values_with_poll(
-        &self,
-        contract: &StorageType,
-        elements: Vec<Value>,
-        poll: &mut dyn FnMut() -> Result<(), RuntimeError>,
-    ) -> Result<SequenceStorage, RuntimeError> {
-        poll()?;
         let mut values = SequenceStorage::empty(&contract.ty);
         values
             .try_reserve(elements.len())
             .map_err(|_| self.resource_limit("allocation capacity"))?;
         for value in elements {
-            poll()?;
-            if !self.valid_payload(&value)
-                || !contract.accepts_value_with_poll(self, &value, poll)?
-            {
+            if !self.valid_payload(&value) || !contract.accepts_value(self, &value) {
                 return Err(invalid());
             }
             values.push(value)?;

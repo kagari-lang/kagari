@@ -638,7 +638,7 @@ fn lower_program(
                         module: Box::new(root.clone()),
                         error: error.into(),
                     })?,
-                    roots: source_inputs.roots.clone(),
+                    initializers: source_inputs.initializers.clone(),
                     selections: vec![],
                     classifications: classifications.into_iter().collect(),
                 },

@@ -1,6 +1,9 @@
 //! Shared hard admission and fixed-point work limits. Requests may only tighten them.
 use crate::{types::ConcreteFunctionIdentity, updates::BodyApplication};
-use kagari_common::{cancellation::CancellationToken, identity::mapping::DefinitionMappingError};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{mapping::DefinitionMappingError, table::DefinitionId},
+};
 use kagari_types::ty::substitution::TypeTransformError;
 use std::{collections::HashSet, error::Error, fmt};
 
@@ -41,9 +44,8 @@ pub enum UpdateError {
     /// A symbolic direct target cannot be matched to a checked current shared route.
     UnresolvedSymbolicRoute(ConcreteFunctionIdentity),
     MissingCoverage,
-    ProtectedChange {
-        root: ConcreteFunctionIdentity,
-        unknown_edge: Option<u32>,
+    InitializerChange {
+        declaration: DefinitionId,
     },
 }
 
@@ -75,7 +77,7 @@ impl From<TypeTransformError> for UpdateError {
     }
 }
 
-/// One budget must span the combined protected evidence and retained envelope.
+/// One budget must span the combined publication evidence and retained envelope.
 /// Counters are charged before queue/set insertion, never after truncating output.
 pub struct Budget<'a> {
     pub(crate) cancel: &'a CancellationToken,

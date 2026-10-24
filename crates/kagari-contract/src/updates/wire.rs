@@ -14,9 +14,8 @@ use crate::{
     types::ConcreteFunctionIdentity,
     updates::{
         BodyApplication, BodyClassification, BodyRecord, BodyRequirement, CallRequirement,
-        CanonicalInstruction, CanonicalOperand, CurrentTarget, DemandEnvelope, Dependency,
-        ProtectedRoot, RootKind, SourceRecord, SourceToken, UnknownDependency, UnknownReason,
-        UpdateEvidence,
+        CanonicalInstruction, CanonicalOperand, CurrentTarget, DemandEnvelope, SourceRecord,
+        SourceToken, StaticInitializer, UnknownReason, UpdateEvidence,
         limits::{Budget, MAX_APPLICATIONS, MAX_NESTED, UpdateError},
     },
 };
@@ -123,7 +122,7 @@ record!(UpdateEvidence => UpdateEvidenceRecord {
     #[serde(deserialize_with = "crate::decode_limits::functions")]
     bodies: Vec<BodyRecord> => MAX_APPLICATIONS,
     #[serde(deserialize_with = "crate::decode_limits::table")]
-    roots: Vec<ProtectedRoot>,
+    initializers: Vec<StaticInitializer>,
     #[serde(deserialize_with = "crate::decode_limits::functions")]
     targets: Vec<CurrentTarget> => MAX_APPLICATIONS,
     #[serde(deserialize_with = "crate::decode_limits::table")]
@@ -147,7 +146,7 @@ record!(SourceRecord => SourceRecordWire {
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     calls: Vec<CallRequirement> => MAX_NESTED,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    dependencies: Vec<Dependency> => MAX_NESTED,
+    bodies: Vec<ConcreteFunctionIdentity> => MAX_NESTED,
 });
 record!(SourceToken => SourceTokenWire { kind: u32, text: String });
 record!(BodyApplication => BodyApplicationWire {
@@ -167,8 +166,6 @@ record!(BodyRecord => BodyRecordWire {
     actual_format: u32,
     #[serde(deserialize_with = "crate::decode_limits::instructions")]
     actual_instructions: Vec<CanonicalInstruction>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    dependencies: Vec<Dependency> => MAX_NESTED,
 });
 record!(BodyRequirement => BodyRequirementWire {
     origin: ConcreteFunctionIdentity,
@@ -181,13 +178,8 @@ record!(CanonicalInstruction => CanonicalInstructionWire {
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     operands: Vec<CanonicalOperand> => MAX_NESTED,
 });
-record!(ProtectedRoot => ProtectedRootWire {
-    declaration: ConcreteFunctionIdentity,
-    kind: RootKind,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    dependencies: Vec<Dependency> => MAX_NESTED,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    selections: Vec<CallRequirement> => MAX_NESTED,
+record!(StaticInitializer => StaticInitializerRecord {
+    declaration: DefinitionId,
 });
 record!(CurrentTarget => CurrentTargetWire {
     application: ConcreteFunctionIdentity, body: ConcreteFunctionIdentity,
@@ -208,9 +200,6 @@ variants!(CallRequirement => CallRequirementWire {
     Direct: ConcreteFunctionIdentity, Shared: Box<SharedCall>, Interface: Box<InterfaceCallContract>,
     RetainedBody: BodyApplication, Native: Box<NativeImport>, Operation: Box<OperationWitness>,
     Construction: Box<ConstructionWitness>, Layout: Ty, Unknown: UnknownReason,
-});
-variants!(Dependency => DependencyWire {
-    Source: DefinitionId, Body: ConcreteFunctionIdentity, Unknown: UnknownDependency,
 });
 
 impl UpdateEvidenceRecord {

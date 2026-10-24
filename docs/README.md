@@ -118,8 +118,8 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 - [Host API and update follow-ups](implementation-roadmap.md#host-api-and-update-execution):
   installed Program/live Module relative binding is implemented; the
   [embedding contract](spec/embedding-api.md#installed-programs-and-public-paths)
-  owns the API and finite generic/layout limits. Remaining preparation/tooling,
-  repair linking and state-replacement scope have separate existing owners.
+  owns the API and finite generic/layout limits. Remaining preparation/tooling and
+  repair linking have separate existing owners.
 - [Editor follow-ups](implementation-roadmap.md#toolchain-distribution-and-modes):
   complete CI/platform acceptance, semantic IDE features, server-launch integration,
   marketplace publication and separately authorized old-repository administration.
@@ -134,13 +134,16 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 - [Toolchain distribution and remaining modes](implementation-roadmap.md#toolchain-distribution-and-modes):
   SDK/CLI distribution and the separate REPL proposal; source packages are
   specified above.
-- [Compatible reload and state replacement](update-model-design.md): implemented
-  [publication contracts](spec/module-activation.md) select current implementations
+- [Compatible reload](spec/module-activation.md#live-installations-and-call-selection):
+  implemented publication contracts select current implementations
   on ordinary calls while retaining created Future/closure bodies and admitted
   frames/queues. Publication is serialized at an idle synchronous host boundary;
   parked work may remain. The [source update API](spec/embedding-api.md#source-updates)
-  uses exact-publication compilation capsules and conservative protected-dependency
-  checks, including standard-foundation limitations. State replacement is separate.
+  uses exact-publication compilation capsules, frozen declarations, local static
+  initializer comparison and retained-demand checks. Hash/Eq bodies and ordinary
+  initializer helpers may change; users own stable key semantics. The
+  [roadmap](implementation-roadmap.md#host-api-and-update-execution) records the
+  narrowed update scope and pending validation, not a queued migration framework.
 - [Interactive debugger](debugger-design.md): synchronous waiting on the executing
   host thread, followed by SDK control and IDE/DAP integration; not implemented.
 

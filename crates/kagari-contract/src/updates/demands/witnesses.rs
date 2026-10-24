@@ -8,7 +8,7 @@ use crate::{
     },
     updates::{
         DemandEnvelope,
-        demands::{Walker, apply_instance},
+        demands::{Walker, apply_instance, requests::Request},
         limits::{Budget, UpdateError},
     },
 };
@@ -71,7 +71,7 @@ impl Walker<'_, '_> {
                         CallableImplementation::Native(binding) => {
                             let natives = self.find_natives(&instance, Some(binding), budget)?;
                             if natives.is_empty() {
-                                return Err(UpdateError::MissingNative(instance.clone()));
+                                self.requests.missing(Request::Native(instance), budget)?;
                             }
                             for index in natives {
                                 if self.coverage.natives[index].import.signature != call.signature {

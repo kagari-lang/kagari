@@ -584,8 +584,8 @@ Reload preserves the existing module identities, public ABI and typed-path contr
 defines compatible paths, canonical namespace identities, alias retargeting and the
 separate root-entry contract. Export mismatches report
 `KG_RELOAD_PUBLIC_EXPORT_MISMATCH` after the existing module checks. Compatible
-additions still require frozen contracts, retained demands and protected dependency
-checks, not merely ABI signature equality.
+additions still require frozen contracts, retained demands and local static-initializer
+comparison, not merely ABI signature equality.
 
 At the runtime layer, `stage_reload_verified_program` (used by the SDK),
 `stage_reload_program` and `stage_reload_artifact` return an owned
@@ -953,9 +953,13 @@ The runtime validates:
 Publication requires a serialized host-top-level boundary with no active synchronous
 script, driver, callback or reentry scope; parked executions may remain. The
 [activation contract](module-activation.md) also requires frozen declarations,
-retained executable demands and protected Hash/Eq/static dependency equality.
+retained executable demands and unchanged direct static initializers with preserved
+checked bindings. Hash/Eq bodies and ordinary initializer helpers may change.
 If validation succeeds, code, dispatch and source association advance atomically.
-If it fails, the existing publication and static state remain unchanged.
+If it fails, the existing publication and static state remain unchanged. See
+[compatible declaration changes](module-activation.md#compatible-declaration-changes)
+for allowed additions and frozen contracts. This API has no state snapshot, migration
+or Actor state-replacement mode; general Serde conversion remains independent.
 
 ## Source updates
 
@@ -984,9 +988,14 @@ update.replace_function("answer", "pub fn answer() -> i32 { 42 }");
 runtime.update(&program, update)?;
 ```
 
-This illustrates submission, not guaranteed admission: protected dependencies can
-reject the patch, including in a normal engine-prepared standard-foundation program.
-There is no liveness-based or standard-library exemption from that conservative rule.
+This illustrates submission; admission still checks frozen declarations, local
+static initializers, executable validity and retained demands. The standard
+foundation does not impose a global `Unknown` body freeze. Hash/Eq bodies and
+ordinary helpers called by static initializers are eligible for normal body updates;
+their callers' user-level semantic obligations remain the application's responsibility.
+Retained compiler-generated tuple protocol bridges currently have a source-demand
+preparation limitation; see the [known preparation gap](../implementation-roadmap.md#host-api-and-update-execution).
+A compatible body change may still fail preparation there without publishing anything.
 
 One batch is atomic and limited to 1,024 edits and 64 MiB of replacement UTF-8.
 Empty batches, duplicate targets (including aliases), overlapping edits, invalid
@@ -994,6 +1003,17 @@ mappings and incomplete definitions reject. Submission rechecks one complete det
 candidate with retained demands; it performs no filesystem discovery, dependency
 acquisition, deletion, initializer execution or host callback. Unchanged captured
 inputs retain their identities, and engine/editor source sessions are not mutated.
+The complete resulting physical documents and aggregate retained text are also
+preflighted against the 64 MiB source limit before allocation/replay, counting
+unchanged inputs, replacements and additions. Checked UTF-8 ranges/overlap and
+arithmetic are independent of edit order; copying observes cancellation. A fresh
+submission token is used unless explicitly supplied, not a stale preparation token.
+
+A small edit can still require complete candidate preparation; the API makes no
+constant-time patch or minimal-rebuild promise. Source batches compile in process
+for interpreter/optional JIT execution, not AOT patch delivery. Native preparation
+remains explicit, with exact-product validation and pre-entry fallback under the
+[JIT contract](jit.md); no hidden backend callback is retained in Runtime.
 
 Source preparation retains an immutable compilation capsule: physical bytes and
 origins, module/package mappings and declaration environment, selected root,
@@ -1039,7 +1059,12 @@ Hosts can retain old source after the old computation/code is gone. Runtime quer
 still validate runtime identity/liveness. Equal display URIs in distinct logical
 modules do not collapse module/declaration identities. Source retention is independent
 of optional local/debug metadata and retained MIR; see
-[artifact source packages](artifacts.md#retained-source-packages).
+[artifact source packages](artifacts.md#retained-source-packages). Current-source
+inspection captures selection at query time, not proof that a later call ran that
+body. Multi-frame tasks use their available safe frame observations rather than a
+fabricated single function; a consumed/composed Future may have no observed body.
+Runtime keeps no automatic unbounded source history. Hosts retaining historical
+snapshots own their count/byte budget, independently of executable lifetime.
 
 ## Artifact API
 
@@ -1078,6 +1103,14 @@ execution path. The current SDK requires explicit `prepare_native` and
 `execute_prepared`; compile-on-load, first-call and threshold scheduling are future
 policy choices, not implemented automatic schedulers. Ordinary `execute` requires
 `JitPolicy::Disabled`.
+
+With `native`, `Runtime::prepared_program(&Program) -> RunResult<PreparedProgram>`
+creates a fresh preparation-side cache over the installation's current verified
+bytecode and optional MIR. After a source update, use it with explicit native
+preparation; Runtime retains neither that cache wrapper nor a codegen backend.
+Native products must match the selected body/version/configuration, never just a
+stable callable identity. Native preparation failure leaves code, statics and source
+unchanged; it does not undo an already successful source publication.
 
 ## Debugger API
 

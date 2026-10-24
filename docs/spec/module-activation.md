@@ -42,6 +42,47 @@ or retained layout/native evidence need them, not merely because source diagnost
 or a named binding survive. [Type-only retention separation](../review.md#r13--type-and-layout-provenance-retains-retired-code)
 remains deferred; releasing final actual owners is not proof that R13 is implemented.
 
+## Compatible declaration changes
+
+Compatibility preserves every existing named declaration contract, including private,
+unused and generic declarations, while admitting checked additions. It is not whole
+artifact equality, public ABI equality alone or a test of currently live values.
+"Existing" includes declarations introduced by any earlier successful publication.
+
+| Change | Compatible publication |
+| --- | --- |
+| Existing function or method body, including Hash/Eq and ordinary initializer helpers | Allowed after checking and retained-demand coverage |
+| New free function, inherent method, module, struct, enum or trait | Allowed when old contracts and public namespaces remain valid |
+| Trait implementation for a newly introduced outer nominal type, including `New<T>` | Allowed with normal coherence and checked implementation evidence |
+| New trait implementation for an existing type, including a newly added trait | Rejected; primitive, tuple and blanket extensions are not loopholes |
+| Delete, rename or change visibility/access of an existing declaration | Rejected |
+| Existing parameters/receiver, result, generic parameters/bounds or sync/async mode | Frozen |
+| Existing struct fields/types/writeability or enum variants/payloads | Frozen, including layout additions |
+| Existing trait members, parents or associated-type requirements | Frozen |
+| Existing implementation receiver, trait, associated outputs or dispatch relationship | Frozen; method bodies may change |
+| Existing named constant value/type | Frozen |
+| Existing static's direct initializer expression and checked direct bindings | Frozen, ignoring trivia, independently of initialization state; ordinary called helpers may change |
+| Existing public function alias | May retarget under the separate public-namespace contract; retained bindings keep their declaration |
+
+For example, a batch may add `FixedDamageRule` implementing an existing `DamageRule`
+trait. Business code may then construct it and insert it into an existing collection
+of `DamageRule` through normal type/ownership checks; publication does not mutate the
+collection. Existing elements retain their concrete types and implementation
+relationships, while subsequent method calls select current bodies. Once published,
+`FixedDamageRule` is an existing type: a later batch cannot extend its trait
+relationships or fields. No automatic interface upgrade or object migration occurs.
+
+Declaration correspondence uses checked package/module/authored-owner identity, not
+source order, numeric executable slots or same-shaped signatures. Semantic impl
+headers and binder correspondence preserve method ownership across placement changes.
+Named block-local functions are declarations, unlike generated closures/resume bodies.
+Ambiguous same-name locals require unchanged enclosing text and indexed executable
+evidence; they are not paired by occurrence or signature when the owner changes.
+Ordinary local variables, temporaries and generated capture layouts may change with
+new bodies; already retained computations keep their matching old body/layout.
+Native registrations and host passing/storage contracts remain checked; compatible
+script publication does not replace arbitrary Rust code.
+
 ## Public namespace continuity
 
 Compatible publication preserves each previously public canonical namespace as a
@@ -60,8 +101,8 @@ signature: fresh binding chooses the new declaration, while retained bindings ca
 the original declaration's current implementation. Type aliases instead preserve
 normalized nominal target and arguments; another same-shaped type is not equivalent.
 [Artifact type exports](artifacts.md#public-type-exports) owns that comparison's
-portable evidence. Frozen declarations and protected dependencies remain additional
-requirements, not exceptions to be bypassed through aliases.
+portable evidence. Frozen declarations and direct static-initializer bindings remain
+additional requirements, not exceptions to be bypassed through aliases.
 
 Type identities and trait implementation relationships are fixed within an
 installation; that does not freeze method bodies. Independently loaded copies do
@@ -86,6 +127,14 @@ identity, bindings and admission. Rejection or cancellation before commit preser
 both the executable and authoritative source baseline. Explicit candidate execution
 is separate and cannot run under the publication guard.
 
+One publication covers one complete Program installation, including affected imported
+modules. It is not a global update of every installation using a package. Code
+atomicity is not a business-state transaction: an operation can call a helper,
+suspend, then call its new body after publication. If unchanged storage acquires a
+new business meaning, the host owns any necessary admission/routing coordination.
+Ordinary compatible body fixes do not require all parked work to drain, and
+publication does not cancel tasks or roll back completed script/external effects.
+
 Native declarations, explicit impls, external schemas and local projector/storage
 capabilities remain part of that checked dependency contract. Reload does not
 redirect an existing method or field descriptor to a different Rust layout.
@@ -103,12 +152,13 @@ publication and diagnostic inspection do not force a cell.
 
 The initializer recipe is fixed to the generation that introduced the cell.
 Its hidden synchronous, zero-argument function returns the declared semantic type
-and retains that generation's recipe body. Its transitive dependencies are
-protected by compatibility validation: if A introduces an unread
-`COUNT = make_count()`, B cannot change `make_count` through compatible publication.
-Once Ready, old and new generations observe and update the same cell; publishing B
-neither reruns the recipe nor resets it. Ordinary call selection remains current;
-protected dependency equality preserves the initializer's behavior.
+and retains that generation's recipe body, not an old transitive call graph.
+For example, if A introduces an unread `COUNT = make_count()`, B may change the
+body of `make_count` while preserving the direct expression and its checked binding.
+A first read after B publishes enters A's recipe, whose ordinary call selects B's
+`make_count`. Once Ready, old and new generations observe and update the same cell;
+publishing B neither reruns the recipe nor resets it. Failed cells remain Failed;
+changing a helper does not retry a failed initializer.
 
 The first executing access admits an initializer frame in the existing execution
 session. It uses the recipe's loaded module, not the caller's module slot or
@@ -141,8 +191,9 @@ as a way to acquire its installation state.
 | Change | Compatible publication |
 | --- | --- |
 | Add a static in an existing module | Allowed after full checking; initially Uninitialized |
-| Change an existing initializer expression | Rejected by protected dependency comparison; existing recipe remains fixed |
-| Reorder declarations without changing contracts or protected bodies | Allowed after full checking |
+| Change an existing direct initializer expression or its checked direct bindings | Rejected; trivia is ignored and the original recipe remains fixed |
+| Change an ordinary helper called by an initializer | Allowed after normal checking; calls select its current implementation |
+| Reorder declarations without changing contracts or direct initializer meaning | Allowed after full checking |
 | Delete, rename or move an existing static | Rejected |
 | Change an existing static's type, mutability or visibility | Rejected, including private statics |
 | Change a relevant applied type/layout, native or interface contract | Rejected |
@@ -153,28 +204,71 @@ just currently stored values or the inventory of every specialization of a nomin
 type. `None` and empty collections do not excuse a changed declared contract.
 Existing declaration, public path, callable, type and implementation contracts
 remain frozen. Additions, including modules, must satisfy complete candidate checking,
-retained application demands and protected dependency rules. Code rollback is another
+retained application demands and local initializer comparison. Code rollback is another
 checked publication, not state rollback: it cannot remove an introduced static.
 
-## Protected dependencies and conservative rejection
+## Local initializer comparison and body provenance
 
-Compatibility compares the transitive dependency closure of existing Hash/Eq and
-static-initializer roots, including source templates without executable applications,
-called bodies and selected operations. This is installation-inventory validation,
-not a scan of live tables or Ready static values. An empty/dropped collection or an
-unread/already initialized static does not remove the obligation.
+Compatibility compares each existing static's direct initializer expression and
+checked direct bindings, not the transitive implementation of its callees. Non-trivia
+tokens remain equal even if different expressions would optimize to the same result;
+comments and formatting may change. Changing an import or alias so that the same
+expression binds to a different declaration is incompatible. The rule applies to
+cold, Ready and Failed cells alike, independently of live heap values.
 
-An `Unknown` interface, native, witness or dynamic-call edge in a protected closure
-conservatively freezes the full installation inventory. Missing callback metadata
-or effect flags are not proof of a sealed native implementation. Consequently,
-standard-foundation protected unknown edges can reject even a simple body patch
-prepared with the normal engine. This deliberate conservative policy lets the host
-choose an appropriate installation/provider closure; the source update API is not
-a guarantee that every standard-library program accepts body changes.
+Explicit authored body provenance identifies the initializer's own executable
+recipe and lexically owned generated bodies, such as a closure written directly
+in the initializer. These local bodies and their checked call/type facts remain
+part of comparison. An ordinary named helper and generated bodies owned by that
+helper are not part of the initializer merely because it calls them. There is no
+Hash/Eq protected-root graph, transitive body freeze or installation-wide `Unknown`
+freeze. Dynamic/interface/native calls do not expand local initializer ownership.
 
-Failure leaves the old publication and statics unchanged. No table reindexing,
-state migration or liveness-dependent relaxation is implicit. See
+Frozen declarations, signatures, types, layouts and trait relationships remain
+mandatory. MIR/bytecode validation independently reconciles explicit authored
+provenance, preoptimization body evidence, surviving executable instructions and
+checked selections with the executable inventory. Missing or forged evidence is
+not accepted as an empty record. Source-free evidence declares compiler facts,
+not authenticated original source; removing transitive protection does not remove
+executable verification or [retained-demand coverage](#retained-demand-coverage-and-bounds).
+
+Hash/Eq bodies and their ordinary helpers follow normal compatible body updates.
+Users must preserve stable key hashing/equality while keys remain stored. Publication
+neither rehashes a table nor pins old protocol execution to preserve lookup results.
+Engine memory, GC and host-borrow safety remain enforced, but successful lookup is
+not guaranteed after the user breaks the key contract. See
 [stored key protocols](collection-access.md#stored-key-protocols-across-reload).
+Failure to admit a candidate leaves the old publication and statics unchanged;
+publication never implicitly migrates state.
+
+## Retained-demand coverage and bounds
+
+The installation retains a deduplicated, monotonic union of previously published
+application/body requirements and each successful candidate's requirements. These
+summaries are metadata, not executable leases. Candidate staging keeps prospective
+history separate; rejection cannot advance the installation's authoritative envelope.
+Historical generated bodies contribute their old call/creation edges, but ordinary
+callee requirements must resolve to **candidate** implementations. A generic
+application no longer reachable from new source still needs current executable
+coverage if old retained work can call it.
+
+Compiler preparation closes function, shared-body, interface, construction and
+layout demands with checked type/witness evidence. Dynamic receiver coverage includes
+admissible new implementations for new types without changing old relationships.
+Prepared/source-free reload rejects missing current coverage rather than substituting
+an old specialization, inferring types or compiling source in Runtime. Candidate
+claims do not replace the installation's own history or executable verification.
+Cross-function optimization must not fold, inline or remove a replaceable call in a
+way that hides its required current-version selection from retained callers.
+
+Shared hard admission limits are 64 MiB of canonical records, 1,000,000 records/edges
+and fixed-point work visits, 65,536 body applications and 4,096 entries per nested
+list, with existing type depth/transform limits. Requests may tighten these bounds.
+Traversal observes cancellation and rejects overflow/exhaustion; it never truncates
+history or evidence to admit a publication. Retirement releases the summary; there
+is no claim of precise liveness pruning or an unlimited number of updates. The
+contract owner is [updates](../../crates/kagari-contract/src/updates.rs), shared by
+compiler, verifier and runtime rather than independently reimplemented solvers.
 
 ## Async activation
 

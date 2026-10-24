@@ -17,6 +17,7 @@ use std::collections::HashSet;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) enum Request {
     Function(ConcreteFunctionIdentity),
+    Native(ConcreteFunctionIdentity),
     Shared(BodyApplication),
     Interface(InterfaceRequest),
     Construction(ConcreteFunctionIdentity),
@@ -47,6 +48,7 @@ impl<'a> Requests<'a> {
         let Some(definitions) = self.definitions else {
             return Err(match request {
                 Request::Function(id) => UpdateError::MissingTarget(id),
+                Request::Native(id) => UpdateError::MissingNative(id),
                 Request::Shared(application) => UpdateError::MissingBody(application.body),
                 _ => UpdateError::MissingCoverage,
             });
@@ -56,7 +58,7 @@ impl<'a> Requests<'a> {
         }
 
         let accounting = match &request {
-            Request::Function(id) | Request::Construction(id) => {
+            Request::Function(id) | Request::Native(id) | Request::Construction(id) => {
                 CallRequirement::Direct(id.clone())
             }
             Request::Shared(application) => CallRequirement::RetainedBody(application.clone()),
@@ -93,16 +95,20 @@ impl<'a> Requests<'a> {
             .map_err(DefinitionMappingError::from)?;
         let _ = call_key(&accounting, &encoding, budget)?;
         match &request {
-            Request::Function(id) => budget.application(&BodyApplication {
-                body: id.clone(),
-                arguments: vec![],
-            })?,
+            Request::Function(id) | Request::Native(id) => {
+                budget.application(&BodyApplication {
+                    body: id.clone(),
+                    arguments: vec![],
+                })?
+            }
             Request::Shared(application) => budget.application(application)?,
             _ => {}
         }
         self.seen.insert(request.clone());
         match request {
-            Request::Function(value) => self.result.functions.push(value),
+            // The existing function planner also materializes checked native imports.
+            // Keep Native distinct here only to preserve strict admission's error.
+            Request::Function(value) | Request::Native(value) => self.result.functions.push(value),
             Request::Shared(value) => self.result.shared.push(value),
             Request::Interface(value) => self.result.interfaces.push(value),
             Request::Construction(value) => self.result.constructions.push(value),

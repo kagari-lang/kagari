@@ -28,13 +28,16 @@ impl InstancePlanner<'_> {
             unreachable!()
         };
         body.interface = interface;
+        let position = self
+            .static_lexical_position(parent, body.span)?
+            .unwrap_or(body.span.start as u32);
         let declaration = self
             .context
             .intern_child(
                 parent.key.declaration,
                 DefinitionKind::Function,
                 "$callable",
-                body.span.start as u32,
+                position,
             )
             .map_err(DefinitionMappingError::from)?;
         let key = InstanceKey {

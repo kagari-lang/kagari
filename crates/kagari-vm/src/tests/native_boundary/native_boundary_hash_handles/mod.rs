@@ -17,7 +17,6 @@ use kagari_runtime::{
         objects::Object,
         typed::NativeContext,
     },
-    reload::ReloadValidationError,
     value::Value,
 };
 use kagari_stdlib::declarations::StandardDeclarations;
@@ -215,7 +214,7 @@ fn custom_hash_handles_use_selected_calls_with_gc_reentry_and_trap_cleanup() {
 }
 
 #[test]
-fn stored_key_protocol_keeps_old_code_until_last_value_root() {
+fn stored_key_protocol_selects_current_code_and_keeps_metadata_until_last_value_root() {
     let source = |version| {
         format!(
             r#"
@@ -226,7 +225,9 @@ fn stored_key_protocol_keeps_old_code_until_last_value_root() {
             fn eq(self, other: Key<T>) -> bool {{ self.value == other.value }}
         }}
         impl<T: Eq + Hash> Eq for Key<T> {{}}
-        impl<T: Eq + Hash> Hash for Key<T> {{ fn hash(self) -> i64 {{ self.value.hash() + {version} }} }}
+        static var observed: i32 = 0;
+        pub fn marker() -> i32 {{ observed }}
+        impl<T: Eq + Hash> Hash for Key<T> {{ fn hash(self) -> i64 {{ observed = {version}; self.value.hash() }} }}
         pub fn make() -> (HashMap<Key<i32>, i32>, Key<i32>) {{
             val map: HashMap<Key<i32>, i32> = HashMap::new();
             val key = Key {{ value: 1 }};
@@ -248,19 +249,14 @@ fn stored_key_protocol_keeps_old_code_until_last_value_root() {
     let Value::Tuple(_) = &value else {
         panic!("tuple");
     };
-    assert!(matches!(
-        vm.runtime()
-            .stage_reload_program(&_old_program, Some("hash-cycle".into()), code(100)),
-        Err(ReloadValidationError::UpdateEvidence(_))
-    ));
-    vm.reload_program(&_old_program, Some("hash-cycle".into()), code(1))
+    vm.reload_program(&_old_program, Some("hash-cycle".into()), code(100))
         .unwrap();
     let _new_program = _old_program.clone();
     let new = vm.runtime().select_program(&_new_program).unwrap();
     let collected = vm.runtime().collect_garbage().unwrap();
     assert!(!collected.reclaimed_modules.contains(&old.key()));
-    // Only a raw rooted value survived reload. The map's stored evidence must
-    // retain the original executable selection for this applied key type.
+    // Only a raw rooted value survived reload. Its original applied-type evidence
+    // remains live, but subsequent callbacks must select the current bodies.
     let result_type = old
         .bytecode
         .functions
@@ -290,6 +286,29 @@ fn stored_key_protocol_keeps_old_code_until_last_value_root() {
             .begin_execution(&new, vm.runtime().execution_options())
             .unwrap();
         assert_eq!(map.get(&mut cx, key.clone()).unwrap(), Some(42));
+        assert_eq!(
+            vm.execute_typed::<(), i32>(&new, "marker", ()).unwrap(),
+            100
+        );
+    }
+    let changed_hash = source(200).replace("self.value.hash()", "self.value.hash() + 1i64");
+    vm.reload_program(
+        &_old_program,
+        Some("hash-cycle".into()),
+        compile_program(&changed_hash, None),
+    )
+    .unwrap();
+    let new = vm.runtime().select_program(&_old_program).unwrap();
+    {
+        let mut cx = vm.context(&new).unwrap();
+        // The changed hash is permitted, but lookup semantics are the caller's
+        // responsibility. Observe execution without asserting presence or absence.
+        let _ = map.get(&mut cx, key.clone()).unwrap();
+        assert_eq!(
+            vm.execute_typed::<(), i32>(&new, "marker", ()).unwrap(),
+            200
+        );
+        assert_eq!(map.len(&cx).unwrap(), 1);
     }
     drop((map, key));
     let collected = vm.runtime().collect_garbage().unwrap();

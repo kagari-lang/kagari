@@ -1517,10 +1517,13 @@ facts again from source or current values.
 For example, after v1 increments `COUNT` to 100, publishing compatible v2 leaves
 that same cell at 100. Retained v1 computations and new v2 frames both see and may
 update that cell; ordinary calls from either select current implementations.
-A separately installed root gets a different cell. An unread static still runs its introducing generation's initializer when v2 first
-accesses it. Reload never implies a reset, callback rebinding or snapshot restore.
+A separately installed root gets a different cell. An unread static still runs its
+introducing generation's initializer recipe when v2 first accesses it, but ordinary
+calls within that recipe select current helper bodies. Ready values and Failed states
+remain unchanged by publication. Reload never implies a reset or snapshot restore.
 The [activation contract](spec/module-activation.md) owns the compatibility rules,
-including protected initializer dependencies, private schema checking and candidate denial.
+including fixed direct initializer expressions/bindings, private schema checking
+and candidate denial.
 
 A cold access enters the retained recipe's `ExecutableModule` through ordinary frame
 admission and shares cancellation/depth/session state. A private frame-owned attempt
@@ -1534,11 +1537,14 @@ an initializer. See [failure semantics](spec/failure-semantics.md#static-initial
 Joint GC traces installation/program bindings to cells, Ready values and pending
 recipes. Immutable descriptor provenance is not an executable root. Clearing a stored
 callback or releasing an installation permits otherwise unreachable code/state cycles
-to retire. Stored Map/Set lookup protocols retain their checked key selection;
-protected Hash/Eq transitive dependencies prevent compatible publication from changing
-that behavior, independently of live tables. Named callable/interface operations use
-current implementations; retained computation bodies keep exact execution authority.
-Content comparison remains a separate caller-selected operation.
+to retire. Stored Map/Set lookup protocols retain their checked key relationships,
+while script operations and host ScriptMap/ScriptSet handles select current Hash/Eq
+callback bodies per lookup. Users own stable key semantics across updates; publication
+neither rehashes tables nor pins old protocol execution. Roots, reentry, cancellation
+and borrow safety remain enforced even when user key semantics are broken.
+Named callable/interface operations use current implementations; retained computation
+bodies keep exact execution authority. Content comparison remains a separate
+caller-selected operation.
 [Runtime storage](spec/runtime.md#persistent-static-cells)
 and [collection semantics](spec/collection-access.md) own those distinctions.
 
@@ -1644,13 +1650,16 @@ initializers, callbacks or GC-driven host destruction; commit revalidates the ba
 installation and bindings before one visibility change.
 
 `kagari-contract::updates` owns frozen declaration comparison, retained application
-demands and protected Hash/Eq/static-initializer transitive closure comparison.
-Verification establishes evidence independently of source and heap liveness. An
-unknown protected edge freezes the complete installation inventory; the standard
-foundation currently contains such edges and can reject a simple engine-prepared
-body patch. This deliberate conservative policy must not be advertised as universal
-standard-library update support. The [activation specification](spec/module-activation.md)
-owns admission and preserved-state semantics.
+demands and static-only local initializer comparison. Explicit authored body provenance
+identifies each initializer's own recipe/generated bodies without following ordinary
+callees. Direct expression tokens (excluding trivia), checked bindings and local
+executable facts remain fixed; Hash/Eq and ordinary helper bodies may change.
+There is no protected-root dependency graph or global `Unknown` freeze. Independent
+executable verification still reconciles provenance, canonical bodies, checked
+selections and surviving instructions with inventory, including source-free products.
+Declared signatures, types, layouts, trait relationships and retained demands remain
+separate requirements, not inferred from heap liveness. The
+[activation specification](spec/module-activation.md) owns admission and preserved-state semantics.
 
 SDK source preparation owns immutable compilation capsules, not a runtime frontend.
 `CheckedInputs` captures bytes/origins, package/declaration environment, root and
@@ -1674,7 +1683,7 @@ An artifact source package does not reconstruct a compilation capsule. See the
 The comparison with [Java SE 25 Instrumentation.redefineClasses](https://docs.oracle.com/en/java/javase/25/docs/api/java.instrument/java/lang/instrument/Instrumentation.html#redefineClasses(java.lang.instrument.ClassDefinition...))
 is limited to active-frame body retention, new-invocation selection and preserved
 static values. Kagari additionally owns cold Futures, closure captures, installation
-identities, explicit roots, frozen contracts and protected dependency inventory; it
+identities, explicit roots, frozen contracts and fixed direct initializer recipes; it
 does not adopt JVM class loading, object migration or JVM concurrency. This describes
 ownership and semantics, not a measured performance improvement.
 

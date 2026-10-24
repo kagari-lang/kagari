@@ -57,9 +57,8 @@ fn state(runtime: &Runtime, loaded: &ExecutableModule, name: &str) -> StaticStat
         .clone()
 }
 
-// These scalar reloads require a known protected closure. Loading the entire
-// foundation source catalog also publishes unused native Hash/Eq protocols whose
-// unknown callbacks conservatively freeze every handler and executable addition.
+// Keep scalar cell-state fixtures independent of the standard source catalog.
+// Imported initializer dispatch also exercises the complete foundation below.
 fn compile_scalar_static_bytecode(text: &str) -> DefinitionMetadata<BytecodeProgram> {
     let mut sources = SourceDatabase::default();
     let root = sources
@@ -163,8 +162,8 @@ fn source_and_decoded_statics_are_lazy_shared_on_reload_and_keep_fixed_recipes()
         let _latest_program = _current_program.clone();
         vm.runtime().collect_garbage().unwrap();
         assert_eq!(call(&vm, &latest, "tick"), Value::I32(13));
-        assert_eq!(call(&vm, &old, "tick"), Value::I32(14));
-        assert_eq!(call(&vm, &current, "tick"), Value::I32(15));
+        assert_eq!(call(&vm, &old, "tick"), Value::I32(23));
+        assert_eq!(call(&vm, &current, "tick"), Value::I32(33));
         assert_eq!(call(&vm, &latest, "read_cold"), Value::I32(7));
         assert_eq!(call(&vm, &latest, "read_added"), Value::I32(5));
         assert!(matches!(
@@ -191,7 +190,7 @@ fn source_and_decoded_statics_are_lazy_shared_on_reload_and_keep_fixed_recipes()
         assert_eq!(call(&vm, &fresh, "read_added"), Value::I32(50));
         assert!(matches!(
             state(vm.runtime(), &latest, "count"),
-            StaticState::Ready(Value::I32(15))
+            StaticState::Ready(Value::I32(33))
         ));
         drop(retained_second);
         drop(retained);
@@ -435,88 +434,66 @@ fn task_cancellation_leaves_unstarted_statics_cold_and_poisoned_attempts_durable
 }
 
 #[test]
-fn imported_static_executes_its_fixed_supplier_generation_not_the_callers_module() {
+fn imported_static_keeps_ready_values_and_calls_current_helpers_on_first_access() {
     let source = r#"
         mod provider {
+            pub static val ready: i32 = helper();
             pub static val value: i32 = helper();
             fn helper() -> i32 { 7 }
         }
-        use self::provider::value;
+        use self::provider::{ready, value};
+        pub fn read_ready() -> i32 { ready }
         pub fn read() -> i32 { value }
     "#;
-    let changed_handler = source.replace("{ value }", "{ value + 0 }");
-    // With unknown foundation protocols published, even this ordinary handler
-    // edit is protected. Independent recompilation of unchanged code remains valid.
-    {
+    for foundation in [false, true] {
+        let compile = |source: &str| {
+            round_trip_bytecode(if foundation {
+                compile_test_bytecode(source)
+            } else {
+                compile_scalar_static_bytecode(source)
+            })
+        };
         let mut runtime = standard_runtime(Default::default());
-        let baseline = runtime
-            .load_program("foundation", compile_test_bytecode(source))
-            .unwrap();
-        let _baseline_program = baseline;
-        let baseline = runtime.select_program(&_baseline_program).unwrap();
-        let unchanged = runtime
-            .stage_reload_program(
-                &_baseline_program,
-                Some("foundation".into()),
-                round_trip_bytecode(compile_test_bytecode(source)),
-            )
-            .unwrap();
-        drop(unchanged);
-        let error = runtime
-            .stage_reload_program(
-                &_baseline_program,
-                Some("foundation".into()),
-                round_trip_bytecode(compile_test_bytecode(&changed_handler)),
-            )
-            .unwrap_err();
-        assert!(
-            matches!(&error, ReloadValidationError::UpdateEvidence(message) if message.contains("unknown dependency edge")),
-            "{error}"
-        );
-        assert_eq!(
-            runtime.select_program(&_baseline_program).unwrap().key(),
-            baseline.key()
-        );
+        let program = runtime.load_program("imports", compile(source)).unwrap();
+        let old = runtime.select_program(&program).unwrap();
         assert_eq!(runtime.resources().counters().peak_call_depth, 0);
+        let vm = Vm::new(runtime);
+        assert_eq!(call(&vm, &old, "read_ready"), Value::I32(7));
+        let changed_expression =
+            source.replace("value: i32 = helper()", "value: i32 = helper() + 1");
+        assert!(matches!(
+            vm.runtime().stage_reload_program(
+                &program,
+                Some("imports".into()),
+                compile(&changed_expression)
+            ),
+            Err(ReloadValidationError::UpdateEvidence(_))
+        ));
+        assert_eq!(
+            vm.runtime().select_program(&program).unwrap().key(),
+            old.key()
+        );
+        let changed_helper = source.replace("{ 7 }", "{ 90 }");
+        let staged = vm
+            .runtime()
+            .stage_reload_program(&program, Some("imports".into()), compile(&changed_helper))
+            .unwrap();
+        let current = staged.module().clone();
+        vm.runtime().publish_staged_reload(staged).unwrap();
+        vm.runtime().collect_garbage().unwrap();
+        assert_eq!(call(&vm, &current, "read_ready"), Value::I32(7));
+        assert_eq!(call(&vm, &current, "read"), Value::I32(90));
+        assert!(
+            vm.runtime()
+                .collect_garbage()
+                .unwrap()
+                .reclaimed_modules
+                .contains(&old.key())
+        );
+        assert_eq!(call(&vm, &current, "read"), Value::I32(90));
+        assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
+        assert_eq!(vm.runtime().gc().active_roots(), 0);
     }
-    let first = compile_scalar_static_bytecode(source);
-    let changed_recipe = compile_scalar_static_bytecode(&source.replace("{ 7 }", "{ 90 }"));
-    let second = compile_scalar_static_bytecode(&changed_handler);
-    let mut runtime = standard_runtime(Default::default());
-    let old = runtime
-        .load_program("imports", round_trip_bytecode(first))
-        .unwrap();
-    let _old_program = old;
-    let old = runtime.select_program(&_old_program).unwrap();
-    assert!(matches!(
-        runtime.stage_reload_program(
-            &_old_program,
-            Some("imports".into()),
-            round_trip_bytecode(changed_recipe)
-        ),
-        Err(ReloadValidationError::UpdateEvidence(_))
-    ));
-    let staged = runtime
-        .stage_reload_program(
-            &_old_program,
-            Some("imports".into()),
-            round_trip_bytecode(second),
-        )
-        .unwrap();
-    let current = staged.module().clone();
-    runtime.publish_staged_reload(staged).unwrap();
-    let _current_program = _old_program.clone();
-    runtime.collect_garbage().unwrap();
-    let vm = Vm::new(runtime);
-    assert_eq!(call(&vm, &current, "read"), Value::I32(7));
-    assert!(
-        vm.runtime()
-            .collect_garbage()
-            .unwrap()
-            .reclaimed_modules
-            .contains(&old.key())
-    );
-    assert_eq!(call(&vm, &current, "read"), Value::I32(7));
 }
 
 #[test]
@@ -685,6 +662,10 @@ fn cycles_and_traps_poison_only_started_cells_without_replaying_effects() {
             "static val bad: i32 = initialize();",
             "static val bad: i32 = 42;",
         ));
+        let repaired_helper = compile_test_bytecode(&source.replace(
+            &format!("val saved = good; {initializer}"),
+            "val saved = good; 42",
+        ));
         for decoded in [false, true] {
             let mut runtime = standard_runtime(Default::default());
             let loaded = runtime
@@ -736,16 +717,16 @@ fn cycles_and_traps_poison_only_started_cells_without_replaying_effects() {
                 ),
                 Err(ReloadValidationError::UpdateEvidence(_))
             ));
-            for _ in 0..2 {
+            for candidate in [&program, &repaired_helper] {
                 let staged = vm
                     .runtime_mut()
                     .stage_reload_program(
                         &_loaded_program,
                         Some("poison".into()),
                         if decoded {
-                            round_trip_bytecode(program.clone())
+                            round_trip_bytecode(candidate.clone())
                         } else {
-                            program.clone()
+                            candidate.clone()
                         },
                     )
                     .unwrap();

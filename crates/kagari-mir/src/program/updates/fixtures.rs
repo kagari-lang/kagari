@@ -9,13 +9,10 @@ use crate::{
 use kagari_abi::representation::ValueType;
 use kagari_common::identity::{map::DefinitionContext, mapping::DefinitionMappingError};
 use kagari_contract::{
-    types::{
-        ConcreteFunctionIdentity,
-        named::{NamedContract, NamedDeclaration},
-    },
+    types::named::{NamedContract, NamedDeclaration},
     updates::{
-        BodyClassification, Dependency, ProtectedRoot, RootKind, SourceRecord, SourceToken,
-        UpdateEvidence, limits::UpdateError,
+        BodyClassification, SourceRecord, SourceToken, StaticInitializer, UpdateEvidence,
+        limits::UpdateError,
     },
 };
 use kagari_types::{
@@ -34,7 +31,7 @@ pub(crate) fn evidence(
 ) -> Result<UpdateEvidence, UpdateError> {
     let mut classifications = HashMap::new();
     let mut sources = Vec::new();
-    let mut roots = Vec::new();
+    let mut initializers = Vec::new();
     for module in modules.iter_mut() {
         for function in &mut module.functions {
             for (index, parameter) in function.params.iter().enumerate() {
@@ -117,7 +114,7 @@ pub(crate) fn evidence(
                     tokens: vec![],
                     inputs: vec![],
                     calls: vec![],
-                    dependencies: vec![],
+                    bodies: vec![],
                 });
             }
         }
@@ -135,23 +132,17 @@ pub(crate) fn evidence(
                 }],
                 inputs: vec![],
                 calls: vec![],
-                dependencies: vec![],
+                bodies: vec![],
             });
-            roots.push(ProtectedRoot {
-                declaration: ConcreteFunctionIdentity {
-                    declaration: slot.contract.declaration,
-                    arguments: vec![],
-                },
-                kind: RootKind::StaticInitializer,
-                dependencies: vec![Dependency::Source(slot.contract.declaration)],
-                selections: vec![],
+            initializers.push(StaticInitializer {
+                declaration: slot.contract.declaration,
             });
         }
     }
-    roots.sort_by_key(|root| {
+    initializers.sort_by_key(|initializer| {
         context
             .snapshot()
-            .resolve(root.declaration.declaration)
+            .resolve(initializer.declaration)
             .unwrap()
             .to_path()
     });
@@ -159,7 +150,7 @@ pub(crate) fn evidence(
         modules,
         EvidenceInputs {
             sources,
-            roots,
+            initializers,
             selections: vec![],
             classifications,
         },

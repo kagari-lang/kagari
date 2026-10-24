@@ -31,7 +31,6 @@ use std::collections::{HashMap, HashSet, VecDeque};
 /// A checked installed native application and optional trusted complete closure.
 /// None remains unknown, not a sealed primitive. Coverage still retains all known
 /// published applications and visits the import's checked callable/result adapters.
-/// Protected comparison independently freezes the full inventory for unknown reentry.
 pub struct NativeClosure<'a> {
     pub import: &'a NativeImport,
     pub callbacks: Option<&'a [CallRequirement]>,
@@ -166,6 +165,8 @@ pub fn check_coverage(
 /// requests to reconstruct historical code. Runtime must never invoke a compiler.
 /// Uses the same candidate catalog and historical caller-scope checks as coverage;
 /// an existing but incompatible body is an error, not a compilation request.
+/// Missing native applications use the existing function-product queue; a request
+/// is not registration evidence, and strict coverage still requires checked imports.
 pub fn expand_requests(
     envelope: &DemandEnvelope,
     coverage: &Coverage<'_>,
@@ -477,7 +478,9 @@ impl Walker<'_, '_> {
             CallRequirement::Native(import) => {
                 let natives = self.find_natives(&import.instance, Some(import.binding), budget)?;
                 if natives.is_empty() {
-                    return Err(UpdateError::MissingNative(import.instance.clone()));
+                    return self
+                        .requests
+                        .missing(Request::Native(import.instance.clone()), budget);
                 }
                 let mut matched = false;
                 for index in natives {
@@ -517,7 +520,7 @@ impl Walker<'_, '_> {
             }
             // This is not a complete target-set proof. The envelope still requires
             // every previously published target and checked route, independently of
-            // this marker. Protection handles unknown reentry by freezing inventory.
+            // this marker. Unknown reentry does not freeze candidate bodies or inventory.
             CallRequirement::Unknown(_) => Ok(()),
         }
     }
@@ -535,7 +538,8 @@ impl Walker<'_, '_> {
         let natives = if let CallableImplementation::Native(binding) = call.implementation {
             let natives = self.find_natives(&call.instance, Some(binding), budget)?;
             if natives.is_empty() {
-                return Err(UpdateError::MissingNative(call.instance.clone()));
+                self.requests
+                    .missing(Request::Native(call.instance.clone()), budget)?;
             }
             natives
         } else {

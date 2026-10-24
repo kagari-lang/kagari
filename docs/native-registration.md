@@ -374,9 +374,10 @@ loading/invocation still validates handles, generations, codecs, declared access
 selected-call proofs and concrete results. Shared registration is not a shared
 script heap. Ordinary script/native callback calls select current implementations
 through checked installation routes; created closures/Futures and admitted
-computations retain exact bodies. Registration does not bypass protected Hash/Eq
-or static dependency checks: unknown native reentry remains conservative, not a
-claim of sealed behavior. See [publication contracts](spec/module-activation.md).
+computations retain exact bodies. Registration preserves frozen declarations, local
+static-initializer bindings, executable verification and retained demands; unknown
+native reentry does not impose a global body freeze. Callback roots, scoped borrows,
+reentry and cancellation checks still apply. See [publication contracts](spec/module-activation.md).
 
 Assembly methods currently take no caller cancellation token. They are synchronous
 collection/preparation operations, not cancellable script sessions; factory Rust

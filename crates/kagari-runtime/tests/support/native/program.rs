@@ -21,10 +21,7 @@ use kagari_contract::{
         ConcreteFunctionIdentity, PublicItem,
         named::{NamedContract, NamedDeclaration},
     },
-    updates::{
-        BodyClassification, Dependency, ProtectedRoot, RootKind, SourceRecord, SourceToken,
-        UnknownDependency, UpdateEvidence,
-    },
+    updates::{BodyClassification, SourceRecord, SourceToken, StaticInitializer, UpdateEvidence},
 };
 use kagari_types::{
     callable::{CallableImplementation, Signature},
@@ -83,7 +80,7 @@ impl ProgramFixture {
                 source_manifest: None,
                 sources: vec![],
                 bodies: vec![],
-                roots: vec![],
+                initializers: vec![],
                 targets: vec![],
                 selections: vec![],
             },
@@ -114,7 +111,7 @@ fn evidence(modules: &mut [BytecodeModule], context: &DefinitionContext) -> Upda
         prepare(module, context, &mut classifications);
     }
     let mut sources = Vec::new();
-    let mut roots = Vec::new();
+    let mut initializers = Vec::new();
     for module in modules.iter() {
         for declaration in &module.named_declarations {
             assert!(
@@ -129,12 +126,7 @@ fn evidence(modules: &mut [BytecodeModule], context: &DefinitionContext) -> Upda
                     tokens: vec![],
                     inputs: vec![],
                     calls: vec![],
-                    dependencies: if matches!(&declaration.contract, NamedContract::Function(function) if matches!(function.implementation, CallableImplementation::Native(_))) {
-                        // Declared effects do not prove the absence of script callbacks.
-                        vec![Dependency::Unknown(UnknownDependency { edge: 0 })]
-                    } else {
-                        vec![]
-                    },
+                    bodies: vec![],
                 });
             }
         }
@@ -157,23 +149,17 @@ fn evidence(modules: &mut [BytecodeModule], context: &DefinitionContext) -> Upda
                 }],
                 inputs: vec![],
                 calls: vec![],
-                dependencies: vec![],
+                bodies: vec![],
             });
-            roots.push(ProtectedRoot {
-                declaration: ConcreteFunctionIdentity {
-                    declaration: slot.contract.declaration,
-                    arguments: vec![],
-                },
-                kind: RootKind::StaticInitializer,
-                dependencies: vec![Dependency::Source(slot.contract.declaration)],
-                selections: vec![],
+            initializers.push(StaticInitializer {
+                declaration: slot.contract.declaration,
             });
         }
     }
     let definitions = context.snapshot();
-    roots.sort_by_key(|root| {
+    initializers.sort_by_key(|initializer| {
         definitions
-            .resolve(root.declaration.declaration)
+            .resolve(initializer.declaration)
             .unwrap()
             .to_path()
     });
@@ -181,7 +167,7 @@ fn evidence(modules: &mut [BytecodeModule], context: &DefinitionContext) -> Upda
         modules,
         EvidenceInputs {
             sources,
-            roots,
+            initializers,
             selections: vec![],
             classifications,
         },

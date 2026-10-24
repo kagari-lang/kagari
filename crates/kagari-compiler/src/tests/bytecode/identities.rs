@@ -303,7 +303,7 @@ fn struct_instances_must_match_public_templates_locally_and_across_modules() {
                 source_manifest: None,
                 sources: vec![],
                 bodies: vec![],
-                roots: vec![],
+                initializers: vec![],
                 targets: vec![],
                 selections: vec![],
             },

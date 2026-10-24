@@ -37,9 +37,6 @@ mod runtime_transfer;
 #[cfg(feature = "source")]
 mod scoped_calls;
 
-#[cfg(all(feature = "source", feature = "serde"))]
-mod state_snapshot;
-
 #[cfg(feature = "source")]
 mod typed_calls;
 

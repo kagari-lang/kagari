@@ -645,7 +645,7 @@ fn abi_fingerprints_change_with_public_signatures_and_path_descriptors() {
                 source_manifest: None,
                 sources: vec![],
                 bodies: vec![],
-                roots: vec![],
+                initializers: vec![],
                 targets: vec![],
                 selections: vec![],
             },

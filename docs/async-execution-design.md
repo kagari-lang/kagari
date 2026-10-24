@@ -118,8 +118,8 @@ them when no handles or explicit host roots retain them. Scope bookkeeping must
 not retain all completed tasks indefinitely. Keeping a completed Task reachable
 must not retain its entire execution stack. Await cancellation/failure follows
 the terminal-execution rules below, without adding an outer Result to the output.
-Neither Future nor Task is a cross-runtime value, serialized continuation or
-state-replacement payload. Publication must not silently retarget retained code.
+Neither Future nor Task is a cross-runtime value or serialized continuation.
+Publication must not silently retarget retained code.
 
 ### Async closure syntax and evaluation
 
@@ -547,13 +547,11 @@ host operations, or request an explicit host transaction.
 
 ## Reload and authority
 
-The [update model](update-model-design.md) distinguishes compatible publication
-from state replacement. The retention rules below describe compatible publication.
-State replacement closes admission and drains or explicitly cancels all work that
-can access the old state before snapshotting; cancellation must complete cleanup.
-No task/continuation is serialized into the new runtime. Late completion identities
-remain tied to the old scope/runtime and cannot mutate restored state. Cancelling
-local work does not undo remote RPC effects or resurrect jobs if replacement aborts.
+The [publication contract](spec/module-activation.md#live-installations-and-call-selection)
+preserves live state and selected computations under compatible code changes.
+It provides no task/continuation serialization or transfer to another runtime.
+Late completion identities remain tied to their original scope/runtime; cancelling
+local work does not undo remote RPC effects.
 
 Created closures, cold Futures and admitted frames/queued invocations retain their
 exact body/provider and lexical type environment through waits. First drive or await

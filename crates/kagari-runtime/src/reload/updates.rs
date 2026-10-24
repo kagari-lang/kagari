@@ -6,25 +6,28 @@ use crate::{
     module::{ExecutableModule, ModuleKey, VerifiedProgram},
     reload::{ReloadValidationError, contracts, updates::coverage::CoverageFacts},
 };
-use kagari_bytecode::program::verified::VerifiedBytecodeProgram;
+use kagari_bytecode::{module::BytecodeModule, program::verified::VerifiedBytecodeProgram};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        mapping::DefinitionMappingError, metadata::DefinitionMetadata,
-        scoped::DefinitionReferences, table::DefinitionTable,
+        DefinitionKind,
+        mapping::{DefinitionMapper, DefinitionMappingError, check_cancel, map_sequence},
+        metadata::DefinitionMetadata,
+        scoped::{DefinitionReferences, RemapDefinitions},
+        table::{DefinitionId, DefinitionTable},
     },
 };
 use kagari_contract::{
     types::{
-        ConcreteFunctionIdentity,
+        ConcreteFunctionIdentity, PublicItem,
         named::{NamedContract, NamedDeclaration, correspondence::DeclarationCorrespondence},
     },
     updates::{
         DemandEnvelope, UpdateEvidence,
         correspondence::import_verified_evidence,
         demands::{Coverage, check_coverage, publication_demands, union_demands},
+        initializers::compare_initializers,
         limits::{Budget, MAX_RECORDS, UpdateError},
-        protected::compare_protected,
         wire::UpdateEvidenceRecord,
     },
 };
@@ -111,6 +114,11 @@ pub(crate) fn prepare(
             coverage: candidate.update_coverage(),
             definitions: candidate.definitions(),
             headers: headers(candidate),
+            proof_names: proof_names(
+                candidate.modules().iter().map(Arc::as_ref),
+                candidate.definitions(),
+            )
+            .map_err(identity_error)?,
         },
     )
 }
@@ -133,6 +141,8 @@ pub(super) fn validate_bytecode(
             headers: contracts::inventory(&candidate.program().modules)
                 .filter(|record| matches!(record.contract, NamedContract::Implementation(_)))
                 .collect(),
+            proof_names: proof_names(&candidate.program().modules, candidate.definitions())
+                .map_err(identity_error)?,
         },
     )
     .map(|_| ())
@@ -143,6 +153,75 @@ struct Candidate<'a> {
     coverage: &'a CoverageFacts,
     definitions: &'a DefinitionTable,
     headers: Vec<NamedDeclaration>,
+    proof_names: ProofNames,
+}
+
+struct ProofNames(Vec<DefinitionId>);
+
+impl DefinitionReferences for ProofNames {
+    fn visit_definition_ids(
+        &self,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
+        cancel: &CancellationToken,
+    ) -> Result<(), DefinitionMappingError> {
+        for id in &self.0 {
+            check_cancel(cancel)?;
+            visit(id)?;
+        }
+        Ok(())
+    }
+}
+
+impl RemapDefinitions for ProofNames {
+    fn remap_definitions(
+        &self,
+        mapper: &mut DefinitionMapper<'_>,
+    ) -> Result<Self, DefinitionMappingError> {
+        Ok(Self(map_sequence(&self.0, |id| mapper.reference(id))?))
+    }
+}
+
+/// Preserve implicit method references from checked proof contracts. Generic
+/// signatures may reference their method owner explicitly; nongeneric signatures
+/// need the same identity even when no executable currently calls that method.
+fn proof_names<'a>(
+    modules: impl IntoIterator<Item = &'a BytecodeModule>,
+    definitions: &DefinitionTable,
+) -> Result<ProofNames, DefinitionMappingError> {
+    let mut names = HashSet::new();
+    let mut method = |owner, name: &str| {
+        let id = definitions
+            .lookup_child(owner, DefinitionKind::Method, name, 0)
+            .ok_or(DefinitionMappingError::InvalidContract)?;
+        names.insert(id);
+        Ok::<_, DefinitionMappingError>(())
+    };
+    for module in modules {
+        for item in &module.public_items {
+            let (owner, methods) = match item {
+                PublicItem::InterfaceTable(table) => (table.declaration, &table.methods),
+                PublicItem::Trait(contract) => {
+                    let root = definitions
+                        .lookup_root(&module.identity)
+                        .ok_or(DefinitionMappingError::InvalidContract)?;
+                    let owner = definitions
+                        .lookup_child(root, DefinitionKind::Trait, &contract.name, 0)
+                        .ok_or(DefinitionMappingError::InvalidContract)?;
+                    (owner, &contract.methods)
+                }
+                _ => continue,
+            };
+            for signature in methods {
+                method(owner, &signature.name)?;
+            }
+        }
+        for contract in &module.trait_contracts {
+            for signature in &contract.abi.methods {
+                method(contract.declaration, &signature.name)?;
+            }
+        }
+    }
+    Ok(ProofNames(names.into_iter().collect()))
 }
 
 fn prepare_records(
@@ -189,6 +268,14 @@ fn prepare_records(
             &cancel,
         )
         .map_err(identity_error)?;
+    correspondence
+        .import(
+            &candidate.proof_names,
+            new_headers.iter().cloned(),
+            candidate.definitions,
+            &cancel,
+        )
+        .map_err(identity_error)?;
     let imported_headers = correspondence
         .import(
             &new_headers,
@@ -199,7 +286,7 @@ fn prepare_records(
         .map_err(identity_error)?;
     let definitions = imported_headers.definitions();
     let result = (|| {
-        compare_protected(previous_evidence.records(), evidence.records(), &mut budget)?;
+        compare_initializers(previous_evidence.records(), evidence.records(), &mut budget)?;
         let published = publication_demands(evidence.records(), &mut budget)?;
         let demands = union_demands(history.records(), &published, definitions, &mut budget)?;
         let facts = coverage.records();
@@ -280,12 +367,15 @@ fn identity_error(error: DefinitionMappingError) -> ReloadValidationError {
 
 fn admission_error(error: UpdateError, definitions: &DefinitionTable) -> ReloadValidationError {
     let message = match error {
-        UpdateError::ProtectedChange { root, unknown_edge } => format!(
-            "protected declaration {} changed{}",
-            display(&root, definitions),
-            unknown_edge.map_or_else(String::new, |edge| format!(
-                " (unknown dependency edge {edge})"
-            )),
+        UpdateError::InitializerChange { declaration } => format!(
+            "static initializer {} changed",
+            display(
+                &ConcreteFunctionIdentity {
+                    declaration,
+                    arguments: vec![],
+                },
+                definitions,
+            ),
         ),
         UpdateError::MissingTarget(target) => format!(
             "candidate is missing current target {}",

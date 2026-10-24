@@ -150,12 +150,14 @@ instruction charging or heap quotas. Hosts own aggregate IO concurrency, admissi
 rates and deadlines. Ordinary nested awaits and structured branches retain parent
 execution controls; independent Tasks use their scope's context.
 
-Cold Futures, admitted factories, parked frames and retained typed handles pin their
-executable/type generations. Compatible reload does not cancel or retarget them.
-Explicit binding against a new module selects its new code. Shared mutable state may
-change while execution is parked, so business logic must revalidate assumptions on
-resumption. State replacement and migration of suspended executions remain outside
-this contract.
+Cold Futures, admitted factories and parked frames retain their selected bodies and
+matching type environments. Compatible reload does not cancel or retarget those
+computations. Ordinary named typed handles and calls from resumed bodies instead
+select current implementations without rebinding; see the
+[publication contract](spec/module-activation.md#live-installations-and-call-selection).
+Shared mutable state may change while execution is parked, so business logic must
+revalidate assumptions on resumption. Suspended executions are not migrated or
+serialized by publication.
 
 ## Backend integration boundary
 

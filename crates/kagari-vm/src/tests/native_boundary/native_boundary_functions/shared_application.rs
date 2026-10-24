@@ -101,12 +101,12 @@ fn source_free_closed_shared_application_retains_and_releases_its_environment() 
             .all(|method| matches!(method.target, CallableTarget::Script(_)))
     );
     // This legal producer rewrite changes the emitted call contract. Preserve
-    // source/protection inputs, but rebuild body evidence from the new bytecode.
+    // source/initializer inputs, but rebuild body evidence from the new bytecode.
     program.update_evidence = updates::build(
         &program.modules,
         EvidenceInputs {
             sources: program.update_evidence.sources.clone(),
-            roots: program.update_evidence.roots.clone(),
+            initializers: program.update_evidence.initializers.clone(),
             selections: program.update_evidence.selections.clone(),
             classifications: program
                 .update_evidence

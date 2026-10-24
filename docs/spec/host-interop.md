@@ -1117,7 +1117,8 @@ reachable defining module's ABI. Source-free loading also requires that each
 native module carries exactly its installed references: omission or forgery is
 rejected, including unused requirements. Comparison covers unused members,
 associated output contracts and default policies. A changed source default body
-with the same ABI remains subject to frozen/protected dependency checks. If admitted,
+with the same ABI remains subject to frozen declaration, independent executable
+and retained-demand checks, not transitive body protection. If admitted,
 ordinary calls select its current implementation; retained computation bodies remain
 exact as specified by [module activation](module-activation.md).
 

@@ -2,7 +2,7 @@
 use crate::updates::{
     BodyApplication, BodyClassification, BodyRecord, BodyRequirement, CallRequirement,
     CanonicalInstruction, CanonicalOperand, CurrentTarget, DemandEnvelope, DemandRequests,
-    Dependency, InterfaceRequest, ProtectedRoot, SourceRecord, UpdateEvidence,
+    InterfaceRequest, SourceRecord, StaticInitializer, UpdateEvidence,
     admission::nested,
     limits::{Budget, Limits, MAX_APPLICATIONS, UpdateError},
 };
@@ -72,13 +72,12 @@ delegate!(
     BodyRecord,
     BodyRequirement,
     CanonicalInstruction,
-    ProtectedRoot,
+    StaticInitializer,
     CurrentTarget,
     DemandEnvelope,
     BodyClassification,
     CanonicalOperand,
-    CallRequirement,
-    Dependency
+    CallRequirement
 );
 
 impl Value for DefinitionId {
@@ -174,7 +173,7 @@ fn evidence_guard(
     for count in [
         value.sources.len(),
         value.bodies.len(),
-        value.roots.len(),
+        value.initializers.len(),
         value.targets.len(),
         value.selections.len(),
     ] {
@@ -215,7 +214,7 @@ fn source_plain(value: &SourceRecord, budget: &mut Budget<'_>) -> Result<(), Upd
     budget.records(value.tokens.len())?;
     nested(value.inputs.len())?;
     nested(value.calls.len())?;
-    nested(value.dependencies.len())?;
+    nested(value.bodies.len())?;
     for token in &value.tokens {
         budget.bytes(token.text.len())?;
     }
@@ -229,7 +228,6 @@ fn body_plain(value: &BodyRecord, budget: &mut Budget<'_>) -> Result<(), UpdateE
     budget.records(value.instructions.len())?;
     budget.records(value.actual_instructions.len())?;
     nested(value.requirement.calls.len())?;
-    nested(value.dependencies.len())?;
     for instruction in value.instructions.iter().chain(&value.actual_instructions) {
         nested(instruction.operands.len())?;
         budget.records(instruction.operands.len())?;
@@ -305,13 +303,13 @@ macro_rules! variants {
     };
 }
 
-record!(UpdateEvidence { source_manifest, sources, bodies, roots, targets, selections; } guard evidence_guard);
-record!(SourceRecord { declaration, generic, inputs, calls, dependencies; tokens } guard source_guard);
+record!(UpdateEvidence { source_manifest, sources, bodies, initializers, targets, selections; } guard evidence_guard);
+record!(SourceRecord { declaration, generic, inputs, calls, bodies; tokens } guard source_guard);
 record!(BodyApplication { body, arguments; });
-record!(BodyRecord { requirement, classification, signature, captures, instructions, actual_instructions, dependencies; format, actual_format } guard body_guard);
+record!(BodyRecord { requirement, classification, signature, captures, instructions, actual_instructions; format, actual_format } guard body_guard);
 record!(BodyRequirement { origin, generic, calls; });
 record!(CanonicalInstruction { operands; opcode });
-record!(ProtectedRoot { declaration, dependencies, selections; kind });
+record!(StaticInitializer { declaration; });
 record!(CurrentTarget { application, body; module, function });
 record!(DemandEnvelope { applications, bodies, requirements; });
 record!(DemandRequests { functions, shared, interfaces, constructions, layouts; });
@@ -319,4 +317,3 @@ record!(InterfaceRequest { interface, receiver, arguments; method_slot });
 variants!(BodyClassification { Named, Closure, Async, Resume, Adapter, StaticInitializer, IntrinsicAdapter; });
 variants!(CanonicalOperand { Declaration, Type, Application; Local, Block, Unsigned, Signed, Bytes, Call });
 variants!(CallRequirement { Direct, Shared, Interface, RetainedBody, Native, Operation, Construction, Layout; Unknown });
-variants!(Dependency { Source, Body; Unknown });

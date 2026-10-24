@@ -18,7 +18,7 @@ use kagari_contract::{
         ConcreteFunctionIdentity, PublicItem,
         named::{NamedContract, NamedDeclaration},
     },
-    updates::{Dependency, SourceRecord, UnknownDependency},
+    updates::SourceRecord,
 };
 use kagari_runtime::{
     Runtime,
@@ -135,8 +135,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         tokens: vec![],
         inputs: vec![],
         calls: vec![],
-        // The portable signature/effect declaration is not a trusted callback-closure proof.
-        dependencies: vec![Dependency::Unknown(UnknownDependency { edge: 0 })],
+        bodies: vec![],
     };
     let modules = vec![BytecodeModule {
         identity: records.identity.clone(),
@@ -151,7 +150,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         &modules,
         EvidenceInputs {
             sources: vec![source],
-            roots: vec![],
+            initializers: vec![],
             selections: vec![],
             classifications: Default::default(),
         },

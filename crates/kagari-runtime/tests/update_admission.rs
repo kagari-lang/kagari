@@ -1,7 +1,7 @@
-//! Protected publication and historical-demand contracts, independent of execution liveness.
+//! Local initializer and historical-demand contracts, independent of execution liveness.
 use kagari_common::identity::map::DefinitionContext;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_contract::updates::{BodyRecord, CallRequirement, RootKind};
+use kagari_contract::updates::{BodyRecord, CallRequirement};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     Runtime,
@@ -22,7 +22,12 @@ use std::sync::Arc;
 #[path = "support/update_programs.rs"]
 mod programs;
 
-fn rejected_without_effects(runtime: &Runtime, loaded_program: &Program, candidate: &str) {
+fn rejected_without_effects(
+    runtime: &Runtime,
+    loaded_program: &Program,
+    candidate: &str,
+    expected_error: Option<&str>,
+) {
     let loaded = runtime.select_program(loaded_program).unwrap();
     let history = loaded.retained_demands().metadata().records().clone();
     let count = runtime.modules().loaded_count();
@@ -44,9 +49,16 @@ fn rejected_without_effects(runtime: &Runtime, loaded_program: &Program, candida
         ])
     {
         assert!(
-            matches!(result, Err(ReloadValidationError::UpdateEvidence(_))),
+            matches!(&result, Err(ReloadValidationError::UpdateEvidence(_))),
             "{result:?}"
         );
+        if let Some(expected) = expected_error {
+            let error = result.unwrap_err();
+            assert!(
+                matches!(&error, ReloadValidationError::UpdateEvidence(message) if message == expected),
+                "{error}"
+            );
+        }
     }
     let current = runtime.select_program(loaded_program).unwrap();
     assert_eq!(current.key(), loaded.key());
@@ -66,8 +78,39 @@ fn rejected_without_effects(runtime: &Runtime, loaded_program: &Program, candida
     }
 }
 
+fn publish_without_execution(
+    runtime: &mut Runtime,
+    loaded_program: &Program,
+    candidate: VerifiedProgram,
+) {
+    let loaded = runtime.select_program(loaded_program).unwrap();
+    let history = loaded.retained_demands().metadata().records().clone();
+    let staged = runtime
+        .stage_reload_verified_program(loaded_program, None, candidate)
+        .unwrap();
+    let current = runtime.select_program(loaded_program).unwrap();
+    assert_eq!(current.key(), loaded.key());
+    assert_eq!(current.retained_demands().metadata().records(), &history);
+    runtime.publish_staged_reload(staged).unwrap();
+
+    let published = runtime.select_program(loaded_program).unwrap();
+    assert_ne!(published.key(), loaded.key());
+    assert_eq!(runtime.resources().counters().peak_call_depth, 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
+    for member in published.members() {
+        assert!(
+            runtime
+                .module_instance_snapshot(&member)
+                .unwrap()
+                .module_slots
+                .iter()
+                .all(|slot| matches!(slot, StaticState::Uninitialized(_)))
+        );
+    }
+}
+
 #[test]
-fn protected_lazy_initializer_freezes_expression_and_transitive_helper_before_use() {
+fn lazy_initializer_freezes_expression_but_allows_transitive_helper_updates() {
     let source = r#"
         fn leaf() -> i32 { 3 }
         fn helper() -> i32 { leaf() }
@@ -80,45 +123,46 @@ fn protected_lazy_initializer_freezes_expression_and_transitive_helper_before_us
         .load_verified_program("exports", source_code(source))
         .unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
+    let facts = loaded.verified_program();
+    assert_eq!(facts.update_evidence().initializers.len(), 1);
+    let initializer = &facts.update_evidence().initializers[0];
     assert!(
-        loaded
-            .verified_program()
-            .update_evidence()
-            .roots
-            .iter()
-            .any(|root| root.kind == RootKind::StaticInitializer)
+        facts
+            .definitions()
+            .resolve(initializer.declaration)
+            .unwrap()
+            .last()
+            .is_some_and(|part| part.name == "STATE")
     );
-    for candidate in [
-        source.replace("leaf() -> i32 { 3 }", "leaf() -> i32 { 4 }"),
-        source.replace("helper() + (1 + 2)", "helper() + 3"),
-    ] {
-        rejected_without_effects(&runtime, &loaded_program, &candidate);
-    }
-    // A genuinely unrelated change is allowed when the protected closure is known.
+    rejected_without_effects(
+        &runtime,
+        &loaded_program,
+        &source.replace("helper() + (1 + 2)", "helper() + 3"),
+        Some(&format!(
+            "static initializer {}::STATE changed",
+            loaded.bytecode.identity
+        )),
+    );
+    // Direct expression tokens stay fixed; neither direct nor transitive helpers do.
     let candidate = source
+        .replace("leaf() -> i32 { 3 }", "leaf() -> i32 { 4 }")
+        .replace(
+            "helper() -> i32 { leaf() }",
+            "helper() -> i32 { leaf() + 1 }",
+        )
         .replace("run() -> i32 { 7 }", "run() -> i32 { 8 }")
         .replace(
             "helper() + (1 + 2)",
             "helper() /* unchanged tokens */ + ( 1 + 2 )",
         );
-    let staged = runtime
-        .stage_reload_verified_program(&loaded_program, None, source_code(&candidate))
-        .unwrap();
-    runtime.publish_staged_reload(staged).unwrap();
-
-    let published = runtime.select_program(&loaded_program).unwrap();
-    assert!(
-        runtime
-            .module_instance_snapshot(&published)
-            .unwrap()
-            .module_slots
-            .iter()
-            .all(|slot| matches!(slot, StaticState::Uninitialized(_)))
-    );
+    for result in source_free_reload_results(&loaded, &candidate) {
+        result.unwrap();
+    }
+    publish_without_execution(&mut runtime, &loaded_program, source_code(&candidate));
 }
 
 #[test]
-fn protected_unknown_function_value_rejects_executable_additions() {
+fn initializer_function_value_allows_helper_updates_and_executable_additions() {
     let source = r#"
         fn leaf() -> i32 { 3 }
         fn helper() -> i32 { val call: fn() -> i32 = || leaf(); call() }
@@ -129,11 +173,15 @@ fn protected_unknown_function_value_rejects_executable_additions() {
     let loaded_program = runtime
         .load_verified_program("exports", source_code(source))
         .unwrap();
-    rejected_without_effects(
-        &runtime,
-        &loaded_program,
-        &format!("{source} fn added() -> i32 {{ 9 }}"),
+    let candidate = format!(
+        "{} fn added() -> i32 {{ 9 }}",
+        source.replace("|| leaf()", "|| leaf() + 1")
     );
+    let loaded = runtime.select_program(&loaded_program).unwrap();
+    for result in source_free_reload_results(&loaded, &candidate) {
+        result.unwrap();
+    }
+    publish_without_execution(&mut runtime, &loaded_program, source_code(&candidate));
 }
 
 #[test]
@@ -293,7 +341,7 @@ fn source_free_candidates_require_historical_specializations_after_code_collecti
     let second_source = source
         .replace("run() -> i32 { generic(7) }", "run() -> i32 { 9 }")
         .replace("-> i32 { 11 }", "-> i32 { 12 }");
-    rejected_without_effects(&runtime, &first_program, &second_source);
+    rejected_without_effects(&runtime, &first_program, &second_source, None);
     let second_code = retained_candidate(&first, &second_source);
     assert_ne!(
         specialization(&second_code).instructions,
@@ -315,7 +363,7 @@ fn source_free_candidates_require_historical_specializations_after_code_collecti
     // Generation two has no source call to generic<i32>, and generation one's
     // executable graph has gone. Only the installation envelope can retain it.
     let third_source = second_source.replace("-> i32 { 12 }", "-> i32 { 13 }");
-    rejected_without_effects(&runtime, &first_program, &third_source);
+    rejected_without_effects(&runtime, &first_program, &third_source, None);
     let third_code = retained_candidate(&second, &third_source);
     assert_ne!(
         specialization(&third_code).instructions,
@@ -353,7 +401,7 @@ fn standard_runtime() -> Runtime {
 }
 
 #[test]
-fn protected_native_unknown_accepts_unchanged_inventory_but_not_additions() {
+fn native_initializer_accepts_unchanged_inventory_and_executable_additions() {
     let source = "use std::hash::Hash; static var STATE: i64 = 7.hash(); fn main() {}";
     let mut runtime = standard_runtime();
     let loaded_program = runtime
@@ -367,37 +415,17 @@ fn protected_native_unknown_accepts_unchanged_inventory_but_not_additions() {
             .iter()
             .any(|module| !module.native_imports.is_empty())
     );
-    let staged = runtime
-        .stage_reload_verified_program(&loaded_program, None, loaded.verified_program().clone())
-        .unwrap();
-    runtime.publish_staged_reload(staged).unwrap();
-
-    let current = runtime.select_program(&loaded_program).unwrap();
-    let history = current.retained_demands().metadata().records().clone();
-    let source = format!("{source} pub fn added() -> i32 {{ 1 }}");
-    let error = runtime
-        .stage_reload_verified_program(&loaded_program, None, standard_code(&source))
-        .unwrap_err();
-    assert!(
-        matches!(&error, ReloadValidationError::UpdateEvidence(message) if message.contains("unknown dependency edge")),
-        "{error}"
+    publish_without_execution(
+        &mut runtime,
+        &loaded_program,
+        loaded.verified_program().clone(),
     );
-    let latest = runtime.select_program(&loaded_program).unwrap();
-    assert_eq!(latest.key(), current.key());
-    assert_eq!(latest.retained_demands().metadata().records(), &history);
-    assert_eq!(runtime.resources().counters().peak_call_depth, 0);
-    assert!(
-        runtime
-            .module_instance_snapshot(&current)
-            .unwrap()
-            .module_slots
-            .iter()
-            .all(|slot| matches!(slot, StaticState::Uninitialized(_)))
-    );
+    let candidate = format!("{source} pub fn added() -> i32 {{ 1 }}");
+    publish_without_execution(&mut runtime, &loaded_program, standard_code(&candidate));
 }
 
 #[test]
-fn unused_generic_key_protocols_are_protected_without_live_containers() {
+fn unused_generic_key_protocols_allow_body_and_helper_updates() {
     let source = r#"
         use std::hash::Hash;
         struct Key<T> { val value: T }
@@ -413,30 +441,26 @@ fn unused_generic_key_protocols_are_protected_without_live_containers() {
         .unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     let facts = loaded.verified_program();
-    assert!(facts.update_evidence().roots.iter().any(|root| {
-        root.kind == RootKind::KeyHash
-            && facts
+    assert!(facts.update_evidence().initializers.is_empty());
+    for name in ["hash", "eq"] {
+        assert!(facts.update_evidence().sources.iter().any(|source| {
+            facts
                 .definitions()
-                .resolve(root.declaration.declaration)
-                .is_ok_and(|view| view.module() == &loaded.bytecode.identity)
-    }));
+                .resolve(source.declaration)
+                .is_ok_and(|view| {
+                    view.module() == &loaded.bytecode.identity
+                        && view.last().is_some_and(|part| part.name == name)
+                })
+        }));
+    }
     for candidate in [
         source.replace(
             "hash_helper() -> i64 { 1i64 }",
             "hash_helper() -> i64 { 2i64 }",
         ),
+        source.replace("hash_helper() }", "hash_helper() + 1i64 }"),
         source.replace("-> bool { true }", "-> bool { false }"),
     ] {
-        let result =
-            runtime.stage_reload_verified_program(&loaded_program, None, standard_code(&candidate));
-        assert!(
-            matches!(result, Err(ReloadValidationError::UpdateEvidence(_))),
-            "{result:?}"
-        );
-        assert_eq!(
-            runtime.select_program(&loaded_program).unwrap().key(),
-            loaded.key()
-        );
-        assert_eq!(runtime.resources().counters().peak_call_depth, 0);
+        publish_without_execution(&mut runtime, &loaded_program, standard_code(&candidate));
     }
 }

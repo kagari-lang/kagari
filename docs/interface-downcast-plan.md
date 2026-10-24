@@ -31,9 +31,9 @@ invocation, a public raw TypeId API or user-supplied type identity methods.
 
 The completed local storage work is a separate predecessor to DC01-DC04.
 NC collection migration, extensions to generic interface construction, blanket impls,
-derive, state migration, the broader compatible-update proposal and Cranelift
-interface expansion remain separate. Restoring a value from an already valid
-interface must not require reopening those projects.
+derive and Cranelift interface expansion remain separate. Restoring a value from an
+already valid interface must not require reopening those projects, adding state
+migration or changing the implemented compatible-publication contract.
 
 ## Baseline and implementation evidence
 
@@ -153,9 +153,9 @@ Recovery does not migrate objects, rewrite original interface dispatch tables or
 redirect an active call to the newest publication. DC01 must trace the recovered
 value through field access, concrete method calls, generic operation bindings and
 conversion back to an interface, recording which retained version supplies each
-operation. Use the existing pinned-call model; do not invent an independent
-downcast dispatch policy. The [update proposal](update-model-design.md) is not
-evidence that all proposed compatible changes already work.
+operation. Preserve [implemented current-call selection](spec/module-activation.md#live-installations-and-call-selection)
+and exact retained computation bodies; do not invent an independent downcast
+dispatch policy or bypass compatible-publication validation.
 
 If existing admission lacks evidence required for safe extraction, make the
 smallest shared correction with its owner and acceptance cases recorded here.

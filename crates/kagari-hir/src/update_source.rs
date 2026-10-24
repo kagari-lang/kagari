@@ -1,10 +1,7 @@
-//! Checked source evidence retained before reachability, constant folding or specialization.
+//! Authored provenance and static initializer evidence collected before optimization.
 //!
-//! These are source-facing records, not executable certificates. Token coordinates
-//! are local to an authored declaration, never byte offsets or HIR arena indices.
-//! Exact meaningful tokens plus checked resolutions conservatively distinguish
-//! template computations; this deliberately does not prove algebraic equivalence.
-//! The compiler maps these scoped references through declaration correspondence.
+//! Only static expressions retain non-trivia tokens and local checked resolutions.
+//! Ordinary bodies contribute identities, never their computations or dependencies.
 
 use crate::{
     CheckedAnalysis,
@@ -12,7 +9,6 @@ use crate::{
     hir::ids::{BodyOwner, HirOwner},
     resolver::resolved::ResolvedName,
     typeck::FunctionImplementation,
-    types::semantic::{lower_nominal_type, lower_type},
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -23,13 +19,12 @@ use kagari_common::{
     span::Span,
 };
 use kagari_syntax::{lexer::lex_with_cancellation, token::TokenKind};
-use kagari_types::ty::{GenericBound, GenericParam, NominalTy, Ty};
+use kagari_types::ty::Ty;
 use std::collections::HashMap;
 
 mod facts;
 mod mapping;
 mod order;
-mod roots;
 #[cfg(test)]
 mod tests;
 
@@ -40,34 +35,16 @@ pub struct SourceToken {
     pub text: String,
 }
 
-/// Half-open positions in a body's non-trivia token stream, not source offsets.
+/// Half-open positions in an initializer's non-trivia tokens, not source offsets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct TokenRange {
     pub start: usize,
     pub end: usize,
 }
 
-/// Why a checked operation has no complete finite script-target proof.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum UnknownDependency {
-    FunctionValue,
-    FutureResume,
-    InterfaceDispatch,
-    NativeReentry,
-    RuntimeHelper,
-    HostAccess,
-    MissingCheckedFact,
-}
-
-/// Role of an ordered semantic fact attached to a token range.
-///
-/// `Call`/`FunctionValue`: targets name the callee, types are type arguments.
-/// `TraitCall`/`Protocol`: targets name the member (when present), types begin
-/// with receiver and applied interface, followed by method arguments.
-/// `Signature`: parameter types followed by result. `Selection`: implementation
-/// followed by selected member and authored default origin (when present); types
-/// begin with receiver and applied interface, followed by applied arguments.
-/// Other references retain source order, never allocation or hash-map order.
+/// Role of a local checked fact; references never request callee-body comparison.
+/// Calls retain target IDs and type arguments; signatures retain parameter/result
+/// types. Trait/protocol facts retain receiver/interface types when available.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FactKind {
     Reference,
@@ -77,7 +54,6 @@ pub enum FactKind {
     TraitCall,
     Signature,
     Protocol,
-    Selection,
     Member,
     Construction,
     DeclaredCoercion,
@@ -85,7 +61,6 @@ pub enum FactKind {
     IntrinsicCoercion,
     InterfaceUpcast,
     AssociatedConstant,
-    NativeRequirement,
     Closure,
     AsyncClosure,
     AsyncBlock,
@@ -93,12 +68,10 @@ pub enum FactKind {
     Capture,
     Binding,
     HostAccess,
-    Unknown(UnknownDependency),
 }
 
-/// A checked source dependency or semantic input; no executable slot is present.
-/// Bindings/creations use `related` token ranges within this same body. Other
-/// facts leave it empty. This keeps source-local IDs out of persistent evidence.
+/// Checked input at a static expression's token range, without executable slots.
+/// Bindings/captures use `related` ranges within the same expression.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceFact {
     pub site: TokenRange,
@@ -108,6 +81,7 @@ pub struct SourceFact {
     pub related: Vec<TokenRange>,
 }
 
+/// Authored body category, also used by exact source inspection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceBodyKind {
     Function,
@@ -118,49 +92,32 @@ pub enum SourceBodyKind {
     Required,
 }
 
-/// Authored template, including unused generics and named block-local functions.
-/// Nested closure/async regions have creation facts; their computations remain in
-/// this exact owner. Instance planning later associates emitted bodies with them.
+/// Authored owner. Only static initializers carry tokens and checked local facts.
+/// For `static val N: i32 = ((helper()));`, tokens cover `((helper()))`, and
+/// the call fact names `helper` without retaining or traversing its body.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceBody {
     pub declaration: DefinitionId,
     pub kind: SourceBodyKind,
-    pub parameters: Vec<GenericParam>,
-    pub bounds: Vec<GenericBound>,
     pub tokens: Vec<SourceToken>,
-    /// Only statics require an independently frozen full initializer expression.
     pub initializer: Option<TokenRange>,
     pub facts: Vec<SourceFact>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum SourceRootKind {
-    Hash,
-    Equality,
-    StaticInitializer,
-}
-
-/// Published protection root, independent of materialized applications or use.
-/// Protocol roots retain their symbolic receiver/interface and selected members.
+/// Static declaration whose own initializer expression is frozen across reload.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourceRoot {
+pub struct SourceInitializer {
     pub declaration: DefinitionId,
-    pub kind: SourceRootKind,
-    pub receiver: Option<Ty>,
-    pub interface: Option<NominalTy>,
-    pub members: Vec<DefinitionId>,
 }
 
-/// Complete source owner inventory, plus checked implementation/default edges.
+/// Complete authored body inventory and static-only comparison roots.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SourceEvidence {
     pub bodies: Vec<SourceBody>,
-    pub roots: Vec<SourceRoot>,
-    pub selections: Vec<SourceFact>,
+    pub initializers: Vec<SourceInitializer>,
 }
 
-/// One bounded source collection. Final contract admission additionally charges
-/// the combined historical envelope, wire bytes and executable records.
+/// One bounded source collection, shared across a publication's modules.
 pub struct SourceBudget<'a> {
     cancel: &'a CancellationToken,
     records: usize,
@@ -245,12 +202,27 @@ fn definition(
     }
 }
 
+fn provenance(
+    module: &CheckedAnalysis,
+    name: ResolvedName,
+    kind: SourceBodyKind,
+    budget: &mut SourceBudget<'_>,
+) -> Result<SourceBody, DefinitionMappingError> {
+    budget.charge(1, 0)?;
+    Ok(SourceBody {
+        declaration: definition(module, name)?,
+        kind,
+        tokens: vec![],
+        initializer: None,
+        facts: vec![],
+    })
+}
+
 fn builder(
     module: &CheckedAnalysis,
     owner: BodyOwner,
     name: ResolvedName,
     span: Span,
-    kind: SourceBodyKind,
     budget: &mut SourceBudget<'_>,
 ) -> Result<BodyBuilder, DefinitionMappingError> {
     let text = module
@@ -259,7 +231,7 @@ fn builder(
         .text()
         .get(span.start..span.end)
         .ok_or(DefinitionMappingError::InvalidContract)?;
-    // Bound lexer allocation as well as the retained spelling before lexing.
+    // Bound lexer allocation as well as retained spelling before lexing.
     budget.charge(1, text.len())?;
     let lexed = lex_with_cancellation(text, budget.cancel)
         .map_err(|_| DefinitionMappingError::Cancelled)?;
@@ -285,34 +257,33 @@ fn builder(
             end: span.start + token.span.end,
         });
     }
+    let initializer = TokenRange {
+        start: 0,
+        end: tokens.len(),
+    };
     Ok(BodyBuilder {
         owner: HirOwner::Body(owner),
         span,
         token_spans,
         body: SourceBody {
             declaration: definition(module, name)?,
-            kind,
-            parameters: vec![],
-            bounds: vec![],
+            kind: SourceBodyKind::StaticInitializer,
             tokens,
-            initializer: None,
+            initializer: Some(initializer),
             facts: vec![],
         },
     })
 }
 
-/// Collect all checked bodies without following executable reachability.
-///
-/// Missing required identities/ranges fail. Unknown dynamic/native dependencies
-/// are explicit facts requiring conservative protection, not empty edge sets.
-/// Cancellation or budget exhaustion returns no partial evidence.
+/// Collect authored identities and static expressions without following callees.
+/// Missing identities/ranges, cancellation and budget exhaustion fail atomically.
 pub fn collect(
     module: &CheckedAnalysis,
     budget: &mut SourceBudget<'_>,
 ) -> Result<SourceEvidence, DefinitionMappingError> {
     let hir = &module.lowered.module;
     let map = &module.lowered.source_map;
-    let mut builders = Vec::new();
+    let mut result = SourceEvidence::default();
     for function in &hir.functions {
         let typed = module
             .typed
@@ -326,129 +297,50 @@ pub fn collect(
             FunctionImplementation::Script => SourceBodyKind::Function,
             FunctionImplementation::Required => SourceBodyKind::Required,
         };
-        let mut body = builder(
+        result.bodies.push(provenance(
             module,
-            BodyOwner::Function(function.id),
             ResolvedName::Function(function.id),
-            map.function_span(function.id),
             kind,
             budget,
-        )?;
-        body.body.parameters = typed
-            .generic_params
-            .iter()
-            .map(|parameter| GenericParam {
-                owner: parameter.owner,
-                position: parameter.position,
-            })
-            .collect();
-        body.body.bounds = typed
-            .bounds
-            .iter()
-            .map(|(ty, constraints)| GenericBound {
-                ty: lower_type(ty),
-                constraints: constraints.iter().map(lower_nominal_type).collect(),
-            })
-            .collect();
-        body.fact(
-            body.span,
-            FactKind::Signature,
-            vec![],
-            typed
-                .params
-                .iter()
-                .map(|param| lower_type(&param.ty))
-                .chain([lower_type(&typed.return_type)])
-                .collect(),
-            budget,
-        )?;
-        if matches!(kind, SourceBodyKind::Native) {
-            body.fact(
-                body.span,
-                FactKind::Unknown(UnknownDependency::NativeReentry),
-                vec![body.body.declaration],
-                vec![],
-                budget,
-            )?;
-        }
-
-        builders.push(body);
+        )?);
     }
     for item in &hir.consts {
-        builders.push(builder(
+        result.bodies.push(provenance(
             module,
-            BodyOwner::Const(item.id),
             ResolvedName::Const(item.id),
-            map.const_span(item.id),
             SourceBodyKind::Constant,
             budget,
         )?);
     }
-    let mut result = SourceEvidence::default();
+    let mut builders = Vec::new();
     for item in &hir.statics {
-        let mut body = builder(
-            module,
-            BodyOwner::Static(item.id),
-            ResolvedName::Static(item.id),
-            map.static_span(item.id),
-            SourceBodyKind::StaticInitializer,
-            budget,
-        )?;
         let initializer = map
             .static_initializer_span(item.id)
             .ok_or(DefinitionMappingError::InvalidContract)?;
-        body.body.initializer = Some(body.site(initializer));
+        let body = builder(
+            module,
+            BodyOwner::Static(item.id),
+            ResolvedName::Static(item.id),
+            initializer,
+            budget,
+        )?;
         budget.charge(1, 0)?;
-        result.roots.push(SourceRoot {
+        result.initializers.push(SourceInitializer {
             declaration: body.body.declaration,
-            kind: SourceRootKind::StaticInitializer,
-            receiver: None,
-            interface: None,
-            members: vec![],
         });
         builders.push(body);
     }
-    let owners: HashMap<_, _> = builders
-        .iter()
-        .enumerate()
-        .map(|(index, body)| (body.owner, index))
-        .collect();
-    facts::collect(module, &owners, &mut builders, budget)?;
-    for native in module.lowered.registered_native_declarations() {
-        if let Some(body) = builders
-            .iter_mut()
-            .find(|body| body.body.declaration == native.declaration)
-        {
-            for requirement in &native.callable_requirements {
-                body.fact(
-                    body.span,
-                    FactKind::NativeRequirement,
-                    vec![requirement.member],
-                    [
-                        requirement.receiver.clone(),
-                        Ty::Trait(requirement.interface.clone()),
-                    ]
-                    .into_iter()
-                    .chain(requirement.arguments.iter().cloned())
-                    .collect(),
-                    budget,
-                )?;
-            }
-            if let Some(result) = &native.concrete_result {
-                body.fact(
-                    body.span,
-                    FactKind::Construction,
-                    vec![],
-                    vec![result.clone(), native.function.return_type.clone()],
-                    budget,
-                )?;
-            }
-        } else {
-            return Err(DefinitionMappingError::InvalidContract);
-        }
+    if !builders.is_empty() {
+        let owners: HashMap<_, _> = builders
+            .iter()
+            .enumerate()
+            .map(|(index, body)| (body.owner, index))
+            .collect();
+        facts::collect(module, &owners, &mut builders, budget)?;
     }
-    roots::collect(module, &mut result, budget)?;
-    result.bodies = builders.into_iter().map(|body| body.body).collect();
+    result
+        .bodies
+        .extend(builders.into_iter().map(|body| body.body));
     result.canonical_order(module.definitions(), budget.cancel)?;
     Ok(result)
 }

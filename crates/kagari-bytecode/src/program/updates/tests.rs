@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     artifact::KbcArtifact,
-    instruction::{BytecodeInstruction, ConstantId, ConstantOperand, Slot},
+    instruction::{BytecodeInstruction, CallTarget, ConstantId, ConstantOperand, Slot},
     module::{
         BytecodeFunction, BytecodeSemanticSlots, FunctionMetadata, FunctionRecord,
         InstructionOrigin,
@@ -13,8 +13,12 @@ use kagari_abi::representation::ValueType;
 use kagari_common::identity::{DefinitionKind, ModuleIdentity, map::DefinitionContext};
 use kagari_contract::{
     ids::FunctionRef,
+    statics::{StaticContract, StaticDescriptor},
     types::named::{NamedContract, NamedDeclaration},
-    updates::demands::{Coverage, check_coverage, publication_demands},
+    updates::{
+        demands::{Coverage, check_coverage, publication_demands},
+        initializers::compare_initializers,
+    },
 };
 use kagari_types::{
     callable::CallableImplementation, declaration::FnDecl, scalar::BuiltinType, ty::Ty,
@@ -106,9 +110,9 @@ fn fixture() -> (DefinitionContext, BytecodeProgram) {
                 tokens: vec![],
                 inputs: vec![],
                 calls: vec![],
-                dependencies: vec![],
+                bodies: vec![],
             }],
-            roots: vec![],
+            initializers: vec![],
             selections: vec![],
             classifications: [(instance, BodyClassification::Named(declaration))].into(),
         },
@@ -155,7 +159,7 @@ fn update_evidence_bytecode_requires_complete_actual_body_and_portable_certifica
     missing.update_evidence = empty();
     assert!(verify_program(&missing, &context.snapshot(), &Default::default()).is_err());
     let mut detached = program.clone();
-    detached.update_evidence.sources[0].dependencies.clear();
+    detached.update_evidence.sources[0].bodies.clear();
     assert!(verify_program(&detached, &context.snapshot(), &Default::default()).is_err());
     let mut missing_source = program.clone();
     missing_source.update_evidence.sources.clear();
@@ -201,6 +205,231 @@ fn update_evidence_bytecode_requires_complete_actual_body_and_portable_certifica
     };
     *constant = ConstantId::new(1);
     verify_program(&moved, &context.snapshot(), &Default::default()).unwrap();
+}
+
+fn static_fixture() -> (DefinitionContext, BytecodeProgram) {
+    let (context, mut program) = fixture();
+    let module = &mut program.modules[0];
+    let root = context.intern_root(&module.identity).unwrap();
+    let declaration = context
+        .intern_child(root, DefinitionKind::Static, "STATE", 0)
+        .unwrap();
+    let mut initializer = module.functions[0].clone();
+    initializer.id = FunctionRef::new(1);
+    initializer.name = "initialize_state".into();
+    initializer.identity = Some(ConcreteFunctionIdentity {
+        declaration: context
+            .intern_child(root, DefinitionKind::Function, "initialize_state", 0)
+            .unwrap(),
+        arguments: vec![],
+    });
+    initializer.instructions[0] = BytecodeInstruction::Call {
+        dst: Some(Slot::new(0)),
+        callee: CallTarget::Function(FunctionRef::new(0)),
+        args: vec![],
+    };
+    let mut record = module.function_table[0].clone();
+    record.id = initializer.id;
+    record.identity = initializer.identity.clone();
+    record.name = initializer.name.clone();
+    module.function_table.push(record);
+    module.module_slots.push(StaticDescriptor {
+        contract: StaticContract {
+            declaration,
+            supplier: module.identity.clone(),
+            name: "STATE".into(),
+            ty: Ty::Builtin(BuiltinType::I32),
+            mutable: true,
+            visibility: Visibility::Private,
+        },
+        initializer: initializer.id,
+    });
+    module.functions.push(initializer);
+    let program = fixtures::certify(program, &context);
+    (context, program)
+}
+
+#[test]
+fn static_inventory_and_local_recipe_survive_source_free_admission() {
+    let (context, program) = static_fixture();
+    let declaration = program.modules[0].module_slots[0].contract.declaration;
+    verify_program(&program, &context.snapshot(), &Default::default()).unwrap();
+    assert_eq!(
+        program.update_evidence.initializers,
+        vec![StaticInitializer { declaration }]
+    );
+    assert!(matches!(
+        program.update_evidence.bodies[1]
+            .requirement
+            .calls
+            .as_slice(),
+        [CallRequirement::Direct(_)]
+    ));
+    let mut missing = program.clone();
+    missing.update_evidence.initializers.clear();
+    assert!(verify_program(&missing, &context.snapshot(), &Default::default()).is_err());
+    let mut duplicate = program.clone();
+    duplicate
+        .update_evidence
+        .initializers
+        .push(StaticInitializer { declaration });
+    assert!(verify_program(&duplicate, &context.snapshot(), &Default::default()).is_err());
+    let mut detached = program.clone();
+    detached
+        .update_evidence
+        .sources
+        .iter_mut()
+        .find(|source| source.declaration == declaration)
+        .unwrap()
+        .bodies
+        .clear();
+    assert!(verify_program(&detached, &context.snapshot(), &Default::default()).is_err());
+
+    let mut candidate = program.clone();
+    candidate.modules[0].constants[0] = ConstantOperand::I32(43);
+    let candidate = fixtures::certify(candidate, &context);
+    verify_program(&candidate, &context.snapshot(), &Default::default()).unwrap();
+    let cancel = CancellationToken::default();
+    let mut budget = Budget::new(Limits::default(), &cancel).unwrap();
+    compare_initializers(
+        &program.update_evidence,
+        &candidate.update_evidence,
+        &mut budget,
+    )
+    .unwrap();
+
+    let mut changed = candidate;
+    changed.modules[0].functions[1].instructions[0] = BytecodeInstruction::LoadConst {
+        dst: Slot::new(0),
+        constant: ConstantId::new(0),
+    };
+    let changed = fixtures::certify(changed, &context);
+    verify_program(&changed, &context.snapshot(), &Default::default()).unwrap();
+    assert_eq!(
+        compare_initializers(
+            &program.update_evidence,
+            &changed.update_evidence,
+            &mut budget
+        ),
+        Err(UpdateError::InitializerChange { declaration })
+    );
+}
+
+fn static_child_without_creation() -> (DefinitionContext, BytecodeProgram) {
+    let (context, mut program) = static_fixture();
+    let module = &mut program.modules[0];
+    let parent = module.functions[1].identity.clone().unwrap();
+    let child = ConcreteFunctionIdentity {
+        declaration: context
+            .intern_child(parent.declaration, DefinitionKind::Function, "closure_0", 0)
+            .unwrap(),
+        arguments: parent.arguments.clone(),
+    };
+    let mut function = module.functions[0].clone();
+    function.id = FunctionRef::new(2);
+    function.identity = Some(child.clone());
+    function.name = "closure_0".into();
+    let mut record = module.function_table[0].clone();
+    record.id = function.id;
+    record.identity = function.identity.clone();
+    record.name = function.name.clone();
+    module.functions[1].instructions[0] = BytecodeInstruction::Call {
+        dst: Some(Slot::new(0)),
+        callee: CallTarget::Function(function.id),
+        args: vec![],
+    };
+    module.functions.push(function);
+    module.function_table.push(record);
+    let mut sources = program.update_evidence.sources.clone();
+    sources
+        .iter_mut()
+        .find(|source| source.declaration == module.module_slots[0].contract.declaration)
+        .unwrap()
+        .bodies
+        .push(child.clone());
+    let mut classifications = program
+        .update_evidence
+        .bodies
+        .iter()
+        .map(|body| (body.requirement.origin.clone(), body.classification.clone()))
+        .collect::<HashMap<_, _>>();
+    classifications.insert(child, BodyClassification::Closure(parent));
+    program.update_evidence = build(
+        &program.modules,
+        EvidenceInputs {
+            sources,
+            initializers: program.update_evidence.initializers.clone(),
+            selections: vec![],
+            classifications,
+        },
+        &context.snapshot(),
+        &Default::default(),
+    )
+    .unwrap();
+    (context, program)
+}
+
+#[test]
+fn static_child_cannot_forge_lexical_owner_without_a_creation_instruction() {
+    let (context, program) = static_child_without_creation();
+    verify_program(&program, &context.snapshot(), &Default::default()).unwrap();
+    let child = program.modules[0].functions[2].identity.clone().unwrap();
+    assert!(matches!(
+        program.update_evidence.bodies[1].requirement.calls.as_slice(),
+        [CallRequirement::RetainedBody(application)] if application.body == child
+    ));
+    let unrelated = program.modules[0].functions[0].identity.clone().unwrap();
+    for classification in [
+        BodyClassification::Closure(unrelated.clone()),
+        BodyClassification::Async(unrelated.clone()),
+        BodyClassification::Resume(unrelated.clone()),
+        BodyClassification::Adapter(unrelated.clone()),
+    ] {
+        let mut forged = program.clone();
+        forged.update_evidence.bodies[2].classification = classification;
+        for source in &mut forged.update_evidence.sources {
+            source.bodies.retain(|body| body != &child);
+            if source.declaration == unrelated.declaration {
+                source.bodies.push(child.clone());
+            }
+        }
+        assert!(verify_program(&forged, &context.snapshot(), &Default::default()).is_err());
+        assert_eq!(
+            project(
+                &forged.modules,
+                &forged.update_evidence,
+                &context.snapshot(),
+                &Default::default()
+            ),
+            Err(UpdateError::InvalidEvidence)
+        );
+    }
+    let mut changed = program.clone();
+    changed.modules[0].constants.push(ConstantOperand::I32(43));
+    changed.modules[0].functions[2].instructions[0] = BytecodeInstruction::LoadConst {
+        dst: Slot::new(0),
+        constant: ConstantId::new(1),
+    };
+    changed.update_evidence = project(
+        &changed.modules,
+        &program.update_evidence,
+        &context.snapshot(),
+        &Default::default(),
+    )
+    .unwrap();
+    verify_program(&changed, &context.snapshot(), &Default::default()).unwrap();
+    let cancel = CancellationToken::default();
+    let mut budget = Budget::new(Limits::default(), &cancel).unwrap();
+    assert_eq!(
+        compare_initializers(
+            &program.update_evidence,
+            &changed.update_evidence,
+            &mut budget
+        ),
+        Err(UpdateError::InitializerChange {
+            declaration: program.modules[0].module_slots[0].contract.declaration,
+        })
+    );
 }
 
 #[test]
@@ -282,11 +511,13 @@ fn update_evidence_capture_free_closure_remains_body_owned_and_cannot_drop_its_e
         unreachable!()
     };
     declaration.return_type = ty;
+    let mut sources = program.update_evidence.sources.clone();
+    sources[0].bodies.push(child.clone());
     program.update_evidence = build(
         &program.modules,
         EvidenceInputs {
-            sources: program.update_evidence.sources.clone(),
-            roots: vec![],
+            sources,
+            initializers: vec![],
             selections: vec![],
             classifications: [
                 (

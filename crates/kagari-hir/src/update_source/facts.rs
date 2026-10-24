@@ -1,4 +1,4 @@
-//! Exhaustive checked side-table extraction, before executable lowering skips nodes.
+//! Local checked static-expression facts, without transitive dependency protection.
 
 use crate::{
     CheckedAnalysis,
@@ -8,12 +8,9 @@ use crate::{
         ids::{ExprId, HirOwner},
     },
     resolver::resolved::ResolvedName,
-    typeck::{
-        FunctionImplementation,
-        table::{CallTarget, ResolvedCall, ResolvedInterfaceImplementation, TypeTarget},
-    },
+    typeck::table::{CallTarget, ResolvedCall, ResolvedInterfaceImplementation, TypeTarget},
     types::semantic::{lower_nominal_type, lower_type},
-    update_source::{BodyBuilder, FactKind, SourceBudget, UnknownDependency, definition},
+    update_source::{BodyBuilder, FactKind, SourceBudget, definition},
 };
 use kagari_common::{
     identity::{mapping::DefinitionMappingError, scoped::DefinitionReferences},
@@ -23,15 +20,6 @@ use kagari_types::ty::{GenericParam, Ty};
 use std::collections::HashMap;
 
 impl BodyBuilder {
-    fn unknown(
-        &mut self,
-        span: Span,
-        reason: UnknownDependency,
-        budget: &mut SourceBudget<'_>,
-    ) -> Result<(), DefinitionMappingError> {
-        self.fact(span, FactKind::Unknown(reason), vec![], vec![], budget)
-    }
-
     fn reference(
         &mut self,
         module: &CheckedAnalysis,
@@ -88,9 +76,7 @@ impl BodyBuilder {
                     .find(|param| param.id == id)
                     .map(|param| param.ty.clone()),
             ),
-            ResolvedName::RuntimeHelper(_) => {
-                return self.unknown(span, UnknownDependency::RuntimeHelper, budget);
-            }
+            ResolvedName::RuntimeHelper(_) => return Ok(()),
             ResolvedName::Namespace(_) | ResolvedName::Module(_) => return Ok(()),
             _ => return Err(DefinitionMappingError::InvalidContract),
         };
@@ -121,28 +107,14 @@ impl BodyBuilder {
     ) -> Result<(), DefinitionMappingError> {
         let mut types: Vec<_> = call.type_arguments.iter().map(lower_type).collect();
         let (kind, targets) = match &call.target {
-            CallTarget::SourceFunction(id) => {
-                if module
-                    .imported_functions
-                    .target(id)
-                    .is_some_and(|function| {
-                        matches!(
-                            function.signature.implementation,
-                            FunctionImplementation::Native(_)
-                        )
-                    })
-                {
-                    self.unknown(span, UnknownDependency::NativeReentry, budget)?;
-                }
-                (
-                    if value {
-                        FactKind::FunctionValue
-                    } else {
-                        FactKind::Call
-                    },
-                    vec![*id],
-                )
-            }
+            CallTarget::SourceFunction(id) => (
+                if value {
+                    FactKind::FunctionValue
+                } else {
+                    FactKind::Call
+                },
+                vec![*id],
+            ),
             CallTarget::Function(id) => (
                 if value {
                     FactKind::FunctionValue
@@ -159,18 +131,10 @@ impl BodyBuilder {
                 if let Some(receiver) = receiver {
                     types.insert(0, lower_type(&receiver));
                 }
-                // A checked method contract is not a finite implementation-set proof.
-                self.unknown(span, UnknownDependency::InterfaceDispatch, budget)?;
+
                 (FactKind::TraitCall, vec![*method])
             }
-            CallTarget::Value => {
-                self.unknown(span, UnknownDependency::FunctionValue, budget)?;
-                (FactKind::Call, vec![])
-            }
-            CallTarget::RuntimeHelper(_) => {
-                self.unknown(span, UnknownDependency::RuntimeHelper, budget)?;
-                (FactKind::Call, vec![])
-            }
+            CallTarget::Value | CallTarget::RuntimeHelper(_) => (FactKind::Call, vec![]),
             CallTarget::TerminatingCallee => return Ok(()),
         };
         self.fact(span, kind, targets, types, budget)?;
@@ -214,8 +178,6 @@ impl BodyBuilder {
                 matches!(kind, ExprKind::Name { .. }),
                 budget,
             )?;
-        } else if matches!(kind, ExprKind::Call { .. }) && table.enum_constructor(id).is_none() {
-            self.unknown(span, UnknownDependency::MissingCheckedFact, budget)?;
         }
         if let Some(receiver) = table.protocol_receiver(id) {
             self.fact(
@@ -237,7 +199,6 @@ impl BodyBuilder {
                 ],
                 budget,
             )?;
-            self.unknown(span, UnknownDependency::InterfaceDispatch, budget)?;
         }
         if let Some(field) = table.expr_field(id) {
             self.fact(span, FactKind::Member, vec![*field], vec![], budget)?;
@@ -277,7 +238,6 @@ impl BodyBuilder {
                 ],
                 budget,
             )?;
-            self.unknown(span, UnknownDependency::InterfaceDispatch, budget)?;
         }
         if let Some(propagation) = table.propagation(id) {
             self.call(module, span, &propagation.branch, false, budget)?;
@@ -301,7 +261,6 @@ impl BodyBuilder {
                 ],
                 budget,
             )?;
-            self.unknown(span, UnknownDependency::InterfaceDispatch, budget)?;
         }
         if let Some(coercion) = table.interface_coercion(id) {
             let mut types = vec![
@@ -348,7 +307,6 @@ impl BodyBuilder {
                 budget.cancel,
             )?;
             self.fact(span, FactKind::HostAccess, targets, vec![], budget)?;
-            self.unknown(span, UnknownDependency::HostAccess, budget)?;
         }
         match kind {
             ExprKind::Await { expr } => {
@@ -359,8 +317,6 @@ impl BodyBuilder {
                     .into_iter()
                     .collect();
                 self.fact(span, FactKind::Await, vec![], types, budget)?;
-                // The Future type is not a closed set of resume-body identities.
-                self.unknown(span, UnknownDependency::FutureResume, budget)?;
             }
             ExprKind::Closure { .. } | ExprKind::AsyncBlock { .. } => {
                 let creation = match kind {
@@ -378,9 +334,7 @@ impl BodyBuilder {
                         .kind = FactKind::Capture;
                 }
             }
-            ExprKind::Missing => {
-                self.unknown(span, UnknownDependency::MissingCheckedFact, budget)?
-            }
+            ExprKind::Missing => return Err(DefinitionMappingError::InvalidContract),
             _ => {}
         }
         Ok(())
@@ -426,7 +380,6 @@ pub(super) fn collect(
                 vec![Ty::Trait(lower_nominal_type(interface))],
                 budget,
             )?;
-            body.unknown(span, UnknownDependency::InterfaceDispatch, budget)?;
         }
         if let Some((interface, method)) = table.place_index_write(id) {
             body.fact(
@@ -436,7 +389,6 @@ pub(super) fn collect(
                 vec![Ty::Trait(lower_nominal_type(interface))],
                 budget,
             )?;
-            body.unknown(span, UnknownDependency::InterfaceDispatch, budget)?;
         }
         if let Some(path) = table.host_place_path(id) {
             let mut targets = vec![];
@@ -455,7 +407,6 @@ pub(super) fn collect(
                 budget.cancel,
             )?;
             body.fact(span, FactKind::HostAccess, targets, vec![], budget)?;
-            body.unknown(span, UnknownDependency::HostAccess, budget)?;
         }
     }
     for (index, (owner, _)) in hir.types.iter().enumerate() {
@@ -465,6 +416,10 @@ pub(super) fn collect(
         };
         let id = map.type_id(index);
         let span = map.type_span(id);
+        let initializer = builders[*body].span;
+        if span.start < initializer.start || span.end > initializer.end {
+            continue;
+        }
         if let Some(fact) = table.type_ref(id) {
             let target = match &fact.target {
                 Some(TypeTarget::Source(id) | TypeTarget::AssociatedType(id)) => Some(*id),

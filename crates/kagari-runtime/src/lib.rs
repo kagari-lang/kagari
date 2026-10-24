@@ -81,8 +81,6 @@ mod value_check;
 
 pub mod session;
 pub mod source;
-#[cfg(feature = "serde")]
-pub mod state;
 pub mod task;
 pub mod value;
 pub mod value_semantics;

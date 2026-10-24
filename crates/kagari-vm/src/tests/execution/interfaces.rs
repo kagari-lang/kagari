@@ -778,8 +778,7 @@ fn a_retained_generic_closure_keeps_constraint_evidence_but_calls_current_code()
             .run()
             .unwrap()
     }
-    // Supply the actual callable protocol, not unrelated foundation Hash/Eq
-    // protocols whose unknown callbacks correctly freeze ordinary body edits.
+    // Keep this fixture focused on its registered callable constraint protocol.
     let provider = closure_constraint_provider();
     let compile = |text: &str| compile_without_foundation(text, Some(&provider));
     let mut runtime = Runtime::default();

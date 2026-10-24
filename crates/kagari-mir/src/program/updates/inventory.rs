@@ -10,20 +10,18 @@ use kagari_contract::{
     ids::FunctionRef,
     types::{ConcreteFunctionIdentity, named::NamedContract},
     updates::{
-        BodyClassification, BodyRecord, CallRequirement, CurrentTarget, Dependency, ProtectedRoot,
-        RootKind,
+        BodyClassification, BodyRecord, CallRequirement, CurrentTarget, StaticInitializer,
         admission::Inventory,
         limits::{Budget, UpdateError},
     },
 };
-use kagari_types::{language::Protocol, ty::Ty};
 use std::collections::{HashMap, HashSet};
 
 pub(super) struct Index {
     pub sources: Vec<DefinitionId>,
     pub bodies: Vec<ConcreteFunctionIdentity>,
     pub targets: Vec<CurrentTarget>,
-    pub roots: Vec<ProtectedRoot>,
+    pub initializers: Vec<StaticInitializer>,
     pub selections: Vec<CallRequirement>,
 }
 
@@ -33,7 +31,7 @@ impl Index {
             sources: &self.sources,
             bodies: &self.bodies,
             targets: &self.targets,
-            roots: &self.roots,
+            initializers: &self.initializers,
             selections: &self.selections,
         }
     }
@@ -50,7 +48,7 @@ pub(super) fn collect(
         sources: vec![],
         bodies: vec![],
         targets: vec![],
-        roots: vec![],
+        initializers: vec![],
         selections: vec![],
     };
     let extraction = Context::new(modules, definitions, cancel, budget)?;
@@ -70,19 +68,6 @@ pub(super) fn collect(
             {
                 index.sources.push(declaration.declaration);
             }
-            if let NamedContract::Implementation(contract) = &declaration.contract
-                && contract.bridge.is_none()
-                && let Some(Ty::Trait(interface)) = &contract.trait_type
-            {
-                let kind = match Protocol::from_definition(&interface.declaration, definitions) {
-                    Some(Protocol::Hash) => Some(RootKind::KeyHash),
-                    Some(Protocol::Eq) => Some(RootKind::KeyEq),
-                    _ => None,
-                };
-                if let Some(kind) = kind {
-                    index.roots.push(root(declaration.declaration, kind));
-                }
-            }
         }
         for slot in &module.module_slots {
             budget.visit()?;
@@ -92,9 +77,9 @@ pub(super) fn collect(
             if sources.insert(slot.contract.declaration) {
                 index.sources.push(slot.contract.declaration);
             }
-            index
-                .roots
-                .push(root(slot.contract.declaration, RootKind::StaticInitializer));
+            index.initializers.push(StaticInitializer {
+                declaration: slot.contract.declaration,
+            });
         }
         for function in &module.functions {
             budget.visit()?;
@@ -120,10 +105,10 @@ pub(super) fn collect(
         }
     }
     // Source collectors use authored declaration order; executable module placement
-    // does not define the order of protected root identities.
-    index.roots.sort_by_key(|root| {
+    // does not define the order of static initializer identities.
+    index.initializers.sort_by_key(|initializer| {
         definitions
-            .resolve(root.declaration.declaration)
+            .resolve(initializer.declaration)
             .map(|view| view.to_path())
             .ok()
     });
@@ -133,16 +118,4 @@ pub(super) fn collect(
             .map_err(DefinitionMappingError::from)?;
     }
     Ok(index)
-}
-
-fn root(declaration: DefinitionId, kind: RootKind) -> ProtectedRoot {
-    ProtectedRoot {
-        declaration: ConcreteFunctionIdentity {
-            declaration,
-            arguments: vec![],
-        },
-        kind,
-        dependencies: vec![Dependency::Source(declaration)],
-        selections: vec![],
-    }
 }

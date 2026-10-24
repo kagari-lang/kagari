@@ -98,21 +98,9 @@ impl ObjectBuilder {
         field: &ObjectField,
         value: Value,
     ) -> NativeResult<()> {
-        self.set_value_in_with_poll(cx, field, value, &mut || Ok(()))
-    }
-
-    /// The polling hook must not mutate/collect the heap or reenter execution.
-    #[cfg(feature = "serde")]
-    pub(crate) fn set_value_in_with_poll(
-        &mut self,
-        cx: &ConversionContext<'_>,
-        field: &ObjectField,
-        value: Value,
-        poll: &mut dyn FnMut() -> NativeResult<()>,
-    ) -> NativeResult<()> {
         let slot = field.check_owner(&self.object_type)?;
         self.check_slot(slot)?;
-        cx.check_value_with_poll(&field.argument(cx.runtime())?, &value, poll)?;
+        cx.check_value(&field.argument(cx.runtime())?, &value)?;
         self.fields[slot] = Some(
             cx.runtime()
                 .root_value(value)

@@ -1,6 +1,4 @@
 //! One synchronous conversion scope protects unpublished values and exact versions.
-#[cfg(feature = "serde")]
-use crate::value_check;
 use crate::{
     Runtime,
     error::RuntimeError,
@@ -15,8 +13,6 @@ use crate::{
     },
     value::Value,
 };
-#[cfg(feature = "serde")]
-use kagari_types::ty::Ty;
 use std::{
     collections::HashSet,
     ops::{Deref, DerefMut},
@@ -349,58 +345,6 @@ impl<'runtime> ConversionContext<'runtime> {
             ));
         }
         Ok(())
-    }
-
-    /// Complete admission with a non-reentrant poll on every tuple node.
-    #[cfg(feature = "serde")]
-    pub(crate) fn check_value_with_poll(
-        &self,
-        expected: &TypeArgument,
-        value: &Value,
-        poll: &mut dyn FnMut() -> NativeResult<()>,
-    ) -> NativeResult<()> {
-        poll()?;
-        expected.validate(self.runtime)?;
-        if matches!(expected.ty(), Ty::Tuple(_)) {
-            if value_check::matches_view_with_poll(
-                self.runtime.gc(),
-                value,
-                expected.view(self.owner),
-                poll,
-            )? {
-                return Ok(());
-            }
-            return Err(RuntimeError::module_validation(
-                "converted tuple differs from its declaration",
-            ));
-        }
-        self.check_value(expected, value)
-    }
-
-    /// Check one node of a schema-directed walk. Tuple children remain an
-    /// obligation of the caller; every other supported shape uses normal admission.
-    #[cfg(feature = "serde")]
-    pub(crate) fn check_value_shallow(
-        &self,
-        expected: &TypeArgument,
-        value: &Value,
-    ) -> NativeResult<()> {
-        expected.validate(self.runtime)?;
-        if let Ty::Tuple(types) = expected.ty() {
-            if let Value::Tuple(id) = value
-                && self
-                    .runtime
-                    .gc()
-                    .tuple(*id)
-                    .is_some_and(|items| items.len() == types.len())
-            {
-                return Ok(());
-            }
-            return Err(RuntimeError::module_validation(
-                "converted tuple differs from its declaration",
-            ));
-        }
-        self.check_value(expected, value)
     }
 
     fn protect(&self, value: &Value) -> NativeResult<Option<RootedValue>> {

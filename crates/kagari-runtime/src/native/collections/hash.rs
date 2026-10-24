@@ -5,7 +5,7 @@ use crate::{
     gc::{HeapObjectId, custom_keys::KeyLookupRoots, roots::RootedValue},
     native::{
         binding::NativeResult, conversion::context::ConversionContext,
-        function_handle::PreparedFunction, typed::NativeContext,
+        function_handle::PreparedFunction, stored_selection::StoredSelection, typed::NativeContext,
     },
     value::Value,
 };
@@ -22,8 +22,8 @@ pub(super) struct HashHandle {
 
 #[derive(Debug)]
 struct KeyProtocol {
-    hash: PreparedFunction,
-    equal: PreparedFunction,
+    hash: StoredSelection,
+    equal: StoredSelection,
 }
 
 impl HashHandle {
@@ -50,16 +50,8 @@ impl HashHandle {
             [hash, equal] => {
                 cx.runtime().gc().ensure_key_mode(value, true)?;
                 Some(Arc::new(KeyProtocol {
-                    hash: PreparedFunction::selected(
-                        cx.runtime(),
-                        cx.owner(),
-                        hash.retain(cx.runtime())?,
-                    )?,
-                    equal: PreparedFunction::selected(
-                        cx.runtime(),
-                        cx.owner(),
-                        equal.retain(cx.runtime())?,
-                    )?,
+                    hash: hash.clone(),
+                    equal: equal.clone(),
                 }))
             }
             _ => {
@@ -133,14 +125,26 @@ impl HashHandle {
             .root_execution_values(vec![*collection, *key])
             .ok_or_else(|| RuntimeError::module_validation("key lookup retention"))?;
         let _lookup = heap.begin_key_lookup(collection, KeyLookupRoots::Host(&roots))?;
-        let hash = protocol.hash.call_values(cx, slice::from_ref(key))?;
+        // The rooted collection owns the stored evidence. Select current bodies
+        // only for this synchronous lookup, never for the retained handle's lifetime.
+        let hash = PreparedFunction::selected(
+            cx.runtime(),
+            cx.conversion.owner(),
+            protocol.hash.retain(cx.runtime())?,
+        )?;
+        let equal = PreparedFunction::selected(
+            cx.runtime(),
+            cx.conversion.owner(),
+            protocol.equal.retain(cx.runtime())?,
+        )?;
+        let hash = hash.call_values(cx, slice::from_ref(key))?;
         let Some(Value::I64(hash)) = hash.value(heap) else {
             return Err(RuntimeError::module_validation("Hash result must be i64"));
         };
         let mut index = 0;
         while let Some((token, stored)) = heap.custom_candidate(collection, hash, index)? {
             cx.poll()?;
-            let equal = protocol.equal.call_values(cx, &[stored, *key])?;
+            let equal = equal.call_values(cx, &[stored, *key])?;
             match equal.value(heap) {
                 Some(Value::Bool(true)) => return Ok(Some((hash, token))),
                 Some(Value::Bool(false)) => {}
