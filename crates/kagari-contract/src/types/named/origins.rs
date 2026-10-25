@@ -6,8 +6,10 @@ use crate::{
     types::{
         ConcreteFunctionIdentity,
         named::{
-            FunctionOrigin, NamedContract, NamedDeclaration, verify::signature_matches_with_lookup,
+            FunctionOrigin, NamedContract, NamedDeclaration,
+            verify::{SignatureScope, signature_matches_with_lookup},
         },
+        proofs::ProofCatalog,
     },
 };
 use kagari_common::{
@@ -25,6 +27,7 @@ use std::collections::{HashMap, HashSet};
 /// Origin metadata is not a capture/body proof and never marks an actual closure
 /// as a named function merely because it has zero captures.
 pub fn validate<'a, S: FunctionTypeFacts + 'a>(
+    catalog: &ProofCatalog<'_>,
     origins: &[FunctionOrigin],
     module: &ModuleIdentity,
     definitions: &DefinitionTable,
@@ -41,6 +44,16 @@ pub fn validate<'a, S: FunctionTypeFacts + 'a>(
     for (identity, semantic) in functions {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
         remaining = remaining.checked_sub(1).ok_or(invalid)?;
+        if !signature_matches_with_lookup(
+            SignatureScope::Linked(catalog),
+            identity,
+            semantic,
+            definitions,
+            cancel,
+            &lookup,
+        ) {
+            return Err(invalid);
+        }
         bodies
             .entry(identity.declaration)
             .or_default()
@@ -91,7 +104,14 @@ pub fn validate<'a, S: FunctionTypeFacts + 'a>(
                 declaration: origin.authored,
                 arguments: identity.arguments.clone(),
             };
-            if !signature_matches_with_lookup(&identity, *semantic, definitions, cancel, &lookup) {
+            if !signature_matches_with_lookup(
+                SignatureScope::Linked(catalog),
+                &identity,
+                *semantic,
+                definitions,
+                cancel,
+                &lookup,
+            ) {
                 return Err(invalid);
             }
         }

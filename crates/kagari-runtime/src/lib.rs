@@ -377,10 +377,9 @@ impl Runtime {
                     "candidate initialization requires an isolated root session",
                 ));
             }
-            let root_dependency = session
-                .root
-                .members()
-                .any(|member| member.key() == module.key());
+            // Ordinary reentry selects current code within the same installation.
+            // Already prepared dependency calls retain their selected generation.
+            let root_dependency = session.root.members().any(|member| member.id == module.id);
             let caller_dependency = self
                 .resources()
                 .sessions
@@ -394,7 +393,7 @@ impl Runtime {
                     frame
                         .loaded()
                         .members()
-                        .any(|member| member.key() == module.key())
+                        .any(|member| member.id == module.id)
                 });
             if !root_dependency
                 && !caller_dependency
@@ -404,7 +403,7 @@ impl Runtime {
                 )
             {
                 return Err(RuntimeError::module_validation(
-                    "nested execution must use the pinned dependency program",
+                    "nested execution must use the same installation dependency program",
                 ));
             }
             session.id

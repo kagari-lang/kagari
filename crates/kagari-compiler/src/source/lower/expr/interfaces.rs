@@ -155,71 +155,79 @@ impl FunctionLowerer<'_, '_> {
             .insert(value.temp.index(), self.planner.encode_type(&types[0]));
         self.planner
             .require_parent_interfaces(&types[0], interface, &Default::default(), span)?;
-        let (implementation, arguments, constructed) = match coercion.implementation {
-            ResolvedInterfaceImplementation::Upcast => unreachable!("upcast handled above"),
-            ResolvedInterfaceImplementation::Bound { .. } => {
-                unreachable!("bound construction selected above")
-            }
-            ResolvedInterfaceImplementation::Intrinsic => {
-                let mut types = self
-                    .planner
-                    .arguments(
-                        &[
-                            coercion.concrete_type,
-                            TypeId::Trait(coercion.interface_type),
-                        ],
-                        &self.instance.substitution,
-                        span,
-                    )?
-                    .into_iter();
-                let receiver = types.next().expect("receiver argument");
-                let applied = types.next().expect("interface argument");
-                let TypeId::Trait(interface) = applied else {
-                    return Err(MirLoweringError::MissingBinding("intrinsic interface type"));
-                };
-                (
-                    self.planner
-                        .intrinsic_interface_bridge(&receiver, &interface, span)?,
-                    Vec::new(),
-                    interface,
-                )
-            }
-            ResolvedInterfaceImplementation::Declared {
-                declaration,
-                arguments,
-            } => {
-                let arguments = if selected_from_bound {
-                    arguments
-                } else {
-                    self.planner
-                        .arguments(&arguments, &self.instance.substitution, span)?
-                };
-                self.planner
-                    .record_interface(&declaration, &arguments, span)?;
-                let contract = self
-                    .planner
-                    .catalog
-                    .implementation_signature(&declaration)
-                    .ok_or(MirLoweringError::MissingBinding(
-                        "interface construction contract",
-                    ))?;
-                let substitution: TypeSubstitution = contract
-                    .generic_params
-                    .iter()
-                    .cloned()
-                    .zip(arguments.iter().cloned())
-                    .collect();
-                let constructed = contract.trait_type.instantiate(&substitution);
-                (
+        let (implementation, arguments, constructed, operations, constructions) =
+            match coercion.implementation {
+                ResolvedInterfaceImplementation::Upcast => unreachable!("upcast handled above"),
+                ResolvedInterfaceImplementation::Bound { .. } => {
+                    unreachable!("bound construction selected above")
+                }
+                ResolvedInterfaceImplementation::Intrinsic => {
+                    let mut types = self
+                        .planner
+                        .arguments(
+                            &[
+                                coercion.concrete_type,
+                                TypeId::Trait(coercion.interface_type),
+                            ],
+                            &self.instance.substitution,
+                            span,
+                        )?
+                        .into_iter();
+                    let receiver = types.next().expect("receiver argument");
+                    let applied = types.next().expect("interface argument");
+                    let TypeId::Trait(interface) = applied else {
+                        return Err(MirLoweringError::MissingBinding("intrinsic interface type"));
+                    };
+                    (
+                        self.planner
+                            .intrinsic_interface_bridge(&receiver, &interface, span)?,
+                        Vec::new(),
+                        interface,
+                        Vec::new(),
+                        Vec::new(),
+                    )
+                }
+                ResolvedInterfaceImplementation::Declared {
                     declaration,
-                    arguments
+                    arguments,
+                } => {
+                    let arguments = if selected_from_bound {
+                        arguments
+                    } else {
+                        self.planner
+                            .arguments(&arguments, &self.instance.substitution, span)?
+                    };
+                    let evidence =
+                        self.planner
+                            .implementation_evidence(&declaration, &arguments, span)?;
+                    self.planner
+                        .record_interface(&declaration, &arguments, span)?;
+                    let contract = self
+                        .planner
+                        .catalog
+                        .implementation_signature(&declaration)
+                        .ok_or(MirLoweringError::MissingBinding(
+                            "interface construction contract",
+                        ))?;
+                    let substitution: TypeSubstitution = contract
+                        .generic_params
                         .iter()
-                        .map(|ty| self.planner.encode_type(ty))
-                        .collect(),
-                    constructed,
-                )
-            }
-        };
+                        .cloned()
+                        .zip(arguments.iter().cloned())
+                        .collect();
+                    let constructed = contract.trait_type.instantiate(&substitution);
+                    (
+                        declaration,
+                        arguments
+                            .iter()
+                            .map(|ty| self.planner.encode_type(ty))
+                            .collect(),
+                        constructed,
+                        evidence.operations,
+                        evidence.constructions,
+                    )
+                }
+            };
         let dst = self.alloc_temp(ValueType::HeapObject);
         self.emit(Instruction::MakeInterface {
             dst,
@@ -227,6 +235,8 @@ impl FunctionLowerer<'_, '_> {
             target: ConstructionTarget::Declared {
                 implementation,
                 arguments,
+                operations,
+                constructions,
             },
         });
         value = dst;

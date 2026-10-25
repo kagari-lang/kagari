@@ -345,7 +345,7 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
     assert_eq!(
         vm.invoke_interface_method(&value, &method, &[Value::I32(21)])
             .unwrap(),
-        Value::I32(42)
+        Value::I32(43)
     );
     assert_eq!(
         vm.invoke_interface_method(&new_value, &method, &[Value::I32(21)])

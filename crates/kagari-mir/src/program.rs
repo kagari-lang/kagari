@@ -346,31 +346,6 @@ pub fn verify_program(
                 (owner == index || dependencies.contains(&owner)).then_some(module)
             })
             .collect();
-        origins::validate(
-            &module.abi.function_origins,
-            &module.identity,
-            &definitions,
-            cancel,
-            module
-                .functions
-                .iter()
-                .map(|function| (&function.instance, &function.semantic)),
-            |id| {
-                closure
-                    .iter()
-                    .flat_map(|module| &module.abi.named_declarations)
-                    .find(|record| record.declaration == id)
-            },
-        )
-        .map_err(|cause| {
-            error(
-                &module.identity,
-                match cause {
-                    TypeTransformError::Cancelled => ProgramErrorKind::Cancelled,
-                    _ => ProgramErrorKind::InvalidGraph,
-                },
-            )
-        })?;
         if !trait_references_match(
             &module.abi.trait_references,
             |id| {
@@ -610,6 +585,7 @@ pub fn verify_program(
                     MirConstruction::Declared {
                         implementation,
                         arguments,
+                        ..
                     },
             } = instruction
             {
@@ -695,6 +671,32 @@ pub fn verify_program(
             .filter(|owner| *owner == index || dependencies.contains(owner))
             .collect();
         let catalog = proofs.scope(visible, cancel).map_err(|cause| {
+            error(
+                &module.identity,
+                match cause {
+                    TypeTransformError::Cancelled => ProgramErrorKind::Cancelled,
+                    _ => ProgramErrorKind::InvalidGraph,
+                },
+            )
+        })?;
+        origins::validate(
+            &catalog,
+            &module.abi.function_origins,
+            &module.identity,
+            &definitions,
+            cancel,
+            module
+                .functions
+                .iter()
+                .map(|function| (&function.instance, &function.semantic)),
+            |id| {
+                closure
+                    .iter()
+                    .flat_map(|module| &module.abi.named_declarations)
+                    .find(|record| record.declaration == id)
+            },
+        )
+        .map_err(|cause| {
             error(
                 &module.identity,
                 match cause {

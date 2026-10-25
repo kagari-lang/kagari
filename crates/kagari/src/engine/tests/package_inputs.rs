@@ -398,7 +398,7 @@ fn selected_root_changes_follow_transitive_inputs_and_provider_contracts() {
     for (path, from, to, expected) in [
         (
             "rules/src/lib.kgr",
-            "BASE }",
+            "BASE + 0 }",
             "BASE + 1 }",
             vec!["app", "rules"],
         ),

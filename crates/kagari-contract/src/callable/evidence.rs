@@ -3,6 +3,8 @@ use crate::callable::{
     construction::evidence::{ConstructionSelection, ConstructionWitness},
     witness::OperationWitness,
 };
+use std::iter;
+
 use kagari_common::{
     cancellation::CancellationToken,
     identity::mapping::{DefinitionMappingError, check_cancel},
@@ -36,6 +38,22 @@ impl<'a> EvidenceRef<'a> {
             }) => (operations, constructions),
             _ => (&[], &[]),
         }
+    }
+
+    /// Visit all member operations, including those nested below constructions.
+    pub fn operations(self) -> impl Iterator<Item = &'a OperationWitness> {
+        let mut pending = vec![self];
+        iter::from_fn(move || {
+            while let Some(node) = pending.pop() {
+                let (operations, constructions) = node.children();
+                pending.extend(constructions.iter().rev().map(Self::Construction));
+                pending.extend(operations.iter().rev().map(Self::Operation));
+                if let Self::Operation(operation) = node {
+                    return Some(operation);
+                }
+            }
+            None
+        })
     }
 
     pub(crate) fn check_shape(

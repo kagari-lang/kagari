@@ -27,7 +27,10 @@ use kagari_codegen::{
     diagnostic::{BackendCompileError, BackendDiagnostic, BackendDiagnosticKind},
 };
 use kagari_mir::instruction::{Constant, Instruction, Terminator};
-use kagari_vm::vm::{JitExecutionStatus, native::PreparedNativeEntry};
+use kagari_vm::{
+    error::VmError,
+    vm::{JitExecutionStatus, native::PreparedNativeEntry},
+};
 use {
     kagari_abi::{
         native::{BackendId, BackendTarget, ExecutableEntryPoint, NativeCodeOwner},
@@ -746,25 +749,27 @@ fn reload_reuses_candidate_code_and_keeps_old_native_entries_version_pinned() {
             matches!(mismatch, EmbeddingError::Runtime { kind: RuntimeFailureKind::BytecodeVerification, message, .. } if message.contains("different function or execution version"))
         );
     }
-    for (module, native) in [
-        (&selected_old, &old_native),
-        (&selected_published, &new_native),
-    ] {
-        let _session = runtime
-            .runtime()
-            .begin_execution(module, context.runtime_options())
-            .unwrap();
-        assert_eq!(
-            runtime
-                .backend()
-                .execute_prepared(module, ProgramEntry::Main, native)
-                .unwrap()
-                .jit
-                .unwrap()
-                .status,
-            JitExecutionStatus::Native
-        );
-    }
+    let stale = runtime
+        .backend()
+        .execute_prepared(&selected_old, ProgramEntry::Main, &old_native)
+        .unwrap_err();
+    assert!(
+        matches!(stale, VmError::RuntimeError(error) if error.message().contains("different function or execution version"))
+    );
+    let PreparedNativeEntry::Native(installed) = &old_native else {
+        panic!("expected retained native code")
+    };
+    assert_eq!(installed.module().key(), selected_old.key());
+    assert_eq!(
+        runtime
+            .backend()
+            .execute_prepared(&selected_published, ProgramEntry::Main, &new_native)
+            .unwrap()
+            .jit
+            .unwrap()
+            .status,
+        JitExecutionStatus::Native
+    );
     assert_eq!(
         other_runtime
             .execute_prepared(&other, ProgramEntry::Main, &[], &context, &other_native)

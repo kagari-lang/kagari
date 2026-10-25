@@ -19,7 +19,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::source::SourceFile;
-use kagari_vm::vm::JitExecutionStatus;
+use kagari_vm::{error::VmError, vm::JitExecutionStatus};
 use std::{
     env, fs,
     path::PathBuf,
@@ -180,7 +180,13 @@ fn installed_images_pin_versions_share_bindings_and_release_after_last_owner() {
             .is_err()
     );
     drop((old_bundle, new_bundle));
-    result(&first, &old_selected, &old_native, 42);
+    let stale = first
+        .backend()
+        .execute_prepared(&old_selected, ProgramEntry::Main, &old_native)
+        .unwrap_err();
+    assert!(
+        matches!(stale, VmError::RuntimeError(error) if error.message().contains("different function or execution version"))
+    );
     result(
         &second,
         &second.runtime().select_program(&other).unwrap(),

@@ -821,6 +821,8 @@ fn lower_instruction(
                 MirConstruction::Declared {
                     implementation,
                     arguments,
+                    operations,
+                    constructions,
                 },
         } => {
             let (module, implementation) = context.interface_ref(implementation, arguments);
@@ -831,6 +833,8 @@ fn lower_instruction(
                     module,
                     implementation,
                     arguments: arguments.clone(),
+                    operations: operations.clone(),
+                    constructions: constructions.clone(),
                 },
             }
         }

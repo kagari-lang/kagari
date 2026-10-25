@@ -447,6 +447,7 @@ pub(super) fn verify_instruction(
                     module: target,
                     implementation,
                     arguments,
+                    ..
                 },
         } => {
             expect_register_ty(function, *dst, ValueType::HeapObject, "interface dst")?;

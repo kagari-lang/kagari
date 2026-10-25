@@ -119,6 +119,13 @@ requirements remain independently validated. Source declarations, layouts,
 interfaces and private dependencies accompany the program; executable contracts
 have no source-analysis dependency.
 
+Named executable signatures are checked in two scopes. Module-local admission
+checks binder/parameter shape and exact non-projection types; applied associated
+projections await the caller's checked dependency closure. Linked admission
+normalizes both declared and emitted types through that closure's proof catalog
+and rejects unequal or unavailable results. Local deferral never grants a complete
+program admission seal.
+
 Callable method policy remains independent of binding identity. Final methods
 cannot be replaced; required and non-trait declarations cannot be final.
 
@@ -128,19 +135,21 @@ and applied trait signature. Both callable targets retain their implementation
 generation and share frame, callback-return and cleanup validation.
 
 Interface construction records carry checked construction identities, applied
-arguments, parent views and result adapters. They grant no receiver comparison
-capability and carry no comparison-selection certificates. Dynamic admission
+arguments, parent views and result adapters. Receiver comparison capabilities
+require separately selected operation evidence. Dynamic admission
 validates the complete applied member/parent surface, including uncalled members.
 
 Bound construction instructions and call records also retain declaration-derived
 capabilities independently of method slots. Selected implementations carry their
-operation and construction dependencies; forwarding requires the caller's bounds.
+operation and construction dependencies, including on declared `MakeInterface`
+targets; forwarding requires the caller's bounds. Reachability includes operations
+nested under either evidence kind. Generated bridge IDs remain tied to their
+receiver/view throughout one compilation's fixed-point lowering rounds.
 Both evidence kinds use one flat heterogeneous wire tree, checked for node kind,
 4096-node and 64-depth limits before recursive executable objects are built.
 Artifact-wide accounting traverses both kinds through the same child-edge owner.
 Source-free verification checks exact receiver/target scope and selection coverage;
 a retained implementation inventory is not proof of an otherwise absent bound.
-
 
 Independent MIR and bytecode validation require known object operand types for
 identity instructions. Primitive equality/hash instructions must prove eligibility

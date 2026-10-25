@@ -3,8 +3,10 @@ use kagari_abi::representation::ValueType;
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{
     callable::{
-        construction::evidence::ConstructionRequirement, interface::InterfaceCallContract,
+        construction::evidence::{ConstructionRequirement, ConstructionWitness},
+        interface::InterfaceCallContract,
         shared::SharedCall,
+        witness::OperationWitness,
     },
     effects::{EffectSet, runtime_primitive_effects},
     native_import::NativeImport,
@@ -31,6 +33,8 @@ pub enum ConstructionTarget {
     Declared {
         implementation: DefinitionId,
         arguments: Vec<Ty>,
+        operations: Vec<OperationWitness>,
+        constructions: Vec<ConstructionWitness>,
     },
     Bound(ConstructionRequirement),
 }

@@ -184,6 +184,9 @@ diagnostic recovery, but they cannot reach execution.
 Interface allocation uses `MakeInterface { dst, value, target }` with an explicit
 Declared or Bound target. A declared MIR target names an implementation and ordered
 type arguments; bytecode carries the dependency member and InterfaceTableRef.
+Both retain the compiler-selected operation and construction witnesses required by
+the applied implementation's bounds. Canonical update extraction copies this
+selection; it cannot infer a missing primitive adapter or substitute another table.
 Verification requires reachable checked table applications, a heap destination and
 the table's receiver representation. Generic template records alone do not grant
 executable table coverage.

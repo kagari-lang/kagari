@@ -1076,6 +1076,8 @@ fn verified_interface_instruction_lowers_to_a_linked_table_slot() {
         target: MirConstruction::Declared {
             arguments: Vec::new(),
             implementation: declaration,
+            operations: vec![],
+            constructions: vec![],
         },
     };
     function.effects = function.effects.union(instruction.effects());

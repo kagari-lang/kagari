@@ -651,6 +651,7 @@ pub(super) fn verify(
                 MirConstruction::Declared {
                     implementation,
                     arguments,
+                    ..
                 },
         } => {
             context.expect(dst.ty, ValueType::HeapObject, "interface destination")?;

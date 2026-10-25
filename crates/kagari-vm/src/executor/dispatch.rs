@@ -362,6 +362,7 @@ impl<'a> Executor<'a> {
                         module,
                         implementation,
                         ref arguments,
+                        ..
                     },
             } => {
                 let receiver = self.current_frame()?.read_slot(self.runtime, value)?;

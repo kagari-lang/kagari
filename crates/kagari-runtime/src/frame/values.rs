@@ -77,6 +77,7 @@ impl Window {
                 operand: OperandSlot::new(logical, true),
                 representation: ValueType::Generic,
                 semantic: None,
+                borrowed_receiver: false,
             }),
             None => None,
         }
@@ -140,6 +141,7 @@ impl ExecutionValues {
                     operand: OperandSlot::new(index, true),
                     representation: ValueType::Generic,
                     semantic: None,
+                    borrowed_receiver: false,
                 }),
                 |layout| layout.location(index),
             )

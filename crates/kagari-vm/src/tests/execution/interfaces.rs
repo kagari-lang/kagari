@@ -604,6 +604,8 @@ fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
             module: ModuleRef::new(0),
             implementation: InterfaceTableRef::new(1),
             arguments: vec![],
+            operations: vec![],
+            constructions: vec![],
         },
     };
     assert!(verify_module(&invalid, &definitions, &Default::default()).is_err());
@@ -614,6 +616,8 @@ fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
             module: ModuleRef::new(0),
             implementation: InterfaceTableRef::new(0),
             arguments: vec![],
+            operations: vec![],
+            constructions: vec![],
         },
     };
     assert!(verify_module(&invalid, &definitions, &Default::default()).is_err());
@@ -667,6 +671,8 @@ fn interface_instruction_uses_a_reachable_dependency_table() {
                         module: ModuleRef::new(0),
                         implementation: InterfaceTableRef::new(0),
                         arguments: vec![],
+                        operations: vec![],
+                        constructions: vec![],
                     },
                 },
                 BytecodeInstruction::Return(Some(Slot::new(1))),

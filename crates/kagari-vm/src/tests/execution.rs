@@ -237,6 +237,8 @@ fn interface_instruction_module() -> DefinitionMetadata<BytecodeModule> {
                         module: ModuleRef::new(0),
                         implementation: InterfaceTableRef::new(0),
                         arguments: vec![],
+                        operations: vec![],
+                        constructions: vec![],
                     },
                 },
                 BytecodeInstruction::Return(Some(Slot::new(1))),

@@ -684,9 +684,15 @@ impl RemapDefinitions for MirConstruction {
             Self::Declared {
                 implementation,
                 arguments,
+                operations,
+                constructions,
             } => Self::Declared {
                 implementation: mapper.reference(implementation)?,
                 arguments: map_sequence(arguments, |ty| ty.remap_definitions(mapper))?,
+                operations: map_sequence(operations, |value| value.remap_definitions(mapper))?,
+                constructions: map_sequence(constructions, |value| {
+                    value.remap_definitions(mapper)
+                })?,
             },
             Self::Bound(required) => Self::Bound(required.remap_definitions(mapper)?),
         })
@@ -704,11 +710,18 @@ impl DefinitionReferences for MirConstruction {
             Self::Declared {
                 implementation,
                 arguments,
-                ..
+                operations,
+                constructions,
             } => {
                 visit(implementation)?;
                 for ty in arguments {
                     ty.visit_definition_ids(visit, cancel)?;
+                }
+                for operation in operations {
+                    operation.visit_definition_ids(visit, cancel)?;
+                }
+                for construction in constructions {
+                    construction.visit_definition_ids(visit, cancel)?;
                 }
             }
             Self::Bound(required) => required.visit_definition_ids(visit, cancel)?,

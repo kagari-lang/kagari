@@ -2,8 +2,10 @@ use crate::{module::CallableTarget, program::ModuleRef};
 use kagari_abi::representation::ValueType;
 use kagari_contract::{
     callable::{
-        construction::evidence::ConstructionRequirement, interface::InterfaceCallContract,
+        construction::evidence::{ConstructionRequirement, ConstructionWitness},
+        interface::InterfaceCallContract,
         shared::SharedCall,
+        witness::OperationWitness,
     },
     ids::FunctionRef,
     numeric::{NumericConversion, NumericOperation},
@@ -30,6 +32,8 @@ pub enum ConstructionTarget {
         module: ModuleRef,
         implementation: InterfaceTableRef,
         arguments: Vec<Ty>,
+        operations: Vec<OperationWitness>,
+        constructions: Vec<ConstructionWitness>,
     },
     Bound(ConstructionRequirement),
 }

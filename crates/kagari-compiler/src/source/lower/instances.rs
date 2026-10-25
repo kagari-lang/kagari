@@ -42,6 +42,10 @@ use std::{
     slice,
 };
 
+pub(crate) mod bridge_identities;
+
+use bridge_identities::{BridgeIdentities, BridgeKey};
+
 mod adapters;
 mod callables;
 mod calls;
@@ -221,6 +225,7 @@ pub(super) struct InterfaceBridgeRequest {
 pub(super) struct InstancePlanner<'a> {
     module: &'a AnalyzedModule,
     pub context: &'a DefinitionContext,
+    pub bridge_identities: &'a mut BridgeIdentities,
     pub catalog: &'a AggregateCatalog,
     modules: HashMap<ModuleHandle, &'a AnalyzedModule>,
     pub options: &'a MirLoweringOptions,
@@ -313,8 +318,10 @@ impl<'a> InstancePlanner<'a> {
         modules: &'a [AnalyzedModule],
         catalog: &'a AggregateCatalog,
         context: &'a DefinitionContext,
+        bridge_identities: &'a mut BridgeIdentities,
     ) -> Self {
         Self {
+            bridge_identities,
             context,
             catalog,
             modules: modules
@@ -673,17 +680,16 @@ impl<'a> InstancePlanner<'a> {
             return Ok(request.declaration);
         }
 
-        let base = self.module.lowered.module.impls.len();
-        let occurrence = u32::try_from(base + self.interface_bridges.len())
-            .map_err(|_| MirLoweringError::MissingBinding("interface bridge identity limit"))?;
         let root = self
             .context
             .intern_root(self.module.lowered.source.module_identity())
             .map_err(DefinitionMappingError::from)?;
-        let id = self
-            .context
-            .intern_child(root, DefinitionKind::Impl, "", occurrence)
-            .map_err(DefinitionMappingError::from)?;
+        let id = self.bridge_identities.intern(
+            self.context,
+            root,
+            self.module.lowered.module.impls.len(),
+            BridgeKey::Intrinsic(receiver.clone(), interface.clone()),
+        )?;
         self.interface_bridges.push(InterfaceBridgeRequest {
             declaration: id,
             parameters: Vec::new(),

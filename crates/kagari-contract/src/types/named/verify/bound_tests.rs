@@ -5,8 +5,9 @@ use crate::{
         ConcreteFunctionIdentity,
         named::{
             FunctionOrigin, ImplementationContract, NamedContract, NamedDeclaration, origins,
-            verify::signature_matches,
+            verify::{SignatureScope, signature_matches},
         },
+        proofs::ProofCatalog,
     },
 };
 use kagari_common::identity::{
@@ -189,6 +190,7 @@ fn executable_bounds_use_exact_ancestor_contracts_and_specialized_binders() {
         let definitions = fixture.context.snapshot();
         let matches = |records: &[NamedDeclaration], semantic: &SemanticSlots| {
             signature_matches(
+                SignatureScope::Local,
                 records,
                 &fixture.identity,
                 semantic,
@@ -294,8 +296,10 @@ fn imported_local_signature_resolves_authored_ancestors_not_placement_scope() {
         placement,
         authored: fixture.identity.declaration,
     };
+    let catalog = ProofCatalog::new(vec![], [], [], [], &definitions, &Default::default()).unwrap();
     let validate = |records: &[NamedDeclaration]| {
         origins::validate(
+            &catalog,
             std::slice::from_ref(&origin),
             &module,
             &definitions,

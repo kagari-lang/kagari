@@ -21,11 +21,9 @@ impl Walker<'_, '_> {
         budget: &mut Budget<'_>,
     ) -> Result<Vec<usize>, UpdateError> {
         let mut found: Vec<usize> = Vec::new();
-        for (index, native) in self.coverage.natives.iter().enumerate() {
+        for &index in self.native_indices.get(instance).into_iter().flatten() {
             budget.visit()?;
-            if native.import.instance != *instance {
-                continue;
-            }
+            let native = &self.coverage.natives[index];
             if binding.is_some_and(|id| native.import.binding != id) {
                 return Err(UpdateError::InvalidEvidence);
             }

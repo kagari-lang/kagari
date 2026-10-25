@@ -17,6 +17,7 @@ pub(crate) struct Location {
     pub operand: OperandSlot,
     pub representation: ValueType,
     pub semantic: Option<BuiltinType>,
+    pub borrowed_receiver: bool,
 }
 
 impl Location {
@@ -28,6 +29,14 @@ impl Location {
     }
 
     pub(crate) fn admits(self, value: &Value) -> bool {
+        // The checked native receiver contract admits scoped views alongside owned
+        // storage. Both use the managed bank; loan validation stays at native entry.
+        if self.borrowed_receiver
+            && self.operand.managed()
+            && matches!(value, Value::Ephemeral(_) | Value::HostPathView(_))
+        {
+            return true;
+        }
         if !value.has_representation(self.representation) {
             return false;
         }
@@ -65,7 +74,8 @@ impl FrameLayout {
         let mut managed_count = 0;
         let locations = iter::once(&import.signature.result)
             .chain(import.signature.params.iter())
-            .map(|ty| {
+            .enumerate()
+            .map(|(index, ty)| {
                 let representation = semantic_representation(ty);
                 Location {
                     operand: allocate(
@@ -75,6 +85,7 @@ impl FrameLayout {
                     ),
                     representation,
                     semantic: builtin(Some(ty)),
+                    borrowed_receiver: index == 1 && import.receiver_access.is_some(),
                 }
             })
             .collect();
@@ -104,6 +115,7 @@ impl FrameLayout {
                 operand,
                 representation,
                 semantic: builtin(function.metadata.semantic.slots.get(&logical)),
+                borrowed_receiver: false,
             });
         }
         let mut aliases = vec![0usize; scalar_count];
@@ -503,6 +515,7 @@ mod tests {
             operand: OperandSlot::new(0, false),
             representation: ValueType::Char,
             semantic: Some(BuiltinType::Char),
+            borrowed_receiver: false,
         };
         assert!(location.admits(&Value::Char('🙂')));
         assert!(!location.admits(&Value::I64(0x1f642)));

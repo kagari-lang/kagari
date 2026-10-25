@@ -69,10 +69,16 @@ fn collect(
                             MirConstruction::Declared {
                                 implementation,
                                 arguments,
+                                operations,
+                                constructions,
                                 ..
                             },
                         ..
                     } => {
+                        steps.push(ConstructionStep::Evidence {
+                            operations: operations.clone(),
+                            constructions: constructions.clone(),
+                        });
                         steps.push(ConstructionStep::Interface(ConcreteFunctionIdentity {
                             declaration: *implementation,
                             arguments: arguments.clone(),
@@ -203,7 +209,16 @@ fn collect(
                         .native_targets
                         .iter()
                         .find(|target| target.instance.declaration == application.declaration)
-                        .map(|target| (target.instance.clone(), application.arguments.clone())),
+                        .map(|target| {
+                            (
+                                target.instance.clone(),
+                                if target.generic.is_some() {
+                                    application.arguments.clone()
+                                } else {
+                                    vec![]
+                                },
+                            )
+                        }),
                     CallableImplementation::Native(_) => {
                         let shared_receiver = !instance.arguments.is_empty()
                             && method.bounds.iter().any(|bound| {

@@ -349,6 +349,8 @@ fn interface_closure_crosses_modules_but_does_not_follow_callee_bodies() {
             module: ModuleRef::new(1),
             implementation: InterfaceTableRef::new(0),
             arguments: vec![],
+            operations: vec![],
+            constructions: vec![],
         },
     }]));
     let program = program(vec![caller, owner]);

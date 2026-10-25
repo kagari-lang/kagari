@@ -685,10 +685,16 @@ impl RemapDefinitions for BytecodeConstruction {
                 module,
                 implementation,
                 arguments,
+                operations,
+                constructions,
             } => Self::Declared {
                 module: *module,
                 implementation: *implementation,
                 arguments: map_sequence(arguments, |ty| ty.remap_definitions(mapper))?,
+                operations: map_sequence(operations, |value| value.remap_definitions(mapper))?,
+                constructions: map_sequence(constructions, |value| {
+                    value.remap_definitions(mapper)
+                })?,
             },
             Self::Bound(required) => Self::Bound(required.remap_definitions(mapper)?),
         })
@@ -703,9 +709,20 @@ impl DefinitionReferences for BytecodeConstruction {
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         match self {
-            Self::Declared { arguments, .. } => {
+            Self::Declared {
+                arguments,
+                operations,
+                constructions,
+                ..
+            } => {
                 for ty in arguments {
                     ty.visit_definition_ids(visit, cancel)?;
+                }
+                for operation in operations {
+                    operation.visit_definition_ids(visit, cancel)?;
+                }
+                for construction in constructions {
+                    construction.visit_definition_ids(visit, cancel)?;
                 }
             }
             Self::Bound(required) => required.visit_definition_ids(visit, cancel)?,

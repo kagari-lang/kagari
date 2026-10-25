@@ -7,6 +7,7 @@ use crate::{
     types::{
         ConcreteFunctionIdentity, PublicItem,
         named::{NamedContract, NamedDeclaration},
+        proofs::ProofCatalog,
     },
 };
 use kagari_common::{
@@ -24,6 +25,34 @@ use kagari_types::{
 use std::collections::{BTreeMap, HashMap};
 
 mod bounds;
+
+/// Declaration signature checking before and after dependency proof admission.
+#[derive(Clone, Copy)]
+pub enum SignatureScope<'a, 'catalog> {
+    /// Check local shape and bindings; applied projections require linked proofs.
+    Local,
+    /// Normalize projections through the caller's admitted dependency closure.
+    Linked(&'a ProofCatalog<'catalog>),
+}
+
+impl SignatureScope<'_, '_> {
+    fn matches(self, expected: &Ty, actual: &Ty, cancel: &CancellationToken) -> bool {
+        if expected == actual {
+            return true;
+        }
+        match self {
+            Self::Local => expected.contains_projection(),
+            Self::Linked(catalog) => {
+                catalog
+                    .normalize(expected, cancel)
+                    .ok()
+                    .is_some_and(|expected| {
+                        catalog.normalize(actual, cancel).ok().as_ref() == Some(&expected)
+                    })
+            }
+        }
+    }
+}
 
 /// Check ownership, uniqueness, binder scopes, types and public declaration agreement.
 /// Source-template completeness is a compiler obligation; supplied declarations do
@@ -270,18 +299,20 @@ pub fn validate(
 /// omitted. Generic binder order stays exact. Scope and forwarded-operation validity
 /// remain with the body verifier.
 pub fn signature_matches(
+    scope: SignatureScope<'_, '_>,
     records: &[NamedDeclaration],
     identity: &ConcreteFunctionIdentity,
     semantic: &impl FunctionTypeFacts,
     definitions: &DefinitionTable,
     cancel: &CancellationToken,
 ) -> bool {
-    signature_matches_with_lookup(identity, semantic, definitions, cancel, &|id| {
+    signature_matches_with_lookup(scope, identity, semantic, definitions, cancel, &|id| {
         records.iter().find(|record| record.declaration == id)
     })
 }
 
 pub(super) fn signature_matches_with_lookup<'a>(
+    scope: SignatureScope<'_, '_>,
     identity: &ConcreteFunctionIdentity,
     semantic: &impl FunctionTypeFacts,
     definitions: &DefinitionTable,
@@ -319,8 +350,14 @@ pub(super) fn signature_matches_with_lookup<'a>(
         .params
         .iter()
         .enumerate()
-        .all(|(index, parameter)| apply(&parameter.ty).as_ref() == semantic.params().get(&index))
-        && apply(&function.return_type).as_ref() == semantic.result()
+        .all(|(index, parameter)| {
+            apply(&parameter.ty)
+                .zip(semantic.params().get(&index))
+                .is_some_and(|(expected, actual)| scope.matches(&expected, actual, cancel))
+        })
+        && apply(&function.return_type)
+            .zip(semantic.result())
+            .is_some_and(|(expected, actual)| scope.matches(&expected, actual, cancel))
         && semantic.generic().is_none_or(|body| {
             bounds::requirements_match(
                 record,
@@ -338,3 +375,6 @@ mod tests;
 
 #[cfg(test)]
 mod bound_tests;
+
+#[cfg(test)]
+mod projection_tests;

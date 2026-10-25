@@ -14,11 +14,11 @@ use crate::{
     test_support::cancellation::CancelAt,
 };
 use contracts::alter_bindings;
-use kagari_bytecode::artifact::KbcArtifact;
+use kagari_bytecode::{artifact::KbcArtifact, program::updates};
 use kagari_common::identity::{
-    map::DefinitionContext, metadata::DefinitionMetadata, table::DefinitionId,
+    DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata, table::DefinitionId,
 };
-use kagari_contract::types::PublicItem;
+use kagari_contract::types::{PublicItem, named::NamedContract};
 use kagari_runtime::{
     module::entry::ProgramEntry,
     native::{
@@ -162,7 +162,7 @@ fn structural_agreement_does_not_authorize_an_unknown_or_wrong_native_entry() {
             .import_into(&context, &Default::default())
             .unwrap()
             .into_records();
-        alter_bindings(&mut original, |id| {
+        alter_bindings(&mut original, &context, |id| {
             *id = altered_binding(&context, *id, change)
         });
         // Consistent unsigned contract assertions remain structurally checkable.
@@ -245,6 +245,11 @@ fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
                 change_result(method);
             }
         }
+        for record in &mut module.named_declarations {
+            if let NamedContract::Function(function) = &mut record.contract {
+                change_result(function);
+            }
+        }
         for item in &mut module.public_items {
             match item {
                 PublicItem::Function(function) => change_result(function),
@@ -287,6 +292,25 @@ fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
             }
         }
     }
+    let previous = &original.program.update_evidence;
+    let mut evidence = updates::build(
+        &original.program.modules,
+        updates::EvidenceInputs {
+            sources: previous.sources.clone(),
+            initializers: previous.initializers.clone(),
+            selections: previous.selections.clone(),
+            classifications: previous
+                .bodies
+                .iter()
+                .map(|body| (body.requirement.origin.clone(), body.classification.clone()))
+                .collect(),
+        },
+        &context.snapshot(),
+        &Default::default(),
+    )
+    .unwrap();
+    evidence.source_manifest = previous.source_manifest.clone();
+    original.program.update_evidence = evidence;
     // Alter only the native result and its caller, leaving the binding identity intact.
     // u8 and u16 share a representation: portable checks accept the forgery,
     // but installation must check the source ABI.
@@ -408,6 +432,20 @@ fn altered_binding(context: &DefinitionContext, id: DefinitionId, change: usize)
     let mut owner = view.module().clone();
     if change == 0 {
         owner.package.0.push_str("-unknown");
+        let root = context.intern_root(&owner).unwrap();
+        let name = view
+            .segments()
+            .map(|segment| format!("{}_{}", segment.name, segment.occurrence))
+            .collect::<Vec<_>>()
+            .join("_");
+        return context
+            .intern_child(
+                root,
+                DefinitionKind::Function,
+                &format!("$unknown_{name}"),
+                0,
+            )
+            .unwrap();
     }
     let mut parent = context.intern_root(&owner).unwrap();
     let segments: Vec<_> = view.segments().collect();

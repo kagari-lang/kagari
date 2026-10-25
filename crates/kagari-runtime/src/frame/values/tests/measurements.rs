@@ -51,6 +51,7 @@ impl Control {
                     ValueType::I32
                 },
                 semantic: None,
+                borrowed_receiver: false,
             })
             .collect();
         let layout = Arc::new(FrameLayout {

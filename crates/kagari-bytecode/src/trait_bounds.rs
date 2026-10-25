@@ -189,7 +189,7 @@ fn linked_bounds_match(
     let declarations = &resources.declarations[index];
     let tables = &resources.tables[index];
     let definitions = catalog.definitions();
-    applications::validate(module, closure, cancel, definitions)?;
+    applications::validate(catalog, module, closure, cancel, definitions)?;
     if !views::valid(module, closure, cancel, definitions)
         .map_err(|_| LinkedValidationError::InterfaceTable)?
     {

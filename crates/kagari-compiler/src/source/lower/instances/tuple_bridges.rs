@@ -1,12 +1,9 @@
 //! Shared intrinsic tuple tables carry explicit element capabilities.
 use crate::source::lower::{
     MirLoweringError,
-    instances::{InstancePlanner, InterfaceBridgeRequest},
+    instances::{InstancePlanner, InterfaceBridgeRequest, bridge_identities::BridgeKey},
 };
-use kagari_common::{
-    identity::{DefinitionKind, mapping::DefinitionMappingError},
-    span::Span,
-};
+use kagari_common::{identity::mapping::DefinitionMappingError, span::Span};
 use kagari_contract::types::ConcreteFunctionIdentity;
 use kagari_hir::types::{GenericParameterType, NominalType, TypeId};
 use kagari_types::{language::Protocol, ty::GenericParam};
@@ -43,14 +40,12 @@ impl InstancePlanner<'_> {
                 .intern_root(self.module.lowered.source.module_identity())
                 .map_err(DefinitionMappingError::from)?;
             self.charge_layout_instance(span)?;
-            let occurrence = u32::try_from(
-                self.module.lowered.module.impls.len() + self.interface_bridges.len(),
-            )
-            .map_err(|_| MirLoweringError::MissingBinding("tuple interface identity limit"))?;
-            let declaration = self
-                .context
-                .intern_child(root, DefinitionKind::Impl, "", occurrence)
-                .map_err(DefinitionMappingError::from)?;
+            let declaration = self.bridge_identities.intern(
+                self.context,
+                root,
+                self.module.lowered.module.impls.len(),
+                BridgeKey::Tuple(items.len(), interface.clone()),
+            )?;
             let parameters: Vec<_> = (0..items.len())
                 .map(|position| GenericParam {
                     owner: declaration,

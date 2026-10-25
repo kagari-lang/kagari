@@ -1,4 +1,4 @@
-use crate::source::lower::instances::MirLoweringOptions;
+use crate::source::lower::instances::{MirLoweringOptions, bridge_identities::BridgeIdentities};
 use instances::{InstanceBody, InstanceClassification, InstancePlanner};
 use kagari_common::{
     cancellation::CancellationToken,
@@ -128,6 +128,7 @@ pub fn lower_to_mir(
         slice::from_ref(&module),
         &module.aggregates,
         &context,
+        &mut Default::default(),
     )
     .and_then(|lowered| optimize_module(lowered.module, options))
 }
@@ -147,9 +148,17 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
     modules: &'a [AnalyzedModule],
     catalog: &'a AggregateCatalog,
     context: &'a DefinitionContext,
+    bridge_identities: &'a mut BridgeIdentities,
 ) -> Result<LoweredModule, MirLoweringError> {
     identity::collect_language(context, &options.cancel)?;
-    let mut planner = InstancePlanner::new(module, options, modules, catalog, context);
+    let mut planner = InstancePlanner::new(
+        module,
+        options,
+        modules,
+        catalog,
+        context,
+        bridge_identities,
+    );
     planner.check()?;
 
     planner.enqueue_statics()?;

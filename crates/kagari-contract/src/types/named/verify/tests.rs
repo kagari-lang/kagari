@@ -3,7 +3,10 @@ use crate::{
     slots::SemanticSlots,
     types::{
         ConcreteFunctionIdentity,
-        named::{NamedContract, NamedDeclaration, verify::signature_matches},
+        named::{
+            NamedContract, NamedDeclaration,
+            verify::{SignatureScope, signature_matches},
+        },
     },
 };
 use kagari_common::{
@@ -68,6 +71,7 @@ fn executable_bounds_cannot_add_an_unauthored_witness_requirement() {
         ..Default::default()
     };
     assert!(signature_matches(
+        SignatureScope::Local,
         slice::from_ref(&record),
         &identity,
         &semantic,
@@ -89,6 +93,7 @@ fn executable_bounds_cannot_add_an_unauthored_witness_requirement() {
         });
     assert!(semantic.types_valid(Some(&identity), &Default::default(), &context.snapshot()));
     assert!(!signature_matches(
+        SignatureScope::Local,
         slice::from_ref(&record),
         &identity,
         &semantic,
@@ -109,6 +114,7 @@ fn executable_bounds_cannot_add_an_unauthored_witness_requirement() {
     let definitions = context.snapshot();
     let matches = |semantic: &SemanticSlots| {
         signature_matches(
+            SignatureScope::Local,
             slice::from_ref(&record),
             &identity,
             semantic,
@@ -130,6 +136,7 @@ fn executable_bounds_cannot_add_an_unauthored_witness_requirement() {
     let cancel = CancellationToken::default();
     cancel.cancel();
     assert!(!signature_matches(
+        SignatureScope::Local,
         slice::from_ref(&record),
         &identity,
         &semantic,
@@ -242,6 +249,7 @@ fn signature_substitution_combines_specialized_receivers_and_shared_method_binde
         };
         let matches = |semantic: &SemanticSlots| {
             signature_matches(
+                SignatureScope::Local,
                 slice::from_ref(&record),
                 &identity,
                 semantic,
@@ -270,6 +278,7 @@ fn signature_substitution_combines_specialized_receivers_and_shared_method_binde
             .arguments
             .push(Ty::Builtin(BuiltinType::Bool));
         assert!(!signature_matches(
+            SignatureScope::Local,
             slice::from_ref(&record),
             &extra_identity_argument,
             &semantic,

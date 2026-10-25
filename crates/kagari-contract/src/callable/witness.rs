@@ -20,8 +20,6 @@ use {
     },
 };
 
-use std::iter;
-
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -67,18 +65,7 @@ impl OperationWitness {
 
     /// Walk composed witnesses without recursive metadata traversal.
     pub fn walk(&self) -> impl Iterator<Item = &Self> {
-        let mut pending = vec![EvidenceRef::Operation(self)];
-        iter::from_fn(move || {
-            while let Some(node) = pending.pop() {
-                let (operations, constructions) = node.children();
-                pending.extend(constructions.iter().rev().map(EvidenceRef::Construction));
-                pending.extend(operations.iter().rev().map(EvidenceRef::Operation));
-                if let EvidenceRef::Operation(operation) = node {
-                    return Some(operation);
-                }
-            }
-            None
-        })
+        EvidenceRef::Operation(self).operations()
     }
 
     fn within_limits(&self) -> bool {

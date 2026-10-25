@@ -186,7 +186,7 @@ fn reload_rejects_same_named_dependency_type_changes_before_publication() {
         let error = runtime
             .reload_program(&active, &prepare(&artifacts[1]), Default::default())
             .unwrap_err();
-        assert_eq!(error.code(), "KG_RELOAD_PUBLIC_ABI_FINGERPRINT_MISMATCH");
+        assert_eq!(error.code(), "KG_RELOAD_PUBLIC_EXPORT_MISMATCH");
         assert_eq!(
             runtime
                 .execute(&active, ProgramEntry::Main, &[], &context)
@@ -246,6 +246,11 @@ fn selected_program_bodies_call_current_dependencies_and_reject_stale_reload() {
         .runtime()
         .stage_reload_verified_program(&old, None, second.bytecode().clone())
         .unwrap();
+    let staged_members: HashSet<_> = stale
+        .module()
+        .members()
+        .map(|module| module.key())
+        .collect();
     runtime
         .reload_program(&old, &second.clone(), Default::default())
         .unwrap();
@@ -284,7 +289,11 @@ fn selected_program_bodies_call_current_dependencies_and_reject_stale_reload() {
         .reclaimed_modules
         .into_iter()
         .collect();
-    let old_members: HashSet<_> = _selected_old.members().map(|module| module.key()).collect();
+    let old_members: HashSet<_> = _selected_old
+        .members()
+        .map(|module| module.key())
+        .chain(staged_members)
+        .collect();
     assert_eq!(collected, old_members);
     assert_eq!(
         runtime

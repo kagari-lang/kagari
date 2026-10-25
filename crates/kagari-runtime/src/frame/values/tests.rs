@@ -401,21 +401,25 @@ fn scalar_layout() -> Arc<FrameLayout> {
                 operand: OperandSlot::new(0, false),
                 representation: ValueType::U64,
                 semantic: Some(BuiltinType::U64),
+                borrowed_receiver: false,
             },
             Location {
                 operand: OperandSlot::new(1, false),
                 representation: ValueType::F64,
                 semantic: Some(BuiltinType::F64),
+                borrowed_receiver: false,
             },
             Location {
                 operand: OperandSlot::new(2, false),
                 representation: ValueType::I32,
                 semantic: Some(BuiltinType::I8),
+                borrowed_receiver: false,
             },
             Location {
                 operand: OperandSlot::new(0, true),
                 representation: ValueType::Str,
                 semantic: Some(BuiltinType::String),
+                borrowed_receiver: false,
             },
         ]
         .into(),
@@ -491,6 +495,7 @@ fn char_windows_preserve_the_tag_in_scalar_transfers() {
         operand: OperandSlot::new(0, false),
         representation: ValueType::Char,
         semantic: Some(BuiltinType::Char),
+        borrowed_receiver: false,
     };
     let mut values = ExecutionValues::default();
     let metadata = || FrameMetadata {

@@ -3,7 +3,7 @@ use crate::{
     BytecodeArtifact, program::PreparedProgram,
     runtime::tests::language::numeric_checks::NumericChecks,
 };
-use kagari_bytecode::instruction::ConstantOperand;
+use kagari_bytecode::{instruction::ConstantOperand, program::updates};
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::source::SourceFile;
@@ -132,6 +132,13 @@ fn serialized_float_constants_reach_installed_to_bits_without_payload_changes(
         patterns.len(),
         "{ty}: every placeholder must be used"
     );
+    artifact.program.update_evidence = updates::project(
+        &artifact.program.modules,
+        &artifact.program.update_evidence,
+        &context.snapshot(),
+        &Default::default(),
+    )
+    .unwrap();
     let artifact = BytecodeArtifact::from_program(
         artifact.program,
         Default::default(),

@@ -366,6 +366,8 @@ pub(super) fn extract(
                     module: owner,
                     implementation,
                     arguments,
+                    operations,
+                    constructions,
                 } => {
                     let owner = modules
                         .get(owner.index())
@@ -383,18 +385,20 @@ pub(super) fn extract(
                     let Some(Ty::Trait(interface)) = semantic.slots.get(&dst.index()) else {
                         return Err(UpdateError::InvalidEvidence);
                     };
-                    context.construction(
-                        &ConstructionRequirement {
+                    ConstructionWitness {
+                        requirement: ConstructionRequirement {
                             receiver: receiver.clone(),
                             interface: interface.clone(),
                         },
-                        &ConcreteFunctionIdentity {
-                            declaration,
-                            arguments: arguments.clone(),
+                        selection: ConstructionSelection::Declared {
+                            implementation: ConcreteFunctionIdentity {
+                                declaration,
+                                arguments: arguments.clone(),
+                            },
+                            operations: operations.clone(),
+                            constructions: constructions.clone(),
                         },
-                        semantic.generic.as_ref(),
-                        budget,
-                    )?
+                    }
                 }
             };
             add_call(

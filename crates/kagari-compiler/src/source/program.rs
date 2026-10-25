@@ -1,6 +1,9 @@
 use crate::source::{
     logging, lower,
-    lower::{MirLoweringError, instances::MirLoweringOptions},
+    lower::{
+        MirLoweringError,
+        instances::{MirLoweringOptions, bridge_identities::BridgeIdentities},
+    },
     program::update_requests::RequestQueue,
     source_package::build_source_manifest,
 };
@@ -195,6 +198,7 @@ fn lower_program(
     let mut requests = RequestQueue::default();
     requests.layouts(layout_requests);
     let mut seen = HashSet::new();
+    let mut bridge_identities = BridgeIdentities::default();
     let mut update_budget = Budget::new(Default::default(), &options.cancel).map_err(|error| {
         SourceProgramError::Update {
             stage: "initialize update budget",
@@ -231,6 +235,7 @@ fn lower_program(
                 &authoring_modules,
                 catalog,
                 &context,
+                &mut bridge_identities,
             )
             .map_err(|mut error| {
                 if let MirLoweringError::Diagnostic(diagnostic) = &mut error

@@ -30,6 +30,7 @@ pub(super) fn construction_types<'a>(
             module,
             implementation,
             arguments,
+            ..
         } => {
             let owner = owner(*module)?;
             let linked = owner.interface_tables.get(implementation.index())?;

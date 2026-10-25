@@ -15,7 +15,10 @@ use kagari_contract::{
     contracts,
     contracts::ContractError,
     effects::EffectSet,
-    types::{inherent::executable_signature_matches, named::verify::signature_matches},
+    types::{
+        inherent::executable_signature_matches,
+        named::verify::{SignatureScope, signature_matches},
+    },
 };
 use kagari_types::ty::Ty;
 use std::{collections::HashSet, ops::Deref};
@@ -378,6 +381,7 @@ fn verify_function(
         &function.semantic,
         context.definitions,
     ) || !signature_matches(
+        SignatureScope::Local,
         &module.abi.named_declarations,
         &function.instance,
         &function.semantic,

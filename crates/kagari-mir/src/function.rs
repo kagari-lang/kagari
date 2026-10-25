@@ -1,13 +1,13 @@
 use crate::{
     debug::MirFunctionDebugMetadata,
     ids::{BlockId, InstanceId, LocalId, TempId},
-    instruction::{CallTarget, Instruction, InstructionBuffer, Terminator},
+    instruction::{CallTarget, ConstructionTarget, Instruction, InstructionBuffer, Terminator},
 };
 use kagari_abi::representation::ValueType;
 use kagari_common::{identity::ModuleIdentity, span::Span};
 
 use kagari_contract::{
-    callable::witness::OperationWitness,
+    callable::{evidence::EvidenceRef, witness::OperationWitness},
     effects::EffectSet,
     layout::{EnumLayout, StructLayout},
     native_import::{NativeImport, callables::NativeCallableApplication},
@@ -103,7 +103,7 @@ impl MirModule {
     /// Include nested structural operations in target verification and reachability.
     pub fn operation_witnesses(&self) -> impl Iterator<Item = &OperationWitness> {
         self.native_applications()
-            .flat_map(|import| &import.callables)
+            .flat_map(|import| import.callables.iter().map(EvidenceRef::Operation))
             .chain(
                 self.functions
                     .iter()
@@ -113,16 +113,30 @@ impl MirModule {
                         Instruction::Call {
                             callee: CallTarget::Shared(contract),
                             ..
-                        } => Some(&contract.operations),
+                        } => Some((&contract.operations, &contract.constructions)),
                         Instruction::Call {
                             callee: CallTarget::InterfaceMethod(contract),
                             ..
-                        } => Some(&contract.operations),
+                        } => Some((&contract.operations, &contract.constructions)),
+                        Instruction::MakeInterface {
+                            target:
+                                ConstructionTarget::Declared {
+                                    operations,
+                                    constructions,
+                                    ..
+                                },
+                            ..
+                        } => Some((operations, constructions)),
                         _ => None,
                     })
-                    .flatten(),
+                    .flat_map(|(operations, constructions)| {
+                        operations
+                            .iter()
+                            .map(EvidenceRef::Operation)
+                            .chain(constructions.iter().map(EvidenceRef::Construction))
+                    }),
             )
-            .flat_map(OperationWitness::walk)
+            .flat_map(EvidenceRef::operations)
     }
 
     pub fn native_applications(&self) -> impl Iterator<Item = &NativeImport> {

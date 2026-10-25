@@ -20,11 +20,12 @@ use kagari_contract::{
     types::{
         InterfaceBridge, InterfaceTable, ModuleContract, PublicItem,
         named::{ImplementationContract, NamedContract, NamedDeclaration},
+        proofs::{ProofCatalog, implementation::Implementation},
     },
 };
 use kagari_types::{
     callable::CallableImplementation,
-    declaration::{FnDecl, Param, TraitDef},
+    declaration::{FnDecl, Param, TraitDef, requirement::NativeCallableRequirement},
     scalar::BuiltinType,
     ty::{GenericBound, GenericParam, NominalTy, Ty},
     visibility::Visibility,
@@ -515,7 +516,7 @@ fn bridge_classification_requires_its_local_table_method_and_exact_body() {
 }
 
 #[test]
-fn selected_construction_extracts_forwarded_proof_and_charges_the_complete_tree() {
+fn selected_construction_preserves_supplied_proof_and_checks_it_at_admission() {
     let (definitions, mut program) = fixture();
     let module = &mut program.modules[0];
     let root = definitions.intern_root(&module.identity).unwrap();
@@ -625,6 +626,24 @@ fn selected_construction_extracts_forwarded_proof_and_charges_the_complete_tree(
         target: ConstructionTarget::Declared {
             implementation: selected,
             arguments: application.arguments.clone(),
+            operations: vec![OperationWitness::Forward(Box::new(
+                NativeCallableRequirement {
+                    receiver: parameter.as_type(),
+                    interface: nominal(read),
+                    member: definitions
+                        .snapshot()
+                        .lookup_child(read, DefinitionKind::Method, "read", 0)
+                        .unwrap(),
+                    arguments: vec![],
+                },
+            ))],
+            constructions: vec![ConstructionWitness {
+                requirement: ConstructionRequirement {
+                    receiver: parameter.as_type(),
+                    interface: nominal(read),
+                },
+                selection: ConstructionSelection::Forward,
+            }],
         },
     }];
     let table = definitions.snapshot();
@@ -632,8 +651,8 @@ fn selected_construction_extracts_forwarded_proof_and_charges_the_complete_tree(
     let cancel = CancellationToken::default();
     let mut budget = Budget::new(Limits::default(), &cancel).unwrap();
     let context = Context::new(&modules, &table, &cancel, &mut budget).unwrap();
-    // Exercise extraction independently of the verifier: operand type facts, not
-    // table receiver guesses, must select and constrain the recorded requirement.
+    // Extraction retains the exact supplied selection and derives requirements
+    // from operand types. Linked admission independently checks that evidence.
     let body = canonical::extract(
         &context,
         module,
@@ -667,47 +686,87 @@ fn selected_construction_extracts_forwarded_proof_and_charges_the_complete_tree(
             ..
         }]
     ));
-    let mut limited = Budget::new(
-        Limits {
-            records: 2,
-            ..Limits::default()
-        },
+    let catalog = ProofCatalog::new(
+        module
+            .abi
+            .public_items
+            .iter()
+            .filter_map(|item| match item {
+                PublicItem::InterfaceTable(table) => Some(Implementation::Interface(table)),
+                _ => None,
+            })
+            .collect(),
+        [],
+        module
+            .abi
+            .public_items
+            .iter()
+            .filter_map(|item| match item {
+                PublicItem::Trait(contract) => {
+                    Some((if contract.name == "Read" { read } else { view }, contract))
+                }
+                _ => None,
+            }),
+        [],
+        &table,
         &cancel,
     )
     .unwrap();
-    assert_eq!(
-        context.construction(&requirement, &application, Some(&generic), &mut limited),
-        Err(UpdateError::LimitExceeded)
+    assert!(
+        witness
+            .valid(&catalog, &generic.parameters, &generic.bounds, &cancel)
+            .unwrap()
     );
-    let mut wrong = module.functions[0].clone();
-    wrong
-        .semantic
-        .registers
-        .insert(0, Ty::Builtin(BuiltinType::I32));
-    assert_eq!(
-        canonical::extract(
+    for change in 0..4 {
+        let mut wrong = module.functions[0].clone();
+        match change {
+            0 => {
+                wrong
+                    .semantic
+                    .registers
+                    .insert(0, Ty::Builtin(BuiltinType::I32));
+            }
+            1 => {
+                wrong.semantic.registers.insert(1, Ty::Trait(nominal(read)));
+            }
+            _ => {
+                let Instruction::MakeInterface {
+                    target:
+                        ConstructionTarget::Declared {
+                            operations,
+                            constructions,
+                            ..
+                        },
+                    ..
+                } = &mut wrong.blocks[0].instructions[0]
+                else {
+                    unreachable!()
+                };
+                if change == 2 {
+                    operations.clear();
+                } else {
+                    constructions.clear();
+                }
+            }
+        }
+        let body = canonical::extract(
             &context,
             module,
             &wrong,
             BodyClassification::Named(wrong.instance.declaration),
             None,
-            &mut budget
-        ),
-        Err(UpdateError::InvalidEvidence)
-    );
-    let mut wrong = module.functions[0].clone();
-    wrong.semantic.registers.insert(1, Ty::Trait(nominal(read)));
-    assert_eq!(
-        canonical::extract(
-            &context,
-            module,
-            &wrong,
-            BodyClassification::Named(wrong.instance.declaration),
-            None,
-            &mut budget
-        ),
-        Err(UpdateError::InvalidEvidence)
-    );
+            &mut budget,
+        )
+        .unwrap();
+        let CallRequirement::Construction(witness) = &body.requirement.calls[0] else {
+            unreachable!()
+        };
+        assert!(
+            !witness
+                .valid(&catalog, &generic.parameters, &generic.bounds, &cancel)
+                .unwrap()
+        );
+    }
 }
 
 #[test]

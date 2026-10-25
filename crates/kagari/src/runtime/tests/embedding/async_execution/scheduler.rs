@@ -347,6 +347,7 @@ fn scheduler_failure_overflow_shutdown_and_ticket_teardown() {
     let mut pending = scheduled(&f, "io", &[Value::I32(10)]);
     host.until(&mut f.runtime, || f.starts.load(Ordering::SeqCst) == 1);
     let late = f.sent.lock().unwrap().pop().unwrap();
+    let selected = f.runtime.runtime().select_program(&f.module).unwrap();
     f.runtime.close().unwrap();
     f.runtime.close().unwrap();
     assert!(matches!(
@@ -362,12 +363,7 @@ fn scheduler_failure_overflow_shutdown_and_ticket_teardown() {
     assert!(
         f.runtime
             .backend()
-            .start(
-                &f.runtime.runtime().select_program(&f.module).unwrap(),
-                "value",
-                &[],
-                Default::default()
-            )
+            .start(&selected, "value", &[], Default::default())
             .is_err()
     );
     let mut other = Fixture::source(SOURCE);

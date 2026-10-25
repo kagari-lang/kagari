@@ -230,6 +230,8 @@ pub(super) fn extract(
                     ConstructionTarget::Declared {
                         implementation,
                         arguments,
+                        operations,
+                        constructions,
                     } => {
                         let receiver = function
                             .semantic
@@ -241,18 +243,20 @@ pub(super) fn extract(
                         else {
                             return Err(UpdateError::InvalidEvidence);
                         };
-                        context.construction(
-                            &ConstructionRequirement {
+                        ConstructionWitness {
+                            requirement: ConstructionRequirement {
                                 receiver: receiver.clone(),
                                 interface: interface.clone(),
                             },
-                            &ConcreteFunctionIdentity {
-                                declaration: *implementation,
-                                arguments: arguments.clone(),
+                            selection: ConstructionSelection::Declared {
+                                implementation: ConcreteFunctionIdentity {
+                                    declaration: *implementation,
+                                    arguments: arguments.clone(),
+                                },
+                                operations: operations.clone(),
+                                constructions: constructions.clone(),
                             },
-                            function.semantic.generic.as_ref(),
-                            budget,
-                        )?
+                        }
                     }
                 };
                 add_call(

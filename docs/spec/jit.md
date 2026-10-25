@@ -117,6 +117,8 @@ unchanged. Interpreter cache invalidation is separate from native page ownership
 - Native failures preserve traces and do not restart execution.
 - GC, cancellation, call-depth failures and faults release roots and frames.
 - Old/new native entries retain their exact code and dependency versions across reload.
+  Retention does not authorize a new ordinary call through stale prepared code;
+  preparation must match the current selected call route.
 - Native-only artifact consumers compile and run without frontend dependencies.
 - Workspace checks and optional feature tests pass; follow-up coverage expansion must
   preserve the same runtime safety and semantic boundaries.

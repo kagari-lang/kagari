@@ -194,6 +194,7 @@ fn contract_batches_materialize_all_five_products_without_specializing_shared_bo
         std::slice::from_ref(&module),
         &module.aggregates,
         &context,
+        &mut Default::default(),
     )
     .unwrap();
     assert!(
@@ -256,7 +257,8 @@ fn contract_batches_materialize_all_five_products_without_specializing_shared_bo
             queue.module(owner).unwrap(),
             std::slice::from_ref(&module),
             &module.aggregates,
-            &context
+            &context,
+            &mut Default::default(),
         )
         .is_err()
     );
@@ -305,6 +307,7 @@ fn shared_receiver_and_method_binder_identity_remains_exact() {
         std::slice::from_ref(&module),
         &module.aggregates,
         &context,
+        &mut Default::default(),
     )
     .unwrap();
     let method = lowered

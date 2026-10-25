@@ -1348,6 +1348,61 @@ products or running workspace tests. The full Rust, editor, Windows AOT and
 exact-product Pages workflows still require a new GitHub run; their success is
 not established by this static render.
 
+The SDK failure batch from [CI run 40152989100](https://github.com/kagari-lang/kagari/actions/runs/40152989100)
+reproduced all 49 supplied failures locally. All 49 now pass with the same name
+filters. The repair preserves compiler-selected interface construction witnesses
+through MIR, bytecode, identity mapping and bounded wire records; canonical
+extraction no longer re-derives missing adapter selections. The obsolete derivation
+path is removed, while its meaningful missing/wrong/forwarded/nested evidence,
+associated-output, inherited-view and bounded-tree cases now exercise the shared
+construction validator directly. Named signature projections are checked against
+the caller's linked dependency catalog after local shape checks. Generated bridge
+identities remain stable throughout compilation's fixed-point lowering rounds.
+
+Retained-demand lookup indexes exact native applications once per immutable
+candidate traversal, preserving every importing witness environment and charging
+the existing budget. It does not increase limits or persist query results between
+publications. Concrete native default applications do not supply nonexistent
+shared binder arguments. Scoped native receiver slots admit checked borrowed
+views; native entry still owns loan validation. Admitted host interface methods
+root the original wrapper. Nested ordinary calls follow the existing same-
+installation current-code rule. Native products retain their code ownership but
+cannot authorize a new ordinary call through stale prepared code.
+
+Focused acceptance also passes 13 contract/MIR boundary checks, two serialized
+artifact checks and the failing Windows AOT ownership/reload case using lld-link.
+The 49 SDK cases include malformed source-free tuple metadata, host borrowing,
+GC/root cleanup and reload rejection. The selected set exercises the repaired
+contracts and their direct consumers; it does not establish the full platform,
+backend or standalone-feature matrix. Workspace all-target Clippy, structure,
+formatting and diff checks pass. Development artifacts
+using the old construction layout must be regenerated; no published compatibility
+or format-version bump is introduced. Pages and editor-tooling passed on GitHub
+at `7548b589`; this repair still needs a new CI run.
+
+The completed CI log also reports failures outside the supplied SDK batch. These
+remain an open acceptance group; no all-green CI claim follows from this repair.
+Its other 80 failures span the artifact consumer (the binding forgery case is now
+locally repaired), bytecode, compiler, MIR, package, runtime, stdlib, VM and VM
+allocation targets. Remaining diagnostic owners are:
+
+- Compiler/bytecode/MIR tests: edited source-free fixtures and named declarations
+  disagree with current executable evidence; codec offsets and analysis budgets
+  also need focused fixture review. Keep negative verifier assertions at their
+  intended semantic boundary rather than accepting unrelated earlier rejection.
+- Runtime fixtures: definition-table provenance, descriptor admission diagnostics,
+  retained native code versus ordinary call selection, and retired cell/GC owners.
+- Package exports and stdlib offline contracts: generic declaration/export inventory
+  and canonical documentation-independent artifact encoding.
+- VM fixtures and allocation contracts: generic nominal environments, typed host
+  paths, callback routing, and measured warm-call allocations. Performance changes
+  require the architecture review and evidence specified by AGENTS.md.
+
+Use the linked CI job's named failure filters for these groups; do not reproduce
+its full workspace sweep locally. Their post-repair state is unverified except
+for the explicitly selected checks above. The SDK batch is complete; overall CI
+acceptance remains open at these owners.
+
 [AGENTS.md](../AGENTS.md) owns verification policy. Local implementation checks
 select affected contracts and a small dependent regression set; full workspace
 and feature/backend matrices belong to CI. Documentation-only changes need

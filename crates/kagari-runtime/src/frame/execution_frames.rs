@@ -300,6 +300,7 @@ fn heap_rejection_does_not_skip_later_argument_window_validation() {
         operand: OperandSlot::new(1, true),
         representation: ValueType::HeapObject,
         semantic: None,
+        borrowed_receiver: false,
     }];
     let prefix = [foreign_value];
     let arguments = FrameArguments::frame(slots, &sources)

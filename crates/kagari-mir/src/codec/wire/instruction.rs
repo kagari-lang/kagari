@@ -12,7 +12,9 @@ use kagari_common::{
         table::wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
     },
 };
-use kagari_contract::callable::construction::wire::ConstructionRequirementRecord;
+use kagari_contract::callable::{
+    construction::wire::ConstructionRequirementRecord, wire::evidence::EvidenceRecord,
+};
 use kagari_contract::{
     numeric::{NumericConversion, NumericOperation},
     operations::{BinaryOp, IterOp, UnaryOp},
@@ -777,6 +779,10 @@ pub(crate) enum ConstructionTargetRecord {
         implementation: PortableDefinitionRef,
         #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
         arguments: Vec<WireType>,
+        #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
+        operations: Vec<EvidenceRecord>,
+        #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
+        constructions: Vec<EvidenceRecord>,
     },
     Bound(ConstructionRequirementRecord),
 }
@@ -792,11 +798,21 @@ impl ConstructionTargetRecord {
             ConstructionTarget::Declared {
                 implementation,
                 arguments,
+                operations,
+                constructions,
             } => Self::Declared {
                 implementation: encoding.reference(*implementation)?,
                 arguments: arguments
                     .iter()
                     .map(|ty| WireType::encode(ty, encoding, cancel))
+                    .collect::<Result<_, _>>()?,
+                operations: operations
+                    .iter()
+                    .map(|value| EvidenceRecord::encode_operation(value, encoding, cancel))
+                    .collect::<Result<_, _>>()?,
+                constructions: constructions
+                    .iter()
+                    .map(|value| EvidenceRecord::encode_construction(value, encoding, cancel))
                     .collect::<Result<_, _>>()?,
             },
             ConstructionTarget::Bound(required) => Self::Bound(
@@ -815,11 +831,21 @@ impl ConstructionTargetRecord {
             Self::Declared {
                 implementation,
                 arguments,
+                operations,
+                constructions,
             } => ConstructionTarget::Declared {
                 implementation: decoding.resolve(implementation)?,
                 arguments: arguments
                     .into_iter()
                     .map(|ty| ty.decode(decoding, cancel))
+                    .collect::<Result<_, _>>()?,
+                operations: operations
+                    .into_iter()
+                    .map(|value| value.decode_operation(decoding, cancel))
+                    .collect::<Result<_, _>>()?,
+                constructions: constructions
+                    .into_iter()
+                    .map(|value| value.decode_construction(decoding, cancel))
                     .collect::<Result<_, _>>()?,
             },
             Self::Bound(required) => ConstructionTarget::Bound(required.decode(decoding, cancel)?),

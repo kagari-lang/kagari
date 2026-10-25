@@ -616,7 +616,7 @@ fn structurally_valid_library_binding_mismatch_is_rejected_on_load() {
     let (context, mut artifact) = editable_artifact();
     let definitions = context.snapshot();
     let mut changed = false;
-    contracts::alter_bindings(&mut artifact, |id| {
+    contracts::alter_bindings(&mut artifact, &context, |id| {
         let view = definitions.resolve(*id).unwrap();
         if view.last().is_some_and(|part| part.name == "sort") {
             let segment = view.last().unwrap();

@@ -189,7 +189,19 @@ fn walk(
     definitions: Option<&DefinitionTable>,
     budget: &mut Budget<'_>,
 ) -> Result<DemandRequests, UpdateError> {
+    // This immutable candidate view owns every importing witness environment.
+    // Index exact applications once so repeated calls do not rescan all imports.
+    let mut native_indices = HashMap::<_, Vec<_>>::new();
+    for (index, native) in coverage.natives.iter().enumerate() {
+        budget.visit()?;
+        budget.records(1)?;
+        native_indices
+            .entry(native.import.instance.clone())
+            .or_default()
+            .push(index);
+    }
     let mut walker = Walker {
+        native_indices,
         coverage,
         catalog,
         requests: Requests::new(definitions),
@@ -292,6 +304,7 @@ struct Walker<'a, 'd> {
     targets: HashMap<&'a ConcreteFunctionIdentity, &'a ConcreteFunctionIdentity>,
     pending: VecDeque<(usize, Vec<Ty>)>,
     seen: HashSet<(usize, Vec<Ty>)>,
+    native_indices: HashMap<ConcreteFunctionIdentity, Vec<usize>>,
     native_seen: HashSet<(usize, BodyApplication)>,
     native_validated: HashSet<usize>,
 }

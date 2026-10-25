@@ -12,6 +12,7 @@ use kagari_contract::{
             validate_types,
         },
         named::origins,
+        proofs::ProofCatalog,
         type_contract,
     },
 };
@@ -21,12 +22,14 @@ use kagari_types::{
 };
 
 pub(super) fn validate(
+    catalog: &ProofCatalog<'_>,
     module: &BytecodeModule,
     closure: &[&BytecodeModule],
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
 ) -> Result<(), TypeTransformError> {
     origins::validate(
+        catalog,
         &module.function_origins,
         &module.identity,
         definitions,

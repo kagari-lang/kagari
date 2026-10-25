@@ -323,6 +323,7 @@ static val VALUE: i32 = 7;
         std::slice::from_ref(&module),
         &module.aggregates,
         &context,
+        &mut Default::default(),
     )
     .unwrap();
     let definitions = context.snapshot();

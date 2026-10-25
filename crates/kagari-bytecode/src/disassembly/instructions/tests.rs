@@ -438,6 +438,8 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
                     module: ModuleRef::new(0),
                     implementation: InterfaceTableRef::new(5),
                     arguments: vec![t()],
+                    operations: vec![],
+                    constructions: vec![],
                 },
             },
             "make_interface s0, value=s1, @0:interface#5, arguments=[i32]",

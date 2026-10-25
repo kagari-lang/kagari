@@ -10,16 +10,12 @@ use kagari_common::{
 };
 use kagari_contract::{
     types::{
-        ConcreteFunctionIdentity, InterfaceBridge, PublicItem, named::NamedContract,
-        proofs::ProofCatalog, trait_contract,
+        ConcreteFunctionIdentity, InterfaceBridge, PublicItem, named::NamedContract, trait_contract,
     },
     updates::limits::{Budget, UpdateError},
 };
 use kagari_types::{callable::CallableImplementation, ty::Ty};
-use std::{
-    cell::OnceCell,
-    collections::{HashMap, HashSet},
-};
+use std::collections::{HashMap, HashSet};
 
 pub(super) struct Creation {
     pub parent: ConcreteFunctionIdentity,
@@ -37,9 +33,6 @@ pub(super) struct Context<'a> {
     origins: HashMap<DefinitionId, DefinitionId>,
     default_sources: HashMap<DefinitionId, DefinitionId>,
     pub creations: HashMap<ConcreteFunctionIdentity, Vec<Creation>>,
-    // One immutable extraction invocation owns the linked catalog; no query result
-    // or body-local assumption survives into another program or publication.
-    pub(super) construction_catalog: OnceCell<ProofCatalog<'a>>,
 }
 
 impl<'a> Context<'a> {
@@ -59,7 +52,6 @@ impl<'a> Context<'a> {
             origins: HashMap::new(),
             default_sources: HashMap::new(),
             creations: HashMap::new(),
-            construction_catalog: OnceCell::new(),
         };
         for module in modules {
             budget.visit()?;

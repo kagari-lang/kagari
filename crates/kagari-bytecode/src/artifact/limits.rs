@@ -125,10 +125,18 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
                 return false;
             }
             if let BytecodeInstruction::MakeInterface {
-                target: ConstructionTarget::Declared { arguments, .. },
+                target:
+                    ConstructionTarget::Declared {
+                        arguments,
+                        operations,
+                        constructions,
+                        ..
+                    },
                 ..
             } = instruction
-                && (!add(arguments.len()) || !arguments.iter().all(Ty::within_wire_limits))
+                && (!add(arguments.len())
+                    || !arguments.iter().all(Ty::within_wire_limits)
+                    || !add_evidence(operations, constructions, &mut add))
             {
                 return false;
             }

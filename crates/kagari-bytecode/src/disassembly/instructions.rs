@@ -275,6 +275,7 @@ pub(crate) fn write_instruction(
                     module: owner,
                     implementation,
                     arguments,
+                    ..
                 },
         } => {
             write!(

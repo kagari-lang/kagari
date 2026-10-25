@@ -145,3 +145,6 @@ impl ProofCatalog<'_> {
         Ok(Some(bounds))
     }
 }
+
+#[cfg(test)]
+mod tests;

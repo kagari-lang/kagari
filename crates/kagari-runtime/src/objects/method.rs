@@ -68,9 +68,12 @@ impl RootedInterfaceMethod {
     pub(crate) fn admit(&self, runtime: &Runtime) -> Result<Self, RuntimeError> {
         self.validate_root(runtime)?;
         let invocation = self.invocation.admit(runtime)?;
-        let root = runtime
-            .root_value(*self.receiver())
-            .ok_or_else(|| RuntimeError::module_validation("admitted method receiver root"))?;
+        let root =
+            runtime
+                .root_value(self._root.value(&runtime.gc).ok_or_else(|| {
+                    RuntimeError::module_validation("admitted method interface root")
+                })?)
+                .ok_or_else(|| RuntimeError::module_validation("admitted method receiver root"))?;
         let admitted = Self {
             invocation,
             bound_receiver: self.bound_receiver.clone(),

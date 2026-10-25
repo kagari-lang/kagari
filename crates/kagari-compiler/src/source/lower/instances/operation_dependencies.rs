@@ -77,7 +77,7 @@ impl InstancePlanner<'_> {
         Ok(selected)
     }
 
-    pub(super) fn implementation_evidence(
+    pub(in crate::source::lower) fn implementation_evidence(
         &mut self,
         declaration: &DefinitionId,
         arguments: &[TypeId],

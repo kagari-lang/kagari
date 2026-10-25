@@ -1,6 +1,5 @@
 //! Publication evidence is produced explicitly, then checked against immutable MIR.
 mod canonical;
-mod construction;
 mod context;
 use crate::program::updates::context::Context;
 #[cfg(test)]

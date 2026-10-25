@@ -63,12 +63,18 @@ pub(super) fn verify(
                                 module: owner,
                                 implementation,
                                 arguments,
+                                operations,
+                                constructions,
                                 ..
                             },
                         ..
                     } => {
                         let table = &program.modules[owner.index()].interface_tables
                             [implementation.index()];
+                        steps.push(ConstructionStep::Evidence {
+                            operations: operations.clone(),
+                            constructions: constructions.clone(),
+                        });
                         steps.push(ConstructionStep::Interface(ConcreteFunctionIdentity {
                             declaration: table.declaration,
                             arguments: arguments.clone(),
@@ -218,11 +224,15 @@ pub(super) fn verify(
                 let Some(method) = table.methods.iter().find(|method| method.name == name) else {
                     continue;
                 };
-                let arguments = slot
-                    .arguments
-                    .iter()
-                    .map(|ty| bindings.apply(ty, cancel).map_err(|_| invalid()))
-                    .collect::<Result<Vec<_>, _>>()?;
+                let arguments = if matches!(slot.target, CallableTarget::Native(id) if module.native_imports[id.index()].generic.is_none())
+                {
+                    vec![]
+                } else {
+                    slot.arguments
+                        .iter()
+                        .map(|ty| bindings.apply(ty, cancel).map_err(|_| invalid()))
+                        .collect::<Result<Vec<_>, _>>()?
+                };
                 methods.push(ConstructionMethod {
                     interface: interface.clone(),
                     receiver: table.for_type.clone(),
