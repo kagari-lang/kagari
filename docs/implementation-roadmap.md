@@ -1326,23 +1326,27 @@ Completed implementations have recorded local acceptance with no carried local
 integration failures. Complete GitHub CI feature/backend acceptance remains
 unverified; local validation does not establish that matrix passed.
 
-The latest [CI run](https://github.com/kagari-lang/kagari/actions/runs/39520471271)
-at `fa82bd48` passed structure, editor tooling and Windows AOT jobs. The Rust job
-failed only the compiler enum-layout test: its conflicting dependency fixture also
-invalidated a constructor, so local validation returned `InvalidOperation` before
-graph layout comparison could run. The fixture now changes an unused variant,
-preserving valid constructor operands and asserting the exact `InvalidHostInterface`
-diagnostic from shared proof preparation, which rejects conflicting carried enum
-records before the older layout comparison. This follows the existing
-local-before-linked validation boundary; production validation is unchanged.
+The main-branch [CI run](https://github.com/kagari-lang/kagari/actions/runs/40112001784)
+at `a9fcb9a0` failed before starting any jobs: the unquoted formatter inventory
+command ended its Rust module filter with `:: `, which YAML interpreted as a
+mapping delimiter. Quoting the command preserves its exact test selection and
+allows both workflow files to parse with unique-key validation.
 
-Focused local validation selects the repaired enum case, unused public enum
-templates, applied nominal ABI and scoped layout arguments; all four pass.
-Structure, formatting, workspace all-target Clippy and diff checks pass.
-Complete workspace tests remain CI-owned. The failed Rust job skipped formatter
-inventory, the async example, standalone SDK feature consumers and CLI native tests; those steps and
-the complete repaired Rust run still require CI acceptance. Exact WASM-backed
-Pages build acceptance remains separate.
+The same revision's [Pages run](https://github.com/kagari-lang/kagari/actions/runs/40112002715)
+built and verified browser products and rendered the site, then rejected a stale
+static-state heading link and reload description inventory. The link now targets
+the current initializer-recipe section, and the inventory matches the current
+publication contract. Link, metadata and product-provenance checks remain intact.
+
+Focused local validation uses the existing YAML parser and HTML validator, a
+fresh static render of all 25 guide pages plus 404, and 16 existing HTML/Pages
+workflow tests. Structure, formatting, workspace all-target Clippy and diff
+checks also pass. Both original Pages errors reproduce when the old link and
+inventory are restored in memory; the repaired output passes. This selects the
+changed configuration/content boundaries without rebuilding unaffected Rust/WASM
+products or running workspace tests. The full Rust, editor, Windows AOT and
+exact-product Pages workflows still require a new GitHub run; their success is
+not established by this static render.
 
 [AGENTS.md](../AGENTS.md) owns verification policy. Local implementation checks
 select affected contracts and a small dependent regression set; full workspace

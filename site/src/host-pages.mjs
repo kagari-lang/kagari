@@ -22,6 +22,6 @@ export const hostPages = Object.freeze([
     path: 'host/reload',
     group: 'Embedding',
     title: 'Hot reload',
-    description: 'Prepare compatible candidates, publish atomically, and keep existing calls pinned without implicit state migration.',
+    description: 'Publish compatible code atomically, preserve static state and retained computations, and select current bodies for ordinary calls.',
   }),
 ]);

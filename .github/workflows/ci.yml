@@ -58,7 +58,7 @@ jobs:
         run: cargo test --workspace --no-fail-fast
 
       - name: Run complete formatter grammar inventory
-        run: cargo test --locked -p kagari-format --lib tests::complete_grammar_fixture_inventory:: -- --ignored
+        run: 'cargo test --locked -p kagari-format --lib tests::complete_grammar_fixture_inventory:: -- --ignored'
 
       - name: Run host-driven async example
         run: cargo run --locked -p kagari --no-default-features --features source --example async_tasks

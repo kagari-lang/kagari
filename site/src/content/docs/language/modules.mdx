@@ -85,7 +85,7 @@ An import or re-export aliases the original cell rather than allocating another.
 Cells belong to one loaded installation. Independent loads and separate runtimes
 do not share them just because they use the same compiled code. Compatible reload
 preserves the cells and their original initializer recipes, including recipes not
-yet run. Follow <a href={page('host/reload#keep-static-state-without-retargeting-code')}>the reload example</a>
+yet run. Follow <a href={page('host/reload#keep-static-state-and-the-original-initializer-recipe')}>the reload example</a>
 for old/new code sharing state. Persistent here means in-memory continuity, not
 saving state to disk.
 
