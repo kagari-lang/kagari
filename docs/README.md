@@ -103,6 +103,10 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   contracts are indexed above. Full workspace and feature/backend/platform acceptance
   remains pending CI. Associated constants, native-call const evaluation, a public
   RNG and full ray tracing are outside this delivery.
+- [Paged storage and incremental GC](paged-incremental-gc-design.md): selected
+  paging direction, design only. Concrete object directory/page structures,
+  allocation, barriers, incremental tracing/sweeping and disposal; implementation
+  and measured acceptance remain pending. Shares the native payload boundary with NC.
 - [Library-owned native collections](native-collections-plan.md): NC01-NC06 are
   not started; reuse the implemented Iterable APIs while migrating storage.
 - [Interface type tests and downcast](interface-downcast-plan.md): DC01-DC04 are

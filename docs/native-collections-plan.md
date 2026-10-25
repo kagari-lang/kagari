@@ -70,6 +70,15 @@ exact readonly admission, checked setters, roots and supplying generations. SA21
 consumes the same ordinary declarations while owning Rust borrowing and registration.
 Neither owner may turn an interface into a second storage/access authority.
 
+The queued [paged incremental GC design](paged-incremental-gc-design.md) owns the
+collector/page architecture, not this collection migration. Before implementing
+NC01's dynamic payload API, reconcile reference publication, capacity accounting
+and large-payload scan progress with that design. NC remains the owner of concrete
+collection layouts and algorithms; neither task is activated by this cross-reference.
+Current-call selection follows the implemented
+[publication contract](spec/module-activation.md#live-installations-and-call-selection),
+not historical wording that would pin every stored method body.
+
 Scope includes collection declarations, public native storage capabilities,
 retained checked calls, collection cursors, host collection adapters, executable
 contracts and source-free validation. Migrate affected collection paths end to end.
