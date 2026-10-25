@@ -104,6 +104,52 @@ LLVM, AOT and machine-code persistence are outside J01-J06; the separate
 [AOT contract](spec/aot.md) describes the implemented scalar deployment route. NC remains an independent
 migration; reuse implemented host registration contracts without expanding scope.
 
+### Deferred native execution API boundary review
+
+User direction, recorded 2026-10-25: hosts execute scripts through stable public
+handles. Interpreter, runtime JIT and loaded AOT code are execution choices owned
+by the implementation. Hosts must not need to prepare, retain, replace or pass
+version-specific machine-code entries to keep ordinary calls working after a
+compatible hot update. Execution-strategy configuration and trusted deployment
+artifact loading remain distinct from managing individual callable code products.
+
+The current [SDK preparation](../crates/kagari/src/program/native.rs) exposes
+`Runtime::prepare_native`, while [SDK execution](../crates/kagari/src/runtime.rs)
+accepts an explicit `PreparedNativeEntry` through `execute_prepared`.
+[AOT installation](../crates/kagari/src/aot.rs) also returns that product-specific
+entry. The runtime selects a current function but rejects an explicitly supplied
+older product. That check protects exact code/function correspondence; exposing
+its cache/version management to ordinary SDK callers is the boundary problem.
+Recent CI test repairs establish that existing rejection behavior, not acceptance
+of the desired public API. Do not remove the low-level correspondence check merely
+to make an old product callable as a new implementation.
+
+Required outcome: retained Program/Module/function/member bindings continue to
+select the current implementation after compatible publication, without rebinding
+or caller cache maintenance. Select and retain the matching internal code product
+after normal declaration/application admission. Preserve runtime/installation
+ownership, frozen ABI/type contracts, arguments/results, host loans, cancellation,
+roots and cleanup. Already admitted frames, actual closures and Futures retain
+their selected computation bodies; their ordinary inner calls still use current
+implementations. Old code remains alive for its actual owners, without granting
+new ordinary calls permission to execute a superseded body.
+
+Before implementation, reconcile the JIT/AOT public API, compiler/product ownership,
+version-aware lookup and publication/reclamation paths across ordinary, typed,
+method/interface and callback calls. Review explicit preparation sets and the
+no-runtime-compilation assumptions in the [Cranelift plan](cranelift-expansion-plan.md)
+against this user requirement. JIT scheduling, backend configuration and the
+concrete replacement API remain undecided. Reconcile the older retained-native-
+handle wording in [JIT lifetime documentation](spec/jit.md#code-lifetime-and-reload)
+with [ordinary call selection](spec/module-activation.md#live-installations-and-call-selection).
+
+Acceptance must exercise the same public handle before and after successful and
+rejected updates, with actual JIT/AOT selection where supported, and preserve
+source-free loading and old-computation/code-owner cleanup. Interpreter fallback
+alone is not native acceptance. This issue is recorded only: no implementation,
+JIT scheduling, backend coverage expansion or J01-J06 activation is authorized by
+this checkpoint; the user explicitly deferred changes for this turn.
+
 ## Toolchain distribution and modes
 
 The current workspace product names are:

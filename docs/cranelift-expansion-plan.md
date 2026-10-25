@@ -8,6 +8,14 @@ and does not activate these phases. The
 placement. This document owns scope, phase order, design decisions, acceptance
 and the progress ledger. Proposed contracts below are not existing APIs.
 
+User requirement recorded on 2026-10-25, with implementation explicitly deferred:
+[the native execution API boundary issue](implementation-roadmap.md#deferred-native-execution-api-boundary-review)
+requires stable public script handles and internal management of JIT/AOT products.
+The explicit host preparation-set/API and no-runtime-compilation assumptions below
+must be reconciled before activating the affected phases; they are not an accepted
+exception to that user requirement. This note does not start J01-J06 or choose a
+replacement API, compiler scheduling policy or call-stack model.
+
 ## Outcome and scope
 
 Compile most existing synchronous Kagari business code through Cranelift:
@@ -411,6 +419,8 @@ not a passing local check; unresolved required rows prevent completion.
 - [x] Record bounded plan, baseline evidence, phase order and ownership.
 - [x] Reconcile review: move call-model design to J01 and specify dynamic-target
   preparation, installed-entry ownership and retained-version acceptance.
+- [ ] Reconcile the deferred native execution API boundary issue before activating
+  J01/J03: stable public handles, internal products and runtime-owned selection.
 - [ ] J01: call-stack model, exact ABI/inventory and scalar argument acceptance.
 - [ ] J02: scalar numeric/control-flow coverage and focused validation.
 - [ ] J03: checked calls, explicit preparation sets, installation leases and
