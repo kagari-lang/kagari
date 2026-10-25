@@ -266,11 +266,11 @@ implementing a different optimization. Do not invent a speedup target after resu
 
 ### R7-02 — Separate retained module state from processing contexts
 
-- [ ] Split initialization, pending work processing and assembly at meaningful module
+- [x] Split initialization, pending work processing and assembly at meaningful module
   boundaries. Keep facades small and follow repository effective-LOC/import rules.
-- [ ] Preserve instance deduplication, stable references, source records and generated
+- [x] Preserve instance deduplication, stable references, source records and generated
   descendants while moving shared mutable borrows to short-lived contexts.
-- [ ] Route single-module lowering through the same implementation; retain initial
+- [x] Route single-module lowering through the same implementation; retain initial
   root/diagnostic obligations and run the focused lowering/limit checks.
 
 Gate: affected compiler code builds and selected tests pass. The old program driver
@@ -379,12 +379,20 @@ disclose carried build failures in the body. Do not rewrite user work.
 | Phase | State | Evidence / next action |
 | --- | --- | --- |
 | R7-01 | Complete | 39 baseline samples pass; retained-state, bridge-tail and dual-accounting decisions recorded above. |
-| R7-02 | Not started | Depends on R7-01. |
+| R7-02 | Complete | Owned instance/layout/bridge state, short-lived planner, shared input lookup and borrowed products implemented. Existing driver temporarily uses lifecycle entrypoint; R7-03 removes it. |
 | R7-03 | Not started | Depends on R7-02; remove temporary lifecycle driver bridge. |
 | R7-04 | Not started | Depends on R7-03; focused local acceptance and matched measurements, CI scope separate. |
 
 R7-01 local checks passed: structure (1719 Rust files, no violations), formatting,
 workspace all-target Clippy with warnings denied, and diff whitespace checks.
+
+R7-02 checks passed: `cargo check -p kagari-compiler`; compiler test filters
+`generic_interface` (3 cases), `lowering_honors_instruction_limits_and_cancellation`,
+aggregate deduplication/shared-budget, growing recursive-layout limit, recursive
+instance reuse and retained cross-module source-use removal (8 distinct cases).
+Structure, formatting, workspace all-target Clippy and diff checks passed.
+The new lifecycle is exercised by the existing driver; multi-step/no-regeneration
+acceptance belongs to R7-03/R7-04. No carried build failures.
 
 Known intermediate implementation failures: none. Baseline measurement passes;
 three no-regeneration tests are explicitly ignored until R7-04 activates the new

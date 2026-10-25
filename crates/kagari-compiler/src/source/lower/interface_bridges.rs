@@ -34,15 +34,80 @@ use kagari_types::{
     },
 };
 
-pub(super) fn collect(
-    planner: &mut InstancePlanner<'_>,
-    module: &AnalyzedModule,
-    abi: &mut ModuleContract,
-    functions: &mut Vec<MirFunction>,
-    classifications: &mut Vec<(ConcreteFunctionIdentity, BodyClassification)>,
-) -> Result<(), MirLoweringError> {
-    for request in planner.interface_bridges.clone() {
+/// Wrappers are not planner slots. Their IDs are tail-relative until a snapshot.
+#[derive(Default)]
+pub(super) struct InterfaceBridges {
+    pub functions: Vec<MirFunction>,
+    pub processed: usize,
+}
+
+pub(super) struct PreparedBridge {
+    request: InterfaceBridgeRequest,
+    methods: Vec<PreparedMethod>,
+}
+
+struct PreparedMethod {
+    declaration: DefinitionId,
+    name: String,
+    target: PreparedTarget,
+}
+
+enum PreparedTarget {
+    Function(InstanceId),
+    Shared(Box<MethodTarget>),
+}
+
+struct MethodTarget {
+    params: Vec<Param>,
+    result_type: Ty,
+    callee: CallTarget,
+    generic: Option<GenericBody>,
+}
+
+impl InterfaceBridges {
+    /// Prepare dependencies before the caller drains newly admitted planner bodies.
+    pub fn prepare(
+        &self,
+        planner: &mut InstancePlanner<'_>,
+        module: &AnalyzedModule,
+    ) -> Result<Option<PreparedBridge>, MirLoweringError> {
+        let Some(request) = planner.interface_bridges.get(self.processed).cloned() else {
+            return Ok(None);
+        };
+        let contract = module
+            .aggregates
+            .trait_(&request.interface.declaration)
+            .ok_or(MirLoweringError::MissingBinding("interface bridge trait"))?;
+        let mut methods = Vec::new();
+        for method in &contract.methods {
+            planner.check()?;
+            let declaration = planner
+                .context
+                .intern_child(request.declaration, DefinitionKind::Method, &method.name, 0)
+                .map_err(DefinitionMappingError::from)?;
+            methods.push(PreparedMethod {
+                declaration,
+                name: method.name.clone(),
+                target: prepare_target(planner, &request, declaration)?,
+            });
+        }
+        Ok(Some(PreparedBridge { request, methods }))
+    }
+
+    pub fn emit(
+        &mut self,
+        planner: &mut InstancePlanner<'_>,
+        module: &AnalyzedModule,
+        abi: &mut ModuleContract,
+        functions: &[MirFunction],
+        classifications: &mut Vec<(ConcreteFunctionIdentity, BodyClassification)>,
+        prepared: PreparedBridge,
+    ) -> Result<(), MirLoweringError> {
         planner.check()?;
+        let PreparedBridge {
+            request,
+            methods: prepared_methods,
+        } = prepared;
         let InterfaceBridgeRequest {
             declaration,
             ref parameters,
@@ -55,14 +120,15 @@ pub(super) fn collect(
             .trait_(&interface.declaration)
             .ok_or(MirLoweringError::MissingBinding("interface bridge trait"))?;
         let mut methods = Vec::new();
-        for method in &contract.methods {
+        for method in prepared_methods {
             planner.check()?;
-            let method_id = planner
-                .context
-                .intern_child(declaration, DefinitionKind::Method, &method.name, 0)
-                .map_err(DefinitionMappingError::from)?;
-            let (params, result_type, callee, generic) =
-                resolve_target(planner, functions, &request, method_id)?;
+            let method_id = method.declaration;
+            let MethodTarget {
+                params,
+                result_type,
+                callee,
+                generic,
+            } = resolve_target(method.target, functions)?;
             let mut table_bindings = TypeSubstitution::default();
             let table_arguments: Vec<_> = parameters.iter().map(GenericParam::as_type).collect();
             for (parameter, argument) in parameters.iter().zip(&table_arguments) {
@@ -140,7 +206,7 @@ pub(super) fn collect(
                     result: Some(result_type.clone()),
                     registers: Default::default(),
                 },
-                id: InstanceId::new(functions.len()),
+                id: InstanceId::new(self.functions.len()),
                 instance: ConcreteFunctionIdentity {
                     declaration: method_id,
                     arguments: Vec::new(),
@@ -217,7 +283,7 @@ pub(super) fn collect(
             ));
             #[cfg(test)]
             crate::source::work_metrics::body();
-            functions.push(function);
+            self.functions.push(function);
         }
         abi.public_items
             .push(PublicItem::InterfaceTable(Box::new(InterfaceTable {
@@ -236,16 +302,16 @@ pub(super) fn collect(
                 for_type: planner.encode_type(receiver),
                 methods,
             })));
+        self.processed += 1;
+        Ok(())
     }
-    Ok(())
 }
 
-fn resolve_target(
+fn prepare_target(
     planner: &mut InstancePlanner<'_>,
-    functions: &[MirFunction],
     request: &InterfaceBridgeRequest,
     method: DefinitionId,
-) -> Result<(Vec<Param>, Ty, CallTarget, Option<GenericBody>), MirLoweringError> {
+) -> Result<PreparedTarget, MirLoweringError> {
     let receiver = &request.receiver;
     let interface = &request.interface;
     let protocol = Protocol::from_definition(&interface.declaration, &planner.definitions())
@@ -306,18 +372,29 @@ fn resolve_target(
                 ty,
             })
             .collect();
-        return Ok((
+        return Ok(PreparedTarget::Shared(Box::new(MethodTarget {
             params,
-            signature.result,
-            CallTarget::Shared(Box::new(call)),
-            Some(GenericBody {
+            result_type: signature.result,
+            callee: CallTarget::Shared(Box::new(call)),
+            generic: Some(GenericBody {
                 bounds: bridge_bounds(&parameters, &interface),
                 parameters,
             }),
-        ));
+        })));
     }
     let target =
         planner.enqueue_selected_protocol(protocol, receiver, interface, request.span, false)?;
+    Ok(PreparedTarget::Function(target))
+}
+
+fn resolve_target(
+    target: PreparedTarget,
+    functions: &[MirFunction],
+) -> Result<MethodTarget, MirLoweringError> {
+    let target = match target {
+        PreparedTarget::Shared(target) => return Ok(*target),
+        PreparedTarget::Function(target) => target,
+    };
     let function = functions
         .get(target.index())
         .ok_or(MirLoweringError::MissingBinding(
@@ -338,16 +415,16 @@ fn resolve_target(
             ty: ty.clone(),
         })
         .collect();
-    Ok((
+    Ok(MethodTarget {
         params,
-        function
+        result_type: function
             .semantic
             .result
             .clone()
             .ok_or(MirLoweringError::MissingBinding("intrinsic result"))?,
-        CallTarget::Function(target),
-        None,
-    ))
+        callee: CallTarget::Function(target),
+        generic: None,
+    })
 }
 
 fn bridge_bounds(parameters: &[GenericParam], interface: &NominalTy) -> Vec<GenericBound> {

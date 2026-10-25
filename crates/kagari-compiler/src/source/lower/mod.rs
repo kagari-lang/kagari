@@ -1,37 +1,36 @@
-use crate::source::lower::instances::{MirLoweringOptions, bridge_identities::BridgeIdentities};
-use instances::{InstanceBody, InstanceClassification, InstancePlanner};
+use crate::source::lower::{
+    instances::{MirLoweringOptions, bridge_identities::BridgeIdentities, state::InstanceState},
+    interface_bridges::InterfaceBridges,
+    layouts::Layouts,
+};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionPath, map::DefinitionContext, mapping::DefinitionMappingError,
-        metadata::DefinitionMetadata, table::DefinitionId,
+        DefinitionPath,
+        map::DefinitionContext,
+        mapping::DefinitionMappingError,
+        metadata::DefinitionMetadata,
+        table::{DefinitionId, module::ModuleHandle},
     },
 };
 use kagari_contract::{
-    host as module_host,
-    types::{ConcreteFunctionIdentity, ModuleContract, identity},
+    layout::{EnumLayout, StructLayout},
+    native_import::NativeImport,
+    types::{ConcreteFunctionIdentity, ModuleContract},
     updates::{BodyClassification, DemandRequests, limits::UpdateError},
 };
 use kagari_hir::{
     AnalyzedModule, CheckedAnalysis,
     aggregates::{AggregateCatalog, implementations::ImplementationSearchError},
-    declarations::DeclarationId,
-    hir::{
-        ids::{ExprId, FunctionId, LocalId, PlaceId},
-        item::function::FunctionKind,
-    },
-    native::NativeBinding,
-    resolver::resolved::ResolvedName,
-    typeck::FunctionImplementation,
+    hir::ids::{ExprId, FunctionId, LocalId, PlaceId},
 };
 use kagari_mir::{
-    function::MirModule,
+    function::MirFunction,
     passes::optimize,
-    verify::{MirVerificationError, MirVerificationErrorKind, VerifiedMirModule, verify_mir},
+    verify::{MirVerificationError, MirVerificationErrorKind, VerifiedMirModule},
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
-
-use std::{collections::HashSet, iter, slice};
+use std::{collections::HashMap, slice};
 
 mod abi;
 mod debug;
@@ -42,7 +41,9 @@ mod host;
 pub mod instances;
 mod interface_bridges;
 mod layouts;
+mod lifecycle;
 mod place;
+mod snapshot;
 mod state;
 mod statics;
 mod stmt;
@@ -99,6 +100,93 @@ impl From<DefinitionMappingError> for MirLoweringError {
     }
 }
 
+/// Immutable checked inputs shared by every module in one lowering operation.
+///
+/// The catalog must cover the complete checked dependency closure, including
+/// caller-private generic arguments. Construct once and reuse for every step;
+/// states and their definition IDs must not be transferred between input contexts.
+pub(crate) struct ModuleLoweringInputs<'a> {
+    modules: &'a [AnalyzedModule],
+    modules_by_handle: HashMap<ModuleHandle, &'a AnalyzedModule>,
+    catalog: &'a AggregateCatalog,
+    context: &'a DefinitionContext,
+}
+
+impl<'a> ModuleLoweringInputs<'a> {
+    pub fn new(
+        modules: &'a [AnalyzedModule],
+        catalog: &'a AggregateCatalog,
+        context: &'a DefinitionContext,
+    ) -> Self {
+        let definitions = context.snapshot();
+        let modules_by_handle = modules
+            .iter()
+            .map(|module| {
+                let handle = definitions
+                    .lookup_module(module.lowered.source.module_identity())
+                    .expect("checked source module");
+                (handle, module)
+            })
+            .collect();
+        Self {
+            modules,
+            modules_by_handle,
+            catalog,
+            context,
+        }
+    }
+}
+
+/// Retained, unoptimized lowering products for one output module.
+///
+/// Initialize once, process demand deltas with the current deterministic prefix
+/// allowance, then snapshot at a candidate barrier. Ordinary function IDs remain
+/// stable; bridge wrappers receive candidate-local tail IDs. Processing errors
+/// invalidate this state; discard it rather than attempting partial publication.
+pub(crate) struct ModuleLowering {
+    owner: ModuleHandle,
+    instances: InstanceState,
+    functions: Vec<MirFunction>,
+    layouts: Layouts,
+    bridges: InterfaceBridges,
+    abi: ModuleContract,
+    classifications: Vec<(ConcreteFunctionIdentity, BodyClassification)>,
+    source_bodies: Vec<(DefinitionId, ConcreteFunctionIdentity)>,
+    failed: bool,
+    ready: bool,
+}
+
+/// Independent local admission charges and emitted-product prefix debits.
+///
+/// Generic admissions deliberately differ from products with nonempty identity
+/// arguments. The program driver subtracts output debits in module order and
+/// rechecks local charges against each resulting prefix allowance.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ModuleLoweringUsage {
+    pub generic_admissions: usize,
+    pub instruction_charges: usize,
+    pub generic_products: usize,
+    pub instructions: usize,
+}
+
+/// Borrowed append-only products for delta discovery, without a candidate clone.
+///
+/// Product slice indices remain stable across successful processing steps; ABI
+/// function origins are derived in canonical order rather than append order. Bridge IDs
+/// are tail-relative here, not module function IDs; their outgoing local targets
+/// always index `functions`. Only a snapshot assigns their final module IDs.
+pub(crate) struct ModuleLoweringProducts<'a> {
+    pub functions: &'a [MirFunction],
+    pub bridge_functions: &'a [MirFunction],
+    pub native_targets: &'a [NativeImport],
+    pub interface_instances: &'a [ConcreteFunctionIdentity],
+    pub structures: &'a [StructLayout],
+    pub enumerations: &'a [EnumLayout],
+    pub abi: &'a ModuleContract,
+    pub classifications: &'a [(ConcreteFunctionIdentity, BodyClassification)],
+    pub source_bodies: &'a [(DefinitionId, ConcreteFunctionIdentity)],
+}
+
 /// Project a checked source module's declarations for source-independent products.
 pub fn module_contract(
     module: &CheckedAnalysis,
@@ -141,265 +229,19 @@ pub(crate) struct LoweredModule {
     pub source_bodies: Vec<(DefinitionId, ConcreteFunctionIdentity)>,
 }
 
-pub(crate) fn lower_to_mir_with_requests<'a>(
-    module: &'a AnalyzedModule,
-    options: &'a MirLoweringOptions,
+pub(crate) fn lower_to_mir_with_requests(
+    module: &AnalyzedModule,
+    options: &MirLoweringOptions,
     requests: &DemandRequests,
-    modules: &'a [AnalyzedModule],
-    catalog: &'a AggregateCatalog,
-    context: &'a DefinitionContext,
-    bridge_identities: &'a mut BridgeIdentities,
+    modules: &[AnalyzedModule],
+    catalog: &AggregateCatalog,
+    context: &DefinitionContext,
+    bridge_identities: &mut BridgeIdentities,
 ) -> Result<LoweredModule, MirLoweringError> {
-    identity::collect_language(context, &options.cancel)?;
-    #[cfg(test)]
-    crate::source::work_metrics::initialize();
-    let mut planner = InstancePlanner::new(
-        module,
-        options,
-        modules,
-        catalog,
-        context,
-        bridge_identities,
-    );
-    planner.check()?;
-
-    planner.enqueue_statics()?;
-    for function in &module.typed.functions {
-        if matches!(
-            function.implementation,
-            FunctionImplementation::Native(NativeBinding::Default(_))
-        ) && module
-            .typed
-            .type_table
-            .native_default_call(function.id)
-            .is_none()
-        {
-            return Err(MirLoweringError::MissingBinding(
-                "checked native default body",
-            ));
-        }
-    }
-    let callable_methods = module
-        .lowered
-        .module
-        .impls
-        .iter()
-        .filter(|implementation| {
-            implementation.trait_ref.is_none() || implementation.generic_params.is_empty()
-        })
-        .flat_map(|implementation| implementation.methods.iter().map(|method| method.function))
-        .collect::<HashSet<_>>();
-    for function in &module.lowered.module.functions {
-        if (matches!(function.kind, FunctionKind::User) || callable_methods.contains(&function.id))
-            && function.generic_params.is_empty()
-        {
-            let signature = module
-                .typed
-                .functions
-                .iter()
-                .find(|signature| signature.id == function.id)
-                .ok_or(MirLoweringError::MissingTypedFunction(function.id))?;
-            if matches!(signature.implementation, FunctionImplementation::Native(_)) {
-                continue;
-            }
-            planner.enqueue(
-                function.id,
-                Vec::new(),
-                module.lowered.source_map.function_span(function.id),
-            )?;
-        }
-    }
-    let input_definitions = context.snapshot();
-    let mut implementations: Vec<_> = module
-        .aggregates
-        .implementations()
-        .filter(|item| {
-            input_definitions
-                .resolve(item.id)
-                .expect("checked implementation")
-                .module()
-                == module.lowered.source.module_identity()
-                && item.generic_params.is_empty()
-        })
-        .collect();
-    implementations.sort_by(|left, right| {
-        input_definitions
-            .compare(left.id, right.id)
-            .expect("checked implementation identities")
-    });
-    for implementation in implementations {
-        planner.record_interface(&implementation.id, &[], Default::default())?;
-    }
-    planner.request_products(requests)?;
-    let mut functions = Vec::new();
-    let mut classifications = Vec::new();
-    let mut source_bodies = Vec::new();
-    while let Some(instance) = planner.instances.get(functions.len()).cloned() {
-        planner.check()?;
-        let origin = planner.origin(&instance);
-        let identity = instance.lower(
-            planner.catalog,
-            planner.options,
-            &planner.definitions(),
-            instance.body.span(origin),
-        )?;
-        classifications.push((identity.clone(), instance.classification.lower(&identity)));
-        // Intrinsic recipes borrow a lowering context, not its authored ownership.
-        // In particular, the first function in a module is not their source body.
-        if !matches!(
-            instance.classification,
-            InstanceClassification::IntrinsicAdapter
-        ) {
-            let authored = match instance.body {
-                InstanceBody::Function(id) => ResolvedName::Function(id),
-                InstanceBody::Static(id) => ResolvedName::Static(id),
-            };
-            let DeclarationId::Definition(source) = origin
-                .declarations
-                .target(authored)
-                .ok_or(MirLoweringError::MissingBinding(
-                    "emitted body source owner",
-                ))?
-                .id
-            else {
-                return Err(MirLoweringError::MissingBinding(
-                    "emitted body source identity",
-                ));
-            };
-            source_bodies.push((source, identity));
-        }
-        #[cfg(test)]
-        crate::source::work_metrics::body();
-        functions.push(if instance.callable.is_some() {
-            function::lower_callable(origin, instance, &mut planner)?
-        } else if instance.protocol.is_some() {
-            function::lower_protocol(origin, instance, &mut planner)?
-        } else if let Some(closure) = instance.closure {
-            function::lower_closure(origin, closure, instance, &mut planner)?
-        } else {
-            match instance.body {
-                InstanceBody::Function(id) => {
-                    let function = origin
-                        .lowered
-                        .module
-                        .functions
-                        .iter()
-                        .find(|function| function.id == id)
-                        .ok_or(MirLoweringError::MissingTypedFunction(id))?;
-                    function::lower_function(origin, function, instance, &mut planner)?
-                }
-                InstanceBody::Static(id) => {
-                    statics::lower_initializer(origin, id, instance, &mut planner)?
-                }
-            }
-        });
-    }
-
-    let layouts::Layouts {
-        structures,
-        enumerations,
-    } = layouts::collect(module, &mut planner, &functions)?;
-    let mut abi = abi::collect_module_abi(module);
-    interface_bridges::collect(
-        &mut planner,
-        module,
-        &mut abi,
-        &mut functions,
-        &mut classifications,
-    )?;
-    abi.function_origins = planner.function_origins();
-    planner.host_types.extend(
-        module_host::references(
-            &abi.public_items,
-            &structures,
-            &enumerations,
-            &options.cancel,
-        )
-        .map_err(|_| MirLoweringError::Cancelled)?,
-    );
-    planner.host_types.extend(
-        module_host::type_references(
-            abi.native_declarations
-                .iter()
-                .flat_map(|declaration| {
-                    declaration
-                        .function
-                        .params
-                        .iter()
-                        .map(|param| &param.ty)
-                        .chain(iter::once(&declaration.function.return_type))
-                })
-                .chain(planner.native_targets.iter().flat_map(|import| {
-                    import
-                        .signature
-                        .params
-                        .iter()
-                        .chain(iter::once(&import.signature.result))
-                }))
-                .chain(functions.iter().flat_map(|function| {
-                    function
-                        .semantic
-                        .params
-                        .values()
-                        .chain(function.semantic.result.iter())
-                        .chain(function.semantic.locals.values())
-                        .chain(function.semantic.registers.values())
-                })),
-            &options.cancel,
-        )
-        .map_err(|_| MirLoweringError::Cancelled)?,
-    );
-    let external_types = host::collect(
-        module,
-        modules,
-        planner.host_types,
-        &functions,
-        &options.cancel,
-        &context.snapshot(),
-    )?;
-
-    let mir = MirModule {
-        native_targets: planner.native_targets,
-        interface_instances: planner.interface_instances,
-        external_types,
-        dependencies: module
-            .names
-            .imports
-            .dependencies
-            .iter()
-            .map(|module_handle| {
-                module
-                    .names
-                    .catalog
-                    .definitions()
-                    .module_identity(*module_handle)
-                    .expect("checked dependency")
-                    .clone()
-            })
-            .collect(),
-        structures,
-        enumerations,
-        identity: module.lowered.source.module_identity().clone(),
-        source_name: module.lowered.source.name().to_owned(),
-        module_slots: planner.static_slots,
-        abi,
-        functions,
-    };
-    identity::collect(
-        &mir.identity,
-        &mir.abi.public_items,
-        &mir.abi.trait_contracts,
-        context,
-        &options.cancel,
-    )?;
-    let metadata = DefinitionMetadata::checked(context.snapshot(), mir, &options.cancel)?;
-    verify_mir(metadata, &options.cancel)
-        .map_err(verification_error)
-        .map(|module| LoweredModule {
-            module,
-            classifications,
-            source_bodies,
-        })
+    let inputs = ModuleLoweringInputs::new(modules, catalog, context);
+    let mut state = ModuleLowering::initialize(module, &inputs, options, bridge_identities)?;
+    state.process(requests, &inputs, options, bridge_identities)?;
+    state.snapshot(&inputs, options)
 }
 
 pub(crate) fn optimize_module(

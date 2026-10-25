@@ -7,7 +7,7 @@ use kagari_hir::{
     aggregates::implementations::{ImplementationSearchContext, ImplementationSearchLimits},
     types::semantic::{raise_nominal_type, raise_type},
 };
-use kagari_types::ty::GenericParam;
+use kagari_types::ty::{GenericParam, Ty};
 
 impl InstancePlanner<'_> {
     pub(in crate::source::lower) fn request_products(
@@ -23,6 +23,23 @@ impl InstancePlanner<'_> {
             self.check()?;
             if self.module_handle(request.declaration) != self.owner_handle() {
                 return Err(MirLoweringError::MissingBinding("requested instance owner"));
+            }
+            if let Some(bridge) = self.interface_bridges.iter().find(|bridge| {
+                bridge.declaration == request.declaration && !bridge.parameters.is_empty()
+            }) {
+                if request.arguments.len() != bridge.parameters.len()
+                    || !request.arguments.iter().all(Ty::is_concrete)
+                {
+                    return Err(MirLoweringError::MissingBinding(
+                        "closed bridge application",
+                    ));
+                }
+                // The shared wrapper already exists. As in program closure, this
+                // concrete table adds an output debit, not a local admission charge.
+                if !self.interface_instances.contains(request) {
+                    self.interface_instances.push(request.clone());
+                }
+                continue;
             }
             let arguments = request.arguments.iter().map(raise_type).collect::<Vec<_>>();
             if self

@@ -1,4 +1,6 @@
-use crate::source::lower::MirLoweringError;
+use crate::source::lower::{
+    MirLoweringError, ModuleLoweringInputs, instances::state::InstanceState,
+};
 use kagari_abi::representation::ValueType;
 use kagari_common::{
     cancellation::CancellationToken,
@@ -58,6 +60,7 @@ mod operation_dependencies;
 mod requests;
 mod results;
 mod shared;
+pub(super) mod state;
 mod statics;
 mod tuple_bridges;
 mod views;
@@ -227,7 +230,7 @@ pub(super) struct InstancePlanner<'a> {
     pub context: &'a DefinitionContext,
     pub bridge_identities: &'a mut BridgeIdentities,
     pub catalog: &'a AggregateCatalog,
-    modules: HashMap<ModuleHandle, &'a AnalyzedModule>,
+    modules: &'a HashMap<ModuleHandle, &'a AnalyzedModule>,
     pub options: &'a MirLoweringOptions,
     pub instances: Vec<Instance>,
     pub static_slots: Vec<StaticDescriptor<InstanceId>>,
@@ -315,46 +318,52 @@ impl<'a> InstancePlanner<'a> {
     pub fn new(
         module: &'a AnalyzedModule,
         options: &'a MirLoweringOptions,
-        modules: &'a [AnalyzedModule],
-        catalog: &'a AggregateCatalog,
-        context: &'a DefinitionContext,
+        inputs: &'a ModuleLoweringInputs<'a>,
         bridge_identities: &'a mut BridgeIdentities,
+        state: InstanceState,
     ) -> Self {
         Self {
             bridge_identities,
-            context,
-            catalog,
-            modules: modules
-                .iter()
-                .map(|module| {
-                    (
-                        module
-                            .names
-                            .catalog
-                            .definitions()
-                            .lookup_module(module.lowered.source.module_identity())
-                            .expect("checked source module"),
-                        module,
-                    )
-                })
-                .collect(),
+            context: inputs.context,
+            catalog: inputs.catalog,
+            modules: &inputs.modules_by_handle,
             module,
             options,
-            instances: Vec::new(),
-            static_slots: Vec::new(),
-            layout_roots: Vec::new(),
-            host_types: Default::default(),
-            interface_bridges: Vec::new(),
-            interface_instances: Vec::new(),
-            native_targets: Vec::new(),
-            keys: HashMap::new(),
-            local_function_placements: HashMap::new(),
-            static_lexical_tokens: HashMap::new(),
-            generic_count: 0,
+            instances: state.instances,
+            static_slots: state.static_slots,
+            layout_roots: state.layout_roots,
+            host_types: state.host_types,
+            interface_bridges: state.interface_bridges,
+            interface_instances: state.interface_instances,
+            native_targets: state.native_targets,
+            keys: state.keys,
+            local_function_placements: state.local_function_placements,
+            static_lexical_tokens: state.static_lexical_tokens,
+            generic_count: state.generic_count,
             operation_depth: 0,
-            interfaces: Default::default(),
-            instruction_count: 0,
-            failure: None,
+            interfaces: state.interfaces,
+            instruction_count: state.instruction_count,
+            failure: state.failure,
+        }
+    }
+
+    pub fn into_state(self) -> InstanceState {
+        debug_assert_eq!(self.operation_depth, 0);
+        InstanceState {
+            instances: self.instances,
+            static_slots: self.static_slots,
+            layout_roots: self.layout_roots,
+            host_types: self.host_types,
+            interface_bridges: self.interface_bridges,
+            interface_instances: self.interface_instances,
+            native_targets: self.native_targets,
+            keys: self.keys,
+            local_function_placements: self.local_function_placements,
+            static_lexical_tokens: self.static_lexical_tokens,
+            generic_count: self.generic_count,
+            interfaces: self.interfaces,
+            instruction_count: self.instruction_count,
+            failure: self.failure,
         }
     }
 
