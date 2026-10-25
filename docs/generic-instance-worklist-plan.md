@@ -1,7 +1,8 @@
 # Program-owned generic instance worklist execution plan
 
 Status: implementation and one commit per phase authorized by the user on
-2026-10-25. R7-01 baseline and lifecycle review are complete. The [roadmap](implementation-roadmap.md#program-owned-generic-instance-worklist)
+2026-10-25. R7-01 through R7-03 are implemented and locally checked; R7-04 final measurement
+and documentation closure are next. The [roadmap](implementation-roadmap.md#program-owned-generic-instance-worklist)
 owns activation. This plan owns R7-01 through R7-04, scope, decisions, acceptance
 and the progress ledger. It is not a new incremental-compilation API.
 
@@ -279,14 +280,14 @@ removed in R7-03, not a second long-term implementation.
 
 ### R7-03 — Replace program rebuild rounds with delta scheduling
 
-- [ ] Initialize module states once and route new demands without clearing outputs.
-- [ ] Integrate function/layout/interface/native/shared-body and generated-product
+- [x] Initialize module states once and route new demands without clearing outputs.
+- [x] Integrate function/layout/interface/native/shared-body and generated-product
   dependencies, preserving catalog visibility and authored-versus-output ownership.
-- [ ] Integrate compilation-wide output accounting, cancellation and deterministic
+- [x] Integrate compilation-wide output accounting, cancellation and deterministic
   scheduling, including recursive instances and converging duplicate demands.
-- [ ] Reconnect candidate assembly, preoptimization update records, optimization,
+- [x] Reconnect candidate assembly, preoptimization update records, optimization,
   fresh seals and retained-demand coverage feedback. Keep non-progress rejection.
-- [ ] Delete the whole-module regeneration loop, superseded cumulative rescans and
+- [x] Delete the whole-module regeneration loop, superseded cumulative rescans and
   the R7-02 temporary driver bridge. Do not retain a fallback production path.
 
 Gate: cross-module and retained-demand contracts pass, and work counters show no
@@ -380,7 +381,7 @@ disclose carried build failures in the body. Do not rewrite user work.
 | --- | --- | --- |
 | R7-01 | Complete | 39 baseline samples pass; retained-state, bridge-tail and dual-accounting decisions recorded above. |
 | R7-02 | Complete | Owned instance/layout/bridge state, short-lived planner, shared input lookup and borrowed products implemented. Existing driver temporarily uses lifecycle entrypoint; R7-03 removes it. |
-| R7-03 | Not started | Depends on R7-02; remove temporary lifecycle driver bridge. |
+| R7-03 | Complete | Delta delivery/scans, retained construction summaries and candidate barriers implemented; obsolete driver/entrypoint removed. Five no-regeneration cases and selected contracts pass. |
 | R7-04 | Not started | Depends on R7-03; focused local acceptance and matched measurements, CI scope separate. |
 
 R7-01 local checks passed: structure (1719 Rust files, no violations), formatting,
@@ -394,6 +395,43 @@ Structure, formatting, workspace all-target Clippy and diff checks passed.
 The new lifecycle is exercised by the existing driver; multi-step/no-regeneration
 acceptance belongs to R7-03/R7-04. No carried build failures.
 
-Known intermediate implementation failures: none. Baseline measurement passes;
-three no-regeneration tests are explicitly ignored until R7-04 activates the new
-scheduler contract. Full CI acceptance is unrun, not passed.
+R7-03: replaced driver and migrated four internal test calls to the lifecycle.
+Initial test/Clippy builds failed on removed `lower_to_mir_with_requests` imports;
+the direct test migrations resolved them. Five no-regeneration cases passed when
+run explicitly with `--ignored`, including late bridge wrappers and shared layout
+binders. Eight `source::program::update_` cases passed. Additional selected checks:
+source generic aliases, both private-layout cases, unused static initializer
+obligations, portable foreign-default origins and registration-order-independent
+MIR/bytecode products all passed. The existing lower/interface budget selection
+and new closed-table layout/debit regression passed. Structure (1728 files before
+the final regression), formatting, workspace all-target Clippy and diff checks
+passed; the final regression also passed those checks.
+
+Independent review found closure-added bridge tables incorrectly becoming layout
+roots. Fixed by recording their inventory positions separately and skipping only
+those positions during layout discovery. They retain the old post-module table
+debit; explicit layout requests still add/charge layouts. The concrete private
+`Key<i32>` shared-tuple test reproduced the faulty-worklist minimum generic limit
+of 241 versus fixed-worklist 240; this is not a historical-revision timing claim.
+
+Selected SDK checks (one `cargo test -p kagari --lib --` invocation with four
+filters) passed: `shared_helpers_are_materialized_in_their_declaring_module`,
+`composed_tuple_operation_witnesses_are_verified_without_source`,
+`shared_nominal_layout_applications_are_verified_without_source`, and
+`new_primitive` (exactly the current-operation reload case). These cover source-free
+proof rejection and actual publication beyond compiler-only coverage.
+
+A discarded shared-layout fixture exposed a pre-existing bytecode rejection:
+a root shared default method calls a foreign generic `wrap<T>` returning `Box<T>`.
+Both source-only and retained compilation reject with `invalid collection access
+flow`. An identical probe reproduced both failures at baseline `71e72b02` and the
+current source snapshot; no production fix or weakened assertion was used. The
+scheduler contract uses a provider-owned shared default that constructs `Box<T>`
+directly and passes both source-only/retained bytecode validation. Preserve the
+original defect and minimal source in review at R7-04 closure. A direct tuple-to-Hash
+coercion fixture also hit `InvalidPublicAbi` independently of the closed-table
+layout fix; it is not the validated construction-evidence fixture.
+
+Known intermediate implementation failures: none outstanding in the selected
+scope. Five no-regeneration tests remain explicitly ignored until R7-04 activation.
+Full CI acceptance is unrun, not passed.

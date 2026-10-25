@@ -5,15 +5,23 @@
 //! is reused. Source checking and lowering have separate clocks. History creation,
 //! portable encoding and Rust build time are excluded from the lowering clock.
 //! Counts include test-only hook overhead. These are observations, not speed gates.
+//! Encoded MIR bytes measure output size, not peak memory. Process peak RSS from
+//! an external runner also includes checking, history, encoding and allocator
+//! retention; it cannot be attributed to lowering or an individual sample here.
 
 use super::{checked, insert, update_demands::history};
-use crate::source::{
-    lower::instances::MirLoweringOptions,
-    program::{lower_program_to_mir, lower_program_to_mir_with_demands},
-    work_metrics::{self, Snapshot},
+use crate::{
+    bytecode::lower_program_to_bytecode,
+    source::{
+        lower::instances::MirLoweringOptions,
+        program::{lower_program_to_mir, lower_program_to_mir_with_demands},
+        work_metrics::{self, Snapshot},
+    },
 };
+use kagari_contract::{types::PublicItem, updates::BodyClassification};
 use kagari_mir::{codec::encode_program, program::VerifiedMirProgram};
 use kagari_source::{identity::FileId, source_database::SourceDatabase};
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::{
     collections::HashSet,
     fmt::Write,
@@ -160,19 +168,231 @@ fn unique_bodies(program: &VerifiedMirProgram) -> usize {
         .len()
 }
 
-fn assert_no_regeneration(measurement: &Measurement) {
+fn assert_no_regeneration(program: &VerifiedMirProgram, counts: Snapshot) {
     assert_eq!(
-        measurement.counts.initializations,
-        measurement.program.modules().len(),
+        counts.initializations,
+        program.modules().len(),
         "initialize each authoring module once",
     );
     assert_eq!(
-        measurement.counts.bodies,
-        unique_bodies(&measurement.program),
+        counts.bodies,
+        unique_bodies(program),
         "generate each emitted body once, including generated descendants",
     );
     // Coverage expansion may legitimately require another candidate verification.
     // Neither candidate nor scheduler-pass counts are an exactly-once contract.
+}
+
+fn wrapper_count(program: &VerifiedMirProgram, owner: &str) -> usize {
+    let module = program
+        .modules()
+        .iter()
+        .find(|module| module.identity.path == [owner])
+        .unwrap();
+    let tables = module
+        .abi
+        .public_items
+        .iter()
+        .filter_map(|item| match item {
+            PublicItem::InterfaceTable(table) if table.bridge.is_some() => Some(table.declaration),
+            _ => None,
+        })
+        .collect::<HashSet<_>>();
+    let wrappers = module.functions.iter().filter(|function| {
+        program
+            .definitions()
+            .parent(function.instance.declaration)
+            .unwrap()
+            .is_some_and(|parent| tables.contains(&parent))
+    });
+    let mut count = 0;
+    for function in wrappers {
+        assert!(program.update_evidence().bodies.iter().any(|body| {
+            matches!(&body.classification, BodyClassification::IntrinsicAdapter(identity)
+                if identity == &function.instance)
+        }));
+        count += 1;
+    }
+    count
+}
+
+fn has_late_body(program: &VerifiedMirProgram) -> bool {
+    program.modules().iter().any(|module| {
+        module.identity.path == ["provider"]
+            && module.functions.iter().any(|function| {
+                program
+                    .definitions()
+                    .resolve(function.instance.declaration)
+                    .unwrap()
+                    .last()
+                    .is_some_and(|part| part.name == "late")
+                    && function.instance.arguments == [Ty::Builtin(BuiltinType::I32)]
+            })
+    })
+}
+
+fn late_bridge_candidate() -> (VerifiedMirProgram, Snapshot) {
+    let mut sources = SourceDatabase::default();
+    let provider = "pub fn late<T>(value: T) -> T { value }";
+    insert(&mut sources, "provider", provider);
+    let root = insert(
+        &mut sources,
+        "root",
+        "use pkg::provider; fn main() -> i32 { provider::late(7) }",
+    );
+    let original = lower_program_to_mir(&checked(&sources, root), &Default::default()).unwrap();
+    assert!(has_late_body(&original));
+    let (demands, headers) = history(&original);
+
+    // Introduce the tuple bridge only in the candidate. Historical tuple bridge
+    // correspondence is a separate update defect, not this scheduling contract.
+    insert(
+        &mut sources,
+        "provider",
+        &format!("use std::hash::Hash; {provider} pub fn early() -> Hash {{ (7, true) }}"),
+    );
+    insert(
+        &mut sources,
+        "root",
+        "use pkg::provider; fn main() -> i32 { 0 }",
+    );
+    let source = checked(&sources, root);
+    let without_history = lower_program_to_mir(&source, &Default::default()).unwrap();
+    let wrappers = wrapper_count(&without_history, "provider");
+    assert!(
+        wrappers > 0,
+        "ordinary roots must emit an interface wrapper"
+    );
+    assert!(!has_late_body(&without_history));
+
+    // The ordinary root emits its wrapper before retained coverage requests the
+    // missing generic body in that same output module. The resumed planner must
+    // neither regenerate the wrapper nor confuse its output slot with a body.
+    work_metrics::reset();
+    let candidate =
+        lower_program_to_mir_with_demands(&source, &Default::default(), &demands, &headers)
+            .unwrap();
+    let counts = work_metrics::snapshot();
+    assert!(has_late_body(&candidate));
+    assert_eq!(wrapper_count(&candidate, "provider"), wrappers);
+    assert_eq!(body_count(&candidate), body_count(&without_history) + 1);
+    lower_program_to_bytecode(&candidate, &Default::default()).unwrap();
+    (candidate, counts)
+}
+
+fn assert_shared_box_layout(program: &VerifiedMirProgram) {
+    let provider = program
+        .modules()
+        .iter()
+        .find(|module| module.identity.path == ["provider"])
+        .unwrap();
+    let shared = provider
+        .functions
+        .iter()
+        .filter(|function| {
+            function.semantic.generic.is_some()
+                && program
+                    .definitions()
+                    .resolve(function.instance.declaration)
+                    .unwrap()
+                    .last()
+                    .is_some_and(|part| part.name == "wrap")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(shared.len(), 1, "one shared method, not one body per use");
+    let template = provider
+        .structures
+        .iter()
+        .find(|layout| layout.arguments.iter().any(|ty| !ty.is_concrete()))
+        .expect("shared method must carry a binder-scoped Box layout");
+    assert_eq!(
+        template.arguments,
+        [Ty::Parameter {
+            owner: template.declaration,
+            position: 0,
+        }],
+    );
+    assert_eq!(template.fields.len(), 1);
+    assert_eq!(template.fields[0].ty, template.arguments[0]);
+}
+
+fn late_layout_candidate() -> (VerifiedMirProgram, Snapshot) {
+    let mut sources = SourceDatabase::default();
+    insert(
+        &mut sources,
+        "provider",
+        r#"
+        pub struct Box<T> { pub val value: T }
+        pub trait Wrap {
+            fn wrap<T>(self, value: T) -> Box<T> { Box { value: value } }
+        }
+        struct Source {}
+        impl Wrap for Source {}
+        pub fn source() -> Wrap { Source {} }
+        pub fn late<T>(value: T) -> Box<T> { Box { value: value } }
+        "#,
+    );
+    let declarations = "use pkg::provider;";
+    let root = insert(
+        &mut sources,
+        "root",
+        &format!(
+            "{declarations} fn main() -> i32 {{
+                provider::source().wrap(true);
+                provider::late(7).value
+            }}"
+        ),
+    );
+    let original = lower_program_to_mir(&checked(&sources, root), &Default::default()).unwrap();
+    assert!(has_late_body(&original));
+    let (demands, headers) = history(&original);
+    insert(
+        &mut sources,
+        "root",
+        &format!(
+            "{declarations} fn main() -> i32 {{
+                provider::source().wrap(true);
+                0
+            }}"
+        ),
+    );
+    let source = checked(&sources, root);
+    let without_history = lower_program_to_mir(&source, &Default::default()).unwrap();
+    assert_shared_box_layout(&without_history);
+    assert!(!has_late_body(&without_history));
+    lower_program_to_bytecode(&without_history, &Default::default())
+        .expect("shared-layout source-only control must lower to bytecode");
+    work_metrics::reset();
+    let candidate =
+        lower_program_to_mir_with_demands(&source, &Default::default(), &demands, &headers)
+            .unwrap();
+    let counts = work_metrics::snapshot();
+    assert_shared_box_layout(&candidate);
+    assert!(has_late_body(&candidate));
+    assert!(candidate.modules().iter().any(|module| {
+        module.identity.path == ["provider"]
+            && module.structures.iter().any(|layout| {
+                layout.arguments == [Ty::Builtin(BuiltinType::I32)]
+                    && layout.fields[0].ty == Ty::Builtin(BuiltinType::I32)
+            })
+    }));
+    assert_eq!(body_count(&candidate), body_count(&without_history) + 1);
+    lower_program_to_bytecode(&candidate, &Default::default()).unwrap();
+    (candidate, counts)
+}
+
+#[test]
+#[ignore = "R7-04: enable after replacing the whole-module regeneration driver"]
+fn worklist_interface_wrapper_survives_late_retained_body_without_regeneration() {
+    let (candidate, counts) = late_bridge_candidate();
+    assert_no_regeneration(&candidate, counts);
+}
+
+#[test]
+#[ignore = "R7-04: enable after replacing the whole-module regeneration driver"]
+fn worklist_shared_layout_binders_survive_late_retained_body_without_regeneration() {
+    let (candidate, counts) = late_layout_candidate();
+    assert_no_regeneration(&candidate, counts);
 }
 
 #[test]
@@ -222,7 +442,8 @@ fn bounded_worklist_measurements() {
 #[ignore = "R7-04: enable after replacing the whole-module regeneration driver"]
 fn worklist_chain_and_converging_demands_do_not_regenerate_bodies() {
     for shape in [Shape::Tiny, Shape::Chain(4), Shape::Fanout(4)] {
-        assert_no_regeneration(&measure(fixture(shape), false));
+        let measurement = measure(fixture(shape), false);
+        assert_no_regeneration(&measurement.program, measurement.counts);
     }
 }
 
@@ -230,7 +451,8 @@ fn worklist_chain_and_converging_demands_do_not_regenerate_bodies() {
 #[ignore = "R7-04: enable after replacing the whole-module regeneration driver"]
 fn worklist_retained_demands_do_not_regenerate_bodies() {
     for shape in [Shape::Chain(4), Shape::Fanout(4)] {
-        assert_no_regeneration(&measure(fixture(shape), true));
+        let measurement = measure(fixture(shape), true);
+        assert_no_regeneration(&measurement.program, measurement.counts);
     }
 }
 
@@ -248,7 +470,7 @@ fn worklist_recursive_dependency_reuses_the_admitted_body() {
         "root",
         "use pkg::recursive; fn main() -> i32 { recursive::repeat(7, 3) }",
     );
-    assert_no_regeneration(&measure(
+    let measurement = measure(
         Fixture {
             sources,
             root,
@@ -256,5 +478,6 @@ fn worklist_recursive_dependency_reuses_the_admitted_body() {
             expected_bodies: 2,
         },
         false,
-    ));
+    );
+    assert_no_regeneration(&measurement.program, measurement.counts);
 }

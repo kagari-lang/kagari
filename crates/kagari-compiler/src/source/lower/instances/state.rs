@@ -26,6 +26,7 @@ pub(in crate::source::lower) struct InstanceState {
     pub local_function_placements: HashMap<DefinitionId, DefinitionId>,
     pub static_lexical_tokens: HashMap<(ModuleHandle, StaticId), Vec<Span>>,
     pub generic_count: usize,
+    pub closed_bridge_instances: HashSet<usize>,
     pub interfaces: HashSet<(DefinitionId, Vec<TypeId>)>,
     pub instruction_count: usize,
     pub failure: Option<Diagnostic>,

@@ -240,6 +240,7 @@ impl ModuleLowering {
         ModuleLoweringUsage {
             generic_admissions: self.instances.generic_count,
             instruction_charges: self.instances.instruction_count,
+            deferred_generic_products: self.instances.closed_bridge_instances.len(),
             generic_products: functions()
                 .filter(|function| !function.instance.arguments.is_empty())
                 .count()

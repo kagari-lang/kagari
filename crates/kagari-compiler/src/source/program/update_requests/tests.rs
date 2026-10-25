@@ -2,7 +2,9 @@ use std::slice;
 
 use super::*;
 use crate::source::lower::{
-    instances::MirLoweringOptions, lower_to_mir, lower_to_mir_with_requests, module_contract,
+    ModuleLowering, ModuleLoweringInputs,
+    instances::{MirLoweringOptions, bridge_identities::BridgeIdentities},
+    lower_to_mir, module_contract,
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{
@@ -187,16 +189,18 @@ fn contract_batches_materialize_all_five_products_without_specializing_shared_bo
             .unwrap()
     );
     let options = MirLoweringOptions::default();
-    let result = lower_to_mir_with_requests(
-        &module,
-        &options,
-        queue.module(owner).unwrap(),
-        std::slice::from_ref(&module),
-        &module.aggregates,
-        &context,
-        &mut Default::default(),
-    )
-    .unwrap();
+    let inputs = ModuleLoweringInputs::new(slice::from_ref(&module), &module.aggregates, &context);
+    let mut bridges = BridgeIdentities::default();
+    let mut state = ModuleLowering::initialize(&module, &inputs, &options, &mut bridges).unwrap();
+    state
+        .process(
+            queue.module(owner).unwrap(),
+            &inputs,
+            &options,
+            &mut bridges,
+        )
+        .unwrap();
+    let result = state.snapshot(&inputs, &options).unwrap();
     assert!(
         result
             .module
@@ -250,17 +254,19 @@ fn contract_batches_materialize_all_five_products_without_specializing_shared_bo
         max_generic_instances: 0,
         ..Default::default()
     };
+    let mut limited_bridges = BridgeIdentities::default();
     assert!(
-        lower_to_mir_with_requests(
-            &module,
-            &limited,
-            queue.module(owner).unwrap(),
-            std::slice::from_ref(&module),
-            &module.aggregates,
-            &context,
-            &mut Default::default(),
-        )
-        .is_err()
+        ModuleLowering::initialize(&module, &inputs, &limited, &mut limited_bridges)
+            .and_then(|mut state| {
+                state.process(
+                    queue.module(owner).unwrap(),
+                    &inputs,
+                    &limited,
+                    &mut limited_bridges,
+                )?;
+                state.snapshot(&inputs, &limited)
+            })
+            .is_err()
     );
 }
 
@@ -300,16 +306,14 @@ fn shared_receiver_and_method_binder_identity_remains_exact() {
         .to_unverified(&Default::default())
         .unwrap()
         .into_records();
-    let lowered = lower_to_mir_with_requests(
-        &module,
-        &Default::default(),
-        &requests,
-        std::slice::from_ref(&module),
-        &module.aggregates,
-        &context,
-        &mut Default::default(),
-    )
-    .unwrap();
+    let options = MirLoweringOptions::default();
+    let inputs = ModuleLoweringInputs::new(slice::from_ref(&module), &module.aggregates, &context);
+    let mut bridges = BridgeIdentities::default();
+    let mut state = ModuleLowering::initialize(&module, &inputs, &options, &mut bridges).unwrap();
+    state
+        .process(&requests, &inputs, &options, &mut bridges)
+        .unwrap();
+    let lowered = state.snapshot(&inputs, &options).unwrap();
     let method = lowered
         .module
         .functions

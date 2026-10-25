@@ -1,25 +1,22 @@
 //! Extract shared construction demands from MIR's checked callable structure.
 use crate::{
-    function::MirModule,
+    function::{MirFunction, MirModule},
     instruction::{CallTarget, ConstructionTarget as MirConstruction, Instruction},
+    program::construction::methods::{ConstructionModule, construction_methods},
 };
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{DefinitionKind, table::DefinitionTable},
-};
+use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionTable};
 use kagari_contract::{
     callable::construction::{
         ConstructionBody, ConstructionMethod, ConstructionStep, closed_constructions,
         native_construction,
     },
     decode_limits::MAX_TABLE_RECORDS,
-    types::{ConcreteFunctionIdentity, PublicItem, trait_contract},
+    types::{ConcreteFunctionIdentity, PublicItem},
 };
-use kagari_types::{
-    callable::CallableImplementation,
-    ty::{GenericParam, NominalTy, Ty, substitution::TypeTransformError},
-};
-use std::{collections::HashSet, fmt, sync::Arc};
+use kagari_types::ty::{NominalTy, Ty, substitution::TypeTransformError};
+use std::{fmt, sync::Arc};
+
+pub mod methods;
 
 #[derive(Clone)]
 pub(super) struct UpdateCoverage {
@@ -38,17 +35,93 @@ impl fmt::Debug for UpdateCoverage {
     }
 }
 
-/// Enumerate concrete interface applications reached by closed shared calls.
-/// The source planner materializes these tables; shared executable bodies remain
-/// shared. The graph algorithm is also used by bytecode's independent validation.
-pub fn closed_interface_instances(
-    modules: &[&MirModule],
-    definitions: &DefinitionTable,
-    limit: usize,
+/// Extract the construction-relevant graph of one completed body.
+/// Closure/Future targets index `functions`, which must contain the drained local
+/// planner bodies. Callers retain this summary instead of rescanning instructions.
+pub fn function_construction(
+    function: &MirFunction,
+    functions: &[MirFunction],
     cancel: &CancellationToken,
-) -> Result<Vec<ConcreteFunctionIdentity>, TypeTransformError> {
-    let (bodies, methods) = collect(modules, definitions, cancel)?;
-    closed_constructions(&bodies, &methods, limit, cancel)
+) -> Result<ConstructionBody, TypeTransformError> {
+    let mut steps = Vec::new();
+    for instruction in function.blocks.iter().flat_map(|block| &block.instructions) {
+        cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
+        match instruction {
+            Instruction::MakeInterface {
+                target:
+                    MirConstruction::Declared {
+                        implementation,
+                        arguments,
+                        operations,
+                        constructions,
+                        ..
+                    },
+                ..
+            } => {
+                steps.push(ConstructionStep::Evidence {
+                    operations: operations.clone(),
+                    constructions: constructions.clone(),
+                });
+                steps.push(ConstructionStep::Interface(ConcreteFunctionIdentity {
+                    declaration: *implementation,
+                    arguments: arguments.clone(),
+                }));
+            }
+            Instruction::Call {
+                callee: CallTarget::InterfaceMethod(call),
+                ..
+            } => {
+                steps.push(ConstructionStep::Evidence {
+                    operations: call.operations.clone(),
+                    constructions: call.constructions.clone(),
+                });
+                steps.push(ConstructionStep::Dispatch(call.as_ref().clone()));
+            }
+            Instruction::Call {
+                callee: CallTarget::Shared(call),
+                ..
+            } => {
+                steps.push(ConstructionStep::Evidence {
+                    operations: call.operations.clone(),
+                    constructions: call.constructions.clone(),
+                });
+                steps.push(ConstructionStep::Call {
+                    body: call.instance.clone(),
+                    arguments: call.arguments.clone(),
+                });
+            }
+            Instruction::MakeClosure {
+                function: target, ..
+            }
+            | Instruction::MakeFuture {
+                function: target, ..
+            } => {
+                let target = functions
+                    .get(target.index())
+                    .ok_or(TypeTransformError::InvalidContract)?;
+                steps.push(ConstructionStep::Call {
+                    body: target.instance.clone(),
+                    arguments: target
+                        .semantic
+                        .generic
+                        .as_ref()
+                        .map_or_else(Vec::new, |body| {
+                            body.parameters.iter().map(|p| p.as_type()).collect()
+                        }),
+                });
+            }
+            _ => {}
+        }
+    }
+    Ok(ConstructionBody {
+        identity: function.instance.clone(),
+        parameters: function
+            .semantic
+            .generic
+            .as_ref()
+            .map_or_else(Vec::new, |body| body.parameters.clone()),
+        steps,
+    })
 }
 
 fn collect(
@@ -60,84 +133,7 @@ fn collect(
     for module in modules {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
         for function in &module.functions {
-            let mut steps = Vec::new();
-            for instruction in function.blocks.iter().flat_map(|block| &block.instructions) {
-                cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
-                match instruction {
-                    Instruction::MakeInterface {
-                        target:
-                            MirConstruction::Declared {
-                                implementation,
-                                arguments,
-                                operations,
-                                constructions,
-                                ..
-                            },
-                        ..
-                    } => {
-                        steps.push(ConstructionStep::Evidence {
-                            operations: operations.clone(),
-                            constructions: constructions.clone(),
-                        });
-                        steps.push(ConstructionStep::Interface(ConcreteFunctionIdentity {
-                            declaration: *implementation,
-                            arguments: arguments.clone(),
-                        }));
-                    }
-                    Instruction::Call {
-                        callee: CallTarget::InterfaceMethod(call),
-                        ..
-                    } => {
-                        steps.push(ConstructionStep::Evidence {
-                            operations: call.operations.clone(),
-                            constructions: call.constructions.clone(),
-                        });
-                        steps.push(ConstructionStep::Dispatch(call.as_ref().clone()));
-                    }
-                    Instruction::Call {
-                        callee: CallTarget::Shared(call),
-                        ..
-                    } => {
-                        steps.push(ConstructionStep::Evidence {
-                            operations: call.operations.clone(),
-                            constructions: call.constructions.clone(),
-                        });
-                        steps.push(ConstructionStep::Call {
-                            body: call.instance.clone(),
-                            arguments: call.arguments.clone(),
-                        });
-                    }
-                    Instruction::MakeClosure {
-                        function: target, ..
-                    }
-                    | Instruction::MakeFuture {
-                        function: target, ..
-                    } => {
-                        if let Some(target) = module.functions.get(target.index()) {
-                            steps.push(ConstructionStep::Call {
-                                body: target.instance.clone(),
-                                arguments: target
-                                    .semantic
-                                    .generic
-                                    .as_ref()
-                                    .map_or_else(Vec::new, |body| {
-                                        body.parameters.iter().map(|p| p.as_type()).collect()
-                                    }),
-                            });
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            bodies.push(ConstructionBody {
-                identity: function.instance.clone(),
-                parameters: function
-                    .semantic
-                    .generic
-                    .as_ref()
-                    .map_or_else(Vec::new, |body| body.parameters.clone()),
-                steps,
-            });
+            bodies.push(function_construction(function, &module.functions, cancel)?);
         }
     }
     for import in modules
@@ -150,169 +146,11 @@ fn collect(
             bodies.push(body);
         }
     }
-    let mut methods = Vec::new();
-    let mut seen = HashSet::new();
-    for owner in modules {
-        for instance in &owner.interface_instances {
-            cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
-            if !instance.arguments.iter().all(Ty::is_concrete) || !seen.insert(instance.clone()) {
-                continue;
-            }
-            let Some((module, table)) = modules.iter().find_map(|module| {
-                module.abi.public_items.iter().find_map(|item| match item {
-                    PublicItem::InterfaceTable(table)
-                        if table.declaration == instance.declaration =>
-                    {
-                        Some((module, table))
-                    }
-                    _ => None,
-                })
-            }) else {
-                continue;
-            };
-            let Some(table) = table.instantiate(&instance.arguments, &[], definitions) else {
-                continue;
-            };
-            let Ty::Trait(interface) = &table.trait_type else {
-                continue;
-            };
-            let Some(contract) = modules.iter().find_map(|module| {
-                trait_contract(
-                    &module.identity,
-                    &module.abi.public_items,
-                    &module.abi.trait_contracts,
-                    &interface.declaration,
-                    definitions,
-                )
-            }) else {
-                continue;
-            };
-            for method in &table.methods {
-                cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
-                let Some(slot) = contract
-                    .methods
-                    .iter()
-                    .position(|required| required.name == method.name)
-                else {
-                    continue;
-                };
-                let Some(declaration) = definitions.lookup_child(
-                    instance.declaration,
-                    DefinitionKind::Method,
-                    &method.name,
-                    0,
-                ) else {
-                    continue;
-                };
-                let selected = match &method.implementation {
-                    CallableImplementation::NativeDefault(application) => module
-                        .native_targets
-                        .iter()
-                        .find(|target| target.instance.declaration == application.declaration)
-                        .map(|target| {
-                            (
-                                target.instance.clone(),
-                                if target.generic.is_some() {
-                                    application.arguments.clone()
-                                } else {
-                                    vec![]
-                                },
-                            )
-                        }),
-                    CallableImplementation::Native(_) => {
-                        let shared_receiver = !instance.arguments.is_empty()
-                            && method.bounds.iter().any(|bound| {
-                                bound.constraints.iter().any(|constraint| {
-                                    !table.bounds.iter().any(|assumed| {
-                                        assumed.ty == bound.ty
-                                            && assumed.constraints.contains(constraint)
-                                    })
-                                })
-                            });
-                        let arguments: Vec<_> = instance
-                            .arguments
-                            .iter()
-                            .cloned()
-                            .chain(method.generic_params.iter().map(|p| p.as_type()))
-                            .collect();
-                        let identity = ConcreteFunctionIdentity {
-                            declaration,
-                            arguments: if shared_receiver {
-                                (0..arguments.len())
-                                    .map(|position| {
-                                        GenericParam {
-                                            owner: declaration,
-                                            position,
-                                        }
-                                        .as_type()
-                                    })
-                                    .collect()
-                            } else {
-                                arguments.clone()
-                            },
-                        };
-                        module
-                            .native_targets
-                            .iter()
-                            .find(|target| target.instance == identity)
-                            .map(|target| {
-                                let entry = if shared_receiver {
-                                    arguments
-                                } else {
-                                    method.generic_params.iter().map(|p| p.as_type()).collect()
-                                };
-                                (target.instance.clone(), entry)
-                            })
-                    }
-                    _ => {
-                        let target = module
-                            .functions
-                            .iter()
-                            .find(|function| {
-                                function.instance.declaration == declaration
-                                    && function.instance.arguments == instance.arguments
-                            })
-                            .or_else(|| {
-                                module.functions.iter().find(|function| {
-                                    function.instance.declaration == declaration
-                                        && function.instance.arguments.is_empty()
-                                })
-                            });
-                        target.and_then(|target| {
-                            let parameter_count = target
-                                .semantic
-                                .generic
-                                .as_ref()
-                                .map_or(0, |body| body.parameters.len());
-                            let mut arguments = if parameter_count == method.generic_params.len() {
-                                Vec::new()
-                            } else if parameter_count
-                                == instance.arguments.len() + method.generic_params.len()
-                            {
-                                instance.arguments.clone()
-                            } else {
-                                return None;
-                            };
-                            arguments.extend(method.generic_params.iter().map(|p| p.as_type()));
-                            Some((target.instance.clone(), arguments))
-                        })
-                    }
-                };
-                let Some((body, arguments)) = selected else {
-                    continue;
-                };
-                methods.push(ConstructionMethod {
-                    interface: interface.clone(),
-                    receiver: table.for_type.clone(),
-                    slot: slot as u32,
-                    body,
-                    parameters: method.generic_params.clone(),
-                    arguments,
-                });
-            }
-        }
-    }
-    Ok((bodies, methods))
+    let views = modules
+        .iter()
+        .map(|module| ConstructionModule::from(*module))
+        .collect::<Vec<_>>();
+    Ok((bodies, construction_methods(&views, definitions, cancel)?))
 }
 
 pub(super) fn verify_closed_interfaces(

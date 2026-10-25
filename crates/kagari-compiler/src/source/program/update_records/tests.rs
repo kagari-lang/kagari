@@ -1,7 +1,11 @@
 use super::*;
 use crate::{
     bytecode::lower_program_to_bytecode,
-    source::lower::{instances::MirLoweringOptions, lower_to_mir_with_requests, optimize_module},
+    source::lower::{
+        ModuleLowering, ModuleLoweringInputs,
+        instances::{MirLoweringOptions, bridge_identities::BridgeIdentities},
+        optimize_module,
+    },
 };
 use kagari_bytecode::program::verified::VerifiedBytecodeProgram;
 use kagari_contract::{
@@ -24,6 +28,7 @@ use kagari_source::{
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_stdlib::catalog;
+use std::slice;
 
 #[test]
 fn only_static_expressions_retain_computation_and_all_bodies_keep_authored_owners() {
@@ -316,16 +321,13 @@ static val VALUE: i32 = 7;
         optimization: Some(Default::default()),
         ..Default::default()
     };
-    let lowered = lower_to_mir_with_requests(
-        &module,
-        &options,
-        &Default::default(),
-        std::slice::from_ref(&module),
-        &module.aggregates,
-        &context,
-        &mut Default::default(),
-    )
-    .unwrap();
+    let inputs = ModuleLoweringInputs::new(slice::from_ref(&module), &module.aggregates, &context);
+    let mut bridges = BridgeIdentities::default();
+    let mut state = ModuleLowering::initialize(&module, &inputs, &options, &mut bridges).unwrap();
+    state
+        .process(&Default::default(), &inputs, &options, &mut bridges)
+        .unwrap();
+    let lowered = state.snapshot(&inputs, &options).unwrap();
     let definitions = context.snapshot();
     for name in ["named", "inner", "asynchronous"] {
         assert!(lowered.classifications.iter().any(|(_, classification)| matches!(classification,

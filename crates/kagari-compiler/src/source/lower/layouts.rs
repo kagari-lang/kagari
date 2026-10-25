@@ -164,7 +164,17 @@ impl Layouts {
                 }
             }
         }
-        for instance in &planner.interface_instances[self.interface_instances..] {
+        for (index, instance) in planner
+            .interface_instances
+            .iter()
+            .enumerate()
+            .skip(self.interface_instances)
+        {
+            // Program closure used to append these records after module lowering.
+            // Their concrete arguments are not layout obligations in this module.
+            if planner.closed_bridge_instances.contains(&index) {
+                continue;
+            }
             pending.extend(
                 instance
                     .arguments

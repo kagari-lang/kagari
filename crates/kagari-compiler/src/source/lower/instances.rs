@@ -239,6 +239,9 @@ pub(super) struct InstancePlanner<'a> {
     pub interface_bridges: Vec<InterfaceBridgeRequest>,
     pub native_targets: Vec<NativeImport>,
     pub interface_instances: Vec<ConcreteFunctionIdentity>,
+    // Append-only table positions introduced by program construction closure,
+    // not module-local layout obligations. Their debit follows all module checks.
+    pub closed_bridge_instances: HashSet<usize>,
     keys: HashMap<InstanceKey, InstanceId>,
     // One receiving identity per authored local declaration for this planner.
     local_function_placements: HashMap<DefinitionId, DefinitionId>,
@@ -340,6 +343,7 @@ impl<'a> InstancePlanner<'a> {
             local_function_placements: state.local_function_placements,
             static_lexical_tokens: state.static_lexical_tokens,
             generic_count: state.generic_count,
+            closed_bridge_instances: state.closed_bridge_instances,
             operation_depth: 0,
             interfaces: state.interfaces,
             instruction_count: state.instruction_count,
@@ -361,6 +365,7 @@ impl<'a> InstancePlanner<'a> {
             local_function_placements: self.local_function_placements,
             static_lexical_tokens: self.static_lexical_tokens,
             generic_count: self.generic_count,
+            closed_bridge_instances: self.closed_bridge_instances,
             interfaces: self.interfaces,
             instruction_count: self.instruction_count,
             failure: self.failure,

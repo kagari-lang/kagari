@@ -166,6 +166,8 @@ pub(crate) struct ModuleLoweringUsage {
     pub generic_admissions: usize,
     pub instruction_charges: usize,
     pub generic_products: usize,
+    /// Closed generated tables were historically debited after all module checks.
+    pub deferred_generic_products: usize,
     pub instructions: usize,
 }
 
@@ -209,16 +211,11 @@ pub fn lower_to_mir(
         .to_unverified(&options.cancel)
         .map_err(MirLoweringError::from)?
         .into_records();
-    lower_to_mir_with_requests(
-        &module,
-        options,
-        &DemandRequests::default(),
-        slice::from_ref(&module),
-        &module.aggregates,
-        &context,
-        &mut Default::default(),
-    )
-    .and_then(|lowered| optimize_module(lowered.module, options))
+    let inputs = ModuleLoweringInputs::new(slice::from_ref(&module), &module.aggregates, &context);
+    let mut bridges = BridgeIdentities::default();
+    let mut state = ModuleLowering::initialize(&module, &inputs, options, &mut bridges)?;
+    state.process(&DemandRequests::default(), &inputs, options, &mut bridges)?;
+    optimize_module(state.snapshot(&inputs, options)?.module, options)
 }
 
 /// Verified lowering before optional simplification. Publication evidence must be
@@ -227,21 +224,6 @@ pub(crate) struct LoweredModule {
     pub module: VerifiedMirModule,
     pub classifications: Vec<(ConcreteFunctionIdentity, BodyClassification)>,
     pub source_bodies: Vec<(DefinitionId, ConcreteFunctionIdentity)>,
-}
-
-pub(crate) fn lower_to_mir_with_requests(
-    module: &AnalyzedModule,
-    options: &MirLoweringOptions,
-    requests: &DemandRequests,
-    modules: &[AnalyzedModule],
-    catalog: &AggregateCatalog,
-    context: &DefinitionContext,
-    bridge_identities: &mut BridgeIdentities,
-) -> Result<LoweredModule, MirLoweringError> {
-    let inputs = ModuleLoweringInputs::new(modules, catalog, context);
-    let mut state = ModuleLowering::initialize(module, &inputs, options, bridge_identities)?;
-    state.process(requests, &inputs, options, bridge_identities)?;
-    state.snapshot(&inputs, options)
 }
 
 pub(crate) fn optimize_module(

@@ -19,6 +19,8 @@ use kagari_types::{declaration::TypeDeclaration, ty::NominalTy};
 use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, iter};
 
+pub mod uses;
+
 /// Editable MIR facts whose references belong to an enclosing definition scope.
 ///
 /// Use scoped metadata for adoption and the MIR codec for portable bytes. This
@@ -104,39 +106,23 @@ impl MirModule {
     pub fn operation_witnesses(&self) -> impl Iterator<Item = &OperationWitness> {
         self.native_applications()
             .flat_map(|import| import.callables.iter().map(EvidenceRef::Operation))
+            .flat_map(EvidenceRef::operations)
             .chain(
                 self.functions
                     .iter()
                     .flat_map(|function| &function.blocks)
                     .flat_map(|block| &block.instructions)
-                    .filter_map(|instruction| match instruction {
-                        Instruction::Call {
-                            callee: CallTarget::Shared(contract),
-                            ..
-                        } => Some((&contract.operations, &contract.constructions)),
-                        Instruction::Call {
-                            callee: CallTarget::InterfaceMethod(contract),
-                            ..
-                        } => Some((&contract.operations, &contract.constructions)),
-                        Instruction::MakeInterface {
-                            target:
-                                ConstructionTarget::Declared {
-                                    operations,
-                                    constructions,
-                                    ..
-                                },
-                            ..
-                        } => Some((operations, constructions)),
-                        _ => None,
+                    .filter(|instruction| {
+                        !matches!(
+                            instruction,
+                            Instruction::Call {
+                                callee: CallTarget::Native(_),
+                                ..
+                            }
+                        )
                     })
-                    .flat_map(|(operations, constructions)| {
-                        operations
-                            .iter()
-                            .map(EvidenceRef::Operation)
-                            .chain(constructions.iter().map(EvidenceRef::Construction))
-                    }),
+                    .flat_map(Instruction::operation_witnesses),
             )
-            .flat_map(EvidenceRef::operations)
     }
 
     pub fn native_applications(&self) -> impl Iterator<Item = &NativeImport> {
@@ -153,6 +139,42 @@ impl MirModule {
                     _ => None,
                 }),
         )
+    }
+}
+
+impl Instruction {
+    /// Walk every selected operation, including nested construction evidence.
+    /// This is shared by whole-module verification and per-body use discovery.
+    pub fn operation_witnesses(&self) -> impl Iterator<Item = &OperationWitness> {
+        let (operations, constructions) = match self {
+            Self::Call {
+                callee: CallTarget::Native(import),
+                ..
+            } => (import.callables.as_slice(), [].as_slice()),
+            Self::Call {
+                callee: CallTarget::Shared(call),
+                ..
+            } => (call.operations.as_slice(), call.constructions.as_slice()),
+            Self::Call {
+                callee: CallTarget::InterfaceMethod(call),
+                ..
+            } => (call.operations.as_slice(), call.constructions.as_slice()),
+            Self::MakeInterface {
+                target:
+                    ConstructionTarget::Declared {
+                        operations,
+                        constructions,
+                        ..
+                    },
+                ..
+            } => (operations.as_slice(), constructions.as_slice()),
+            _ => ([].as_slice(), [].as_slice()),
+        };
+        operations
+            .iter()
+            .map(EvidenceRef::Operation)
+            .chain(constructions.iter().map(EvidenceRef::Construction))
+            .flat_map(EvidenceRef::operations)
     }
 }
 

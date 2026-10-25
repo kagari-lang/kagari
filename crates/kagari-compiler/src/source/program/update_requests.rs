@@ -180,11 +180,68 @@ pub(super) fn import_retained(
 #[derive(Default)]
 pub(super) struct RequestQueue {
     modules: HashMap<ModuleHandle, DemandRequests>,
+    delivered: HashMap<ModuleHandle, RequestCursor>,
+}
+
+#[derive(Default)]
+struct RequestCursor {
+    functions: usize,
+    constructions: usize,
+    shared: usize,
+    layouts: usize,
+    interfaces: usize,
+}
+
+impl RequestCursor {
+    fn at(requests: &DemandRequests) -> Self {
+        Self {
+            functions: requests.functions.len(),
+            constructions: requests.constructions.len(),
+            shared: requests.shared.len(),
+            layouts: requests.layouts.len(),
+            interfaces: requests.interfaces.len(),
+        }
+    }
+
+    fn has_pending(&self, requests: &DemandRequests) -> bool {
+        self.functions < requests.functions.len()
+            || self.constructions < requests.constructions.len()
+            || self.shared < requests.shared.len()
+            || self.layouts < requests.layouts.len()
+            || self.interfaces < requests.interfaces.len()
+    }
 }
 
 impl RequestQueue {
+    #[cfg(test)]
     pub fn module(&self, owner: ModuleHandle) -> Option<&DemandRequests> {
         self.modules.get(&owner)
+    }
+
+    /// Deliver only newly appended requests; retain the complete receiver inventory.
+    pub fn take_pending(&mut self, owner: ModuleHandle) -> DemandRequests {
+        let Some(requests) = self.modules.get(&owner) else {
+            return DemandRequests::default();
+        };
+        let cursor = self.delivered.entry(owner).or_default();
+        let delta = DemandRequests {
+            functions: requests.functions[cursor.functions..].to_vec(),
+            constructions: requests.constructions[cursor.constructions..].to_vec(),
+            shared: requests.shared[cursor.shared..].to_vec(),
+            layouts: requests.layouts[cursor.layouts..].to_vec(),
+            interfaces: requests.interfaces[cursor.interfaces..].to_vec(),
+        };
+        *cursor = RequestCursor::at(requests);
+        delta
+    }
+
+    pub fn has_pending(&self) -> bool {
+        self.modules.iter().any(|(owner, requests)| {
+            self.delivered.get(owner).map_or_else(
+                || !requests.is_empty(),
+                |cursor| cursor.has_pending(requests),
+            )
+        })
     }
 
     pub fn function(

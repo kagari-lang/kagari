@@ -35,8 +35,11 @@ impl InstancePlanner<'_> {
                     ));
                 }
                 // The shared wrapper already exists. As in program closure, this
-                // concrete table adds an output debit, not a local admission charge.
+                // concrete table adds an output debit, not a local admission charge
+                // or new layout roots in the provider of the shared body.
                 if !self.interface_instances.contains(request) {
+                    self.closed_bridge_instances
+                        .insert(self.interface_instances.len());
                     self.interface_instances.push(request.clone());
                 }
                 continue;
