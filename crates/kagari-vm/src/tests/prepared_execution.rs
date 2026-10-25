@@ -303,8 +303,14 @@ fn preparation_from_an_old_version_cannot_execute_as_a_new_version() {
         matches!(error.cause(), VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::ModuleValidation)
     );
 
+    let error = vm
+        .execute_prepared(&module, ProgramEntry::Main, &preparation)
+        .unwrap_err();
+    assert!(matches!(error.cause(), VmError::RuntimeError(error)
+        if error.kind() == RuntimeErrorKind::ModuleValidation));
+    let current_preparation = prepared(&vm, &new, native_unit);
     assert_eq!(
-        vm.execute_prepared(&module, ProgramEntry::Main, &preparation)
+        vm.execute_prepared(&new, ProgramEntry::Main, &current_preparation)
             .unwrap()
             .jit
             .unwrap()

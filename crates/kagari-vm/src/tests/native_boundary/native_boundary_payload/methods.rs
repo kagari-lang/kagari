@@ -320,8 +320,8 @@ fn native_inherent_members_support_prepared_calls_and_method_parameters() {
     let newer_damage = runtime
         .bind_method::<(i32,), i32>(&newer_type, "damage")
         .unwrap();
-    assert!(player.call(&mut cx, &newer_damage, (1,)).is_err());
-    assert_eq!(player.call(&mut cx, &damage, (1,)).unwrap(), 69);
+    assert_eq!(player.call(&mut cx, &newer_damage, (1,)).unwrap(), 69);
+    assert_eq!(player.call(&mut cx, &damage, (1,)).unwrap(), 68);
     let (foreign, foreign_owner) = fixture(SOURCE, Some(&module));
     let _foreign_owner_program = foreign_owner;
     let foreign_owner = foreign
@@ -333,16 +333,16 @@ fn native_inherent_members_support_prepared_calls_and_method_parameters() {
             .call(&mut foreign.context(&foreign_owner).unwrap(), &damage, (1,))
             .is_err()
     );
-    assert_eq!(player.read(&cx, |state| Ok(state.hp)).unwrap(), 69);
+    assert_eq!(player.read(&cx, |state| Ok(state.hp)).unwrap(), 68);
     assert_eq!(
         vm.execute_typed::<_, String>(&owner, "inspect", (player.clone(),))
             .unwrap(),
-        "hp=69"
+        "hp=68"
     );
     assert_eq!(
         vm.execute_typed::<_, String>(&owner, "describe", (player.clone(),))
             .unwrap(),
-        "trait hp=69"
+        "trait hp=68"
     );
     assert_eq!(
         vm.execute_typed::<_, String>(&owner, "ordinary", ())

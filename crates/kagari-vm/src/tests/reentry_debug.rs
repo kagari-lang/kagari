@@ -96,17 +96,18 @@ fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
                     .iter()
                     .find(|p| p.reason == reason)
                     .expect("nested pause");
-                assert_eq!(pause.frames.len(), 2);
+                assert_eq!(pause.frames.len(), 3);
+                assert_eq!(pause.frames[1].function_name, "log");
                 assert_eq!(pause.frames[0].function_name, "main");
                 assert_eq!(pause.frames[0].instruction_offset, caller_offset);
-                assert_eq!(pause.frames[1].function_name, "nested");
+                assert_eq!(pause.frames[2].function_name, "nested");
                 assert!(
-                    pause.frames[1]
+                    pause.frames[2]
                         .bindings
                         .iter()
                         .any(|binding| binding.name == "doubled" && binding.value == Value::I32(4))
                 );
-                assert_eq!(pause.frames[1].epoch, loaded.epoch.0);
+                assert_eq!(pause.frames[2].epoch, loaded.epoch.0);
             }
             assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
             assert!(vm.runtime().execution_root().is_none());

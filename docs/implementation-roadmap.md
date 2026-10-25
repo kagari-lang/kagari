@@ -1454,9 +1454,24 @@ parallelism and the existing warmed workloads; no speedup is claimed.
 
 Workspace all-target Clippy, structure, formatting and diff checks pass. These
 selected checks cover the failed boundaries and directly affected dispatch
-lifetime rules, not a local workspace sweep. Publication and the new complete
-GitHub CI feature/backend/platform matrix remain pending; prior CI failures are
-not marked accepted until that exact repair commit succeeds remotely.
+lifetime rules, not a local workspace sweep. [CI run 40164046185](https://github.com/kagari-lang/kagari/actions/runs/40164046185)
+for `1c864d6e` passed structure, editor-tooling and Windows AOT. Rust passed
+formatting/Clippy and every workspace target except the VM library (354 passed,
+16 failed). The formatter inventory, async example, standalone SDK consumers and
+CLI native-feature steps were skipped after that failure.
+
+The follow-up repairs the remaining VM native-boundary and session fixtures:
+explicit native frames participate in depth and traces; named reentry selects
+current code; active execution prevents publication; nominal type arguments
+require their supplying installation. Frozen declarations and retained native
+applications remain available across compatible reload, while changed layouts
+use independent installations and remain incompatible at value boundaries.
+Old prepared native products cannot authorize current calls; a matching current
+product is still executable. All 16 failed cases pass in focused reruns. The
+explicitly requested complete VM library target passes: 370 passed, zero failed
+or ignored. Workspace all-target Clippy, formatting, structure (1717 Rust files,
+zero violations) and diff checks also pass. Remote acceptance remains pending
+a new exact-commit CI run.
 
 [AGENTS.md](../AGENTS.md) owns verification policy. Local implementation checks
 select affected contracts and a small dependent regression set; full workspace
