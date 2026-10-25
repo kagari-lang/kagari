@@ -1470,8 +1470,21 @@ Old prepared native products cannot authorize current calls; a matching current
 product is still executable. All 16 failed cases pass in focused reruns. The
 explicitly requested complete VM library target passes: 370 passed, zero failed
 or ignored. Workspace all-target Clippy, formatting, structure (1717 Rust files,
-zero violations) and diff checks also pass. Remote acceptance remains pending
-a new exact-commit CI run.
+zero violations) and diff checks also pass. [CI run 40167596234](https://github.com/kagari-lang/kagari/actions/runs/40167596234)
+for `8a947331` passes the entire workspace suite (including all 370 VM library
+tests), formatter inventory, async example, structure, editor tooling and Windows
+AOT. The subsequently reached standalone SDK consumer step fails; CLI native
+feature checks are skipped. Its generated manifest omits Tokio although the
+shared artifact test directly uses its executor, which workspace dev-dependency
+unification concealed. The harness now declares the test-only dependency and
+prints captured Cargo diagnostics on failure. A clean standalone run also exposed
+an implicit dependency on an earlier source-enabled test emitting `async_pairs`;
+the harness now emits that artifact explicitly from the shared source fixture.
+The explicitly requested local full feature matrix passes all four configurations
+and numeric acceptance (65 tests), including every production dependency-boundary
+check. The requested CLI native-feature command also passes (194 passed, one
+ignored). Workspace all-target Clippy, formatting, structure and diff checks
+pass. Remote acceptance remains pending the next exact-commit CI run.
 
 [AGENTS.md](../AGENTS.md) owns verification policy. Local implementation checks
 select affected contracts and a small dependent regression set; full workspace
