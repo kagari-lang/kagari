@@ -15,6 +15,8 @@ use kagari_contract::{
 };
 use kagari_hir::program::CheckedProgram;
 use kagari_mir::program::{ProgramError, VerifiedMirProgram};
+#[cfg(test)]
+use std::time::Instant;
 
 mod candidate;
 mod discovery;
@@ -156,7 +158,11 @@ fn lower_program(
     })?;
     loop {
         scheduler.close()?;
+        #[cfg(test)]
+        let candidate_start = Instant::now();
         let candidate = candidate::build(scheduler.snapshot()?, &inputs)?;
+        #[cfg(test)]
+        crate::source::work_metrics::candidate_work(candidate_start.elapsed());
         let batch = candidate::expand(&candidate, &mut retained, &mut update_budget, &inputs)?;
         if batch.is_empty() {
             return Ok(candidate);

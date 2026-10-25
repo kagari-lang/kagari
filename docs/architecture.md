@@ -481,6 +481,55 @@ checks. Graph/seal/artifact admission accepts caller cancellation; declaration,
 proof and control-flow loops poll it and do not turn interruption into a successful
 seal. Synchronous encoding/fingerprinting remains a bounded, separate operation.
 
+### Program-owned instance scheduling
+
+[Source program lowering](../crates/kagari-compiler/src/source/program.rs) owns one
+compilation's retained module states and demand inventory. It initializes ordinary
+function/method/static and declaration obligations once, delivers new function,
+shared-application, interface and layout requests, and drains only pending work.
+Single-module lowering uses the same lifecycle; there is no whole-module rebuild
+fallback, process-global cache or separate generic implementation.
+
+[Module lowering](../crates/kagari-compiler/src/source/lower/mod.rs) separates owned
+instance/layout/bridge state from short-lived contexts borrowing the shared checked
+catalog, module lookup and bridge identities. Source origin and output placement
+remain distinct. Layout discovery retains visited types, binder scope and input
+cursors. Ordinary instance IDs index a stable function prefix; generated wrappers
+are retained separately and receive candidate-local tail IDs. Their semantic
+identities and outgoing planner-body references remain stable after later demands.
+
+The [discovery owner](../crates/kagari-compiler/src/source/program/discovery.rs)
+extracts callable uses and construction summaries only from new bodies/imports.
+MIR owns extraction; contract owns the existing construction-closure algorithm.
+At closure barriers, method selection is refreshed over borrowed product views and
+closure runs over retained summaries. Late target availability therefore remains
+visible without rescanning old instructions. Shared applications can create new
+concrete evidence without creating another shared body.
+
+[Candidate assembly](../crates/kagari-compiler/src/source/program/candidate.rs)
+snapshots unoptimized products only after demand closure, completes dependencies
+and private traits, captures preoptimization update evidence, optimizes candidate
+copies and obtains fresh verification seals. Publication/retained-demand coverage
+may require another candidate; it resumes the same lowering state rather than
+regenerating bodies. Uncovered non-progressing demands fail. State is discarded
+on completion, cancellation or error, and incomplete candidates cannot publish.
+
+Compilation limits retain two distinct accounting rules: persistent module-local
+admission/instruction charges and emitted-product debits against deterministic
+module-prefix allowances. Earlier module growth rechecks later allowances. Closed
+generated bridge tables retain their post-module output debit and do not introduce
+new module-local layout roots; explicit layout demands still do. Type traversal
+and update/proof budgets retain their separate scopes. No output is charged again
+for a duplicate request or candidate copy.
+
+This follows the operation-owned root/use graph and visited-state principles of
+[Rust 1.90's mono collector](https://github.com/rust-lang/rust/blob/1.90.0/compiler/rustc_monomorphize/src/collector.rs),
+not Rust's linkage/drop rules or root selection. Kagari preserves shared bodies,
+source diagnostics, checked witnesses and live-update demand closure. The
+[bounded measurements](performance-baseline.md#program-owned-instance-scheduling-2026-10-26)
+establish removed regeneration on those workloads, not universal linear complexity
+or a change to the runtime call-selection contract.
+
 ### Bounded flow, debug availability and MIR deletion
 
 Bytecode verification builds one checked CFG and retains its edges for access

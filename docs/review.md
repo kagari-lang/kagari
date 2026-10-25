@@ -301,7 +301,7 @@ supplied native-input MIR against the bytecode before installing a product.
 
 | Phase | Work actually owned there | Lifetime and remaining obligations |
 | --- | --- | --- |
-| Source/checking | Parsing, recoverable HIR, name/type/trait checks, source identities and dependency analysis | Analysis sessions retain their caches; no corresponding CST/HIR owner was found through a loaded runtime descriptor. R7 still repeats lowering rounds; inline modules share physical parse storage. |
+| Source/checking | Parsing, recoverable HIR, name/type/trait checks, source identities and dependency analysis | Analysis sessions retain their caches; no corresponding CST/HIR owner was found through a loaded runtime descriptor. R7 now retains lowering state and processes demand deltas; inline modules share physical parse storage. |
 | Lowering/verification | Instantiate bounded generic demands, lower checked facts, verify MIR and bytecode, retain executable declarations/layout contracts | Source-free type/witness information is not automatically redundant. Optional preparation MIR may remain with its preparation owner, not automatically the runtime. |
 | Preparation | `VerifiedProgram::from_bytecode` builds reusable execution layouts, scalar/managed locations and call placements | Immutable verified bytecode and prepared execution records coexist. These are an intentional execution representation, not source reanalysis. Exact version identity is now payload-independent; R13 concerns type-only holders of current descriptors. |
 | Runtime link/install | Remap definition identities, validate installed native declarations, bind layouts/call targets and exact code ownership | Runtime-specific authority and installed host identity cannot be established only by compile-time verification. Cold dependent layouts may be prepared later. |
@@ -503,15 +503,15 @@ immediate unloading or a prescribed domain size.
 
 ### Existing compiler and native findings, reconciled
 
-**R7 remains:** `lower_program_to_mir` reconstructs/lower-verifies the authoring
-modules in fixed-point demand rounds. For M modules and R rounds this is M×R module
-visits, not a universal quadratic-runtime claim. Measure a bounded generic
-chain/fan-out, then use a program-owned instance worklist/retained planners with
-shared budgets and deterministic finalization. Remove the whole-closure rebuild
-loop instead of caching its redundant products. Rust's mono collector is a useful
-reference for roots, visited instances and vtable edges, not authority to drop
-Kagari diagnostics or source-free witnesses. R8 remains conservative invalidation,
-not evidence of incorrect reuse.
+**R7 is locally resolved:** [program-owned scheduling](architecture.md#program-owned-instance-scheduling)
+retains module products, processes demand deltas and extracts scheduling facts once
+per new body. Required construction closure and retained-demand candidate verification
+remain; no whole-module rebuild fallback or product cache hides source regeneration.
+[Bounded chain/fan-out measurements](performance-baseline.md#program-owned-instance-scheduling-2026-10-26)
+record work counts, noisy test-profile timings and whole-harness RSS, not universal
+complexity or runtime-speed claims. Full CI remains pending. Rust's mono collector
+informs root/use ownership, not removal of diagnostics or source-free witnesses.
+R8 remains conservative invalidation, not evidence of incorrect reuse.
 
 **Artifact reachability:** [add_implicit](../crates/kagari-hir/src/imports/resolve.rs)
 adds registered native APIs to nonnative dependency sets;
@@ -607,7 +607,7 @@ activated phases or an implementation ledger.
 | Order | Scope / owner | Delete or consolidate when replacing | Acceptance boundary |
 | --- | --- | --- | --- |
 | Separately scope from measured evidence | R13 type/layout versus executable payload | Descriptor ownership that keeps code solely for type/layout provenance; retain required type facts and actual executable leases | Type readability and old-object compatibility without old payload retention or executable resurrection |
-| Measure before expanding | R7 worklist, artifact pruning | If justified: whole-module demand rounds; not a cache layered over them | Compiler scaling, explicit executable roots and unchanged source diagnostics |
+| Measure before expanding | Artifact pruning; further lowering/proof optimization | R7 whole-module rebuild rounds are removed; do not reinstate them or add a cache around repeated preparation | Explicit executable roots and unchanged diagnostics; further performance claims need separate measured scope |
 | Existing future gates | Native expansion plan, then appropriate LLVM coverage | Replace scalar-only ABI/consumers coherently as general calls land; no compatibility forwarding ABI or backend-owned duplicate semantics | Assert actual native entry, source-free execution, roots across helpers/reentry, numeric/trap order and old-version calls |
 | Defer | GC family replacement, OSR/deopt, extra universal IR, speculative interface/layout grouping | No new speculative mechanisms | Activate only on measured survival/pause data or concrete backend/optimization requirements |
 
@@ -853,8 +853,11 @@ programs or diagnostics; add coverage only for distinct missing rules.
 ## Architecture findings
 
 R7-R8 originated in the 2026-10-03 review of
-`9581f5ad2a754911d1edb92eb35e957a18d7b5df`. Source inspection at `88acbdb5`
-confirms these mechanisms remain; their scaling has not been remeasured.
+`9581f5ad2a754911d1edb92eb35e957a18d7b5df`. R7 is implemented and locally accepted;
+its [architecture](architecture.md#program-owned-instance-scheduling) and
+[measurements](performance-baseline.md#program-owned-instance-scheduling-2026-10-26)
+own the result. R8 remains confirmed by source inspection at `88acbdb5`; its
+scaling has not been remeasured.
 Resolved findings and superseded implementation details are not retained as tasks.
 R13/R14 remain in the runtime review; R19 remains in the
 [chapter review](#engineering-a-compiler-chapter-review). R11/R12/R15-R18 are resolved
@@ -863,12 +866,12 @@ Each entry records its own evidence level and validation limits.
 
 | ID | Current finding | Focused follow-up and acceptance |
 | --- | --- | --- |
-| R7 / P2 | `lower_program_to_mir` still loops over all authoring modules for each new specialization-request round; module-local instance queues already exist. | The [R7 execution plan](generic-instance-worklist-plan.md) selects retained module state and program-owned delta scheduling, beginning with bounded chain/fan-out measurements. Preserve foreign defaults/shared bodies/witnesses, compilation limits, retained-demand feedback and final verification. Implementation and phase commits are authorized; R7-01 baseline confirms repeated body generation, while replacement and matched acceptance remain pending. |
+
 | R8 / P2 | Body reuse compares imported functions using derived equality, including source/navigation identity; aggregate equality also compares inherent methods with their source sites. Signature-preserving edits can therefore prevent semantic reuse. | Separate semantic contracts from navigation identities. Validate signature-preserving versus contract-changing dependency edits without dropping source revision/arena validation. This is conservative invalidation, not evidence of a stale result. |
 
 Evidence owners:
 
-- R7: [program lowering](../crates/kagari-compiler/src/source/program.rs).
+
 - R8: [body reuse](../crates/kagari-hir/src/analysis/body_queries.rs),
   [imported functions](../crates/kagari-hir/src/imports/functions.rs),
   [source identities](../crates/kagari-hir/src/imports/mod.rs) and
@@ -876,6 +879,83 @@ Evidence owners:
 
 These findings remain review items, not automatically activated tasks or new
 prerequisites for unrelated work.
+
+## Shared-body admission follow-ups
+
+Two inputs encountered during R7 validation pass source checking but fail executable
+admission. Identical focused probes reproduced both at baseline `71e72b02` (before
+the scheduling migration) and candidate `8244d7f7`; these are not R7 regressions.
+Root causes are not established. Preserve the validation failures rather than
+bypassing proof checks. Future work belongs to compiler shared-call/aggregate
+lowering and executable ABI/access-flow validation, not scheduler regeneration.
+
+### Foreign shared helper returning an aggregate
+
+Bind these modules as `pkg::provider` and `pkg::root` with the normal stdlib catalog.
+
+```text
+// provider
+pub struct Box<T> { pub val value: T }
+pub fn wrap<T>(value: T) -> Box<T> { Box { value: value } }
+pub fn late<T>(value: T) -> Box<T> { Box { value: value } }
+
+// root
+use pkg::provider;
+trait Wrap {
+    fn wrap<T>(self, value: T) -> provider::Box<T> {
+        provider::wrap(value)
+    }
+}
+struct Source {}
+impl Wrap for Source {}
+fn main() -> i32 {
+    val source: Wrap = Source {};
+    source.wrap(true);
+    0
+}
+```
+
+`lower_program_to_mir` succeeds, but `lower_program_to_bytecode` rejects with
+`ProgramValidation(Bytecode(InvalidOperation { reason: "invalid collection access flow", ... }))`.
+The same rejection occurs when the original main ends with `provider::late(7).value`
+and a replacement ending with `0` is lowered with original publication demands.
+Baseline/current numeric function indexes differ; the error category does not.
+The working scheduling test instead has the provider-owned shared default construct
+`Box<T>` directly; it does not establish support for this foreign-helper path.
+
+### Direct symbolic tuple interface coercion
+
+```text
+// provider
+use std::hash::Hash;
+pub trait Wrap {
+    fn bridge<T: Hash>(self, value: T) -> Hash { (value, true) }
+}
+struct Source {}
+impl Wrap for Source {}
+pub fn source() -> Wrap { Source {} }
+
+// root
+use pkg::provider;
+fn main() {
+    val view = provider::source().bridge(7);
+}
+```
+
+Source checking succeeds, then provider MIR lowering rejects with
+`MirVerificationErrorKind::InvalidPublicAbi`. A caller-private `Key<i32>` implementing
+Hash fails identically but is unnecessary to reproduce it. This differs from passing
+a tuple through a checked shared construction requirement, which is covered by the
+[closed-table layout/budget contract](../crates/kagari-compiler/src/source/program/scheduler/tests.rs).
+
+Reproduction method for both: use `AnalysisDatabase` with the stdlib catalog and
+bound module paths, check the root program, then call the compiler MIR/bytecode
+entrypoints above with default options. For retained demands reuse the
+[existing update-history helper](../crates/kagari-compiler/src/tests/source_programs/update_demands.rs).
+The comparison used detached baseline source and identical temporary test inputs;
+no ignored logs or probe files are required to reconstruct these cases. Follow-up
+acceptance requires successful verified source/source-free execution and preserved
+negative proof checks, not only disappearance of the current diagnostics.
 
 ## Interpreter instruction and operand model follow-up
 

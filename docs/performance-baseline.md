@@ -16,6 +16,125 @@ Keep workloads, hashes, environment and timing scope together. Allocation reques
 are not RSS; compilation/setup and execution are separate. Small differences are
 not significance claims, and local correctness does not imply GitHub CI or Lua parity.
 
+## Program-owned instance scheduling, 2026-10-26
+
+### Method and workload
+
+Baseline `71e72b02be2b5113a0785207a28f00aaa8f4c628` retains whole-module demand
+rebuild rounds; candidate `8244d7f7081f73a236e90945e1c348ba63d066cc` retains module
+products and scans newly generated bodies. Both trees were clean during the paired
+measurement. The [maintained harness](../crates/kagari-compiler/src/tests/source_programs/worklist.rs)
+uses the same source construction, history helpers, sizes and measurement loop:
+13 workloads, three repetitions each, 39 samples per revision. Tiny returns a
+constant; chains of 2/4/8 imported generic identity functions forward one value;
+fan-outs of 2/4/8 branches converge on one generic identity leaf. Retained variants
+replace root calls with `0`, preserve imports and supply the original publication
+demands. The checked context contributes 38 library modules.
+
+Apple M1 Max, arm64, 32 GiB RAM, macOS 26.6.2 (`25G83`); rustc 1.99.1
+(`58cf8f9c3`, LLVM 23.1.1). Workspace test profile (optimization level 1 plus debug
+information), default source feature, default Cargo parallelism and target directory,
+one test thread, default MIR options with optimization disabled. Each sample has
+fresh source/checking/lowering state, with no compiler-output cache. Source checking
+is timed separately; lowering excludes history preparation, encoding and Rust
+compilation. Test-only event counters are enabled on both revisions.
+
+Build the selected test executable, then run the executable reported by Cargo under
+macOS `/usr/bin/time -l`; do not include Cargo/build memory in the measured process:
+
+```text
+cargo test -p kagari-compiler --lib tests::source_programs::worklist::bounded_worklist_measurements --no-run --message-format=json
+```
+
+At these revisions Cargo reported this executable; use the path from the build
+output on other toolchains rather than assuming the hash is stable:
+
+```text
+/usr/bin/time -l target/debug/deps/kagari_compiler-a6a945148dfa7197 tests::source_programs::worklist::bounded_worklist_measurements --ignored --exact --nocapture --test-threads=1
+```
+
+Baseline build/run preceded candidate build/run, serially, in separate fresh
+processes. OS caches were not flushed, and there was no randomized ordering,
+warmup policy, thermal isolation or external-process isolation. The cold baseline
+Rust build (3m46s) and cached candidate build (0.04s) are excluded from the results.
+No script execution was measured.
+
+### Paired observations
+
+Times are median milliseconds, baseline -> candidate. Initialization and generation
+counts are per measured lowering call, not history preparation. Candidate
+verification/pass counts, instructions and encoded MIR sizes were unchanged.
+
+| Workload | Retained | Checking ms | Lowering ms | Module initializations | Body generations | Verification / passes | Instructions | MIR bytes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Tiny | No | 737.972 -> 441.807 | 708.277 -> 277.983 | 78 -> 39 | 2 -> 1 | 1 / 2 | 2 | 707124 |
+| Chain 2 | No | 738.362 -> 442.492 | 1026.313 -> 279.114 | 123 -> 41 | 6 -> 3 | 1 / 3 | 8 | 715472 |
+| Chain 2 | Yes | 838.734 -> 444.025 | 1126.773 -> 354.097 | 123 -> 41 | 5 -> 3 | 2 / 3 | 7 | 715085 |
+| Chain 4 | No | 672.325 -> 452.301 | 1183.041 -> 280.251 | 215 -> 43 | 15 -> 5 | 1 / 5 | 14 | 723876 |
+| Chain 4 | Yes | 499.006 -> 452.031 | 702.804 -> 353.736 | 129 -> 43 | 7 -> 5 | 2 / 3 | 13 | 723489 |
+| Chain 8 | No | 539.428 -> 472.049 | 1575.359 -> 281.243 | 423 -> 47 | 45 -> 9 | 1 / 9 | 26 | 740684 |
+| Chain 8 | Yes | 512.099 -> 471.717 | 683.674 -> 354.936 | 141 -> 47 | 11 -> 9 | 2 / 3 | 25 | 740297 |
+| Fan-out 2 | No | 490.266 -> 455.354 | 587.186 -> 280.261 | 126 -> 42 | 8 -> 4 | 1 / 3 | 14 | 720627 |
+| Fan-out 2 | Yes | 473.678 -> 447.656 | 659.466 -> 351.893 | 126 -> 42 | 6 -> 4 | 2 / 3 | 10 | 719321 |
+| Fan-out 4 | No | 505.317 -> 479.966 | 581.730 -> 282.852 | 132 -> 44 | 12 -> 6 | 1 / 3 | 26 | 730951 |
+| Fan-out 4 | Yes | 478.372 -> 457.578 | 649.049 -> 353.645 | 132 -> 44 | 8 -> 6 | 2 / 3 | 16 | 727807 |
+| Fan-out 8 | No | 557.357 -> 532.938 | 583.771 -> 284.134 | 144 -> 48 | 20 -> 10 | 1 / 3 | 50 | 751599 |
+| Fan-out 8 | Yes | 498.440 -> 477.927 | 648.565 -> 355.829 | 144 -> 48 | 12 -> 10 | 2 / 3 | 28 | 744779 |
+
+Every candidate sample initializes exactly the final module count and generates
+exactly the final unique body count. Required scheduling passes and the second
+retained-demand verification remain; the result is not a one-pass compiler.
+MIR byte lengths alone do not establish byte-for-byte equality; the separate
+registration-order canonical-output test passed on the candidate.
+
+| Whole-harness process metric | Baseline | Candidate |
+| --- | ---: | ---: |
+| Elapsed seconds | 83.91 | 44.82 |
+| User / system CPU seconds | 71.35 / 0.13 | 44.71 / 0.09 |
+| Maximum resident set size, bytes | 191954944 | 149422080 |
+| Maximum resident set size, MiB | 183.062 | 142.500 |
+
+RSS covers all 39 samples, source checking, history preparation, encoding, library
+initialization and allocator retention. It is not lowering-only peak memory or
+per-workload memory. This is macOS `time`'s maximum resident set size, not its
+separate peak-memory-footprint statistic. No allocation-level ownership measurement
+or large-project capacity result is claimed.
+
+### Interpretation and remaining work
+
+Counts establish elimination of module/body regeneration for these bounded shapes.
+Checking times also changed substantially although that workload was identical;
+this ordered pair therefore does not establish a precise speedup ratio. There is
+no runtime-speed, universal complexity, startup-goal or release-profile claim.
+
+A separate candidate-only attribution run on `8244d7f7` plus test instrumentation
+and enabled scheduling assertions extracted uses exactly once per final body.
+The same 39-sample harness passed. Candidate snapshot/evidence/optimization/verification
+accounted for 71.827-138.042 ms of ordinary median lowering (443.787-611.444 ms),
+and 166.424-274.421 ms of retained median lowering (514.743-769.502 ms). These are
+ranges of workload medians, not matched baseline ratios. The timing excludes
+coverage expansion and construction-closure work, which remain separately bounded
+but unattributed. Large timing differences from the paired run reinforce the
+noise limitation; no further optimization was added to chase a transcript target.
+
+Five maintained scheduling cases assert once-only initialization, body generation
+and scheduling extraction for chains, converging demand, recursion, late retained
+bodies after bridge emission, and persistent shared-layout binders. The
+[closed-table test](../crates/kagari-compiler/src/source/program/scheduler/tests.rs)
+separately preserves table-only versus explicit-layout charging. Existing focused
+compiler checks cover imported generics, private layout arguments, static/closure
+obligations, foreign default origins, canonical output, interface budgets,
+cancellation, update evidence and optimization failure isolation. Four selected
+SDK checks cover shared helpers, source-free witness/layout rejection and current
+operation selection after retained-demand publication. Local structure, formatting,
+workspace all-target Clippy and diff checks passed. Full workspace tests and the
+complete feature/backend/platform matrix remain CI-owned and unrun locally.
+
+Two discarded inputs exposed [pre-existing shared-body admission defects](review.md#shared-body-admission-follow-ups),
+reproduced at both `71e72b02` and the candidate. They were not repaired by R7.
+Further frontend latency, R8 invalidation, artifact pruning and phase-specific
+assembly/proof optimization remain separately scoped work.
+
 ## RL03 exact version identity and bounded retention, 2026-10-23
 
 ### Scope and before/after evidence

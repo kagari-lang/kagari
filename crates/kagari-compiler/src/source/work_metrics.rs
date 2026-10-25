@@ -4,7 +4,7 @@
 //! retained output copied into a candidate. Reset immediately before one lowering
 //! call; source checking, history preparation and encoding are outside that scope.
 
-use std::cell::Cell;
+use std::{cell::Cell, time::Duration};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Snapshot {
@@ -12,6 +12,8 @@ pub(crate) struct Snapshot {
     pub bodies: usize,
     pub candidates: usize,
     pub rounds: usize,
+    pub scanned_bodies: usize,
+    pub candidate_work: Duration,
 }
 
 thread_local! {
@@ -20,6 +22,8 @@ thread_local! {
         bodies: 0,
         candidates: 0,
         rounds: 0,
+        scanned_bodies: 0,
+        candidate_work: Duration::ZERO,
     }) };
 }
 
@@ -50,6 +54,20 @@ pub(crate) fn body() {
 pub(crate) fn candidate() {
     let mut counts = snapshot();
     counts.candidates += 1;
+    COUNTS.set(counts);
+}
+
+/// Count first-time callable/construction extraction for a completed body.
+pub(crate) fn scanned_body() {
+    let mut counts = snapshot();
+    counts.scanned_bodies += 1;
+    COUNTS.set(counts);
+}
+
+/// Accumulate candidate snapshot, evidence, optimization and verification time.
+pub(crate) fn candidate_work(elapsed: Duration) {
+    let mut counts = snapshot();
+    counts.candidate_work += elapsed;
     COUNTS.set(counts);
 }
 

@@ -389,22 +389,29 @@ expansion remain separate.
 
 ## Program-owned generic instance worklist
 
-The [R7 execution plan](generic-instance-worklist-plan.md) records the selected
-replacement for whole-module specialization-demand rebuild rounds: retain
-compilation-owned module state and process new instance/product demands. R7-01
-through R7-04 cover baseline/lifecycle decisions, resumable module lowering,
-program-level delta scheduling and focused acceptance. The user authorized
-implementation and one commit per phase on 2026-10-25; R7-01 baseline and lifecycle
-decisions are complete, and implementation continues in phase order.
+R7-01 through R7-04 are implemented and locally accepted. The
+[architecture](architecture.md#program-owned-instance-scheduling) owns persistent
+module state, delta scheduling, bridge-tail identities and candidate closure.
+Whole-module regeneration and its old internal entrypoint are removed. Shared
+bodies, foreign defaults, checked witnesses, dual compilation-budget accounting,
+preoptimization update evidence and retained-demand verification remain intact.
 
-Module-local instance queues already exist. Preserve shared generic bodies,
-foreign defaults, checked witnesses, compilation limits, preoptimization update
-evidence and retained-demand coverage feedback; do not replace required fixed-point
-proof discovery with unchecked one-pass publication. The plan owns the sole R7
-progress ledger. Baseline counts confirm repeated body generation on bounded
-chains/fan-outs; before/after results remain pending. No startup or runtime speedup
-is claimed. R8, artifact pruning, the generated tuple-bridge update
-defect and GC work remain separate. Full validation matrices remain CI-owned.
+[Matched bounded measurements](performance-baseline.md#program-owned-instance-scheduling-2026-10-26)
+show one initialization per module and one generation per final body on tiny,
+chain/fan-out and retained workloads. Instructions and encoded MIR sizes are
+unchanged; timings have substantial environmental noise and whole-harness RSS is
+not lowering-only memory. No universal complexity, startup-goal or runtime-speed
+claim is made. Candidate assembly/proof work remains visible rather than replaced
+with unchecked one-pass publication.
+
+Five once-only scheduling/extraction tests, the deferred bridge-table layout/budget
+case and selected compiler/SDK contracts passed, along with structure, formatting,
+workspace all-target Clippy and diff checks. Full workspace tests and the complete
+feature/backend/platform matrix remain pending CI. The completed plan is removed;
+Git history owns its phase ledger. Two baseline-confirmed shared-body admission
+failures are recorded in [review](review.md#shared-body-admission-follow-ups).
+R8, artifact pruning, generated tuple-bridge update correspondence and GC remain
+separate; neither those defects nor broader frontend latency work are closed here.
 
 ## Bounded analysis and MIR compaction
 
@@ -1098,13 +1105,15 @@ Full-workspace tests and the complete feature/backend/platform matrix were not
 run locally and remain CI-owned. This scoped handoff is not a
 whole-runtime audit or performance acceptance. The
 [runtime review](review.md#runtime-architecture-review) retains R13 type-only code ownership;
-R7/R8 and unrelated open findings remain unchanged and are not activated here.
+R8 and unrelated open findings are not activated by that runtime repair. R7 is
+locally resolved by the [separate scheduling work](#program-owned-generic-instance-worklist).
 
 [Architecture findings](review.md#architecture-findings)
-R1/R2/R5/R7/R8 remain supported by source inspection at `b71e0cdd`: raw-kind
-safety, prepared-JIT policy, trait-search cancellation/limits, repeated
-specialization and conservative semantic invalidation. Behavioral reproduction
-and performance measurement remain task-specific follow-ups. Native expansion
+R1/R2/R5/R8 were supported by source inspection at `b71e0cdd`: raw-kind
+safety, prepared-JIT policy, trait-search cancellation/limits and conservative
+semantic invalidation. Their current disposition belongs to the review; R7's
+repeated specialization lowering is removed, with bounded measurements above.
+Behavioral reproduction and performance measurement remain task-specific. Native expansion
 requires checked call/root/effect contracts and actual-native conformance; LLVM
 remains a separate choice.
 

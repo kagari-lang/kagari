@@ -179,6 +179,11 @@ fn assert_no_regeneration(program: &VerifiedMirProgram, counts: Snapshot) {
         unique_bodies(program),
         "generate each emitted body once, including generated descendants",
     );
+    assert_eq!(
+        counts.scanned_bodies,
+        unique_bodies(program),
+        "extract scheduling uses once per completed body",
+    );
     // Coverage expansion may legitimately require another candidate verification.
     // Neither candidate nor scheduler-pass counts are an exactly-once contract.
 }
@@ -382,14 +387,12 @@ fn late_layout_candidate() -> (VerifiedMirProgram, Snapshot) {
 }
 
 #[test]
-#[ignore = "R7-04: enable after replacing the whole-module regeneration driver"]
 fn worklist_interface_wrapper_survives_late_retained_body_without_regeneration() {
     let (candidate, counts) = late_bridge_candidate();
     assert_no_regeneration(&candidate, counts);
 }
 
 #[test]
-#[ignore = "R7-04: enable after replacing the whole-module regeneration driver"]
 fn worklist_shared_layout_binders_survive_late_retained_body_without_regeneration() {
     let (candidate, counts) = late_layout_candidate();
     assert_no_regeneration(&candidate, counts);
@@ -399,7 +402,7 @@ fn worklist_shared_layout_binders_survive_late_retained_body_without_regeneratio
 #[ignore = "bounded measurement; run explicitly with --ignored --nocapture --test-threads=1"]
 fn bounded_worklist_measurements() {
     println!(
-        "shape,retained,repetition,check_us,lower_us,initializations,body_generations,candidate_verifications,scheduling_passes,modules,unique_bodies,instructions,mir_bytes"
+        "shape,retained,repetition,check_us,lower_us,initializations,body_generations,candidate_verifications,scheduling_passes,modules,unique_bodies,instructions,mir_bytes,scanned_bodies,candidate_us"
     );
     for shape in [Shape::Tiny]
         .into_iter()
@@ -422,7 +425,7 @@ fn bounded_worklist_measurements() {
                     .sum();
                 let bytes = encode_program(program, &Default::default()).unwrap();
                 println!(
-                    "{shape:?},{retained},{repetition},{},{},{},{},{},{},{},{},{instructions},{}",
+                    "{shape:?},{retained},{repetition},{},{},{},{},{},{},{},{},{instructions},{},{},{}",
                     measurement.checking.as_micros(),
                     measurement.lowering.as_micros(),
                     measurement.counts.initializations,
@@ -432,6 +435,8 @@ fn bounded_worklist_measurements() {
                     program.modules().len(),
                     unique_bodies(program),
                     bytes.len(),
+                    measurement.counts.scanned_bodies,
+                    measurement.counts.candidate_work.as_micros(),
                 );
             }
         }
@@ -439,7 +444,6 @@ fn bounded_worklist_measurements() {
 }
 
 #[test]
-#[ignore = "R7-04: enable after replacing the whole-module regeneration driver"]
 fn worklist_chain_and_converging_demands_do_not_regenerate_bodies() {
     for shape in [Shape::Tiny, Shape::Chain(4), Shape::Fanout(4)] {
         let measurement = measure(fixture(shape), false);
@@ -448,7 +452,6 @@ fn worklist_chain_and_converging_demands_do_not_regenerate_bodies() {
 }
 
 #[test]
-#[ignore = "R7-04: enable after replacing the whole-module regeneration driver"]
 fn worklist_retained_demands_do_not_regenerate_bodies() {
     for shape in [Shape::Chain(4), Shape::Fanout(4)] {
         let measurement = measure(fixture(shape), true);
@@ -457,7 +460,6 @@ fn worklist_retained_demands_do_not_regenerate_bodies() {
 }
 
 #[test]
-#[ignore = "R7-04: enable after replacing the whole-module regeneration driver"]
 fn worklist_recursive_dependency_reuses_the_admitted_body() {
     let mut sources = SourceDatabase::default();
     insert(

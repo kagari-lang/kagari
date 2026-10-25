@@ -153,6 +153,8 @@ impl Discovery {
                         .map(|(i, function)| (true, cursor.bridges + i, function)),
                 )
             {
+                #[cfg(test)]
+                crate::source::work_metrics::scanned_body();
                 let uses = function
                     .callable_uses(&options.cancel)
                     .map_err(|cause| error(construction_error(cause, options)))?;
