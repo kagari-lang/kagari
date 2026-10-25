@@ -9,7 +9,7 @@ use crate::{
         },
         native_fixtures,
     },
-    vm::Vm,
+    vm::{ReloadError, Vm},
 };
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::{cancellation::CancellationToken, identity::metadata::DefinitionMetadata};
@@ -19,6 +19,7 @@ use kagari_runtime::{
     error::RuntimeErrorKind,
     host::HostBorrowKind,
     module::{ExecutableModule, entry::ProgramEntry},
+    reload::ReloadValidationError,
     resource::RuntimeLimits,
     value::Value,
 };
@@ -101,7 +102,7 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
                         );
                         *result.lock().unwrap() = Some(value);
                     } else {
-                        assert_eq!(runtime.resources().counters().current_call_depth, 2);
+                        assert_eq!(runtime.resources().counters().current_call_depth, 4);
                         assert_eq!(
                             context
                                 .borrows()
@@ -187,7 +188,7 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                 let cancellation = token.clone();
                 let mut runtime = standard_runtime(RuntimeConfig {
                     limits: RuntimeLimits {
-                        max_call_depth: if cancel { Some(256) } else { Some(1) },
+                        max_call_depth: if cancel { Some(256) } else { Some(2) },
                     },
                     ..Default::default()
                 });
@@ -234,9 +235,9 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                 assert_eq!(
                     names,
                     if cancel {
-                        vec!["nested", "main"]
+                        vec!["log", "nested", "log", "main"]
                     } else {
-                        vec!["main"]
+                        vec!["log", "main"]
                     }
                 );
                 assert!(
@@ -299,7 +300,7 @@ fn reentry_rejects_foreign_and_stale_inputs() {
     logging_module(move |context, _| {
         called.fetch_add(1, Ordering::SeqCst);
         let runtime = context.runtime();
-        assert!(matches!(reenter(context, &foreign_module, main, &[]), Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ModuleValidation));
+        assert!(matches!(reenter(context, &foreign_module, main, &[]), Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::StaleHandle));
         if let Some(root) = runtime.execution_root() {
                 assert!(matches!(reenter(context, &root, echo, std::slice::from_ref(&foreign_value)), Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ModuleValidation));
                 let stale = Value::Array(runtime.alloc_array(&root, Ty::Builtin(BuiltinType::I32), vec![]).unwrap());
@@ -327,7 +328,7 @@ fn reentry_rejects_foreign_and_stale_inputs() {
 }
 
 #[test]
-fn reentry_uses_the_root_version_and_rejects_other_epochs() {
+fn reentry_selects_current_code_and_publication_requires_an_idle_boundary() {
     for encoded in [false, true] {
         let program = |number| {
             route(
@@ -350,18 +351,18 @@ fn reentry_uses_the_root_version_and_rejects_other_epochs() {
         let values = observed.clone();
         let mut runtime = runtime();
         logging_module(move |context, _| {
-            let root = context.runtime().execution_root().unwrap();
             let versions = targets.lock().unwrap().clone();
             for version in &versions {
                 let result = reenter(context, version, function, &[]);
-                if version.key() == root.key() {
-                    values.lock().unwrap().push(result.unwrap().value(context.runtime().gc()).unwrap());
-                } else {
-                    assert!(matches!(result, Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ModuleValidation));
-                }
+                values
+                    .lock()
+                    .unwrap()
+                    .push(result.unwrap().value(context.runtime().gc()).unwrap());
             }
             Ok(Value::Unit)
-        }).install(&mut runtime).unwrap();
+        })
+        .install(&mut runtime)
+        .unwrap();
         let old = runtime.load_program("versions.kgr", first).unwrap();
         let _old_program = old;
         let old = runtime.select_program(&_old_program).unwrap();
@@ -370,15 +371,29 @@ fn reentry_uses_the_root_version_and_rejects_other_epochs() {
             .runtime()
             .begin_execution(&old, vm.runtime().execution_options())
             .unwrap();
-        vm.reload_program(&_old_program, Some("versions.kgr".into()), program(9))
-            .unwrap();
-        let _new_program = _old_program.clone();
-        let new = vm.runtime().select_program(&_new_program).unwrap();
-        versions.lock().unwrap().extend([old.clone(), new.clone()]);
+        let error = vm
+            .reload_program(&_old_program, Some("versions.kgr".into()), program(9))
+            .unwrap_err();
+        assert!(
+            matches!(error, ReloadError::Validation(ReloadValidationError::Runtime(error))
+            if error.kind() == RuntimeErrorKind::ExecutionPhaseViolation)
+        );
+        assert_eq!(
+            vm.runtime().select_program(&_old_program).unwrap().key(),
+            old.key()
+        );
+        versions.lock().unwrap().push(old.clone());
         vm.execute(&old, ProgramEntry::Main).unwrap();
         drop(scope);
+        vm.reload_program(&_old_program, Some("versions.kgr".into()), program(9))
+            .unwrap();
+        let new = vm.runtime().select_program(&_old_program).unwrap();
+        versions.lock().unwrap().push(new.clone());
         vm.execute(&new, ProgramEntry::Main).unwrap();
-        assert_eq!(*observed.lock().unwrap(), [Value::I32(7), Value::I32(9)]);
+        assert_eq!(
+            *observed.lock().unwrap(),
+            [Value::I32(7), Value::I32(9), Value::I32(9)]
+        );
     }
 }
 
@@ -398,7 +413,7 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
         let root = context.runtime().execution_root().unwrap();
         let error = reenter(context, &root, fail, &[Value::I32(i32::MAX)]).unwrap_err();
         assert!(matches!(error, VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::ScriptTrap));
-        assert_eq!(context.runtime().resources().counters().current_call_depth, 1);
+        assert_eq!(context.runtime().resources().counters().current_call_depth, 2);
         context.runtime().collect_garbage().unwrap();
         assert_eq!(context.runtime().gc().allocated_objects(), 1);
         let [Value::Str(text)] = args else { panic!("outer argument") };
@@ -647,13 +662,14 @@ fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
                 .iter()
                 .map(|frame| frame.function_name.as_str())
                 .collect::<Vec<_>>(),
-            ["fail", "main"]
+            ["fail", "log", "main"]
         );
         let saved = captured.lock().unwrap();
         let report = saved.as_ref().unwrap();
         assert_eq!(report.message, "host failure");
-        assert_eq!(report.trace.frames.len(), 1);
-        assert_eq!(report.trace.frames[0].function_name, "main");
+        assert_eq!(report.trace.frames.len(), 2);
+        assert_eq!(report.trace.frames[0].function_name, "log");
+        assert_eq!(report.trace.frames[1].function_name, "main");
         vm.runtime().collect_garbage().unwrap();
         assert_eq!(vm.runtime().gc().active_roots(), 0);
         assert!(vm.runtime().execution_root().is_none());

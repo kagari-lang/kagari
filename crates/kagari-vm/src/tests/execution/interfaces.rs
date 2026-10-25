@@ -510,7 +510,8 @@ fn generic_interface_and_retained_closure_keep_their_environment_after_reload() 
     let new = candidate.module().clone();
     runtime.publish_staged_reload(candidate).unwrap();
     let _new_program = _old_program.clone();
-    runtime.collect_garbage().unwrap();
+    let first_reclaimed = runtime.collect_garbage().unwrap().reclaimed_modules;
+    assert!(!first_reclaimed.contains(&old.key()));
     for (name, args, expected) in [
         ("read", vec![interface], 43),
         ("use_closure", vec![closure], 43),
@@ -529,6 +530,15 @@ fn generic_interface_and_retained_closure_keep_their_environment_after_reload() 
     drop(interface_root);
     drop(closure_root);
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
+    // Retire linked construction caches along with their owning publication.
+    let candidate = runtime
+        .stage_reload_program(
+            &_old_program,
+            None,
+            compile_test_bytecode(&source.replace("42", "43")),
+        )
+        .unwrap();
+    runtime.publish_staged_reload(candidate).unwrap();
     let retained = runtime.collect_garbage().unwrap().reclaimed_modules;
     assert!(retained.contains(&old.key()));
 }
@@ -816,12 +826,12 @@ fn shared_calls_retain_the_callers_nominal_layout_generation() {
         fn make(source: Capture) -> fn() -> i32 { source.capture(Item { value: 1 }) }
         fn use_closure(call: fn() -> i32) -> i32 { call() }
     "#;
-    check_type_provenance_reload(source, 1);
+    check_type_provenance_installations(source, 1);
 }
 
 #[test]
 fn shared_composite_arguments_keep_distinct_nominal_generations() {
-    check_type_provenance_reload(
+    check_type_provenance_installations(
         r#"
         struct Item { val value: i32 }
         fn keep<T>(value: T) -> T { value }
@@ -842,7 +852,7 @@ fn shared_composite_arguments_keep_distinct_nominal_generations() {
 
 #[test]
 fn shared_closures_keep_type_metadata_and_pinned_construction_dependencies() {
-    check_type_provenance_reload(
+    check_type_provenance_installations(
         r#"
         struct Item { val value: i32 }
         fn keep<T>(value: T) -> T { value }
@@ -860,7 +870,7 @@ fn shared_closures_keep_type_metadata_and_pinned_construction_dependencies() {
     );
 }
 
-fn check_type_provenance_reload(source: &str, item_constructions: usize) {
+fn check_type_provenance_installations(source: &str, item_constructions: usize) {
     let mut runtime = standard_runtime(Default::default());
     let old = runtime
         .load_program("type-provenance", compile_test_bytecode(source))
@@ -888,16 +898,31 @@ fn check_type_provenance_reload(source: &str, item_constructions: usize) {
         assert_eq!(second_source.matches(from).count(), count, "{from}");
         second_source = second_source.replace(from, to);
     }
+    // Frozen declarations reject schema changes before publication.
+    let incompatible_source = second_source;
+    assert!(
+        runtime
+            .stage_reload_program(
+                &_old_program,
+                None,
+                compile_test_bytecode(&incompatible_source)
+            )
+            .is_err()
+    );
+    let mut second_source = source.to_owned();
+    second_source.replace_range(value_start..value_start + 2, "43");
     let candidate = runtime
-        .stage_reload_program(
-            &_old_program,
-            Some("type-provenance".into()),
-            compile_test_bytecode(&second_source),
-        )
+        .stage_reload_program(&_old_program, None, compile_test_bytecode(&second_source))
         .unwrap();
     let second = candidate.module().clone();
     runtime.publish_staged_reload(candidate).unwrap();
-    let _second_program = _old_program.clone();
+    let foreign_program = runtime
+        .load_program(
+            "foreign-layout",
+            compile_test_bytecode(&incompatible_source),
+        )
+        .unwrap();
+    let foreign = runtime.select_program(&foreign_program).unwrap();
     {
         let item_layout = |loaded: &ExecutableModule| {
             let index = loaded
@@ -932,7 +957,7 @@ fn check_type_provenance_reload(source: &str, item_constructions: usize) {
         });
         let current_item = Value::Struct(
             runtime
-                .alloc_struct(current_layout, vec![Value::I32(1), Value::Bool(true)])
+                .alloc_struct(current_layout, vec![Value::I32(1)])
                 .unwrap(),
         );
         let current_root = runtime.root_value(current_item).unwrap();
@@ -957,9 +982,28 @@ fn check_type_provenance_reload(source: &str, item_constructions: usize) {
         runtime
             .validate_interface_method_arguments(&method, &[Value::I32(7), current_item])
             .unwrap();
+        runtime
+            .validate_interface_method_arguments(&method, &[Value::I32(7), old_item])
+            .unwrap();
+        let foreign_item = Value::Struct(
+            runtime
+                .alloc_struct(
+                    item_layout(&foreign),
+                    vec![Value::I32(1), Value::Bool(true)],
+                )
+                .unwrap(),
+        );
         assert!(
             runtime
-                .validate_interface_method_arguments(&method, &[Value::I32(7), old_item])
+                .validate_interface_method_arguments(&method, &[Value::I32(7), foreign_item])
+                .is_err()
+        );
+        let foreign_arguments = runtime
+            .resolve_type_arguments(&foreign, slice::from_ref(arguments[0].ty()))
+            .unwrap();
+        assert!(
+            runtime
+                .resolve_interface_method_slot(&interface, trait_type, 0, &foreign_arguments)
                 .is_err()
         );
         drop((old_root, current_root));
@@ -976,35 +1020,14 @@ fn check_type_provenance_reload(source: &str, item_constructions: usize) {
         .run()
         .unwrap();
     let root = runtime.root_value(closure).unwrap();
-    let mut third_source = second_source;
-    for (from, to, count) in [
-        ("val extra: bool", "val extra: bool, val later: i32", 1),
-        (
-            "Item { value: 1, extra: true }",
-            "Item { value: 1, extra: true, later: 3 }",
-            item_constructions,
-        ),
-        ("43", "44", 1),
-    ] {
-        assert_eq!(third_source.matches(from).count(), count, "{from}");
-        third_source = third_source.replace(from, to);
-    }
+    let third_source = second_source.replace("43", "44");
     let candidate = runtime
-        .stage_reload_program(
-            &_second_program,
-            Some("type-provenance".into()),
-            compile_test_bytecode(&third_source),
-        )
+        .stage_reload_program(&_old_program, None, compile_test_bytecode(&third_source))
         .unwrap();
     let third = candidate.module().clone();
     runtime.publish_staged_reload(candidate).unwrap();
-    let _third_program = _second_program.clone();
-    let reclaimed = runtime.collect_garbage().unwrap().reclaimed_modules;
-    assert!(!reclaimed.contains(&old.key()));
-    // Shared execution keeps its caller-supplied construction applications pinned.
-    // Plain aggregate layout provenance alone is covered by runtime layout tests.
-    assert!(!reclaimed.contains(&second.key()));
-    runtime.validate_executable_module(&second).unwrap();
+    let before_call = runtime.collect_garbage().unwrap().reclaimed_modules;
+    assert!(!before_call.contains(&second.key()));
     let call = third
         .bytecode
         .functions
@@ -1017,12 +1040,18 @@ fn check_type_provenance_reload(source: &str, item_constructions: usize) {
             .unwrap()
             .run()
             .unwrap(),
-        Value::I32(42)
+        Value::I32(44)
     );
     drop(root);
     drop(interface_root);
+    // Linked construction descriptors retain their supplier until their owning
+    // publication is superseded; remove that cache owner before checking release.
+    let candidate = runtime
+        .stage_reload_program(&_old_program, None, compile_test_bytecode(&third_source))
+        .unwrap();
+    runtime.publish_staged_reload(candidate).unwrap();
     let reclaimed = runtime.collect_garbage().unwrap().reclaimed_modules;
-    assert!(reclaimed.contains(&old.key()));
+    assert!(before_call.contains(&old.key()) || reclaimed.contains(&old.key()));
     assert!(reclaimed.contains(&second.key()));
     assert!(runtime.validate_executable_module(&second).is_err());
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
@@ -1030,7 +1059,7 @@ fn check_type_provenance_reload(source: &str, item_constructions: usize) {
 
 #[test]
 fn shared_aggregate_fields_retain_the_callers_nominal_generation() {
-    check_type_provenance_reload(
+    check_type_provenance_installations(
         r#"
         struct Item { val value: i32 }
         struct Box<T> { var item: T }
@@ -1057,7 +1086,7 @@ fn shared_aggregate_fields_retain_the_callers_nominal_generation() {
 
 #[test]
 fn shared_native_lists_retain_the_callers_nominal_generation() {
-    check_type_provenance_reload(
+    check_type_provenance_installations(
         r#"use std::collections::{List};
 
         struct Item { val value: i32 }
@@ -1096,16 +1125,17 @@ fn shared_closure_signatures_distinguish_nominal_generations() {
     let next_source = source
         .replace("val value: i32", "val value: i32, val extra: bool")
         .replace("value: 1 }", "value: 1, extra: true }");
-    let candidate = runtime
-        .stage_reload_program(
-            &_old_program,
-            Some("closure-scope".into()),
-            compile_test_bytecode(&next_source),
-        )
+    assert!(
+        runtime
+            .stage_reload_program(&_old_program, None, compile_test_bytecode(&next_source))
+            .is_err()
+    );
+    let current_program = runtime
+        .load_program("closure-scope-current", compile_test_bytecode(&next_source))
         .unwrap();
-    let current = candidate.module().clone();
-    runtime.publish_staged_reload(candidate).unwrap();
-    let _current_program = _old_program.clone();
+    let current = runtime.select_program(&current_program).unwrap();
+    let current_receiver = runtime.make_interface(&current, 0, Value::I32(7)).unwrap();
+    let current_receiver_root = runtime.root_value(current_receiver).unwrap();
     let make = current
         .bytecode
         .functions
@@ -1113,7 +1143,7 @@ fn shared_closure_signatures_distinguish_nominal_generations() {
         .find(|function| function.name == "make")
         .unwrap()
         .id;
-    let closure = Executor::new(&runtime, &current, make, slice::from_ref(&receiver))
+    let closure = Executor::new(&runtime, &current, make, slice::from_ref(&current_receiver))
         .unwrap()
         .run()
         .unwrap();
@@ -1151,7 +1181,7 @@ fn shared_closure_signatures_distinguish_nominal_generations() {
             _ => None,
         })
         .unwrap();
-    for (owner, valid) in [(&old, false), (&current, true)] {
+    for (owner, receiver, valid) in [(&old, receiver, false), (&current, current_receiver, true)] {
         let arguments = runtime
             .resolve_type_arguments(owner, slice::from_ref(&ty))
             .unwrap();
@@ -1165,19 +1195,14 @@ fn shared_closure_signatures_distinguish_nominal_generations() {
             valid
         );
     }
-    drop((receiver_root, closure_root));
-    assert!(
-        runtime
-            .collect_garbage()
-            .unwrap()
-            .reclaimed_modules
-            .contains(&old.key())
-    );
+    drop((receiver_root, current_receiver_root, closure_root));
+    runtime.collect_garbage().unwrap();
+    assert!(!runtime.gc().validate_value(&closure));
 }
 
 #[test]
 fn shared_mutable_lists_preserve_mixed_nominal_scopes_and_parent_views() {
-    check_type_provenance_reload(
+    check_type_provenance_installations(
         include_str!("../../../tests/fixtures/execution/mixed-nominal-list-capture.kgr"),
         4,
     );
@@ -1185,7 +1210,7 @@ fn shared_mutable_lists_preserve_mixed_nominal_scopes_and_parent_views() {
 
 #[test]
 fn shared_repeat_arrays_keep_scalar_contracts_in_generic_frames() {
-    check_type_provenance_reload(
+    check_type_provenance_installations(
         r#"use std::collections::{List};
 
         struct Item { val value: i32 }

@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -90,6 +91,8 @@ def run(async_only: bool = False, numeric_only: bool = False) -> None:
         if name in {"kagari-source", "kagari-codegen", "kagari-mir", "kagari-codegen-cranelift"}:
             options.append('optional = true')
         lines.append(f'{name} = {{ {", ".join(options)} }}')
+    if not numeric_only:
+        lines += ['[dev-dependencies]', 'tokio = { version = "1", features = ["rt"] }']
     targets = {"numeric_artifact": "artifact_features/numeric.rs"} if numeric_only else {
         "artifact_features": "artifact_features.rs", "async_execution": "async_execution.rs",
     }
@@ -121,6 +124,14 @@ def run(async_only: bool = False, numeric_only: bool = False) -> None:
             "cargo", "run", "--locked", "--offline", "-p", "kagari",
             "--no-default-features", "--features", "source",
             "--example", "regenerate_feature_artifact",
+        ], cwd=ROOT, check=True)
+        pair_artifact = ROOT / "target/fixtures/async_pairs.kbc"
+        pair_artifact.unlink(missing_ok=True)
+        subprocess.run([
+            "cargo", "run", "--locked", "--offline", "-p", "kagari",
+            "--no-default-features", "--features", "source",
+            "--example", "regenerate_feature_artifact", "--",
+            str(ROOT / "crates/kagari/tests/fixtures/async_pairs.kgr"), str(pair_artifact),
         ], cwd=ROOT, check=True)
     if not numeric_only:
         subprocess.run([
@@ -159,11 +170,16 @@ def run(async_only: bool = False, numeric_only: bool = False) -> None:
         else:
             selected = []
         log_label = f"{label}-numeric" if numeric_only else f"{label}-async" if async_only else label
-        with (output / f"{log_label}-tests.log").open("w") as log:
-            subprocess.run(
-                ["cargo", "test", "--locked", "--offline", *args, "--target-dir", str(ROOT / "target"), *selected],
-                cwd=ROOT, env=test_env, stdout=log, stderr=subprocess.STDOUT, check=True,
-            )
+        log_path = output / f"{log_label}-tests.log"
+        try:
+            with log_path.open("w") as log:
+                subprocess.run(
+                    ["cargo", "test", "--locked", "--offline", *args, "--target-dir", str(ROOT / "target"), *selected],
+                    cwd=ROOT, env=test_env, stdout=log, stderr=subprocess.STDOUT, check=True,
+                )
+        except subprocess.CalledProcessError:
+            print(log_path.read_text(), file=sys.stderr, flush=True)
+            raise
         print(f"{log_label}: production graph and standalone artifact tests pass", flush=True)
     if not async_only and not numeric_only:
         run(numeric_only=True)

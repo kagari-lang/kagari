@@ -2,7 +2,11 @@
 use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
-    frame::cursor::kernel::{RegionError, RegionExit},
+    frame::{
+        ExecutionStack,
+        cursor::kernel::{RegionError, RegionExit},
+        driver::{ExecutionAction, ReturnAction},
+    },
     module::ExecutableModule,
     native::{
         binding::NativeResult, builder::ModuleBuilder, catalog::DeclarationCatalog,
@@ -10,7 +14,10 @@ use crate::{
     },
     value::Value,
 };
-use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget, Slot};
+use kagari_bytecode::{
+    instruction::{BytecodeInstruction, CallTarget, Slot},
+    program::updates,
+};
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::analysis::AnalysisDatabase;
@@ -97,6 +104,13 @@ fn native_completion_fixture(
                 }
             }
         }
+        program.update_evidence = updates::project(
+            &program.modules,
+            &program.update_evidence,
+            &definitions,
+            &Default::default(),
+        )
+        .unwrap();
         DefinitionMetadata::checked(definitions, program, &Default::default()).unwrap()
     } else {
         code
@@ -124,7 +138,7 @@ fn native_publication_exposes_first_definitions_only_after_success() {
             .push(&runtime, loaded.slot(), entry, &[], None)
             .unwrap();
         for call in 0..2 {
-            let result = stack.execute_region(&runtime, &mut None, |_, _, _, _| unreachable!());
+            let result = complete_native_call(&stack, &runtime);
             let frame = stack.current().unwrap();
             let pc = frame.instruction_offset();
             let BytecodeInstruction::Call { dst: Some(dst), .. } =
@@ -191,7 +205,7 @@ fn native_without_destination_finishes_once_before_the_successor() {
         .push(&runtime, loaded.slot(), entry, &[], None)
         .unwrap();
     assert!(matches!(
-        stack.execute_region(&runtime, &mut None, |_, _, _, _| unreachable!()),
+        complete_native_call(&stack, &runtime),
         Ok(RegionExit::Safepoint)
     ));
     {
@@ -212,6 +226,25 @@ fn native_without_destination_finishes_once_before_the_successor() {
     drop(stack);
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
     assert_eq!(runtime.gc().active_roots(), 0);
+}
+
+fn complete_native_call(
+    stack: &ExecutionStack<'_>,
+    runtime: &Runtime,
+) -> Result<RegionExit, RegionError> {
+    assert!(matches!(
+        stack.execute_region(runtime, &mut None, |_, _, _, _| unreachable!())?,
+        RegionExit::Call(ExecutionAction::NativeEntry)
+    ));
+    if let Err(error) = stack.start_native_entry(runtime, |_, _, _, _| unreachable!()) {
+        stack.pop()?;
+        return Err(error.into());
+    }
+    assert_eq!(
+        stack.finish_native_return(runtime)?,
+        ReturnAction::Continue(ExecutionAction::Script)
+    );
+    Ok(RegionExit::Safepoint)
 }
 
 #[test]

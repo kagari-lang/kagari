@@ -643,6 +643,16 @@ pub fn runner() -> Run { 7 }
     let next_source = source
         .replace("val value: i32", "val value: i32, val extra: bool")
         .replace("value: 42 }", "value: 42, extra: true }");
+    assert!(
+        vm.runtime()
+            .stage_reload_program(
+                &_old_program,
+                None,
+                compile_program(&next_source, Some(&module))
+            )
+            .is_err()
+    );
+    let next_source = source.replace("value: 42", "value: 43");
     let candidate = vm
         .runtime_mut()
         .stage_reload_program(
@@ -681,9 +691,19 @@ pub fn runner() -> Run { 7 }
     assert_eq!(
         vm.invoke_interface_method(&runner, &method, &[receiver])
             .unwrap(),
-        Value::I32(42)
+        Value::I32(43)
     );
     drop(root);
+    // Retire the linked construction cache as well as its old receiver value.
+    let candidate = vm
+        .runtime()
+        .stage_reload_program(
+            &_old_program,
+            None,
+            compile_program(&next_source, Some(&module)),
+        )
+        .unwrap();
+    vm.runtime().publish_staged_reload(candidate).unwrap();
     assert!(
         vm.runtime()
             .collect_garbage()

@@ -197,8 +197,18 @@ fn sample(
             stack
                 .execute_region(runtime, &mut Some(1), unexpected_callback)
                 .unwrap(),
-            RegionExit::Safepoint
+            RegionExit::Call(ExecutionAction::NativeEntry)
         ));
+        assert_eq!(
+            stack
+                .start_native_entry(runtime, unexpected_callback)
+                .unwrap(),
+            ExecutionAction::NativeReturn
+        );
+        assert_eq!(
+            stack.finish_native_return(runtime).unwrap(),
+            ReturnAction::Continue(ExecutionAction::Script)
+        );
     };
     // Warm the boundary and initialize every thread-local/cache outside accounting.
     for _ in 0..128 {

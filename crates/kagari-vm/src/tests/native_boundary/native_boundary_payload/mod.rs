@@ -561,18 +561,29 @@ fn applied_native_handles_preserve_the_supplied_nominal_layout_scope() {
             slice::from_ref(old_item.type_argument()),
         )
         .unwrap();
-    // The caller's selected owner must not flatten an argument supplied by a
-    // different version. Opaque generic storage may carry either checked scope.
+    // Nominal arguments cannot be rebound through another installation.
+    assert!(
+        runtime
+            .bind_native_type::<Edge>(
+                &_old_program.root(),
+                &edge,
+                slice::from_ref(new_item.type_argument())
+            )
+            .is_err()
+    );
     let new_type = runtime
         .bind_native_type::<Edge>(
-            &_old_program.root(),
+            &_new_program.root(),
             &edge,
             slice::from_ref(new_item.type_argument()),
         )
         .unwrap();
     let mut cx = vm.context(&old).unwrap();
     let old_value = old_type.create(&mut cx, Edge(Value::Unit)).unwrap();
-    let new_value = new_type.create(&mut cx, Edge(Value::Unit)).unwrap();
+    let new_owner = runtime.select_program(&_new_program).unwrap();
+    let new_value = new_type
+        .create(&mut vm.context(&new_owner).unwrap(), Edge(Value::Unit))
+        .unwrap();
     let old_call = runtime
         .bind_function::<(Opaque<Edge>,), i32>(&_old_program.root(), "accept")
         .unwrap();

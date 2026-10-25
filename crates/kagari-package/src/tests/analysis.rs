@@ -424,12 +424,20 @@ fn public_export_graph_preserves_aliases_cycles_and_the_separate_private_entry()
     assert!(exports.function(identity, "api::tick").is_some());
     assert!(exports.function(identity, "api").is_some());
     assert!(exports.function(identity, "concrete").is_some());
+    let generic = exports.function(identity, "generic").unwrap();
+    assert!(
+        !program
+            .source_function(generic)
+            .unwrap()
+            .1
+            .generic_params
+            .is_empty()
+    );
     for private in [
         "hidden::calculate",
         "main",
         "secret",
         "sibling",
-        "generic",
         "api::",
         "::damage",
     ] {

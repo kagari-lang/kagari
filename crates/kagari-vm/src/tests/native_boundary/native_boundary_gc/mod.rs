@@ -441,7 +441,10 @@ fn rooted_data_keeps_type_metadata_without_retaining_obsolete_module_state() {
     vm.reload_program(
         &_old_program,
         Some("boundary".into()),
-        compile_program("fn main() -> i32 { 99 }", Some(&module)),
+        compile_program(
+            "use fixture::capture::capture; struct Item { val value: i32 } pub fn retained_recipe() { capture(Vec::from([Item { value: 42 }])); } fn main() -> i32 { 99 }",
+            Some(&module),
+        ),
     )
     .unwrap();
     let _replacement_program = _old_program.clone();
@@ -480,7 +483,7 @@ fn rooted_data_keeps_type_metadata_without_retaining_obsolete_module_state() {
 }
 
 #[test]
-fn recursive_element_contracts_reject_changed_nested_layouts_after_reload() {
+fn recursive_element_contracts_reject_foreign_nested_layouts_after_reload() {
     let source = r#"
         struct Inner { val value: i32 }
         struct Node { var next: Option<Node>, val value: Inner }
@@ -490,7 +493,7 @@ fn recursive_element_contracts_reject_changed_nested_layouts_after_reload() {
             Vec::from([node])
         }
     "#;
-    let (vm, old) = compile(source, None);
+    let (mut vm, old) = compile(source, None);
     let _old_program = old;
     let old = vm.runtime().select_program(&_old_program).unwrap();
     let old_value = vm
@@ -503,14 +506,21 @@ fn recursive_element_contracts_reject_changed_nested_layouts_after_reload() {
     let replacement = source
         .replace("val value: i32", "val value: i32, val extra: bool")
         .replace("value: 42 }", "value: 42, extra: true }");
+    assert!(
+        vm.reload_program(&_old_program, None, compile_program(&replacement, None))
+            .is_err()
+    );
     vm.reload_program(
         &_old_program,
-        Some("boundary".into()),
-        compile_program(&replacement, None),
+        None,
+        compile_program(&source.replace("42", "43"), None),
     )
     .unwrap();
-    let _current_program = _old_program.clone();
-    let current = vm.runtime().select_program(&_current_program).unwrap();
+    let independent = vm
+        .runtime_mut()
+        .load_program("foreign-nested-layout", compile_program(&replacement, None))
+        .unwrap();
+    let current = vm.runtime().select_program(&independent).unwrap();
     let new_value = vm
         .execute(&current, ProgramEntry::Main)
         .unwrap()

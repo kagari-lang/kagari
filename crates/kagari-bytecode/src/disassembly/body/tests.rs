@@ -437,6 +437,9 @@ fn physical_gc_roots_are_not_derived_from_debug_layouts() {
     body.metadata.params = vec![ValueType::HeapObject];
     body.metadata.slots = vec![ValueType::HeapObject; 3];
     body.metadata.return_type = ValueType::HeapObject;
+    let heap_type = Ty::Tuple(vec![Ty::Builtin(BuiltinType::I32)]);
+    body.metadata.semantic.params.insert(0, heap_type.clone());
+    body.metadata.semantic.result = Some(heap_type);
     body.metadata.roots = RootSlotLayout::from_types(&body.metadata.slots);
     body.metadata.debug.frame_layout.slots = vec![ValueType::I32; 2];
     let output = render(&prepare(body));

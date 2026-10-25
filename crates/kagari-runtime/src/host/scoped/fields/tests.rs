@@ -106,12 +106,9 @@ fn executable_inline_field_codecs_keep_paths_current_and_results_rooted() {
             ty.fields[0].ty = Ty::Builtin(BuiltinType::I64);
         }
     }
-    let changed = DefinitionMetadata::checked(
-        runtime.definition_context().snapshot(),
-        changed,
-        &Default::default(),
-    )
-    .unwrap();
+    let changed =
+        DefinitionMetadata::checked(program.definitions().clone(), changed, &Default::default())
+            .unwrap();
     assert!(runtime.load_program("field-codec-proof", changed).is_err());
     let staged = runtime
         .stage_reload_program(&owner_program, None, program)

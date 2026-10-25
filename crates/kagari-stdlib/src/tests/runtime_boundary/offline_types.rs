@@ -412,19 +412,23 @@ fn type_contract_changes_reject_artifacts_before_publication_but_documentation_d
     let documented =
         DefinitionMetadata::checked(definitions, documented, &Default::default()).unwrap();
     let documented = program(documented, source);
+    assert_ne!(
+        baseline.records().update_evidence.source_manifest,
+        documented.records().update_evidence.source_manifest
+    );
     let bytes = |program: DefinitionMetadata<BytecodeProgram>| {
         let context = DefinitionContext::new().unwrap();
-        let program = program.import_into(&context, &Default::default()).unwrap();
-        KbcArtifact::from_program(
-            program.into_records(),
-            Default::default(),
-            &context,
-            &Default::default(),
-        )
-        .unwrap()
-        .to_bytes(&context.snapshot())
-        .unwrap()
+        let mut program = program
+            .import_into(&context, &Default::default())
+            .unwrap()
+            .into_records();
+        // Authored documentation changes source anchors, not executable contracts.
+        program.update_evidence.source_manifest = None;
+        KbcArtifact::from_program(program, Default::default(), &context, &Default::default())
+            .unwrap()
+            .to_bytes(&context.snapshot())
+            .unwrap()
     };
-    assert_eq!(bytes(baseline), bytes(documented.clone()));
+    assert!(bytes(baseline) == bytes(documented.clone()));
     runtime.load_program("types", documented).unwrap();
 }

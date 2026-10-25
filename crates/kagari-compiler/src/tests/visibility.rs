@@ -1,6 +1,8 @@
 use crate::{bytecode::lower_program_to_bytecode, tests::common};
 use kagari_bytecode::{artifact::KbcArtifact, program::verify_program};
-use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
+use kagari_common::identity::{
+    DefinitionKind, map::DefinitionContext, mapping::DefinitionMapper, scoped::RemapDefinitions,
+};
 use kagari_contract::{
     statics::{StaticContract, StaticDescriptor},
     types::{PublicItem, TraitContract},
@@ -373,6 +375,7 @@ fn reject_callable_initializer(trait_default: bool) {
                     .is_some_and(|part| part.kind == DefinitionKind::Method && part.name == "make")
             })
             .unwrap();
+        let old_method = function.instance.declaration;
         function.instance.declaration = method;
         let module = &mut bytecode.modules[bytecode.root.index()];
         module
@@ -397,6 +400,25 @@ fn reject_callable_initializer(trait_default: bool) {
             .unwrap();
         function.identity.as_mut().unwrap().declaration = method;
         module.function_table[function.id.index()].identity = function.identity.clone();
+        // The authored declaration and its source/body evidence move together;
+        // changing only the executable placement leaves an unrelated stale certificate.
+        let definitions = context.snapshot();
+        let cancel = Default::default();
+        let mut rename = |id: &_| Ok(if *id == old_method { method } else { *id });
+        records = records
+            .remap_definitions(&mut DefinitionMapper::new(
+                &mut rename,
+                &definitions,
+                &cancel,
+            ))
+            .unwrap();
+        bytecode = bytecode
+            .remap_definitions(&mut DefinitionMapper::new(
+                &mut rename,
+                &definitions,
+                &cancel,
+            ))
+            .unwrap();
     }
     // Both ordinary callable forms are valid before assigning initializer authority.
     verify_mir_program(records.clone(), &context, &Default::default()).unwrap();

@@ -229,10 +229,11 @@ fn installed_handles_retain_code_and_old_versions_until_the_last_clone_drops() {
         1
     );
     runtime.collect_garbage().unwrap();
-    assert_eq!(
-        runtime.invoke_native_function(&installed).unwrap(),
-        Value::Unit
-    );
+    assert!(matches!(
+        runtime.invoke_native_function(&installed).unwrap_err().error,
+        BackendInvocationError::RuntimeFailure(ref error)
+            if error.kind() == RuntimeErrorKind::ModuleValidation
+    ));
     drop(installed);
     assert_eq!(dropped.load(Ordering::SeqCst), 0);
     drop(clone);
@@ -255,7 +256,7 @@ fn invocation_checks_runtime_ownership_without_permission_flags() {
     let installed = install(&mut first, execute);
     let second = runtime();
     assert!(
-        matches!(second.invoke_native_function(&installed).unwrap_err().error, BackendInvocationError::RuntimeFailure(ref error) if error.kind() == RuntimeErrorKind::ModuleValidation)
+        matches!(second.invoke_native_function(&installed).unwrap_err().error, BackendInvocationError::RuntimeFailure(ref error) if error.kind() == RuntimeErrorKind::StaleHandle)
     );
     assert_eq!(
         first.invoke_native_function(&installed).unwrap(),
@@ -371,7 +372,10 @@ fn failed_reload_keeps_installed_code_callable_and_its_version_retained() {
             .unwrap();
     let definitions = DefinitionContext::new().unwrap();
     let mut candidate = KbcArtifact::from_program(
-        program().into_records(),
+        program()
+            .import_into(&definitions, &Default::default())
+            .unwrap()
+            .into_records(),
         Default::default(),
         &definitions,
         &Default::default(),
@@ -548,10 +552,11 @@ fn native_handles_pin_the_entire_dependency_program_across_reload() {
         old_dependency.key(),
         new.member(ModuleRef::new(0)).unwrap().key()
     );
-    assert_eq!(
-        runtime.invoke_native_function(&installed).unwrap(),
-        Value::Unit
-    );
+    assert!(matches!(
+        runtime.invoke_native_function(&installed).unwrap_err().error,
+        BackendInvocationError::RuntimeFailure(ref error)
+            if error.kind() == RuntimeErrorKind::ModuleValidation
+    ));
     drop(installed);
     runtime.collect_garbage().unwrap();
     assert!(runtime.modules().loaded(old_dependency.key()).is_none());
@@ -619,17 +624,17 @@ fn shared_verified_program_identity_survives_independent_runtime_linking() {
     let c = second.select_program(&c_program).unwrap();
     assert!(a.verified_program().same_version(&verified));
     assert!(a.verified_program().same_version(b.verified_program()));
-    assert!(Arc::ptr_eq(&a.bytecode, &b.bytecode));
+    assert!(!Arc::ptr_eq(&a.bytecode, &b.bytecode));
     assert_eq!(a.program_fingerprint(), c.program_fingerprint());
     assert!(!a.verified_program().same_version(c.verified_program()));
     assert!(first.validate_executable_module(&b).is_err());
     assert!(second.validate_executable_module(&a).is_err());
     drop(verified);
     assert!(a.verified_program().same_version(b.verified_program()));
-    // Reference-free normalization intentionally shares the current payload.
-    assert!(original.upgrade().is_some());
+    // Evidence contains definition IDs, so independent runtimes normalize payloads.
+    assert!(original.upgrade().is_none());
     drop((a, first));
-    assert!(original.upgrade().is_some());
+    assert!(original.upgrade().is_none());
     drop((b, c, second));
     assert!(original.upgrade().is_none());
 }
@@ -637,7 +642,10 @@ fn shared_verified_program_identity_survives_independent_runtime_linking() {
 #[test]
 fn scoped_programs_import_exact_identities_without_replacing_versions_or_epochs() {
     let context = DefinitionContext::new().unwrap();
-    let mut raw = program().into_records();
+    let mut raw = program()
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
     let path = DefinitionPath {
         module: raw.modules[0].identity.clone(),
         path: vec![DefinitionPathSegment {

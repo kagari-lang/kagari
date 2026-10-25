@@ -91,8 +91,7 @@ fn allocation_owner(runtime: &mut Runtime) -> ExecutableModule {
 #[test]
 fn nested_arguments_and_results_obey_the_complete_host_signature() {
     let mut runtime = runtime();
-    let program = compile_program(
-        r#"use std::collections::{HashMap, HashSet, List};
+    let fixture_source = r#"use std::collections::{HashMap, HashSet, List};
 
         pub fn fixtures() -> ([i32], [bool], HashMap<String,[i32]>, HashMap<String,[bool]>, HashSet<String>, HashSet<i32>, Vec<i32>, List<i32>) {
             val array = [7]; val wrong_array = [true];
@@ -104,9 +103,8 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
             val list: List<i32> = vector;
             (array, wrong_array, map, wrong_map, set, wrong_set, vector, list)
         }
-    "#,
-        None,
-    );
+    "#;
+    let program = compile_program(fixture_source, None);
     let loaded = runtime.load_program("host-composites", program).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
@@ -293,8 +291,7 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
         .catalog()
         .unwrap();
     let mut builder = ModuleBuilder::new("fixtures::composites", &catalog).unwrap();
-    let mut source =
-        String::from("use std::collections::{HashMap, HashSet, List}; use fixtures::composites;\n");
+    let mut source = format!("{fixture_source}\nuse fixtures::composites;\n");
     let syntax = [
         "([i32], String)",
         "[i32]",
@@ -351,16 +348,19 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
     let provider = builder.finish().unwrap();
     let program = compile_program(&source, Some(&provider));
     provider.install(runtime).unwrap();
-    let owner = runtime
-        .load_program("composite-boundaries", program)
+    // Values and host signatures share an installation, including nominal
+    // collection/enum/interface evidence retained across this additive reload.
+    let candidate = runtime
+        .stage_reload_program(&_loaded_program, None, program)
         .unwrap();
-    let _owner_program = owner;
-    let owner = runtime.select_program(&_owner_program).unwrap();
+    runtime.publish_staged_reload(candidate).unwrap();
+    let owner = runtime.select_program(&_loaded_program).unwrap();
     for (index, (good, bad, calls)) in checks.into_iter().enumerate() {
         let echo = native_slot(runtime, &owner, &provider, &format!("echo{index}"));
         let output = native_slot(runtime, &owner, &provider, &format!("bad{index}"));
         assert_eq!(
-            native_invocation::invoke(runtime, &owner, echo, &[good]).unwrap(),
+            native_invocation::invoke(runtime, &owner, echo, &[good])
+                .unwrap_or_else(|error| panic!("case {index}: {error:?}")),
             good
         );
         assert!(native_invocation::invoke(runtime, &owner, echo, &[bad]).is_err());

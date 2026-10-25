@@ -155,7 +155,7 @@ fn callback_depth_failure_precedes_effects_and_cleans_native_roots() {
         ));
         for encoded in [false, true] {
             let mut runtime = runtime(RuntimeLimits {
-                max_call_depth: Some(1),
+                max_call_depth: Some(2),
             });
             let effects = Arc::new(Mutex::new(0));
             let sink = effects.clone();
@@ -289,11 +289,12 @@ fn callback_trap_preserves_the_public_caller_origin_and_debug_frames() {
         vm.attach_debug_session(debug).unwrap();
         let error = vm.execute(&loaded, ProgramEntry::Main).unwrap_err();
         let trace = error.trace().unwrap();
-        assert_eq!(trace.frames.len(), 2);
-        assert_eq!(trace.frames[1].function_name, "main");
-        assert_eq!(trace.frames[1].instruction_offset, caller_offset);
-        assert_eq!(trace.frames[1].epoch, loaded.epoch.0);
-        assert!(trace.frames[1].source_span.is_some());
+        assert_eq!(trace.frames.len(), 3);
+        assert_eq!(trace.frames[1].function_name, "choose");
+        assert_eq!(trace.frames[2].function_name, "main");
+        assert_eq!(trace.frames[2].instruction_offset, caller_offset);
+        assert_eq!(trace.frames[2].epoch, loaded.epoch.0);
+        assert!(trace.frames[2].source_span.is_some());
         let debug = vm.debug_session().unwrap();
         for reason in [
             DebugPauseReason::Breakpoint(breakpoint),
@@ -310,11 +311,12 @@ fn callback_trap_preserves_the_public_caller_origin_and_debug_frames() {
                             .is_some_and(|frame| frame.function_name != "main")
                 })
                 .expect("callback pause");
-            assert_eq!(pause.frames.len(), 2);
+            assert_eq!(pause.frames.len(), 3);
+            assert_eq!(pause.frames[1].function_name, "choose");
             assert_eq!(pause.frames[0].function_name, "main");
             assert_eq!(pause.frames[0].instruction_offset, caller_offset);
             assert!(
-                pause.frames[1]
+                pause.frames[2]
                     .bindings
                     .iter()
                     .any(|binding| binding.name == "n" && binding.value == Value::I32(i32::MAX))
@@ -373,12 +375,12 @@ fn fail() -> i32 { boundary::choose(true, || { val n = 2147483647; n + 1 }) }
                 assert!(reenter(context, &root, fail, &[]).is_err());
                 assert_eq!(
                     context.runtime().resources().counters().current_call_depth,
-                    2
+                    4
                 );
             } else {
                 assert_eq!(
                     context.runtime().resources().counters().current_call_depth,
-                    4
+                    8
                 );
             }
             context.runtime().collect_garbage().unwrap();

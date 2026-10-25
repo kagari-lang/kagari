@@ -266,7 +266,7 @@ fn installed_layout_applications_reuse_caches_but_old_type_facts_survive_collect
             .validate_executable_module(&loaded)
             .unwrap_err()
             .kind(),
-        RuntimeErrorKind::ModuleValidation
+        RuntimeErrorKind::StaleHandle
     );
     assert!(runtime.validate_executable_module(&latest).is_ok());
     let retained = runtime
@@ -851,7 +851,7 @@ fn matching_keys_and_copied_bindings_do_not_authorize_an_uninstalled_descriptor(
             .validate_executable_module(&forged)
             .unwrap_err()
             .kind(),
-        RuntimeErrorKind::ModuleValidation
+        RuntimeErrorKind::StaleHandle
     );
     assert!(
         runtime

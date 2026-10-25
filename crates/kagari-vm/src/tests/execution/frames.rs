@@ -26,7 +26,7 @@ fn foreign_loaded_module_is_rejected_before_execution() {
     assert_eq!(foreign.key(), local.key());
     let vm = Vm::new(second);
     assert!(
-        matches!(vm.execute(&foreign, ProgramEntry::Main), Err(VmError::RuntimeError(ref error)) if error.kind() == RuntimeErrorKind::ModuleValidation)
+        matches!(vm.execute(&foreign, ProgramEntry::Main), Err(VmError::RuntimeError(ref error)) if error.kind() == RuntimeErrorKind::StaleHandle)
     );
     assert_eq!(
         vm.execute(&local, ProgramEntry::Main)

@@ -283,7 +283,10 @@ fn generic_interface_slot_requires_instantiated_method_layout() {
             .clone();
     assert!(matches!(
         verify_program(&wrong_instance, &context.snapshot(), &Default::default()),
-        Err(BytecodeVerificationError::InvalidInterfaceTable)
+        Err(BytecodeVerificationError::InvalidOperation {
+            reason: "invalid collection access flow",
+            ..
+        })
     ));
 }
 

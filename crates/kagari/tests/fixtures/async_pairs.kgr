@@ -1,0 +1,14 @@
+use core::task::{join, try_join};
+
+async fn ok(value: i32) -> Result<i32, String> { Ok(value) }
+async fn fail() -> Result<i32, String> { Err("original") }
+
+pub async fn run() -> i32 {
+    val (a, b) = join(async { 3 }, async { 4 }).await;
+    val success = try_join(ok(a), ok(b)).await;
+    val failure = try_join(ok(99), fail()).await;
+    match failure {
+        Err(_) => match success { Ok((x, y)) => x * 10 + y, Err(_) => 0 },
+        Ok(_) => 0,
+    }
+}

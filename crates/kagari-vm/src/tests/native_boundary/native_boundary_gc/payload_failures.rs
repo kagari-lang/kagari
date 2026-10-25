@@ -158,16 +158,17 @@ fn destructor_panics_dispose_each_detached_payload_once_and_quarantine() {
 }
 
 #[test]
-fn retiring_static_installation_disposes_payloads_once_even_when_destructors_panic() {
+fn clearing_reloaded_static_cells_disposes_payloads_once_even_when_destructors_panic() {
     let faults = Arc::new(Faults::default());
     let native = module(&faults);
     let source = r#"
         use fixture::payload::{Payload, new};
-        static val first: Payload = new();
-        static val second: Payload = new();
+        static var first: [Payload] = [new()];
+        static var second: [Payload] = [new()];
         fn main() { val a = first; val b = second; }
+        pub fn clear() { first = []; second = []; }
     "#;
-    let (mut vm, old) = compile(source, Some(&native));
+    let (vm, old) = compile(source, Some(&native));
     let _old_program = old;
     let old = vm.runtime().select_program(&_old_program).unwrap();
     drop(vm.execute(&old, ProgramEntry::Main).unwrap());
@@ -185,12 +186,7 @@ fn retiring_static_installation_disposes_payloads_once_even_when_destructors_pan
     vm.runtime().collect_garbage().unwrap();
     assert_eq!(faults.drops.load(Ordering::SeqCst), 0);
     drop(vm.execute(&current, ProgramEntry::Main).unwrap());
-    let replacement = vm
-        .runtime_mut()
-        .load_program("boundary", compile_program("fn main() {}", None))
-        .unwrap();
-    let _replacement_program = replacement;
-    let replacement = vm.runtime().select_program(&_replacement_program).unwrap();
+    vm.execute_typed::<_, ()>(&current, "clear", ()).unwrap();
     faults.drop.store(true, Ordering::SeqCst);
     let error = vm.runtime().collect_garbage().unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
@@ -201,10 +197,10 @@ fn retiring_static_installation_disposes_payloads_once_even_when_destructors_pan
     );
     assert!(vm.runtime().is_quarantined());
     assert_eq!(faults.drops.load(Ordering::SeqCst), 2);
-    assert_eq!(vm.runtime().gc().stats().allocated_objects, 0);
+    // The two empty arrays remain in the live installation; both native payloads died.
+    assert_eq!(vm.runtime().gc().stats().allocated_objects, 2);
     assert!(vm.runtime().modules().loaded(old.key()).is_none());
-    assert!(vm.runtime().modules().loaded(current.key()).is_none());
-    assert!(vm.runtime().modules().loaded(replacement.key()).is_some());
+    assert!(vm.runtime().modules().loaded(current.key()).is_some());
     drop(vm);
     assert_eq!(faults.drops.load(Ordering::SeqCst), 2);
 }

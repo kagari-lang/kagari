@@ -339,7 +339,7 @@ fn native_function_values_cannot_invent_a_missing_nested_application() {
 }
 
 #[test]
-fn a_boxed_native_entry_releases_its_obsolete_program_after_last_root() {
+fn a_boxed_named_native_entry_does_not_retain_its_obsolete_program() {
     let mut module = ModuleBuilder::new(
         "example::boxed",
         &StandardDeclarations::default().catalog().unwrap(),
@@ -397,13 +397,14 @@ fn a_boxed_native_entry_releases_its_obsolete_program_after_last_root() {
     vm.reload_program(&_old_program, Some("cycle".into()), program)
         .unwrap();
     assert!(
-        !vm.runtime()
+        vm.runtime()
             .collect_garbage()
             .unwrap()
             .reclaimed_modules
             .contains(&old.key())
     );
-    let callback: Add = ConversionContext::new(vm.runtime(), &old)
+    let current = vm.runtime().select_program(&_old_program).unwrap();
+    let callback: Add = ConversionContext::new(vm.runtime(), &current)
         .unwrap()
         .decode(&root)
         .unwrap();
@@ -411,5 +412,5 @@ fn a_boxed_native_entry_releases_its_obsolete_program_after_last_root() {
     drop((callback, root));
     let collected = vm.runtime().collect_garbage().unwrap();
     assert_eq!(collected.live_objects, 0);
-    assert!(collected.reclaimed_modules.contains(&old.key()));
+    assert!(collected.reclaimed_modules.is_empty());
 }

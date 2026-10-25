@@ -217,13 +217,14 @@ fn old_callback_cycle_is_retained_only_by_external_roots() {
     assert_eq!(snapshot.implementation.key(), old.key());
     let implementation = snapshot.implementation.clone();
     drop(snapshot);
+    // Retained closure bodies do not pin ordinary named calls to old code.
     assert_eq!(
         vm.execute(&implementation, "answer")
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
             .expect("retained execution result"),
-        Value::I32(42)
+        Value::I32(99)
     );
     drop(root);
     let collected = vm.runtime().collect_garbage().unwrap();

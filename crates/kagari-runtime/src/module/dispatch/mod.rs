@@ -287,26 +287,37 @@ impl Runtime {
             }
             current
         };
-        let (owner, target) = match &route.selection {
-            RouteSelection::BodyOwned => {
-                let owner = self
-                    .modules
-                    .loaded(route.origin)
-                    .filter(|owner| owner.publication_token() == token)
-                    .ok_or_else(|| invalid("retained callable body was released"))?;
-                (owner, route.target)
-            }
-            selection => {
-                let (module, target) = root.program.dispatch.tables.select(
-                    &root.program.dispatch.scope,
-                    &route.scope,
-                    selection,
-                    &CancellationToken::default(),
-                )?;
-                let owner = root
-                    .member(module)
-                    .ok_or_else(|| invalid("current target module"))?;
-                (owner, target)
+        // A linked route already names the exact target in its publication. Only
+        // crossing publications needs declaration correspondence and selection.
+        let (owner, target) = if root.publication_token() == token {
+            let owner = self
+                .modules
+                .loaded(route.origin)
+                .filter(|owner| owner.publication_token() == token)
+                .ok_or_else(|| invalid("linked callable body was released"))?;
+            (owner, route.target)
+        } else {
+            match &route.selection {
+                RouteSelection::BodyOwned => {
+                    let owner = self
+                        .modules
+                        .loaded(route.origin)
+                        .filter(|owner| owner.publication_token() == token)
+                        .ok_or_else(|| invalid("retained callable body was released"))?;
+                    (owner, route.target)
+                }
+                selection => {
+                    let (module, target) = root.program.dispatch.tables.select(
+                        &root.program.dispatch.scope,
+                        &route.scope,
+                        selection,
+                        &CancellationToken::default(),
+                    )?;
+                    let owner = root
+                        .member(module)
+                        .ok_or_else(|| invalid("current target module"))?;
+                    (owner, target)
+                }
             }
         };
         self.validate_executable_module(&owner)?;

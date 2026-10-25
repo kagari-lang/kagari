@@ -6,18 +6,21 @@ use kagari_bytecode::{
     module::RootSlotLayout,
     program::{BytecodeProgram, verify_program},
 };
-use kagari_contract::{callable::generic::GenericBody, standard::RuntimePrimitive};
+use kagari_contract::standard::RuntimePrimitive;
 use kagari_types::{
     scalar::BuiltinType,
-    ty::{GenericParam, Ty, substitution::MAX_TYPE_DEPTH},
+    ty::{Ty, substitution::MAX_TYPE_DEPTH},
 };
 
 fn verify_source_free_fixture(
     context: &DefinitionContext,
     valid: &BytecodeProgram,
-    forged: BytecodeProgram,
+    mut forged: BytecodeProgram,
     expected: Result<(), BytecodeVerificationError>,
 ) {
+    if expected.is_ok() {
+        common::project_bytecode(context, &mut forged);
+    }
     assert_eq!(
         verify_program(&forged, &context.snapshot(), &Default::default()),
         expected
@@ -25,7 +28,9 @@ fn verify_source_free_fixture(
     let base = if expected.is_ok() {
         forged.clone()
     } else {
-        valid.clone()
+        let mut base = valid.clone();
+        common::project_bytecode(context, &mut base);
+        base
     };
     let mut artifact =
         KbcArtifact::from_program(base, Default::default(), context, &Default::default()).unwrap();
@@ -294,51 +299,38 @@ fn inferred_type_storage_is_bounded_but_cfg_copies_share_charged_trees() {
 #[test]
 fn unused_generic_parameters_cannot_hide_a_scalar_layout_by_omitting_the_home_type() {
     let context = DefinitionContext::new().unwrap();
-    let mut valid = common::adopt_bytecode(
+    let valid = common::adopt_bytecode(
         &context,
-        common::bytecode_ok("fn probe(value: i32) {} fn main() {}"),
+        common::bytecode_ok(
+            "trait Ignore { fn probe<T>(self, value: T) {} } impl Ignore for i32 {} fn main() { val receiver: Ignore = 1; receiver.probe(1); }",
+        ),
     );
-    let module = &mut valid.modules[valid.root.index()];
-    module.types.push(ValueType::Generic);
-    let function = module
+    let function = valid.modules[valid.root.index()]
         .functions
-        .iter_mut()
-        .find(|function| function.name == "probe")
+        .iter()
+        .find(|function| {
+            function.metadata.semantic.generic.is_some()
+                && context
+                    .snapshot()
+                    .resolve(function.identity.as_ref().unwrap().declaration)
+                    .unwrap()
+                    .last()
+                    .is_some_and(|part| part.name == "probe")
+        })
         .unwrap();
-    let parameter = GenericParam {
-        owner: function.identity.as_ref().unwrap().declaration,
-        position: 0,
-    };
-    let home = function.metadata.parameter_slots[0];
-    function.metadata.semantic.generic = Some(GenericBody {
-        parameters: vec![parameter.clone()],
-        bounds: vec![],
-    });
-    function
-        .metadata
-        .semantic
-        .params
-        .insert(0, parameter.as_type());
-    function
-        .metadata
-        .semantic
-        .slots
-        .insert(home.index(), parameter.as_type());
-    function.metadata.params[0] = ValueType::Generic;
-    function.metadata.slots[home.index()] = ValueType::Generic;
-    function.metadata.roots = RootSlotLayout::from_types(&function.metadata.slots);
-    replace_fixture_code(function, vec![BytecodeInstruction::Return(None)]);
+    let home = function.metadata.parameter_slots[1];
+    assert!(function.metadata.semantic.generic.is_some());
+    assert_eq!(function.metadata.params[1], ValueType::Generic);
     let id = function.id;
-    module.function_table[id.index()].params[0] = ValueType::Generic;
     verify_source_free_fixture(&context, &valid, valid.clone(), Ok(()));
     let mut forged = valid.clone();
     let module = &mut forged.modules[forged.root.index()];
     let function = &mut module.functions[id.index()];
     function.metadata.semantic.slots.remove(&home.index());
-    function.metadata.params[0] = ValueType::I32;
+    function.metadata.params[1] = ValueType::I32;
     function.metadata.slots[home.index()] = ValueType::I32;
     function.metadata.roots = RootSlotLayout::from_types(&function.metadata.slots);
-    module.function_table[id.index()].params[0] = ValueType::I32;
+    module.function_table[id.index()].params[1] = ValueType::I32;
     let expected = Err(BytecodeVerificationError::InvalidOperation {
         function: id,
         reason: "invalid collection access flow",

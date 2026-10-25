@@ -19,7 +19,7 @@ use kagari_contract::{
     native_import::NativeImport,
     types::{
         ConcreteFunctionIdentity, PublicItem,
-        named::{NamedContract, NamedDeclaration},
+        named::{ImplementationContract, NamedContract, NamedDeclaration},
     },
     updates::{BodyClassification, SourceRecord, SourceToken, StaticInitializer, UpdateEvidence},
 };
@@ -116,7 +116,7 @@ fn evidence(modules: &mut [BytecodeModule], context: &DefinitionContext) -> Upda
         for declaration in &module.named_declarations {
             assert!(
                 !matches!(&declaration.contract, NamedContract::Function(function) if !function.generic_params.is_empty())
-                    && !matches!(&declaration.contract, NamedContract::Implementation(_)),
+                    && !matches!(&declaration.contract, NamedContract::Implementation(header) if !header.generic_params.is_empty() || !header.bounds.is_empty()),
                 "fixture must supply genuine generic/implementation source evidence through its producer"
             );
             if !matches!(declaration.contract, NamedContract::Alias(_)) {
@@ -183,6 +183,30 @@ fn prepare(
     classifications: &mut HashMap<ConcreteFunctionIdentity, BodyClassification>,
 ) {
     let root = context.intern_root(&module.identity).unwrap();
+    for item in &module.public_items {
+        let PublicItem::InterfaceTable(table) = item else {
+            continue;
+        };
+        if table.bridge.is_none()
+            && !module
+                .named_declarations
+                .iter()
+                .any(|record| record.declaration == table.declaration)
+        {
+            module.named_declarations.push(NamedDeclaration {
+                declaration: table.declaration,
+                visibility: Visibility::Private,
+                ambiguous_local_body: None,
+                contract: NamedContract::Implementation(ImplementationContract {
+                    bridge: None,
+                    generic_params: table.generic_params.clone(),
+                    bounds: table.bounds.clone(),
+                    receiver: table.for_type.clone(),
+                    trait_type: Some(table.trait_type.clone()),
+                }),
+            });
+        }
+    }
     for item in &module.public_items {
         let (kind, name, contract) = match item {
             PublicItem::Function(function) => (

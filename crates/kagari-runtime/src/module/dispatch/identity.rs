@@ -210,7 +210,12 @@ impl PublicationMapping {
             return Err(invalid("foreign publication mapping"));
         }
         let mut chosen = HashMap::new();
-        for id in preferred {
+        // Exact transport retains each original ID; no preferred correspondence
+        // is consulted by map() in this case.
+        for id in preferred
+            .into_iter()
+            .filter(|_| source.token != target.token)
+        {
             let stable = target.stable_declaration(id)?;
             if chosen.insert(stable, id).is_some_and(|old| old != id) {
                 return Err(invalid("ambiguous selected binder correspondence"));

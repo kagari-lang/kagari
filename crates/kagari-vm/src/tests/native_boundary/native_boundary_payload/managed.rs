@@ -633,10 +633,19 @@ fn generic_managed_fields_keep_their_argument_scope_across_native_calls_and_bind
         .runtime()
         .bind_type(&_new_program.root(), "Item", &[])
         .unwrap();
+    assert!(
+        vm.runtime()
+            .bind_native_type::<Managed<()>>(
+                &_old_program.root(),
+                &ty,
+                slice::from_ref(new_item.type_argument())
+            )
+            .is_err()
+    );
     let scoped_type = vm
         .runtime()
         .bind_native_type::<Managed<()>>(
-            &_old_program.root(),
+            &_new_program.root(),
             &ty,
             slice::from_ref(new_item.type_argument()),
         )

@@ -10,13 +10,12 @@ use crate::{
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::instruction::BytecodeInstruction;
 use kagari_bytecode::instruction::ConstructionTarget as BytecodeConstruction;
-use kagari_common::{identity::map::DefinitionContext, span::Span};
-use kagari_contract::{operations::BinaryOp, types::PublicItem};
+use kagari_common::identity::map::DefinitionContext;
+use kagari_contract::operations::BinaryOp;
 use kagari_hir::aggregates::implementations::ImplementationSearchError;
 use kagari_mir::instruction::ConstructionTarget as MirConstruction;
 use kagari_mir::{
     function::MirFunction,
-    ids::TempId,
     instruction::{CallTarget, Instruction, MirValue, RuntimeHelper, Terminator},
     verify::MirVerificationErrorKind,
 };
@@ -1038,55 +1037,9 @@ fn terminator_values(terminator: &Terminator) -> Vec<MirValue> {
 fn verified_interface_instruction_lowers_to_a_linked_table_slot() {
     let context = DefinitionContext::new().unwrap();
 
-    let checked = common::program_ok("trait Tag {} impl Tag for i32 {} fn main() -> i32 { 7 }");
+    let checked = common::program_ok("trait Tag {} impl Tag for i32 {} fn main() -> Tag { 7 }");
     let original = lower_to_mir(checked.root(), &Default::default()).unwrap();
     let mut module = common::adopt(&context, original.into_unverified());
-    let declaration = module
-        .abi
-        .public_items
-        .iter()
-        .find_map(|item| match item {
-            PublicItem::InterfaceTable(table) => Some(table.declaration),
-            _ => None,
-        })
-        .unwrap();
-    let function = module
-        .functions
-        .iter_mut()
-        .find(|function| function.name == "main")
-        .unwrap();
-    let block = function
-        .blocks
-        .iter_mut()
-        .find(|block| matches!(block.terminator, Some(Terminator::Return(Some(_)))))
-        .unwrap();
-    let Some(Terminator::Return(Some(value))) = block.terminator else {
-        unreachable!()
-    };
-    let dst = MirValue {
-        temp: TempId::new(function.temps.len()),
-        ty: ValueType::HeapObject,
-    };
-    function
-        .temps
-        .push(kagari_mir::function::MirTemp { ty: dst.ty });
-    let instruction = Instruction::MakeInterface {
-        dst,
-        value,
-        target: MirConstruction::Declared {
-            arguments: Vec::new(),
-            implementation: declaration,
-            operations: vec![],
-            constructions: vec![],
-        },
-    };
-    function.effects = function.effects.union(instruction.effects());
-    block.instructions.push(instruction);
-    block.instruction_spans.push(Span::default());
-    block
-        .instruction_scopes
-        .push(block.terminator_scope.unwrap());
-
     let verified = common::verify_edited(&context, module.clone()).unwrap();
     let bytecode = common::adopt_bytecode(
         &context,

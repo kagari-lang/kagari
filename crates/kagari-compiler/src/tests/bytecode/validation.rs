@@ -960,6 +960,9 @@ fn entry_backedges_meet_parameter_access_facts_without_a_declared_home_type() {
         } else {
             Ok(())
         };
+        if !incompatible {
+            common::project_bytecode(&context, &mut forged);
+        }
         assert_eq!(
             verify_program(&forged, &context.snapshot(), &Default::default()),
             expected
@@ -1023,6 +1026,7 @@ fn verifier_rejects_malformed_debug_metadata() {
             ty: function.metadata.slots[0],
             is_parameter: false,
         });
+    common::project_bytecode(&context, &mut bytecode);
     verify_program(&bytecode, &context.snapshot(), &Default::default()).unwrap();
 
     for mutation in 0..3 {

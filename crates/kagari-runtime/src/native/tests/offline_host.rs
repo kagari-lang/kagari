@@ -366,9 +366,12 @@ fn offline_encoding_is_canonical_and_rejects_invalid_input() {
     let mut old_version = first;
     old_version[4..6].copy_from_slice(&0_u16.to_le_bytes());
     assert!(KbcArtifact::from_bytes(&old_version).is_err());
-    let mut duplicate = original.records().clone();
-    duplicate.functions.push(duplicate.functions[0].clone());
-    let duplicate = free_function_program(&scoped(original.definitions(), duplicate));
+    let (definitions, mut duplicate) = free_function_program(&original).into_parts();
+    let module = &mut duplicate.modules[0];
+    module
+        .native_declarations
+        .push(module.native_declarations[0].clone());
+    let duplicate = scoped(&definitions, duplicate);
     let context = DefinitionContext::new().unwrap();
     let duplicate = duplicate
         .import_into(&context, &Default::default())

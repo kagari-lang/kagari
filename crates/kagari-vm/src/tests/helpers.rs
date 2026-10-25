@@ -161,8 +161,11 @@ fn path_module(
     constants: Vec<ConstantOperand>,
 ) -> DefinitionMetadata<BytecodeModule> {
     let provider = player_module();
-    let (definitions, mut program) =
-        native_program::free_function_program(&provider.to_declaration()).into_parts();
+    let context = DefinitionContext::new().unwrap();
+    let (_, mut program) = native_program::free_function_program(&provider.to_declaration())
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_parts();
     let module = program.modules.remove(0);
     let metadata = FunctionMetadata {
         slots: [
@@ -181,9 +184,10 @@ fn path_module(
         ..Default::default()
     };
     let root = module.external_types[0].declaration;
-    let field = definitions
-        .lookup_child(root, DefinitionKind::Field, "hp", 0)
+    let field = context
+        .intern_child(root, DefinitionKind::Field, "hp", 0)
         .unwrap();
+    let definitions = context.snapshot();
     let path = HostPathDeclaration {
         root,
         segments: vec![HostPathSegmentDeclaration::Field(field)],

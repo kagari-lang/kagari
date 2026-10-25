@@ -45,17 +45,7 @@ fn source_free_structured_pair_contract() {
         .join("target/fixtures/async_pairs.kbc");
     #[cfg(feature = "source")]
     {
-        let source = r#"
-use core::task::{join,try_join};
-async fn ok(value:i32) -> Result<i32,String> { Ok(value) }
-async fn fail() -> Result<i32,String> { Err("original") }
-pub async fn run() -> i32 {
-    val (a,b)=join(async { 3 },async { 4 }).await;
-    val success=try_join(ok(a),ok(b)).await;
-    val failure=try_join(ok(99),fail()).await;
-    match failure { Err(_) => match success { Ok((x,y)) => x*10+y, Err(_) => 0 }, Ok(_) => 0 }
-}
-"#;
+        let source = include_str!("../fixtures/async_pairs.kgr");
         let artifact = engine
             .compile_to_artifact(
                 SourceFile::new("memory://async-pairs.kgr", source),
