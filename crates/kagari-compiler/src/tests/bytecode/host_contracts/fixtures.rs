@@ -5,7 +5,7 @@ use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
 };
-use kagari_contract::types::PublicItem;
+use kagari_contract::types::{PublicItem, named::NamedContract};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{
@@ -207,6 +207,15 @@ pub(super) fn replace_readable_result(program: &mut BytecodeProgram, result: Ty)
     };
     trait_type.arguments = vec![result.clone()];
     table.methods[0].return_type = result.clone();
+    for record in &mut provider.named_declarations {
+        if record.declaration == table.declaration {
+            let NamedContract::Implementation(header) = &mut record.contract else {
+                panic!("implementation header")
+            };
+            header.trait_type = Some(table.trait_type.clone());
+        }
+    }
+
     for declaration in &mut provider.native_declarations {
         if declaration.function.name == "get" {
             declaration.function.return_type = result.clone();

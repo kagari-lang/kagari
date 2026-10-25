@@ -1,7 +1,7 @@
 use crate::tests::bytecode::*;
 use kagari_bytecode::program::{ModuleRef, verify_program};
 use kagari_common::identity::{ModuleIdentity, PackageId};
-use kagari_contract::types::verify;
+use kagari_contract::types::{named::NamedContract, verify};
 use kagari_types::{
     declaration::{
         TypeDeclaration,
@@ -159,6 +159,16 @@ fn public_host_trait_tables_are_rechecked_after_artifact_decode() {
             }
             "method" => host.methods.clear(),
             _ => unreachable!(),
+        }
+        let declaration = host.declaration;
+        let trait_type = host.trait_type.clone();
+        for record in &mut forged.program.modules[provider].named_declarations {
+            if record.declaration == declaration {
+                let NamedContract::Implementation(header) = &mut record.contract else {
+                    panic!("implementation header")
+                };
+                header.trait_type = Some(trait_type.clone());
+            }
         }
         let decoded = KbcArtifact::from_bytes(&forged.to_bytes(&context.snapshot()).unwrap())
             .map(|metadata| common::adopt(&context, metadata))

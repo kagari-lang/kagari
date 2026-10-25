@@ -1,6 +1,11 @@
 use super::*;
 use crate::test_support::native::program::{ProgramFixture, certify};
-use crate::value::EnumTag;
+use crate::{
+    module::dispatch::CallRouteKind,
+    test_support::update_programs,
+    value::{EnumTag, Value},
+};
+use kagari_bytecode::module::CallableTarget;
 use kagari_bytecode::{
     artifact::KbcArtifact,
     instruction::{CallTarget, EnumId},
@@ -211,16 +216,10 @@ fn source_free_verification_rejects_forged_static_contracts_and_initializer_auth
 #[test]
 fn persistent_cell_callback_cycles_follow_joint_graph_edges_and_retirement() {
     let mut runtime = Runtime::default();
-    let callback = Ty::Function {
-        params: vec![],
-        result: Box::new(Ty::Builtin(BuiltinType::Unit)),
-    };
-    let code = program(callback, true);
+    let code = callback_program();
     let old_program = runtime.load_program("callbacks", code.clone()).unwrap();
     let old = runtime.select_program(&old_program).unwrap();
-    let closure = runtime
-        .make_closure(&old, FunctionRef::new(0), vec![], None)
-        .unwrap();
+    let closure = retained_callback(&runtime, &old);
     ready(&runtime, &old, 0, closure);
     let candidate = runtime
         .stage_reload_program(&old_program, None, code.clone())
@@ -234,9 +233,7 @@ fn persistent_cell_callback_cycles_follow_joint_graph_edges_and_retirement() {
             .reclaimed_modules
             .contains(&old.key())
     );
-    let replacement = runtime
-        .make_closure(&current, FunctionRef::new(0), vec![], None)
-        .unwrap();
+    let replacement = retained_callback(&runtime, &current);
     runtime
         .write_module_slot(&current, ModuleSlot::new(0), replacement)
         .unwrap();
@@ -426,23 +423,13 @@ fn allocation_failure_invalidates_candidate_records_without_touching_published_c
 #[test]
 fn cycles_between_retired_installation_cells_are_collectible_together() {
     let mut runtime = Runtime::default();
-    let code = program(
-        Ty::Function {
-            params: vec![],
-            result: Box::new(Ty::Builtin(BuiltinType::Unit)),
-        },
-        true,
-    );
+    let code = callback_program();
     let left_program = runtime.load_program("left", code.clone()).unwrap();
     let left = runtime.select_program(&left_program).unwrap();
     let right_program = runtime.load_program("right", code.clone()).unwrap();
     let right = runtime.select_program(&right_program).unwrap();
-    let from_left = runtime
-        .make_closure(&left, FunctionRef::new(0), vec![], None)
-        .unwrap();
-    let from_right = runtime
-        .make_closure(&right, FunctionRef::new(0), vec![], None)
-        .unwrap();
+    let from_left = retained_callback(&runtime, &left);
+    let from_right = retained_callback(&runtime, &right);
     ready(&runtime, &left, 0, from_right);
     ready(&runtime, &right, 0, from_left);
     let root = runtime.root_value(from_left).unwrap();
@@ -460,4 +447,27 @@ fn cycles_between_retired_installation_cells_are_collectible_together() {
     assert!(reclaimed.reclaimed_modules.contains(&right.key()));
     assert_eq!(reclaimed.live_objects, 0);
     assert!(runtime.modules.inner.borrow().cells.is_empty());
+}
+
+fn callback_program() -> DefinitionMetadata<BytecodeProgram> {
+    update_programs::bytecode("static var state: fn() -> () = || {}; fn main() {}", None)
+}
+
+fn retained_callback(runtime: &Runtime, module: &ExecutableModule) -> Value {
+    let function = module
+        .bytecode
+        .functions
+        .iter()
+        .find(|function| {
+            function.metadata.return_type == ValueType::Unit
+                && module
+                    .bind_call_route(CallableTarget::Script(function.id))
+                    .unwrap()
+                    .kind()
+                    == CallRouteKind::BodyOwned
+        })
+        .unwrap();
+    runtime
+        .make_closure(module, function.id, vec![], None)
+        .unwrap()
 }

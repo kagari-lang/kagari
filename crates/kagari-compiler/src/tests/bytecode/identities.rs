@@ -12,7 +12,7 @@ fn executable_function_identities_survive_lowering_and_reject_mismatched_records
     let module = common::adopt_bytecode(
         &context,
         common::bytecode_ok(
-            "fn id<T>(value: T) -> T { value } fn other() -> i32 { 2 } fn main() -> i32 { id(1) + other() }",
+            "fn id<T>(value: T) -> T { value } fn other(value: i32) -> i32 { value } fn main() -> i32 { id(1) + other(2) }",
         ),
     );
     assert!(

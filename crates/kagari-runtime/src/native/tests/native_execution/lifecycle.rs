@@ -6,7 +6,10 @@ mod probes;
 
 fn scoped_program(name: &str) -> DefinitionMetadata<BytecodeProgram> {
     let context = DefinitionContext::new().unwrap();
-    let mut raw = program().into_records();
+    let mut raw = program()
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
     let root = context.intern_root(&raw.modules[0].identity).unwrap();
     raw.modules[0].structures.push(StructLayout {
         declaration: context

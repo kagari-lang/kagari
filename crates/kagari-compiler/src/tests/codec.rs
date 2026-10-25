@@ -21,7 +21,7 @@ use kagari_mir::{
     codec::{MIR_FORMAT_VERSION, MIR_MAGIC, MirCodecError, decode_program, encode_program},
     function::MirModule,
     instruction::{Constant, Instruction},
-    program::{VerifiedMirProgram, records::MirProgram, verify_program},
+    program::{VerifiedMirProgram, records::MirProgram, updates as mir_updates, verify_program},
     verify::MirVerificationErrorKind,
 };
 use std::sync::Arc;
@@ -304,6 +304,7 @@ fn native_preparation_requires_canonical_semantics_not_independent_valid_payload
                 *negated = !*negated;
             }
         }
+        common::project_bytecode(&context, &mut changed_origin);
         let changed_origin =
             VerifiedBytecodeProgram::new(changed_origin, &context, &Default::default()).unwrap();
         assert!(matches!(
@@ -397,6 +398,13 @@ fn codec_preserves_float_bits_and_constant_pool_identity() {
                 }
             }
             assert!(bits.next().is_none());
+            modules.update_evidence = mir_updates::refresh(
+                &modules.modules,
+                &modules.update_evidence,
+                &context.snapshot(),
+                &Default::default(),
+            )
+            .unwrap();
             let original = verify_program(modules, &context, &Default::default()).unwrap();
             let wire = encode_program(&original, &Default::default()).unwrap();
             let bytecode = VerifiedBytecodeProgram::new(
@@ -428,6 +436,7 @@ fn codec_preserves_float_bits_and_constant_pool_identity() {
                     constant => panic!("expected float constant, got {constant:?}"),
                 }
             }
+            common::project_bytecode(&context, &mut changed);
             let changed =
                 VerifiedBytecodeProgram::new(changed, &context, &Default::default()).unwrap();
             assert!(matches!(

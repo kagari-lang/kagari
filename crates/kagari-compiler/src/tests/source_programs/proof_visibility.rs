@@ -101,6 +101,21 @@ fn linked_proofs_use_each_modules_dependency_visibility() {
             .intern_child(owner, DefinitionKind::Impl, "", 0)
             .unwrap();
         table.declaration = declaration;
+        for record in &mut competing.named_declarations {
+            if record.declaration == original {
+                record.declaration = declaration;
+            }
+        }
+        let mut source = program
+            .update_evidence
+            .sources
+            .iter()
+            .find(|source| source.declaration == original)
+            .unwrap()
+            .clone();
+        source.declaration = declaration;
+        program.update_evidence.sources.push(source);
+
         for linked in &mut competing.interface_tables {
             if linked.declaration == original {
                 linked.declaration = declaration;
@@ -112,6 +127,9 @@ fn linked_proofs_use_each_modules_dependency_visibility() {
         .dependencies
         .push(competing_slot);
     program.modules.push(competing);
+    // This source-free sibling has no authored document anchor.
+    program.update_evidence.source_manifest = None;
+    crate::tests::common::project_bytecode(&context, &mut program);
     verify_program(&program, &context.snapshot(), &Default::default()).unwrap();
 
     // Making that same competing implementation visible introduces an actual

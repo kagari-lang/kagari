@@ -254,13 +254,15 @@ fn char_codec_roundtrips_scalar_endpoints_and_rejects_invalid_payloads() {
         .enumerate()
         .filter_map(|(index, window)| (window == needle).then_some(index))
         .collect();
-    assert_eq!(positions.len(), 1);
+    // The executable and its canonical/actual evidence each retain the constant.
+    assert_eq!(positions.len(), 3);
     for payload in [
         &[0xed, 0xa0, 0x80][..],         // U+D800 surrogate
         &[0xf4, 0x90, 0x80, 0x80],       // U+110000
         &[0xc0, 0x80],                   // overlong NUL
         &[0xf8, 0x80, 0x80, 0x80, 0x80], // oversized scalar
     ] {
+        // Modules precede evidence in ProgramRecord: mutate the executable char.
         let mut invalid = bytes.clone();
         let start = positions[0] + 4; // appended enum tag, followed by UTF-8
         invalid.splice(start..positions[0] + needle.len(), payload.iter().copied());
@@ -429,11 +431,13 @@ fn whole_program_analysis_budget_cannot_be_reset_by_splitting_modules() {
         .map(|index| {
             let mut module = module(&context, &format!("member{index}"));
             let function = &mut module.functions[0];
+            // Keep each canonical layout operand within its evidence byte limit;
+            // grow point count instead to exhaust the aggregate analysis matrix.
             function.temps = vec![
                 MirTemp {
                     ty: ValueType::Unit
                 };
-                32_768
+                512
             ];
             let block = &mut function.blocks[0];
             block.instructions = vec![
@@ -444,10 +448,10 @@ fn whole_program_analysis_budget_cannot_be_reset_by_splitting_modules() {
                     },
                     constant: Constant::Unit,
                 };
-                256
+                16_384
             ];
-            block.instruction_spans = vec![Default::default(); 256];
-            block.instruction_scopes = vec![0; 256];
+            block.instruction_spans = vec![Default::default(); 16_384];
+            block.instruction_scopes = vec![0; 16_384];
             module
         })
         .collect::<Vec<_>>();

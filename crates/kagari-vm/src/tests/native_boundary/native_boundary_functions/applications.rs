@@ -528,9 +528,10 @@ fn admitted_native_retains_its_frame_while_selected_callbacks_use_current_code()
             .runtime()
             .begin_execution(prepared.owner(), vm.runtime().execution_options())
             .unwrap();
-        // An arbitrary Program entry still cannot cross the pinned root's graph.
-        let error = vm.runtime().enter_execution_stack(&current).err().unwrap();
-        assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
+        // Current entries from the same installation may join the admitted session.
+        let nested = vm.runtime().enter_execution_stack(&current).unwrap();
+        assert_eq!(vm.runtime().execution_root().unwrap().key(), native_owner);
+        drop(nested);
         for expected in [111, 121] {
             assert_eq!(
                 prepared

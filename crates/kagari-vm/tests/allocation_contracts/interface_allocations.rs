@@ -5,7 +5,7 @@ use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
 use kagari_common::identity::DefinitionKind;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::analysis::AnalysisDatabase;
-use kagari_runtime::{Runtime, module::ExecutableModule, value::Value};
+use kagari_runtime::{Runtime, RuntimeConfig, module::ExecutableModule, value::Value};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib as foundation;
 use kagari_vm::vm::Vm;
@@ -51,7 +51,7 @@ fn unused_interface_methods_do_not_increase_repeated_dispatch_allocations() {
                 ..
             }
         )));
-        let mut runtime = Runtime::default();
+        let mut runtime = dispatch_runtime();
         kagari_runtime::native::module::NativeModule::install_all(
             &kagari_stdlib::modules().unwrap(),
             &mut runtime,
@@ -301,7 +301,7 @@ fn load(source: &str) -> (Vm, ExecutableModule) {
     let program = lower_program_to_bytecode(&mir, &Default::default())
         .map(|program| program.into_unverified())
         .unwrap();
-    let mut runtime = Runtime::default();
+    let mut runtime = dispatch_runtime();
     kagari_runtime::native::module::NativeModule::install_all(
         &kagari_stdlib::modules().unwrap(),
         &mut runtime,
@@ -311,4 +311,13 @@ fn load(source: &str) -> (Vm, ExecutableModule) {
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     (Vm::new(runtime), loaded)
+}
+
+fn dispatch_runtime() -> Runtime {
+    // Isolate repeated dispatch from whole-program metadata collection. Wider
+    // declarations legitimately make a GC traversal larger; explicit collections
+    // below still verify that dispatch leaves no wrappers or roots behind.
+    let mut config = RuntimeConfig::default();
+    config.gc.collection_threshold = None;
+    Runtime::new(config)
 }

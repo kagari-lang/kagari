@@ -73,34 +73,7 @@ fn main() -> i32 { add(1, 2) }
 "#,
         ),
     );
-    let identity = ModuleIdentity {
-        package: PackageId("pkg".into()),
-        path: vec!["main".into()],
-    };
-    let previous = module.modules[module.root.index()].identity.clone();
-    let namespace = module.exports.namespaces.remove(&previous).unwrap();
-    module
-        .exports
-        .namespaces
-        .insert(identity.clone(), namespace);
-    common::edit_definition(&context, module.exports.entry.as_mut().unwrap(), |path| {
-        path.module = identity.clone();
-    });
-    module.modules[module.root.index()].identity = identity.clone();
-    for function in &mut module.modules[module.root.index()].functions {
-        common::edit_definition(
-            &context,
-            &mut function.identity.as_mut().unwrap().declaration,
-            |path| path.module = identity.clone(),
-        );
-    }
-    for record in &mut module.modules[module.root.index()].function_table {
-        common::edit_definition(
-            &context,
-            &mut record.identity.as_mut().unwrap().declaration,
-            |path| path.module = identity.clone(),
-        );
-    }
+    let identity = module.modules[module.root.index()].identity.clone();
     let dependency_module = BytecodeModule {
         identity: ModuleIdentity {
             package: PackageId("pkg".into()),

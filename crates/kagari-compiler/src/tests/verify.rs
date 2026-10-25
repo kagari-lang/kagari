@@ -194,8 +194,7 @@ fn layout_templates_require_scoped_instruction_arguments() {
 fn applied_nominal_abi_preserves_arguments_and_cannot_bind_to_a_bare_layout() {
     let context = DefinitionContext::new().unwrap();
 
-    let source =
-        "struct Point {} enum Event { Data(Point) } fn main() -> Event { Event::Data(Point {}) }";
+    let source = "pub struct Point {} pub enum Event { Data(Point) } fn main() -> Event { Event::Data(Point {}) }";
     let mut module = raw(&context, source);
     let enumeration = module
         .enumerations
@@ -291,7 +290,7 @@ fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
         verify_program(&public, &context.snapshot(), &Default::default()).unwrap_err(),
         BytecodeVerificationError::InvalidEnumLayout
     );
-    let mut module = raw(&context, source);
+    let mut module = raw(&context, &format!("pub {source}"));
     let enumeration = module
         .enumerations
         .iter()
@@ -310,7 +309,7 @@ fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
         |path| path.path[0].name = "Other".into(),
     );
     assert_eq!(reject(&context, module), Error::InvalidEnumLayout);
-    let mut module = raw(&context, source);
+    let mut module = raw(&context, &format!("pub {source}"));
     let mut absent = module.enumerations[enumeration].declaration;
     common::edit_definition(&context, &mut absent, |path| {
         path.path[0].name = "Absent".into()
@@ -322,7 +321,7 @@ fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
             arguments: Vec::new(),
         });
     assert_eq!(reject(&context, module), Error::InvalidEnumLayout);
-    let mut module = raw(&context, source);
+    let mut module = raw(&context, &format!("pub {source}"));
     for instruction in module
         .functions
         .iter_mut()
@@ -354,40 +353,23 @@ fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
         }
         assert!(verify_program(&bad, &context.snapshot(), &Default::default()).is_err());
     }
-    let mut second = good.modules[good.root.index()].clone();
-    second.identity = kagari_common::identity::ModuleIdentity::single_file("second.kgr");
-    for function in &mut second.functions {
-        common::edit_definition(
-            &context,
-            &mut function.identity.as_mut().unwrap().declaration,
-            |path| path.module = second.identity.clone(),
-        );
-    }
-    for record in &mut second.function_table {
-        common::edit_definition(
-            &context,
-            &mut record.identity.as_mut().unwrap().declaration,
-            |path| path.module = second.identity.clone(),
-        );
-    }
-    second.dependencies.push(good.root);
-    let good_root = good.root;
+    let second = kagari_bytecode::module::BytecodeModule {
+        identity: kagari_common::identity::ModuleIdentity::single_file("second.kgr"),
+        enumerations: good.modules[good.root.index()].enumerations.clone(),
+        dependencies: vec![good.root],
+        ..Default::default()
+    };
+    context.intern_root(&second.identity).unwrap();
     let mut program = good;
-    program.root = ModuleRef::new(program.modules.len());
-    let previous = program.modules[good_root.index()].identity.clone();
-    let namespace = program.exports.namespaces.remove(&previous).unwrap();
-    program
-        .exports
-        .namespaces
-        .insert(second.identity.clone(), namespace);
-    common::edit_definition(&context, program.exports.entry.as_mut().unwrap(), |path| {
-        path.module = second.identity.clone();
-    });
+    let second_slot = program.modules.len();
+    program.modules[program.root.index()]
+        .dependencies
+        .push(ModuleRef::new(second_slot));
     program.modules.push(second);
     verify_program(&program, &context.snapshot(), &Default::default()).unwrap();
     // Keep local constructor operands valid so the conflicting dependency layout
     // reaches shared proof preparation, even for a never-constructed variant.
-    program.modules[program.root.index()].enumerations[enumeration].variants[1]
+    program.modules[second_slot].enumerations[enumeration].variants[1]
         .payload
         .clear();
     assert_eq!(
@@ -462,7 +444,7 @@ fn reject(context: &DefinitionContext, module: MirModule) -> Error {
 #[test]
 fn layouts_reject_duplicate_owners_and_foreign_declarations() {
     let context = DefinitionContext::new().unwrap();
-    let source = "struct P { var value: i32 } fn main() -> i32 { P { value: 42 }.value }";
+    let source = "pub struct P { var value: i32 } fn main() -> i32 { P { value: 42 }.value }";
     let mut module = raw(&context, source);
     module.structures.push(module.structures[0].clone());
     assert_eq!(reject(&context, module), Error::InvalidStructLayout);
@@ -531,6 +513,7 @@ fn field_operands_require_an_existing_owner_slot_type_and_write_permission() {
     let source = "struct P { var number: i32, val flag: bool } fn main() -> i32 { val p = P { number: 1, flag: true }; p.number = 42; p.number }";
     let mut module = raw(&context, source);
     module.structures[0].fields[0].mutable = false;
+    module.abi.private_types[0].definition.fields[0].mutable = false;
     assert_eq!(reject(&context, module), Error::ReadOnlyField);
     let mut module = raw(&context, source);
     for instruction in module

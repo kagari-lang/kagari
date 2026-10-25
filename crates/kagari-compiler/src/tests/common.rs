@@ -1,5 +1,5 @@
 use crate::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_bytecode::program::{BytecodeProgram, identity};
+use kagari_bytecode::program::{BytecodeProgram, identity, updates as bytecode_updates};
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, ModuleIdentity,
     map::DefinitionContext,
@@ -12,7 +12,7 @@ use kagari_hir::{
 };
 use kagari_mir::{
     function::MirModule,
-    program::{VerifiedMirProgram, verify_program},
+    program::{VerifiedMirProgram, updates as mir_updates, verify_program},
     verify::{MirVerificationError, VerifiedMirModule, verify_mir},
 };
 use kagari_source::{
@@ -208,6 +208,13 @@ pub fn bytecode_with_edited_root(
         .import_into(&context, &Default::default())
         .unwrap()
         .into_records();
+    members.update_evidence = mir_updates::refresh(
+        &members.modules,
+        &members.update_evidence,
+        &context.snapshot(),
+        &Default::default(),
+    )
+    .expect("edited executable evidence should project");
     let verified = verify_program(members, &context, &Default::default())
         .expect("edited program should verify");
     lower_program_to_bytecode(&verified, &Default::default())
@@ -258,6 +265,17 @@ pub fn adopt_bytecode(
     )
     .unwrap();
     program
+}
+
+/// Project deliberate executable edits before testing an independent boundary.
+pub fn project_bytecode(context: &DefinitionContext, program: &mut BytecodeProgram) {
+    program.update_evidence = bytecode_updates::project(
+        &program.modules,
+        &program.update_evidence,
+        &context.snapshot(),
+        &Default::default(),
+    )
+    .expect("edited fixture evidence");
 }
 
 /// Recheck an edited MIR fixture with its retained definition scope.

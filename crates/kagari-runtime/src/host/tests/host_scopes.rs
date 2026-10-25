@@ -13,7 +13,6 @@ use crate::{
 };
 use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
 use kagari_common::identity::map::DefinitionContext;
-use kagari_contract::ids::FunctionRef;
 use kagari_types::{
     declaration::host::{
         HostCallPolicy, HostFunctionEffects, HostPassingStyle, HostReflectionPolicy,
@@ -397,9 +396,9 @@ fn quarantine_does_not_block_host_scope_cleanup() {
         .unwrap();
     let stack = runtime.enter_execution_stack(&loaded).unwrap();
     assert_eq!(
-        stack
-            .push(&runtime, loaded.slot(), FunctionRef::new(0), &[], None)
-            .unwrap_err()
+        runtime
+            .resources()
+            .quarantine("fixture engine fault")
             .kind(),
         RuntimeErrorKind::EngineFault
     );

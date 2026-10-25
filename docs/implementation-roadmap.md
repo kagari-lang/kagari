@@ -1426,28 +1426,37 @@ using the old construction layout must be regenerated; no published compatibilit
 or format-version bump is introduced. Pages and editor-tooling passed on GitHub
 at `7548b589`; this repair still needs a new CI run.
 
-The completed CI log also reports failures outside the supplied SDK batch. These
-remain an open acceptance group; no all-green CI claim follows from this repair.
-Its other 80 failures span the artifact consumer (the binding forgery case is now
-locally repaired), bytecode, compiler, MIR, package, runtime, stdlib, VM and VM
-allocation targets. Remaining diagnostic owners are:
+The remaining failures from [CI run 40158301583](https://github.com/kagari-lang/kagari/actions/runs/40158301583)
+now pass in focused local verification: bytecode (1), compiler (27), MIR (2),
+package (1), runtime (21), stdlib (1), VM (22, including the static payload panic
+case), plus all five allocation contracts and four dispatch regression tests.
+Fixture producers retain checked source/body evidence, coherent declaration
+inventories and local definition scopes. Negative artifact/ABI checks still reject
+malformed inputs at the intended validation boundary. Codec tests account for
+canonical evidence copies and preserve aggregate analysis-budget exhaustion.
 
-- Compiler/bytecode/MIR tests: edited source-free fixtures and named declarations
-  disagree with current executable evidence; codec offsets and analysis budgets
-  also need focused fixture review. Keep negative verifier assertions at their
-  intended semantic boundary rather than accepting unrelated earlier rejection.
-- Runtime fixtures: definition-table provenance, descriptor admission diagnostics,
-  retained native code versus ordinary call selection, and retired cell/GC owners.
-- Package exports and stdlib offline contracts: generic declaration/export inventory
-  and canonical documentation-independent artifact encoding.
-- VM fixtures and allocation contracts: generic nominal environments, typed host
-  paths, callback routing, and measured warm-call allocations. Performance changes
-  require the architecture review and evidence specified by AGENTS.md.
+VM fixtures exercise explicit native frames, compatible frozen-schema reloads,
+foreign-installation rejection, retained closure bodies and current inner calls.
+Linked construction descriptors can retain their supplying publication; cleanup
+checks supersede the cache owner before asserting reclamation. Shared static cells
+retain native payloads across reload; clearing them then collecting contains both
+destructor panics, disposes each payload once and quarantines the runtime.
+Documentation changes alter source manifests, while manifest-free executable
+artifact bytes remain identical and full documented artifacts still load.
 
-Use the linked CI job's named failure filters for these groups; do not reproduce
-its full workspace sweep locally. Their post-repair state is unverified except
-for the explicitly selected checks above. The SDK batch is complete; overall CI
-acceptance remains open at these owners.
+Same-publication call selection now uses its immutable checked route and identity
+mapping without rebuilding correspondence. Installation/phase/liveness admission
+and cross-publication selection remain mandatory. All five warmed allocation
+contracts pass with their count assertions unchanged. Dispatch-width measurements
+exclude automatic whole-program GC and retain explicit collection/lifetime checks.
+Validation used Rust 1.99.1 on Linux x86_64, workspace Cargo profiles, default
+parallelism and the existing warmed workloads; no speedup is claimed.
+
+Workspace all-target Clippy, structure, formatting and diff checks pass. These
+selected checks cover the failed boundaries and directly affected dispatch
+lifetime rules, not a local workspace sweep. Publication and the new complete
+GitHub CI feature/backend/platform matrix remain pending; prior CI failures are
+not marked accepted until that exact repair commit succeeds remotely.
 
 [AGENTS.md](../AGENTS.md) owns verification policy. Local implementation checks
 select affected contracts and a small dependent regression set; full workspace
