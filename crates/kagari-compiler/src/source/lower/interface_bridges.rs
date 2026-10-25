@@ -215,6 +215,8 @@ pub(super) fn collect(
                 function.instance.clone(),
                 BodyClassification::IntrinsicAdapter(function.instance.clone()),
             ));
+            #[cfg(test)]
+            crate::source::work_metrics::body();
             functions.push(function);
         }
         abi.public_items

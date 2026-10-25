@@ -1,3 +1,6 @@
+#[cfg(test)]
+pub(crate) mod work_metrics;
+
 mod logging;
 pub mod lower;
 pub mod program;

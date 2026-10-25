@@ -19,7 +19,7 @@ use kagari_source::source_database::SourceDatabase;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::collections::HashSet;
 
-fn history(
+pub(super) fn history(
     program: &VerifiedMirProgram,
 ) -> (DefinitionMetadata<DemandEnvelope>, Vec<NamedDeclaration>) {
     let cancel = CancellationToken::default();

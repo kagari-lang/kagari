@@ -2,6 +2,7 @@ mod proof_visibility;
 mod static_lowering;
 mod type_exports;
 mod update_demands;
+mod worklist;
 
 use crate::{
     bytecode::{BytecodeLoweringError, lower_program_to_bytecode, lower_to_bytecode},

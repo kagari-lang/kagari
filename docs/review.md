@@ -863,7 +863,7 @@ Each entry records its own evidence level and validation limits.
 
 | ID | Current finding | Focused follow-up and acceptance |
 | --- | --- | --- |
-| R7 / P2 | `lower_program_to_mir` still loops over all authoring modules for each new specialization-request round. | Measure a bounded generic chain/fan-out before choosing an instance work queue or input-keyed reuse. Preserve foreign defaults/witnesses, compilation limits and final verification. Current scaling cost is unmeasured. |
+| R7 / P2 | `lower_program_to_mir` still loops over all authoring modules for each new specialization-request round; module-local instance queues already exist. | The [R7 execution plan](generic-instance-worklist-plan.md) selects retained module state and program-owned delta scheduling, beginning with bounded chain/fan-out measurements. Preserve foreign defaults/shared bodies/witnesses, compilation limits, retained-demand feedback and final verification. Implementation and phase commits are authorized; R7-01 baseline confirms repeated body generation, while replacement and matched acceptance remain pending. |
 | R8 / P2 | Body reuse compares imported functions using derived equality, including source/navigation identity; aggregate equality also compares inherent methods with their source sites. Signature-preserving edits can therefore prevent semantic reuse. | Separate semantic contracts from navigation identities. Validate signature-preserving versus contract-changing dependency edits without dropping source revision/arena validation. This is conservative invalidation, not evidence of a stale result. |
 
 Evidence owners:

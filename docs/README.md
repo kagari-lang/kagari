@@ -70,6 +70,11 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   goal explicitly unmet. Further frontend preparation work is deferred; the
   [measurements](performance-baseline.md#direct-source-preparation-2026-10-21)
   retain the evidence and limits. Full incremental compilation stays separate.
+- [Program-owned generic instance worklist](generic-instance-worklist-plan.md):
+  R7-01 through R7-04 replace whole-module demand rebuild rounds with retained
+  module state and delta scheduling, preserving shared bodies and update coverage.
+  Implementation and phase commits are authorized; R7-01 baseline and lifecycle
+  decisions are complete. Replacement and matched measurements remain pending.
 - [Bounded analysis and MIR compaction acceptance](implementation-roadmap.md#bounded-analysis-and-mir-compaction):
   R16-R18 implementation and selected local acceptance are complete. Full CI remains
   pending; [measurements](performance-baseline.md#bounded-analysis-and-mir-compaction-2026-10-21)

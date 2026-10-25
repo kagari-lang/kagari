@@ -387,6 +387,25 @@ frontend work requires a separately authorized scope. Full incremental compilati
 permanent engine reuse, R7/R8 changes, global caches, artifact pruning and AOT
 expansion remain separate.
 
+## Program-owned generic instance worklist
+
+The [R7 execution plan](generic-instance-worklist-plan.md) records the selected
+replacement for whole-module specialization-demand rebuild rounds: retain
+compilation-owned module state and process new instance/product demands. R7-01
+through R7-04 cover baseline/lifecycle decisions, resumable module lowering,
+program-level delta scheduling and focused acceptance. The user authorized
+implementation and one commit per phase on 2026-10-25; R7-01 baseline and lifecycle
+decisions are complete, and implementation continues in phase order.
+
+Module-local instance queues already exist. Preserve shared generic bodies,
+foreign defaults, checked witnesses, compilation limits, preoptimization update
+evidence and retained-demand coverage feedback; do not replace required fixed-point
+proof discovery with unchecked one-pass publication. The plan owns the sole R7
+progress ledger. Baseline counts confirm repeated body generation on bounded
+chains/fan-outs; before/after results remain pending. No startup or runtime speedup
+is claimed. R8, artifact pruning, the generated tuple-bridge update
+defect and GC work remain separate. Full validation matrices remain CI-owned.
+
 ## Bounded analysis and MIR compaction
 
 R16-R18 implementation and selected local acceptance are complete as of 2026-10-21.

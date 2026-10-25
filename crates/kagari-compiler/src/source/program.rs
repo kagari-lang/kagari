@@ -206,6 +206,8 @@ fn lower_program(
         }
     })?;
     loop {
+        #[cfg(test)]
+        crate::source::work_metrics::round();
         options.cancel.check().map_err(|_| ProgramError {
             module: Box::new(root.clone()),
             kind: ProgramErrorKind::Cancelled,
@@ -662,6 +664,8 @@ fn lower_program(
                 module: Box::new(root.clone()),
                 error,
             })?;
+            #[cfg(test)]
+            crate::source::work_metrics::candidate();
             let candidate = verify_program(
                 MirProgram {
                     root: root.clone(),

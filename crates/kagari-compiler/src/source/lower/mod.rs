@@ -151,6 +151,8 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
     bridge_identities: &'a mut BridgeIdentities,
 ) -> Result<LoweredModule, MirLoweringError> {
     identity::collect_language(context, &options.cancel)?;
+    #[cfg(test)]
+    crate::source::work_metrics::initialize();
     let mut planner = InstancePlanner::new(
         module,
         options,
@@ -266,6 +268,8 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
             };
             source_bodies.push((source, identity));
         }
+        #[cfg(test)]
+        crate::source::work_metrics::body();
         functions.push(if instance.callable.is_some() {
             function::lower_callable(origin, instance, &mut planner)?
         } else if instance.protocol.is_some() {
