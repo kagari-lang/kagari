@@ -9,6 +9,10 @@ use std::{
 pub struct Counts {
     pub requests: usize,
     pub requested_bytes: usize,
+    /// Maximum signed net requested bytes since the measurement began, including zero.
+    pub peak_net_bytes: i128,
+    /// Maximum signed net requested bytes since the last checkpoint (or scope start).
+    pub interval_peak_net_bytes: i128,
     pub net_bytes: i128,
 }
 
@@ -28,6 +32,8 @@ fn record(size: usize, released: usize, request: bool) {
             counts.requests += usize::from(request);
             counts.requested_bytes += size;
             counts.net_bytes += size as i128 - released as i128;
+            counts.peak_net_bytes = counts.peak_net_bytes.max(counts.net_bytes);
+            counts.interval_peak_net_bytes = counts.interval_peak_net_bytes.max(counts.net_bytes);
             active.set(Some(counts));
         }
     });
@@ -79,8 +85,31 @@ pub fn current() -> Option<Counts> {
     ACTIVE.with(Cell::get)
 }
 
-/// Count allocator requests and net requested bytes, excluding allocator overhead.
-/// The caller must keep phase boundaries explicit; deallocations may predate measurement.
+/// Snapshot counters and start a new high-water interval at the current net balance.
+///
+/// Returns `None` outside a measurement. Cumulative counters and the scope peak are
+/// unchanged; only the next interval's peak is reset. This performs no allocation.
+/// Values are signed balances relative to scope entry, not process-wide live bytes.
+pub fn checkpoint() -> Option<Counts> {
+    ACTIVE.with(|active| {
+        let previous = active.get()?;
+        active.set(Some(Counts {
+            interval_peak_net_bytes: previous.net_bytes,
+            ..previous
+        }));
+        Some(previous)
+    })
+}
+
+/// Count allocator requests, net bytes and high-water balances on the calling thread.
+///
+/// The scope begins at zero and excludes allocator overhead, other threads and
+/// allocations predating entry. A successful realloc replaces the old requested
+/// size atomically in this model; transient old/new backing inside the allocator
+/// is not observable. Releases of pre-scope allocations can make the balance
+/// negative. Scope lifetimes must therefore enclose allocation and release when
+/// interpreting the high-water balance as requested live bytes. Checkpoints split
+/// intervals without resetting the scope peak. Unwinding ends the measurement.
 pub fn measure<T>(operation: impl FnOnce() -> T) -> (T, Counts) {
     ACTIVE.with(|active| {
         assert!(active.get().is_none(), "nested allocation measurement");
@@ -91,4 +120,37 @@ pub fn measure<T>(operation: impl FnOnce() -> T) -> (T, Counts) {
     let counts = current().expect("active allocation measurement");
     drop(reset);
     (result, counts)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{checkpoint, current, measure, record};
+
+    #[test]
+    fn scoped_high_water_tracks_realloc_release_and_intervals() {
+        let (_, counts) = measure(|| {
+            record(64, 0, true);
+            record(128, 64, true);
+            record(0, 128, false);
+            let first = checkpoint().unwrap();
+            assert_eq!((first.net_bytes, first.peak_net_bytes), (0, 128));
+            assert_eq!(first.interval_peak_net_bytes, 128);
+            record(32, 0, true);
+            record(0, 32, false);
+            let second = checkpoint().unwrap();
+            assert_eq!(second.interval_peak_net_bytes, 32);
+            assert_eq!(second.peak_net_bytes, 128);
+            // A pre-scope release is a signed balance, not absolute heap liveness.
+            record(0, 16, false);
+            checkpoint().unwrap();
+            record(8, 0, true);
+            assert_eq!(current().unwrap().interval_peak_net_bytes, -8);
+        });
+        assert_eq!(counts.requests, 4);
+        assert_eq!(counts.requested_bytes, 232);
+        assert_eq!(counts.net_bytes, -8);
+        assert_eq!(counts.peak_net_bytes, 128);
+        assert!(current().is_none());
+        assert!(checkpoint().is_none());
+    }
 }

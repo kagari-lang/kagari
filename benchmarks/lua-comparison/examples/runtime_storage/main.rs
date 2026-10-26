@@ -1,9 +1,14 @@
 //! Storage lifecycle accounting and field throughput, measured in separate builds.
 //! Run with --release; --features diagnostics selects allocation accounting only.
+mod families;
 #[cfg(feature = "diagnostics")]
 mod memory;
+mod native_layouts;
+mod observations;
+mod retained_reload;
 #[cfg(not(feature = "diagnostics"))]
 mod revisions;
+mod slab_model;
 
 use kagari::{
     context::ExecutionContext,
@@ -11,7 +16,7 @@ use kagari::{
     program::PreparedProgram,
 };
 use kagari_source::source::SourceFile;
-use std::time::Instant;
+use std::{env, time::Instant};
 
 #[cfg(feature = "diagnostics")]
 use kagari_runtime::diagnostics::allocations::Allocator;
@@ -98,6 +103,14 @@ fn lifecycle(engine: &KagariEngine, program: &PreparedProgram, context: &Executi
 }
 
 fn main() {
+    let arguments: Vec<_> = env::args().skip(1).collect();
+    match arguments.as_slice() {
+        [] => {}
+        [mode] if mode == "--families" => return families::run(),
+        [mode] if mode == "--slab-model" => return slab_model::run(),
+        [mode] if mode == "--script-keys" => return families::script_keys_only(),
+        _ => panic!("usage: runtime_storage [--families | --script-keys | --slab-model]"),
+    }
     // Explicit collections separate live storage, reserved capacity and release.
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = None;

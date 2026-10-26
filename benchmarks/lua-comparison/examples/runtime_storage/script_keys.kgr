@@ -1,0 +1,66 @@
+use std::collections::HashMap;
+use std::hash::Hash;
+
+struct Calls { var hash: i32, var eq: i32 }
+struct Key { val code: i32, val calls: Calls }
+
+impl PartialEq for Key {
+    fn eq(self, other: Key) -> bool {
+        self.calls.eq += 1;
+        self.code == other.code
+    }
+}
+
+impl Eq for Key {}
+
+impl Hash for Key {
+    fn hash(self) -> i64 {
+        self.calls.hash += 1;
+        (self.code % 16) as i64
+    }
+}
+
+struct State {
+    val map: HashMap<Key, i32>,
+    val calls: Calls,
+    val count: i32,
+    val sum: i32,
+}
+
+pub fn script_keys(n: i32) -> State {
+    val calls = Calls { hash: 0, eq: 0 };
+    val map: HashMap<Key, i32> = HashMap::new();
+    var i = 0;
+    while i < n {
+        map.insert(Key { code: i, calls }, i);
+        i += 1;
+    }
+    i = 0;
+    while i < n {
+        val key = Key { code: i, calls };
+        val value = match map.get(key) { Some(value) => value, None => -100000 };
+        map.insert(key, value + 1);
+        i += 1;
+    }
+    var sum = 0;
+    i = 0;
+    while i < n {
+        val key = Key { code: i, calls };
+        sum += match map.get(key) { Some(value) => value, None => -100000 };
+        i += 1;
+    }
+    State { map, calls, count: n, sum }
+}
+
+pub fn check_script_keys(state: State) -> i32 {
+    val n = state.count;
+    if state.sum != n * (n + 1) / 2 || state.map.len() != n as u64
+        || state.calls.hash < 4 * n || state.calls.eq <= n { return -1; }
+    var i = 0;
+    while i < n {
+        val key = Key { code: i, calls: state.calls };
+        if state.map.get(key) != Some(i + 1) { return -1; }
+        i += 1;
+    }
+    n
+}

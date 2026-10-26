@@ -1,14 +1,19 @@
 # Library-owned native collections execution plan
 
-Status: agreed direction recorded; implementation has not started. The
-[roadmap](implementation-roadmap.md#library-owned-native-collections) owns queue
-placement. This plan owns NC01-NC06, the bounded API design, migration acceptance
-and progress ledger. API sketches are proposals, not currently callable APIs.
+Status: PG00/NC01 audit, contract closure and shared baseline locally complete,
+activated at `50ab194b30b0218e9befe3176d6b5711ecf17a28`, 2026-10-26. The user authorized
+the joint PG00-PG06/NC migration with one commit per PG phase. Production provider
+and collection implementation begins with PG01/NC02; none is claimed here. The
+[roadmap](implementation-roadmap.md#library-owned-native-collections) owns sequencing;
+this plan owns NC01-NC06, the selected Native contracts and the collection ledger.
+Selected signatures below are implementation requirements, not currently callable
+APIs. The [PG00 baseline](paged-incremental-gc-design.md#pg00-contract-closure-and-baseline)
+owns shared measurements, frozen gates and actual local validation.
 
 Storage inventory refresh, 2026-10-18: the prioritized
 [runtime storage redesign](implementation-roadmap.md#runtime-storage-redesign) and
 [object overhead work](implementation-roadmap.md#object-storage-overhead) are locally complete.
-NC01 remains queued and unstarted. The inventory reflects runtime `65bbf477`:
+The predecessor inventory at `65bbf477`, rechecked at the activation revision, has:
 compact directory, typed native payload store, packed script-struct arena, weak
 shared interface descriptions and direct snapshot locations. Mutation revisions
 belong to runtime-owned NativeObject records, not the common directory or a
@@ -78,14 +83,15 @@ exact readonly admission, checked setters, roots and supplying generations. SA21
 consumes the same ordinary declarations while owning Rust borrowing and registration.
 Neither owner may turn an interface into a second storage/access authority.
 
-The queued [paged incremental GC design](paged-incremental-gc-design.md) owns the
+The [paged incremental GC design](paged-incremental-gc-design.md) owns the
 collector/page architecture. Accepted sequencing, 2026-10-26: opaque registration,
 the general payload protocol and affected collection integration are one coordinated
 replacement migration. Implement reference publication, accounting, scanning and
 opaque API changes together, not as a separate post-GC API revision. NC owns
 concrete collection layouts, algorithms and its detailed phases; the GC replacement
 cannot reach final acceptance with container-specific collector/storage paths
-deferred to NC. Planning this shared scope does not activate implementation.
+deferred to NC. Activation is recorded above; PG00's shared baseline and dependent
+phase entry gates still apply.
 Current-call selection follows the implemented
 [publication contract](spec/module-activation.md#live-installations-and-call-selection),
 not historical wording that would pin every stored method body.
@@ -108,15 +114,15 @@ Future, Task and TaskScope representations are not migration targets.
 Planning baseline: `9cd90557`, after the five Iterable commits following
 `35de1818`. Iterable APIs are implemented and locally accepted; the roadmap records
 the remaining CI gap, while current contracts live in the specifications.
-NC01-NC06 have not started.
-Recheck implementation at NC01 without reopening the completed Iterable API work.
+The activation audit rechecked implementation at `50ab194b`; NC01 is locally complete
+and NC02-NC06 implementation has not started. Reuse the completed Iterable work.
 
 | Current owner | Evidence and disposition |
 | --- | --- |
 | [Vec declarations](../crates/kagari-stdlib/src/foundation/vector.rs), [hash declarations](../crates/kagari-stdlib/src/foundation/hash.rs) | Vec is nominal but declares Sequence storage; HashMap/HashSet still use special native constructors. Move all three to ordinary native declarations. |
 | [Shared native declarations](../crates/kagari-types/src/declaration/native.rs), [HIR application](../crates/kagari-hir/src/native.rs) | Collection constructor/layout variants leak implementation families into semantic modeling. Remove these dependencies coherently rather than rename them. |
 | [Heap directory](../crates/kagari-runtime/src/gc/directory.rs), [shared interfaces](../crates/kagari-runtime/src/gc/interfaces.rs) | The directory owns generation/locator; native records own mutation revisions. Interfaces locate metadata snapshots directly, preserving distinct checked heap/metadata identities and roots; shared descriptions do not own receivers. Packed script fields do not reinterpret Rust payload memory. No public raw arena/ownerless-token API was added. |
-| [Native storage](../crates/kagari-runtime/src/native/storage.rs), [type builder](../crates/kagari-runtime/src/native/builder/type_builder.rs) | Factories, payload bindings, tracing and scoped type arguments already exist. Native revision initialization/reset/replacement/exhaustion has one runtime owner; checked public mutation access remains NC01 work. Extend these owners only for proven gaps. |
+| [Native storage](../crates/kagari-runtime/src/native/storage.rs), [type builder](../crates/kagari-runtime/src/native/builder/type_builder.rs) | Factories, payload bindings, tracing and scoped type arguments already exist. Native revision initialization/reset/replacement/exhaustion has one runtime owner; the selected NC01 contract extends checked public mutation access at NC02. Extend these owners only for proven gaps. |
 | [Managed fields](../crates/kagari-runtime/src/native/payload/managed/mod.rs), [fixed native data](../crates/kagari-runtime/src/native/payload/data.rs) | Safe edits separate fixed Rust data from checked script edges. Dynamic storage must preserve that boundary; arbitrary mutable payload access is not a solution. |
 | [Sequences](../crates/kagari-runtime/src/native/sequence.rs), [hash payloads](../crates/kagari-runtime/src/native/hashed.rs), [tables](../crates/kagari-runtime/src/native/hash_storage.rs) | Runtime owns concrete storage and optimizations. Relocate collection policy while preserving useful storage foundations and checks. |
 | [Hash operations](../crates/kagari-stdlib/src/foundation/hash/operations.rs), [codecs](../crates/kagari-runtime/src/native/binding.rs) | Methods depend on special value tags, heap operations and layout admission. Replace these with checked nominal access. |
@@ -163,12 +169,13 @@ so do language/execution state, frames, roots, scopes and generic call machinery
 Their Rust Vec/HashMap use is not a script-collection semantic dependency. String,
 Range, Future, Task and TaskScope remain outside this removal inventory.
 
-The [index-write bridge](../crates/kagari-hir/src/typeck/body/places.rs) explicitly
-looks up `MutableList::set`. NC01 must decide and document whether this remains a
-language-to-declared-interface bridge or needs a bounded collection-boundary change.
-It must not infer Vec storage or bypass selected calls. This audit does not silently
-authorize a general language-role/trait-identity redesign; any such expansion needs
-explicit scope approval, not a new queue hidden inside this plan.
+NC01 decision: keep the [index-write bridge](../crates/kagari-hir/src/typeck/body/places.rs)
+as a bounded language-to-declared-interface bridge. It selects the exact installed
+`std::collections::MutableList::set`, requires a unique applicable bound and the
+receiver/u64/item-to-unit signature, and preserves once-only ordered place evaluation.
+It grants no Vec storage authority and no assignment privilege to an unrelated `set`.
+Keep fluent inherent Vec set distinct from unit-returning trait set. Remove Vec's
+backend primitives, not this ordinary selected-call bridge; no trait-role redesign.
 
 ### Reuse the completed Iterable mechanisms
 
@@ -183,7 +190,7 @@ collection. Only the concrete source/destination storage, their methods/cursors
 and general storage protection change. Do not recreate map/filter/take, the other
 adapters, terminal algorithms, Iterator identity adaptation or destination dispatch.
 
-The existing public retention path is:
+At activation, the existing low-level selected-slot path is:
 
 ```rust
 // During a checked native constructor, with declared callable requirements:
@@ -196,8 +203,10 @@ Allocation copies the chosen selected calls into object metadata slots, in the
 supplied order. StoredSelection stays runtime-private; libraries do not construct
 owning metadata roots inside payloads. StoredCallable remains the mechanism for
 traced script closure values. These are existing capabilities, not new NC APIs.
-They do not by themselves provide checked resizing, public revision/commit access or a
-public factory-level key-call registration contract.
+They do not by themselves provide checked resizing, public revision/commit access or
+factory-level key-call registration. call_stored_values currently drops its returned
+root after extracting Value; that protected raw handoff is not a safe retained-result
+API. The selected contract below preserves the root instead.
 
 ## Ownership and representation
 
@@ -274,12 +283,13 @@ explicit declaration building with the existing `Opaque<T>` registration and
 Special factory/managed-field requirements remain explicit where needed; they
 must not make ordinary opaque declarations repeat the type association.
 
-The sketches below use `define_opaque::<Payload>(name)` to illustrate the selected
-opaque vocabulary and single registration step. Exact builder spelling and
-signatures remain NC01 work; these are not currently callable APIs. Instances of
-the registered type are held through the existing `Opaque<Payload>` handle, not
-a second GC handle wrapper. Script code continues to use its nominal name, such
-as `Vec<T>`; script generic arguments retain checked runtime type evidence.
+Select `ModuleBuilder::define_opaque::<P>(name) -> NativeResult<TypeBuilder<'_>>`.
+The existing type builder gains `bound` support and records those bounds rather
+than finishing with an empty list. `TypeRegistration::opaque` uses the same payload
+association/mapping implementation; reject duplicate/conflicting associations.
+`NativePayload::registration_storage` remains the descriptor policy hook. Instances
+use existing `Opaque<P>`; script generic arguments are checked runtime evidence,
+not dynamically instantiated Rust generic payload types.
 
 This naming/registration change does not grant unrestricted mutable payload access.
 Complete dynamic reference-bearing edits, accounting, revisions and publication
@@ -295,157 +305,284 @@ and defer the ordinary opaque boundary until afterward.
 
 ### End-to-end API proposal for review
 
-Selected direction, 2026-10-26: paged precise tracing with incremental collection.
-Opaque payloads may contain Value and ordinary Rust containers through an unsafe
-provider contract. Native entry does not disable GC. This supersedes the provisional
-counted-Value/cycle-collector proposal and its untraced detached-buffer sorting path.
-Keep Ref<T>, RefMut<T> and Opaque<T> as the public ownership/borrowing categories.
-This records design scope only; implementation is not activated. Examples below are
-pseudocode, not final callable signatures. The
+NC01 selection at the activation revision: precise tracing, collecting Native
+callbacks and unsafe payload integration. These contracts replace the earlier
+whole-trace/fallible-charge draft, not the current implementation. The
 [GC design](paged-incremental-gc-design.md#incremental-tracing-and-mutation) owns
-roots, barriers, scan progress and reclamation.
+phase scheduling, physical storage and joint graph closure. No new GC handle
+category, NoGc whitelist, mandatory branding or per-element owning roots are added.
 
-| Audience | Proposed surface | Responsibility |
-| --- | --- | --- |
-| Type author | define_opaque::<T>(name), existing generic/method builders | Associate declaration and Rust payload once through an unsafe provider contract; no automatic safe admission of arbitrary T |
-| Host borrowing | Existing Ref<T> / RefMut<T> and host scopes | Host owns Rust state; scoped access does not move it into the heap |
-| Ordinary Native code | Retained dynamic/typed values, Opaque<T>, Object and library handles | Safe arguments/results remain rooted across allocation and script calls; no manual rooting for each ordinary field/collection operation |
-| Storage provider | Unsafe NativePayload integration and unrestricted read/edit; scoped mutation services | Trace internal edges, publish writes, account backing and protect extracted values; no collection or script execution during conflicting payload loans |
-| Callback-bearing algorithm | Generic operation protection, temporary roots or traced work state | Keep every live temporary visible at collecting boundaries; end loans before callbacks and restore valid storage on all exits |
-
-Do not add a GcObject public category, special GC Vec, NoGc whitelist, split opaque
-categories or mandatory lifetime branding to prohibit Value fields. Rust Vec remains
-a storage option; script generic applications are checked runtime evidence, not
-arbitrary Rust generic instantiations. Preserve compact scalar buffers.
-
-Interim unsafe provider obligations:
-
-- Make NativePayload an unsafe integration contract. Trace every strong internal
-  edge, including references in nested/shared storage and captured executable state.
-  Empty trace is valid only when there are no relevant edges. The visitor discovers
-  reachable objects; it does not count owners or recursively walk the graph itself.
-- Preserve runtime/type/generation checks, scoped borrows, incremental publication,
-  partial-scan progress, mutation revisions, accounting and panic-safe destruction.
-  Interior mutability cannot bypass these requirements. Unsafe admission does not
-  disable runtime validation or permit invalid Rust aliasing.
-- Value in a payload is an internal non-rooting value. Moving/copying it into a Rust
-  local, Option or Vec does not automatically retain it. Establish an existing root
-  or another traced edge before a collecting boundary; root publication also obeys
-  the active incremental barrier. Do not embed permanent external roots per element.
-- Short non-collecting mutation intervals may transfer references or restore valid
-  representation. They must end before script callbacks, including callbacks made
-  through captured Runtime aliases. Native calls as a whole remain collectable.
-- Safe library handles/results encapsulate retention; raw provider access is the
-  audited boundary. Preserve scoped host/frame token restrictions, selected call
-  generations, cancellation and cleanup on every exit.
-
-#### Consolidated Native API surface
-
-Keep existing runtime-owned root mechanisms and prepared conversion owners. Do not
-carry forward the counted Value/control-block layout or force a ScriptValue-to-Value
-ownership migration. Exact public naming remains open; ordinary safe Native bindings
-must not leak unrooted values across collection. Internal compact Value transport
-can remain non-rooting under its protected execution contract.
-
-| Surface | Contract |
+| Owner | Selected change |
 | --- | --- |
-| Internal Value | Compact scalar/object representation; an object ID alone is not a root or an owning reference count |
-| Retained dynamic/typed Native value | Runtime-owned root protection, with existing owner/type/conversion checks; reusable across collecting calls |
-| Opaque<T> | Retained typed handle to an opaque Rust payload; hidden representation does not imply edge-free data |
-| Ref<T> / RefMut<T> | Scoped access to host-owned Rust state, not a general heap-loan bypass |
-| NativeContext | Checked calls, conversion and GC at valid boundaries |
-| NativeType<T> | Existing prepared concrete type/application and checked creation evidence |
+| [native/storage.rs](../crates/kagari-runtime/src/native/storage.rs) | Unsafe NativePayload, one erased scanner, admission and descriptor policy. |
+| [native/storage_type.rs](../crates/kagari-runtime/src/native/storage_type.rs) | Expose StorageType with private fields and scoped preparation; retain its exact type/owner comparisons. No CheckedElementType replacement. |
+| native/storage/access.rs, a new ordinary submodule of the existing storage owner | StorageAccess and EditPlan are loan-scoped services over existing validation, roots, resources and revisions, not another heap or registry. |
+| [native/payload/mod.rs](../crates/kagari-runtime/src/native/payload/mod.rs) | Existing NativeType creation and Opaque read/edit; safe fixed-data access remains distinct. |
+| [gc/native.rs](../crates/kagari-runtime/src/gc/native.rs), [gc/leases.rs](../crates/kagari-runtime/src/gc/leases.rs), [native/views.rs](../crates/kagari-runtime/src/native/views.rs) | One operation guard with central conflict enforcement and sealed recovery. |
+| [gc/roots.rs](../crates/kagari-runtime/src/gc/roots.rs), [native/value_handle.rs](../crates/kagari-runtime/src/native/value_handle.rs), [resource.rs](../crates/kagari-runtime/src/resource.rs) | Existing root leases/ScriptValue retention, publication, HeapChange and committed native charge. NativeObject remains the only revision owner. |
+| [stored selections](../crates/kagari-runtime/src/native/stored_selection.rs) and [prepared calls](../crates/kagari-runtime/src/native/function_handle/selected.rs) | Stored relationship edges select current bodies; active PreparedFunction computations pin exact selections. |
 
-Opaque declaration and creation retain one owner:
+#### Unsafe access and safe typed loans
+
+Make NativePayload an unsafe trait. Every strong internal edge must be discoverable,
+including nested/shared backing and executable relationships; metadata selections
+stay with the containing NativeObject. Interior mutability may not bypass checked
+publication, accounting or revisions. Value remains non-rooting: copying it into a
+Rust local/container grants no lifetime protection. Payload references cannot
+escape a loan and no collection/reentry through any Runtime alias may occur during
+that loan. Unsafe integration does not waive type/owner/generation or host-scope
+validation. Native entry as a whole remains collectable.
+
+Select these signatures (text describes scoped closures, not compiling Rust):
 
 ```text
-module.define_opaque::<PlayerData>("Player")?;
-// Attach fields/methods with the existing builders; install and bind the type.
-let player: Opaque<PlayerData> = player_type.create(cx, PlayerData { ... })?;
+unsafe Opaque<P>::read<R>(
+    &self, cx: &NativeContext, operation: Option<&NativeOperationGuard>,
+    f: for<'loan> FnOnce(&'loan P, &mut StorageAccess<'loan>) -> NativeResult<R>
+) -> NativeResult<R>
+
+unsafe Opaque<P>::edit<R>(
+    &self, cx: &mut NativeContext, operation: Option<&NativeOperationGuard>,
+    plan: EditPlan,
+    f: for<'loan> FnOnce(&'loan mut P, &mut StorageAccess<'loan>) -> NativeResult<R>
+) -> NativeResult<R>
+
+EditPlan { max_logical_units: usize, structural: bool }
 ```
 
-Use NativeType::create, with an unsafe NativePayload implementation carrying the
-provider proof. Do not add native_storage registration, cx.create_opaque or an
-untyped Opaque::new without runtime/type evidence. Conversions reuse existing
-traits and validate applied type, runtime identity and pinned execution evidence.
+max_logical_units bounds the payload's post-edit charge, excluding the runtime's
+identity/shallow charge; structural preflights a possible revision increment.
+Runtime applies the same checks to lower-level payload views. Make unrestricted
+ValueHandle::with_payload and CallContext::with_payload unsafe too.
 
-Provider protocol sketch:
+The [typed shared receiver adapters](../crates/kagari-runtime/src/native/typed/loans.rs)
+and their [paired forms](../crates/kagari-runtime/src/native/typed/loans/pairs.rs)
+currently admit arbitrary runtime-owned shared payload loans. Close that bypass:
+safe adapters may lend runtime-owned Rust data only when the installed descriptor
+carries the existing NativeData proof. Check this before argument converters or
+callback effects, for each opaque receiver in a pair. External host-owned Ref/RefMut
+continue through the existing host borrow checks, without requiring NativeData.
+Unrestricted providers use Opaque and unsafe access instead of safe shared adapters.
+Do not hide an unsafe read inside a safe blanket adapter. NativeTake is not a
+shared-loan proof: it permits edge-free variable/interior state. Keep safe
+read_data/edit_data conveniences for NativeData; do not define overlapping safe
+and unsafe inherent read/edit methods or introduce another proof whitelist.
+
+#### Retention and publication
+
+StorageAccess exposes the following bounded services:
+
+```text
+retain(&mut self, contract: &StorageType, value: &Value) -> NativeResult<ScriptValue>
+publish(&mut self, contract: &StorageType, input: &ScriptValue) -> NativeResult<Value>
+unsafe republish_existing(&mut self, value: &Value) // no allocation, no Result
+revision(&self) -> u64
+check_revision(&self, expected: u64) -> NativeResult<()>
+commit_structure(&mut self) // infallible after structural preflight; once per edit
+```
+
+StorageType keeps scoped TypeArgument/owner evidence; expose prepare_scoped and
+StorageContext::element_contract through that same owner. Preparation establishes
+a closed heap-storage contract; access still validates it against this Runtime.
+Typed constructors extract a parameter from NativeType::type_argument using its
+supplying owner and prepare that same StorageType evidence. Do not infer storage type from a first element or a textual name.
+
+retain constructs the existing ScriptValue directly using RootedValue, its exact
+TypeArgument and supplying ProgramLease. It prepares fallible root/metadata lease
+capacity and publishes those roots while the source is still protected. It may
+allocate Rust bookkeeping but may not collect, invoke conversion or admit a new
+graph identity under the payload loan. Existing admitted metadata is retained,
+not reconstructed. Do not call decode_prepared/ScriptValue::decode here: ordinary
+conversion can safepoint. Implement checked access against split storage/identity
+views, not by recursively borrowing the same objects RefCell during an edit.
+
+publish validates runtime/slot/generation, declared access and scoped type before
+shading the input and returning its internal Value. The input remains rooted until
+the destination is installed. republish_existing is only for already validated
+internal edges moved within their checked storage contract before losing source
+protection; it cannot admit a new external value or change its type. Runtime uses
+the same allocation-free shading core, with identity invariant failures failing
+closed/quarantining rather than resuming normal execution. All root replacement,
+frame/result and metadata publication must use that core before PG interleaving.
+
+Example pop: preflight edit, retain the last item, remove it, commit structure,
+finish accounting, end the loan, then return Option<ScriptValue>. A retention
+failure leaves the item in place. User decoding happens afterward. A safe library
+push accepts a retained item and encapsulates validation/publication; ordinary
+callers never manage these services or individual element roots. No public
+prepare_removal/commit_removal pair or second root registry is introduced.
+
+#### Unwind accounting and structural commits
+
+Select infallible `charge(&self) -> HeapCharge`: O(1), nonallocating and nonpanicking
+for every installed state, including partially completed operations. Providers
+maintain checked capacity totals at allocation/transfer boundaries; they must prove
+per-object arithmetic representable before retaining new backing. Variable reserve
+results use actual capacity, not the requested minimum or an O(n) recount.
+
+Reuse ResourceState::prepare_heap_change/HeapChange before mutation: execution
+admission, maximum logical occupancy, retained-byte arithmetic and required revision
+capacity are fallible preflight. Runtime's edit RAII finalizer samples charge and
+commits actual backing on success, returned error and unwind. Successful reserve
+followed by failure remains charged. No fallible post-edit trace/charge establishes
+safety retroactively; the current bookkeeping after with_buffer_mut's callback is
+not sufficient for this contract. Provider code must leave a scanner-valid,
+charge-valid intermediate state at every panic-capable boundary. Unexpected violation
+quarantines rather than sweeping or continuing with a guessed charge.
+
+commit_structure consumes the preflighted revision transition immediately before
+the infallible structural write; all potentially failing preparation precedes it.
+Element replacement stays nonstructural where current cursor semantics require it.
+Exclusive sequence-style algorithms reserve one invalidate-on-exit transition at
+operation admission, matching existing lease behavior even on failure; their short
+internal edits do not increment another counter. Cursors retain source plus expected
+NativeObject revision, not an iteration-lifetime lease. Scratch capacity is attributed
+to its actual owner; moving backing does not duplicate its charge. Deferred disposal
+retains the backing charge until destruction, even after identity retirement.
+
+#### Operation protection and recovery
+
+Extend NativeOperationGuard/LeaseTable, keyed by full heap identity, with exactly
+two policies: ExclusiveSlots and ReadOnlyCallbacks. ExclusiveSlots permits access
+only through its unforgeable lease token; alias slot reads/writes/take and recursive
+entry reject. ReadOnlyCallbacks permits reads/nested lookup but rejects mutation.
+All opaque, raw-view, typed-loan, managed access and extraction routes enforce this
+centrally; replace the SequencePayload.detached downcast. Identity/type conversion
+is not a slot read: remove Opaque::from_checked's use of unrestricted with_native
+for mere identity validation. GC may scan protected storage but never an active Rust
+loan. Callback access to unrelated objects and referenced element objects remains legal.
+
+Select unsafe Opaque::try_enter_operation(cx, kind, recovery) returning
+NativeResult<Option<NativeOperationGuard>>. The guard retains the receiver through
+existing roots without borrowing NativeContext across callbacks. `recovery` is an
+optional `fn(&mut P, &mut StorageAccess)` registered against the checked payload
+TypeId; its state resides in P, not a captured Rust work buffer. Acquisition prepares
+lease/root/revision and cleanup-accounting resources before any effects. Do not hold
+HeapChange's counters borrow across callbacks: each short edit commits separately;
+cleanup reconciles the latest committed charge without growth, so its arithmetic
+cannot require a new fallible reservation. Drop runs recovery, reconciles
+charge/revision and then releases protection. Recovery is
+nonallocating, nonpanicking, cannot invoke script/converters, and cannot create a
+graph identity or increase the pre-admitted occupancy bound. It uses a sealed cleanup
+loan which bypasses cancellation/admission only to restore invariants, not ordinary
+Opaque::edit (which can reject after cancellation). Normal work still polls; no poll
+or cancellation redesign is included. Restoration cost is measured, not claimed to
+have a hard latency bound. Unexpected recovery failure quarantines the runtime.
+
+For hash lookup/commit, retain candidates during protected reads, end loans for
+Hash/Eq and prepare required result objects before removal. Then release the lookup
+guard and enter the non-reentrant edit without any callback/conversion/GC gap.
+Receiver backing reserve occurs under that edit, after callbacks and before commit;
+read-only protection does not authorize mutating the table to reserve capacity. Enclosing lookup
+leases still reject nested mutation. Do not retry observable callbacks. Guarding
+only recursive entry, as at baseline, does not establish this contract.
+
+#### Single scanner and continuation
+
+Replace whole-payload trace with one provider scanner used by initial validation,
+full collection and incremental marking:
 
 ```text
 unsafe trait NativePayload: Any + Debug + Send {
-    fn trace(&self, visit: &mut dyn FnMut(&Value));
-    fn charge(&self) -> NativeResult<HeapCharge>;
-    // Descriptor also declares edge-free, bounded or resumable scanning capability.
-    // Exact resumable cursor/mutation interface remains a design prerequisite.
+    type ScanState: Copy + Send + 'static;
+    const SCAN_KIND: NativeScanKind;
+    fn begin_scan(&self) -> Self::ScanState;
+    fn scan<'p>(&'p self, state: &mut Self::ScanState, budget: &mut ScanBudget,
+                visit: &mut dyn FnMut(&'p Value)) -> ScanStatus;
+    fn charge(&self) -> HeapCharge;
+    // Existing registration_storage policy hook remains.
 }
-
-struct VecStorage {
-    // Illustrative access to existing checked application/element evidence.
-    element: CheckedElementType,
-    values: Vec<Value>,
-}
-
-unsafe impl NativePayload for VecStorage {
-    fn trace(&self, visit) {
-        for value in &self.values { visit(value); }
-    }
-    // charge reports exclusively owned backing capacity through HeapCharge.
-}
+NativeScanKind = EdgeFree | Bounded { max_work: usize } | Resumable | Indivisible
+ScanStatus = Pending | Complete
 ```
 
-Vec<Value> here is only a tracing example, not the production scalar layout.
-CheckedElementType is a placeholder for reused checked scope/contracts, not a new
-independent evidence owner or a requirement to duplicate them in every payload.
-This whole-object trace demonstrates reachability only; it is an indivisible O(n)
-scan. Large standard-library payloads require the GC design's resumable scan and
-mutation protocol before bounded-work claims. Edge-free Rust data may have empty
-trace but still needs accounting/destruction. Trace cannot execute script, mutate
-storage or retain borrowed payload references. Do not interpret an unsafe provider
-as permission to silently skip references or hide unbounded work.
+begin_scan and scan cannot allocate, mutate payloads, panic, reenter or retain
+visitor references. ScanState contains only owned cursor data: no payload pointers,
+roots, untraced edges or drop obligations. ScanBudget spends inspected logical
+slots/edges, including holes, and setup/metadata work; Pending must make progress
+for positive sufficient budget. Indivisible providers explicitly charge their full
+work and provide no bounded-step claim. Large standard collections use Resumable.
+Runtime separately traverses NativeObject's selected metadata through the same graph
+work owner; providers do not embed external Function/root leases to retain internal
+relationships. Stored callable values use their existing traced representation.
 
-Reuse read/edit for unrestricted payload access rather than adding with_storage:
+Use numeric positions and a finite captured extent, not borrowed iterators. Reallocation
+does not invalidate indices. Every inserted or relocated edge is forward-published,
+even when the parent is gray or the destination lies behind the cursor. Appends beyond
+the captured extent are covered by publication; do not reset a scan after each edit.
+Truncation/compaction may skip removed slots only after publishing surviving moved
+edges. No iter().skip restart or payload-sized cursor construction is allowed.
 
-```text
-unsafe fn Opaque<T>::read<R>(
-    &self, cx: &NativeContext,
-    operation: scoped FnOnce(&T) -> NativeResult<R>,
-) -> NativeResult<R>;
+NativeStorage admission drains this same scanner to validate a newly populated
+payload before publication. This can be O(n) and is not sort admission: sort keeps
+its main/scratch storage in the existing payload. Admission reserves all fallible
+identity/continuation/root resources before any collecting boundary and roots the
+new object before its first safepoint. Publication during marking cannot install
+unshaded outgoing edges; the PG owner defines newborn/sweep phase handling.
 
-unsafe fn Opaque<T>::edit<R>(
-    &self, cx: &mut NativeContext,
-    operation: scoped FnOnce(&mut T, &mut StorageAccess) -> NativeResult<R>,
-) -> NativeResult<R>;
-```
+#### Allocation-free insertion work
 
-Both unrestricted paths remain unsafe initially: shared access may still mutate
-through interior mutability or extract an unrooted Value. Views cannot escape, and
-collection/reentry through any alias is excluded only for the active loan. Audited
-safe library methods wrap these calls; proven fixed-data conveniences can remain
-safe. A returned raw Value remains the provider's responsibility until rooted or
-published into another protected location.
+Select one collector-owned `Vec<GraphIdentity>` pending stack, with capacity reserved
+at graph-identity admission, rather than an intrusive queue record and continuation
+allocation per identity. GraphIdentity here denotes the existing object/program/
+metadata identity domains, not a new public handle. Reuse per-identity mark state for
+deduplication. The insertion barrier only shades/enqueues; it never starts a scan.
 
-StorageAccess represents existing runtime-owned validation, retention/publication,
-accounting and scan-progress services. Reuse a retain operation for temporary roots;
-do not introduce a public prepare_removal/commit_removal pair or a second root
-registry. Exact helper signatures remain open. Fallible root/barrier/accounting
-capacity must be prepared before destructive commit; no fallible post-edit full
-scan can retroactively establish safety.
+| Candidate | Safety and ownership cost |
+| --- | --- |
+| Per-identity queue record | Intrusive links and optional per-identity continuation backing make enqueue allocation-free, but add lifecycle/layout state to every graph owner and reserve continuation space for inactive identities. Not selected. |
+| Admission-reserved pending capacity | One private vector, existing mark state and one active scan continuation suffice. It can retain high-water capacity/slack; no claim that it always uses fewer bytes. Selected for the concrete finite-capacity proof and fewer ownership mechanisms. |
 
-For get/pop/remove, establish result retention while the value is still protected
-by the source/short loan. If retention fails, do not commit removal. For push/set,
-keep the input rooted until the destination edge is published with its barrier.
-Release temporary roots after handoff, including error exits. A bare Rust pop
-inside an unsafe provider is permitted, but its result cannot cross a collecting
-boundary without protection. Safe library pop returns a retained result:
+Maintain capacity >= N, where N counts all admitted graph identities still eligible
+to appear in pending/active work, including metadata and retired-but-not-yet-cleared
+work identities. Before publishing any additional identity in any phase, reserve
+capacity for N+1 with checked arithmetic; failure leaves it unpublished. Release a
+credit only after its queued/active work is impossible. Slot reuse/generation changes
+cannot leave stale queued entries consuming an uncounted credit. Do not shrink below
+N; reserve incrementally at admission, not by a graph/retention prepass at cycle start.
 
-```text
-let item = values.pop(cx)?;        // retained result through the library facade
-cx.collect_garbage()?;
-if let Some(item) = item { destination.push(cx, item)?; }
-```
+Only white-to-gray adds an entry; gray includes the active scan and repeated shading
+is a no-op. Pop one identity into the single active task, retaining its continuation
+across steps until its finite scan completes. New child publications enqueue distinct
+white identities. Thus pending + active <= N; resuming/requeueing the active task
+uses its existing credit. No duplicate edge log or backward regray queue is needed.
+Unexpected scan panic/invariant failure must preserve unfinished work and prevent
+sweeping, not mark the incomplete task black.
 
-Ordinary Native callers do not manually register a root here. Providers implement
-the retention protocol once; rooting APIs are not required at every user-level call.
+Reserve the single erased continuation workspace's size/alignment at descriptor
+installation, before an instance using it can be admitted. Grow it transactionally
+when installing a larger descriptor, preserving an existing Copy continuation; no
+scanner/loan may hold a pointer into the workspace across that operation. Builtin
+and metadata scan state obey the same fixed-storage rule. Root/frame enumeration
+uses runtime-owned resumable cursors, not a new root snapshot. Barrier enqueue,
+root replacement using an existing lease, scanner start/resume and cleanup
+republication consequently require no allocation. Retaining a new external root
+may fail, but it occurs before removal, never as recovery work.
+
+Root release must satisfy the same cleanup promise: RootLease::drop currently
+sends through std mpsc and explicitly permits allocation. Replace only that internal
+notification transport in gc/roots.rs with a shared mutex-protected pending-ID Vec,
+reserving one notification credit per admitted root registration. Clones share that
+registration and only the last drop enqueues once. Reserve the root free-slot Vec
+at root-slot admission too, so draining notifications cannot allocate. Keep pending
+capacity while draining (no mem::take that discards the reserve); release a credit
+only after processing its notification. Last-drop enqueue locks only this transport,
+never heap storage or script, and cannot grow it. Table destruction disconnects the
+transport; outstanding leases own only IDs/transport state, not heap data. Preserve
+full root generations, cross-thread release and live-lease checks. This is the
+existing root table/lease owner with a bounded release transport, not another root
+registry; do not claim std mpsc itself supports reserving send capacity. Prepare
+registration/ProgramLease allocations before destructive removal; Arc deallocation
+and existing program-token release require no new allocation. Arbitrary external
+Rust destructors remain outside the provider recovery guarantee.
+
+Example: after a comparator cancels, recovery copies a scratch element behind the
+Vec scan cursor. Its target identity was already admitted, so shading either does
+nothing or uses one of these reserved pending slots; recovery needs neither a new
+root nor queue growth. New allocations made by the comparator reserved their own
+credits before publication. This is the cleanup guarantee, not a best-effort reserve
+at sort entry. PG owns byte layout, capacity/slack measurements and pressure gates;
+this choice is justified by the invariant, not a measured memory/speed claim.
 
 ### Concrete Vec sorting API proposal
 
@@ -465,11 +602,14 @@ key selectors run during comparisons without a cached-key prepass. Preserve stab
 worst-case O(n log n) comparisons/moves, with callback and GC work accounted for
 separately. No preparatory O(n) retention snapshot or index construction is allowed.
 
-For reference-bearing collecting callbacks, own/adapt the stable sorting algorithm
-so its temporary slots and merge buffers are GC-visible. Reusable temporary roots
-or library-private traced work state are candidate representations of this selected
-boundary; the exact algorithm and work representation remain open. This does not
-introduce public SortWork/SortSession APIs or a special collector container case.
+Selected representation: main buffer, optional scratch and merge-progress state
+stay in the same already-rooted VecStorage. There is no detach, separately admitted
+filled work object, retention snapshot or preparatory index. Reserve empty scratch;
+initialize it only when a merge needs that run. Select a library-owned fixed-split
+stable mergesort with shorter-run scratch and index-based gap restoration, adapting
+the reviewed Rust tiny/merge mechanisms below. Do not call Rust slice::sort_by with
+collecting callbacks: its private scratch/long slice loan lack publication hooks.
+This is one implementation kernel, not a public SortWork/SortSession abstraction.
 
 The source and scratch together cover every live element. Before every callback:
 
@@ -479,12 +619,15 @@ The source and scratch together cover every live element. Before every callback:
 3. Invoke the retained comparator/key selector with protected arguments/results;
    GC can progress during nested allocating script execution.
 
-Keep the receiver rooted and protected against alias slot access/recursive sorting
-through existing operation guards. That guard does not disable GC. A detached Vec
-buffer must acquire a traced owner; mem::take alone is insufficient. Ordinary Rust
-sort's private scratch cannot be exposed merely by rooting the receiver and the two
-comparison arguments. Root/scan registration must not secretly walk all inputs at
-algorithm entry; the transfer/publication protocol must prove this.
+Keep ExclusiveSlots protection and register recovery before the first merge move.
+All main slots remain initialized; temporary stale copies may remain traced until
+overwritten, while merge indices identify the authoritative source/scratch contents.
+The scanner has main/scratch positions and finite captured extents; it scans only
+initialized scratch. Publish each copy into scratch or an already-scanned main slot
+before losing old protection. Copying a run is merge work, not an entry prepass;
+chunk long transfers and poll at valid states. End loans before calls and retain
+both comparator arguments and the first key result while computing the second.
+No payload reference, borrowed slice or raw scratch pointer spans the call.
 
 Restore valid source/work state before releasing protection on success, error,
 cancellation or unwind. Stop user callbacks after the first failure; preserve the
@@ -498,8 +641,9 @@ scalar sorting, but long indivisible work still requires latency/cancellation re
 Do not infer speed parity from O(n log n). Measure comparisons/moves, root/barrier
 work, allocations, peak scratch memory and GC-step delay across scalar, cheap-script
 and allocating-script comparators. Test collection at temporary transfers, partial
-scans, nested callbacks, errors/unwind and restoration. The exact kernel, scan cursor
-protocol and measured acceptance remain pre-implementation decisions.
+scans, nested callbacks, errors/unwind and restoration. The selected fixed-split
+kernel is not adaptive like Rust driftsort; throughput and recovery-delay acceptance
+remain with the shared PG00 baseline, not inferred from the complexity bound.
 
 ### Other standard-library operation boundaries
 
@@ -516,8 +660,10 @@ all values remain protected at collecting boundaries.
 - retain/dedup and other compaction algorithms need controlled temporaries when
   callbacks observe a representation with holes. Use shared root/work-state machinery
   and preserve their completed-removal/error semantics; no full-input root prepass.
-  Retain/dedup require linear traversal/compaction, not repeated remove/shift that
-  becomes quadratic. Count moves, callbacks, roots/barriers and actual GC work
+  Vec retain/dedup require linear traversal/compaction, not repeated remove/shift
+  that becomes quadratic. Custom-interface defaults retain their specified selected
+  remove-as-they-go behavior; do not silently replace it with atomic bulk commit.
+  Count moves, callbacks, roots/barriers and actual GC work
   separately; collection costs cannot conceal an algorithmic regression.
 - Future heap/tree algorithms need the same audit around comparison callouts. Rust
   Hash/Eq/Ord do not directly express context-bearing fallible script calls.
@@ -532,10 +678,9 @@ barrier and sweep protocols; collecting Native callbacks alone do not bound paus
 ### Collection registration and storage
 
 Reuse ModuleBuilder, NativePayload and the underlying NativeStorage descriptor,
-applying the opaque registration adjustment above. These sketches show
-responsibilities, not compiling Rust. Settle exact names, signatures and binding
-ergonomics at NC01; omitted method signatures and required trait members must be
-supplied in implementation.
+applying the selected opaque registration contract above. The following abbreviated
+registration examples omit ordinary method signatures/required trait members; they
+illustrate the selected owners rather than introduce additional builder APIs.
 
 ```text
 let mut declaration = module.define_opaque::<VecStorage>("Vec")?;
@@ -565,13 +710,11 @@ a textual name.
 Physical layout is not element evidence: both Vec<User> and Vec<Enemy> may use
 Traced storage, but inserting Enemy into Vec<User> must still fail. Reuse the
 existing checked application scope/StorageType contracts, generation and owner
-checks at constructor and mutation boundaries. NC01 chooses access/location of
-that evidence through existing owners, without gratuitous payload duplication.
-Existing element contracts cannot simply be deleted because storage is opaque;
-replace their validation with equivalent evidence before removing any old owner.
-The registered constructors build VecStorage with that checked contract and use
-the existing Native allocation owner; registration need not duplicate a factory
-for every constructor. The constructor/factory binding details remain NC01 work.
+checks at constructor and mutation boundaries. The selected public StorageType
+contract reuses that evidence; NativeObject.scope remains the nominal application
+authority. Constructors build VecStorage with prepared element evidence and create
+through NativeType. No duplicate factory per constructor or unchecked payload field
+replaces type admission.
 
 ```text
 let mut declaration = module.define_opaque::<HashMapStorage>("HashMap")?;
@@ -581,27 +724,178 @@ declaration.bound(k.ty(), core.eq())?;
 declaration.bound(k.ty(), core.hash())?;
 let map_type = declaration.finish()?;
 // Constructors declare checked Hash/PartialEq::eq requirements, create storage
-// with checked key/value contracts, then use allocate_result_payload with those
-// selected slots. Register Map/MutableMap/Iterable implementations normally.
+// with checked key/value contracts, then call NativeType::create(cx, payload, slots).
+// Register Map/MutableMap/Iterable implementations normally.
 ```
 
 HashMapStorage retains key/value contracts and its table; the containing native
 object's metadata retains selected key operations. Eq remains the semantic bound;
 the callable equality member is PartialEq::eq, as in current hash construction.
-HashSet shares the key-operation machinery. Prefer checked constructor requirements
-and existing retained slots rather than inventing a separate type-level resolver
-or a cx.retain_call API. NC01 settles public builder support, slot ownership and
-how new/from/from_iter and host conversion supply equivalent evidence. If a
-factory path is required, record its precise gap before extending StorageContext.
+HashSet shares the key-operation machinery. Use checked constructor requirements
+and existing retained slots, not a separate type-level resolver or cx.retain_call.
+The proof and creation path below supplies equivalent script/host evidence.
 
 Register Iterable Item/Iter and Iterator::next normally. Do not infer traversal
 from physical storage. Preserve default/override dispatch through interfaces.
 Constructors explicitly declare Array/Iterable inputs and use ordinary inference.
 
+### Bounded applications and constructor evidence
+
+The activation audit distinguishes three existing capabilities:
+
+- [EntryEvidence::find](../crates/kagari-runtime/src/native/function_handle/evidence.rs)
+  admits installed closed script/native entries or a closed SharedCall in a
+  nongeneric carrier. It checks supplying type scope; an open generic body alone
+  proves no host-callable application. [Associated-function binding](../crates/kagari-runtime/src/native/methods/binding.rs)
+  already handles static members, including constructors.
+- [NativeImport::matches_declaration](../crates/kagari-contract/src/native_import/linked.rs)
+  checks binding identity, substituted signature, exact authored requirements and
+  selected operations. [SharedCall::check](../crates/kagari-contract/src/callable/shared.rs)
+  checks substituted body bounds with ProofCatalog::constraints_hold and validates
+  both operations and construction witnesses. [ConstructionWitness](../crates/kagari-contract/src/callable/construction/evidence.rs)
+  proves method-independent conformance, including empty traits. Hash/eq slots alone
+  do not prove Eq. Static-only constraints must not be forced through dynamic
+  interface construction.
+- [Application validation](../crates/kagari-bytecode/src/trait_bounds/applications.rs)
+  currently reduces nominal lookup to kind/arity; it does not prove TypeDef.bounds.
+  [ProofCatalog](../crates/kagari-contract/src/types/proofs/search.rs) can check those
+  bounds from executable contracts. [ProgramProofs::view](../crates/kagari-contract/src/types/proofs/resources.rs)
+  restricts proof resources to the carrier's dependency closure. The missing fact is
+  admission of the bounded nominal application, not a new trait resolver.
+
+Select the following proof chain; it must be implemented before removing
+bind_native_type's nonempty-bounds rejection:
+
+1. TypeBuilder records the actual native TypeDef parameters/bounds. HIR checks
+   applications as usual and emits ordinary native imports/shared calls and their
+   existing evidence. A constructor's required Hash/PartialEq calls remain declared
+   requirements; declaration bounds and operation availability are distinct checks.
+2. Extend the existing contract application-validation owner with a bounded-native
+   application check taking the full TypeDef, nominal arguments, binder parameters,
+   authored assumptions and the carrier-scoped ProofCatalog. The bytecode applications
+   owner already finds the full public/private TypeDef: pass it through instead of
+   deriving authority from kind/arity. Validate declaration identity, Opaque layout,
+   exact arity, argument scope, associated outputs and heap admissibility. Substitute
+   the declaration's bounds and call constraints_hold for every constraint, including
+   methodless and static-only traits. Recursively validate bounded native applications
+   in the supplied types with existing resource/cancellation limits. Never add the
+   very bounds being proved to the assumptions or accept cycles as self-proof.
+3. Apply that check to native import signature/application occurrences and the actual
+   native signature at shared call sites, after their existing declaration/target
+   checks. Closed imports use no assumptions. Open native bodies may use only their
+   verified authored body bounds; their result application is a proof under that
+   binder, not a new closed application. Shared calls substitute one binder layer
+   and verify actual arguments/obligations against the caller's verified assumptions.
+   Native result adapters validate the concrete native result as well as the exposed
+   result view. Merely finding a type in an arbitrary function signature is not proof.
+4. Add an owner-integrated, nonserialized NativeApplicationWitness to the existing
+   [ProgramVerification](../crates/kagari-bytecode/src/program/verified.rs) evidence.
+   It identifies the carrier module, native-import slot or shared-call function/offset,
+   exact admitted NominalTy and its binder scope. Issue it only after the preceding
+   checks and full graph validation. These are views of checked occurrences, not
+   caller-authored claims or a second portable proof language. Immutable verified
+   bytes own the witness; editable extraction loses it and identity remapping must
+   remap/revalidate it with its owner. Existing imports/SharedCall records carry the
+   necessary inputs, so no new serialized conformance flag or version bump is needed.
+5. Runtime links that witness with the existing selected environment/type scopes.
+   A contextual result_native_type consumes the proof for its exact native result;
+   symbolic applications can be instantiated only by their already checked caller
+   environment. A bounded NativeType may also be recovered from an already validated
+   Opaque object. prepare_native_type must not manufacture bounded admission from an
+   arbitrary TypeArgument. Keep owner/slot/generation/Rust TypeId and layout checks.
+6. Host bind_native_type searches the installed verified occurrences for the exact
+   closed application, matching each argument with supplying TypeArgument/TypeView
+   scope, not only Ty equality. It retains the witness carrier through the existing
+   program/type retention owner. Open witnesses, missing bounds, absent applications,
+   unrelated dependency closures and foreign runtimes reject. No HIR, impl search,
+   generic specialization or ProofCatalog query occurs at host binding/execution.
+7. Host bind_associated_function(&native_type, "new") then uses existing
+   AppliedReceiver/member matching, EntryEvidence and FunctionCache. A native type
+   witness does not grant a callable new application: callable evidence must also
+   exist. Function::prepare_call selects the computation normally. On publication,
+   retained relationships select current compatible bodies while prepared calls pin
+   exact owners; old type evidence cannot silently borrow a newer argument scope.
+
+For example, a checked closed call to HashMap<Key, i32>::new proves Key's declared
+Eq+Hash constraints and carries its selected hash/eq calls. Host preparation matches
+that application, then invokes the same new entry. A table with matching method
+names, an open HashMap<K,V> declaration, Hash+PartialEq without Eq, or an unseen
+HashMap<Other,i32> application is insufficient. A closed from_iter application can
+admit the type without proving that a host-callable new application was emitted.
+
+Selected creation signature:
+
+```text
+NativeType<P>::create(&self, cx: &mut NativeContext, payload: P,
+                      selected_slots: &[usize]) -> NativeResult<Opaque<P>>
+```
+
+Use `cx.result_native_type::<P>()?.create(cx, payload, &[hash_slot, eq_slot])` in a
+declared constructor and `&[]` when no selections are needed. Nonempty slots must
+belong to the current checked invocation; validate signatures and supplying scopes
+before allocation. Move allocate_result_payload's selection-copying logic into this
+common creation implementation; any low-level call adapter delegates without a
+second admission implementation. The object stores StoredSelection metadata edges,
+not external program/root leases inside P. Remove cx.create_opaque and special
+Map/Set constructor resolution. Host convenience factories invoke the checked
+associated function; they cannot invent constructor selections from a bare type.
+
+Expose selected operations through existing Function/PreparedFunction owners:
+NativeContext::selected_function<A,R>(slot) and
+Opaque<P>::stored_function<A,R>(cx, slot) prepare typed relationship handles using
+the existing selected-call implementation. A stored relationship selects current
+bodies per ordinary invocation; a sort prepares once for its active computation.
+Change low-level call_stored_values to preserve its existing RootedValue result,
+rather than extracting Value and immediately dropping the root. Other raw result
+transport remains only under the audited no-safepoint handoff contract; ordinary
+safe helpers return retained results. Do not create another StoredFunction registry.
+
+Preserve Vec new/from(Array), HashMap/HashSet new, HashSet from(Array), Default and
+FromIterator/collect through their existing declared requirements/traversal. There
+is no new HashMap from(Array) API. Owned Rust collection conversions move through
+library-owned adapters/newtypes: runtime-trait impls for std::vec::Vec cannot simply
+move into stdlib under Rust coherence. Interface adapters invoke selected methods,
+not payload downcasts. Preserve owned-conversion snapshots before child converters
+can mutate the source; these are not sort-admission snapshots. Script map remove
+prepares its Option result before removal, while host removal remains committed if
+subsequent user result conversion fails.
+
+### Selected indexed hash layout
+
+Move HashMap/HashSet policy into the library, replacing reference-bearing std hash
+entries with dense indexable entry slots. A map entry owns key/value/cached script
+hash; a set entry owns key/hash. A Rust HashMap from cached hash to slot-index buckets
+contains only scalar indices. Keep per-entry bucket position so removal can update
+the index without rescanning all entries. HashSet shares this key/index kernel, not
+a second runtime Set storage category. This is a deliberate layout adjustment from
+HashMap<MapKey,Value>/HashSet<MapKey>, not a claim that relocation alone enables
+resumable scans or that Rust's opaque bucket capacity is exactly measurable.
+
+The scanner captures entry count and advances a numeric entry/field position.
+Insertion reserves entry and bucket capacity before commit and publishes key/value.
+Removal swaps the last dense entry into the hole, repairs that entry's bucket index
+and republishes its edges even if the destination is behind the scan cursor. While
+marking, count each inspected entry/edge against work; no retained std iterator or
+iter().skip reconstruction is used. Capacity growth does not change logical indices.
+Keep capacity/collision-bucket accounting incrementally, with actual retained Vec
+capacity and documented std hash-table estimates. No per-element external roots.
+
+Lookup uses cached hashes to choose candidates, retains each candidate before
+ending a short loan and calls selected Eq outside it under ReadOnlyCallbacks.
+Structural edits invalidate cursors; replacement of an existing value follows the
+existing nonstructural policy. Commit updates entry and index consistently without
+allocating or invoking script. Primitive hashing/equality fast paths require checked
+selected-primitive evidence, not a key-type/name shortcut. Preserve collisions,
+last-value-wins, deduplication and no-repeat callback/error ordering. Native cursors
+retain the source/revision and positions through ordinary payloads; unspecified hash
+iteration order is not made stable by this layout. Measure primitive-key, collision
+and churn costs under the shared baseline; no throughput parity is claimed.
+
 ## Runtime capabilities and safety
 
-NC01 records exact APIs and the safe/trusted boundary for each row; NC02 implements
-only gaps required by these collections and the external proof.
+The selected contracts above close the NC01 API decisions; the following inventory
+records implementation gaps at activation. NC02 implements only the capabilities
+required by these collections and the external proof.
 
 ### Proven capability gaps, not replacement subsystems
 
@@ -612,8 +906,8 @@ only gaps required by these collections and the external proof.
   providers, not only by heap sequence/hash operations.
 - Operation protection: [try_enter_operation](../crates/kagari-runtime/src/native/views.rs)
   prevents explicitly guarded recursion. It does not by itself establish that all
-  alias reads/writes obey sort or lookup protection. NC01 specifies participating
-  access checks, permitted callback activity and cleanup using existing guard owners;
+  alias reads/writes obey sort or lookup protection. The selected operation contract
+  adds participating access checks and sealed cleanup using existing guard owners;
   a recursion token is not a substitute for candidate/commit or slot-access safety.
 - Scan/admission: [NativePayload::trace](../crates/kagari-runtime/src/native/storage.rs)
   is a whole-payload visitor; [sequence editing](../crates/kagari-runtime/src/gc/sequence_edit.rs)
@@ -637,11 +931,12 @@ only gaps required by these collections and the external proof.
   ValueHandle::with_payload expose shared raw payloads. Shared access can copy out
   non-rooting Value or mutate interior state; a scoped reference alone proves neither
   retention nor accounting. Apply the already selected unsafe provider/read/edit
-  boundary, preserving safe rooted library operations and checked fixed-data access.
+  boundary, including the typed Shared and paired receiver adapters; preserve safe
+  rooted library operations and checked fixed-data access.
 
 Reuse roots/conversion scopes and runtime-owned NativeObject revisions throughout.
-NC01 resolves signatures and NC02 proves access without private imports; this list
-records gaps, not a new phase, GC physical design or permission to drop validation.
+NC02 proves the selected signatures without private imports; this list records
+implementation gaps, not a new phase, physical layout or permission to drop validation.
 
 | Capability | Required contract |
 | --- | --- |
@@ -649,7 +944,7 @@ records gaps, not a new phase, GC physical design or permission to drop validati
 | Dynamic construction/mutation | Validate stored types and heap ownership before publication; prepare allocation/accounting before mutation, update accounting on growth/shrink and preserve required write barriers. |
 | Scoped access | References cannot escape; no storage borrow spans GC or callback/reentry. Safe APIs cannot overwrite traced slots with unchecked values. |
 | GC edges/roots | Trace stored values and call dependencies; root reads/removals/candidates across allocations or callbacks; deterministically release failed-construction and temporary roots. |
-| Retained calls | Reuse allocate_result_payload selected slots and call_stored_values. Preserve signatures/generations and metadata edges versus external roots. Complete only constructor/host-path gaps; no borrowed CallContext or repeated name lookup. |
+| Retained calls | Unify allocation's existing selected-slot mechanism under NativeType::create and preserve RootedValue from call_stored_values. Keep signatures/generations, metadata edges versus external roots and ordinary current-body selection; no borrowed CallContext or repeated name lookup. |
 | Operation guards and iterator validity | Preserve short native borrow, hashing and mutation-commit guards. Libraries own structural-edit/cursor policy through checked access to the runtime-owned native revision; writes commit and stale reads trap. Define public edit/commit capabilities without a second counter or lifetime iteration leases. Source/callback retention uses ordinary GC tracing; ordinary calls select current bodies while retained computations keep exact owners. |
 
 Do not expose arbitrary safe &mut P for reference-bearing or variable-allocation
@@ -665,8 +960,9 @@ For map.insert(key, value), preserve this logical sequence:
 3. Retain a candidate under scoped access before ending the loan.
 4. Invoke selected Eq outside that borrow; reject conflicting reentry and preserve
    completed effects. Continue collision search with cancellation checks.
-5. Prepare result/allocation requirements and commit while protection keeps the
-   candidate valid. Release temporary roots/protection on every exit.
+5. Prepare result/allocation requirements while protection keeps the candidate
+   valid; transition directly from lookup protection into the non-reentrant commit
+   as specified above. Release temporary roots/protection on every exit.
 
 Preserve trap/commit ordering, including allocation before destructive removal
 where required. No retries that silently repeat user callbacks. Rust Value Hash/Eq
@@ -709,7 +1005,7 @@ new speed target or the Lua parity workstream; do not repeatedly run full benchm
 
 The [Iterable APIs](spec/builtins.md#iteration-protocols) and
 [retained native cursors](spec/standard-declarations.md#sorting-and-lazy-iteration)
-are implemented at this baseline; NC01-NC06 remain queued and unstarted.
+are implemented at this baseline; NC01 is active and NC02-NC06 remain unstarted.
 Use the current [scoped identity APIs](architecture.md#definition-identity-ownership).
 Refresh NC01 against those APIs instead of rebuilding path/ID variants or treating
 the historical baseline signatures as a compatibility requirement.
@@ -727,12 +1023,13 @@ PG06 acceptance. PG04 integrates marking/publication between those handoffs.
 NC02 may prove the public protocol with the synchronous collector and isolated
 scanner tests, but cannot claim interleaved GC acceptance. Record collection
 results only in this ledger; link PG results rather than copy their checklist.
-This sequencing is documentation, not implementation activation. Cancellation
-policy and cx.poll redesign remain explicitly outside the joint migration.
+The user authorized this phase sequence at the activation revision. The current
+checkpoint is design-only; shared PG00 acceptance still gates dependent production
+changes. Cancellation policy and cx.poll redesign remain outside the migration.
 
 | Phase | Scope and exit condition |
 | --- | --- |
-| NC01: inventory and API contract | Close the finite inventory/design decisions against a fresh baseline, including the MutableList::set bridge and retained builtin boundaries. Specify the independent-stdlib public surface, evidence location, constructor/host paths, operation protection, dynamic accounting and resumable/no-prepass admission using existing owners. Record baseline commands and the early external prototype; do not select a new generic Rust payload mechanism. |
+| NC01: inventory and API contract | Audit at the activation revision and select the public protocol, bounded native-application proof chain, allocation-free cleanup work reservation, indexed hash layout and retained MutableList::set bridge. Await shared PG00 baseline/final design acceptance before checking completion; NC02 owns the external implementation proof. No new generic Rust payload mechanism. |
 | NC02: general storage capabilities | Implement unified opaque registration and the identified generic capabilities under existing root/type/revision/call owners. Build an early separate-crate prototype before declaring the API sufficient: reference-bearing storage, dynamic edits/accounting, constructor/host calls, protected callbacks, scan admission and existing adapters with invalidation/failure cleanup. No collection-specific privileges or second guard/selected-call subsystem. |
 | NC03: Vec migration | Move storage, operations, base cursor and host adapters through the independently usable public boundary; remove Sequence/Vec primitive/link/execution paths while retaining builtin Array. Preserve compact buffers, checked element evidence, defaults, indexing and pipelines. Prove stable worst-case O(n log n) sorting without retention/index prepass and linear retain/dedup, separating actual GC work. |
 | NC04: HashMap/HashSet migration | Move nominal storage, table/key policy, cursors and host adapters through the same public generic boundary; remove special type/value/constructor/layout/codecs and host binding branches. Rebind FromIterator requirements. Preserve collisions, last-value-wins/dedup, protected Hash/Eq, cleanup and publication semantics; generic constructor evidence must work for script and host paths. |
@@ -826,9 +1123,9 @@ CI acceptance. Planning-only edits need content/link/diff checks, not builds.
 - [x] Couple opaque API and general payload changes with GC implementation;
   require removal of special collection collector/storage paths before joint
   acceptance, 2026-10-26.
-- [x] Present an end-to-end API draft connecting opaque registration, retained
-  extraction, an explicit audited storage boundary and collecting sort work state;
-  exact provider signatures remain under review, 2026-10-26.
+- [x] Connect opaque registration, retained extraction and collecting callbacks
+  through existing Native owners; superseded draft shapes are replaced by the
+  selected provider/evidence contracts above.
 - [x] Select interim unsafe opaque integration and unrestricted payload access;
   defer new NoGc/derive, split-type and lifetime-brand admission mechanisms. Retain
   safe rooted handles and audited library methods, with complete tracing, barrier,
@@ -836,9 +1133,8 @@ CI acceptance. Planning-only edits need content/link/diff checks, not builds.
 - [x] Select tracing/incremental GC on 2026-10-26, superseding counted Value and
   cycle collection. Permit Value in unsafe Opaque providers, preserve safe retained
   Native handles and allow GC during Native callbacks.
-- [x] Consolidate the Native API draft around existing roots, NativeType creation,
-  unsafe scoped read/edit and retain/publication services; no with_storage or public
-  prepare_removal/commit_removal pair. Exact resumable-scan/helper signatures remain open.
+- [x] Select existing roots, NativeType creation, unsafe scoped read/edit and
+  retain/publication services; no with_storage or public removal transaction pair.
 - [x] Select library-controlled temporaries for callback-bearing algorithms; remove
   the counted detached-buffer/Rust-sort conclusion. Preserve stable worst-case
   O(n log n), no retention prepass, receiver guards and callback/error semantics.
@@ -850,22 +1146,52 @@ CI acceptance. Planning-only edits need content/link/diff checks, not builds.
   early NC02 external prototype and final same-path host/source-free acceptance.
 - [x] Clarify Opaque<library payload> suffices, safe library functions/extensions are
   allowed, scalar layout stays library-owned and checked element evidence is reused.
-  Record MutableList::set as an NC01 boundary decision, not an authorized language
-  redesign; reinforce no-prepass sort and linear compaction requirements.
-- [x] Link the PG00-PG06 joint execution order and synchronous-to-incremental
-  validation handoffs, 2026-10-26; keep one ledger per owner and cancellation policy
-  unchanged. All NC implementation phases remain unstarted.
-- [ ] NC01: Inventory and API contract.
+  Retain MutableList::set as a checked declaration bridge, not a storage privilege;
+  preserve no-prepass sort and Vec linear compaction requirements.
+- [x] Link the PG00-PG06 execution order and synchronous-to-incremental handoffs;
+  user activation at `50ab194b30b0218e9befe3176d6b5711ecf17a28` authorizes one commit
+  per PG phase. This NC01 checkpoint edits this plan only; no production code changed.
+- [x] Audit actual payload/typed-loan/root/selected-call/constructor/conversion and
+  operation-protection paths. Select the contracts above, including verifier-owned
+  native application witnesses, one admission-reserved pending stack, same-payload
+  Vec scratch and library indexed hash entries. Sources and limitations are below.
+- [x] NC01: Inventory and API contract.
 - [ ] NC02: General storage capabilities.
 - [ ] NC03: Vec migration.
 - [ ] NC04: HashMap/HashSet migration.
 - [ ] NC05: External extensibility and cursors.
 - [ ] NC06: Final integration.
 
-No implementation or performance claims are made at this checkpoint. No intermediate
-failure is carried. Exact API names and the NC01 decisions remain implementation
-design work, not acceptance waivers. Update this ledger rather than create a
-parallel progress/review queue.
+NC01 is locally complete with PG00. The GC plan owns physical/pressure choices,
+reproducible measurements, frozen gates and actual local validation; NC reuses its
+Vec, primitive/script-key Map, reference-storage and callback baselines. No production
+provider implementation, future speedup or CI acceptance is claimed. No failure is
+carried from this checkpoint.
+
+Remaining real gates, not alternative API drafts:
+
+- PG01/PG04: measure actual pending-capacity high-water/slack and single continuation
+  workspace against PG00's frozen total backing/peak gates. Current-runtime measurements
+  cannot measure nonexistent collector queues; their future overhead is not exempt from
+  those gates. Reservation is selected by its safety invariant, not a claimed saving.
+- PG01/NC02: implement and prove the verifier-owned bounded-application chain before
+  relaxing host binding; reject forged Eq/omitted bounds, open/unseen applications,
+  wrong supplying generations and unrelated proof visibility. The witness is not
+  present in the current executable seal.
+- PG01/NC02: close all safe shared-loan bypasses and prove precommit retention,
+  charge/revision finalization and sealed recovery under error/cancellation/unwind.
+  Exhaust marker and root-release notification reservations and inject admission/
+  root/reserve failures; cleanup must not allocate, reacquire ordinary execution
+  admission or lose a live element. The current allocating mpsc release transport
+  must be replaced within the root owner before that guarantee can be claimed.
+- PG03/NC03-NC04: prove same-payload mergesort/linear compaction and indexed hash
+  relocation against partial scans, reentry and failure semantics. The selected
+  representations do not establish measured performance or implementation soundness.
+- PG04-PG06/NC05-NC06: instrument every object/root/frame/metadata publication site
+  before production interleaving and close the removal inventory. Isolated scanner
+  tests and the synchronous external fixture do not establish integrated GC safety.
+
+Keep these gates in the existing PG/NC ledgers; do not add parallel progress docs.
 
 Planning refresh: inspected Iterable declarations/default requirements, adapter
 bindings, retained-call APIs, destination construction and source revision validation
@@ -874,13 +1200,33 @@ Historical Iterable validation remains in Git; it does not establish NC acceptan
 Earlier test-cost measurements at 35de1818 remain historical and are
 not a performance baseline for the rebased implementation.
 
-Documentation-only validation uses content/link/diff checks; implementation
-measurements begin at NC01.
+Documentation-only validation uses content/link/diff checks. Shared baseline
+measurements belong to the coordinating PG00 work, not a second NC benchmark run.
+For implementation, select existing focused contract tests for payload admission,
+borrow/reentry unwind, hash callbacks, checked host factories/reload, scoped generic
+fields and retain/cursor failures. Extend the NC02 public-only fixture with distinct
+precommit-failure, tiny-step relocation and allocation-free recovery cases. Full
+workspace tests and the feature/backend/platform matrix remain CI-only.
 
-Design reference: Rust models ordinary library structs through
-[TyKind::Adt](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_type_ir/enum.TyKind.html);
-[HashMap](https://doc.rust-lang.org/src/std/collections/hash/map.rs.html) and
-[BTreeMap](https://doc.rust-lang.org/src/alloc/collections/btree/map.rs.html) are
-library implementations. Kagari adopts that ownership boundary with precompiled
-native entries, traced identity and checked callbacks; it does not import Rust's
-script-visible borrowing model or promise identical storage/call costs.
+## Reviewed sources and applicability
+
+NC01 reviewed the following primary sources for the selected mechanisms. The
+application proof chain above is grounded in Kagari's executable owners, not syntax
+similarity to another language. PG owns allocator/page and measured memory decisions.
+
+| Source/version | Mechanism used and differing assumptions |
+| --- | --- |
+| [gc-arena 0.7.0 context](https://docs.rs/crate/gc-arena/0.7.0/source/src/context.rs) | Forward barriers may shade the child without relying on parent color; gray deduplication and preserving unfinished work on trace panic are relevant. Its Vec-backed gray/gray-again queues grow normally and it uses branded pointers/whole-object tracing. Kagari selects admission-reserved capacity and forward-only publication to make cleanup enqueue nonallocating and avoid repeated large-parent scans. This reservation proof is an explicit Kagari adaptation, not an upstream guarantee. |
+| [OpenJDK 25 GA SATB queue](https://raw.githubusercontent.com/openjdk/jdk/jdk-25-ga/src/hotspot/share/gc/shared/satbMarkQueue.hpp) | Explicit active-state, buffer completion/flush and abandoned-marking lifecycle demonstrate that barrier work needs a lifecycle owner. Thread-local concurrent SATB logging is not selected; Kagari's single driver can deduplicate identities before enqueue and reserve a finite pending capacity at admission. |
+| Rust 1.99.1 [tiny stable mergesort](https://raw.githubusercontent.com/rust-lang/rust/1.99.1/library/core/src/slice/sort/stable/tiny.rs) and [merge/gap recovery](https://raw.githubusercontent.com/rust-lang/rust/1.99.1/library/core/src/slice/sort/stable/merge.rs) | Fixed-split stable mergesort and restoration of unconsumed scratch into a tracked gap supply the algorithm skeleton. Kagari must replace raw slice/pointer lifetimes with indices, scanner-visible same-payload scratch and per-transfer publication. The tiny kernel is nonadaptive; no parity with driftsort is inferred. |
+| Rust 1.99.1 [stable sort driver](https://raw.githubusercontent.com/rust-lang/rust/1.99.1/library/core/src/slice/sort/stable/mod.rs) | Private MaybeUninit scratch/BufGuard does not provide move/publication hooks. Rooting only the receiver and two comparator arguments cannot make the unchanged kernel safe for collecting callbacks. |
+| [V8 array sort](https://chromium.googlesource.com/v8/v8/+/refs/heads/main/third_party/v8/builtins/array-sort.tq), reviewed source blob `90e36b5cd08715c65f83bae28e96587534a406fe` | Managed work/temp arrays demonstrate collector-visible algorithm state. CompactReceiverElementsIntoWorkArray performs a full preprocessing copy, so its entry protocol is not adopted; Kagari scratch starts empty inside the existing payload. |
+
+Rust's [nominal ADT model](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_type_ir/enum.TyKind.html)
+and library [HashMap](https://doc.rust-lang.org/src/std/collections/hash/map.rs.html)/
+[BTreeMap](https://doc.rust-lang.org/src/alloc/collections/btree/map.rs.html) remain
+ownership references, not Kagari's runtime model. The indexed hash adaptation is
+needed because ordinary borrowed std hash iterators offer no persistent numeric
+scan position across mutations. Retain Rust's hash index for scalar bookkeeping;
+Kagari's library owns reference slots, publication and callback-aware collision
+handling. Do not infer a faster table or transfer Rust borrowing into script syntax.

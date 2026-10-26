@@ -1,0 +1,61 @@
+use probe::layouts::{S8, S24, S48, S1024, S1056, A64, new_S8, new_S24, new_S48, new_S1024, new_S1056, new_A64};
+
+pub fn mixed_native(n: i32) -> Vec<(S8, S24, S48, S1024, S1056, A64)> {
+    val values: Vec<(S8, S24, S48, S1024, S1056, A64)> = Vec::new();
+    var i = 0;
+    while i < n {
+        values.push((new_S8(), new_S24(), new_S48(), new_S1024(), new_S1056(), new_A64()));
+        i += 1;
+    }
+    values
+}
+
+pub fn check_mixed(values: Vec<(S8, S24, S48, S1024, S1056, A64)>) -> i32 {
+    values.len() as i32
+}
+
+pub fn check_numbers(values: Vec<i32>) -> i32 {
+    var i = 0u64;
+    while i < values.len() {
+        if values[i] != i as i32 { return -1; }
+        i += 1u64;
+    }
+    values.len() as i32
+}
+
+pub fn check_points(values: Vec<Point>) -> i32 {
+    var i = 0u64;
+    while i < values.len() {
+        if values[i].x != i as i32 || values[i].y != 1 { return -1; }
+        i += 1u64;
+    }
+    values.len() as i32
+}
+
+pub fn check_nodes(values: Vec<Node>) -> i32 {
+    var i = 0u64;
+    while i < values.len() {
+        val node = values[i];
+        node.value += 1;
+        if node.edges[0].value != node.value { return -1; }
+        node.value -= 1;
+        i += 1u64;
+    }
+    values.len() as i32
+}
+
+pub fn sparse_nodes(values: Vec<Node>) -> Vec<Node> {
+    val kept: Vec<Node> = Vec::new();
+    var i = 0u64;
+    while i < values.len() { kept.push(values[i]); i += 64u64; }
+    kept
+}
+
+pub fn check_sparse_types(values: Vec<Read>) -> i32 {
+    var i = 0u64;
+    while i < values.len() {
+        if values[i].read() != 3 { return -1; }
+        i += 1u64;
+    }
+    values.len() as i32
+}
