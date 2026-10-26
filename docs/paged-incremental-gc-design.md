@@ -1,6 +1,9 @@
 # Paged storage and incremental garbage collection
 
-Status: design only, recorded on 2026-10-25 against `8c2a4568`. The user selected
+Status: design and execution plan; PG00-PG06 are queued and unstarted. The execution
+breakdown was requested on 2026-10-26 against `bb836eff`, incorporating the pending
+independent-library documentation review. The original design was recorded on
+2026-10-25 against `8c2a4568`. The user selected
 paged storage as the design direction. On 2026-10-26 the user selected precise
 tracing with incremental collection, unsafe integration for Opaque payloads that
 contain Value, and collecting Native callbacks. This supersedes the provisional
@@ -11,14 +14,16 @@ performance acceptance are not authorized or complete. The
 [Current runtime semantics](spec/runtime.md#gc-heap) remain authoritative until an
 explicit implementation task changes them.
 
-This document owns the proposed collector/storage architecture and its unresolved
-decisions. The [native collections plan](native-collections-plan.md) continues to
-own moving concrete collection representations and algorithms into libraries.
+This document owns the proposed collector/storage architecture, PG00-PG06 execution
+order, unresolved decisions and GC progress/error ledger. The
+[native collections plan](native-collections-plan.md) continues to own NC01-NC06
+and the detailed collection migration ledger.
 Opaque registration, the general payload protocol and affected collection integration
 belong to the same GC replacement migration. NC retains the collection work breakdown;
 its removal of special container paths is part of joint acceptance, not a later
-redesign. Neither document creates a second implementation or progress queue.
-This is design authorization only; runtime implementation remains unstarted.
+redesign. PG phases reference NC handoffs, not duplicate NC completion records.
+This task authorizes execution-plan documentation only; runtime implementation
+remains unstarted and requires a subsequent implementation task.
 
 ## Goals and scope
 
@@ -42,8 +47,11 @@ reachability, marking, sweeping, disposal and pressure-driven scheduling. It kee
 Non-goals are concurrent or generational collection, automatic moving compaction,
 raw host-visible heap references, a general-purpose replacement for the system
 allocator, new weak-reference/finalizer language APIs, a hard memory quota, and
-changes to cancellation policy. R13 type-only code retention, shared-program
-redesign and general managed-native backend expansion remain separate work.
+changes to cancellation policy. The discussion of removing or redesigning cx.poll
+is explicitly deferred: preserve current cancellation and termination contracts,
+without adding a cancellation redesign prerequisite to this migration. R13 type-only
+code retention, shared-program redesign and general managed-native backend expansion
+remain separate work.
 
 ## Current implementation and reason for change
 
@@ -131,6 +139,55 @@ flowchart TD
 
 Use ordinary modules under the existing owners first. These responsibilities do
 not justify new empty crates or moving mixed policy into `common`.
+
+### Independent-library acceptance boundary
+
+User requirement, 2026-10-26: the standard library must be implementable outside
+Runtime using the same public, general Native capabilities available to an
+application library. Physical crate separation already exists; it does not prove
+this boundary while public APIs still implement concrete collections in Runtime.
+Making sequence/map methods public, renaming their storage categories or moving
+only payload definitions does not satisfy acceptance.
+
+```text
+Standard library or application provider
+    owns payload layout, collection methods, algorithms and cursor policy
+        -> public checked Native registration, access and publication services
+        -> Runtime identity, roots, collector, storage and execution owners
+```
+
+The collector must not recognize Vec/HashMap/HashSet or sorting work objects.
+Providers describe their edges, storage and scan progress through one protocol.
+Opaque<LibraryPayload> is sufficient as the retained object category; a new
+VecHandle or a runtime-owned ScriptVec implementation is not required. Libraries
+may offer safe functions or extension methods without adding another root owner.
+The [NC representation/API contract](native-collections-plan.md#ownership-and-representation)
+owns concrete layouts, compact scalar storage and checked element evidence.
+
+This boundary requires general services, not a universal edit closure that can
+make arbitrary Rust algorithms GC-safe:
+
+| Engine service | Provider responsibility and boundary |
+| --- | --- |
+| Checked allocation and scoped access | Register a payload once; preserve nominal application, owner, generation and installed Rust payload identity. No payload loan spans collection or script reentry. |
+| Retention and reference publication | Retain extracted results before losing source protection; keep inputs protected until destination publication. Reuse runtime roots and barriers, never permanent external roots per internal edge. |
+| Operation protection and revision commits | Protect callback-bearing operations through general access checks. Library policy decides conflicts and iterator invalidation; an operation token is neither a long payload borrow nor a second mutation counter. |
+| Scan capability and mutation coordination | Describe edge-free, bounded or resumable scans; maintain initialized ranges and progress across insertions, removals, moves and reallocations. GC owns marking, not container traversal policy. |
+| Dynamic accounting and ownership transfer | Prepare fallible changes before commit; account retained capacity, scratch transfers and deferred disposal without a collection-specific heap API. |
+| Type and call evidence | Reuse checked actual types, bounds, selected calls and metadata edges for script and host construction alike; no container-name resolver or weakened type admission. |
+
+For example, a library pop prepares result retention while the source still
+protects the value, prepares required commit resources, removes the element and
+updates scan/revision/accounting state, then ends the loan and returns a retained
+result. A library push keeps its argument rooted through checked edge publication.
+If either operation needs a sequence-specific heap entrypoint, the general
+protocol is incomplete. Short exclusion alone does not supply publication safety.
+
+The [NC capability audit](native-collections-plan.md#proven-capability-gaps-not-replacement-subsystems)
+records the current public/private gaps. NativePayload tracing, roots, Opaque,
+scoped type arguments and selected-call machinery are foundations to extend, not
+proof that dynamic edits, resumable scanning or traversal-free ownership transfer
+are already available. Exact provider signatures remain a prerequisite.
 
 ## Concrete data structures
 
@@ -298,8 +355,11 @@ This builds on existing APIs, not a new registration facade:
   object handle, not a Rust reference into payload memory.
 - [Object::get/set and Field](../crates/kagari-runtime/src/native/objects/fields.rs)
   provide checked field operations with prepared type/member evidence.
-- [ScriptVec](../crates/kagari-runtime/src/native/collections/vector.rs) provides
-  retained collection handles and direct `get`, `set` and `push` operations.
+- [ScriptVec](../crates/kagari-runtime/src/native/collections/vector.rs) currently
+  provides retained collection handles and direct `get`, `set` and `push` operations.
+  This is evidence for flat access ergonomics, not a requirement to preserve its
+  runtime-owned sequence implementation or add a separate collection handle type.
+  The library must implement equivalent safe operations through general Native APIs.
 
 The following callback-body sketch uses that existing access shape. `a` and `b`
 are compatible object handles; `hp` is an already bound mutable integer field.
@@ -497,7 +557,13 @@ Measure total time, comparison count, root/barrier work, allocations and peak
 temporary memory for random, ordered, reversed and duplicate-heavy inputs. Separate
 scalar native ordering, cheap script comparison and allocating script comparison;
 reuse existing stable-order/trap/GC contracts for correctness. Custom O(n log n)
-sorting alone does not imply parity with Rust's optimized implementation. Scalar
+sorting alone does not imply parity with Rust's optimized implementation. Review
+adaptive behavior on already ordered inputs as well as worst-case bounds. GC
+adaptation must not add a retention/index prepass, a second full-input reference
+snapshot or repeated whole-container rescans. Require bounded or explicitly
+amortized publication/bookkeeping work per necessary move; count actual collector
+traversal separately. Scratch keeps the selected element representation rather
+than boxing an entire scalar input for convenience. Scalar
 sorting with no script callbacks can retain its compact Rust sort path. Long
 uninterrupted native kernels still need cancellation/latency review; their lack of
 script allocation does not establish a bounded time to the next GC step.
@@ -752,6 +818,30 @@ page occupancy, allocator calls and peak working memory separately.
 
 ## Related owners and removals
 
+The replacement has two inseparable acceptance surfaces: the collector lifecycle
+below and the [finite NC removal inventory](native-collections-plan.md#finite-removal-inventory).
+That inventory includes storage/algorithms, type and value families, registration,
+codecs, prepared Vec execution, cursors, host conversions and diagnostics. Moving
+storage alone while keeping those privileged routes is not completion.
+
+| Current GC mechanism | Replacement and removal boundary |
+| --- | --- |
+| Dense typed stores and packed struct-byte compaction in [directory.rs](../crates/kagari-runtime/src/gc/directory.rs) | Page/slot locators and tracked large allocations; replace both struct records and field backing without losing compact scalar fields. Retire obsolete live-store relocation. |
+| Whole-traversal visited/live sets and dead inventories in [collector.rs](../crates/kagari-runtime/src/gc/collector.rs) and [collection.rs](../crates/kagari-runtime/src/gc/collection.rs) | Persistent phase/epoch state, resumable graph work and incremental sweep with bounded detached batches. Do not retain a second production collector. |
+| Assignment-only root/edge updates, including [roots.rs](../crates/kagari-runtime/src/gc/roots.rs) | Checked publication barriers across every root, payload, frame, static and metadata owner; preserve existing root-lease lifetime semantics. |
+| Whole-object Native trace and eager payload admission | Scan capabilities and checked publication/transfer protocols. Creating a work owner must not hide a preparatory input traversal; arbitrary unvalidated admission is not a replacement. |
+| Sequence edit snapshots, concrete hash guards and collection descriptor caches in GcHeap | Library-owned algorithms and work state using general operation protection, retention, accounting and scan coordination. Remove collection-specific access and accounting downcasts. |
+| Full-cycle scheduling/reporting | One incremental driver service across supported execution paths, with explicit full-collection completion, automatic-disable semantics and separate pressure/work statistics. |
+
+Preserve the already general HeapObject::Native tracing dispatch. Current Map/Set
+storage does not require a distinct HeapObject variant; the remaining concrete
+privileges include Value/type tags and storage/operation paths. Builtin fixed-length
+Array, script fields, closures/cells, host scopes and execution state remain engine
+responsibilities. Their references must join the new GC protocol, not be removed
+as library-container exceptions. The NC01 review separately classifies the existing
+MutableList indexing-write language bridge; this GC change does not silently
+activate a general language-role redesign.
+
 - **NC:** libraries own Vec/HashMap/HashSet layouts, algorithms and base cursors;
   builtin fixed-length `[T]` remains a language representation. Opaque registration,
   unsafe provider access, tracing/barriers/retention and affected collection callers
@@ -788,8 +878,10 @@ remain a comparative cost reference, not a second production collector.
 
 ## Decisions required before implementation
 
-This is a finite list; unresolved items block implementation acceptance, not the
-recording of the paging direction.
+This is a finite list. PG00 resolves and records these decisions before dependent
+production changes; prototypes may inform them but do not establish acceptance.
+The execution sequence below does not invent allocator parameters or performance
+thresholds without baseline evidence.
 
 1. **Physical representation:** size/alignment classes, page and large-object
    thresholds, descriptor placement, mark/epoch encoding, packed-struct replacement,
@@ -805,6 +897,273 @@ recording of the paging direction.
 4. **Acceptance and sequencing:** freeze representative workloads and numerical
    memory/pause/throughput gates from a current baseline; agree NC/storage ownership
    boundaries and a finite buildable migration before authorizing implementation.
+   Apply the independent-library boundary to all standard collections and host
+   adapters, not just a separate demonstration container. Specify the general
+   protocol in NC01 and exercise an external reference-bearing provider in NC02;
+   integrate pages, barriers and graph owners with collection migration, then
+   remove obsolete routes before joint acceptance. NC01-NC06 remain the collection
+   ledger; this order does not authorize implementation or add a parallel phase plan.
+
+## Execution plan
+
+### Phase ownership and dependency order
+
+PG00-PG06 form the GC execution ledger in this document. NC01-NC06 keep their
+existing scope and ledger in the [collection plan](native-collections-plan.md#sequencing-and-phases).
+A joint checkpoint records each change/error once under its owning phase, with
+cross-links for the dependent phase. Do not create another progress document,
+parallel collector, collection API implementation or catch-all migration crate.
+
+```text
+PG00 + NC01: freeze contracts, baseline and removal ownership
+    -> PG01 + NC02: general provider protocol and early external proof
+    -> PG02: paged storage under the still-synchronous collection driver
+    -> PG03 + NC03/NC04: migrate collections and remove privileged paths
+    -> PG04: incremental graph/barriers, initially drained synchronously
+    -> PG05 + NC05: incremental sweep and legal driver interleaving
+    -> PG06 + NC06: integration, measurements and joint acceptance
+```
+
+This order deliberately makes general capabilities and independent collection
+implementations prerequisites for production interleaving. Test-only tiny-step
+harnesses may exercise new phase logic earlier, but no partially instrumented
+runtime may execute scripts between marking steps. NC05 verifies the NC02 fixture
+under real incremental schedules; it does not introduce a second fixture.
+
+### PG00: contract closure and baseline
+
+**Entry:** explicit authorization to start implementation; current working tree,
+commit history and affected diffs inspected. NC01 runs with this phase.
+
+**Work:**
+
+- Refresh the [replacement inventory](#related-owners-and-removals) and NC inventory
+  against the activation revision. Assign every old path a replacement owner and
+  removal checkpoint; distinguish retained Array/execution machinery from library
+  exceptions. Resolve the MutableList language-bridge disposition in NC01 without
+  silently expanding scope.
+- Resolve the four [pre-implementation decisions](#decisions-required-before-implementation).
+  Record page classes/alignment, large-object policy, descriptor/epoch layout,
+  scan-cursor mutation rules, newborn/sweep admission, failure ordering, work units,
+  escalation and explicit collection semantics here. NC01 owns exact provider and
+  constructor signatures; this document owns collector invariants.
+- Use the [primary references](#primary-references-and-applicability) and sorting
+  references for the affected decisions; document applicability and differing
+  assumptions. Any newly selected mechanism needs its own bounded source review,
+  not an inferred speedup from another runtime.
+- Select a small reproducible baseline from the workload families below. Record
+  machine/toolchain/profile/features/default parallelism/cache state, workload sizes,
+  repetitions, raw-to-summary method and exact commands. Freeze numerical acceptance
+  bounds and measurement uncertainty before optimizing; do not fabricate them in
+  this plan. Unavailable measurements remain explicitly blocked, not passed.
+- Select focused existing semantic owners and precise test filters; record the
+  selected local scope and the matrix left to CI. Reuse NC baseline measurements
+  for collection work rather than benchmark them a second time.
+
+**Exit:** decisions and baseline gates recorded, API obligations reviewable end to
+end, old-path removal owners assigned, and focused validation commands frozen.
+Open design questions block their dependent phase, not a waiver of its exit gate.
+No page-size, pause, memory or throughput target is currently measured or selected.
+
+### PG01: general Native protocol and external proof
+
+**Dependency:** PG00 and NC01. NC02 owns implementation of the public provider API;
+PG01 owns integrating its obligations with existing heap/root/execution owners.
+
+**Primary surfaces:** native storage/opaque registration and scoped access, roots,
+resource accounting, native revisions/leases, type evidence and retained calls.
+Reuse existing modules; no Vec/Map-specific service enters the general protocol.
+
+**Work:**
+
+- Complete unsafe payload integration and read/edit boundaries, retained extraction,
+  fallible pre-commit preparation, dynamic backing accounting and generic operation
+  protection. Keep Ref/RefMut host borrowing distinct from opaque payload access.
+- Define scanner capabilities and owned continuation data with exact mutation and
+  work-count contracts. Publication services must already have their final owner;
+  while the old collector is synchronous there is no active incremental marking,
+  but validation, accounting and lifetime effects remain real, not no-op stubs.
+- Make script and host constructors obtain equivalent actual-type/bounds/selected-call
+  evidence. Close generic conversion gaps without collection-family dispatch.
+- Build the early external reference-bearing provider through public APIs only.
+  Exercise construction, growth, get/pop handoff, callbacks, invalidation, cycles
+  and cleanup using the current full-collection service. Test scanner continuation
+  and transfer invariants in isolation without claiming integrated incremental GC.
+
+**Exit:** NC02 capability evidence exists; no private import or privileged codec is
+needed by the fixture. Ordinary retained results survive an intervening collection.
+Provider API completion does not yet claim interleaved marking or pause bounds.
+
+### PG02: paged physical storage
+
+**Dependency:** PG01. Keep the current collection lifecycle synchronous during the
+storage replacement so storage faults are isolated from incremental graph faults.
+
+**Primary surfaces:** gc/directory, gc/storage, gc/fields and their codecs, allocation,
+capacity/accounting and descriptor dispatch; apply changes to every affected payload
+family rather than paging Native records alone.
+
+**Work:**
+
+- Implement PG00's checked size/alignment/page/large-object choices and descriptor
+  lifetime. Retain identity history independently of released payload pages.
+- Replace dense locators and both packed struct records/field backing; preserve
+  scalar widths, initialization-before-publication and exact destruction.
+- Route allocation, access, retirement and disposal through the new store. Retain
+  the same observable full-collection service while changing physical storage.
+- Remove superseded dense-store relocation/arena compaction once callers migrate.
+  An adapter inside this checkpoint may connect the existing synchronous sweeper to
+  page storage, but it must not create a second heap or survive as a compatibility API.
+
+**Exit:** allocation/access and full collection use paged storage; identity reuse,
+alignment, partial initialization failure, empty-page release and drop/quarantine
+coverage pass. Live payloads do not move during collection. Record page slack and
+backing accounting against the baseline; do not infer RSS savings from slot counts.
+
+### PG03: remove privileged collection paths
+
+**Dependency:** PG02 and the completed NC02 public boundary. NC03/NC04 own concrete
+Vec/HashMap/HashSet layouts, algorithms, cursors and consumer migration.
+
+**Work:**
+
+- Migrate standard collections through the same general public protocol exercised
+  in PG01. Preserve compact scalar buffers, existing type evidence and current-call
+  semantics; no runtime-owned collection handle or per-element external roots.
+- Replace callback-bearing sort/retain/dedup work storage without the old retention
+  snapshot. Preserve stable worst-case O(n log n) sorting, comparison-time keys,
+  linear retain/dedup and restoration without further user calls or allocation solely
+  for recovery. Keep algorithm kernels and their performance evidence in NC.
+- Migrate type/value/constructor/layout/codec families, linked Vec primitives, base
+  cursors, host conversion/construction, diagnostics and artifact consumers together
+  with their callers. Refresh affected disposable fixtures at coherent boundaries.
+- Remove each retired route rather than leave forwarding implementations. No new
+  core enum branch or stdlib-name recognition may be introduced to complete the
+  migration. Retain builtin Array and unrelated language/execution owners.
+
+**Exit:** NC03/NC04 semantic evidence and the removal inventory agree; all three
+standard collections run on generic Native objects. Collecting callback tests pass
+with the current full collector, including temporary extraction and error cleanup.
+The exact incremental-schedule reruns remain PG05/NC05 work, not a reason to keep
+privileged storage paths until final acceptance.
+
+### PG04: incremental graph state and complete publication coverage
+
+**Dependency:** PG03. Integrate one replacement marker with existing graph owners;
+production collection still drains its work synchronously until PG05 opens the
+interleaving boundary.
+
+**Primary surfaces:** gc/collector, gc/collection, gc/roots, payload/field/cell writes,
+frame and argument/result windows, native helpers, statics, module graph and
+execution_metadata stores. Preserve joint object/program reachability.
+
+**Work:**
+
+- Implement phase/epoch state, resumable roots and graph tasks, metadata progress,
+  newborn protection and marking closure. Collector tasks hold checked identities
+  and owned cursors, never borrowed iterators or payload addresses across steps.
+- Enumerate and instrument every strong-reference/root publication owner. Prepare
+  fallible queue capacity before commit; handle reference rearrangement and partially
+  scanned payloads without unbounded repeated rescans.
+- Define phase-aware access and root admission, including weak internal caches and
+  condemned-but-not-yet-swept identities. Current calls and retained computations
+  preserve their existing distinct metadata ownership.
+- Replace old mark/visited/live-set construction with the new state machine. A
+  synchronous completion wrapper may feed the existing sweep adapter temporarily;
+  record it here and remove the obsolete whole-dead-inventory adapter in PG05.
+- Use tiny-step tests with mutations between steps to prove publication, scan
+  progress, root replacement, queue failure and trace-fault closure. A full trace
+  fallback after every mutation is not an implementation of these guarantees.
+
+**Exit:** one production marker exists, all publication owners have a reviewed path,
+focused graph/roots/reload tests pass, and no trace fault permits partial-graph sweep.
+Do not enable automatic incremental interleaving based only on object-field tests.
+
+### PG05: incremental sweep, disposal and execution driving
+
+**Dependency:** PG04 publication coverage and marking closure. NC05 completes the
+external/cursor proof under the same interleaved service as the standard library.
+
+**Work:**
+
+- Implement page/slot and metadata sweep cursors, bounded detached batches, safe
+  identity retirement/reuse, newborn exclusion and release-driven accounting.
+  Remove whole-cycle dead inventories and the PG04 synchronous sweep adapter.
+- Wire one phase driver into legal existing safepoints for synchronous, owned/async
+  and reentrant execution, and supported native execution helpers. No payload loan
+  may be bypassed by a captured Runtime alias; Native entry does not suppress GC.
+- Apply PG00 pressure/work escalation and statistics. Explicit collection drains
+  to the documented completed-cycle/reporting boundary; disabling automatic work
+  does not silently disable explicit collection. Existing cancellation/termination
+  semantics stay unchanged, and poll is not redefined as a collecting helper.
+- Enable interleaving only after the admission/publication audit closes. Exercise
+  collection in allocating comparisons, predicates, Hash/Eq, custom next and long
+  consumers; cover suspension, cleanup, slot reuse and failure during sweep/disposal.
+
+**Exit:** all phases operate incrementally through the common driver; NC05's public
+provider passes the integrated schedule. Document any indivisible scans/destructors
+and measured escalation costs. Supported native execution must run actual native
+bodies for its selected coverage; interpreter fallback is not native proof, and
+this phase does not expand the native backend's language coverage.
+
+### PG06: joint integration and acceptance
+
+**Dependency:** PG05 and NC05. NC06 closes collection integration; this phase closes
+GC lifecycle, performance and shared acceptance without duplicating its ledger.
+
+**Work and exit:**
+
+- Close every GC replacement and NC removal row; inspect imports, registration,
+  typed/host access, codecs and optimized paths for remaining collection privileges.
+  The real standard library and external provider must use the same public protocol.
+- Resolve every carried error and remove every recorded bridge. No obsolete collector,
+  detached-snapshot sort, old format reader or second semantic implementation remains.
+- Run selected local contracts and final lightweight/Clippy checks, reusing unaffected
+  prior passes. Repeat the frozen measurements; compare actual work, throughput,
+  peak memory and pauses with uncertainty, not asymptotic bounds alone. A missed
+  gate triggers architectural diagnosis, not weaker assertions or an unreported target
+  change. Required unresolved gates block completion.
+- Complete the designated CI workspace/feature/backend/platform matrix. Report
+  locally validated scope separately while CI is pending; do not mark joint final
+  acceptance complete on local evidence alone.
+- Move lasting contracts to architecture/spec owners and outstanding unrelated work
+  to its existing owner. After acceptance, retire completed plan material per the
+  documentation policy; preserve relevant uncompleted NC work if any, never erase
+  its open status to claim completion.
+
+### Intermediate build and checkpoint policy
+
+Default to buildable, coherent checkpoints. Change a declaration, validation path
+and its consumers together when splitting would create a fake intermediate API.
+The bounded transitions above allow staging a new mechanism behind the existing
+synchronous completion contract; they do not authorize two selectable production
+collectors or disabling validation until a later phase.
+
+At each implementation checkpoint, record phase scope separately from build/test
+status. A carried failure records the command, representative diagnostic, cause,
+owner and next repair checkpoint in this ledger or the NC ledger, not both. Do not
+repeat unchanged known failures until their owning repair. No failure is carried
+at the current documentation checkpoint. Temporary bridges require an explicit
+removal phase and may not escape PG06/NC06.
+
+Use default workspace Cargo profiles, target directory and parallelism. Run focused
+contracts plus a small direct-dependent regression set, not workspace test sweeps.
+Implementation acceptance also requires:
+
+```text
+uv run --locked scripts/check_structure.py
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+git diff --check
+```
+
+Full-workspace tests and the complete feature/backend/platform matrix are CI-only.
+PG00 records exact test/measurement commands after inspecting the activation baseline;
+planning does not claim those commands or measurements have already run. If a
+selected multi-target test command is appropriate, use --no-fail-fast and complete
+skipped cases after build repairs. Documentation-only checkpoints use link/content/
+diff checks, not builds. Commit only when authorized; implementation checkpoints
+use `Plan: paged-incremental-gc-design PG0N`, plus the NC trailer when jointly owned.
 
 ## Validation design
 
@@ -829,8 +1188,15 @@ source-free and reload contract owners. Add only distinct incremental boundaries
   for_each/custom-next loops, with no callback-wide exclusion or root gap; stable
   sort/multiset preservation, alias rejection and cleanup on error/unwind. Include
   roots added during marking, scratch transfers and mutations between partial scans.
-- A reference-bearing application container using only public native capabilities,
-  with no new core type tag, collector branch or persistent root per element.
+- A reference-bearing application container implemented across a crate boundary
+  using only public general Native capabilities, with no new core type tag,
+  collector branch, private import, installation privilege or persistent root per
+  element. Exercise retained extraction, growth/accounting, callbacks, cursor
+  invalidation, partial scans, cyclic cleanup, host construction and source-free
+  loading through existing contract owners. The same route must implement Vec,
+  HashMap, HashSet and their host adapters; an external fixture alongside retained
+  privileged standard-library paths does not pass. Reuse NC's external fixture,
+  rather than create another extensibility test product.
 - Source-free invalid identity/type/metadata cases and actual supported native
   execution at collecting boundaries; fallback does not prove native coverage.
 
@@ -848,7 +1214,7 @@ workspace all-target Clippy and diff checks follow [repository rules](../AGENTS.
 Full-workspace tests and the complete feature/backend/platform matrix remain CI-only.
 Documentation-only work needs content/link/diff checks, not Rust builds.
 
-## Design status
+## Progress and error ledger
 
 - [x] Record the user-selected paged storage direction and incremental GC scope.
 - [x] Record ownership, concrete storage/sweep examples and primary references.
@@ -864,8 +1230,26 @@ Documentation-only work needs content/link/diff checks, not Rust builds.
   prepass. Record future operation families and ordinary per-item callback rooting.
 - [x] Preserve incremental scanning/barrier/sweep design and explicitly distinguish
   collecting Native callbacks from a hard pause guarantee.
-- [ ] Resolve the four pre-implementation decisions above and obtain implementation scope approval.
-- [ ] Implement and validate the replacement; not started.
+- [x] Record the independent-library hard acceptance boundary, general capability
+  gaps and joint GC/NC removal scope, 2026-10-26. This is a read-only architecture
+  audit and design update, not proof that the public provider protocol is complete.
+- [x] Add the PG00-PG06 execution breakdown and NC handoffs on 2026-10-26;
+  preserve cancellation policy and distinguish synchronous staging from incremental
+  activation. This records a plan, not implementation authorization or validation.
+- [ ] Obtain implementation activation; resolve the four pre-implementation decisions in PG00.
+- [ ] PG00: Contract closure and baseline (with NC01).
+- [ ] PG01: General Native protocol and external proof (with NC02).
+- [ ] PG02: Paged physical storage.
+- [ ] PG03: Remove privileged collection paths (NC03/NC04 handoff).
+- [ ] PG04: Incremental graph state and complete publication coverage.
+- [ ] PG05: Incremental sweep, disposal and execution driving (with NC05).
+- [ ] PG06: Joint integration and acceptance (with NC06).
+
+Implementation status: all PG phases are unstarted; no intermediate build failure
+is carried. On activation, append decision/baseline evidence and phase results here,
+including changed responsibility/structural debt, commands actually run, remaining
+failures with their owner, temporary bridges and pending CI scope. NC-specific
+results stay in its ledger with a handoff link rather than copied checklists.
 
 No numerical performance target, memory saving, pause bound or implementation
 acceptance is claimed. On completion of a future implementation, move lasting

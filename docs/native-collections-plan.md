@@ -27,6 +27,14 @@ declarations describe generic parameters, bounds, methods and trait implementati
 Adding an application collection must not require a new semantic type, runtime
 value variant, compiler-recognized container layout or backend operation.
 
+Strict independent-stdlib acceptance: all three standard collections, including
+storage, algorithms, concrete cursors and host adapters, must be implementable in
+a separate crate using the same public generic Native APIs as external providers.
+Public collection-specific Runtime/GcHeap methods do not satisfy this requirement.
+The standard implementation must exercise that boundary, not leave the external
+fixture on a generic path while standard collections retain privileged paths.
+This is an ownership/access test, not a requirement to create a new production crate.
+
 ```text
 Rust collection storage and operations
     -> checked NativeModule declarations and local storage/entry bindings
@@ -128,6 +136,40 @@ Runtime should own general checking/lifetime mechanisms, and libraries should
 own storage and operation policy. Historical motivation is not inferred from
 current code. This migration makes no unmeasured performance claim.
 
+### Finite removal inventory
+
+This inventory identifies concrete policy to move/remove, not whole files to delete.
+NC01 checks its consumers against the activation baseline; NC03/NC04 migrate them
+and NC06 closes every row, preserving the generic validation each currently owns.
+
+| Existing source boundary | Required disposition |
+| --- | --- |
+| [sequence payload](../crates/kagari-runtime/src/native/sequence.rs), [allocation](../crates/kagari-runtime/src/native/sequence/allocation.rs), [heap operations](../crates/kagari-runtime/src/gc/sequence_ops.rs), [sequence admission](../crates/kagari-runtime/src/gc/sequences.rs) | Move Vec representation, scalar selection and operations into the library; remove Sequence as privileged Vec admission. |
+| [edit API](../crates/kagari-runtime/src/native/sequence_edit.rs), [edit lease/snapshot](../crates/kagari-runtime/src/gc/sequence_edit.rs) | Replace concrete detached-buffer policy and the full reference-root snapshot with generic protection/publication services and library-owned algorithms; do not preserve the snapshot as sort admission. |
+| [hashed payloads](../crates/kagari-runtime/src/native/hashed.rs), [hash_storage](../crates/kagari-runtime/src/native/hash_storage.rs), [custom_keys](../crates/kagari-runtime/src/gc/custom_keys.rs) | Move table layout, collision traversal, key policy and concrete operations into the library; reuse checked selected calls and general operation protection. |
+| [concrete cursors](../crates/kagari-runtime/src/gc/iter.rs) | Replace Vec/Map/Set cursor variants and concrete heap traversal with nominal library cursors; retain unrelated builtin cursor support. |
+| [Ty](../crates/kagari-types/src/ty.rs), [Value](../crates/kagari-runtime/src/value.rs), [constructors/layouts](../crates/kagari-types/src/declaration/native.rs), [HIR mapping](../crates/kagari-hir/src/native/api.rs), [compiler mapping](../crates/kagari-compiler/src/source/types.rs) | Remove concrete Map/Set families and collection constructor/layout authority, including substitution, checking and formatting consumers. |
+| [type wire](../crates/kagari-types/src/ty/wire.rs), [native wire](../crates/kagari-types/src/declaration/wire/native.rs), [binding codecs](../crates/kagari-runtime/src/native/binding.rs) | Remove collection-family codec/admission branches; keep ordinary nominal/source-free validation, not compatibility readers. |
+| [Vec native primitives](../crates/kagari-runtime/src/native/primitive.rs), [linked execution](../crates/kagari-runtime/src/module/linked_execution.rs), [linker](../crates/kagari-runtime/src/module/linked_execution/native_calls.rs), [execution fast path](../crates/kagari-runtime/src/frame/cursor/primitives.rs) | Remove VecIndex/VecSet/VecSetFluent and linked Vector dispatch as engine protocols; retain valid optimizations inside ordinary library entries. |
+| [host adapters](../crates/kagari-runtime/src/native/collections/mod.rs), [host conversions](../crates/kagari-runtime/src/native/conversion/composites.rs), [constructor binding](../crates/kagari-runtime/src/native/function_handle/constructors.rs), [hardcoded Vec identity](../crates/kagari-runtime/src/native/collections/vector/storage.rs) | Move collection-specific conversions/construction to the library through public generic evidence. Replace special constructor matching and diagnostics/cache preparation; retain generic function-cache ownership and supplying generations. |
+
+The [heap descriptor caches](../crates/kagari-runtime/src/gc.rs) and
+[backing diagnostics](../crates/kagari-runtime/src/gc/directory/accounting.rs) must
+also lose concrete collection ownership/downcasts. Preserve generic descriptor
+sharing and accounting rather than treating removal of cache fields as migration.
+
+Builtin fixed Array storage/operations and justified shared buffer helpers remain;
+so do language/execution state, frames, roots, scopes and generic call machinery.
+Their Rust Vec/HashMap use is not a script-collection semantic dependency. String,
+Range, Future, Task and TaskScope remain outside this removal inventory.
+
+The [index-write bridge](../crates/kagari-hir/src/typeck/body/places.rs) explicitly
+looks up `MutableList::set`. NC01 must decide and document whether this remains a
+language-to-declared-interface bridge or needs a bounded collection-boundary change.
+It must not infer Vec storage or bypass selected calls. This audit does not silently
+authorize a general language-role/trait-identity redesign; any such expansion needs
+explicit scope approval, not a new queue hidden inside this plan.
+
 ### Reuse the completed Iterable mechanisms
 
 For `val result: Vec<i32> = values.map(f).take(2).collect();`, the existing default calls
@@ -196,8 +238,11 @@ field `get/set` and collection `get/set/push/insert/remove`. Accessing several
 objects must not require nested payload-edit closures or long-lived borrow guards.
 The [GC design's Native-facing operations](paged-incremental-gc-design.md#native-facing-gc-object-operations)
 own the examples, root/edge distinction and incremental publication requirements.
-Existing Object/Field and ScriptVec access provide the baseline shape; this does
-not claim that the proposed general storage protocol is implemented.
+Existing Object/Field and ScriptVec access provide the baseline ergonomics, not
+an obligation to retain ScriptVec or collection methods in Runtime. Library-owned
+safe functions/extensions over Opaque<library payload> are sufficient; no mandatory
+VecHandle/ScriptVec wrapper or second handle category is required. This does not
+claim that the proposed general storage protocol is implemented.
 
 The registration and payload sketches below are for collection implementers, not
 ceremony required of ordinary Native callers. NC01 must preserve flat handle
@@ -335,6 +380,7 @@ unsafe trait NativePayload: Any + Debug + Send {
 }
 
 struct VecStorage {
+    // Illustrative access to existing checked application/element evidence.
     element: CheckedElementType,
     values: Vec<Value>,
 }
@@ -347,6 +393,9 @@ unsafe impl NativePayload for VecStorage {
 }
 ```
 
+Vec<Value> here is only a tracing example, not the production scalar layout.
+CheckedElementType is a placeholder for reused checked scope/contracts, not a new
+independent evidence owner or a requirement to duplicate them in every payload.
 This whole-object trace demonstrates reachability only; it is an indivisible O(n)
 scan. Large standard-library payloads require the GC design's resumable scan and
 mutation protocol before bounded-work claims. Edge-free Rust data may have empty
@@ -400,13 +449,15 @@ the retention protocol once; rooting APIs are not required at every user-level c
 
 ### Concrete Vec sorting API proposal
 
-Selected tracing direction, 2026-10-26. Keep the safe library facade and existing
-[sorting semantics](spec/collection-access.md#foundation-algorithms):
+Selected tracing direction, 2026-10-26. Keep safe library operations and existing
+[sorting semantics](spec/collection-access.md#foundation-algorithms), not a required
+runtime-owned ScriptVec facade. Illustrative library functions (extensions are
+also allowed); T/K denote checked script applications, not Rust payload instances:
 
 ```text
-ScriptVec<T>::sort(cx) -> NativeResult<()>                  // selected T: Ord
-ScriptVec<T>::sort_by(cx, Function<(T, T), Ordering>) -> NativeResult<()>
-ScriptVec<T>::sort_by_key<K>(cx, Function<T, K>) -> NativeResult<()> // K: Ord
+sort(cx, &Opaque<VecStorage>) -> NativeResult<()> // selected element T: Ord
+sort_by(cx, &Opaque<VecStorage>, Function<(T, T), Ordering>) -> NativeResult<()>
+sort_by_key(cx, &Opaque<VecStorage>, Function<T, K>) -> NativeResult<()> // K: Ord
 ```
 
 Resolve and pin comparator/key-selector evidence once. Sort uses Ord, not Hash;
@@ -465,6 +516,9 @@ all values remain protected at collecting boundaries.
 - retain/dedup and other compaction algorithms need controlled temporaries when
   callbacks observe a representation with holes. Use shared root/work-state machinery
   and preserve their completed-removal/error semantics; no full-input root prepass.
+  Retain/dedup require linear traversal/compaction, not repeated remove/shift that
+  becomes quadratic. Count moves, callbacks, roots/barriers and actual GC work
+  separately; collection costs cannot conceal an algorithmic regression.
 - Future heap/tree algorithms need the same audit around comparison callouts. Rust
   Hash/Eq/Ord do not directly express context-bearing fallible script calls.
 - Escaping iterators/entry-like state use traced owners and revision checks; borrowed
@@ -500,10 +554,21 @@ module.implement(vec_type, |group| {
 })?;
 ```
 
-VecStorage retains its checked element contract and native buffer. Keep compact
-scalar storage where valid; object elements require traced values. A kgr generic
-parameter cannot dynamically instantiate arbitrary Rust generic code. Select
-storage from checked type arguments, never the first element or a textual name.
+VecStorage uses checked element evidence and owns its native buffer. Keep compact
+scalar storage where valid; object elements require traced values. A compact
+scalar/traced enum may live inside the library; it must not become an engine
+protocol. A kgr generic parameter cannot dynamically instantiate arbitrary Rust
+generic code. This plan does not select a new generic per-application Rust payload
+mechanism. Select storage from checked type arguments, never the first element or
+a textual name.
+
+Physical layout is not element evidence: both Vec<User> and Vec<Enemy> may use
+Traced storage, but inserting Enemy into Vec<User> must still fail. Reuse the
+existing checked application scope/StorageType contracts, generation and owner
+checks at constructor and mutation boundaries. NC01 chooses access/location of
+that evidence through existing owners, without gratuitous payload duplication.
+Existing element contracts cannot simply be deleted because storage is opaque;
+replace their validation with equivalent evidence before removing any old owner.
 The registered constructors build VecStorage with that checked contract and use
 the existing Native allocation owner; registration need not duplicate a factory
 for every constructor. The constructor/factory binding details remain NC01 work.
@@ -537,6 +602,46 @@ Constructors explicitly declare Array/Iterable inputs and use ordinary inference
 
 NC01 records exact APIs and the safe/trusted boundary for each row; NC02 implements
 only gaps required by these collections and the external proof.
+
+### Proven capability gaps, not replacement subsystems
+
+- Dynamic edits/accounting: [NativePayload::charge and StorageContext](../crates/kagari-runtime/src/native/storage.rs)
+  sample initial charge and expose scoped parameters, while general safe edits
+  remain [fixed NativeData](../crates/kagari-runtime/src/native/payload/data.rs).
+  Checked resizing, barriers and revision commits must be usable by external
+  providers, not only by heap sequence/hash operations.
+- Operation protection: [try_enter_operation](../crates/kagari-runtime/src/native/views.rs)
+  prevents explicitly guarded recursion. It does not by itself establish that all
+  alias reads/writes obey sort or lookup protection. NC01 specifies participating
+  access checks, permitted callback activity and cleanup using existing guard owners;
+  a recursion token is not a substitute for candidate/commit or slot-access safety.
+- Scan/admission: [NativePayload::trace](../crates/kagari-runtime/src/native/storage.rs)
+  is a whole-payload visitor; [sequence editing](../crates/kagari-runtime/src/gc/sequence_edit.rs)
+  snapshots all reference elements into roots. NC02 must expose the GC design's
+  resumable mutation/scan contract and no-prepass admission for library work state.
+  NativeStorage payload admission currently traces incoming payloads; merely moving
+  a filled buffer into Opaque does not establish traversal-free transfer. Neither
+  an O(n) retention pass nor an O(n) index may hide in sort registration.
+- Type/selected-call construction: StorageContext has type_parameter/selected,
+  but element_contract is private; [NativeType::create](../crates/kagari-runtime/src/native/payload/mod.rs)
+  prepares a payload without an explicit selected-slot argument, whereas
+  [CallContext](../crates/kagari-runtime/src/native/context.rs) retains declared slots.
+  [Host constructor binding](../crates/kagari-runtime/src/native/function_handle/constructors.rs)
+  matches Ty::Map/Set. The current [native type binding](../crates/kagari-runtime/src/native/payload/binding.rs)
+  also rejects declarations with nonempty bounds. Close these public generic
+  construction/host-path gaps using existing checked scopes, selected slots and
+  prepared calls, not a second resolver. Collection conversions must respect Rust
+  coherence: moving an impl of a runtime trait for std::vec::Vec into the library
+  is not sufficient; use library-owned adapters or a justified general mechanism.
+- Raw access safety: current NativePayload is a safe trait and Opaque::read plus
+  ValueHandle::with_payload expose shared raw payloads. Shared access can copy out
+  non-rooting Value or mutate interior state; a scoped reference alone proves neither
+  retention nor accounting. Apply the already selected unsafe provider/read/edit
+  boundary, preserving safe rooted library operations and checked fixed-data access.
+
+Reuse roots/conversion scopes and runtime-owned NativeObject revisions throughout.
+NC01 resolves signatures and NC02 proves access without private imports; this list
+records gaps, not a new phase, GC physical design or permission to drop validation.
 
 | Capability | Required contract |
 | --- | --- |
@@ -614,14 +719,25 @@ implementations. Do not add another Iterable phase or make the trait surface
 depend on this storage migration. Reuse implemented host registration/scoped
 borrowing; the roadmap owns subsequent activation changes.
 
+The [joint GC execution plan](paged-incremental-gc-design.md#execution-plan) owns
+PG00-PG06 and the collector activation order. NC01 pairs with PG00, NC02 with PG01,
+and NC03/NC04 execute at PG03 after the paged-storage checkpoint PG02. NC05 closes
+the early external fixture under PG05's actual incremental schedules; NC06 joins
+PG06 acceptance. PG04 integrates marking/publication between those handoffs.
+NC02 may prove the public protocol with the synchronous collector and isolated
+scanner tests, but cannot claim interleaved GC acceptance. Record collection
+results only in this ledger; link PG results rather than copy their checklist.
+This sequencing is documentation, not implementation activation. Cancellation
+policy and cx.poll redesign remain explicitly outside the joint migration.
+
 | Phase | Scope and exit condition |
 | --- | --- |
-| NC01: inventory and API contract | Trace dynamic edits, source revisions, factories, key calls, host conversions and artifacts against a fresh activation baseline, including the accepted OM owners. Specify opaque registration without redundant storage declarations, reusing Ref/RefMut/Opaque categories and existing registration owners. Record exact reuse of retained slots/revision checks, constructor evidence, builtin cursor disposition, optimization review and baseline commands. Establish the external fixture and only the missing public capabilities. |
-| NC02: general storage capabilities | Implement the unified opaque registration contract and replace superseded registration paths. Complete checked dynamic edits, allocation/accounting and public native revision/commit access under the existing owner. Extend retention only for proven constructor/host gaps. Demonstrate public-API-only reference-bearing storage participating in existing nested/paired adapters with invalidation and callback failure cleanup. No second guard or selected-call subsystem. |
-| NC03: Vec migration | Move concrete storage/operation policy and its base cursor to the library; replace Sequence admission and consumers while retaining builtin Array support. Preserve defaults, indexing, sorting, existing FromIterator/pipelines, host adapters and compact buffers. Remove the obsolete parallel Vec path. |
-| NC04: HashMap/HashSet migration | Register both as nominal objects; move table/key policy and base cursors to the library, replace special type/value/layout branches and migrate host/contract/backend consumers. Rebind existing FromIterator insert/iter/next requirements to nominal types. Preserve collisions, last-value-wins/dedup rules, custom Hash/Eq, cleanup and current callback selection under the publication contract. |
-| NC05: external extensibility and cursors | Close remaining collection cursor consumers and prove a public-API-only BTreeMap<i32, T> fixture implements Map/MutableMap/Iterable with reference-bearing values and source revision checks. Exercise existing adapters and collection terminals without core enum changes or new default algorithms. Separately prove retained script comparison calls, not only Hash/Eq. No production ordered collection required. |
-| NC06: final integration | Remove obsolete paths/bridges, update implemented docs/examples/tooling, refresh affected artifacts once, complete host/source-free acceptance, repeat focused measurements and run final local checks. Report CI separately. |
+| NC01: inventory and API contract | Close the finite inventory/design decisions against a fresh baseline, including the MutableList::set bridge and retained builtin boundaries. Specify the independent-stdlib public surface, evidence location, constructor/host paths, operation protection, dynamic accounting and resumable/no-prepass admission using existing owners. Record baseline commands and the early external prototype; do not select a new generic Rust payload mechanism. |
+| NC02: general storage capabilities | Implement unified opaque registration and the identified generic capabilities under existing root/type/revision/call owners. Build an early separate-crate prototype before declaring the API sufficient: reference-bearing storage, dynamic edits/accounting, constructor/host calls, protected callbacks, scan admission and existing adapters with invalidation/failure cleanup. No collection-specific privileges or second guard/selected-call subsystem. |
+| NC03: Vec migration | Move storage, operations, base cursor and host adapters through the independently usable public boundary; remove Sequence/Vec primitive/link/execution paths while retaining builtin Array. Preserve compact buffers, checked element evidence, defaults, indexing and pipelines. Prove stable worst-case O(n log n) sorting without retention/index prepass and linear retain/dedup, separating actual GC work. |
+| NC04: HashMap/HashSet migration | Move nominal storage, table/key policy, cursors and host adapters through the same public generic boundary; remove special type/value/constructor/layout/codecs and host binding branches. Rebind FromIterator requirements. Preserve collisions, last-value-wins/dedup, protected Hash/Eq, cleanup and publication semantics; generic constructor evidence must work for script and host paths. |
+| NC05: external extensibility and cursors | Complete the NC02 external prototype as a public-API-only BTreeMap<i32, T> fixture with Map/MutableMap/Iterable, reference-bearing values and revisions. Close cursor consumers; exercise adapters/terminals and retained script comparisons without core enum changes or new defaults. Recheck that standard collections use the same capabilities. No production ordered collection required. |
+| NC06: final integration | Close every removal-inventory row and all script, host, conversion, source-free and optimized paths on the same public generic APIs. No runtime-owned collection facade, private-import exception or special codec/primitive may remain. Update docs/examples/tooling, batch artifacts, repeat focused measurements and final local checks; report CI separately. |
 
 The external BTreeMap fixture can use Rust integer ordering because its keys are
 fixed to i32. This does not prove arbitrary script Ord can be passed directly to
@@ -655,8 +771,13 @@ returned by reads/removals, alias mutation during protected operations, cancella
 and post-error reuse. Consolidate existing cases rather than duplicate smoke suites.
 Preserve source-free, host ownership and backend cases with distinct contracts.
 
-Acceptance requires all three standard collections to use the public extension
-path. Ordinary opaque declarations associate the Rust payload once, without
+Acceptance requires the actual standard Vec/HashMap/HashSet implementations and
+host adapters to pass the independent-crate boundary, not merely a toy external
+collection or pub collection-specific methods. Exercise new/from/from_iter/collect,
+reads/edits, callbacks, iteration, host conversions, reload and source-free loading
+through the same generic APIs. Reuse existing semantic tests for these paths; no
+parallel acceptance suite or physical crate split is required. Ordinary opaque
+declarations associate the Rust payload once, without
 duplicate storage declarations or a new GC-specific public category. Reuse the
 existing wrong-payload/type/owner and borrowed/retained lifetime contract coverage
 when consolidating registration. The external fixture cannot import runtime-private
@@ -724,6 +845,16 @@ CI acceptance. Planning-only edits need content/link/diff checks, not builds.
 - [x] Record future operation families including Ord, predicates and custom iterators;
   per-item rooted iteration permits GC without whole-call exclusion. Incremental
   GC pause/progress validation remains separate from Native liveness correctness.
+- [x] Record strict independent-stdlib acceptance, finite source removal inventory
+  and evidenced capability gaps after architectural audit, 2026-10-26. Require the
+  early NC02 external prototype and final same-path host/source-free acceptance.
+- [x] Clarify Opaque<library payload> suffices, safe library functions/extensions are
+  allowed, scalar layout stays library-owned and checked element evidence is reused.
+  Record MutableList::set as an NC01 boundary decision, not an authorized language
+  redesign; reinforce no-prepass sort and linear compaction requirements.
+- [x] Link the PG00-PG06 joint execution order and synchronous-to-incremental
+  validation handoffs, 2026-10-26; keep one ledger per owner and cancellation policy
+  unchanged. All NC implementation phases remain unstarted.
 - [ ] NC01: Inventory and API contract.
 - [ ] NC02: General storage capabilities.
 - [ ] NC03: Vec migration.

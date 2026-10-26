@@ -576,9 +576,10 @@ Libraries should own concrete storage and algorithms; runtime should supply chec
 dynamic access, accounting, GC, short operation protection, revision checks and pinned calls. NC01 identifies
 missing public storage and constructor/host evidence capabilities before migration.
 The opaque API adjustment and general payload protocol ship with the
-[GC replacement](paged-incremental-gc-design.md#related-owners-and-removals), including
-affected collection integration. NC remains the detailed collection work breakdown;
-it is not a later API redesign. Joint acceptance removes container-specific
+[GC execution plan PG00-PG06](paged-incremental-gc-design.md#execution-plan), including
+affected collection integration. The plan records NC handoffs and staged activation
+of incremental collection; its phases are queued and unstarted. NC remains the
+detailed collection work breakdown; it is not a later API redesign. Joint acceptance removes container-specific
 collector/storage paths and uses the same public opaque protocol for standard and
 application collections. Implementation remains unstarted.
 The plan covers Vec/HashMap/HashSet, their base cursors, host adapters and source-free
@@ -1076,7 +1077,7 @@ require a concrete task; implemented foundations are not prerequisites to replay
 | --- | --- |
 | [Multi-Runtime program sharing](multi-runtime-sharing-plan.md) | MS00-MS05 planned, unstarted: measure current same-product multi-Runtime costs; eliminate whole-code identity remapping copies and duplicated pure link preparation; establish safe cross-thread frozen-product reuse. Keep player heaps/statics/host borrows and installation publication private. MS00 freezes numerical memory/performance gates and preserves the implemented installation identity/current-dispatch contracts before changing shared owners. R13 type-only retention, cross-installation repair linking, global updates and native expansion remain separate. No capacity or speed claim from source LOC or historical tiny-program data. |
 | [Interactive debugger](debugger-design.md) | Confirmed synchronous waiting at safe debug points, preserving the executing host thread's Rust call chain. Pause control, inspection lifecycle and SDK/DAP integration are queued and unstarted; no whole-execution continuation migration or automatic process-wide freeze. Lifecycle defaults and CLI spellings remain proposals. |
-| [Paged storage and incremental GC](paged-incremental-gc-design.md) | Selected precise tracing/incremental mark-sweep with paged storage; design only, implementation unstarted. Opaque may contain Value through unsafe provider integration; ordinary Native handles remain rooted, and Native entry does not disable GC. Library-controlled temporary roots/work state handle callback-bearing algorithms without a retention prepass; reuse Rust storage and safe kernels elsewhere. This supersedes counted Value/cycle collection and blanket Native GC exclusion. Preserve checked identities, compact storage, joint object/program tracing and one GC/opaque/affected-NC migration without container-specific collector paths. Barrier/partial-scan progress, physical layout, scheduling and measured acceptance remain open; incremental work does not promise hard pause bounds. R13 and concurrent/generational collection remain separate. |
+| [Paged storage and incremental GC](paged-incremental-gc-design.md#execution-plan) | PG00-PG06 documented, queued and unstarted: close contracts/baseline with NC01; complete generic provider capabilities and early external proof with NC02; replace physical storage; migrate collections through NC03/NC04; integrate incremental graph/barriers; enable sweep/driver interleaving with NC05; finish joint acceptance with NC06. Standard collections and host adapters must use the same public generic protocol as an independent provider, with no retained privileged paths. Preserve precise tracing, checked identities, compact storage, joint object/program reachability and collecting Native callbacks; no retention prepass for callback-bearing algorithms. PG00 must resolve physical layout, scan/publication, scheduling and numerical acceptance before dependent changes. No measured speedup or hard pause bound is claimed. Existing cancellation policy is unchanged; poll redesign, R13 and concurrent/generational collection remain separate. |
 
 ## Open review and documentation work
 
