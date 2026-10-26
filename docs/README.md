@@ -24,6 +24,10 @@ below; the public Pages site has not been activated by this work.
 
 ## Implementation references
 
+- [Standard library API inventory](standard-library-inventory.md): signature-first
+  catalog by type and capability, separating implemented APIs from proposed gaps,
+  requested Index/BTree collections and optional/host services. This is a standalone
+  scope catalog, not an implementation schedule.
 - [HIR reading guide](architecture/hir.md), [syntax architecture](architecture/syntax.md),
   [grammar](kagari.ebnf) and [syntax coverage audit](syntax-coverage.md).
 - [Runtime ownership and host object API](runtime-ownership-and-host-api-design.md),
@@ -112,10 +116,10 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   contracts are indexed above. Full workspace and feature/backend/platform acceptance
   remains pending CI. Associated constants, native-call const evaluation, a public
   RNG and full ray tracing are outside this delivery.
-- [Paged storage and incremental GC](paged-incremental-gc-design.md): selected
-  paging direction, design only. Concrete object directory/page structures,
-  allocation, barriers, incremental tracing/sweeping and disposal; implementation
-  and measured acceptance remain pending. Shares the native payload boundary with NC.
+- [Paged storage and incremental GC](paged-incremental-gc-design.md#execution-plan):
+  PG00-PG06 are planned and unstarted, covering general Native capabilities, paged
+  storage, collection migration, incremental marking/sweeping and joint acceptance.
+  Shares the native payload boundary and explicit handoffs with NC.
 - [Library-owned native collections](native-collections-plan.md): NC01-NC06 are
   not started; reuse the implemented Iterable APIs while migrating storage.
 - [Interface type tests and downcast](interface-downcast-plan.md): DC01-DC04 are

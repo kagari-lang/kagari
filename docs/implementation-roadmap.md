@@ -586,6 +586,12 @@ The plan covers Vec/HashMap/HashSet, their base cursors, host adapters and sourc
 consumers, with an external collection proof. Builtin Array remains separate; reuse the
 implemented host registration and scoped borrowing contracts.
 
+The separate [standard library inventory](standard-library-inventory.md) records
+current APIs, missing conveniences and requested IndexMap/IndexSet/BTreeMap/BTreeSet
+products, alongside pure extensions and host services. It is a scope checklist,
+not another execution ledger or authorization to enlarge PG/NC acceptance. Those
+products remain separate from the fixed-i32 external collection fixture.
+
 ## Test execution cost
 
 Repository-wide test organization is implemented and reconciled across all 24
