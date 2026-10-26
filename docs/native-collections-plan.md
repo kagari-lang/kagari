@@ -71,10 +71,13 @@ consumes the same ordinary declarations while owning Rust borrowing and registra
 Neither owner may turn an interface into a second storage/access authority.
 
 The queued [paged incremental GC design](paged-incremental-gc-design.md) owns the
-collector/page architecture, not this collection migration. Before implementing
-NC01's dynamic payload API, reconcile reference publication, capacity accounting
-and large-payload scan progress with that design. NC remains the owner of concrete
-collection layouts and algorithms; neither task is activated by this cross-reference.
+collector/page architecture. Accepted sequencing, 2026-10-26: opaque registration,
+the general payload protocol and affected collection integration are one coordinated
+replacement migration. Implement reference publication, accounting, scanning and
+opaque API changes together, not as a separate post-GC API revision. NC owns
+concrete collection layouts, algorithms and its detailed phases; the GC replacement
+cannot reach final acceptance with container-specific collector/storage paths
+deferred to NC. Planning this shared scope does not activate implementation.
 Current-call selection follows the implemented
 [publication contract](spec/module-activation.md#live-installations-and-call-selection),
 not historical wording that would pin every stored method body.
@@ -186,17 +189,303 @@ iterator or builtin storage redesign is outside this task.
 
 ## Public API shape
 
-Reuse ModuleBuilder, NativeStorage and NativePayload rather than adding a second
-registration facade. These sketches show responsibilities; settle exact names,
-signatures and binding ergonomics at NC01. Omitted method signatures and required
-trait members must be supplied in implementation.
+### Ordinary Native callers versus storage providers
 
-```rust
-let mut declaration = module.define_type("Vec");
+Native functions using GC objects should call checked handle methods directly:
+field `get/set` and collection `get/set/push/insert/remove`. Accessing several
+objects must not require nested payload-edit closures or long-lived borrow guards.
+The [GC design's Native-facing operations](paged-incremental-gc-design.md#native-facing-gc-object-operations)
+own the examples, root/edge distinction and incremental publication requirements.
+Existing Object/Field and ScriptVec access provide the baseline shape; this does
+not claim that the proposed general storage protocol is implemented.
+
+The registration and payload sketches below are for collection implementers, not
+ceremony required of ordinary Native callers. NC01 must preserve flat handle
+operations while moving concrete storage into libraries. Runtime owns reference
+publication, root protection, accounting and native revision updates; callers do
+not manage barriers or mutation counters. Provider access remains audited, and
+this distinction does not grant arbitrary mutable access to traced Rust payloads.
+
+### Opaque registration and public categories
+
+Accepted API direction, 2026-10-26; not implemented. Keep the existing public
+vocabulary: `Ref<T>` is a scoped shared borrow, `RefMut<T>` is a scoped mutable
+borrow, and `Opaque<T>` is a retained handle to an opaque Native object. Opaque
+describes access to a Rust representation that is not exposed as script fields;
+it does not mean that the collector cannot trace the representation. Current
+runtime-owned payloads use GC for their lifetime, but that implementation choice
+must not introduce a separate public "GC type" category or `define_gc_type` API.
+Host-owned instances remain host-owned when borrowed; registering a type does not
+by itself transfer an instance into runtime storage. Borrowing still follows the
+existing access and lifetime contracts.
+
+Ordinary opaque registration must associate the script declaration with its Rust
+payload type once. Derive the storage descriptor from that association and the
+payload's trace/accounting/access contract; do not require a second routine
+`native_storage(NativeStorage::payload::<T>())` declaration. `NativeStorage` remains
+a lower-level runtime descriptor, not another public object category. Reconcile
+explicit declaration building with the existing `Opaque<T>` registration and
+`NativePayload::registration_storage` paths, rather than adding a parallel facade.
+Special factory/managed-field requirements remain explicit where needed; they
+must not make ordinary opaque declarations repeat the type association.
+
+The sketches below use `define_opaque::<Payload>(name)` to illustrate the selected
+opaque vocabulary and single registration step. Exact builder spelling and
+signatures remain NC01 work; these are not currently callable APIs. Instances of
+the registered type are held through the existing `Opaque<Payload>` handle, not
+a second GC handle wrapper. Script code continues to use its nominal name, such
+as `Vec<T>`; script generic arguments retain checked runtime type evidence.
+
+This naming/registration change does not grant unrestricted mutable payload access.
+Complete dynamic reference-bearing edits, accounting, revisions and publication
+under the existing Native owner. Ordinary Vec/HashMap/HashSet implementations must
+use that public opaque path, with no collection-specific storage admission or
+dispatch privilege. Efficient calls use prepared Native entries and checked payload
+access; retain compact library-owned buffers and validate costs through the focused
+measurements below, without promising unmeasured parity with special entrypoints.
+Implement this adjustment within the GC replacement and its general payload
+protocol. NC01/NC02 remain the detailed API work breakdown, not a later independent
+delivery. Do not first implement a new collector around special collection storage
+and defer the ordinary opaque boundary until afterward.
+
+### End-to-end API proposal for review
+
+Selected direction, 2026-10-26: paged precise tracing with incremental collection.
+Opaque payloads may contain Value and ordinary Rust containers through an unsafe
+provider contract. Native entry does not disable GC. This supersedes the provisional
+counted-Value/cycle-collector proposal and its untraced detached-buffer sorting path.
+Keep Ref<T>, RefMut<T> and Opaque<T> as the public ownership/borrowing categories.
+This records design scope only; implementation is not activated. Examples below are
+pseudocode, not final callable signatures. The
+[GC design](paged-incremental-gc-design.md#incremental-tracing-and-mutation) owns
+roots, barriers, scan progress and reclamation.
+
+| Audience | Proposed surface | Responsibility |
+| --- | --- | --- |
+| Type author | define_opaque::<T>(name), existing generic/method builders | Associate declaration and Rust payload once through an unsafe provider contract; no automatic safe admission of arbitrary T |
+| Host borrowing | Existing Ref<T> / RefMut<T> and host scopes | Host owns Rust state; scoped access does not move it into the heap |
+| Ordinary Native code | Retained dynamic/typed values, Opaque<T>, Object and library handles | Safe arguments/results remain rooted across allocation and script calls; no manual rooting for each ordinary field/collection operation |
+| Storage provider | Unsafe NativePayload integration and unrestricted read/edit; scoped mutation services | Trace internal edges, publish writes, account backing and protect extracted values; no collection or script execution during conflicting payload loans |
+| Callback-bearing algorithm | Generic operation protection, temporary roots or traced work state | Keep every live temporary visible at collecting boundaries; end loans before callbacks and restore valid storage on all exits |
+
+Do not add a GcObject public category, special GC Vec, NoGc whitelist, split opaque
+categories or mandatory lifetime branding to prohibit Value fields. Rust Vec remains
+a storage option; script generic applications are checked runtime evidence, not
+arbitrary Rust generic instantiations. Preserve compact scalar buffers.
+
+Interim unsafe provider obligations:
+
+- Make NativePayload an unsafe integration contract. Trace every strong internal
+  edge, including references in nested/shared storage and captured executable state.
+  Empty trace is valid only when there are no relevant edges. The visitor discovers
+  reachable objects; it does not count owners or recursively walk the graph itself.
+- Preserve runtime/type/generation checks, scoped borrows, incremental publication,
+  partial-scan progress, mutation revisions, accounting and panic-safe destruction.
+  Interior mutability cannot bypass these requirements. Unsafe admission does not
+  disable runtime validation or permit invalid Rust aliasing.
+- Value in a payload is an internal non-rooting value. Moving/copying it into a Rust
+  local, Option or Vec does not automatically retain it. Establish an existing root
+  or another traced edge before a collecting boundary; root publication also obeys
+  the active incremental barrier. Do not embed permanent external roots per element.
+- Short non-collecting mutation intervals may transfer references or restore valid
+  representation. They must end before script callbacks, including callbacks made
+  through captured Runtime aliases. Native calls as a whole remain collectable.
+- Safe library handles/results encapsulate retention; raw provider access is the
+  audited boundary. Preserve scoped host/frame token restrictions, selected call
+  generations, cancellation and cleanup on every exit.
+
+#### Consolidated Native API surface
+
+Keep existing runtime-owned root mechanisms and prepared conversion owners. Do not
+carry forward the counted Value/control-block layout or force a ScriptValue-to-Value
+ownership migration. Exact public naming remains open; ordinary safe Native bindings
+must not leak unrooted values across collection. Internal compact Value transport
+can remain non-rooting under its protected execution contract.
+
+| Surface | Contract |
+| --- | --- |
+| Internal Value | Compact scalar/object representation; an object ID alone is not a root or an owning reference count |
+| Retained dynamic/typed Native value | Runtime-owned root protection, with existing owner/type/conversion checks; reusable across collecting calls |
+| Opaque<T> | Retained typed handle to an opaque Rust payload; hidden representation does not imply edge-free data |
+| Ref<T> / RefMut<T> | Scoped access to host-owned Rust state, not a general heap-loan bypass |
+| NativeContext | Checked calls, conversion and GC at valid boundaries |
+| NativeType<T> | Existing prepared concrete type/application and checked creation evidence |
+
+Opaque declaration and creation retain one owner:
+
+```text
+module.define_opaque::<PlayerData>("Player")?;
+// Attach fields/methods with the existing builders; install and bind the type.
+let player: Opaque<PlayerData> = player_type.create(cx, PlayerData { ... })?;
+```
+
+Use NativeType::create, with an unsafe NativePayload implementation carrying the
+provider proof. Do not add native_storage registration, cx.create_opaque or an
+untyped Opaque::new without runtime/type evidence. Conversions reuse existing
+traits and validate applied type, runtime identity and pinned execution evidence.
+
+Provider protocol sketch:
+
+```text
+unsafe trait NativePayload: Any + Debug + Send {
+    fn trace(&self, visit: &mut dyn FnMut(&Value));
+    fn charge(&self) -> NativeResult<HeapCharge>;
+    // Descriptor also declares edge-free, bounded or resumable scanning capability.
+    // Exact resumable cursor/mutation interface remains a design prerequisite.
+}
+
+struct VecStorage {
+    element: CheckedElementType,
+    values: Vec<Value>,
+}
+
+unsafe impl NativePayload for VecStorage {
+    fn trace(&self, visit) {
+        for value in &self.values { visit(value); }
+    }
+    // charge reports exclusively owned backing capacity through HeapCharge.
+}
+```
+
+This whole-object trace demonstrates reachability only; it is an indivisible O(n)
+scan. Large standard-library payloads require the GC design's resumable scan and
+mutation protocol before bounded-work claims. Edge-free Rust data may have empty
+trace but still needs accounting/destruction. Trace cannot execute script, mutate
+storage or retain borrowed payload references. Do not interpret an unsafe provider
+as permission to silently skip references or hide unbounded work.
+
+Reuse read/edit for unrestricted payload access rather than adding with_storage:
+
+```text
+unsafe fn Opaque<T>::read<R>(
+    &self, cx: &NativeContext,
+    operation: scoped FnOnce(&T) -> NativeResult<R>,
+) -> NativeResult<R>;
+
+unsafe fn Opaque<T>::edit<R>(
+    &self, cx: &mut NativeContext,
+    operation: scoped FnOnce(&mut T, &mut StorageAccess) -> NativeResult<R>,
+) -> NativeResult<R>;
+```
+
+Both unrestricted paths remain unsafe initially: shared access may still mutate
+through interior mutability or extract an unrooted Value. Views cannot escape, and
+collection/reentry through any alias is excluded only for the active loan. Audited
+safe library methods wrap these calls; proven fixed-data conveniences can remain
+safe. A returned raw Value remains the provider's responsibility until rooted or
+published into another protected location.
+
+StorageAccess represents existing runtime-owned validation, retention/publication,
+accounting and scan-progress services. Reuse a retain operation for temporary roots;
+do not introduce a public prepare_removal/commit_removal pair or a second root
+registry. Exact helper signatures remain open. Fallible root/barrier/accounting
+capacity must be prepared before destructive commit; no fallible post-edit full
+scan can retroactively establish safety.
+
+For get/pop/remove, establish result retention while the value is still protected
+by the source/short loan. If retention fails, do not commit removal. For push/set,
+keep the input rooted until the destination edge is published with its barrier.
+Release temporary roots after handoff, including error exits. A bare Rust pop
+inside an unsafe provider is permitted, but its result cannot cross a collecting
+boundary without protection. Safe library pop returns a retained result:
+
+```text
+let item = values.pop(cx)?;        // retained result through the library facade
+cx.collect_garbage()?;
+if let Some(item) = item { destination.push(cx, item)?; }
+```
+
+Ordinary Native callers do not manually register a root here. Providers implement
+the retention protocol once; rooting APIs are not required at every user-level call.
+
+### Concrete Vec sorting API proposal
+
+Selected tracing direction, 2026-10-26. Keep the safe library facade and existing
+[sorting semantics](spec/collection-access.md#foundation-algorithms):
+
+```text
+ScriptVec<T>::sort(cx) -> NativeResult<()>                  // selected T: Ord
+ScriptVec<T>::sort_by(cx, Function<(T, T), Ordering>) -> NativeResult<()>
+ScriptVec<T>::sort_by_key<K>(cx, Function<T, K>) -> NativeResult<()> // K: Ord
+```
+
+Resolve and pin comparator/key-selector evidence once. Sort uses Ord, not Hash;
+key selectors run during comparisons without a cached-key prepass. Preserve stable
+worst-case O(n log n) comparisons/moves, with callback and GC work accounted for
+separately. No preparatory O(n) retention snapshot or index construction is allowed.
+
+For reference-bearing collecting callbacks, own/adapt the stable sorting algorithm
+so its temporary slots and merge buffers are GC-visible. Reusable temporary roots
+or library-private traced work state are candidate representations of this selected
+boundary; the exact algorithm and work representation remain open. This does not
+introduce public SortWork/SortSession APIs or a special collector container case.
+
+The source and scratch together cover every live element. Before every callback:
+
+1. Complete transfers under short non-collecting access; publish roots/edges and
+   repair incremental scan progress before losing prior protection.
+2. Expose only initialized scanner-visible ranges and end all conflicting heap loans.
+3. Invoke the retained comparator/key selector with protected arguments/results;
+   GC can progress during nested allocating script execution.
+
+Keep the receiver rooted and protected against alias slot access/recursive sorting
+through existing operation guards. That guard does not disable GC. A detached Vec
+buffer must acquire a traced owner; mem::take alone is insufficient. Ordinary Rust
+sort's private scratch cannot be exposed merely by rooting the receiver and the two
+comparison arguments. Root/scan registration must not secretly walk all inputs at
+algorithm entry; the transfer/publication protocol must prove this.
+
+Restore valid source/work state before releasing protection on success, error,
+cancellation or unwind. Stop user callbacks after the first failure; preserve the
+original element multiset, permit partial reordering and retain completed callback
+effects. No user callback or fallible allocation may be needed solely to restore
+ownership. Reuse existing error semantics; do not retain an adapter that depends on
+unobservable Rust scratch. Cancellation remains active within long library work.
+
+Rust kernels without collecting callouts remain reuse candidates, including compact
+scalar sorting, but long indivisible work still requires latency/cancellation review.
+Do not infer speed parity from O(n log n). Measure comparisons/moves, root/barrier
+work, allocations, peak scratch memory and GC-step delay across scalar, cheap-script
+and allocating-script comparators. Test collection at temporary transfers, partial
+scans, nested callbacks, errors/unwind and restoration. The exact kernel, scan cursor
+protocol and measured acceptance remain pre-implementation decisions.
+
+### Other standard-library operation boundaries
+
+The [operation-family inventory](paged-incremental-gc-design.md#future-standard-library-extraction-families)
+includes future collection/iterator designs. Do not rewrite the whole standard
+library or assume only Hash/Eq call script. Reuse Rust storage and algorithms where
+all values remain protected at collecting boundaries.
+
+- for_each/map/filter/fold/zip/collect retain only the required current items,
+  accumulator and iterator state; end loans before user callbacks/custom next.
+  Allow GC during callbacks, rather than delaying collection for the entire loop.
+- Hash/Eq use rooted stable candidates and lookup/callback/commit protection, without
+  silently retrying observable callbacks. Existing primitive fast paths remain.
+- retain/dedup and other compaction algorithms need controlled temporaries when
+  callbacks observe a representation with holes. Use shared root/work-state machinery
+  and preserve their completed-removal/error semantics; no full-input root prepass.
+- Future heap/tree algorithms need the same audit around comparison callouts. Rust
+  Hash/Eq/Ord do not directly express context-bearing fallible script calls.
+- Escaping iterators/entry-like state use traced owners and revision checks; borrowed
+  Rust guards or no-GC regions cannot span arbitrary script lifetimes/suspension.
+
+Validate these families at their existing contract owners, including collection
+inside callbacks and long allocating loops. No percentage of future APIs, latency
+bound or measured speedup is claimed. GC itself still needs incremental scan,
+barrier and sweep protocols; collecting Native callbacks alone do not bound pauses.
+
+### Collection registration and storage
+
+Reuse ModuleBuilder, NativePayload and the underlying NativeStorage descriptor,
+applying the opaque registration adjustment above. These sketches show
+responsibilities, not compiling Rust. Settle exact names, signatures and binding
+ergonomics at NC01; omitted method signatures and required trait members must be
+supplied in implementation.
+
+```text
+let mut declaration = module.define_opaque::<VecStorage>("Vec")?;
 let t = declaration.type_parameter("T")?;
-declaration.native_storage(NativeStorage::new(move |cx| {
-    VecStorage::new(cx.type_argument(&t)?)
-}))?;
 let vec_type = declaration.finish()?;
 
 module.implement(vec_type, |group| {
@@ -215,14 +504,16 @@ VecStorage retains its checked element contract and native buffer. Keep compact
 scalar storage where valid; object elements require traced values. A kgr generic
 parameter cannot dynamically instantiate arbitrary Rust generic code. Select
 storage from checked type arguments, never the first element or a textual name.
+The registered constructors build VecStorage with that checked contract and use
+the existing Native allocation owner; registration need not duplicate a factory
+for every constructor. The constructor/factory binding details remain NC01 work.
 
-```rust
-let mut declaration = module.define_type("HashMap");
+```text
+let mut declaration = module.define_opaque::<HashMapStorage>("HashMap")?;
 let k = declaration.type_parameter("K")?;
 let v = declaration.type_parameter("V")?;
 declaration.bound(k.ty(), core.eq())?;
 declaration.bound(k.ty(), core.hash())?;
-declaration.native_storage(NativeStorage::payload::<HashMapStorage>())?;
 let map_type = declaration.finish()?;
 // Constructors declare checked Hash/PartialEq::eq requirements, create storage
 // with checked key/value contracts, then use allocate_result_payload with those
@@ -266,7 +557,7 @@ For map.insert(key, value), preserve this logical sequence:
 
 1. Evaluate receiver/key/value once, left to right; validate the native boundary.
 2. Acquire key-operation protection and call selected Hash.
-3. Read/root a candidate under scoped access, then release the storage borrow.
+3. Retain a candidate under scoped access before ending the loan.
 4. Invoke selected Eq outside that borrow; reject conflicting reentry and preserve
    completed effects. Continue collision search with cancellation checks.
 5. Prepare result/allocation requirements and commit while protection keeps the
@@ -317,7 +608,7 @@ are implemented at this baseline; NC01-NC06 remain queued and unstarted.
 Use the current [scoped identity APIs](architecture.md#definition-identity-ownership).
 Refresh NC01 against those APIs instead of rebuilding path/ID variants or treating
 the historical baseline signatures as a compatibility requirement.
-Implementation begins with NC01,
+Within the joint GC/opaque/collection migration, collection work begins with NC01,
 using the existing retained slots, adapters, terminal consumers and FromIterator
 implementations. Do not add another Iterable phase or make the trait surface
 depend on this storage migration. Reuse implemented host registration/scoped
@@ -325,8 +616,8 @@ borrowing; the roadmap owns subsequent activation changes.
 
 | Phase | Scope and exit condition |
 | --- | --- |
-| NC01: inventory and API contract | Trace dynamic edits, source revisions, factories, key calls, host conversions and artifacts against a fresh activation baseline, including the accepted OM owners. Record exact reuse of retained slots/revision checks, constructor evidence, builtin cursor disposition, optimization review and baseline commands. Establish the external fixture and only the missing public capabilities. |
-| NC02: general storage capabilities | Complete checked dynamic edits, allocation/accounting and public native revision/commit access under the existing owner. Extend retention only for proven constructor/host gaps. Demonstrate public-API-only reference-bearing storage participating in existing nested/paired adapters with invalidation and callback failure cleanup. No second guard or selected-call subsystem. |
+| NC01: inventory and API contract | Trace dynamic edits, source revisions, factories, key calls, host conversions and artifacts against a fresh activation baseline, including the accepted OM owners. Specify opaque registration without redundant storage declarations, reusing Ref/RefMut/Opaque categories and existing registration owners. Record exact reuse of retained slots/revision checks, constructor evidence, builtin cursor disposition, optimization review and baseline commands. Establish the external fixture and only the missing public capabilities. |
+| NC02: general storage capabilities | Implement the unified opaque registration contract and replace superseded registration paths. Complete checked dynamic edits, allocation/accounting and public native revision/commit access under the existing owner. Extend retention only for proven constructor/host gaps. Demonstrate public-API-only reference-bearing storage participating in existing nested/paired adapters with invalidation and callback failure cleanup. No second guard or selected-call subsystem. |
 | NC03: Vec migration | Move concrete storage/operation policy and its base cursor to the library; replace Sequence admission and consumers while retaining builtin Array support. Preserve defaults, indexing, sorting, existing FromIterator/pipelines, host adapters and compact buffers. Remove the obsolete parallel Vec path. |
 | NC04: HashMap/HashSet migration | Register both as nominal objects; move table/key policy and base cursors to the library, replace special type/value/layout branches and migrate host/contract/backend consumers. Rebind existing FromIterator insert/iter/next requirements to nominal types. Preserve collisions, last-value-wins/dedup rules, custom Hash/Eq, cleanup and current callback selection under the publication contract. |
 | NC05: external extensibility and cursors | Close remaining collection cursor consumers and prove a public-API-only BTreeMap<i32, T> fixture implements Map/MutableMap/Iterable with reference-bearing values and source revision checks. Exercise existing adapters and collection terminals without core enum changes or new default algorithms. Separately prove retained script comparison calls, not only Hash/Eq. No production ordered collection required. |
@@ -365,8 +656,11 @@ and post-error reuse. Consolidate existing cases rather than duplicate smoke sui
 Preserve source-free, host ownership and backend cases with distinct contracts.
 
 Acceptance requires all three standard collections to use the public extension
-path. The external fixture cannot import runtime-private storage, add a compiler
-name check or receive special installation privileges. Classify remaining
+path. Ordinary opaque declarations associate the Rust payload once, without
+duplicate storage declarations or a new GC-specific public category. Reuse the
+existing wrong-payload/type/owner and borrowed/retained lifetime contract coverage
+when consolidating registration. The external fixture cannot import runtime-private
+storage, add a compiler name check or receive special installation privileges. Classify remaining
 collection branches by owner: library algorithms and tests are valid; concrete
 storage semantics in HIR/type enums or compiler/backend dispatch are not. Document
 justified generic buffer/Array helpers rather than relabeling special cases.
@@ -403,6 +697,33 @@ CI acceptance. Planning-only edits need content/link/diff checks, not builds.
   remaining collection storage/constructor/source-protection gaps.
 - [x] Refresh native revision and interface storage owners after accepted OM,
   2026-10-18; NC implementation and activation remain separate.
+- [x] Clarify ordinary Native GC handle operations versus collection-provider
+  storage access and link the shared GC API contract, 2026-10-26.
+- [x] Record the accepted opaque registration adjustment: preserve Ref/RefMut/Opaque
+  categories, infer the underlying storage descriptor from one payload association,
+  with NC01/NC02 detailing the API work within the GC replacement, 2026-10-26.
+- [x] Couple opaque API and general payload changes with GC implementation;
+  require removal of special collection collector/storage paths before joint
+  acceptance, 2026-10-26.
+- [x] Present an end-to-end API draft connecting opaque registration, retained
+  extraction, an explicit audited storage boundary and collecting sort work state;
+  exact provider signatures remain under review, 2026-10-26.
+- [x] Select interim unsafe opaque integration and unrestricted payload access;
+  defer new NoGc/derive, split-type and lifetime-brand admission mechanisms. Retain
+  safe rooted handles and audited library methods, with complete tracing, barrier,
+  extraction and cleanup obligations, 2026-10-26.
+- [x] Select tracing/incremental GC on 2026-10-26, superseding counted Value and
+  cycle collection. Permit Value in unsafe Opaque providers, preserve safe retained
+  Native handles and allow GC during Native callbacks.
+- [x] Consolidate the Native API draft around existing roots, NativeType creation,
+  unsafe scoped read/edit and retain/publication services; no with_storage or public
+  prepare_removal/commit_removal pair. Exact resumable-scan/helper signatures remain open.
+- [x] Select library-controlled temporaries for callback-bearing algorithms; remove
+  the counted detached-buffer/Rust-sort conclusion. Preserve stable worst-case
+  O(n log n), no retention prepass, receiver guards and callback/error semantics.
+- [x] Record future operation families including Ord, predicates and custom iterators;
+  per-item rooted iteration permits GC without whole-call exclusion. Incremental
+  GC pause/progress validation remains separate from Native liveness correctness.
 - [ ] NC01: Inventory and API contract.
 - [ ] NC02: General storage capabilities.
 - [ ] NC03: Vec migration.
