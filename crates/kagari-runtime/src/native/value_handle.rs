@@ -1,5 +1,6 @@
 //! A retained value with its exact declared type for generic native callbacks.
 use crate::{
+    Runtime,
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
     gc::roots::RootedValue,
@@ -8,6 +9,7 @@ use crate::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
         conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
+        storage_type::StorageType,
         typed::NativeContext,
         types::Type,
     },
@@ -26,6 +28,39 @@ pub struct ScriptValue {
 }
 
 impl ScriptValue {
+    pub(crate) fn retain_storage(
+        runtime: &Runtime,
+        contract: &StorageType,
+        value: Value,
+    ) -> NativeResult<Self> {
+        let argument = contract.argument()?.clone();
+        let program = runtime
+            .retain_program(&contract.owner, ModuleEpochRetention::RuntimeValue)
+            .ok_or_else(|| RuntimeError::module_validation("script value program retention"))?;
+        let root = runtime.gc().root_native_value(value)?;
+        Ok(Self {
+            root,
+            argument,
+            owner: contract.owner.clone(),
+            _program: program,
+        })
+    }
+
+    pub(crate) fn storage_value(
+        &self,
+        runtime: &Runtime,
+        contract: &StorageType,
+    ) -> NativeResult<Value> {
+        if !contract.matches_view(self.argument.view(&self.owner)) {
+            return Err(RuntimeError::module_validation(
+                "script value declared type differs from storage",
+            ));
+        }
+        self.root
+            .value(runtime.gc())
+            .ok_or_else(|| RuntimeError::module_validation("foreign or expired script value"))
+    }
+
     pub fn type_argument(&self) -> &TypeArgument {
         &self.argument
     }

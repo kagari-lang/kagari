@@ -35,12 +35,13 @@ impl GcHeap {
         }
         let interfaces = self.interfaces.try_borrow().ok()?;
         let objects = self.objects.try_borrow().ok()?;
+        let mut workspace = self.native_scan_workspace.try_borrow_mut().ok()?;
         let mut pending = Vec::new();
         let mut edges = values.iter().rev().copied().collect();
         append_value_edges(&mut edges, &mut pending);
         collector::mark(pending, |id, pending| {
             let object = self.object_ref(&objects, id)?;
-            object.trace(&interfaces, &mut |value| edges.push(value))?;
+            object.trace(&interfaces, &mut workspace, &mut |value| edges.push(value))?;
             if self.resources.is_quarantined() {
                 return None;
             }
@@ -86,6 +87,7 @@ impl GcHeap {
             return None;
         }
         let objects = self.objects.try_borrow().ok()?;
+        let mut workspace = self.native_scan_workspace.try_borrow_mut().ok()?;
         let metadata_roots = self.metadata_snapshots()?;
         let groups = self.operation_groups.try_borrow().ok()?;
         let applications = self.applications.try_borrow().ok()?;
@@ -118,7 +120,7 @@ impl GcHeap {
                         return Some(());
                     }
                     let object = self.object_ref(&objects, id)?;
-                    object.trace(&interfaces, &mut |value| edges.push(value))?;
+                    object.trace(&interfaces, &mut workspace, &mut |value| edges.push(value))?;
                     if let Some(edge) = object.metadata() {
                         metadata.programs(edge, |owner| {
                             pending.push(Node::Program(programs.executable_edge(owner)?));

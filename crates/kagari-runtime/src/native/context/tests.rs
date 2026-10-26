@@ -97,7 +97,9 @@ fn stored_hash_selections_select_current_with_frame_roots_and_checked_calls(#[ca
                 cx.collect_garbage()?;
                 assert!(cx.heap().validate_value(&receiver));
                 assert_eq!(
-                    cx.call_stored_values(0, 1, &[Value::I32(7), Value::I32(7)])?,
+                    cx.call_stored_values(0, 1, &[Value::I32(7), Value::I32(7)])?
+                        .value(cx.heap())
+                        .unwrap(),
                     Value::Bool(true)
                 );
                 for (slot, args) in [
@@ -112,7 +114,7 @@ fn stored_hash_selections_select_current_with_frame_roots_and_checked_calls(#[ca
                 }
                 let result = cx.call_stored_values(0, 0, &[Value::I32(7)])?;
                 assert!(cx.heap().validate_value(&receiver));
-                Ok(result)
+                Ok(result.value(cx.heap()).unwrap())
             }),
         )
         .unwrap();

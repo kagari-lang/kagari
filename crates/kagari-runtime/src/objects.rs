@@ -438,10 +438,12 @@ impl Runtime {
 
     /// Borrow the checked heap record for inspection. Release the view before
     /// heap mutation, collection or execution that may perform either operation.
+    /// A native payload loan rejects this escaping directory view.
     pub fn resolve_closure(
         &self,
         value: &value::Value,
     ) -> Result<Ref<'_, ClosureValueSnapshot>, RuntimeError> {
+        self.gc.ensure_no_native_borrow()?;
         let Value::Closure(id) = value else {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,

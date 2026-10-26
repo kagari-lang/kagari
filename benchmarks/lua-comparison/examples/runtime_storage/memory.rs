@@ -39,7 +39,7 @@ pub(super) fn run(
                 let snapshot = || Snapshot {
                     allocations: allocations::current().unwrap(),
                     heap: runtime.runtime().gc().stats(),
-                    storage: runtime.runtime().gc().storage_usage(),
+                    storage: runtime.runtime().gc().storage_usage().unwrap(),
                 };
                 let setup = snapshot();
                 let values: ScriptValue = runtime

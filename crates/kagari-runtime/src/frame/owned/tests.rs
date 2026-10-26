@@ -1,3 +1,4 @@
+use crate::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
@@ -5,10 +6,7 @@ use crate::{
     frame::{ExecutionStack, NativeEntryState},
     gc::retention_probe::{measure, replace_cell},
     module::ExecutableModule,
-    native::{
-        binding::NativeResult,
-        storage::{NativePayload, NativeStorage},
-    },
+    native::storage::{NativePayload, NativeStorage},
     resource::HeapCharge,
     session::owned::OwnedExecution,
     value::{EphemeralValueId, Value},
@@ -258,13 +256,26 @@ fn parking_rechecks_alias_mutation_and_preserves_frame_error_order() {
 #[derive(Debug)]
 struct TraceFailure(Arc<AtomicBool>);
 
-impl NativePayload for TraceFailure {
-    fn trace<'a>(&'a self, _: &mut dyn FnMut(&'a Value)) {
+unsafe impl NativePayload for TraceFailure {
+    type ScanState = ();
+    const SCAN_KIND: NativeScanKind = NativeScanKind::Indivisible;
+
+    fn begin_scan(&self) {}
+
+    fn scan<'a>(
+        &'a self,
+        _: &mut Self::ScanState,
+        budget: &mut ScanBudget,
+        _: &mut dyn FnMut(&'a Value),
+    ) -> ScanStatus {
+        budget.charge(1);
         assert!(!self.0.load(Ordering::Relaxed), "parking trace failure");
+
+        ScanStatus::Complete
     }
 
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::default())
+    fn charge(&self) -> HeapCharge {
+        HeapCharge::default()
     }
 }
 

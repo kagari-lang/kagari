@@ -1,4 +1,5 @@
 //! Cold native producers keep traced arguments until an owned execution drives them.
+use crate::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 mod registration;
 use crate::{
     Runtime,
@@ -205,20 +206,41 @@ pub(crate) struct FuturePayload {
     pub(crate) cold: Option<ColdFuture>,
 }
 
-impl NativePayload for FuturePayload {
-    fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
-        if let Some(cold) = &self.cold {
-            for value in cold.values() {
-                visit(value);
-            }
-        }
+unsafe impl NativePayload for FuturePayload {
+    type ScanState = (usize, usize);
+    const SCAN_KIND: NativeScanKind = NativeScanKind::Resumable;
+
+    fn begin_scan(&self) -> Self::ScanState {
+        (
+            0,
+            self.cold.as_ref().map_or(&[][..], ColdFuture::values).len(),
+        )
     }
 
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(
+    fn scan<'payload>(
+        &'payload self,
+        state: &mut Self::ScanState,
+        budget: &mut ScanBudget,
+        visit: &mut dyn FnMut(&'payload Value),
+    ) -> ScanStatus {
+        let values = self.cold.as_ref().map_or(&[][..], ColdFuture::values);
+        while state.0 < state.1 {
+            if !budget.take(1) {
+                return ScanStatus::Pending;
+            }
+            if let Some(value) = values.get(state.0) {
+                visit(value);
+            }
+            state.0 += 1;
+        }
+        ScanStatus::Complete
+    }
+
+    fn charge(&self) -> HeapCharge {
+        HeapCharge::new(
             self.cold.as_ref().map_or(0, |cold| cold.values().len()),
             self.cold.as_ref().map_or(0, ColdFuture::retained_bytes),
-        ))
+        )
     }
 }
 

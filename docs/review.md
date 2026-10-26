@@ -150,7 +150,8 @@ execution. Those differences constrain every proposed transformation.
   the runtime root owner rather than build a second call/root subsystem.
 - **Runtime pressure is a different axis from compiler code shape.** R11/R12 are
   implemented: runtime-owned committed `HeapCharge` records retain capacity pressure;
-  final root-lease release uses MPSC, and dead-object discovery visits occupied
+  final root-lease release now uses PG01's reserved pending-ID transport, and
+    dead-object discovery visits occupied
   stores plus a narrow interface-wrapper index. See the current
   [runtime model](architecture.md#runtime-model) and
   [deterministic work counts](performance-baseline.md#root-release-and-occupied-discovery-work-counts-2026-10-20).
@@ -329,8 +330,8 @@ Identity and release boundaries:
   callback `Value` is not itself an explicit host root; typed/reentry APIs provide
   stronger ownership. Cloning a root lease is not a new root-table registration.
 - **Host/native resources:** Rust host state remains outside the script heap and
-  behind installed interfaces/scoped borrows. Native payloads expose tracing and a
-  fallible charge description; runtime native records own committed charges for
+  behind installed interfaces/scoped borrows. Unsafe NativePayload supplies one
+  scanner and infallible installed charge; runtime native records own committed charges for
   mutation and release. Completion endpoints transport owned Rust data, not VM borrows.
 - **Reload:** active calls and retained callables keep their old dependency graph.
   Collection traverses object and program edges together before reclaiming retired

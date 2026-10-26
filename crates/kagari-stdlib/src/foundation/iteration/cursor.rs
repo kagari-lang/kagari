@@ -3,6 +3,7 @@ use crate::foundation::{
     enumerations::value::{self as enums, EnumSymbols, option},
     iteration::operations::increment,
 };
+use kagari_runtime::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 
 use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
@@ -42,19 +43,32 @@ struct Adapter {
     switched: Cell<bool>,
 }
 
-impl NativePayload for Adapter {
-    fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
+unsafe impl NativePayload for Adapter {
+    type ScanState = ();
+    const SCAN_KIND: NativeScanKind = NativeScanKind::Bounded { max_work: 8 };
+
+    fn begin_scan(&self) {}
+
+    fn scan<'payload>(
+        &'payload self,
+        _: &mut Self::ScanState,
+        budget: &mut ScanBudget,
+        visit: &mut dyn FnMut(&'payload Value),
+    ) -> ScanStatus {
+        budget.charge(2);
         if let Some(callback) = &self.callback {
-            callback.trace(visit);
+            callback.scan(&mut (), budget, visit);
         }
         visit(&self.source);
         if let Some(second) = &self.second {
             visit(second);
         }
+
+        ScanStatus::Complete
     }
 
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(5, 0))
+    fn charge(&self) -> HeapCharge {
+        HeapCharge::new(5, 0)
     }
 }
 
@@ -131,8 +145,8 @@ fn next(
             "recursive next on the same lazy iterator",
         ));
     };
-    let (source, second, operation, callback, mut remaining, switched) = receiver
-        .with_payload::<Adapter, _>(|adapter| {
+    let (source, second, operation, callback, mut remaining, switched) = unsafe {
+        receiver.with_payload::<Adapter, _>(Some(&_active), |adapter| {
             Ok((
                 adapter.source,
                 adapter.second,
@@ -141,7 +155,8 @@ fn next(
                 adapter.remaining.get(),
                 adapter.switched.get(),
             ))
-        })?;
+        })
+    }?;
     if matches!(operation, Operation::Take) && remaining == 0 {
         return option(symbols, cx, None);
     }
@@ -153,12 +168,16 @@ fn next(
     loop {
         cx.poll()?;
         let result = cx.call_stored_values(0, slot, &[current])?;
-        let Some(item) = enums::read_option(symbols, cx, &result)? else {
+        let Some(item) =
+            enums::read_option(symbols, cx, &result.value(cx.heap()).ok_or_else(invalid)?)?
+        else {
             if matches!(operation, Operation::Chain) && slot == 0 {
-                receiver.with_payload::<Adapter, _>(|adapter| {
-                    adapter.switched.set(true);
-                    Ok(())
-                })?;
+                unsafe {
+                    receiver.with_payload::<Adapter, _>(Some(&_active), |adapter| {
+                        adapter.switched.set(true);
+                        Ok(())
+                    })
+                }?;
                 current = second.ok_or_else(invalid)?;
                 slot = 1;
                 continue;
@@ -191,32 +210,40 @@ fn next(
                 }
             }
             Operation::Take => {
-                receiver.with_payload::<Adapter, _>(|adapter| {
-                    adapter.remaining.set(remaining - 1);
-                    Ok(())
-                })?;
+                unsafe {
+                    receiver.with_payload::<Adapter, _>(Some(&_active), |adapter| {
+                        adapter.remaining.set(remaining - 1);
+                        Ok(())
+                    })
+                }?;
                 return option(symbols, cx, Some(item));
             }
             Operation::Skip if remaining > 0 => {
                 remaining -= 1;
-                receiver.with_payload::<Adapter, _>(|adapter| {
-                    adapter.remaining.set(remaining);
-                    Ok(())
-                })?;
+                unsafe {
+                    receiver.with_payload::<Adapter, _>(Some(&_active), |adapter| {
+                        adapter.remaining.set(remaining);
+                        Ok(())
+                    })
+                }?;
             }
             Operation::Enumerate => {
                 let following = increment(remaining)?;
-                receiver.with_payload::<Adapter, _>(|adapter| {
-                    adapter.remaining.set(following);
-                    Ok(())
-                })?;
+                unsafe {
+                    receiver.with_payload::<Adapter, _>(Some(&_active), |adapter| {
+                        adapter.remaining.set(following);
+                        Ok(())
+                    })
+                }?;
                 let pair = cx.heap().alloc_tuple(vec![remaining.encode(), item])?;
                 let _pair = cx.heap().root_value(pair).ok_or_else(invalid)?;
                 return option(symbols, cx, Some(pair));
             }
             Operation::Zip => {
                 let result = cx.call_stored_values(0, 1, &[second.ok_or_else(invalid)?])?;
-                let Some(right) = enums::read_option(symbols, cx, &result)? else {
+                let Some(right) =
+                    enums::read_option(symbols, cx, &result.value(cx.heap()).ok_or_else(invalid)?)?
+                else {
                     return option(symbols, cx, None);
                 };
                 let _right = cx.heap().root_value(right).ok_or_else(invalid)?;

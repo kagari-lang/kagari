@@ -116,13 +116,6 @@ pub(crate) fn check_signatures(
                 .iter()
                 .map(|e| (ResolvedName::Enum(e.id), &e.generic_params)),
         )
-        .chain(
-            lowered
-                .module
-                .opaque_types
-                .iter()
-                .map(|item| (ResolvedName::OpaqueType(item.id), &item.generic_params)),
-        )
     {
         if cancel.check().is_err() {
             break;
@@ -131,6 +124,24 @@ pub(crate) fn check_signatures(
         type_bounds.insert(
             id,
             constraints::parameter_bounds(params, declarations, &type_table),
+        );
+    }
+
+    for item in &lowered.module.opaque_types {
+        if cancel.check().is_err() {
+            break;
+        }
+        let id = *declarations
+            .definition(ResolvedName::OpaqueType(item.id))
+            .expect("native type declaration");
+        type_bounds.insert(
+            id,
+            constraints::declared_bounds(
+                &item.generic_params,
+                &item.bounds,
+                declarations,
+                &type_table,
+            ),
         );
     }
 

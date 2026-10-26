@@ -1,5 +1,8 @@
 //! Scoped access to one registered Rust payload. A borrow cannot escape its closure.
+mod access;
 mod managed;
+#[cfg(test)]
+mod protocol_tests;
 mod take;
 #[cfg(test)]
 mod tests;
@@ -12,11 +15,12 @@ use crate::{
         sequence::{NativeElement, SequencePayload},
         storage::{NativeObject, NativeStorage},
         stored_selection::StoredSelection,
+        views::{NativeOperationGuard, NativeOperationKind},
     },
     value::Value,
 };
 use kagari_types::ty::Ty;
-use std::{cell::Cell, sync::Arc};
+use std::{any::Any, cell::Cell, sync::Arc};
 
 struct NativeBorrow<'heap>(&'heap Cell<usize>);
 
@@ -27,6 +31,21 @@ impl Drop for NativeBorrow<'_> {
 }
 
 impl GcHeap {
+    pub(crate) fn scan_native_payload<'a>(
+        &self,
+        storage: &NativeStorage,
+        payload: &'a dyn Any,
+        visit: &mut dyn FnMut(&'a Value),
+    ) -> NativeResult<()> {
+        self.ensure_execution_allowed()?;
+        let mut workspace = self.native_scan_workspace.try_borrow_mut().map_err(|_| {
+            RuntimeError::module_validation("conflicting native scan workspace borrow")
+        })?;
+        self.native_borrows.set(self.native_borrows.get() + 1);
+        let _borrow = NativeBorrow(&self.native_borrows);
+        storage.scan_payload(payload, &mut workspace, visit)
+    }
+
     pub(crate) fn with_native_data_mut<S: Send + 'static, R>(
         &self,
         id: HeapObjectId,
@@ -87,6 +106,7 @@ impl GcHeap {
     pub(crate) fn try_enter_native_operation(
         &self,
         id: HeapObjectId,
+        kind: NativeOperationKind,
     ) -> NativeResult<Option<BorrowedLease<'_>>> {
         self.ensure_execution_allowed()?;
         let objects = self
@@ -101,10 +121,14 @@ impl GcHeap {
                 "invalid native operation receiver",
             ));
         }
-        if self.native_operations.is_active(id) {
+        if self.native_operations.is_active(id)
+            && !(kind == NativeOperationKind::ReadOnlyCallbacks
+                && self.native_operations.operation(id)
+                    == Some(NativeOperationKind::ReadOnlyCallbacks))
+        {
             return Ok(None);
         }
-        self.native_operations.borrow(id).map(Some)
+        self.native_operations.borrow_operation(id, kind).map(Some)
     }
 
     pub(crate) fn matches_native_type(&self, id: HeapObjectId, expected: TypeView<'_>) -> bool {
@@ -158,12 +182,48 @@ impl GcHeap {
         self.alloc_object(HeapObject::Native(object))
     }
 
+    pub(crate) fn check_native_payload<S: 'static>(
+        &self,
+        id: HeapObjectId,
+        data_only: bool,
+    ) -> NativeResult<()> {
+        let objects = self
+            .objects
+            .try_borrow()
+            .map_err(|_| RuntimeError::module_validation("conflicting native storage borrow"))?;
+        let Some(HeapObject::Native(object)) = self.readable_object(&objects, id) else {
+            return Err(RuntimeError::module_validation("invalid native identity"));
+        };
+        if !object.storage.accepts_payload::<S>()
+            || (data_only && !object.storage.is_editable_data())
+        {
+            return Err(RuntimeError::module_validation(
+                "storage does not permit fixed-data loan",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn native_operation_kind(&self, id: HeapObjectId) -> Option<NativeOperationKind> {
+        self.native_operations.operation(id)
+    }
+
     pub(crate) fn with_native<S: Send + 'static, R>(
         &self,
         id: HeapObjectId,
         access: impl for<'payload> FnOnce(&'payload S) -> NativeResult<R>,
     ) -> NativeResult<R> {
+        self.with_native_operation(id, None, access)
+    }
+
+    pub(crate) fn with_native_operation<S: Send + 'static, R>(
+        &self,
+        id: HeapObjectId,
+        operation: Option<&NativeOperationGuard<'_>>,
+        access: impl for<'payload> FnOnce(&'payload S) -> NativeResult<R>,
+    ) -> NativeResult<R> {
         self.ensure_execution_allowed()?;
+        self.check_native_operation(id, operation, false)?;
         let objects = self
             .objects
             .try_borrow()
@@ -174,14 +234,7 @@ impl GcHeap {
             ));
         };
         let payload = object.payload::<S>()?;
-        if object
-            .payload::<SequencePayload>()
-            .is_ok_and(|sequence| sequence.detached)
-        {
-            return Err(RuntimeError::module_validation(
-                "sequence storage is exclusively borrowed",
-            ));
-        }
+
         self.native_borrows.set(self.native_borrows.get() + 1);
         let _borrow = NativeBorrow(&self.native_borrows);
         access(payload)

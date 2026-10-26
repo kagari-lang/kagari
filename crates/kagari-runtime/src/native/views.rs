@@ -1,5 +1,6 @@
 //! Call-scoped handles borrow existing frame roots; buffer access stays scoped.
 use crate::{
+    Runtime,
     error::RuntimeError,
     gc::{GcHeap, HeapObjectId, leases::BorrowedLease, roots::RootedValue},
     native::{
@@ -8,11 +9,12 @@ use crate::{
         scalar::NativeScalar,
         sequence::{NativeElement, SequencePayload},
         sequence_edit::SequenceEdit,
-        storage::NativePayload,
+        storage::{NativePayload, access::StorageAccess},
     },
     value::Value,
 };
 use kagari_types::ty::Ty;
+use std::any::Any;
 
 /// A generic value keeps the exact closed Kagari type of its rooted argument.
 /// Use a scalar copy or an explicit owning root when retaining it in Rust.
@@ -23,11 +25,37 @@ pub struct ValueHandle<'call> {
     ty: &'call Ty,
 }
 
-/// Prevents recursive entry into an explicitly guarded native payload operation.
-/// The receiver remains protected by its call argument; no payload borrow spans reentry.
+/// Which callback accesses an operation permits without its owning guard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeOperationKind {
+    ExclusiveSlots,
+    ReadOnlyCallbacks,
+}
+
+pub(crate) type Recovery = dyn Fn(&mut (dyn Any + Send), &mut StorageAccess<'_>);
+
+/// Retains the receiver and seals recovery before releasing its exclusion lease.
+/// No context or payload borrow spans callback execution.
 pub struct NativeOperationGuard<'guard> {
-    _receiver: &'guard ValueHandle<'guard>,
-    _lease: BorrowedLease<'guard>,
+    pub(crate) heap: &'guard GcHeap,
+    pub(crate) id: HeapObjectId,
+    pub(crate) runtime: Option<&'guard Runtime>,
+    pub(crate) recovery: Option<Box<Recovery>>,
+    pub(crate) _root: RootedValue,
+    pub(crate) _lease: BorrowedLease<'guard>,
+}
+
+impl Drop for NativeOperationGuard<'_> {
+    fn drop(&mut self) {
+        if let (Some(runtime), Some(recovery)) = (self.runtime, self.recovery.as_ref()) {
+            self.heap
+                .recover_native(runtime, self.id, recovery.as_ref());
+        } else if self.heap.native_operation_kind(self.id)
+            == Some(NativeOperationKind::ExclusiveSlots)
+        {
+            self.heap.finish_native_operation(self.id);
+        }
+    }
 }
 
 impl<'call> ValueHandle<'call> {
@@ -37,12 +65,22 @@ impl<'call> ValueHandle<'call> {
         let Value::GcHandle(id) = self.value() else {
             return Err(RuntimeError::module_validation("native operation argument"));
         };
-        self.heap.try_enter_native_operation(id).map(|lease| {
-            lease.map(|lease| NativeOperationGuard {
-                _receiver: self,
-                _lease: lease,
-            })
-        })
+        self.heap.prepare_native_recovery(id)?;
+        let Some(lease) = self
+            .heap
+            .try_enter_native_operation(id, NativeOperationKind::ExclusiveSlots)?
+        else {
+            return Ok(None);
+        };
+        let root = self.root()?;
+        Ok(Some(NativeOperationGuard {
+            heap: self.heap,
+            id,
+            runtime: None,
+            recovery: None,
+            _root: root,
+            _lease: lease,
+        }))
     }
 
     pub(crate) fn from_argument(cx: &CallContext<'call>, slot: usize) -> NativeResult<Self> {
@@ -85,14 +123,19 @@ impl<'call> ValueHandle<'call> {
             .ok_or_else(|| RuntimeError::module_validation("native owning value root"))
     }
 
-    pub fn with_payload<S: NativePayload, R>(
+    /// # Safety
+    /// Extracted edges must be retained before the argument root can expire; interior
+    /// mutation must preserve the provider's accounting and publication contract.
+    /// Read-only operation protection forbids interior scalar writes too.
+    pub unsafe fn with_payload<S: NativePayload, R>(
         &self,
+        operation: Option<&NativeOperationGuard<'_>>,
         access: impl for<'payload> FnOnce(&'payload S) -> NativeResult<R>,
     ) -> NativeResult<R> {
         let Value::GcHandle(id) = self.value() else {
             return Err(RuntimeError::module_validation("native storage argument"));
         };
-        self.heap.with_native(id, access)
+        self.heap.with_native_operation(id, operation, access)
     }
 }
 

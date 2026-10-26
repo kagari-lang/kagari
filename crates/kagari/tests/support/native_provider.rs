@@ -1,6 +1,7 @@
 //! Application-owned provider shared by source emission and an independent
 //! source-free embedding consumer. No runtime-private APIs are used.
 
+use kagari_runtime::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -83,14 +84,27 @@ struct Handler {
     drops: Arc<AtomicUsize>,
 }
 
-impl NativePayload for Handler {
-    fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
+unsafe impl NativePayload for Handler {
+    type ScanState = ();
+    const SCAN_KIND: NativeScanKind = NativeScanKind::Bounded { max_work: 8 };
+
+    fn begin_scan(&self) {}
+
+    fn scan<'payload>(
+        &'payload self,
+        _: &mut Self::ScanState,
+        budget: &mut ScanBudget,
+        visit: &mut dyn FnMut(&'payload Value),
+    ) -> ScanStatus {
+        budget.charge(1);
         visit(&self.value);
-        self.callback.trace(visit);
+        self.callback.scan(&mut (), budget, visit);
+
+        ScanStatus::Complete
     }
 
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(2, 0))
+    fn charge(&self) -> HeapCharge {
+        HeapCharge::new(2, 0)
     }
 }
 
@@ -112,9 +126,11 @@ fn register_handler(module: &mut ModuleBuilder, drops: Arc<AtomicUsize>) -> Nati
             methods.bind(
                 apply,
                 |cx: &mut CallContext<'_>, receiver: ValueHandle<'_>| -> NativeResult<Value> {
-                    let (value, callback) = receiver.with_payload::<Handler, _>(|handler| {
-                        Ok((handler.value, handler.callback.clone()))
-                    })?;
+                    let (value, callback) = unsafe {
+                        receiver.with_payload::<Handler, _>(None, |handler| {
+                            Ok((handler.value, handler.callback.clone()))
+                        })
+                    }?;
                     cx.collect_garbage()?;
                     callback.call_values(cx, &[value])
                 },

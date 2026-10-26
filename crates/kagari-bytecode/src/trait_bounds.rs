@@ -3,6 +3,7 @@ mod applications;
 mod associated;
 mod callables;
 mod methods;
+mod native;
 pub(crate) mod preparation;
 pub(crate) mod shared;
 pub mod views;
@@ -13,7 +14,7 @@ use crate::{
         ScalarOperand,
     },
     module::BytecodeModule,
-    program::BytecodeProgram,
+    program::{BytecodeProgram, native::NativeApplicationWitness},
     trait_bounds::{
         associated::associated_bounds_match,
         preparation::{VerificationResources, VerificationScope},
@@ -141,9 +142,10 @@ pub(super) fn verify_trait_bounds(
     resources: &VerificationResources<'_>,
     scope: &VerificationScope<'_>,
     cancel: &CancellationToken,
-) -> Result<(), BytecodeVerificationError> {
+) -> Result<Vec<NativeApplicationWitness>, BytecodeVerificationError> {
     match linked_bounds_match(module, program, resources, scope, cancel) {
-        Ok(true) => Ok(()),
+        Ok(true) => native::witnesses(module, resources.modules[module], program, scope, cancel)
+            .map_err(|error| LinkedValidationError::from(error).into_verification()),
         Ok(false) => Err(LinkedValidationError::Contract.into_verification()),
         Err(error) => Err(error.into_verification()),
     }

@@ -1,8 +1,9 @@
 //! Real native payload layouts exercise ordinary registration and aligned destruction.
 use kagari::engine::{EngineConfig, KagariEngine};
+use kagari_runtime::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 use kagari_runtime::{
     native::{
-        binding::{NativeBinding, NativeResult},
+        binding::NativeBinding,
         builder::ModuleBuilder,
         declarations::FunctionDecl,
         storage::{NativePayload, NativeStorage},
@@ -18,14 +19,27 @@ macro_rules! payload {
         #[repr(C, align($align))]
         struct $name([u8; $size]);
 
-        impl NativePayload for $name {
-            fn trace<'a>(&'a self, _: &mut dyn FnMut(&'a Value)) {
+        unsafe impl NativePayload for $name {
+            type ScanState = ();
+            const SCAN_KIND: NativeScanKind = NativeScanKind::Indivisible;
+
+            fn begin_scan(&self) {}
+
+            fn scan<'a>(
+                &'a self,
+                _: &mut Self::ScanState,
+                budget: &mut ScanBudget,
+                _: &mut dyn FnMut(&'a Value),
+            ) -> ScanStatus {
+                budget.charge(1);
                 assert_eq!((self as *const Self as usize) % align_of::<Self>(), 0);
                 assert_eq!((self.0[0], self.0[$size - 1]), (42, 42));
+
+                ScanStatus::Complete
             }
 
-            fn charge(&self) -> NativeResult<HeapCharge> {
-                Ok(HeapCharge::new(1, 0))
+            fn charge(&self) -> HeapCharge {
+                HeapCharge::new(1, 0)
             }
         }
 

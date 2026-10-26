@@ -1,5 +1,7 @@
 //! One traced Rust payload mechanism for native script-heap objects.
 //! Factories and Rust type identity are local installation data, never portable ABI.
+pub mod access;
+pub mod scan;
 use crate::{
     Runtime,
     error::RuntimeError,
@@ -7,12 +9,13 @@ use crate::{
         arguments::{TypeArgument, type_parameter},
         compatibility::TypeView,
     },
-    gc::GcHeap,
+    gc::{GcHeap, roots::RootedValue},
     module::ExecutableModule,
     native::{
         binding::NativeResult,
         context::{LinkedCallable, LinkedOperation},
         payload::{data::NativeData, managed::ManagedSchema, take::NativeTake},
+        storage::scan::{NativeScanKind, ScanBudget, ScanEntries, ScanStatus, ScanWorkspace},
         storage_type::StorageType,
         stored_selection::StoredSelection,
     },
@@ -31,14 +34,32 @@ use std::{
     sync::Arc,
 };
 
-/// Trace every script value retained by this payload. The visitor cannot execute
-/// scripts or retain a reference past tracing. Rust Drop owns payload destruction.
-/// The runtime exclusively owns the payload, so Send permits transfer without
-/// requiring Sync. Factories shared by multiple installations require Send + Sync.
-pub trait NativePayload: Any + Debug + Send {
-    fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value));
+/// Runtime-owned Rust storage with a single scanner and committed backing charge.
+///
+/// # Safety
+/// Report every strong internal script edge, including temporary algorithm storage.
+/// Edge, charge and structural mutations must use checked publication/accounting
+/// services, never interior mutability behind a shared loan. Before any callback, release all payload loans
+/// and protect extracted values with roots or other traced edges. Every installed
+/// state, including errors and unwinds, must remain scan-valid and charge-valid.
+/// Scanning/charging cannot allocate, reenter, mutate the payload or panic. Cursor
+/// state must contain no payload pointers, roots, references or untraced graph edges.
+/// Providers must honor their declared work guarantee and make finite progress.
+pub unsafe trait NativePayload: Any + Debug + Send {
+    type ScanState: Copy + Send + 'static;
 
-    /// Describe a new payload before publication. Logical units exclude the heap
+    const SCAN_KIND: NativeScanKind;
+
+    fn begin_scan(&self) -> Self::ScanState;
+
+    fn scan<'payload>(
+        &'payload self,
+        state: &mut Self::ScanState,
+        budget: &mut ScanBudget,
+        visit: &mut dyn FnMut(&'payload Value),
+    ) -> ScanStatus;
+
+    /// Describe the current payload in constant time, including during unwind. Logical units exclude the heap
     /// identity; bytes include exclusively owned indirect backing, not this Rust
     /// value's shallow size (the runtime adds that exactly once), referenced GC
     /// objects, shared metadata or external host resources. State whether indirect
@@ -47,13 +68,14 @@ pub trait NativePayload: Any + Debug + Send {
     /// outside this charge. This is GC pressure, not a quota or allocator/RSS total.
     ///
     /// This callback must be side-effect-free and cannot reenter the runtime.
-    /// The description is sampled once; release never calls it. Installed charge
+    /// Admission and every completed general edit sample this infallible callback;
+    /// release uses the committed record and never calls it. Installed charge
     /// must remain stable except through checked runtime storage mutations; a
     /// provider must not resize attributed backing through interior mutability.
-    fn charge(&self) -> NativeResult<HeapCharge>;
+    fn charge(&self) -> HeapCharge;
 
     /// Local storage policy for automatic Opaque schema registration. The default
-    /// grants traced read access only. Explicit take/data policies must carry their
+    /// grants unsafe provider access, not safe data loans. Take/data policies carry their
     /// existing capability proof; the registration owner checks the Rust identity.
     fn registration_storage() -> NativeStorage
     where
@@ -114,7 +136,7 @@ impl<'call> StorageContext<'call> {
         }
     }
 
-    pub(crate) fn element_contract(&self, index: usize) -> NativeResult<Arc<StorageType>> {
+    pub fn element_contract(&self, index: usize) -> NativeResult<Arc<StorageType>> {
         StorageType::prepare_scoped(self.type_parameter(index)?, self.owner).map(Arc::new)
     }
 
@@ -139,15 +161,13 @@ impl<'call> StorageContext<'call> {
 type Factory =
     dyn for<'call> Fn(&StorageContext<'call>) -> NativeResult<Box<dyn Any + Send>> + Send + Sync;
 
-type Trace = dyn for<'payload> Fn(&'payload dyn Any, &mut dyn FnMut(&'payload Value)) + Send + Sync;
-
-type Charge = dyn Fn(&dyn Any) -> NativeResult<HeapCharge> + Send + Sync;
+type Charge = dyn Fn(&dyn Any) -> HeapCharge + Send + Sync;
 
 struct StorageEntries {
     rust_type: TypeId,
     layout: NativeStorageLayout,
     factory: Option<Box<Factory>>,
-    trace: Box<Trace>,
+    scan: ScanEntries,
     charge: Box<Charge>,
     editable_data: bool,
     takeable: bool,
@@ -250,12 +270,7 @@ impl NativeStorage {
                 rust_type: TypeId::of::<S>(),
                 layout,
                 factory,
-                trace: Box::new(|payload, visit| {
-                    payload
-                        .downcast_ref::<S>()
-                        .expect("factory and trace entries share the sealed Rust payload type")
-                        .trace(visit)
-                }),
+                scan: ScanEntries::new::<S>(),
                 charge: Box::new(|payload| {
                     payload
                         .downcast_ref::<S>()
@@ -267,6 +282,20 @@ impl NativeStorage {
                 managed: None,
             }),
         }
+    }
+
+    pub(crate) fn installed_charge(&self, payload: &(dyn Any + Send)) -> NativeResult<HeapCharge> {
+        (self.entries.charge)(payload).with_shallow_bytes(size_of_val(payload))
+    }
+
+    pub(crate) fn scan_payload<'a>(
+        &self,
+        payload: &'a dyn Any,
+        workspace: &mut ScanWorkspace,
+        visit: &mut dyn FnMut(&'a Value),
+    ) -> NativeResult<()> {
+        workspace.reserve(self.entries.scan.layout)?;
+        self.entries.scan.trace(payload, workspace, visit)
     }
 
     pub fn layout(&self) -> NativeStorageLayout {
@@ -300,6 +329,33 @@ impl NativeStorage {
         Ok(object)
     }
 
+    /// One admission/publication path for typed opaque and checked low-level native results.
+    pub(crate) fn allocate_payload<S: NativePayload>(
+        &self,
+        context: &StorageContext<'_>,
+        payload: S,
+        selected: Arc<[StoredSelection]>,
+    ) -> NativeResult<RootedValue> {
+        let runtime = context.runtime;
+        runtime.gc().ensure_no_native_borrow()?;
+        runtime.resources().ensure_execution_allowed()?;
+        runtime.validate_executable_module(context.owner)?;
+        let scope = context.scope.ok_or_else(|| {
+            RuntimeError::module_validation("native allocation requires a closed result scope")
+        })?;
+        scope.validate(runtime)?;
+        runtime.resources().poll_execution()?;
+        let mut object = self.prepare_payload(runtime.gc(), context.ty, payload, context.owner)?;
+        object.scope = Some(scope.clone());
+        object.selected = selected;
+        let id = runtime.gc().alloc_native(object)?;
+        let root = runtime
+            .root_value(Value::GcHandle(id))
+            .ok_or_else(|| RuntimeError::module_validation("native object retention"))?;
+        runtime.gc_safepoint()?;
+        Ok(root)
+    }
+
     pub(crate) fn prepare_payload<S: NativePayload>(
         &self,
         heap: &GcHeap,
@@ -323,20 +379,20 @@ impl NativeStorage {
         owner: &ExecutableModule,
     ) -> NativeResult<NativeObject> {
         let mut valid = true;
-        (self.entries.trace)(payload.as_ref(), &mut |value| {
+        heap.scan_native_payload(self, payload.as_ref(), &mut |value| {
             valid &= value.is_default_heap_payload(heap) && heap.validate_value(value);
-        });
+        })?;
         if !valid {
             return Err(RuntimeError::module_validation(
                 "native factory retained an invalid script value",
             ));
         }
-        let charge = (self.entries.charge)(payload.as_ref())?
+        let charge = (self.entries.charge)(payload.as_ref())
             .with_shallow_bytes(size_of_val(payload.as_ref()))?;
         Ok(NativeObject {
             charge,
             storage: self.clone(),
-            payload,
+            payload: Some(payload),
             ty: ty.clone(),
             _owner: owner.clone(),
             scope: None,
@@ -358,7 +414,7 @@ pub(crate) struct NativeObject {
     /// Authoritative committed payload charge, including the erased Box's shallow
     /// allocation but excluding the heap identity. Moves preserve this record.
     pub(crate) charge: HeapCharge,
-    payload: Box<dyn Any + Send>,
+    payload: Option<Box<dyn Any + Send>>,
     pub(crate) ty: Ty,
     _owner: ExecutableModule,
     pub(crate) scope: Option<TypeArgument>,
@@ -376,7 +432,7 @@ impl Debug for NativeObject {
 
 impl NativeObject {
     pub(crate) fn payload_bytes(&self) -> usize {
-        size_of_val(self.payload.as_ref())
+        size_of_val(self.payload.as_deref().expect("payload is not loaned"))
     }
 
     pub(crate) fn into_payload<S: NativeTake>(self) -> S {
@@ -384,6 +440,7 @@ impl NativeObject {
         // erased record cannot change payload types between validation and move.
         *self
             .payload
+            .expect("payload is not loaned")
             .downcast::<S>()
             .expect("validated extraction payload type")
     }
@@ -408,8 +465,27 @@ impl NativeObject {
         actual.compatible(expected)
     }
 
-    pub(crate) fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
-        (self.storage.entries.trace)(self.payload.as_ref(), visit);
+    pub(crate) fn trace<'payload>(
+        &'payload self,
+        workspace: &mut ScanWorkspace,
+        visit: &mut dyn FnMut(&'payload Value),
+    ) -> NativeResult<()> {
+        let payload = self
+            .payload
+            .as_deref()
+            .ok_or_else(|| RuntimeError::module_validation("native payload is loaned"))?;
+        self.storage.entries.scan.trace(payload, workspace, visit)
+    }
+
+    pub(crate) fn loan_payload(&mut self) -> NativeResult<Box<dyn Any + Send>> {
+        self.payload
+            .take()
+            .ok_or_else(|| RuntimeError::module_validation("native payload is loaned"))
+    }
+
+    pub(crate) fn restore_payload(&mut self, payload: Box<dyn Any + Send>) {
+        assert!(self.payload.is_none(), "exclusive native payload loan");
+        self.payload = Some(payload);
     }
 
     /// Sealed storage owners describe the completed edit without invoking an
@@ -426,13 +502,11 @@ impl NativeObject {
                 "native replacement payload type mismatch",
             ));
         }
-        let charge = payload
-            .charge()?
-            .with_shallow_bytes(size_of_val(&payload))?;
+        let charge = payload.charge().with_shallow_bytes(size_of_val(&payload))?;
         Ok(Self {
             charge,
             storage: self.storage.clone(),
-            payload: Box::new(payload),
+            payload: Some(Box::new(payload)),
             ty: self.ty.clone(),
             _owner: self._owner.clone(),
             scope: self.scope.clone(),
@@ -442,18 +516,24 @@ impl NativeObject {
     }
 
     pub(crate) fn payload<S: 'static>(&self) -> NativeResult<&S> {
-        self.payload.downcast_ref().ok_or_else(|| {
-            RuntimeError::module_validation(
-                "native payload access codec differs from the installed storage",
-            )
-        })
+        self.payload
+            .as_deref()
+            .and_then(|payload| payload.downcast_ref())
+            .ok_or_else(|| {
+                RuntimeError::module_validation(
+                    "native payload access codec differs from the installed storage",
+                )
+            })
     }
 
     pub(crate) fn payload_mut<S: 'static>(&mut self) -> NativeResult<&mut S> {
-        self.payload.downcast_mut().ok_or_else(|| {
-            RuntimeError::module_validation(
-                "native payload access codec differs from the installed storage",
-            )
-        })
+        self.payload
+            .as_deref_mut()
+            .and_then(|payload| payload.downcast_mut())
+            .ok_or_else(|| {
+                RuntimeError::module_validation(
+                    "native payload access codec differs from the installed storage",
+                )
+            })
     }
 }

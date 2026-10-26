@@ -54,7 +54,11 @@ impl Runtime {
         bindings.native = module
             .native_imports
             .iter()
-            .map(|import| self.native_entries.link(import, program))
+            .enumerate()
+            .map(|(index, import)| {
+                self.native_entries
+                    .link(import, NativeImportId::new(index), program)
+            })
             .collect::<Result<_, _>>()?;
         Ok(bindings)
     }

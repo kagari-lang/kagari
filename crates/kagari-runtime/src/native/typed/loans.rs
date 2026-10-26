@@ -121,10 +121,10 @@ pub(super) fn check_receiver_storage(
             "Rust struct receiver requires an external scoped location",
         ));
     }
-    if access == ReferenceAccess::Mutable {
+    {
         let Some(Ty::NativeObject(nominal)) = types.first().map(TypeArgument::ty) else {
             return Err(RuntimeError::module_validation(
-                "unsupported mutable receiver storage",
+                "unsupported borrowed receiver storage",
             ));
         };
         if cx
@@ -135,7 +135,7 @@ pub(super) fn check_receiver_storage(
             .is_none_or(|storage| !storage.is_editable_data())
         {
             return Err(RuntimeError::module_validation(
-                "storage does not permit direct data editing",
+                "storage does not permit fixed-data loans",
             ));
         }
     }
@@ -160,7 +160,7 @@ macro_rules! receiver_adapters {
                         let ($($value,)*) = arguments;
                         let mut loan = LoanContext { runtime: cx.runtime() };
                         match receiver {
-                            LoanReceiver::Opaque(receiver) => receiver.read(cx, |payload| self(&mut loan, (payload, $($value,)*))),
+                            LoanReceiver::Opaque(receiver) => receiver.read_checked(cx, |payload| self(&mut loan, (payload, $($value,)*))),
                             LoanReceiver::External(view) => cx.runtime().host_borrows.read_scoped(cx.runtime(), view,
                                 |payload| self(&mut loan, (payload, $($value,)*))),
                         }

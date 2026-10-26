@@ -1103,12 +1103,34 @@ Weak binding caches retain no obsolete version by themselves. Selected trait
 operations consume installed compiler evidence and reenter the same execution stack. The SDK with_context scope
 applies cancellation, observation and execution policy to host object operations.
 
-NativeStorage attaches a Rust payload to an ordinary nominal native type.
-NativeData supports short fixed-data edits; ManagedStorage describes private traced
-fields and checked writes. Complete builders root initializers until publication.
-Advanced NativePayload supplies tracing, a fallible `HeapCharge` description and
-Rust destruction. Its scoped borrows validate the registered Rust type and cannot
-span collection or reentry.
+`define_opaque::<P>` associates an ordinary nominal native type with its payload
+and `Opaque<P>` mapping once, using `P::registration_storage()`. NativeStorage is
+the lower-level descriptor. NativeData supplies safe `read_data`/`edit_data`;
+ManagedStorage describes private traced fields and checked writes. Complete builders
+root initializers until publication. Advanced unsafe NativePayload supplies one
+`begin_scan`/`scan` protocol, infallible constant-time `HeapCharge` and Rust destruction.
+General `Opaque::read`/`edit` are unsafe short loans with checked `StorageAccess`
+retention/publication, `EditPlan` accounting and native-object revisions. Operation
+guards protect callback-spanning work and sealed same-payload recovery. Payload
+loans cannot span collection or reentry; safe typed loans require NativeData, not
+merely NativeTake or empty scanning. The boxed loan releases the directory borrow
+but blocks escaping public string/tuple/enum/closure views until restoration;
+internal scoped aggregate validation remains active.
+
+`NativeType::create(cx, payload, selected_slots)` is the typed creation entrypoint;
+a native constructor obtains its descriptor through `result_native_type`. Bounded
+host binding consumes closed, carrier-scoped native-application witnesses sealed
+by source-free verification after declaration/call/bounds validation. Active
+constructor results consume their exact import/result witness and prepared scope,
+not a runtime trait search. Existing-object reconstruction validates that object's
+identity and representation. A type witness is not callable constructor evidence.
+See [provider contracts](spec/host-interop.md#general-native-payload-protocol).
+
+One runtime-local aligned scanner workspace is reserved on payload admission and
+reused for traversal. The current driver drains it synchronously; idle growth is
+allowed because no continuation survives a traversal. PG04 owns persistent active
+continuations and reservation across interleaved mutation, not a second scanner.
+Legacy collection codecs and special storage below remain until PG03.
 Advanced CallContext and borrowed views remain for storage operations; StoredCallable
 is a traced heap edge, while host-retained callbacks use `Function`.
 New payloads require no concrete Value/HeapObject variants. Scalar sequences use
@@ -1786,8 +1808,9 @@ changed-store compaction retain their separate costs.
 
 `ResourceState` owns aggregate logical occupancy and attributed backing pressure.
 `HeapCharge` carries `logical_units` and `retained_bytes`; each `NativeObject` owns
-its committed payload charge, excluding the heap identity. Preparation samples
-`NativePayload::charge()` once and adds the erased Box's shallow size exactly once.
+its committed payload charge, excluding the heap identity. Admission and completed
+general edits sample infallible `NativePayload::charge()`, including error/unwind
+finalization; the runtime adds the erased Box's shallow size exactly once.
 Checked storage owners update the record on mutation; relocation preserves it and
 sweep/take release it without resampling providers. Strings and native buffers use
 known capacities; hash tables use capacity-based estimates. Shared metadata,
@@ -1888,13 +1911,19 @@ owned Rust String conversion remains an explicit copy at the host boundary.
 
 Persistent root values live in a heap-owned generational table. Host/debug handles
 carry Arc leases and checked root identities; value access requires the owning heap
-and validates the exact lease pointer. Final lease Drop sends only the complete
-owner/slot/generation ID through MPSC, including from another thread. The table
-drains releases during registration and collection/snapshot preparation, checking
-the ID and that no strong lease remains before reuse. No registration-wide prune
-scan remains. Snapshot copying still upgrades and temporarily holds weak leases;
-a delayed notification cannot make a dead lease live. The channel retains neither
-values nor runtime ownership, and late drops tolerate receiver destruction.
+and validates the exact lease pointer. Registration reserves one notification
+credit per lease and free-slot capacity. Final-clone Drop enqueues only the complete
+owner/slot/generation ID in a shared mutex-protected Vec, including from another
+thread, without allocating. Credits include live leases, queued IDs and the ID
+being drained. The table drains in place without discarding capacity, checking the
+ID and absence of strong leases before reuse. It retires the identity/credit before
+destroying detached contents outside the transport lock. Poison recovery preserves
+notifications; no user code runs under that lock. No registration-wide prune scan
+remains. Snapshot copying still upgrades and temporarily holds weak leases; a delayed
+notification cannot make a dead lease live. Runtime teardown disconnects and frees
+the pending buffer; late leases retain transport state, not values or runtime
+ownership. This reserved root-release transport does not imply that incremental
+marking queues or all collector work are already implemented.
 
 OpenJDK 25 GA [OopStorage](https://github.com/openjdk/jdk/blob/jdk-25-ga/src/hotspot/share/gc/shared/oopStorage.hpp),
 its [iteration](https://github.com/openjdk/jdk/blob/jdk-25-ga/src/hotspot/share/gc/shared/oopStorage.inline.hpp)

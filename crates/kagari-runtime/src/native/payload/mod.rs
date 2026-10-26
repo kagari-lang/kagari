@@ -13,11 +13,17 @@ use crate::{
     module::ExecutableModule,
     native::{
         binding::NativeResult,
-        conversion::context::ConversionContext,
+        conversion::{KagariType, arguments::KagariArguments, context::ConversionContext},
+        function_handle::Function,
         payload::{data::NativeData, managed::AppliedSchema, take::NativeTake},
         rust_type::RustType,
-        storage::{NativePayload, NativeStorage},
+        storage::{
+            NativePayload, NativeStorage, StorageContext,
+            access::{EditPlan, StorageAccess},
+        },
+        stored_selection::StoredSelection,
         typed::NativeContext,
+        views::{NativeOperationGuard, NativeOperationKind, Recovery},
     },
     value::Value,
 };
@@ -81,25 +87,35 @@ impl<T> NativeType<T> {
 impl<T: NativePayload> NativeType<T> {
     /// Construct from the registered payload representation. Handwritten
     /// NativePayload implementations remain the low-level tracing boundary.
-    pub fn create(&self, cx: &mut NativeContext<'_>, payload: T) -> NativeResult<Opaque<T>> {
+    pub fn create(
+        &self,
+        cx: &mut NativeContext<'_>,
+        payload: T,
+        selected_slots: &[usize],
+    ) -> NativeResult<Opaque<T>> {
         let runtime = cx.runtime();
-        runtime.gc().ensure_no_native_borrow()?;
-        runtime.resources().ensure_execution_allowed()?;
-        runtime.validate_executable_module(self.owner())?;
-        self.type_argument().validate(runtime)?;
-        cx.poll()?;
-        let mut object = self.record.storage.prepare_payload(
-            runtime.gc(),
-            self.type_argument().ty(),
+        runtime.gc().ensure_execution_allowed()?;
+        let selected = if selected_slots.is_empty() {
+            Arc::from([])
+        } else {
+            let function = cx.function.ok_or_else(|| {
+                RuntimeError::module_validation(
+                    "selected construction requires native call evidence",
+                )
+            })?;
+            StoredSelection::slots(cx.conversion.owner(), &function.selected, selected_slots)?
+        };
+        let root = self.record.storage.allocate_payload(
+            &StorageContext {
+                runtime,
+                owner: self.owner(),
+                ty: self.type_argument().ty(),
+                scope: Some(self.type_argument()),
+                selected: &[],
+            },
             payload,
-            self.owner(),
+            selected,
         )?;
-        object.scope = Some(self.type_argument().clone());
-        let id = runtime.gc().alloc_native(object)?;
-        let root = runtime
-            .root_value(Value::GcHandle(id))
-            .ok_or_else(|| RuntimeError::module_validation("native object retention"))?;
-        runtime.gc_safepoint()?;
         Ok(Opaque {
             root,
             native_type: self.clone(),
@@ -112,7 +128,24 @@ impl<T: Send + 'static> Opaque<T> {
         &self.native_type
     }
 
-    pub fn read<R>(
+    /// Retain a typed relationship from this object's selected metadata. Each
+    /// ordinary call selects its current body; prepare once to pin an active computation.
+    pub fn stored_function<A: KagariArguments, R: KagariType>(
+        &self,
+        cx: &NativeContext<'_>,
+        slot: usize,
+    ) -> NativeResult<Function<A, R>> {
+        let Value::GcHandle(id) = self.value(cx.runtime().gc())? else {
+            unreachable!("opaque root")
+        };
+        let selections = cx.runtime().gc().native_selections(id)?;
+        selections
+            .get(slot)
+            .ok_or_else(|| RuntimeError::module_validation("stored callable slot"))?
+            .function(cx.runtime())
+    }
+
+    pub(crate) fn read_checked<R>(
         &self,
         cx: &NativeContext<'_>,
         read: impl for<'payload> FnOnce(&'payload T) -> NativeResult<R>,
@@ -124,6 +157,7 @@ impl<T: Send + 'static> Opaque<T> {
         let Value::GcHandle(id) = value else {
             unreachable!("native object root")
         };
+        cx.runtime().gc().check_native_payload::<T>(id, true)?;
         cx.runtime().gc().with_native(id, read)
     }
 
@@ -142,17 +176,121 @@ impl<T: Send + 'static> Opaque<T> {
     }
 }
 
+impl<T: NativePayload> Opaque<T> {
+    /// Lend provider storage without allowing script reentry.
+    ///
+    /// # Safety
+    /// Retain every extracted edge before it leaves the loan. Interior writes must
+    /// not change traced edges, structural state or installed accounting. Read-only
+    /// operation protection also forbids interior scalar writes to the receiver.
+    pub unsafe fn read<R>(
+        &self,
+        cx: &NativeContext<'_>,
+        operation: Option<&NativeOperationGuard<'_>>,
+        read: impl for<'a> FnOnce(&'a T, &mut StorageAccess<'a>) -> NativeResult<R>,
+    ) -> NativeResult<R> {
+        cx.poll()?;
+        let Value::GcHandle(id) = self.value(cx.runtime().gc())? else {
+            unreachable!("opaque root")
+        };
+        cx.runtime()
+            .gc()
+            .read_native(cx.runtime(), id, operation, read)
+    }
+
+    /// Edit provider storage with preflighted accounting and unwind reconciliation.
+    ///
+    /// # Safety
+    /// Publish imported edges through StorageAccess, keep all work state traced in
+    /// this payload, and respect the plan's maximum charge and structural contract.
+    pub unsafe fn edit<R>(
+        &self,
+        cx: &mut NativeContext<'_>,
+        operation: Option<&NativeOperationGuard<'_>>,
+        plan: EditPlan,
+        edit: impl for<'a> FnOnce(&'a mut T, &mut StorageAccess<'a>) -> NativeResult<R>,
+    ) -> NativeResult<R> {
+        cx.poll()?;
+        let Value::GcHandle(id) = self.value(cx.runtime().gc())? else {
+            unreachable!("opaque root")
+        };
+        cx.runtime()
+            .gc()
+            .edit_native(cx.runtime(), id, operation, plan, edit)
+    }
+
+    /// Protect receiver slots across callbacks, with optional sealed recovery.
+    ///
+    /// # Safety
+    /// Recovery must not allocate, panic, grow charge, execute script or retain new
+    /// edges. All work state stays traced in this payload; recovery uses only
+    /// already admitted edges and leaves a valid scanner/accounting state. Release
+    /// the guard outside payload loans; cleanup cannot run through a conflicting loan.
+    pub unsafe fn try_enter_operation<'runtime>(
+        &self,
+        cx: &NativeContext<'runtime>,
+        kind: NativeOperationKind,
+        recovery: Option<fn(&mut T, &mut StorageAccess<'_>)>,
+    ) -> NativeResult<Option<NativeOperationGuard<'runtime>>> {
+        let runtime = cx.runtime();
+        let heap = runtime.gc();
+        let Value::GcHandle(id) = self.value(heap)? else {
+            unreachable!("opaque root")
+        };
+        heap.check_native_payload::<T>(id, false)?;
+        if kind == NativeOperationKind::ReadOnlyCallbacks && recovery.is_some() {
+            return Err(RuntimeError::module_validation(
+                "read-only operation cannot register mutable recovery",
+            ));
+        }
+        if kind == NativeOperationKind::ExclusiveSlots {
+            heap.prepare_native_recovery(id)?;
+        }
+        let Some(lease) = heap.try_enter_native_operation(id, kind)? else {
+            return Ok(None);
+        };
+        let recovery = recovery.map(|recover| -> Box<Recovery> {
+            Box::new(move |payload, access| {
+                recover(
+                    payload
+                        .downcast_mut::<T>()
+                        .expect("checked recovery payload"),
+                    access,
+                )
+            })
+        });
+        Ok(Some(NativeOperationGuard {
+            heap,
+            id,
+            runtime: Some(runtime),
+            recovery,
+            _root: self.root.clone(),
+            _lease: lease,
+        }))
+    }
+}
+
 impl<T: NativeData> Opaque<T> {
+    /// Safely read fixed edge-free data without exposing provider interiors.
+    pub fn read_data<R>(
+        &self,
+        cx: &NativeContext<'_>,
+        read: impl for<'a> FnOnce(&'a T) -> NativeResult<R>,
+    ) -> NativeResult<R> {
+        // SAFETY: NativeData statically excludes edges, interior mutation and dynamic charge.
+        unsafe { self.read(cx, None, |payload, _| read(payload)) }
+    }
+
     /// Lend checked fixed data for one non-reentrant edit. Completed scalar writes
     /// remain visible when the closure fails or unwinds. A reference cannot escape.
     ///
     /// ```compile_fail
     /// use kagari_runtime::native::{payload::Opaque, typed::NativeContext};
     /// fn escape<'a>(object: &Opaque<i32>, cx: &'a NativeContext<'_>) -> &'a mut i32 {
-    ///     object.edit(cx, |value| Ok(value)).unwrap()
+    ///     object.edit_data(cx, |value| Ok(value)).unwrap()
     /// }
     /// ```
-    pub fn edit<R>(
+    pub fn edit_data<R>(
         &self,
         cx: &NativeContext<'_>,
         edit: impl for<'payload> FnOnce(&'payload mut T) -> NativeResult<R>,
@@ -177,20 +315,13 @@ impl<T: NativeTake> Opaque<T> {
 }
 
 impl NativeContext<'_> {
-    /// A typed native constructor can use its declared result application,
-    /// including generic scopes, without capturing an installed runtime handle.
-    pub fn create_opaque<T: NativePayload>(&mut self, payload: T) -> NativeResult<Opaque<T>> {
-        self.result_native_type()?.create(self, payload)
-    }
-
     /// Prepare the callback's declared native result for a managed field builder.
     pub fn result_native_type<T: NativePayload>(&self) -> NativeResult<NativeType<T>> {
         let function = self.function.ok_or_else(|| {
             RuntimeError::module_validation("native construction requires a declared result")
         })?;
-        let argument = function.type_signature()?.result.clone();
         self.runtime()
-            .prepare_native_type::<T>(self.conversion.owner(), argument)
+            .prepare_native_result_type::<T>(self.conversion.owner(), function)
     }
 }
 

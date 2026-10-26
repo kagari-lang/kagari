@@ -82,6 +82,7 @@ fn main() {
         .create(
             &mut NativeContext::new(runtime.runtime(), &selected).unwrap(),
             Player { hp: 60 },
+            &[],
         )
         .unwrap();
     let owned_hp: i32 = runtime
@@ -117,9 +118,9 @@ fn main() {
         })
         .unwrap();
     let cx = NativeContext::new(runtime.runtime(), &selected).unwrap();
-    assert_eq!(owned.read(&cx, |player| Ok(player.hp)).unwrap(), 70);
+    assert_eq!(owned.read_data(&cx, |player| Ok(player.hp)).unwrap(), 70);
     owned
-        .edit(&cx, |player| {
+        .edit_data(&cx, |player| {
             player.hp += 1;
             Ok(())
         })
@@ -127,7 +128,7 @@ fn main() {
     let alias = owned.clone();
     let recovered = owned.take(&cx).unwrap();
     assert_eq!(recovered.hp, 71);
-    assert!(alias.read(&cx, |_| Ok(())).is_err());
+    assert!(alias.read_data(&cx, |_| Ok(())).is_err());
     println!("owned hp={owned_hp}, borrowed hp={borrowed_hp}");
     println!("taken hp={}, old opaque alias unavailable", recovered.hp);
 }

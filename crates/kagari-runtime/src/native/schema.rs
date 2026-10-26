@@ -3,7 +3,7 @@ use crate::{
     error::RuntimeError,
     native::{
         binding::NativeResult, builder::ModuleBuilder, catalog::DeclarationCatalog,
-        conversion::KagariType, payload::Opaque, storage::NativePayload, types::Type,
+        conversion::KagariType, storage::NativePayload, types::Type,
     },
 };
 use kagari_types::{
@@ -163,19 +163,7 @@ impl TypeRegistration<'_> {
                 "automatic Opaque registration requires a finite named payload",
             ));
         }
-        let storage = T::registration_storage();
-        if !storage.accepts_payload::<T>() {
-            return Err(conflict(
-                "automatic Opaque storage policy differs from its Rust payload",
-            ));
-        }
-        let mut declaration = self.module.define_type(name)?;
-        declaration.native_storage(storage)?;
-        let ty = declaration.finish()?.apply([])?;
-        self.module
-            .providers
-            .insert_rust_type::<Opaque<T>>(ty.clone())?;
-        Ok(ty)
+        self.module.define_opaque::<T>(name)?.finish()?.apply([])
     }
 
     pub fn catalog(&self) -> &DeclarationCatalog {

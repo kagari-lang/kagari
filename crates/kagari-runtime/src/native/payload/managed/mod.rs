@@ -1,4 +1,5 @@
 //! Declared private payload fields store graph edges instead of host root leases.
+use crate::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 mod access;
 mod application;
 pub mod construction;
@@ -123,9 +124,11 @@ impl<T: NativeData> ManagedStorage<T> {
 ///
 /// The complete payload cannot be edited as ordinary data:
 /// ```compile_fail
-/// use kagari_runtime::native::{payload::{Opaque, managed::Managed}, typed::NativeContext};
-/// fn edit_fields(object: &Opaque<Managed<i32>>, cx: &NativeContext<'_>) {
-///     object.edit(cx, |_| Ok(())).unwrap();
+/// use kagari_runtime::native::{payload::{Opaque, managed::Managed},
+///     storage::access::EditPlan, typed::NativeContext};
+/// fn edit_fields(object: &Opaque<Managed<i32>>, cx: &mut NativeContext<'_>) {
+///     object.edit(cx, None, EditPlan { max_logical_units: 1, structural: false },
+///         |_, _| Ok(())).unwrap();
 /// }
 /// ```
 /// Nor can a data borrow escape the restricted edit:
@@ -148,25 +151,45 @@ impl<T> Managed<T> {
     }
 }
 
-impl<T: NativeData> NativePayload for Managed<T> {
-    fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
-        for value in &self.values {
-            visit(value);
-        }
+unsafe impl<T: NativeData> NativePayload for Managed<T> {
+    type ScanState = (usize, usize);
+    const SCAN_KIND: NativeScanKind = NativeScanKind::Resumable;
+
+    fn begin_scan(&self) -> Self::ScanState {
+        (0, self.values.as_slice().len())
     }
 
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(
+    fn scan<'payload>(
+        &'payload self,
+        state: &mut Self::ScanState,
+        budget: &mut ScanBudget,
+        visit: &mut dyn FnMut(&'payload Value),
+    ) -> ScanStatus {
+        let values = self.values.as_slice();
+        while state.0 < state.1 {
+            if !budget.take(1) {
+                return ScanStatus::Pending;
+            }
+            if let Some(value) = values.get(state.0) {
+                visit(value);
+            }
+            state.0 += 1;
+        }
+        ScanStatus::Complete
+    }
+
+    fn charge(&self) -> HeapCharge {
+        HeapCharge::new(
             self.data
-                .charge()?
+                .charge()
                 .logical_units
                 .checked_add(self.values.len())
-                .ok_or_else(invalid)?,
+                .expect("allocated managed field charge"),
             self.values
                 .capacity()
                 .checked_mul(size_of::<Value>())
                 .expect("allocated managed fields"),
-        ))
+        )
     }
 }
 

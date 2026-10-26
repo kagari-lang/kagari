@@ -12,7 +12,7 @@ use crate::{
         values::TupleData,
     },
     host::{HostPathViewHandle, HostRootHandle},
-    native::storage::NativeObject,
+    native::storage::{NativeObject, scan::ScanWorkspace},
     range::RangeValue,
     resource::HeapCharge,
     value::{EnumValueSnapshot, EphemeralValue, Value},
@@ -153,13 +153,14 @@ impl<'a> HeapObject<Shared<'a>> {
     pub(super) fn trace(
         self,
         interfaces: &'a InterfaceStore,
+        workspace: &mut ScanWorkspace,
         visit: &mut dyn FnMut(Value),
     ) -> Option<()> {
         match self {
             Self::String(_) | Self::Range(_) | Self::HostRoot(_) | Self::Ephemeral(_) => {}
             Self::Tuple(tuple) => tuple.members.iter().rev().copied().for_each(visit),
             Self::HostPath(path) => path.retained_values().copied().for_each(visit),
-            Self::Native(object) => object.trace(&mut |value| visit(*value)),
+            Self::Native(object) => object.trace(workspace, &mut |value| visit(*value)).ok()?,
             Self::Enum(snapshot, _) => snapshot.fields.iter().rev().copied().for_each(visit),
             Self::Struct { storage } => storage.trace(visit)?,
             Self::Interface { snapshot, .. } => visit(interfaces.get(snapshot)?.data),

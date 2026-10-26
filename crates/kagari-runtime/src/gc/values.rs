@@ -29,7 +29,9 @@ impl GcHeap {
 
     /// The storage borrow prevents collection or mutation until the view is dropped.
     /// Release it before calling script/native code or creating another heap value.
+    /// Returns None during a native payload loan, whose exit must restore storage.
     pub fn string(&self, id: HeapObjectId) -> Option<Ref<'_, str>> {
+        self.ensure_no_native_borrow().ok()?;
         Ref::filter_map(self.objects.try_borrow().ok()?, |objects| {
             match self.object_ref(objects, id)? {
                 HeapObject::String(text) => Some(text.as_str()),
@@ -59,7 +61,23 @@ impl GcHeap {
         .map(Value::Tuple)
     }
 
+    /// Borrow immutable members, unless a native payload loan is active.
     pub fn tuple(&self, id: HeapObjectId) -> Option<Ref<'_, [Value]>> {
+        self.ensure_no_native_borrow().ok()?;
+        self.tuple_view(id)
+    }
+
+    /// Validation may inspect members during a native loan, but cannot return a
+    /// directory borrow that would prevent the loan from restoring its payload.
+    pub(crate) fn with_tuple<R>(
+        &self,
+        id: HeapObjectId,
+        inspect: impl FnOnce(&[Value]) -> R,
+    ) -> Option<R> {
+        self.tuple_view(id).map(|values| inspect(&values))
+    }
+
+    fn tuple_view(&self, id: HeapObjectId) -> Option<Ref<'_, [Value]>> {
         Ref::filter_map(self.objects.try_borrow().ok()?, |objects| {
             match self.object_ref(objects, id)? {
                 HeapObject::Tuple(tuple) => Some(tuple.members.as_slice()),
@@ -72,7 +90,22 @@ impl GcHeap {
     /// Borrow immutable tag and membership without copying a payload list.
     /// The caller retains its value root and releases this view before collection,
     /// heap allocation or a script/native callback, as with string/tuple views.
+    /// Returns None during a native payload loan.
     pub fn enum_view(&self, id: HeapObjectId) -> Option<Ref<'_, EnumValueSnapshot>> {
+        self.ensure_no_native_borrow().ok()?;
+        self.enum_storage_view(id)
+    }
+
+    /// Keep validation's enum borrow inside its call, including during native loans.
+    pub(crate) fn with_enum<R>(
+        &self,
+        id: HeapObjectId,
+        inspect: impl FnOnce(&EnumValueSnapshot) -> R,
+    ) -> Option<R> {
+        self.enum_storage_view(id).map(|value| inspect(&value))
+    }
+
+    fn enum_storage_view(&self, id: HeapObjectId) -> Option<Ref<'_, EnumValueSnapshot>> {
         Ref::filter_map(self.objects.try_borrow().ok()?, |objects| {
             match self.object_ref(objects, id)? {
                 HeapObject::Enum(value, _) => Some(value),

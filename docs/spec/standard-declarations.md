@@ -379,11 +379,15 @@ Sort, reverse, retain and dedup preserve completed effects; no rollback guarante
 or atomic bulk replacement is required. Receiver identity, generation, callback
 protection and storage revisions remain checked.
 
-`NativePayload` supplies tracing, logical units and ordinary Rust destruction.
-Every retained script Value and stored callable must be traced. `NativeStorage`
-registers the payload layout and either a checked factory or an explicitly
-constructed payload. New opaque types use the generic Opaque handle;
-they do not require new compiler, ABI, verifier or VM type variants.
+Unsafe `NativePayload` supplies one `begin_scan`/`scan` protocol, infallible
+installed `HeapCharge` and ordinary Rust destruction. Every retained script Value,
+stored callable and algorithm scratch edge must be scanned. `define_opaque::<P>`
+associates the representation and mapping once through `registration_storage`;
+`NativeStorage` remains the lower-level layout/factory descriptor. New opaque types
+use the generic Opaque handle, not new compiler, ABI, verifier or VM type variants.
+General loans and retained extraction follow the
+[provider protocol](host-interop.md#general-native-payload-protocol). The specialized
+sequence/hash paths described here remain until PG03's collection migration.
 
 ## Sorting and lazy iteration
 
@@ -403,14 +407,17 @@ calls. Aliases share progress. Map next consumes one source item before invoking
 the mapper; a mapper failure does not cause that item to be processed again.
 The public Option is allocated once for a successful next result.
 
-`allocate_result_payload(payload, slots)` retains the requested selected-call
-metadata on the native object. `call_stored_values` validates and invokes those
-original selections after the construction call ends. Stored selections and
+`NativeType::create(cx, payload, slots)` retains requested selected-call metadata
+from the current checked native invocation; typed constructors prepare the type
+with `cx.result_native_type::<P>()?`. The low-level `allocate_result_payload`
+adapter remains for raw native-result handoff. `call_stored_values` validates and
+invokes stored selections after construction and returns `RootedValue`, preserving
+its result across later mutation, callbacks and safepoints. Stored selections and
 callbacks are GC metadata edges, preserving supplying generations without host
 root cycles. Generic callers carry the immediate associated cursor operations
 promised by their bounds; runtime consumption does not infer types again.
 
-A payload traces every retained source cursor and callback through `trace`.
+A payload scans every retained source cursor and callback through `begin_scan`/`scan`.
 Native adapters retain no collection iteration leases. Base cursors validate
 source revisions on reads; early termination needs no resource-graph cleanup.
 Reentrant next on the same adapter is rejected. The generic execution loop does

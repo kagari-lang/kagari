@@ -819,12 +819,21 @@ method/closure calls share that scope; native callbacks receive it automatically
 No metadata or payload borrow spans script reentry. See the executable
 [host_objects example](../../crates/kagari/examples/host_objects.rs).
 
-`Opaque<T>::edit` is available only for storage registered with fixed,
-reference-free NativeData. `native_data!` verifies every declared field. Traced
-payloads use ManagedStorage field tokens, complete builders and checked per-field
-writes; `edit_data` lends only the fixed data portion. Registered traversal handles
-new fields without changing the collector. Mutable references cannot escape a
-payload callback, and conflicting reentry fails before execution.
+Safe `Opaque<T: NativeData>::read_data`/`edit_data` require installed fixed,
+reference-free data capability; `native_data!` verifies every declared field.
+ManagedStorage provides safe field tokens, complete builders and checked writes;
+its `edit_data` lends only the fixed data portion. General `Opaque<T>::read`/`edit`
+are unsafe provider loans with `StorageAccess`, retained extraction and preflighted
+`EditPlan` accounting/revisions. They are not a safe arbitrary mutable reference
+API. No payload reference may escape a loan or span callbacks/collection. See the
+[provider protocol](host-interop.md#general-native-payload-protocol).
+
+Ordinary registration uses `define_opaque::<T>(name)?`. Create instances through
+`NativeType<T>::create(cx, payload, selected_slots)`; typed constructors obtain the
+descriptor with `cx.result_native_type::<T>()?`. Use `&[]` without stored selections;
+nonempty slots require current checked native-call evidence. Bounded host binding
+uses [verified application occurrences](host-interop.md#native-application-admission),
+not a runtime trait resolver.
 
 `Opaque<T>::take` requires the explicit unsafe `NativeTake` edge-free proof and
 storage registered with `NativeStorage::takeable` (or `data`). It moves the original

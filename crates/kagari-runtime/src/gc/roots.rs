@@ -1,26 +1,27 @@
 //! Heap-owned roots. Leases retain entries without owning their values or storage.
 use crate::{
-    Runtime, error::RuntimeError, execution_metadata::MetadataRoot, gc::GcHeap, value::Value,
+    Runtime, error::RuntimeError, execution_metadata::MetadataRoot, gc::GcHeap,
+    native::binding::NativeResult, value::Value,
 };
 use std::{
     mem,
-    sync::{
-        Arc, Weak,
-        mpsc::{self, Receiver, Sender},
-    },
+    sync::{Arc, Mutex, MutexGuard, PoisonError, Weak},
 };
 
 #[derive(Debug)]
 struct RootLease {
     id: RootId,
-    released: Sender<RootId>,
+    released: Arc<Mutex<RootReleases>>,
 }
 
 impl Drop for RootLease {
     fn drop(&mut self) {
-        // Only IDs cross threads. Sending may allocate; a destroyed table simply
-        // disconnects the receiver, without retaining or accessing heap storage.
-        let _ = self.released.send(self.id);
+        let mut released = lock_releases(&self.released);
+        if released.connected {
+            // Each registration reserves one credit until its final drop is processed.
+            // Clones share this Drop, so pending.len() < capacity() before every push.
+            released.pending.push(self.id);
+        }
     }
 }
 
@@ -29,6 +30,31 @@ struct RootId {
     owner: u64,
     slot: usize,
     generation: u64,
+}
+
+/// ID-only transport; credits include live leases, queued IDs and an ID being drained.
+#[derive(Debug)]
+struct RootReleases {
+    connected: bool,
+    credits: usize,
+    pending: Vec<RootId>,
+}
+
+impl RootReleases {
+    fn reserve(&mut self) -> Option<()> {
+        let credits = self.credits.checked_add(1)?;
+        self.pending
+            .try_reserve(credits.checked_sub(self.pending.len())?)
+            .ok()?;
+        self.credits = credits;
+        Some(())
+    }
+}
+
+fn lock_releases(released: &Mutex<RootReleases>) -> MutexGuard<'_, RootReleases> {
+    // No user code runs under this lock. Poison must not make cleanup unwind or
+    // discard notifications whose capacity was already reserved.
+    released.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Host retention. Clones share a lease; values are accessed through the owning heap.
@@ -181,21 +207,22 @@ pub(super) struct RootTable {
     owner: u64,
     slots: Vec<RootSlot>,
     free: Vec<usize>,
-    released: Sender<RootId>,
-    releases: Receiver<RootId>,
+    released: Arc<Mutex<RootReleases>>,
     #[cfg(test)]
     release_visits: usize,
 }
 
 impl RootTable {
     pub(super) fn new(owner: u64) -> Self {
-        let (released, releases) = mpsc::channel();
         Self {
             owner,
             slots: Vec::new(),
             free: Vec::new(),
-            released,
-            releases,
+            released: Arc::new(Mutex::new(RootReleases {
+                connected: true,
+                credits: 0,
+                pending: Vec::new(),
+            })),
             #[cfg(test)]
             release_visits: 0,
         }
@@ -211,8 +238,15 @@ impl RootTable {
             .then_some(entry)
     }
 
-    fn insert(&mut self, values: Vec<Value>) -> RootSet {
+    fn insert(&mut self, values: Vec<Value>) -> Option<RootSet> {
         self.drain_released();
+        if self.free.is_empty() {
+            self.slots.try_reserve(1).ok()?;
+            // Every slot can enter the free list once, even if all leases drop together.
+            let slots = self.slots.len().checked_add(1)?;
+            self.free.try_reserve(slots - self.free.len()).ok()?;
+        }
+        lock_releases(&self.released).reserve()?;
         let index = self.free.pop().unwrap_or_else(|| {
             self.slots.push(RootSlot {
                 generation: 0,
@@ -235,35 +269,55 @@ impl RootTable {
             values,
             metadata: Vec::new(),
         });
-        RootSet { id, lease }
+        Some(RootSet { id, lease })
     }
 
     pub(super) fn drain_released(&mut self) {
-        while let Ok(id) = self.releases.try_recv() {
-            #[cfg(test)]
-            {
-                self.release_visits += 1;
-            }
-            if id.owner != self.owner {
-                continue;
-            }
-            let Some(slot) = self.slots.get_mut(id.slot) else {
-                continue;
+        self.drain_released_limit(usize::MAX);
+    }
+
+    /// Process at most `limit` release IDs, including rejected stale notifications.
+    /// Returns inspected IDs, not retired slots. Transport capacity is retained.
+    pub(super) fn drain_released_limit(&mut self, limit: usize) -> usize {
+        let mut processed = 0;
+        while processed < limit {
+            let Some(id) = lock_releases(&self.released).pending.pop() else {
+                break;
             };
-            if slot.generation != id.generation
-                || !slot
-                    .entry
-                    .as_ref()
-                    .is_some_and(|entry| entry.lease.strong_count() == 0)
-            {
-                continue;
-            }
-            slot.entry = None;
-            if let Some(generation) = slot.generation.checked_add(1) {
-                slot.generation = generation;
-                self.free.push(id.slot);
-            }
+            // Retire identity/credit before destroying detached contents, so even
+            // a destructor panic cannot strand a slot or its notification credit.
+            let entry = self.release(id);
+            lock_releases(&self.released).credits -= 1;
+            processed += 1;
+            // Contents can release other leases; no transport lock spans their Drop.
+            drop(entry);
         }
+        processed
+    }
+
+    fn release(&mut self, id: RootId) -> Option<RootEntry> {
+        #[cfg(test)]
+        {
+            self.release_visits += 1;
+        }
+        if id.owner != self.owner {
+            return None;
+        }
+        let slot = self.slots.get_mut(id.slot)?;
+        if slot.generation != id.generation
+            || !slot
+                .entry
+                .as_ref()
+                .is_some_and(|entry| entry.lease.strong_count() == 0)
+        {
+            return None;
+        }
+        let entry = slot.entry.take();
+        if let Some(generation) = slot.generation.checked_add(1) {
+            slot.generation = generation;
+            self.free.push(id.slot);
+        }
+        entry
     }
 
     pub(super) fn active(&self) -> usize {
@@ -303,6 +357,16 @@ impl RootTable {
     }
 }
 
+impl Drop for RootTable {
+    fn drop(&mut self) {
+        let mut released = lock_releases(&self.released);
+        released.connected = false;
+        released.credits = 0;
+        // Late leases retain only the disconnected transport, not its high-water buffer.
+        released.pending = Vec::new();
+    }
+}
+
 impl Runtime {
     pub(crate) fn root_metadata(
         &self,
@@ -337,12 +401,42 @@ impl GcHeap {
         })
     }
 
+    /// Retain an existing storable edge during an authorized native payload loan.
+    /// StorageAccess owns declared-type and recovery checks; this checks execution,
+    /// identity and root-table admission without lifting the loan's GC exclusion.
+    pub(crate) fn root_native_value(&self, value: Value) -> NativeResult<RootedValue> {
+        self.resources.ensure_execution_allowed()?;
+        if self.native_borrows.get() == 0 {
+            return Err(RuntimeError::module_validation(
+                "native root retention requires an active payload loan",
+            ));
+        }
+        if !value.is_storable(self) || !self.validate_value(&value) {
+            return Err(RuntimeError::module_validation(
+                "invalid native root value or conflicting heap borrow",
+            ));
+        }
+        let mut roots = self
+            .roots
+            .try_borrow_mut()
+            .map_err(|_| RuntimeError::module_validation("root storage is borrowed"))?;
+        let mut values = Vec::new();
+        values
+            .try_reserve(1)
+            .map_err(|_| self.resource_limit("native root value storage"))?;
+        values.push(value);
+        let roots = roots
+            .insert(values)
+            .ok_or_else(|| self.resource_limit("native root registration"))?;
+        Ok(RootedValue { roots })
+    }
+
     pub fn root_execution_values(&self, values: Vec<Value>) -> Option<RootSet> {
         self.ensure_execution_allowed().ok()?;
         if !values.iter().all(|value| self.validate_value(value)) {
             return None;
         }
-        Some(self.roots.try_borrow_mut().ok()?.insert(values))
+        self.roots.try_borrow_mut().ok()?.insert(values)
     }
 
     pub(super) fn root_snapshots(&self) -> Option<Vec<Value>> {

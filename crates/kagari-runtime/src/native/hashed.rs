@@ -1,4 +1,5 @@
 //! Shared traced Rust hash-table payloads. Script hashing never borrows a table.
+use crate::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 use crate::{
     error::RuntimeError,
     native::{
@@ -22,19 +23,31 @@ pub(crate) struct MapPayload {
     pub(crate) entries: HashMapStorage,
 }
 
-impl NativePayload for MapPayload {
-    fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
+unsafe impl NativePayload for MapPayload {
+    type ScanState = ();
+    const SCAN_KIND: NativeScanKind = NativeScanKind::Indivisible;
+
+    fn begin_scan(&self) {}
+
+    fn scan<'payload>(
+        &'payload self,
+        _: &mut Self::ScanState,
+        budget: &mut ScanBudget,
+        visit: &mut dyn FnMut(&'payload Value),
+    ) -> ScanStatus {
+        // std hides inspected buckets/tombstones. Saturate unknown indivisible
+        // work rather than claim reported entry capacity is a finite scan bound.
+        budget.charge(usize::MAX);
         for (key, value) in self.entries.iter() {
             visit(key.value());
             visit(value);
         }
+
+        ScanStatus::Complete
     }
 
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(
-            self.entries.len(),
-            self.entries.pressure_bytes(),
-        ))
+    fn charge(&self) -> HeapCharge {
+        HeapCharge::new(self.entries.len(), self.entries.pressure_bytes())
     }
 }
 
@@ -45,18 +58,29 @@ pub(crate) struct SetPayload {
     pub(crate) entries: HashSetStorage,
 }
 
-impl NativePayload for SetPayload {
-    fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
+unsafe impl NativePayload for SetPayload {
+    type ScanState = ();
+    const SCAN_KIND: NativeScanKind = NativeScanKind::Indivisible;
+
+    fn begin_scan(&self) {}
+
+    fn scan<'payload>(
+        &'payload self,
+        _: &mut Self::ScanState,
+        budget: &mut ScanBudget,
+        visit: &mut dyn FnMut(&'payload Value),
+    ) -> ScanStatus {
+        // The indexed library layout will replace this unbounded std iterator.
+        budget.charge(usize::MAX);
         for key in self.entries.iter() {
             visit(key.value());
         }
+
+        ScanStatus::Complete
     }
 
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(
-            self.entries.len(),
-            self.entries.pressure_bytes(),
-        ))
+    fn charge(&self) -> HeapCharge {
+        HeapCharge::new(self.entries.len(), self.entries.pressure_bytes())
     }
 }
 

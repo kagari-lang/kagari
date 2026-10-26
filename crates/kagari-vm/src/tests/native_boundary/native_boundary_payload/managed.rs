@@ -98,7 +98,7 @@ fn registration() -> Registration {
             read,
             |cx: &mut NativeContext<'_>, (holder,): (Holder,)| -> NativeResult<i32> {
                 cx.collect_garbage()?;
-                holder.read(cx, |payload| Ok(payload.data().hp))
+                holder.read_data(cx, |data| Ok(data.hp))
             },
         )
         .unwrap();
@@ -262,7 +262,7 @@ fn managed_construction_and_replacement_require_every_checked_field() {
             .replace(&mut cx, &object)
             .is_err()
     );
-    assert_eq!(object.read(&cx, |p| Ok(p.data().hp)).unwrap(), 10);
+    assert_eq!(object.read_data(&cx, |data| Ok(data.hp)).unwrap(), 10);
     let mut replacement = native_type.build(State { hp: 20 }).unwrap();
     replacement
         .set(&mut cx, &name_field, "replaced".into())
@@ -271,7 +271,7 @@ fn managed_construction_and_replacement_require_every_checked_field() {
     let units = vm.runtime().gc().stats().current_heap_units;
     replacement.replace(&mut cx, &object).unwrap();
     assert_eq!(vm.runtime().gc().stats().current_heap_units, units);
-    assert_eq!(alias.read(&cx, |p| Ok(p.data().hp)).unwrap(), 20);
+    assert_eq!(alias.read_data(&cx, |data| Ok(data.hp)).unwrap(), 20);
     assert_eq!(alias.get(&mut cx, &name_field).unwrap(), "replaced");
     let other = registration();
     assert!(native_type.bind_field(vm.runtime(), &other.name).is_err());

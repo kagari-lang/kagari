@@ -2,7 +2,7 @@
 use std::mem::size_of;
 
 /// Occupied and reserved backing bytes for one concrete Vec, excluding children.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BufferUsage {
     pub name: &'static str,
     pub entries: usize,
@@ -24,7 +24,7 @@ impl BufferUsage {
 /// Heap backing stores and native payload boxes/sequence buffers. Shared
 /// descriptions, roots, metadata, other payload children and allocator overhead
 /// are outside these byte counts. Logical GC units are not allocator bytes.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StorageUsage {
     pub buffers: [BufferUsage; 15],
     pub interface_snapshots: BufferUsage,

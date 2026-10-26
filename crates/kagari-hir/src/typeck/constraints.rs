@@ -304,7 +304,6 @@ pub(super) fn function_bounds(
     declarations: &Declarations,
     table: &TypeTable,
 ) -> super::GenericBounds {
-    let mut result = parameter_bounds(&function.generic_params, declarations, table);
     let inherited = module
         .impls
         .iter()
@@ -315,21 +314,12 @@ pub(super) fn function_bounds(
         })
         .map(|item| item.bounds.as_slice())
         .unwrap_or_default();
-    for bound in inherited.iter().chain(&function.bounds) {
-        let Some(param) = table
-            .type_ref(bound.target_ref)
-            .map(|reference| reference.ty.clone())
-        else {
-            continue;
-        };
-        result.entry(param).or_default().extend(
-            bound
-                .traits
-                .iter()
-                .filter_map(|reference| table.constraint(reference.ty)),
-        );
-    }
-    result
+    declared_bounds(
+        &function.generic_params,
+        inherited.iter().chain(&function.bounds),
+        declarations,
+        table,
+    )
 }
 
 pub(super) fn implementation_bounds(
@@ -337,8 +327,24 @@ pub(super) fn implementation_bounds(
     declarations: &Declarations,
     table: &TypeTable,
 ) -> super::GenericBounds {
-    let mut result = parameter_bounds(&implementation.generic_params, declarations, table);
-    for bound in &implementation.bounds {
+    declared_bounds(
+        &implementation.generic_params,
+        &implementation.bounds,
+        declarations,
+        table,
+    )
+}
+
+/// Collect inline and where-clause requirements from already resolved type facts.
+/// Registered predicates can name compound or fixed receivers as well as parameters.
+pub(super) fn declared_bounds<'a>(
+    params: &[GenericParam],
+    bounds: impl IntoIterator<Item = &'a TraitBound>,
+    declarations: &Declarations,
+    table: &TypeTable,
+) -> super::GenericBounds {
+    let mut result = parameter_bounds(params, declarations, table);
+    for bound in bounds {
         let Some(parameter) = table
             .type_ref(bound.target_ref)
             .map(|reference| reference.ty.clone())

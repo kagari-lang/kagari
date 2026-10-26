@@ -17,6 +17,7 @@ use crate::{
     },
     value::Value,
 };
+use kagari_bytecode::instruction::NativeImportId;
 use kagari_common::identity::{
     scoped::DefinitionReferences,
     table::{DefinitionId, DefinitionTable},
@@ -237,6 +238,10 @@ impl NativeBinding {
 
 #[derive(Debug, Clone)]
 pub struct LinkedNativeFunction {
+    /// Exact slot in the invocation owner's immutable native import table.
+    pub(crate) import: NativeImportId,
+    /// Only checked shared-call application installs a symbolic import environment.
+    pub(crate) environment: Option<TypeEnvironment>,
     pub(crate) declaration: DefinitionId,
     pub(crate) binding: NativeBinding,
     pub(crate) signature: Signature,
@@ -314,6 +319,8 @@ impl LinkedNativeFunction {
             result: result.ty().clone(),
         };
         Ok(Self {
+            import: self.import,
+            environment: Some(environment.clone()),
             declaration: self.declaration,
             binding: self.binding.clone(),
             signature,

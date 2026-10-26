@@ -1,7 +1,7 @@
 //! Lower nominal declarations once, independently of public export authority.
 
 use crate::source::{
-    lower::abi::{abi_type, generic_param_abi, parameter_bounds},
+    lower::abi::{abi_type, checked_bounds, generic_param_abi, parameter_bounds},
     types::lower_native_kind,
 };
 use kagari_hir::{
@@ -108,11 +108,27 @@ pub(super) fn lower(module: &AnalyzedModule, item: Item) -> (Visibility, TypeDec
                 // not to the opaque source facade or a reconstructed Rust layout.
                 definition.as_ref().clone()
             } else {
+                let DeclarationId::Definition(declaration) = module
+                    .declarations
+                    .target(ResolvedName::OpaqueType(id))
+                    .expect("checked native type identity")
+                    .id
+                else {
+                    unreachable!("checked native nominal identity")
+                };
+                let signature = module
+                    .aggregates
+                    .native_type(&declaration)
+                    .expect("checked native type contract");
                 TypeDef {
                     name: item.name.clone(),
                     kind: lower_native_kind(representation),
                     generic_params: generic_param_abi(module, &item.generic_params),
-                    bounds: parameter_bounds(module, &item.generic_params),
+                    bounds: checked_bounds(
+                        &module.aggregates,
+                        module.declarations.definitions(),
+                        &signature.bounds,
+                    ),
                     fields: Vec::new(),
                     variants: Vec::new(),
                 }

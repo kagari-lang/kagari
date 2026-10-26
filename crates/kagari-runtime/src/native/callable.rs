@@ -1,4 +1,5 @@
 //! Prepared function arguments and explicitly traced or rooted retained callbacks.
+use crate::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 use crate::{
     Runtime,
     closure::ClosureValueSnapshot,
@@ -219,13 +220,26 @@ impl<'call> CallableHandle<'call> {
 #[derive(Debug, Clone)]
 pub struct StoredCallable(PreparedClosure);
 
-impl NativePayload for StoredCallable {
-    fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
+unsafe impl NativePayload for StoredCallable {
+    type ScanState = ();
+    const SCAN_KIND: NativeScanKind = NativeScanKind::Bounded { max_work: 8 };
+
+    fn begin_scan(&self) {}
+
+    fn scan<'payload>(
+        &'payload self,
+        _: &mut Self::ScanState,
+        budget: &mut ScanBudget,
+        visit: &mut dyn FnMut(&'payload Value),
+    ) -> ScanStatus {
+        budget.charge(1);
         visit(&self.0.value);
+
+        ScanStatus::Complete
     }
 
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(1, 0))
+    fn charge(&self) -> HeapCharge {
+        HeapCharge::new(1, 0)
     }
 }
 

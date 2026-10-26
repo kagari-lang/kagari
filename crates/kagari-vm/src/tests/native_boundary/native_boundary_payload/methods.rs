@@ -81,10 +81,14 @@ fn registration() -> (NativeModule, TypeRef, FunctionRef) {
                         .returns(receiver),
                 )?;
                 methods.bind(new, |cx: &mut NativeContext<'_>, (hp,): (i32,)| {
-                    cx.create_opaque(PlayerState {
-                        hp,
-                        position: [0.0; 3],
-                    })
+                    cx.result_native_type()?.create(
+                        cx,
+                        PlayerState {
+                            hp,
+                            position: [0.0; 3],
+                        },
+                        &[],
+                    )
                 })?;
                 let damage = methods.define_method(
                     MethodDecl::instance("damage")
@@ -302,7 +306,7 @@ fn native_inherent_members_support_prepared_calls_and_method_parameters() {
     );
     let mut nested = vm.context(&owner).unwrap();
     player
-        .edit(&cx, |_| {
+        .edit_data(&cx, |_| {
             assert!(player.call(&mut nested, &damage, (1,)).is_err());
             Ok(())
         })
@@ -333,7 +337,7 @@ fn native_inherent_members_support_prepared_calls_and_method_parameters() {
             .call(&mut foreign.context(&foreign_owner).unwrap(), &damage, (1,))
             .is_err()
     );
-    assert_eq!(player.read(&cx, |state| Ok(state.hp)).unwrap(), 68);
+    assert_eq!(player.read_data(&cx, |state| Ok(state.hp)).unwrap(), 68);
     assert_eq!(
         vm.execute_typed::<_, String>(&owner, "inspect", (player.clone(),))
             .unwrap(),
@@ -372,10 +376,14 @@ fn generic_native_impl_groups_preserve_receiver_and_local_binders() {
                 let new =
                     methods.define_method(MethodDecl::static_method("new").returns(receiver))?;
                 methods.bind(new, |cx: &mut NativeContext<'_>, (): ()| {
-                    cx.create_opaque(PlayerState {
-                        hp: 0,
-                        position: [0.0; 3],
-                    })
+                    cx.result_native_type()?.create(
+                        cx,
+                        PlayerState {
+                            hp: 0,
+                            position: [0.0; 3],
+                        },
+                        &[],
+                    )
                 })
             })?;
             // A second group has a different impl identity; authored receiver parameters
@@ -524,10 +532,14 @@ fn native_method_requirements_use_selected_generic_evidence() {
                 let new =
                     methods.define_method(MethodDecl::static_method("new").returns(receiver))?;
                 methods.bind(new, |cx: &mut NativeContext<'_>, (): ()| {
-                    cx.create_opaque(PlayerState {
-                        hp: 0,
-                        position: [0.0; 3],
-                    })
+                    cx.result_native_type()?.create(
+                        cx,
+                        PlayerState {
+                            hp: 0,
+                            position: [0.0; 3],
+                        },
+                        &[],
+                    )
                 })
             })?;
             implementation.inherent_impl(|methods| {
@@ -617,13 +629,13 @@ fn taken_opaque_aliases_reject_edits_and_pinned_method_calls_after_reinsertion()
     let mut cx = vm.context(&owner).unwrap();
     let state = player.take(&cx).unwrap();
     assert_eq!(state.hp, 100);
-    assert!(alias.edit(&cx, |_| Ok(())).is_err());
+    assert!(alias.edit_data(&cx, |_| Ok(())).is_err());
     assert!(alias.call(&mut cx, &damage, (1,)).is_err());
     assert!(
         vm.execute_typed::<_, i32>(&owner, "hit", (alias.clone(), 1))
             .is_err()
     );
-    let fresh = ty.create(&mut cx, state).unwrap();
+    let fresh = ty.create(&mut cx, state, &[]).unwrap();
     assert_eq!(fresh.call(&mut cx, &damage, (1,)).unwrap(), 99);
     assert!(alias.call(&mut cx, &damage, (1,)).is_err());
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 1);

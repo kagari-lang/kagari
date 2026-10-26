@@ -75,13 +75,9 @@ impl<T: Send + 'static> Opaque<T> {
     ) -> NativeResult<Self> {
         check_mapping::<T>(cx.runtime(), cx.owner(), expected)?;
         cx.check_value(expected, value)?;
-        let Value::GcHandle(id) = value else {
-            return Err(RuntimeError::module_validation("native object conversion"));
-        };
-        cx.runtime().gc().with_native::<T, _>(*id, |_| Ok(()))?;
-        let native_type = cx
-            .runtime()
-            .prepare_native_type(cx.owner(), expected.clone())?;
+        let native_type =
+            cx.runtime()
+                .prepare_native_type_from_object(cx.owner(), expected.clone(), value)?;
         let root = cx
             .runtime()
             .root_value(*value)

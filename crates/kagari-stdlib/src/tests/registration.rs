@@ -4,10 +4,10 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionKind, map::DefinitionContext},
 };
+use kagari_runtime::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 use kagari_runtime::{
     Runtime,
     native::{
-        binding::NativeResult,
         builder::ModuleBuilder,
         module::NativeModule,
         storage::{NativePayload, NativeStorage},
@@ -29,11 +29,24 @@ use std::collections::BTreeSet;
 #[derive(Debug)]
 struct EmptyPayload;
 
-impl NativePayload for EmptyPayload {
-    fn trace<'payload>(&'payload self, _visit: &mut dyn FnMut(&'payload Value)) {}
+unsafe impl NativePayload for EmptyPayload {
+    type ScanState = ();
+    const SCAN_KIND: NativeScanKind = NativeScanKind::EdgeFree;
 
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(0, 0))
+    fn begin_scan(&self) {}
+
+    fn scan<'payload>(
+        &'payload self,
+        _: &mut Self::ScanState,
+        budget: &mut ScanBudget,
+        _visit: &mut dyn FnMut(&'payload Value),
+    ) -> ScanStatus {
+        budget.charge(1);
+        ScanStatus::Complete
+    }
+
+    fn charge(&self) -> HeapCharge {
+        HeapCharge::new(0, 0)
     }
 }
 

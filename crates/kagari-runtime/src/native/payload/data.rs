@@ -1,9 +1,7 @@
 //! Fixed-size Rust data that cannot retain script or executable graph edges.
+use crate::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 use crate::{
-    native::{
-        binding::NativeResult,
-        storage::{NativePayload, NativeStorage},
-    },
+    native::storage::{NativePayload, NativeStorage},
     resource::HeapCharge,
     value::Value,
 };
@@ -64,14 +62,24 @@ tuple_data!(A, B, C, D, E, F);
 tuple_data!(A, B, C, D, E, F, G);
 tuple_data!(A, B, C, D, E, F, G, H);
 
-impl<T: NativeData> NativePayload for T {
-    fn trace<'payload>(&'payload self, _: &mut dyn FnMut(&'payload Value)) {}
+unsafe impl<T: NativeData> NativePayload for T {
+    type ScanState = ();
+    const SCAN_KIND: NativeScanKind = NativeScanKind::EdgeFree;
 
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(
-            size_of::<T>().div_ceil(size_of::<usize>()),
-            0,
-        ))
+    fn begin_scan(&self) {}
+
+    fn scan<'payload>(
+        &'payload self,
+        _: &mut Self::ScanState,
+        budget: &mut ScanBudget,
+        _: &mut dyn FnMut(&'payload Value),
+    ) -> ScanStatus {
+        budget.charge(1);
+        ScanStatus::Complete
+    }
+
+    fn charge(&self) -> HeapCharge {
+        HeapCharge::new(size_of::<T>().div_ceil(size_of::<usize>()), 0)
     }
 
     fn registration_storage() -> NativeStorage {

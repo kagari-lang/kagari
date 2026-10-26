@@ -3,14 +3,120 @@ use crate::{
     hir::{expr::ExprKind, ty::TypeKind},
     tests::test_analysis,
 };
-use kagari_common::identity::{ModuleIdentity, PackageId};
-use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_common::identity::{
+    DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
+};
+use kagari_source::{
+    diagnostic::DiagnosticKind,
+    source::SourceFile,
+    source_database::{SourceDatabase, SourceLayer},
+};
 use kagari_stdlib::catalog as foundation_catalog;
-use kagari_types::scalar::BuiltinType;
+use kagari_types::{
+    declaration::{
+        TraitDef, TypeDef, TypeDefKind, module::ModuleDecl, native::NativeStorageLayout,
+    },
+    scalar::BuiltinType,
+    ty::{GenericBound, GenericParam, NominalTy, Ty},
+};
 
 fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
     db.snapshot(sources.snapshot(), &Default::default())
         .unwrap()
+}
+
+#[test]
+fn registered_opaque_where_bounds_are_checked_at_source_applications() {
+    let context = DefinitionContext::new().unwrap();
+    let mut module = ModuleDecl::new(ModuleIdentity {
+        package: PackageId("example".into()),
+        path: vec!["bounded".into()],
+    });
+    let root = context.intern_root(&module.identity).unwrap();
+    let tag = context
+        .intern_child(root, DefinitionKind::Trait, "Tag", 0)
+        .unwrap();
+    for name in ["Holder", "Pair", "Fixed"] {
+        let owner = context
+            .intern_child(root, DefinitionKind::AssociatedType, name, 0)
+            .unwrap();
+        let parameter = GenericParam { owner, position: 0 };
+        let ty = match name {
+            "Pair" => Ty::Tuple(vec![parameter.as_type(), parameter.as_type()]),
+            "Fixed" => Ty::Builtin(BuiltinType::Bool),
+            _ => parameter.as_type(),
+        };
+        module.types.push(TypeDef {
+            name: name.into(),
+            kind: TypeDefKind::NativeStorage(NativeStorageLayout::Opaque),
+            generic_params: vec![parameter],
+            bounds: vec![GenericBound {
+                ty,
+                constraints: vec![NominalTy {
+                    declaration: tag,
+                    arguments: vec![],
+                    associated_types: Default::default(),
+                }],
+            }],
+            fields: vec![],
+            variants: vec![],
+        });
+    }
+    module.traits.push(TraitDef {
+        name: "Tag".into(),
+        generic_params: vec![],
+        bounds: vec![],
+        supertraits: vec![],
+        methods: vec![],
+        associated_types: vec![],
+        associated_consts: vec![],
+        conversion_adapter: None,
+    });
+    module.collect_definitions(&context).unwrap();
+    let metadata = Arc::new(
+        DefinitionMetadata::checked(context.snapshot(), module, &Default::default()).unwrap(),
+    );
+    let mut providers = foundation_catalog::shared().unwrap();
+    providers.push(metadata);
+    let prefix = "use example::bounded::{Holder, Pair, Fixed, Tag}; struct Good {} impl Tag for Good {} struct Bad {} ";
+    for (body, valid) in [
+        ("fn closed(value: Holder<Good>) {}", true),
+        ("fn open<T: Tag>(value: Holder<T>) {}", true),
+        ("fn closed(value: Holder<Bad>) {}", false),
+        ("fn open<T>(value: Holder<T>) {}", false),
+        (
+            "impl Tag for (Good, Good) {} fn pair(value: Pair<Good>) {}",
+            true,
+        ),
+        ("fn pair(value: Pair<Good>) {}", false),
+        ("impl Tag for bool {} fn fixed(value: Fixed<Good>) {}", true),
+        ("fn fixed(value: Fixed<Good>) {}", false),
+    ] {
+        let source = format!("{prefix}{body}");
+        let analysis = crate::analyze_source(
+            &SourceFile::new("opaque-bounds.kgr", &source),
+            providers.clone(),
+        )
+        .unwrap();
+        if valid {
+            assert!(
+                analysis.diagnostics().is_empty(),
+                "{body}: {:?}",
+                analysis.diagnostics()
+            );
+        } else {
+            let errors = analysis.diagnostics();
+            assert_eq!(errors.len(), 1, "{body}: {errors:?}");
+            assert!(
+                matches!(&errors[0].kind, DiagnosticKind::GenericBoundNotSatisfied { trait_name, .. } if trait_name == "Tag"),
+                "{body}: {errors:?}"
+            );
+            assert!(
+                analysis.into_codegen().is_err(),
+                "source checking must reject without lowering or runtime admission"
+            );
+        }
+    }
 }
 
 #[test]

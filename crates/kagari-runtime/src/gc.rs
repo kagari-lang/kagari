@@ -17,7 +17,7 @@ use crate::{
         storage::{Exclusive, HeapObject, Shared},
     },
     module::{EnumVariantRef, ModuleKey, StructLayoutRef},
-    native::storage::{NativeObject, NativeStorage},
+    native::storage::{NativeObject, NativeStorage, scan::ScanWorkspace},
     resource::{HeapCharge, ResourceState},
     session::ExecutionPhase,
     value::{EnumTag, EnumValueSnapshot, InterfaceObjectId, Value},
@@ -213,6 +213,7 @@ pub struct GcHeap {
     native_operations: LeaseTable,
     next_key_token: Cell<i64>,
     native_borrows: Cell<usize>,
+    native_scan_workspace: RefCell<ScanWorkspace>,
     // Heap-local immutable codecs contain no object identity or loaded types.
     // Initialize only when used; descriptor construction cannot execute callbacks.
     sequence_storage: OnceCell<NativeStorage>,
@@ -260,6 +261,7 @@ impl GcHeap {
             native_operations: Default::default(),
             next_key_token: Cell::new(0),
             native_borrows: Cell::new(0),
+            native_scan_workspace: RefCell::default(),
             sequence_storage: OnceCell::new(),
             map_storage: OnceCell::new(),
             set_storage: OnceCell::new(),
@@ -392,6 +394,7 @@ impl GcHeap {
     }
 
     pub(crate) fn ensure_structure_mutable(&self, id: HeapObjectId) -> Result<(), RuntimeError> {
+        self.check_native_operation(id, None, true)?;
         self.ensure_key_mutable(id)?;
         Ok(())
     }

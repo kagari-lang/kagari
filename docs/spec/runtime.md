@@ -383,11 +383,13 @@ The current attribution is deliberately bounded:
   covered by this byte ledger. Providers must identify unobservable allocations
   as excluded, not claim that a zero report proves no allocation.
 
-`NativePayload::charge() -> NativeResult<HeapCharge>` replaces `units()`.
-Preparation samples a payload's description once before publication and adds its
-shallow Box size. The runtime-owned `NativeObject` records that charge; allocation
-uses it, relocation preserves it, and checked storage mutations update it alongside
-committed storage. Sweep and take release recorded charges without provider calls.
+Unsafe `NativePayload::charge() -> HeapCharge` is infallible and constant-time.
+Admission and every completed general edit sample it, including error/unwind
+finalization, and the runtime adds the shallow Box size once. The runtime-owned
+`NativeObject` records that charge; allocation uses it, relocation preserves it,
+and checked storage mutations update it alongside committed storage. Sweep and take
+release recorded charges without provider calls. Scanner and loan obligations are
+specified by the [provider protocol](host-interop.md#general-native-payload-protocol).
 A prepared replacement has its own charge; unchanged logical length does not imply
 unchanged capacity. Detached sequence editing keeps the original buffer charged
 until restoration; removals reduce logical units but do not invent a capacity
@@ -396,6 +398,15 @@ charge, leaving its Box charged. Native take releases payload units and bytes bu
 keeps one logical identity unit until its inert aliases are no longer traced.
 See [provider obligations](host-interop.md#native-payload-accounting) and
 [reservation failure](failure-semantics.md#modification-guarantees).
+
+With `execution-diagnostics`,
+`GcHeap::storage_usage() -> Result<StorageUsage, RuntimeError>` inspects concrete
+backing lengths/capacities without creating roots, descriptors or backing buffers.
+It rejects an active native payload loan or conflicting heap/free-slot/interface
+storage borrow; temporarily detached payloads cannot be reported accurately. Callers
+must handle that error, not treat it as an empty snapshot. Its partial backing
+counts exclude roots, metadata, shared descriptions, other payload children and
+allocator overhead; they are neither process totals nor a peak-memory measurement.
 
 `GcHeapConfig.collection_threshold` enables automatic collection at execution
 safepoints, including the current scalar JIT helper. Collection never runs inside
@@ -421,20 +432,24 @@ Incremental and generational GC remain deferred.
 
 Host retention uses gc::roots::RootedValue, returned by Runtime::root_value. The
 heap owns a generational root table containing the values; handles contain checked
-heap/root identities and Arc leases. Clones share one entry. The last Arc lease
-Drop sends its complete owner/slot/generation ID through an MPSC release channel,
-without borrowing heap storage. The table drains delivered IDs on registration,
-before root snapshots and during collection, checking owner, bounds, generation
-and absence of a strong lease before clearing an entry. Duplicate, stale, foreign
-or still-live notifications cannot retire a root. Reuse increments generation;
-exhaustion retires the slot. Registration no longer prunes the historical slot
-array. Sending may allocate; this is not an allocation-free Drop guarantee.
+heap/root identities and Arc leases. Clones share one entry. Registration reserves
+one final-release notification credit and free-slot capacity. The last Arc lease
+Drop enqueues its complete owner/slot/generation ID in a shared mutex-protected Vec
+without allocation or borrowing heap storage. Credits cover live leases, pending
+IDs and an ID being drained; poison recovery does not discard notifications.
+The table drains IDs in place on registration, before snapshots and during
+collection, checking owner, bounds, generation and absence of a strong lease before
+clearing an entry. Duplicate, stale, foreign or still-live notifications cannot
+retire a root. Reuse increments generation; exhaustion retires the slot. Identity
+and credit retire before detached contents are destroyed outside the transport
+lock. Registration no longer prunes the historical slot array.
 
 Value and metadata snapshots still upgrade each weak lease and hold it while
 copying that entry. An undelivered release is not evidence of liveness. A successful
 upgrade racing the final host drop can conservatively retain an object for that
 collection, never omit a live root. Messages carry no values, metadata or runtime
-owner; destroying the receiver makes later lease drops harmless.
+owner; table destruction disconnects the transport and frees its pending buffer,
+making later lease drops harmless.
 RootedValue::value and set require the owning heap and validate identity/generation
 and the exact lease pointer;
 replacement also validates incoming references. Copying a raw Value does not retain

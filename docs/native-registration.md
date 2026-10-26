@@ -328,8 +328,23 @@ not imply native storage. Map/Set builtins are not nominal storage bindings. For
 parameters exactly. Payload tracing, scoped host borrowing and runtime ownership
 remain mandatory; assembly is not a route to unrestricted Rust references.
 
-Advanced payload implementations supply
-`NativePayload::charge(&self) -> NativeResult<HeapCharge>`, not `units()`.
+Ordinary opaque declarations use
+`module.define_opaque::<P>(name)?`, then finish the returned type builder. This
+associates the payload representation and `Opaque<P>` mapping once, using
+`P::registration_storage()`; do not repeat a `native_storage(...)` association.
+Explicit managed schemas and special factories still use their descriptor builders.
+Generic parameters and bounds remain ordinary checked declaration facts.
+
+Prepare a `NativeType<P>` through `bind_native_type` or, inside a typed constructor,
+`cx.result_native_type::<P>()?`. Create with `ty.create(cx, payload, selected_slots)`;
+use `&[]` without retained selections. Nonempty slots require the current checked
+native invocation's selection evidence. There is no `create_opaque` entrypoint.
+Bounded host applications require a closed verified occurrence in the supplying
+program/type scope; a matching type name or runtime trait lookup is not evidence.
+See [native application admission](spec/host-interop.md#native-application-admission).
+
+Advanced payload implementations implement unsafe `NativePayload`, including one
+`begin_scan`/`scan` protocol and infallible `charge(&self) -> HeapCharge`.
 Use `HeapCharge` from `kagari_runtime::resource`: logical units exclude the heap
 identity, and retained bytes cover exclusively owned indirect backing, such as a
 byte vector's capacity. Do not add the payload's shallow Rust size: preparation
@@ -338,12 +353,15 @@ metadata or external host resources. Label capacity-based estimates and excluded
 unobservable allocations; these numbers are GC pressure, not exact allocator/RSS
 measurements or quotas.
 
-Preparation samples the side-effect-free, non-reentrant callback once. The runtime
-records the result, updates it through checked storage mutations and releases it
-without calling the provider during sweep or take. A provider must not change
-installed units or resize attributed backing through interior mutability. Prefer
-the fixed-data or managed storage capabilities when they fit; a custom payload
-charge does not grant arbitrary editing. See the
+Admission and every completed general edit sample the constant-time charge callback,
+including error/unwind exits. It must not allocate, panic, mutate storage or reenter.
+The runtime commits the result and releases it without provider calls during sweep
+or take. General `Opaque::read`/`edit` are unsafe loan-scoped operations using
+`StorageAccess`; retain extracted edges before ending a loan and publish retained
+inputs before storing them. A provider must not change installed units or resize
+attributed backing through interior mutability. Prefer safe `NativeData`
+`read_data`/`edit_data` or managed fields when they fit. See the
+[scanner and edit contract](spec/host-interop.md#general-native-payload-protocol), the
 [host accounting contract](spec/host-interop.md#native-payload-accounting) and
 [runtime coverage](spec/runtime.md#gc-heap).
 

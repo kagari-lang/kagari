@@ -259,6 +259,7 @@ impl GcHeap {
         id: HeapObjectId,
         f: impl FnOnce(&SequenceStorage) -> R,
     ) -> Option<R> {
+        self.check_native_operation(id, None, false).ok()?;
         let objects = self.objects.borrow();
         let object = self.native_ref(&objects, id)?;
         if !matches!(object.ty, Ty::Array(..) | Ty::NativeObject(_))
@@ -282,6 +283,7 @@ impl GcHeap {
         growth: usize,
         f: impl FnOnce(&mut SequenceStorage) -> R,
     ) -> Result<R, RuntimeError> {
+        self.check_native_operation(id, None, true)?;
         let mut objects = self.objects_mut()?;
         let object = self.native_mut(&mut objects, id).ok_or_else(invalid)?;
         let revision = object.revision.checked_add(1).ok_or_else(invalid)?;

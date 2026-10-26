@@ -13,6 +13,16 @@ use crate::{
 };
 
 impl<T: NativeData> Opaque<Managed<T>> {
+    /// Read only the fixed data portion; traced fields remain behind checked getters.
+    pub fn read_data<R>(
+        &self,
+        cx: &NativeContext<'_>,
+        read: impl for<'a> FnOnce(&'a T) -> NativeResult<R>,
+    ) -> NativeResult<R> {
+        // SAFETY: Managed owns all edges separately; NativeData contains none.
+        unsafe { self.read(cx, None, |payload, _| read(&payload.data)) }
+    }
+
     /// Only fixed data is lent mutably; the traced fields remain inaccessible.
     pub fn edit_data<R>(
         &self,
@@ -33,12 +43,15 @@ impl<T: NativeData> Opaque<Managed<T>> {
         field: &BoundField<T, V>,
     ) -> NativeResult<V> {
         field.check(&self.native_type)?;
-        let mut conversion = ConversionContext::new(cx.runtime(), field.native_type.owner())?;
         cx.poll()?;
-        let value = self.read(cx, |payload| {
-            payload.values.get(field.slot).cloned().ok_or_else(invalid)
-        })?;
-        conversion.decode_prepared(field.type_argument(), &value)
+        // SAFETY: Retain the checked field before releasing the payload loan.
+        let value = unsafe {
+            self.read(cx, None, |payload, access| {
+                let value = payload.values.get(field.slot).ok_or_else(invalid)?;
+                access.retain(&payload.schema.fields[field.slot].contract, value)
+            })?
+        };
+        value.decode(cx)
     }
 
     pub fn set<V: IntoKagari>(

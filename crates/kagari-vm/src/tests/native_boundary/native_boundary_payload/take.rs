@@ -44,12 +44,13 @@ fn take_moves_nonclone_payload_and_invalidates_host_and_script_aliases_across_sl
     let Value::GcHandle(old_id) = old else {
         panic!("opaque")
     };
-    object
-        .read(&cx, |_| {
+    unsafe {
+        object.read(&cx, None, |_, _access| {
             assert!(alias.take(&cx).is_err());
             Ok(())
         })
-        .unwrap();
+    }
+    .unwrap();
     // Retire the temporary source-array before testing immediate native slot reuse.
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
     let before = runtime.gc().stats().current_heap_units;
@@ -59,7 +60,7 @@ fn take_moves_nonclone_payload_and_invalidates_host_and_script_aliases_across_sl
     assert_eq!(runtime.gc().stats().current_heap_units, before - 1);
     assert!(!runtime.gc().validate_value(&old));
     assert!(runtime.root_value(old).is_none());
-    assert!(alias.read(&cx, |_| Ok(())).is_err());
+    assert!(unsafe { alias.read(&cx, None, |_, _access| Ok(())) }.is_err());
     assert!(object.take(&cx).is_err());
     assert!(script.get(&mut cx, 0).is_err());
     assert!(parked.decode::<Opaque<Counter>>(&mut cx).is_err());
@@ -75,6 +76,7 @@ fn take_moves_nonclone_payload_and_invalidates_host_and_script_aliases_across_sl
                 value: 13,
                 dropped: drops.clone(),
             },
+            &[],
         )
         .unwrap();
     let fresh_value = fresh
@@ -86,8 +88,11 @@ fn take_moves_nonclone_payload_and_invalidates_host_and_script_aliases_across_sl
     };
     assert_eq!(fresh_id.index(), old_id.index());
     assert_ne!(fresh_id, old_id);
-    assert_eq!(fresh.read(&cx, |value| Ok(value.value)).unwrap(), 13);
-    assert!(alias.read(&cx, |_| Ok(())).is_err());
+    assert_eq!(
+        unsafe { fresh.read(&cx, None, |value, _access| Ok(value.value)) }.unwrap(),
+        13
+    );
+    assert!(unsafe { alias.read(&cx, None, |_, _access| Ok(())) }.is_err());
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
     drop(fresh);
     runtime.collect_garbage().unwrap();
@@ -118,6 +123,7 @@ fn failed_take_preserves_payload_when_registration_does_not_grant_extraction() {
                 value: 7,
                 dropped: drops.clone(),
             },
+            &[],
         )
         .unwrap();
     let alias = object.clone();
@@ -129,7 +135,10 @@ fn failed_take_preserves_payload_when_registration_does_not_grant_extraction() {
             .message()
             .contains("extraction")
     );
-    assert_eq!(alias.read(&cx, |value| Ok(value.value)).unwrap(), 7);
+    assert_eq!(
+        unsafe { alias.read(&cx, None, |value, _access| Ok(value.value)) }.unwrap(),
+        7
+    );
     assert_eq!(vm.runtime().gc().stats().current_heap_units, before);
     assert_eq!(drops.load(Ordering::Relaxed), 0);
     drop((object, alias));

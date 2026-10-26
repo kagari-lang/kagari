@@ -39,14 +39,14 @@ fn lookup(cx: &mut CallContext<'_>, key: &Value) -> NativeResult<(i64, i64)> {
     let collection = cx.argument(0)?;
     let _guard = cx.begin_key_lookup(0)?;
     let hash = cx.call_stored_values(0, 0, slice::from_ref(key))?;
-    let Value::I64(hash) = hash else {
+    let Value::I64(hash) = hash.value(cx.heap()).ok_or_else(invalid)? else {
         return Err(invalid());
     };
     let mut index = 0;
     while let Some((token, stored)) = cx.heap().custom_candidate(&collection, hash, index)? {
         cx.poll()?;
         let result = cx.call_stored_values(0, 1, &[stored, *key])?;
-        let Value::Bool(result) = result else {
+        let Value::Bool(result) = result.value(cx.heap()).ok_or_else(invalid)? else {
             return Err(invalid());
         };
         if result {

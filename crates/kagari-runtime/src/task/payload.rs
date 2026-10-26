@@ -1,4 +1,5 @@
 //! Task results are traced edges, not independent roots that retain heap cycles.
+use crate::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 use crate::{
     Runtime,
     error::RuntimeError,
@@ -37,18 +38,28 @@ impl TaskPayload {
     }
 }
 
-impl NativePayload for TaskPayload {
-    fn trace<'a>(&'a self, visit: &mut dyn FnMut(&'a Value)) {
+unsafe impl NativePayload for TaskPayload {
+    type ScanState = ();
+    const SCAN_KIND: NativeScanKind = NativeScanKind::Bounded { max_work: 8 };
+
+    fn begin_scan(&self) {}
+
+    fn scan<'a>(
+        &'a self,
+        _: &mut Self::ScanState,
+        budget: &mut ScanBudget,
+        visit: &mut dyn FnMut(&'a Value),
+    ) -> ScanStatus {
+        budget.charge(1);
         if let Some(Ok(value)) = &self.outcome {
             visit(value);
         }
+
+        ScanStatus::Complete
     }
 
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(
-            1,
-            Self::outcome_bytes(self.outcome.as_ref()),
-        ))
+    fn charge(&self) -> HeapCharge {
+        HeapCharge::new(1, Self::outcome_bytes(self.outcome.as_ref()))
     }
 }
 
@@ -58,11 +69,24 @@ pub(crate) struct ScopePayload {
     pub control: Arc<ScopeControl>,
 }
 
-impl NativePayload for ScopePayload {
-    fn trace<'a>(&'a self, _: &mut dyn FnMut(&'a Value)) {}
+unsafe impl NativePayload for ScopePayload {
+    type ScanState = ();
+    const SCAN_KIND: NativeScanKind = NativeScanKind::EdgeFree;
 
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(1, 0))
+    fn begin_scan(&self) {}
+
+    fn scan<'a>(
+        &'a self,
+        _: &mut Self::ScanState,
+        budget: &mut ScanBudget,
+        _: &mut dyn FnMut(&'a Value),
+    ) -> ScanStatus {
+        budget.charge(1);
+        ScanStatus::Complete
+    }
+
+    fn charge(&self) -> HeapCharge {
+        HeapCharge::new(1, 0)
     }
 }
 

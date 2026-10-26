@@ -535,13 +535,11 @@ native_data! {
     }
 }
 
-let mut declaration = module.define_type("Player");
-declaration.native_storage(NativeStorage::data::<PlayerState>())?;
-let player_declaration = declaration.finish()?;
+let player_declaration = module.define_opaque::<PlayerState>("Player")?.finish()?;
 // Prepare once for the installed program. Clones reuse this descriptor.
 let player_type = runtime.bind_native_type::<PlayerState>(&loaded, &player_declaration, &[])?;
-let player = player_type.create(cx, PlayerState { hp: 100, position: [0.0; 3] })?;
-player.edit(cx, |state: &mut PlayerState| {
+let player = player_type.create(cx, PlayerState { hp: 100, position: [0.0; 3] }, &[])?;
+player.edit_data(cx, |state: &mut PlayerState| {
     state.hp = state.hp.saturating_sub(damage);
     Ok(())
 })?;
@@ -551,7 +549,7 @@ player.call(cx, &bindings.on_damage, (damage,))?;
 Direct edit with &mut T requires a registered storage capability establishing that
 T contains no script references; an arbitrary user assertion is not a safe proof.
 Safe registration uses supported field descriptions, while a manually supplied
-storage contract belongs to the trusted low-level boundary. edit checks the
+storage contract belongs to the trusted low-level boundary. edit_data checks the
 registered Rust type and this capability and obtains an exclusive payload lease.
 Its closure cannot return a borrowed reference or keep a runtime context for reentry.
 The lease ends before the following call. A simple add_method_mut registration can
@@ -562,24 +560,35 @@ Nested conflicting access produces a structured borrow error, not a RefCell pani
 The implemented `native_data!` form defines the complete Rust struct and checks
 every field against `NativeData`. Supported scalars, fixed arrays and tuples compose
 recursively. Its blanket payload implementation supplies empty tracing and fixed
-heap accounting. `NativeStorage::data` explicitly enables direct editing;
-`NativeStorage::payload` alone does not. Direct edits do not permit variable-size
+heap accounting. `define_opaque` uses NativeData's `registration_storage` policy,
+which selects `NativeStorage::data` and enables safe data loans;
+`NativeStorage::payload` alone does not grant that installed editing capability. Direct edits do not permit variable-size
 owned containers or script handles. This keeps allocation accounting invariant,
 including when an edit fails or unwinds after completing writes. Manual unsafe
 `NativeData` implementations are part of the trusted storage boundary and must
 uphold the documented recursive field contract; ordinary users need no unsafe code.
 
-`Opaque<T>::read` lends a shared payload reference only for its closure.
-`NativeType<T>::create` validates the registered Rust representation and traced
-edges before allocation, roots the result before a safepoint and retains its exact
-applied scope. `bind_native_type_declaration` accepts the portable registration
-identity directly. Typed constructor callbacks can use `cx.create_opaque(payload)`
-to inherit their checked result application, including generic arguments, without
-capturing a handle from a particular runtime installation. Contextual conversion
-checks both the Rust payload mapping and the Kagari nominal scope; registering the
-same Rust representation under two type names does not make them interchangeable.
-Handwritten `NativePayload` remains an advanced tracing interface and receives no
-unrestricted mutable access through these handles.
+Safe `Opaque<T: NativeData>::read_data` lends fixed data only for its closure.
+`NativeType<T>::create(cx, payload, selected_slots)` validates the registered Rust
+representation and scanned edges before publication, roots the result before a
+safepoint and retains its exact applied scope. `bind_native_type_declaration` accepts
+the portable registration identity directly. Typed constructor callbacks obtain
+`let ty = cx.result_native_type::<T>()?` and call `ty.create(cx, payload, slots)`;
+there is no `create_opaque` helper. Empty slots require no active selection evidence;
+nonempty slots require the current checked native invocation. Bounded host types
+require a closed verified application occurrence, not runtime trait discovery.
+Contextual conversion checks both Rust mapping and Kagari nominal scope; registering
+the same Rust representation under two names does not make them interchangeable.
+
+Handwritten unsafe `NativePayload` supplies one scanner and infallible installed
+charge. General `Opaque::read`/`edit` are unsafe loans with `StorageAccess`, not
+safe arbitrary shared/mutable access. Retain extracted values before leaving a
+loan, publish checked retained inputs before storage writes, and preflight charge
+and structural revision through `EditPlan`. End loans before collecting callbacks;
+operation guards protect longer work and restore same-payload traced scratch on
+failure without allocation or fresh retention. `call_stored_values` returns a
+`RootedValue` that survives later mutation/callbacks. See the authoritative
+[provider protocol](spec/host-interop.md#general-native-payload-protocol).
 
 `Opaque<T>::take` moves the original payload without Clone/Copy. It requires the
 explicit unsafe `NativeTake` edge-free proof and a `NativeStorage::takeable`
@@ -601,13 +610,13 @@ This facility applies to a payload exclusively owned by runtime storage. Arbitra
 KGR fields do not become Rust &mut T. Externally shared host state continues to use
 its declared host interface, typed paths or host-managed synchronization. Ordinary
 object setters cannot bypass host-path preparation/commit or borrow validation.
-Payloads with script references instead expose a restricted edit view with
-registered setters/edge wrappers. It provides no unrestricted &mut T or mutable
-access to traced slots. Writing a script handle validates ownership/type and
-produces a traceable internal edge through the common mutation boundary rather
-than embedding a host root lease. Replacing an entire payload must use that same
-checked path. Scanning after an unrestricted edit is not a substitute for this
-contract: an eventual barrier may need an old edge before it is overwritten.
+Safe access to payloads with script references uses restricted managed fields and
+checked setters, not arbitrary safe &mut T. Advanced unsafe providers may use the
+general edit loan, but must uphold its publication/retention/accounting contract.
+Writing a script handle validates ownership/type and produces a traceable internal
+edge rather than embedding a host root lease. Replacing an entire payload follows
+the same checked path. A post-edit scan cannot retroactively establish safety or
+replace publication obligations.
 
 The checked representation is `Managed<T>`, where T is fixed `NativeData` and
 script-valued fields are private storage. Author the field schema before installing

@@ -30,6 +30,7 @@ use std::{
 mod construction;
 pub mod exports;
 pub mod identity;
+pub mod native;
 pub mod updates;
 pub mod verified;
 
@@ -96,6 +97,7 @@ fn verify_graph_inner(
     )?;
     let mut flow_budget = FlowBudget::new(cancel);
     let mut suspensions = Vec::with_capacity(program.modules.len());
+    let mut native_applications = Vec::new();
     let invalid = || BytecodeVerificationError::InvalidProgramGraph;
     if program.modules.len() > u32::MAX as usize || program.root.index() >= program.modules.len() {
         return Err(invalid());
@@ -345,7 +347,13 @@ fn verify_graph_inner(
             }
         }
         let scope = resources.scope(&indices, cancel)?;
-        trait_bounds::verify_trait_bounds(index, Some(program), &resources, &scope, cancel)?;
+        native_applications.extend(trait_bounds::verify_trait_bounds(
+            index,
+            Some(program),
+            &resources,
+            &scope,
+            cancel,
+        )?);
         for instruction in module
             .functions
             .iter()
@@ -419,6 +427,7 @@ fn verify_graph_inner(
         suspensions,
         exports,
         update_coverage,
+        native_applications,
     })
 }
 

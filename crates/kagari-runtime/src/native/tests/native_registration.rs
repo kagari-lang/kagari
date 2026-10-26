@@ -1,4 +1,5 @@
 //! Registration contracts need no source compiler or standard-library fixtures.
+use crate::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 use crate::{
     Runtime,
     native::{
@@ -28,11 +29,24 @@ fn sequence_len(_cx: &mut CallContext<'_>, values: SequenceHandle<'_>) -> Native
 #[derive(Debug)]
 struct EmptyPayload;
 
-impl NativePayload for EmptyPayload {
-    fn trace<'payload>(&'payload self, _visit: &mut dyn FnMut(&'payload Value)) {}
+unsafe impl NativePayload for EmptyPayload {
+    type ScanState = ();
+    const SCAN_KIND: NativeScanKind = NativeScanKind::EdgeFree;
 
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(0, 0))
+    fn begin_scan(&self) {}
+
+    fn scan<'payload>(
+        &'payload self,
+        _: &mut Self::ScanState,
+        budget: &mut ScanBudget,
+        _visit: &mut dyn FnMut(&'payload Value),
+    ) -> ScanStatus {
+        budget.charge(1);
+        ScanStatus::Complete
+    }
+
+    fn charge(&self) -> HeapCharge {
+        HeapCharge::new(0, 0)
     }
 }
 
@@ -74,11 +88,11 @@ fn finalization_rejects_a_declaration_without_an_entry() {
 #[test]
 fn sequence_conversion_rejects_opaque_storage_at_registration() {
     let mut module = ModuleBuilder::new("example::opaque", &DeclarationCatalog::default()).unwrap();
-    let mut declaration = module.define_type("Opaque").unwrap();
-    declaration
-        .native_storage(NativeStorage::payload::<EmptyPayload>())
+    let opaque = module
+        .define_opaque::<EmptyPayload>("Opaque")
+        .unwrap()
+        .finish()
         .unwrap();
-    let opaque = declaration.finish().unwrap();
     let len = module
         .define_function(
             FunctionDecl::new("len")

@@ -54,6 +54,7 @@ use kagari_bytecode::{
     program::{
         BytecodeProgram, ModuleRef,
         exports::ExportTarget,
+        native::NativeApplicationWitness,
         verified::{VerifiedBytecodeProgram, VerifiedProductIdentity},
     },
     source_package::{SourcePackageError, VerifiedSourcePackage},
@@ -186,6 +187,7 @@ pub struct VerifiedProgram {
     initializers: Arc<[HashSet<FunctionRef>]>,
     exports: Arc<ProgramExports>,
     export_targets: Arc<HashMap<DefinitionId, ExportTarget>>,
+    native_applications: Arc<[NativeApplicationWitness]>,
     root: ModuleRef,
     modules: Arc<[Arc<BytecodeModule>]>,
     definitions: DefinitionTable,
@@ -301,6 +303,7 @@ impl VerifiedProgram {
             root: program.program().root,
             exports: Arc::new(program.program().exports.clone()),
             export_targets: Arc::new(program.export_targets().clone()),
+            native_applications: program.native_applications().into(),
             version: Arc::new(VersionToken),
             definitions,
             definition_references,
@@ -354,6 +357,11 @@ impl VerifiedProgram {
 
     pub(crate) fn update_coverage(&self) -> &CoverageFacts {
         &self.update_coverage
+    }
+
+    /// Checked occurrences in this exact immutable program's definition scope.
+    pub fn native_applications(&self) -> &[NativeApplicationWitness] {
+        &self.native_applications
     }
 
     pub fn root(&self) -> ModuleRef {

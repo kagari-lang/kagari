@@ -3,7 +3,7 @@ use crate::{
     artifact::{ArtifactFingerprint, ArtifactValidationError, validate_program_resource_limits},
     program::{
         BytecodeProgram, ModuleRef, construction::UpdateCoverage, exports::ExportTarget, identity,
-        verify_graph,
+        native::NativeApplicationWitness, verify_graph,
     },
     suspension::{AwaitLiveness, ProgramSuspensions},
 };
@@ -25,6 +25,7 @@ pub(crate) struct ProgramVerification {
     pub suspensions: ProgramSuspensions,
     pub exports: HashMap<DefinitionId, ExportTarget>,
     pub update_coverage: UpdateCoverage,
+    pub native_applications: Vec<NativeApplicationWitness>,
 }
 
 /// Verification belongs to these exact owned bytes, never a serialized flag or hash.
@@ -165,6 +166,12 @@ impl VerifiedBytecodeProgram {
 
     pub fn program(&self) -> &BytecodeProgram {
         self.metadata.records()
+    }
+
+    /// Native occurrences admitted by this exact graph and its carrier-scoped proofs.
+    /// Open binder evidence is contextual only; it cannot admit a host application.
+    pub fn native_applications(&self) -> &[NativeApplicationWitness] {
+        &self.verification.native_applications
     }
 
     pub fn definitions(&self) -> &DefinitionTable {

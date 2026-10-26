@@ -1,10 +1,8 @@
+use crate::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 use crate::{
-    Runtime,
-    gc::mutations::PreparedCollectionCommit,
-    native::{binding::NativeResult, conversion::context::ConversionContext},
-    resource::HeapCharge,
-    test_support::layouts::sequence_owner,
-    value::Value,
+    Runtime, gc::mutations::PreparedCollectionCommit,
+    native::conversion::context::ConversionContext, resource::HeapCharge,
+    test_support::layouts::sequence_owner, value::Value,
 };
 
 #[test]
@@ -43,13 +41,26 @@ fn native_charge_is_queried_once_and_never_during_release() {
     #[derive(Debug)]
     struct Payload(Arc<AtomicUsize>);
 
-    impl NativePayload for Payload {
-        fn trace<'a>(&'a self, _: &mut dyn FnMut(&'a Value)) {}
+    unsafe impl NativePayload for Payload {
+        type ScanState = ();
+        const SCAN_KIND: NativeScanKind = NativeScanKind::EdgeFree;
 
-        fn charge(&self) -> NativeResult<HeapCharge> {
+        fn begin_scan(&self) {}
+
+        fn scan<'a>(
+            &'a self,
+            _: &mut Self::ScanState,
+            budget: &mut ScanBudget,
+            _: &mut dyn FnMut(&'a Value),
+        ) -> ScanStatus {
+            budget.charge(1);
+            ScanStatus::Complete
+        }
+
+        fn charge(&self) -> HeapCharge {
             let query = self.0.fetch_add(1, Ordering::Relaxed);
             // Deliberately drifting provider report: only admission is authoritative.
-            Ok(HeapCharge::new(7 + query, query))
+            HeapCharge::new(7 + query, query)
         }
     }
 
@@ -88,15 +99,28 @@ fn rejected_provider_charge_never_publishes_storage_or_counters() {
     #[derive(Debug)]
     struct Overflow(bool);
 
-    impl NativePayload for Overflow {
-        fn trace<'a>(&'a self, _: &mut dyn FnMut(&'a Value)) {}
+    unsafe impl NativePayload for Overflow {
+        type ScanState = ();
+        const SCAN_KIND: NativeScanKind = NativeScanKind::EdgeFree;
 
-        fn charge(&self) -> NativeResult<HeapCharge> {
-            Ok(if self.0 {
+        fn begin_scan(&self) {}
+
+        fn scan<'a>(
+            &'a self,
+            _: &mut Self::ScanState,
+            budget: &mut ScanBudget,
+            _: &mut dyn FnMut(&'a Value),
+        ) -> ScanStatus {
+            budget.charge(1);
+            ScanStatus::Complete
+        }
+
+        fn charge(&self) -> HeapCharge {
+            if self.0 {
                 HeapCharge::new(usize::MAX, 0)
             } else {
                 HeapCharge::new(0, usize::MAX)
-            })
+            }
         }
     }
 
@@ -319,12 +343,25 @@ fn take_releases_recorded_backing_once_and_keeps_the_inert_identity() {
         queries: Arc<AtomicUsize>,
     }
 
-    impl NativePayload for Payload {
-        fn trace<'a>(&'a self, _: &mut dyn FnMut(&'a Value)) {}
+    unsafe impl NativePayload for Payload {
+        type ScanState = ();
+        const SCAN_KIND: NativeScanKind = NativeScanKind::EdgeFree;
 
-        fn charge(&self) -> NativeResult<HeapCharge> {
+        fn begin_scan(&self) {}
+
+        fn scan<'a>(
+            &'a self,
+            _: &mut Self::ScanState,
+            budget: &mut ScanBudget,
+            _: &mut dyn FnMut(&'a Value),
+        ) -> ScanStatus {
+            budget.charge(1);
+            ScanStatus::Complete
+        }
+
+        fn charge(&self) -> HeapCharge {
             self.queries.fetch_add(1, Ordering::Relaxed);
-            Ok(HeapCharge::new(self.bytes.len(), self.bytes.capacity()))
+            HeapCharge::new(self.bytes.len(), self.bytes.capacity())
         }
     }
 

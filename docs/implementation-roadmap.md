@@ -567,10 +567,14 @@ optimization remain separate scopes. Git history owns the completed OM ledger.
 
 The joint [PG00-PG06/NC migration](paged-incremental-gc-design.md#execution-plan)
 was activated at `50ab194b` on 2026-10-26. PG00/NC01 contract closure and baseline
-are locally complete; PG01/NC02 general provider capabilities and external proof
-are next. [NC02-NC06](native-collections-plan.md) implementation remains outstanding.
+are locally complete at `47be3cb7`. PG01/NC02 general provider capabilities and the
+external OrderedMap fixture are locally complete after focused tests, source-free
+fixture regeneration/artifact tests, repaired review blockers and final local checks.
+PG02 paged physical storage is next. [NC03-NC06](native-collections-plan.md) collection
+migration and integration remain outstanding; legacy standard collection paths are
+not removed. Full CI and future performance/peak/pause gate measurements remain unrun.
 Their [runtime storage predecessor](#runtime-storage-redesign) is locally complete;
-reuse the resulting heap/descriptor contracts and refresh NC01's API/code inventory
+reuse the resulting heap/descriptor contracts and NC01's audited API/code inventory
 against the current scoped identity APIs.
 Baseline 9cd90557 includes the completed Iterable APIs, retained selected-call slots
 and Vec/HashMap/HashSet FromIterator implementations.
@@ -1089,9 +1093,11 @@ The authorized R15 -> R11 -> R12 repairs are implemented. The
 [debugger observation contract](spec/debugger.md#safe-debug-points) keeps scalar
 constants on their control-flow paths; the [GC contract](spec/runtime.md#gc-heap)
 owns committed backing pressure, release-driven roots and occupied-object discovery.
-The unpublished native API replaces `NativePayload::units()` with fallible
-`charge() -> NativeResult<HeapCharge>`; providers and configuration consumers have
-been migrated without compatibility aliases. Attributed bytes are not RSS or a
+The current unpublished native API uses unsafe `NativePayload` with one scanner
+and infallible installed `charge() -> HeapCharge`; PG01/NC02 replaces the earlier
+whole-trace/fallible-charge API without compatibility aliases. Its
+[implementation ledger](paged-incremental-gc-design.md#progress-and-error-ledger)
+tracks acceptance separately from the earlier accounting repairs below. Attributed bytes are not RSS or a
 quota, and the 64 KiB collection floor is policy, not a measured optimum.
 
 Focused local validation selected optimized/unoptimized debugger behavior and

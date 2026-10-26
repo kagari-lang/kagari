@@ -2,12 +2,14 @@
 
 Status: PG00/NC01 audit, contract closure and shared baseline locally complete,
 activated at `50ab194b30b0218e9befe3176d6b5711ecf17a28`, 2026-10-26. The user authorized
-the joint PG00-PG06/NC migration with one commit per PG phase. Production provider
-and collection implementation begins with PG01/NC02; none is claimed here. The
+the joint PG00-PG06/NC migration with one commit per PG phase. PG00/NC01 is committed
+at `47be3cb7`; PG01/NC02's general protocol and external proof are locally complete
+after coordinated final validation. PG02 is next; standard collection migration
+remains PG03. The
 [roadmap](implementation-roadmap.md#library-owned-native-collections) owns sequencing;
 this plan owns NC01-NC06, the selected Native contracts and the collection ledger.
-Selected signatures below are implementation requirements, not currently callable
-APIs. The [PG00 baseline](paged-incremental-gc-design.md#pg00-contract-closure-and-baseline)
+General provider APIs below are implemented; later collection algorithms and
+incremental mechanisms remain requirements, not completed capabilities. The [PG00 baseline](paged-incremental-gc-design.md#pg00-contract-closure-and-baseline)
 owns shared measurements, frozen gates and actual local validation.
 
 Storage inventory refresh, 2026-10-18: the prioritized
@@ -204,9 +206,10 @@ supplied order. StoredSelection stays runtime-private; libraries do not construc
 owning metadata roots inside payloads. StoredCallable remains the mechanism for
 traced script closure values. These are existing capabilities, not new NC APIs.
 They do not by themselves provide checked resizing, public revision/commit access or
-factory-level key-call registration. call_stored_values currently drops its returned
-root after extracting Value; that protected raw handoff is not a safe retained-result
-API. The selected contract below preserves the root instead.
+factory-level key-call registration. PG01/NC02 now preserves `RootedValue` from
+`call_stored_values`; typed creation uses `NativeType::create(cx, payload, slots)`.
+The general protocol below is locally accepted in PG01/NC02; the standard
+collection special paths still await PG03.
 
 ## Ownership and representation
 
@@ -262,7 +265,7 @@ this distinction does not grant arbitrary mutable access to traced Rust payloads
 
 ### Opaque registration and public categories
 
-Accepted API direction, 2026-10-26; not implemented. Keep the existing public
+Accepted API direction, 2026-10-26; implemented and locally accepted in PG01/NC02. Keep the existing public
 vocabulary: `Ref<T>` is a scoped shared borrow, `RefMut<T>` is a scoped mutable
 borrow, and `Opaque<T>` is a retained handle to an opaque Native object. Opaque
 describes access to a Rust representation that is not exposed as script fields;
@@ -306,8 +309,10 @@ and defer the ordinary opaque boundary until afterward.
 ### End-to-end API proposal for review
 
 NC01 selection at the activation revision: precise tracing, collecting Native
-callbacks and unsafe payload integration. These contracts replace the earlier
-whole-trace/fallible-charge draft, not the current implementation. The
+callbacks and unsafe payload integration. PG01/NC02 now implements the general
+provider signatures below, replacing the whole-trace/fallible-charge API, with
+coordinated local validation complete. Collection algorithms and incremental
+publication described here retain their later-phase owners. The
 [GC design](paged-incremental-gc-design.md#incremental-tracing-and-mutation) owns
 phase scheduling, physical storage and joint graph closure. No new GC handle
 category, NoGc whitelist, mandatory branding or per-element owning roots are added.
@@ -357,7 +362,7 @@ ValueHandle::with_payload and CallContext::with_payload unsafe too.
 
 The [typed shared receiver adapters](../crates/kagari-runtime/src/native/typed/loans.rs)
 and their [paired forms](../crates/kagari-runtime/src/native/typed/loans/pairs.rs)
-currently admit arbitrary runtime-owned shared payload loans. Close that bypass:
+now require fixed-data evidence for runtime-owned shared payload loans:
 safe adapters may lend runtime-owned Rust data only when the installed descriptor
 carries the existing NativeData proof. Check this before argument converters or
 callback effects, for each opaque receiver in a pair. External host-owned Ref/RefMut
@@ -405,8 +410,8 @@ the same allocation-free shading core, with identity invariant failures failing
 closed/quarantining rather than resuming normal execution. All root replacement,
 frame/result and metadata publication must use that core before PG interleaving.
 
-Example pop: preflight edit, retain the last item, remove it, commit structure,
-finish accounting, end the loan, then return Option<ScriptValue>. A retention
+Example pop: preflight edit, retain the last item, commit structure, remove it
+infallibly, finish accounting, end the loan, then return Option<ScriptValue>. A retention
 failure leaves the item in place. User decoding happens afterward. A safe library
 push accepts a retained item and encapsulates validation/publication; ordinary
 callers never manage these services or individual element roots. No public
@@ -549,8 +554,10 @@ uses its existing credit. No duplicate edge log or backward regray queue is need
 Unexpected scan panic/invariant failure must preserve unfinished work and prevent
 sweeping, not mark the incomplete task black.
 
-Reserve the single erased continuation workspace's size/alignment at descriptor
-installation, before an instance using it can be admitted. Grow it transactionally
+PG04's active-continuation requirement follows. PG01 currently reserves an idle
+workspace at payload admission and drains scanning synchronously; no active state
+survives workspace growth. Reserve the single erased continuation workspace's
+size/alignment at descriptor installation, before an instance can be admitted. Grow it transactionally
 when installing a larger descriptor, preserving an existing Copy continuation; no
 scanner/loan may hold a pointer into the workspace across that operation. Builtin
 and metadata scan state obey the same fixed-storage rule. Root/frame enumeration
@@ -559,9 +566,8 @@ root replacement using an existing lease, scanner start/resume and cleanup
 republication consequently require no allocation. Retaining a new external root
 may fail, but it occurs before removal, never as recovery work.
 
-Root release must satisfy the same cleanup promise: RootLease::drop currently
-sends through std mpsc and explicitly permits allocation. Replace only that internal
-notification transport in gc/roots.rs with a shared mutex-protected pending-ID Vec,
+Root release must satisfy the same cleanup promise: PG01 replaces RootLease::drop's
+allocating std mpsc transport in gc/roots.rs with a shared mutex-protected pending-ID Vec,
 reserving one notification credit per admitted root registration. Clones share that
 registration and only the last drop enqueues once. Reserve the root free-slot Vec
 at root-slot admission too, so draining notifications cannot allocate. Keep pending
@@ -757,14 +763,15 @@ The activation audit distinguishes three existing capabilities:
   do not prove Eq. Static-only constraints must not be forced through dynamic
   interface construction.
 - [Application validation](../crates/kagari-bytecode/src/trait_bounds/applications.rs)
-  currently reduces nominal lookup to kind/arity; it does not prove TypeDef.bounds.
+  at activation reduced nominal lookup to kind/arity, without proving TypeDef.bounds.
   [ProofCatalog](../crates/kagari-contract/src/types/proofs/search.rs) can check those
   bounds from executable contracts. [ProgramProofs::view](../crates/kagari-contract/src/types/proofs/resources.rs)
-  restricts proof resources to the carrier's dependency closure. The missing fact is
-  admission of the bounded nominal application, not a new trait resolver.
+  restricts proof resources to the carrier's dependency closure. PG01 adds bounded
+  native application checking in the existing contract owner and seals occurrences
+  through bytecode verification, rather than adding a runtime trait resolver.
 
-Select the following proof chain; it must be implemented before removing
-bind_native_type's nonempty-bounds rejection:
+PG01 implements the following locally accepted proof chain;
+it replaces bind_native_type's blanket nonempty-bounds rejection:
 
 1. TypeBuilder records the actual native TypeDef parameters/bounds. HIR checks
    applications as usual and emits ordinary native imports/shared calls and their
@@ -836,8 +843,9 @@ belong to the current checked invocation; validate signatures and supplying scop
 before allocation. Move allocate_result_payload's selection-copying logic into this
 common creation implementation; any low-level call adapter delegates without a
 second admission implementation. The object stores StoredSelection metadata edges,
-not external program/root leases inside P. Remove cx.create_opaque and special
-Map/Set constructor resolution. Host convenience factories invoke the checked
+not external program/root leases inside P. PG01 removes `cx.create_opaque`;
+special Map/Set constructor resolution remains a PG03 removal. Host convenience
+factories invoke the checked
 associated function; they cannot invent constructor selections from a bare type.
 
 Expose selected operations through existing Function/PreparedFunction owners:
@@ -845,7 +853,7 @@ NativeContext::selected_function<A,R>(slot) and
 Opaque<P>::stored_function<A,R>(cx, slot) prepare typed relationship handles using
 the existing selected-call implementation. A stored relationship selects current
 bodies per ordinary invocation; a sort prepares once for its active computation.
-Change low-level call_stored_values to preserve its existing RootedValue result,
+PG01 changes low-level `call_stored_values` to preserve its `RootedValue` result,
 rather than extracting Value and immediately dropping the root. Other raw result
 transport remains only under the audited no-safepoint handoff contract; ordinary
 safe helpers return retained results. Do not create another StoredFunction registry.
@@ -893,50 +901,48 @@ and churn costs under the shared baseline; no throughput parity is claimed.
 
 ## Runtime capabilities and safety
 
-The selected contracts above close the NC01 API decisions; the following inventory
-records implementation gaps at activation. NC02 implements only the capabilities
-required by these collections and the external proof.
+The selected contracts above close the NC01 API decisions. The following inventory
+tracks their locally accepted PG01/NC02 implementation and remaining migration
+owners. Later collection and incremental acceptance is not implied by that result.
 
 ### Proven capability gaps, not replacement subsystems
 
-- Dynamic edits/accounting: [NativePayload::charge and StorageContext](../crates/kagari-runtime/src/native/storage.rs)
-  sample initial charge and expose scoped parameters, while general safe edits
-  remain [fixed NativeData](../crates/kagari-runtime/src/native/payload/data.rs).
-  Checked resizing, barriers and revision commits must be usable by external
-  providers, not only by heap sequence/hash operations.
-- Operation protection: [try_enter_operation](../crates/kagari-runtime/src/native/views.rs)
-  prevents explicitly guarded recursion. It does not by itself establish that all
-  alias reads/writes obey sort or lookup protection. The selected operation contract
-  adds participating access checks and sealed cleanup using existing guard owners;
-  a recursion token is not a substitute for candidate/commit or slot-access safety.
-- Scan/admission: [NativePayload::trace](../crates/kagari-runtime/src/native/storage.rs)
-  is a whole-payload visitor; [sequence editing](../crates/kagari-runtime/src/gc/sequence_edit.rs)
-  snapshots all reference elements into roots. NC02 must expose the GC design's
-  resumable mutation/scan contract and no-prepass admission for library work state.
-  NativeStorage payload admission currently traces incoming payloads; merely moving
-  a filled buffer into Opaque does not establish traversal-free transfer. Neither
-  an O(n) retention pass nor an O(n) index may hide in sort registration.
-- Type/selected-call construction: StorageContext has type_parameter/selected,
-  but element_contract is private; [NativeType::create](../crates/kagari-runtime/src/native/payload/mod.rs)
-  prepares a payload without an explicit selected-slot argument, whereas
-  [CallContext](../crates/kagari-runtime/src/native/context.rs) retains declared slots.
-  [Host constructor binding](../crates/kagari-runtime/src/native/function_handle/constructors.rs)
-  matches Ty::Map/Set. The current [native type binding](../crates/kagari-runtime/src/native/payload/binding.rs)
-  also rejects declarations with nonempty bounds. Close these public generic
-  construction/host-path gaps using existing checked scopes, selected slots and
-  prepared calls, not a second resolver. Collection conversions must respect Rust
-  coherence: moving an impl of a runtime trait for std::vec::Vec into the library
-  is not sufficient; use library-owned adapters or a justified general mechanism.
-- Raw access safety: current NativePayload is a safe trait and Opaque::read plus
-  ValueHandle::with_payload expose shared raw payloads. Shared access can copy out
-  non-rooting Value or mutate interior state; a scoped reference alone proves neither
-  retention nor accounting. Apply the already selected unsafe provider/read/edit
-  boundary, including the typed Shared and paired receiver adapters; preserve safe
-  rooted library operations and checked fixed-data access.
+- Dynamic edits/accounting: unsafe [NativePayload](../crates/kagari-runtime/src/native/storage.rs)
+  now supplies infallible constant-time installed charge. Public StorageAccess and
+  EditPlan preflight retention/publication, logical accounting and revisions; edit
+  finalization records actual backing on success/error/unwind. General safe access
+  remains [fixed NativeData](../crates/kagari-runtime/src/native/payload/data.rs).
+  Incremental shading is PG04 work, not implemented by synchronous validation alone.
+- Operation protection: participating general access checks now enforce
+  ReadOnlyCallbacks/ExclusiveSlots, and operation guards own preflighted sealed
+  recovery outside payload loans. The external fixture exercises callback alias
+  rejection and same-payload scratch recovery; standard sorting remains PG03.
+- Scan/admission: one `begin_scan`/`scan` protocol supports EdgeFree, Bounded,
+  Resumable and Indivisible providers, with an admission-reserved aligned workspace.
+  The current driver drains synchronously. PG04 must preserve active continuations
+  across growth/mutation; PG03 removes [sequence editing](../crates/kagari-runtime/src/gc/sequence_edit.rs)
+  reference snapshots. New external payload admission still validates every edge;
+  merely moving a filled buffer into Opaque is not traversal-free admission.
+- Type/selected-call construction: `StorageContext::element_contract` is public,
+  [NativeType::create](../crates/kagari-runtime/src/native/payload/mod.rs) accepts
+  selected slots, and `call_stored_values` retains its result root. Bounded
+  [native binding](../crates/kagari-runtime/src/native/payload/binding.rs) consumes
+  verified occurrences rather than rejecting all bounds or searching traits at
+  runtime. Legacy [Map/Set constructor binding](../crates/kagari-runtime/src/native/function_handle/constructors.rs)
+  and runtime-owned collection conversions remain PG03 responsibilities. Rust
+  coherence still requires library-owned conversion adapters, not moving impls
+  of runtime traits for std containers directly into stdlib.
+- Raw access safety: NativePayload and general raw payload access are now unsafe;
+  safe shared/mutable typed loans require NativeData, including paired receivers.
+  NativeTake alone is not shared-loan evidence. Boxed short loans block escaping
+  public string/tuple/enum/closure views, while internal scoped validation retains
+  actual aggregate/type/owner checks. PG02 replaces physical storage, not these
+  lifetime, retention or accounting guarantees.
 
 Reuse roots/conversion scopes and runtime-owned NativeObject revisions throughout.
-NC02 proves the selected signatures without private imports; this list records
-implementation gaps, not a new phase, physical layout or permission to drop validation.
+NC02's public-only fixture exercises these signatures without private imports;
+its evidence and remaining acceptance are recorded below. This is not a new phase,
+physical layout or permission to drop validation.
 
 | Capability | Required contract |
 | --- | --- |
@@ -1005,10 +1011,11 @@ new speed target or the Lua parity workstream; do not repeatedly run full benchm
 
 The [Iterable APIs](spec/builtins.md#iteration-protocols) and
 [retained native cursors](spec/standard-declarations.md#sorting-and-lazy-iteration)
-are implemented at this baseline; NC01 is active and NC02-NC06 remain unstarted.
+are implemented at this baseline; NC01/NC02 are locally complete. PG02 is next,
+followed by NC03/NC04 at PG03; NC03-NC06 remain outstanding.
 Use the current [scoped identity APIs](architecture.md#definition-identity-ownership).
-Refresh NC01 against those APIs instead of rebuilding path/ID variants or treating
-the historical baseline signatures as a compatibility requirement.
+NC01 audited those APIs; reuse that inventory rather than rebuilding path/ID variants
+or treating historical baseline signatures as a compatibility requirement.
 Within the joint GC/opaque/collection migration, collection work begins with NC01,
 using the existing retained slots, adapters, terminal consumers and FromIterator
 implementations. Do not add another Iterable phase or make the trait surface
@@ -1023,13 +1030,13 @@ PG06 acceptance. PG04 integrates marking/publication between those handoffs.
 NC02 may prove the public protocol with the synchronous collector and isolated
 scanner tests, but cannot claim interleaved GC acceptance. Record collection
 results only in this ledger; link PG results rather than copy their checklist.
-The user authorized this phase sequence at the activation revision. The current
-checkpoint is design-only; shared PG00 acceptance still gates dependent production
-changes. Cancellation policy and cx.poll redesign remain outside the migration.
+The user authorized this phase sequence at the activation revision. PG00/NC01 and
+PG01/NC02 have passed local acceptance; paged storage at PG02 is the next checkpoint.
+Cancellation policy and cx.poll redesign remain outside the migration.
 
 | Phase | Scope and exit condition |
 | --- | --- |
-| NC01: inventory and API contract | Audit at the activation revision and select the public protocol, bounded native-application proof chain, allocation-free cleanup work reservation, indexed hash layout and retained MutableList::set bridge. Await shared PG00 baseline/final design acceptance before checking completion; NC02 owns the external implementation proof. No new generic Rust payload mechanism. |
+| NC01: inventory and API contract | Audit at the activation revision and select the public protocol, bounded native-application proof chain, allocation-free cleanup work reservation, indexed hash layout and retained MutableList::set bridge. Locally complete with the shared PG00 baseline/design acceptance; NC02 supplies the external implementation proof. No new generic Rust payload mechanism. |
 | NC02: general storage capabilities | Implement unified opaque registration and the identified generic capabilities under existing root/type/revision/call owners. Build an early separate-crate prototype before declaring the API sufficient: reference-bearing storage, dynamic edits/accounting, constructor/host calls, protected callbacks, scan admission and existing adapters with invalidation/failure cleanup. No collection-specific privileges or second guard/selected-call subsystem. |
 | NC03: Vec migration | Move storage, operations, base cursor and host adapters through the independently usable public boundary; remove Sequence/Vec primitive/link/execution paths while retaining builtin Array. Preserve compact buffers, checked element evidence, defaults, indexing and pipelines. Prove stable worst-case O(n log n) sorting without retention/index prepass and linear retain/dedup, separating actual GC work. |
 | NC04: HashMap/HashSet migration | Move nominal storage, table/key policy, cursors and host adapters through the same public generic boundary; remove special type/value/constructor/layout/codecs and host binding branches. Rebind FromIterator requirements. Preserve collisions, last-value-wins/dedup, protected Hash/Eq, cleanup and publication semantics; generic constructor evidence must work for script and host paths. |
@@ -1156,7 +1163,7 @@ CI acceptance. Planning-only edits need content/link/diff checks, not builds.
   native application witnesses, one admission-reserved pending stack, same-payload
   Vec scratch and library indexed hash entries. Sources and limitations are below.
 - [x] NC01: Inventory and API contract.
-- [ ] NC02: General storage capabilities.
+- [x] NC02: General storage capabilities, locally complete with PG01.
 - [ ] NC03: Vec migration.
 - [ ] NC04: HashMap/HashSet migration.
 - [ ] NC05: External extensibility and cursors.
@@ -1164,26 +1171,61 @@ CI acceptance. Planning-only edits need content/link/diff checks, not builds.
 
 NC01 is locally complete with PG00. The GC plan owns physical/pressure choices,
 reproducible measurements, frozen gates and actual local validation; NC reuses its
-Vec, primitive/script-key Map, reference-storage and callback baselines. No production
-provider implementation, future speedup or CI acceptance is claimed. No failure is
-carried from this checkpoint.
+Vec, primitive/script-key Map, reference-storage and callback baselines. PG00/NC01
+was committed at `47be3cb7`; its baseline does not establish future speedup or CI
+acceptance. PG01/NC02 implementation status follows.
+
+### NC02 implementation handoff (2026-10-27; locally complete)
+
+The worktree implements the unsafe provider/scanner/charge protocol,
+`define_opaque` association, selected-slot creation, unsafe general loans, safe
+NativeData access, checked retained extraction/publication, operation recovery and
+verified bounded-application admission. Current semantic contracts now live in
+[host interop](spec/host-interop.md#general-native-payload-protocol) and the
+[native registration guide](native-registration.md#exports-documentation-and-storage).
+The [PG01 ledger](paged-incremental-gc-design.md#progress-and-error-ledger) owns
+runtime/root/verifier integration results and synchronous-to-incremental adaptations.
+
+The external [native_storage_provider fixture](../crates/kagari/tests/native_storage_provider.rs)
+and [ordered_provider modules](../crates/kagari/tests/ordered_provider/mod.rs) implement
+OrderedMap through public Map, MutableMap and Iterable declarations, with an ordinary
+opaque cursor. The implementation agent reports **six passing tests** covering
+constructor/host creation and retained extraction; checked publication and committed
+error/unwind edits; collecting callbacks, alias protection and allocation-free scratch
+recovery; indexed continuation and existing iteration adapters; closure cycles and
+retained results without per-element roots; and aggregate validation during loans.
+These results are reported, not rerun by this documentation pass. They establish an
+early public-provider fixture, not migration of standard Vec/HashMap/HashSet or
+integrated incremental GC acceptance.
+
+NC02 is locally complete with PG01. The parent reports successful manual fixture
+regeneration (no tracked artifact diff), three actual no-default-features artifact
+tests, three focused callback/reload regressions and final workspace Clippy. The
+reviewer reports the additional schema NativeData diagnostic test and benchmark
+diagnostics compilation passing; structure (1751 files, zero findings), formatting
+and diff checks also passed. Exact test names and the repaired view SIGABRT,
+operation-guard bypass, HIR/compiler bounds and diagnostic-panic history are owned
+by the [PG01 handoff](paged-incremental-gc-design.md#pg01-implementation-handoff-2026-10-27-locally-complete),
+not inferred from the earlier verifier results.
+
+PG02 is next and replaces the temporary boxed-loan storage path. PG03/NC03-NC04
+owns removal of legacy collection codecs, special type/value/wire paths, snapshots,
+constructor resolution and runtime-owned host adapters. PG04 owns active scanner
+continuation/publication reservations beyond current synchronous idle workspace
+growth; PG05/NC05 owns actual driver interleaving. Full CI and future performance,
+peak-memory and pause gates remain unrun; no new performance pass is claimed.
 
 Remaining real gates, not alternative API drafts:
 
-- PG01/PG04: measure actual pending-capacity high-water/slack and single continuation
+- PG04/PG06: measure actual pending-capacity high-water/slack and single continuation
   workspace against PG00's frozen total backing/peak gates. Current-runtime measurements
   cannot measure nonexistent collector queues; their future overhead is not exempt from
   those gates. Reservation is selected by its safety invariant, not a claimed saving.
-- PG01/NC02: implement and prove the verifier-owned bounded-application chain before
-  relaxing host binding; reject forged Eq/omitted bounds, open/unseen applications,
-  wrong supplying generations and unrelated proof visibility. The witness is not
-  present in the current executable seal.
-- PG01/NC02: close all safe shared-loan bypasses and prove precommit retention,
-  charge/revision finalization and sealed recovery under error/cancellation/unwind.
-  Exhaust marker and root-release notification reservations and inject admission/
-  root/reserve failures; cleanup must not allocate, reacquire ordinary execution
-  admission or lose a live element. The current allocating mpsc release transport
-  must be replaced within the root owner before that guarantee can be claimed.
+- PG04: extend the locally accepted PG01/NC02 bounded admission, retention,
+  charge/revision finalization and sealed recovery into actual incremental graph
+  operation. Reserved root-release transport replaces allocating mpsc but is not
+  the marker queue. Prove active-workspace growth and graph-admission failure paths;
+  recovery must not allocate, reacquire ordinary execution admission or lose an element.
 - PG03/NC03-NC04: prove same-payload mergesort/linear compaction and indexed hash
   relocation against partial scans, reentry and failure semantics. The selected
   representations do not establish measured performance or implementation soundness.

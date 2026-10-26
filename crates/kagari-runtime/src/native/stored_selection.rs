@@ -1,13 +1,18 @@
 //! Selected executable evidence stored as graph edges, without host root leases.
 use crate::{
     Runtime,
+    error::RuntimeError,
     execution_metadata::MetadataEdge,
     module::ExecutableModule,
     native::{
         binding::NativeResult,
-        context::{CallableOwner, LinkedCallable},
+        context::{CallableOwner, LinkedCallable, LinkedOperation},
+        conversion::{KagariType, arguments::KagariArguments},
+        function_handle::Function,
     },
 };
+
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub(crate) struct StoredSelection {
@@ -16,6 +21,25 @@ pub(crate) struct StoredSelection {
 }
 
 impl StoredSelection {
+    pub(crate) fn slots(
+        owner: &ExecutableModule,
+        selected: &[LinkedOperation],
+        slots: &[usize],
+    ) -> NativeResult<Arc<[Self]>> {
+        slots
+            .iter()
+            .map(|slot| {
+                Self::new(
+                    owner,
+                    selected
+                        .get(*slot)
+                        .and_then(LinkedOperation::ready)
+                        .ok_or_else(|| RuntimeError::module_validation("selected callable slot"))?,
+                )
+            })
+            .collect()
+    }
+
     pub(crate) fn new(caller: &ExecutableModule, selected: &LinkedCallable) -> NativeResult<Self> {
         let owner = selected.owner(caller)?;
         let mut callable = selected.clone();
@@ -23,6 +47,13 @@ impl StoredSelection {
         // environment. An internal owning root would leak module/data cycles.
         callable.owner = CallableOwner::Program(owner.slot());
         Ok(Self { owner, callable })
+    }
+
+    pub(crate) fn function<A: KagariArguments, R: KagariType>(
+        &self,
+        runtime: &Runtime,
+    ) -> NativeResult<Function<A, R>> {
+        Function::from_selected(runtime, &self.owner, &self.callable)
     }
 
     pub(crate) fn trace<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {

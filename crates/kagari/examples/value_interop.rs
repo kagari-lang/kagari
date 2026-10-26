@@ -45,7 +45,9 @@ fn main() {
         .bind(
             process,
             |cx: &mut NativeContext<'_>, (request,): (Request,)| -> NativeResult<Outcome> {
-                let multiplier = request.config.read(cx, |config| Ok(config.multiplier))?;
+                let multiplier = request
+                    .config
+                    .read_data(cx, |config| Ok(config.multiplier))?;
                 Ok(Outcome::Applied(Response {
                     amount: request.damage * multiplier,
                 }))
@@ -87,6 +89,7 @@ fn main() {
         .create(
             &mut NativeContext::new(runtime.runtime(), &selected).unwrap(),
             Config { multiplier: 2 },
+            &[],
         )
         .unwrap();
     let result: Outcome = runtime

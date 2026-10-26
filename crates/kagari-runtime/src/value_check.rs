@@ -58,13 +58,13 @@ pub(crate) fn matches_view(heap: &GcHeap, value: &Value, view: TypeView<'_>) -> 
                 snapshot.matches_function(params, result, view.owner, view.environment)
             })
         }
-        (Value::Tuple(id), Ty::Tuple(types)) => heap.tuple(*id).is_some_and(|values| {
+        (Value::Tuple(id), Ty::Tuple(types)) => heap.with_tuple(*id, |values| {
             values.len() == types.len()
                 && values.iter().enumerate().all(|(index, value)| {
                     view.parameter(index)
                         .is_some_and(|view| matches_view(heap, value, view))
                 })
-        }),
+        }).unwrap_or(false),
         (Value::Struct(id), Ty::Struct(expected)) => {
             heap.struct_layout(*id).is_some_and(|actual| {
                 if view.environment.is_none() {
@@ -76,9 +76,9 @@ pub(crate) fn matches_view(heap: &GcHeap, value: &Value, view: TypeView<'_>) -> 
                 }
             })
         }
-        (Value::Enum(id), Ty::Enum(_)) => heap.enum_view(*id).is_some_and(
+        (Value::Enum(id), Ty::Enum(_)) => heap.with_enum(*id,
             |value| matches!(&value.tag, EnumTag::Declared(actual) if actual.matches_view(view)),
-        ),
+        ).unwrap_or(false),
         (Value::Interface(id), Ty::Trait(_)) => heap
             .interface_snapshot(*id)
             .is_some_and(|actual| actual.matches_type(view.ty, view.owner, view.environment)),

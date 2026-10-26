@@ -110,6 +110,7 @@ fn one_registered_pair_method_serves_opaque_and_external_receivers() {
         .create(
             &mut NativeContext::new(vm.runtime(), &owner).unwrap(),
             Treasury { hp: 40 },
+            &[],
         )
         .unwrap();
     let raw = ConversionContext::new(vm.runtime(), &owner)
@@ -149,7 +150,7 @@ fn one_registered_pair_method_serves_opaque_and_external_receivers() {
     assert_eq!(inventory.gold, 15);
     assert_eq!(
         opaque
-            .read(
+            .read_data(
                 &NativeContext::new(vm.runtime(), &owner).unwrap(),
                 |value| Ok(value.hp)
             )

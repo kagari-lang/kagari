@@ -2,8 +2,10 @@
 
 Status: joint PG00-PG06 migration activated by the user on 2026-10-26 at
 `50ab194b30b0218e9befe3176d6b5711ecf17a28`; PG00/NC01 contract closure and baseline
-are locally complete. PG01/NC02 is the next implementation checkpoint. This document records selected initial implementation
-parameters, not measured optima or implementation acceptance. The execution breakdown
+are locally complete (`47be3cb7`). PG01/NC02 is locally complete after coordinated
+review and focused/final local validation; PG02 paged physical storage is next.
+Initial implementation parameters remain selected policy, not measured optima or
+acceptance of future performance gates. The execution breakdown
 was originally recorded against `bb836eff`, following the design at `8c2a4568`.
 The user selected paged storage, precise incremental tracing, unsafe integration
 for Opaque payloads containing Value, and collecting Native callbacks. These replace
@@ -23,8 +25,9 @@ its removal of special container paths is part of joint acceptance, not a later
 redesign. PG phases reference NC handoffs, not duplicate NC completion records.
 Migration authorization does not waive phase dependencies or baseline acceptance.
 NC01's provider, collection representation and evidence decisions are selected;
-their implementation proofs remain with PG01/NC02 and subsequent owning phases.
-PG00 remains open pending coordinated baseline/gate and focused-test acceptance.
+the general provider proof is locally accepted in PG01/NC02, while collection and
+incremental proofs remain with their subsequent owning phases. PG00 and PG01/NC02
+are closed locally; full-workspace/feature/backend/platform CI remains unrun.
 
 ## Goals and scope
 
@@ -185,10 +188,11 @@ If either operation needs a sequence-specific heap entrypoint, the general
 protocol is incomplete. Short exclusion alone does not supply publication safety.
 
 The [NC capability audit](native-collections-plan.md#proven-capability-gaps-not-replacement-subsystems)
-records the current public/private gaps. NativePayload tracing, roots, Opaque,
-scoped type arguments and selected-call machinery are foundations to extend, not
-proof that dynamic edits or resumable scanning are already available. NC01 now
-selects the exact provider signatures; PG01/NC02 must implement and validate them.
+records implemented capabilities and remaining migration owners. PG01/NC02 now
+provides dynamic edits and resumable provider scanning through public NativePayload,
+Opaque, scoped contracts and retained-call services. The driver is still synchronous;
+the external fixture is not proof of standard collection migration or integrated
+incremental scanning. Coordinated PG01/NC02 local acceptance is complete.
 
 ## Concrete data structures
 
@@ -420,9 +424,9 @@ Retained handles and audited library methods remain safe; providers must preserv
 tracing, publication, accounting and extracted-value retention, optionally through
 short collection exclusion that ends before callbacks. Performance preservation
 requires measurement; unchecked admission or omitted barriers are not
-optimizations. Migration is authorized and NC01 selects the provider signatures;
-PG01/NC02 implementation and external-provider proof remain prerequisites for
-interleaved production use.
+optimizations. PG01/NC02 locally establishes the general provider boundary and
+external-provider proof. Later graph/publication and driver phases remain
+prerequisites for interleaved production use.
 
 Selected direction, 2026-10-26: Opaque payloads may contain Value and ordinary
 Rust containers under an unsafe provider contract. Native entry does not suspend
@@ -519,7 +523,8 @@ by slot alone.
 Discussion evidence, 2026-10-26, implementation revision `a24dd361`. Separate
 ordinary Native retention, custom payload tracing and temporary extraction.
 Rust-held handles need roots; custom heap payloads enumerate internal edges through
-`NativePayload::trace`. Temporary edits need additional protection when those edges
+`NativePayload::begin_scan`/`scan` (replacing `trace` in PG01). Temporary edits need
+additional protection when those edges
 leave the scanner-visible representation. The selected policy permits collection
 during Native callbacks.
 
@@ -689,7 +694,7 @@ integer is a lookup key, not an independently traced reference. For internal
 ownership, full userdata has raw memory plus associated Lua user values. The
 [userdata scanner](https://www.lua.org/source/5.4/lgc.c.html#traverseudata) visits
 its metatable and user values, not the raw C bytes. The public API has no arbitrary
-userdata trace callback comparable to NativePayload::trace; __gc is a finalizer,
+userdata scan callback comparable to NativePayload::scan; __gc is a finalizer,
 not a tracing hook.
 
 Native structs keep ordinary C state in raw memory and put owned Lua references
@@ -746,8 +751,8 @@ owned continuation state.
 Roots include host/debug leases, managed execution windows, suspended frames/tasks,
 published/staged programs and actual computation/native leases. Follow static cells,
 constants, captures, interfaces and selected-operation environments through their
-owning edges. Preserve the existing root table/lease identity owner, but replace
-its allocating mpsc release transport as specified below; a delayed release is not
+owning edges. Preserve the existing root table/lease identity owner and PG01's
+reserved pending-ID release transport specified below; a delayed release is not
 proof that a dead lease is live.
 
 Root scans need stable cursor/revision rules when entries are released or slots are
@@ -876,8 +881,9 @@ The [NC bounded-application witness](native-collections-plan.md#bounded-applicat
 is immutable, nonserialized ProgramVerification evidence keyed by carrier, occurrence,
 NominalTy and binder scope. It receives neither runtime marks nor GC scan IDs.
 Runtime-linked program/environment/selection owners above retain executable edges.
-PG01/NC02 must implement its verifier proof chain before relaxing bounded host binding;
-a native-type witness still does not authorize a callable constructor application.
+PG01/NC02 implements this verifier proof chain and bounded host binding with local
+acceptance complete; a native-type witness still does not authorize a callable
+constructor application.
 
 ### Write barrier
 
@@ -936,8 +942,8 @@ on a fresh queue allocation. Select an admission-reserved work-capacity contract
    detached cleanup, but do not resume sweeping an invalid graph. Recovery may not
    allocate new metadata owners, perform fresh conversions or invoke user callbacks.
 
-Cleanup also releases roots: PG01/NC02 replaces RootLease::drop's allocating mpsc
-transport in gc/roots.rs with a shared mutex-protected pending-ID Vec. Reserve one
+Cleanup also releases roots: PG01/NC02 has replaced RootLease::drop's allocating
+mpsc transport in gc/roots.rs with a shared mutex-protected pending-ID Vec. Reserve one
 notification credit per root registration, not per clone; only final-clone drop
 sends once. Reserve free-slot storage at root-slot admission. Drain in place without
 `mem::take` losing capacity, releasing credits only after processing. The transport
@@ -1252,7 +1258,7 @@ storage alone while keeping those privileged routes is not completion.
 | Whole-traversal collector live/visited sets in [collector.rs](../crates/kagari-runtime/src/gc/collector.rs), [collection.rs](../crates/kagari-runtime/src/gc/collection.rs), [execution_metadata.rs](../crates/kagari-runtime/src/execution_metadata.rs) | PG04: one phase/epoch marker, stable metadata owners, bounded active cursor and admission-reserved pending IDs. Remove MarkedGraph/MetadataLive from collection, not semantic validation. PG05 removes the synchronous whole-dead-inventory adapter. |
 | Assignment-only roots, fields, frames and metadata | PG04: instrument every owner in the publication inventory, including direct OperandWindow writes, lazy cells and host dirty-record commit. Preserve lease lifetime, type/access and generation checks. |
 | Root/frame/host snapshots and borrowed metadata worklists | PG04: stable root/window/record cursors and the exhaustive MetadataEdge owner/ordinal map above. Replace collector address deduplication and borrowed tasks; preserve synchronous semantic validation. No final whole-root rescan. |
-| Allocating root-release mpsc transport in [gc/roots.rs](../crates/kagari-runtime/src/gc/roots.rs) | PG01/NC02: reserved pending-ID transport and free-slot capacity under the existing root/lease owner, before claiming allocation-free recovery. Preserve generations, final-clone and cross-thread release behavior. |
+| Root-release transport in [gc/roots.rs](../crates/kagari-runtime/src/gc/roots.rs) | PG01/NC02 implements reserved pending-ID transport and free-slot capacity, replacing allocating mpsc; local acceptance complete. Generations, final-clone and cross-thread release remain checked. This is separate from PG04 marker queue reservations. |
 | Runtime descriptor HashMap traversal and Arc-address scan identity | PG04: stable module descriptor slots and typed shared metadata scan-owner IDs. Reserve credits/workspace before admission; remove borrowed cache continuations without putting runtime state into verified products. |
 | ProgramGraph full-lifecycle borrow, DeadPrograms and global static referenced-set reconstruction in [module/collection.rs](../crates/kagari-runtime/src/module/collection.rs) | PG04 establishes program/static nodes and short-borrow access; PG05 removes whole dead inventories and detach loops, using stable record/static sweep cursors. Existing module publication, reload and candidate availability remain owners. |
 | Inert native-take identities in [gc/native/take.rs](../crates/kagari-runtime/src/gc/native/take.rs) | PG02 preserves take/identity retirement; PG04 adds independent moved-ledger mark/work state; PG05 sweeps its occupied slots. Never remove inert-alias behavior or conflate old and reused generations. |
@@ -1359,8 +1365,9 @@ future incremental measurements are not passed by selecting parameters.
    read/edit, retained extraction, same-payload sort, indexed hash, checked MutableList
    bridge and verifier-owned bounded-application evidence. The publication inventory,
    exhaustive MetadataEdge map, reserved pending/root-release capacity and aligned
-   single continuation close the design choices. PG01/NC02 and PG04 owe safety proofs
-   for recovery, partial scans, newborns, sweep admission and phase-aware caches.
+   single continuation close the design choices. PG01/NC02 locally validates synchronous
+   provider recovery and isolated scans; PG04 still owes integrated partial-scan,
+   newborn, sweep-admission and phase-aware-cache proofs.
 3. **Lifecycle and scheduling surface:** selected 1024-unit normal work, 32 retired
    items, pressure escalation and explicit finish-active-plus-fresh full collection;
    preserve poll and automatic-disable semantics. PG05 owes driver/statistics and
@@ -1786,12 +1793,13 @@ Record these limitations and their implementation measurement owners, not a pass
 
 **Dependent implementation proofs, not reopened PG00 API choices:**
 
-- PG01/NC02: implement verifier evidence before relaxing bounded host binding; close
-  safe typed-loan bypasses; prove precommit roots, charge/revision finalization and
-  sealed recovery. Failure-inject graph admission, descriptor/workspace growth and
-  root registration/release, including an active continuation during growth. Recovery
-  must not admit new identities, allocate, reacquire cancellation admission or lose
-  elements. Replace allocating mpsc transport before claiming that guarantee.
+- PG01/NC02: implemented verifier evidence, NativeData-only safe typed loans,
+  precommit retention, charge/revision finalization, sealed recovery and reserved
+  root-release transport passed coordinated local acceptance. Focused results are
+  recorded in the ledger, not evidence of incremental interleaving. PG04 owns graph
+  admission and active-continuation preservation during descriptor/workspace growth.
+  Recovery must not admit new identities, allocate, reacquire cancellation admission
+  or lose elements.
 - PG02: prove inline layout/alignment, descriptor lifetime, checked identity/epoch
   exhaustion, interface-before-metadata retirement and narrow unsafe-kernel cleanup.
 - PG03/NC03-NC04: prove same-payload sort/compaction and indexed-hash relocation under
@@ -2098,19 +2106,110 @@ Documentation-only work needs content/link/diff checks, not Rust builds.
 - [x] Accept the measured baseline, frozen gates and focused tests; retain the
   selected 1024-unit initial policy without claiming a measured pause bound.
 - [x] PG00: Contract closure and baseline (with NC01).
-- [ ] PG01: General Native protocol and external proof (with NC02).
+- [x] PG01: General Native protocol and external proof (with NC02), locally complete.
 - [ ] PG02: Paged physical storage.
 - [ ] PG03: Remove privileged collection paths (NC03/NC04 handoff).
 - [ ] PG04: Incremental graph state and complete publication coverage.
 - [ ] PG05: Incremental sweep, disposal and execution driving (with NC05).
 - [ ] PG06: Joint integration and acceptance (with NC06).
 
-PG00 status: locally complete with NC01. The checkpoint closes design, records the
-baseline and numerical gates, adds reproducible probes and opt-in high-water counters,
-and passes the focused/local checks reported above. Production storage and collection
-remain unchanged. Initial allocator/work parameters are agent choices under authorization,
-not measured optima. No build/test failure is carried. PG01/NC02 must now implement
-and prove the general provider boundary before paging or standard collection migration.
+PG00 status: locally complete with NC01 at `47be3cb7`. That checkpoint closed design,
+recorded the baseline and numerical gates, added reproducible probes and opt-in
+high-water counters, and passed the focused/local checks reported above without
+changing production storage/collection. Initial allocator/work parameters are
+selected under authorization, not measured optima. No build/test failure was carried
+from PG00.
+
+### PG01 implementation handoff (2026-10-27; locally complete)
+
+The worktree integrates the general protocol under existing native/heap/root owners:
+
+- Unsafe NativePayload replaces whole-trace/fallible-charge with one scanner and
+  infallible constant-time installed charge. Admission and completed general edits
+  sample charge, including error/unwind finalization; release uses committed records.
+  `define_opaque` makes one representation/mapping association. Typed creation is
+  `NativeType::create(cx, payload, selected_slots)`; `create_opaque` is removed.
+- Unsafe general read/edit loans expose StorageAccess retention/publication and
+  EditPlan preflight. Operation guards enforce alias access and sealed same-payload
+  recovery. Safe NativeData read_data/edit_data and typed/paired loans exclude
+  arbitrary raw payload exposure; NativeTake alone supplies no shared-loan proof.
+  `call_stored_values` now preserves RootedValue rather than dropping its result root.
+- The temporary boxed short loan releases the directory borrow and blocks escaping
+  public string/tuple/enum/closure views until restoration. Internal scoped validation
+  still performs real aggregate/type/owner checks. PG02 replaces the physical Box
+  path while preserving these checks and error/unwind cleanup.
+- Root registration reserves final-release notification and free-slot capacity.
+  Final-clone Drop enqueues only the full ID without allocation; in-place draining
+  retires identity/credit before dropping contents outside the lock. Poison recovery,
+  disconnect and cross-thread late release stay with the existing root owner.
+- HIR/lowering preserve opaque bounds; contract and source-free bytecode verification
+  issue immutable carrier/occurrence/nominal/binder witnesses after declaration and
+  call validation. Bounded host binding consumes closed compatible occurrences;
+  native constructors consume their exact import/result witness, including adapter
+  receiver and prepared scope checks. Existing-object descriptor reconstruction
+  instead validates the actual object's identity/type/representation. No runtime
+  trait resolver or callable-constructor authority is inferred from a type witness.
+
+**Deliberate synchronous adaptation:** the runtime-local aligned scanner workspace
+is reserved on admission and reused by the sole scanner. The current driver drains
+it completely; its internal resumable chunk is 256 work units, not the selected
+**1024-unit normal incremental driver budget**. Idle workspace growth may replace
+storage because no continuation is live. PG04 must preserve an active continuation
+through admission/growth, supply graph credits/barriers and measure queue/workspace
+backing against PG00's gates. Synchronous scanner tests do not prove that reservation
+invariant or production pause bounds. PG05 still owns legal driver interleaving.
+No new post-change performance acceptance is claimed here.
+
+**Reported focused validation:** implementation-agent results supplied for this
+handoff (not rerun by the documentation pass) are: roots 20; provider protocol 5;
+scanner 2; VM boxed-loan views 2; operation guard 1; sequence 2; bounded native
+applications 3; source-free native-application verifier 6; HIR opaque bounds one
+test containing eight cases plus 27 recovery tests; compiler 2. The
+[NC02 ledger](native-collections-plan.md#nc02-implementation-handoff-2026-10-27-locally-complete)
+owns the external public OrderedMap fixture and its six reported passing tests.
+These selections cover changed root, provider, loan and evidence boundaries, not
+an exhaustive feature/backend/platform matrix.
+
+**Final local acceptance (parent/reviewer-reported, not rerun by this documentation
+pass):** manual source-free fixture regeneration passed with no tracked artifact
+diff. The following three actual `artifact_features` tests passed with
+`--no-default-features` (one each):
+
+- `source_free_native_bindings_execute_and_release_scopes`
+- `source_free_algorithms_and_application_payload_share_the_native_boundary`
+- `structurally_valid_library_binding_mismatch_is_rejected_on_load`
+
+The parent also reports one pass each for the directly affected VM regressions
+`hash_callbacks_can_collect_and_trap_without_losing_keys_or_lookup_guards`,
+`comparator_failure_stops_callbacks_and_preserves_original_elements`, and
+`retained_zip_keeps_sources_and_closures_but_calls_current_methods`. These complement
+the verifier and public-provider results above with source-free execution, callback
+failure and retained-reload evidence. The reviewer reports one passing schema
+NativeData diagnostic test and successful benchmark diagnostics compilation after
+the storage diagnostic API fix. Final
+`cargo clippy --workspace --all-targets -- -D warnings` passed after HIR/compiler
+repairs; structure checked 1751 files with
+zero findings, and formatting/diff checks passed.
+
+**Repaired review failures:** an escaping-view reproduction triggered SIGABRT during
+boxed-loan restoration; public directory-backed views now reject the loan and
+restoration/scoped validation are covered. The operation-guard bypass was repaired
+and covered. HIR native-bound checking and compiler propagation/validation fixes
+closed the bounds failures. Storage diagnostics could panic on loan/borrow conflicts;
+`GcHeap::storage_usage() -> Result<StorageUsage, RuntimeError>` now rejects those
+conflicts rather than enumerating detached payloads or panicking. The schema
+NativeData diagnostic test covers this path and benchmark callers compile against
+the fallible API. Earlier reviewer blockers are repaired/covered; no known selected
+local failure remains.
+
+**Status and next handoff:** PG01/NC02 is locally complete; PG02 pages/inline storage
+is next and replaces the temporary boxed-loan physical path without weakening its
+checks. PG03/NC03-NC04 still owns removal of legacy Vec/Map/Set paths and host
+adapters; PG04 owns persistent scanner state, graph reservations and complete
+publication coverage; PG05 owns actual interleaving. The external fixture does not
+remove those legacy paths. Full-workspace and complete feature/backend/platform
+CI remain unrun, as do future post-change performance/peak/pause gate measurements.
+Local protocol acceptance does not pass those future gates.
 
 Subsequent checkpoints record actual implementation, structural debt, failures and
 bridge removal under their owning phase here; NC-specific results stay in its ledger

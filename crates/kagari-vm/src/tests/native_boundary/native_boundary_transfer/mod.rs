@@ -1,4 +1,5 @@
 use crate::tests::native_boundary::{compile, compile_program};
+use kagari_runtime::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 
 use kagari_runtime::{
     Runtime,
@@ -38,11 +39,24 @@ struct Counter {
     drops: Sender<ThreadId>,
 }
 
-impl NativePayload for Counter {
-    fn trace<'payload>(&'payload self, _: &mut dyn FnMut(&'payload Value)) {}
+unsafe impl NativePayload for Counter {
+    type ScanState = ();
+    const SCAN_KIND: NativeScanKind = NativeScanKind::EdgeFree;
 
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(0, 0))
+    fn begin_scan(&self) {}
+
+    fn scan<'payload>(
+        &'payload self,
+        _: &mut Self::ScanState,
+        budget: &mut ScanBudget,
+        _: &mut dyn FnMut(&'payload Value),
+    ) -> ScanStatus {
+        budget.charge(1);
+        ScanStatus::Complete
+    }
+
+    fn charge(&self) -> HeapCharge {
+        HeapCharge::new(0, 0)
     }
 }
 
@@ -115,13 +129,17 @@ fn module(held: &Arc<Mutex<Option<Callback>>>, drops: Sender<ThreadId>) -> Nativ
     builder
         .bind(
             bump,
-            NativeBinding::new(vec![counter.codec()], Codec::Exact(Type::i32()), |cx| {
-                cx.with_payload::<Counter, _>(0, |counter| {
-                    let next = counter.count.get() + 1;
-                    counter.count.set(next);
-                    Ok(Value::I32(next))
-                })
-            }),
+            NativeBinding::new(
+                vec![counter.codec()],
+                Codec::Exact(Type::i32()),
+                |cx| unsafe {
+                    cx.with_payload::<Counter, _>(0, |counter| {
+                        let next = counter.count.get() + 1;
+                        counter.count.set(next);
+                        Ok(Value::I32(next))
+                    })
+                },
+            ),
         )
         .unwrap();
     let remember = builder

@@ -83,8 +83,8 @@ macro_rules! pair_adapter {
 
 macro_rules! pairs_for_arity {
     ($count:expr; $($argument:ident:$value:ident),*) => {
-        pair_adapter!(SharedShared, false, false, Shared, Shared, read, read_pair; [], []; $count; $($argument:$value),*);
-        pair_adapter!(SharedMutable, false, true, Shared, Mutable, read, read_edit_pair; [], [mut]; $count; $($argument:$value),*);
+        pair_adapter!(SharedShared, false, false, Shared, Shared, read_checked, read_pair; [], []; $count; $($argument:$value),*);
+        pair_adapter!(SharedMutable, false, true, Shared, Mutable, read_checked, read_edit_pair; [], [mut]; $count; $($argument:$value),*);
         pair_adapter!(MutableShared, true, false, Mutable, Shared, edit_checked, edit_read_pair; [mut], []; $count; $($argument:$value),*);
         pair_adapter!(MutableMutable, true, true, Mutable, Mutable, edit_checked, edit_pair; [mut], [mut]; $count; $($argument:$value),*);
     };

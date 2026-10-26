@@ -1657,8 +1657,10 @@ profile comparison, and full CI/platform coverage was not run.
 
 ## Root release and occupied discovery work counts, 2026-10-20
 
-**Current R12 implementation evidence, not a timing baseline.** Root registration
-drains final-lease IDs from MPSC instead of pruning the historical slot table.
+**R12 implementation evidence at measurement time, not a timing baseline.** Root
+registration drained final-lease IDs from MPSC instead of pruning historical slots.
+PG01 replaces that transport with reserved pending IDs; the historical counters
+below are not a new measurement of the replacement.
 Dead-object discovery walks occupied concrete stores and a narrow interface-wrapper
 index; it does not scan directory tombstones. The lasting ownership and safety
 contracts are in [the runtime model](spec/runtime.md#gc-heap).
@@ -1704,8 +1706,8 @@ using the workspace test profile, default target and build parallelism. The asse
 above are algorithm evidence, not a success-command log or a fresh timing run.
 Root snapshots still scan historical root slots; metadata discovery, marking and
 changed-store compaction retain separate costs. Discovery counts occupied objects,
-including not-yet-collected garbage, **not only live objects**. MPSC sending may
-allocate. Neither allocation-free release nor total GC O(live), wall-time improvement
+including not-yet-collected garbage, **not only live objects**. The then-used MPSC
+send could allocate. Neither allocation-free release nor total GC O(live), wall-time improvement
 or closure of BO04/IP12 gates follows from these counters.
 
 ## Bytecode slot and operand evaluation, Windows 2026-10-19

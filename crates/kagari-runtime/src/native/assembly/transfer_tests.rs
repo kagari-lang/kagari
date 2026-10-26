@@ -1,4 +1,5 @@
 //! Transfer only retained preparation state, never local authoring or live adapters.
+use crate::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 use crate::{
     Runtime,
     native::{
@@ -77,11 +78,24 @@ impl NativeAdapter<Rc<()>, Rc<()>> for LocalAdapter {
 #[derive(Debug)]
 struct Payload;
 
-impl NativePayload for Payload {
-    fn trace<'payload>(&'payload self, _: &mut dyn FnMut(&'payload Value)) {}
+unsafe impl NativePayload for Payload {
+    type ScanState = ();
+    const SCAN_KIND: NativeScanKind = NativeScanKind::EdgeFree;
 
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(0, 0))
+    fn begin_scan(&self) {}
+
+    fn scan<'payload>(
+        &'payload self,
+        _: &mut Self::ScanState,
+        budget: &mut ScanBudget,
+        _: &mut dyn FnMut(&'payload Value),
+    ) -> ScanStatus {
+        budget.charge(1);
+        ScanStatus::Complete
+    }
+
+    fn charge(&self) -> HeapCharge {
+        HeapCharge::new(0, 0)
     }
 }
 

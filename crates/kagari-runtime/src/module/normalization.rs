@@ -84,6 +84,7 @@ impl VerifiedProgram {
             definition_references,
             update_evidence,
             update_coverage,
+            native_applications,
         ) = if self.definition_references.is_empty() {
             (
                 self.modules.clone(),
@@ -92,6 +93,7 @@ impl VerifiedProgram {
                 self.definition_references.clone(),
                 self.update_evidence.clone(),
                 self.update_coverage.clone(),
+                self.native_applications.clone(),
             )
         } else {
             let remap = context
@@ -130,6 +132,12 @@ impl VerifiedProgram {
                 .update_evidence
                 .remap_definitions(&mut mapper)
                 .map_err(identity_error)?;
+            let native_applications = self
+                .native_applications
+                .iter()
+                .map(|witness| witness.remap_definitions(&mut mapper))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(identity_error)?;
             let update_coverage = self
                 .update_coverage
                 .remap_definitions(&mut mapper)
@@ -141,6 +149,7 @@ impl VerifiedProgram {
                 definition_references.into(),
                 Arc::new(update_evidence),
                 Arc::new(update_coverage),
+                native_applications.into(),
             )
         };
         let definitions = identity::collect(
@@ -175,6 +184,7 @@ impl VerifiedProgram {
             source_package,
             update_evidence,
             update_coverage,
+            native_applications,
             initializers: self.initializers.clone(),
             root: self.root,
             exports,

@@ -1,9 +1,10 @@
 use crate::tests::native_boundary::{compile, compile_program};
+use kagari_runtime::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 use kagari_runtime::{
     error::RuntimeErrorKind,
     module::entry::ProgramEntry,
     native::{
-        binding::{Codec, NativeBinding, NativeResult},
+        binding::{Codec, NativeBinding},
         builder::ModuleBuilder,
         declarations::FunctionDecl,
         module::NativeModule,
@@ -28,13 +29,26 @@ struct Faults {
 #[derive(Debug)]
 struct Payload(Arc<Faults>);
 
-impl NativePayload for Payload {
-    fn trace<'payload>(&'payload self, _: &mut dyn FnMut(&'payload Value)) {
+unsafe impl NativePayload for Payload {
+    type ScanState = ();
+    const SCAN_KIND: NativeScanKind = NativeScanKind::Indivisible;
+
+    fn begin_scan(&self) {}
+
+    fn scan<'payload>(
+        &'payload self,
+        _: &mut Self::ScanState,
+        budget: &mut ScanBudget,
+        _: &mut dyn FnMut(&'payload Value),
+    ) -> ScanStatus {
+        budget.charge(1);
         assert!(!self.0.trace.load(Ordering::SeqCst), "fixture trace panic");
+
+        ScanStatus::Complete
     }
 
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(0, 0))
+    fn charge(&self) -> HeapCharge {
+        HeapCharge::new(0, 0)
     }
 }
 

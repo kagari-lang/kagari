@@ -1,5 +1,5 @@
 //! Heap-owned exclusion records. Guards never own storage or execution state.
-use crate::{error::RuntimeError, gc::HeapObjectId};
+use crate::{error::RuntimeError, gc::HeapObjectId, native::views::NativeOperationKind};
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -12,6 +12,7 @@ pub(crate) struct OwnedLease(Arc<()>);
 #[derive(Debug, Default)]
 struct Entry {
     borrowed: usize,
+    operation: Option<NativeOperationKind>,
     owned: Vec<Weak<()>>,
 }
 
@@ -48,6 +49,27 @@ impl Drop for BorrowedLease<'_> {
 }
 
 impl LeaseTable {
+    pub(crate) fn operation(&self, id: HeapObjectId) -> Option<NativeOperationKind> {
+        self.entries
+            .borrow()
+            .get(&id)
+            .and_then(|entry| entry.operation)
+    }
+
+    pub(crate) fn borrow_operation(
+        &self,
+        id: HeapObjectId,
+        kind: NativeOperationKind,
+    ) -> Result<BorrowedLease<'_>, RuntimeError> {
+        let lease = self.borrow(id)?;
+        self.entries
+            .borrow_mut()
+            .get_mut(&id)
+            .expect("admitted operation")
+            .operation = Some(kind);
+        Ok(lease)
+    }
+
     pub(crate) fn is_active(&self, id: HeapObjectId) -> bool {
         self.entries.borrow().get(&id).is_some_and(Entry::is_active)
     }

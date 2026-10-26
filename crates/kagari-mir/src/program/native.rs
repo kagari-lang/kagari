@@ -11,7 +11,10 @@ use kagari_contract::{
     native_import::callables::NativeCallableOrigin,
     operations::BinaryOp,
     standard::RuntimePrimitive,
-    types::{ConcreteFunctionIdentity, PublicItem, proofs::ProofCatalog},
+    types::{
+        ConcreteFunctionIdentity, PublicItem, applications::native::NativeApplications,
+        proofs::ProofCatalog, type_contract,
+    },
 };
 use kagari_types::{
     callable::{CallableImplementation, Signature},
@@ -186,6 +189,24 @@ pub(super) fn validate(
     {
         return Ok(false);
     }
+    let applications = NativeApplications::new(
+        catalog,
+        |id| {
+            closure.iter().find_map(|owner| {
+                type_contract(&owner.identity, &owner.abi.public_items, id, definitions).or_else(
+                    || {
+                        owner
+                            .abi
+                            .private_types
+                            .iter()
+                            .find(|record| &record.declaration == id)
+                            .map(|record| &record.definition)
+                    },
+                )
+            })
+        },
+        cancel,
+    );
     for import in caller.native_applications() {
         let Some(owner) = closure.iter().find(|owner| {
             definitions
@@ -205,6 +226,7 @@ pub(super) fn validate(
         if !import.matches_declaration(declaration, catalog, cancel)? {
             return Ok(false);
         }
+        applications.import(import)?;
     }
     for operation in caller.operation_witnesses() {
         let OperationWitness::SharedAdapter(adapter) = operation else {

@@ -5,7 +5,9 @@ use crate::{
     verify::ValidatedMirModule,
 };
 use kagari_common::cancellation::CancellationToken;
-use kagari_contract::types::proofs::ProofCatalog;
+use kagari_contract::types::{
+    applications::native::NativeApplications, proofs::ProofCatalog, type_contract,
+};
 use kagari_types::{
     callable::{CallableImplementation, Signature},
     ty::substitution::TypeTransformError,
@@ -17,6 +19,28 @@ pub(super) fn valid(
     catalog: &ProofCatalog<'_>,
     cancel: &CancellationToken,
 ) -> Result<bool, TypeTransformError> {
+    let applications = NativeApplications::new(
+        catalog,
+        |id| {
+            closure.iter().find_map(|owner| {
+                type_contract(
+                    &owner.identity,
+                    &owner.abi.public_items,
+                    id,
+                    catalog.definitions(),
+                )
+                .or_else(|| {
+                    owner
+                        .abi
+                        .private_types
+                        .iter()
+                        .find(|record| &record.declaration == id)
+                        .map(|record| &record.definition)
+                })
+            })
+        },
+        cancel,
+    );
     for function in &caller.functions {
         for instruction in function.blocks.iter().flat_map(|block| &block.instructions) {
             let Instruction::Call {
@@ -72,6 +96,14 @@ pub(super) fn valid(
                 cancel,
             )? {
                 return Ok(false);
+            }
+            if let CallableImplementation::Native(binding) = call.implementation {
+                let import = caller
+                    .native_targets
+                    .iter()
+                    .find(|import| import.instance == call.instance && import.binding == binding)
+                    .ok_or(TypeTransformError::InvalidContract)?;
+                applications.shared(import, call, caller_body)?;
             }
         }
     }

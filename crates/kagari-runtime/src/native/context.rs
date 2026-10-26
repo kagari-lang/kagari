@@ -18,7 +18,11 @@ use crate::{
         },
         values::FrameSlots,
     },
-    gc::{GcCollection, GcHeap, HeapObjectId, custom_keys::KeyLookupRoots, roots::RootSet},
+    gc::{
+        GcCollection, GcHeap, HeapObjectId,
+        custom_keys::KeyLookupRoots,
+        roots::{RootSet, RootedValue},
+    },
     module::{ExecutableModule, execution::layout::Location},
     native::{
         arguments::CallArguments,
@@ -345,7 +349,10 @@ impl<'call> CallContext<'call> {
         slots: &[usize],
     ) -> NativeResult<Value> {
         self.heap().ensure_no_native_borrow()?;
-        let ty = self.result_type();
+        let admitted = self
+            .runtime
+            .native_payload_result_argument(self.owner, self.function)?;
+        let ty = admitted.ty();
         let Ty::NativeObject(nominal) = ty else {
             return Err(RuntimeError::module_validation(
                 "provided payload requires a registered native object result",
@@ -357,27 +364,35 @@ impl<'call> CallContext<'call> {
             .storage
             .get_id(nominal.declaration)
             .ok_or_else(|| RuntimeError::module_validation("native storage is not installed"))?;
-        self.runtime.validate_executable_module(self.owner)?;
-        let mut object = storage.prepare_payload(self.heap(), ty, payload, self.owner)?;
-        object.scope = Some(self.function.type_signature()?.result.clone());
-        object.selected = slots
-            .iter()
-            .map(|slot| StoredSelection::new(self.owner, self.selected_at(*slot)?))
-            .collect::<NativeResult<Arc<[_]>>>()?;
-        self.heap().alloc_native(object).map(Value::GcHandle)
+        let selected = StoredSelection::slots(self.owner, &self.function.selected, slots)?;
+        let root = storage.allocate_payload(
+            &StorageContext {
+                runtime: self.runtime,
+                owner: self.owner,
+                ty,
+                scope: Some(&admitted),
+                selected: &[],
+            },
+            payload,
+            selected,
+        )?;
+        // Raw native-result handoff: no callback, conversion or safepoint follows
+        // extraction before the invoking frame publishes this returned Value.
+        root.value(self.heap())
+            .ok_or_else(|| RuntimeError::module_validation("native result retention"))
     }
 
     /// Invoke a stored selection from a native object, map or set argument.
     /// The argument roots its relationship evidence; temporary call authority pins
     /// the newly selected computation without changing the root session.
     /// Rejects missing slots, incompatible values and forbidden candidate reentry.
-    /// The caller must publish the returned value before its next safepoint.
+    /// The returned root survives callbacks, mutation and subsequent safepoints.
     pub fn call_stored_values(
         &mut self,
         argument: usize,
         slot: usize,
         values: &[Value],
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<RootedValue> {
         let id = match self.argument(argument)? {
             Value::GcHandle(id) | Value::Map(id) | Value::Set(id) => id,
             _ => return Err(RuntimeError::module_validation("stored callable receiver")),
@@ -389,13 +404,14 @@ impl<'call> CallContext<'call> {
             .retain(self.runtime)?;
         let function = PreparedFunction::selected(self.runtime, self.owner, target)?;
         let context = NativeContext::with_invoker(self.runtime, self.owner, self.invoke_script)?;
-        function
-            .call_values(&context, values)?
-            .value(self.heap())
-            .ok_or_else(|| RuntimeError::module_validation("stored callable result retention"))
+        function.call_values(&context, values)
     }
 
-    pub fn with_payload<S: NativePayload, R>(
+    /// # Safety
+    /// Extracted edges must be retained before their owner can change or expire;
+    /// interior writes must preserve publication and installed accounting and
+    /// respect read-only operation protection.
+    pub unsafe fn with_payload<S: NativePayload, R>(
         &self,
         index: usize,
         access: impl for<'payload> FnOnce(&'payload S) -> NativeResult<R>,

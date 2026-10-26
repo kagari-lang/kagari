@@ -130,6 +130,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let owned = descriptor.create(
         &mut NativeContext::new(&runtime, &loaded)?,
         Counter { value: 42 },
+        &[],
     )?;
     let encoded = ConversionContext::new(&runtime, &loaded)?.encode(owned.clone())?;
     let value = encoded.value(runtime.gc()).expect("retained Counter");

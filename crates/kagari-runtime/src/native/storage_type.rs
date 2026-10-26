@@ -10,7 +10,7 @@ use crate::{
 use kagari_types::ty::Ty;
 
 #[derive(Debug)]
-pub(crate) struct StorageType {
+pub struct StorageType {
     pub(crate) ty: Ty,
     pub(crate) owner: ExecutableModule,
     scope: Option<TypeArgument>,
@@ -25,14 +25,14 @@ impl StorageType {
         })
     }
 
-    pub(crate) fn prepare_scoped(
+    pub fn prepare_scoped(
         argument: TypeArgument,
         owner: &ExecutableModule,
     ) -> Result<Self, RuntimeError> {
         Self::checked(Self {
             ty: argument.ty().clone(),
             owner: owner.clone(),
-            scope: argument.has_origin().then_some(argument),
+            scope: Some(argument),
         })
     }
 
@@ -48,6 +48,12 @@ impl StorageType {
             ));
         }
         Ok(contract)
+    }
+
+    pub(crate) fn argument(&self) -> Result<&TypeArgument, RuntimeError> {
+        self.scope.as_ref().ok_or_else(|| {
+            RuntimeError::module_validation("retention requires a scoped storage contract")
+        })
     }
 
     fn view(&self) -> TypeView<'_> {

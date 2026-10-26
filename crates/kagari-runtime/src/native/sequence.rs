@@ -1,5 +1,6 @@
 //! Finite specialization of script scalar layouts, selected from the declared type.
 //! No inference from the first element, no per-element GC roots for primitive data.
+use crate::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 mod allocation;
 
 use crate::{
@@ -208,18 +209,35 @@ pub(crate) struct SequencePayload {
     pub(crate) detached: bool,
 }
 
-impl NativePayload for SequencePayload {
-    fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
-        for value in self.values.traced() {
-            visit(value);
-        }
+unsafe impl NativePayload for SequencePayload {
+    type ScanState = (usize, usize);
+    const SCAN_KIND: NativeScanKind = NativeScanKind::Resumable;
+
+    fn begin_scan(&self) -> Self::ScanState {
+        (0, self.values.traced().len())
     }
 
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(
-            self.values.len(),
-            self.values.retained_bytes(),
-        ))
+    fn scan<'payload>(
+        &'payload self,
+        state: &mut Self::ScanState,
+        budget: &mut ScanBudget,
+        visit: &mut dyn FnMut(&'payload Value),
+    ) -> ScanStatus {
+        let values = self.values.traced();
+        while state.0 < state.1 {
+            if !budget.take(1) {
+                return ScanStatus::Pending;
+            }
+            if let Some(value) = values.get(state.0) {
+                visit(value);
+            }
+            state.0 += 1;
+        }
+        ScanStatus::Complete
+    }
+
+    fn charge(&self) -> HeapCharge {
+        HeapCharge::new(self.values.len(), self.values.retained_bytes())
     }
 }
 

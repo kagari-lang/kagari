@@ -1,13 +1,15 @@
 use super::string_iter::StringTraversal;
+
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::types::{arguments::TypeArgument, compatibility::TypeView},
     gc::{GcHeap, GcObjectKind, HeapObjectId, storage::HeapObject},
     module::ExecutableModule,
     native::{
-        binding::NativeResult,
-        sequence::SequencePayload,
-        storage::{NativePayload, NativeStorage},
+        storage::{
+            NativePayload, NativeStorage,
+            scan::{NativeScanKind, ScanBudget, ScanStatus},
+        },
         storage_type::StorageType,
     },
     resource::HeapCharge,
@@ -53,25 +55,50 @@ pub(super) struct NativeIter {
     pub(super) revision: u64,
 }
 
-impl NativePayload for NativeIter {
-    fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
-        visit(&self.source);
-        if let Some(string) = &self.string {
-            string.trace(visit);
-        }
-        for key in &self.keys {
-            visit(key.value());
-        }
+unsafe impl NativePayload for NativeIter {
+    type ScanState = (usize, usize);
+    const SCAN_KIND: NativeScanKind = NativeScanKind::Resumable;
+
+    fn begin_scan(&self) -> Self::ScanState {
+        (0, self.keys.len() + 2)
     }
 
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(
+    fn scan<'payload>(
+        &'payload self,
+        state: &mut Self::ScanState,
+        budget: &mut ScanBudget,
+        visit: &mut dyn FnMut(&'payload Value),
+    ) -> ScanStatus {
+        while state.0 < state.1 {
+            if !budget.take(1) {
+                return ScanStatus::Pending;
+            }
+            match state.0 {
+                0 => visit(&self.source),
+                1 => {
+                    if let Some(string) = &self.string {
+                        string.trace(visit);
+                    }
+                }
+                index => {
+                    if let Some(key) = self.keys.get(index - 2) {
+                        visit(key.value());
+                    }
+                }
+            }
+            state.0 += 1;
+        }
+        ScanStatus::Complete
+    }
+
+    fn charge(&self) -> HeapCharge {
+        HeapCharge::new(
             1 + self.keys.len(),
             self.keys
                 .capacity()
                 .checked_mul(size_of::<MapKey>())
                 .expect("allocated iterator keys"),
-        ))
+        )
     }
 }
 
@@ -87,18 +114,16 @@ impl GcHeap {
     /// Element replacement does not change this revision. Invalid handles and
     /// sequence storage temporarily detached for editing have no readable revision.
     pub fn collection_revision(&self, source: &Value) -> Option<u64> {
+        self.ensure_execution_allowed().ok()?;
         match source {
             Value::Str(_) | Value::Range(_) => Some(0),
             Value::Array(id) | Value::GcHandle(id) | Value::Map(id) | Value::Set(id) => {
+                self.check_native_operation(*id, None, false).ok()?;
                 let objects = self.objects.borrow();
                 let HeapObject::Native(object) = self.readable_object(&objects, *id)? else {
                     return None;
                 };
-                if object.storage.accepts_payload::<SequencePayload>()
-                    && object.payload::<SequencePayload>().ok()?.detached
-                {
-                    return None;
-                }
+
                 Some(object.revision)
             }
             _ => None,
@@ -269,6 +294,7 @@ impl GcHeap {
         let (Value::GcHandle(id), Ty::Iter(item)) = (value, ty) else {
             return Err(invalid());
         };
+        self.check_native_operation(*id, None, true)?;
         let (payload, next_position, string_cursor) = {
             let objects = self.objects.borrow();
             let Some(object) = self.native_ref(&objects, *id) else {
@@ -358,6 +384,7 @@ impl GcHeap {
             .transpose()?;
         let has_item = payload.is_some();
         let result = finish(payload)?;
+        self.check_native_operation(*id, None, true)?;
         let mut objects = self.objects_mut()?;
         let Some(object) = self.native_mut(&mut objects, *id) else {
             return Err(invalid());

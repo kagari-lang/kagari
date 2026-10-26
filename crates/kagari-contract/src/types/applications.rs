@@ -19,6 +19,7 @@ use kagari_types::{
 };
 
 mod dynamic;
+pub mod native;
 
 pub fn validate_declarations<'declaration, F, G>(
     validator: &ApplicationValidator<'_, F, G>,

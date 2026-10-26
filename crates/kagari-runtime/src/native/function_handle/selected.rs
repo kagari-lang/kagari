@@ -8,7 +8,7 @@ use crate::{
     module::{ExecutableModule, ModuleEpochRetention, dispatch::CallRoute},
     native::{
         binding::NativeResult,
-        context::{CallableOwner, LinkedCallable, ScriptCall},
+        context::{CallableOwner, LinkedCallable, LinkedOperation, ScriptCall},
         conversion::{KagariType, arguments::KagariArguments, context::ConversionContext},
         function_handle::{Function, FunctionBinding, PreparedFunction, Target},
         typed::NativeContext,
@@ -46,6 +46,23 @@ impl SelectedBinding {
         target.owner =
             CallableOwner::Pinned(selected.owner().clone(), runtime.root_metadata(roots)?);
         PreparedFunction::selected(runtime, selected.owner(), target)
+    }
+}
+
+impl NativeContext<'_> {
+    /// Retain a typed relationship supplied by this checked native invocation.
+    /// Ordinary calls select current bodies; PreparedFunction pins one computation.
+    pub fn selected_function<A: KagariArguments, R: KagariType>(
+        &self,
+        slot: usize,
+    ) -> NativeResult<Function<A, R>> {
+        self.runtime().gc().ensure_execution_allowed()?;
+        let selected = self
+            .function
+            .and_then(|function| function.selected.get(slot))
+            .and_then(LinkedOperation::ready)
+            .ok_or_else(|| RuntimeError::module_validation("native selected callable slot"))?;
+        Function::from_selected(self.runtime(), self.conversion.owner(), selected)
     }
 }
 

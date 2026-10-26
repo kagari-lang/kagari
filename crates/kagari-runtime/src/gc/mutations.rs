@@ -40,6 +40,7 @@ impl GcHeap {
             self.ensure_sequence(id)?;
         }
         self.ensure_structure_mutable(id)?;
+        self.check_native_operation(*buffer, None, false)?;
         let objects = self.objects.borrow();
         let source = self.readable_object(&objects, id).ok_or_else(invalid)?;
         let Some(HeapObject::Native(buffer_object)) = self.readable_object(&objects, *buffer)

@@ -89,7 +89,7 @@ impl<T: NativeData> ManagedBuilder<T> {
     pub fn finish(self, cx: &mut NativeContext<'_>) -> NativeResult<Opaque<Managed<T>>> {
         let payload = self.prepare(cx)?;
         // self retains every initializer until the newly allocated object is rooted.
-        self.native_type.create(cx, payload)
+        self.native_type.create(cx, payload, &[])
     }
 
     /// Replace data and all fields through the same checked commit boundary.

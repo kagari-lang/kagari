@@ -335,8 +335,9 @@ fn stored_callbacks_trace_captures_through_an_ordinary_native_payload() {
         .bind(
             invoke,
             |cx: &mut CallContext<'_>, handler: ValueHandle<'_>| -> NativeResult<i32> {
-                let stored =
-                    handler.with_payload::<StoredCallable, _>(|callback| Ok(callback.clone()))?;
+                let stored = unsafe {
+                    handler.with_payload::<StoredCallable, _>(None, |callback| Ok(callback.clone()))
+                }?;
                 cx.collect_garbage()?;
                 let Value::I32(result) = stored.call_values(cx, &[Value::I32(1)])? else {
                     panic!("checked stored callback result");

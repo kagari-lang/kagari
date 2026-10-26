@@ -450,7 +450,7 @@ The registered representation determines conversion and borrowing:
 | Script input | Owned Rust `T` | Rust `&T` | Rust `&mut T` |
 | --- | --- | --- | --- |
 | Ordinary GC DTO | Independent schema-directed conversion | Rejected | Rejected |
-| Runtime-owned opaque target | Explicit host `Opaque::take` only | Checked payload loan | Checked payload loan with installed editing capability |
+| Runtime-owned opaque target | Explicit host `Opaque::take` only | Checked safe loan with installed NativeData capability | Checked safe loan with installed NativeData capability |
 | `Ref<T>` | No implicit snapshot | Checked scoped loan | Rejected |
 | `RefMut<T>` | No implicit snapshot | Checked scoped loan | Checked scoped loan |
 
@@ -465,7 +465,7 @@ the finite derive/Serde subset and directional converters.
 ## Native payload accounting
 
 Advanced runtime-owned storage implements
-`NativePayload::charge(&self) -> NativeResult<HeapCharge>` instead of `units()`.
+unsafe `NativePayload`, with `charge(&self) -> HeapCharge`.
 `HeapCharge` carries logical payload units excluding the heap identity, and bytes
 for exclusively owned indirect backing. The runtime adds the erased payload Box's
 shallow size exactly once; providers must not include it again. Referenced GC
@@ -474,17 +474,102 @@ Report known capacities where available, distinguish estimates, and document
 unobservable allocations as excluded rather than asserting an exact zero.
 These are GC-pressure contributions, not process-memory totals or quotas.
 
-The callback must be side-effect-free and must not reenter the runtime. Payload
-preparation samples it once before publication; a failure publishes no payload or
-charge. The runtime-owned native record then owns the authoritative charge.
+The installed callback is infallible and constant-time, including during unwind;
+it must not allocate, panic, mutate storage or reenter the runtime. Admission and
+every completed general edit sample it. The runtime-owned native record holds the
+committed charge, including capacity successfully reserved before a later error.
+Fallible admission/accounting preparation still precedes publication or mutation.
 Installed logical units and attributed backing must remain stable except through
-checked runtime storage mutations; interior mutability is not permission to resize
-that backing. Fixed-data loans cannot change its size, and managed replacements
-prepare a new charge before committing. Sweep, extraction and cleanup release the
-recorded charge without calling the provider again, including cleanup after
-termination/quarantine. This does not authorize take or mutation after execution
-has been rejected. See [GC accounting](runtime.md#gc-heap) and the
+checked storage mutations; interior mutability is not permission to resize them.
+Fixed-data loans cannot change size, and managed replacements prepare their charge
+before committing. Sweep and take release the recorded charge without provider
+calls, including cleanup after termination/quarantine. This does not authorize new
+execution after rejection. See [GC accounting](runtime.md#gc-heap) and the
 [reservation failure contract](failure-semantics.md#modification-guarantees).
+
+## General native payload protocol
+
+`NativePayload` is an unsafe provider contract, not permission for unchecked safe
+Rust access. Every strong script edge, including temporary algorithm scratch, must
+be discoverable in every installed state, including errors and unwinds. Stored
+selection metadata remains with the containing native object, not per-element
+host roots. Copying a raw `Value` does not retain it.
+
+One scanner serves admission and full traversal: `ScanState: Copy + Send + 'static`,
+`SCAN_KIND`, `begin_scan` and `scan(state, budget, visit) -> ScanStatus`. The
+capabilities are `EdgeFree`, `Bounded { max_work }`, `Resumable` and `Indivisible`.
+State contains no payload pointers/references, roots or untraced graph edges.
+Scanning cannot allocate, panic, reenter or mutate payload storage. Count inspected
+slots, including slots without edges: `ScanBudget::take` consumes work before
+inspection, while `charge` reports indivisible work even when it exceeds the budget.
+`Pending` must report finite progress; `Complete` ends the traversal. The runtime
+checks capability/work reporting, but this does not replace the provider's unsafe
+edge-completeness obligation. The current driver drains the scanner synchronously;
+resumable provider support does not promise production incremental marking or a
+hard pause bound.
+
+General `Opaque<P>::read(cx, operation, closure)` and
+`edit(cx, operation, EditPlan, closure)` are unsafe. Their higher-ranked closures
+receive `&P`/`&mut P` and loan-scoped `StorageAccess`. No payload reference may
+escape, and all loans end before callbacks, collection or reentry. Safe
+`Opaque<P: NativeData>::read_data`/`edit_data` require the installed fixed-data proof:
+no graph edges, interior mutation or dynamic allocation charge. `NativeTake` alone
+is not that proof. Managed fields retain their checked safe accessors.
+
+`StorageAccess::retain(contract, value)` validates the closed storage type and
+runtime/generation/lifetime, then returns a rooted `ScriptValue` before the loan
+ends. `publish(contract, retained)` validates a retained input before it becomes a
+stored `Value`. For example, a map removal first retains the selected value, then
+commits removal and ends the loan; a callback may collect before the caller reads
+the returned handle. Returning only a copied raw `Value` would leave that gap
+unprotected. `StorageContext::element_contract` supplies the scoped `StorageType`
+contract; it does not infer script types again.
+
+`EditPlan { max_logical_units, structural }` preflights accounting and structural
+revision capacity. Perform fallible preparation first, then call `commit_structure`
+immediately before an infallible structural write. Repeated commits within one loan
+are idempotent. Completed edits finalize accounting even on error/unwind; they are
+not rolled back. Unsafe `republish_existing` is restricted to already admitted
+edges continuously traced in the same protected payload, not arbitrary raw values.
+
+Unsafe `try_enter_operation(cx, kind, recovery)` protects multi-loan operations.
+`ReadOnlyCallbacks` rejects mutable recovery; `ExclusiveSlots` preflights recovery
+and protects receiver slots across callbacks. Drop the guard outside a payload loan.
+The optional recovery function restores same-payload traced state without allocation,
+script execution, panic, charge growth or new edge retention/publication. Ordinary
+fallible preparation cannot be deferred into recovery. Contract violations can
+quarantine execution; completed callback effects are not undone.
+
+The current boxed short-loan implementation temporarily removes the payload while
+releasing the directory borrow. Public escaping string, tuple, enum and closure
+views are blocked during that loan, so restoration cannot conflict with a retained
+directory borrow. Internal scoped validation still checks actual aggregates and
+ownership; it is not disabled to permit loans. This is not a paged-storage claim.
+
+## Native application admission
+
+`ModuleBuilder::define_opaque::<P>(name)` associates the declaration, storage policy
+from `P::registration_storage()` and `Opaque<P>` mapping once. Host creation uses
+`NativeType<P>::create(cx, payload, selected_slots)`. A typed constructor obtains
+that descriptor with `cx.result_native_type::<P>()?`; the separate `create_opaque`
+entrypoint is removed. Empty slots need no active native-call selection evidence;
+nonempty slots must belong to the current checked invocation. Stored relationships
+are metadata edges. `Opaque::stored_function` provides a typed handle and low-level
+`CallContext::call_stored_values` returns `RootedValue`, not an unprotected result.
+Ordinary calls select current bodies; prepared computations retain exact bodies.
+
+Bounded host binding consumes closed native-application witnesses sealed by
+source-free verification, with carrier, occurrence, nominal application and binder
+scope. Source analysis and lowering preserve native bounds; verification checks
+imports/shared-call applications against declarations before producing witnesses.
+They are immutable nonserialized verification facts, not runtime trait search or
+GC state. Open or unseen applications, wrong supplying scopes and forged/omitted
+bounds cannot authorize host construction. An active native constructor uses only
+its exact import/result witness (including an adapter's concrete receiver), then
+checks the prepared result's type and scope. Reconstructing a descriptor from an
+existing object instead validates that object's type, owner/generation and Rust
+representation. Type admission alone does not manufacture callable constructor
+selections.
 
 ## Registered payload loans
 
@@ -505,9 +590,12 @@ Opaque adapters validate Rust mappings and installed receiver capabilities befor
 argument conversion, then validate/root the entire input pack and decode owned
 arguments before acquiring the payload loan. Complete-pack roots remain until
 result conversion finishes. The existing GC guard releases access before result
-allocation and on errors/unwind; completed writes remain visible. Mutable access
-requires the installed fixed-data proof, not merely the callback's `&mut T` type.
-Traced, managed and take-only registrations do not gain arbitrary editing.
+allocation and on errors/unwind; completed writes remain visible. Both shared and
+mutable safe runtime-owned loans require the installed NativeData proof before
+argument conversion or callback effects, including each receiver in a paired loan.
+An `&T` signature alone cannot prevent raw edge extraction or interior mutation.
+Traced, managed and take-only registrations do not gain arbitrary safe payload
+access; use their checked accessors or the explicit unsafe provider boundary.
 External scope and path adapters consume the same declaration and binding facts
 through the common invocation boundary described below.
 

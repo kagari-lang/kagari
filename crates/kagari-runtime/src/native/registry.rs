@@ -234,6 +234,7 @@ impl NativeRegistry {
     pub(crate) fn link(
         &self,
         import: &NativeImport,
+        slot: NativeImportId,
         program: &VerifiedProgram,
     ) -> NativeResult<Arc<LinkedNativeFunction>> {
         let entry = self
@@ -326,6 +327,8 @@ impl NativeRegistry {
             })
             .collect::<NativeResult<Vec<_>>>()?;
         Ok(Arc::new(LinkedNativeFunction {
+            import: slot,
+            environment: None,
             declaration: import.instance.declaration,
             binding: entry.binding.clone(),
             signature,

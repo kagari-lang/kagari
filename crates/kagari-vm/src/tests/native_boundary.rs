@@ -3,6 +3,7 @@ use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::analysis::AnalysisDatabase;
+use kagari_runtime::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 
 use kagari_runtime::{
     Runtime,
@@ -351,13 +352,26 @@ struct TracedCounter {
     dropped: Arc<AtomicUsize>,
 }
 
-impl NativePayload for TracedCounter {
-    fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
+unsafe impl NativePayload for TracedCounter {
+    type ScanState = ();
+    const SCAN_KIND: NativeScanKind = NativeScanKind::Indivisible;
+
+    fn begin_scan(&self) {}
+
+    fn scan<'payload>(
+        &'payload self,
+        _: &mut Self::ScanState,
+        budget: &mut ScanBudget,
+        visit: &mut dyn FnMut(&'payload Value),
+    ) -> ScanStatus {
+        budget.charge(1);
         visit(&self.values);
+
+        ScanStatus::Complete
     }
 
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(1, 0))
+    fn charge(&self) -> HeapCharge {
+        HeapCharge::new(1, 0)
     }
 }
 
@@ -417,23 +431,27 @@ fn registered_nominal_payload_traces_children_and_drops_with_the_heap() {
                 vec![counter.codec()],
                 Codec::Exact(Type::i32()),
                 |context| {
-                    context.with_payload::<TracedCounter, _>(0, |payload| {
-                        // Collection and execution cannot invalidate this scoped Rust borrow.
-                        assert!(
-                            context
-                                .allocate_array(context.resolve_type(Type::i32().abi())?, vec![])
-                                .unwrap_err()
-                                .message()
-                                .contains("native storage access")
-                        );
-                        let Value::Array(id) = payload.values else {
-                            panic!("counter payload");
-                        };
-                        context
-                            .heap()
-                            .array_get(id, 0)
-                            .ok_or_else(|| RuntimeError::module_validation("missing traced child"))
-                    })
+                    unsafe {
+                        context.with_payload::<TracedCounter, _>(0, |payload| {
+                            // Collection and execution cannot invalidate this scoped Rust borrow.
+                            assert!(
+                                context
+                                    .allocate_array(
+                                        context.resolve_type(Type::i32().abi())?,
+                                        vec![]
+                                    )
+                                    .unwrap_err()
+                                    .message()
+                                    .contains("native storage access")
+                            );
+                            let Value::Array(id) = payload.values else {
+                                panic!("counter payload");
+                            };
+                            context.heap().array_get(id, 0).ok_or_else(|| {
+                                RuntimeError::module_validation("missing traced child")
+                            })
+                        })
+                    }
                 },
             ),
         )
@@ -1081,16 +1099,20 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
     builder
         .bind(
             read,
-            NativeBinding::new(vec![counter.codec()], Codec::Exact(Type::i32()), |cx| {
-                cx.with_payload::<TracedCounter, _>(0, |payload| {
-                    let Value::GcHandle(id) = payload.values else {
-                        return Err(RuntimeError::module_validation("counter child"));
-                    };
-                    cx.heap()
-                        .sequence_get(id, 0)
-                        .ok_or_else(|| RuntimeError::module_validation("counter element"))
-                })
-            }),
+            NativeBinding::new(
+                vec![counter.codec()],
+                Codec::Exact(Type::i32()),
+                |cx| unsafe {
+                    cx.with_payload::<TracedCounter, _>(0, |payload| {
+                        let Value::GcHandle(id) = payload.values else {
+                            return Err(RuntimeError::module_validation("counter child"));
+                        };
+                        cx.heap()
+                            .sequence_get(id, 0)
+                            .ok_or_else(|| RuntimeError::module_validation("counter element"))
+                    })
+                },
+            ),
         )
         .unwrap();
     let module = builder.finish().unwrap();

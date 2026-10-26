@@ -6,6 +6,7 @@ use crate::{
         binding::NativeResult,
         sequence::{SequencePayload, SequenceStorage},
         sequence_edit::SequenceEdit,
+        views::NativeOperationKind,
     },
 };
 use std::mem;
@@ -13,6 +14,7 @@ use std::mem;
 struct StorageLease<'heap> {
     heap: &'heap GcHeap,
     _mutation: BorrowedLease<'heap>,
+    _operation: BorrowedLease<'heap>,
     id: HeapObjectId,
     values: SequenceStorage,
     before: usize,
@@ -82,6 +84,9 @@ impl GcHeap {
         } else {
             Some(self.root_execution_values(references).ok_or_else(invalid)?)
         };
+        let operation = self
+            .try_enter_native_operation(id, NativeOperationKind::ExclusiveSlots)?
+            .ok_or_else(invalid)?;
         let mutation = self
             .mutations
             .borrow(id)
@@ -102,6 +107,7 @@ impl GcHeap {
         let mut lease = StorageLease {
             heap: self,
             _mutation: mutation,
+            _operation: operation,
             id,
             values,
             before,

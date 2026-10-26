@@ -1,10 +1,10 @@
 use super::program_for_source;
 use kagari_derive::KagariValue;
+use kagari_runtime::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     gc::GcHeapConfig,
     native::{
-        binding::NativeResult,
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
         conversion::{KagariType, context::ConversionContext},
@@ -72,6 +72,7 @@ fn derived_mixed_dto_keeps_opaque_identity_and_checked_data_capabilities() {
         .create(
             &mut NativeContext::new(&runtime, &owner).unwrap(),
             GameConfig { power: 7 },
+            &[],
         )
         .unwrap();
     let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
@@ -85,7 +86,7 @@ fn derived_mixed_dto_keeps_opaque_identity_and_checked_data_capabilities() {
     decoded.label = "Rust snapshot".into();
     decoded
         .config
-        .edit(&native, |config| {
+        .edit_data(&native, |config| {
             config.power = 12;
             Ok(())
         })
@@ -96,13 +97,30 @@ fn derived_mixed_dto_keeps_opaque_identity_and_checked_data_capabilities() {
     assert_eq!(
         again
             .config
-            .read(&native, |config| Ok(config.power))
+            .read_data(&native, |config| Ok(config.power))
             .unwrap(),
         12
     );
+    #[cfg(feature = "execution-diagnostics")]
+    {
+        let before = runtime.gc().storage_usage().unwrap();
+        assert!(before.native_payload_bytes >= size_of::<GameConfig>());
+        assert!(
+            config
+                .read_data(&native, |_| runtime.gc().storage_usage())
+                .is_err()
+        );
+        assert_eq!(runtime.gc().storage_usage().unwrap(), before);
+        assert_eq!(
+            config
+                .read_data(&native, |config| Ok(config.power))
+                .unwrap(),
+            12
+        );
+    }
     assert_eq!(config.take(&native).unwrap().power, 12);
-    assert!(decoded.config.read(&native, |_| Ok(())).is_err());
-    assert!(again.config.read(&native, |_| Ok(())).is_err());
+    assert!(decoded.config.read_data(&native, |_| Ok(())).is_err());
+    assert!(again.config.read_data(&native, |_| Ok(())).is_err());
     assert!(cx.decode::<BattleInput>(&root).is_err());
     runtime.collect_garbage().unwrap();
     assert!(!runtime.is_quarantined());
@@ -111,11 +129,24 @@ fn derived_mixed_dto_keeps_opaque_identity_and_checked_data_capabilities() {
 #[derive(Debug)]
 struct InvalidStorage;
 
-impl NativePayload for InvalidStorage {
-    fn trace<'payload>(&'payload self, _: &mut dyn FnMut(&'payload Value)) {}
+unsafe impl NativePayload for InvalidStorage {
+    type ScanState = ();
+    const SCAN_KIND: NativeScanKind = NativeScanKind::EdgeFree;
 
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(0, 0))
+    fn begin_scan(&self) {}
+
+    fn scan<'payload>(
+        &'payload self,
+        _: &mut Self::ScanState,
+        budget: &mut ScanBudget,
+        _: &mut dyn FnMut(&'payload Value),
+    ) -> ScanStatus {
+        budget.charge(1);
+        ScanStatus::Complete
+    }
+
+    fn charge(&self) -> HeapCharge {
+        HeapCharge::new(0, 0)
     }
 
     fn registration_storage() -> NativeStorage {

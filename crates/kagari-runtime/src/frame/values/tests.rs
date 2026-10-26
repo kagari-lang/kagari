@@ -665,6 +665,8 @@ fn native_application_eviction_keeps_active_window_edges_without_host_roots() {
         owner: loaded.clone(),
         environment: source.clone(),
         function: LinkedNativeFunction {
+            import: NativeImportId::new(0),
+            environment: Some(source.clone()),
             declaration,
             binding: NativeBinding::new(vec![], Codec::Value, |_| Ok(Value::Unit)),
             signature: Signature {

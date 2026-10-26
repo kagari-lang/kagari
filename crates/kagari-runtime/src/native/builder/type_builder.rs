@@ -4,7 +4,9 @@ use crate::{
     native::{
         binding::NativeResult,
         builder::ModuleBuilder,
-        storage::NativeStorage,
+        catalog::DeclarationCatalog,
+        payload::Opaque,
+        storage::{NativePayload, NativeStorage},
         types::{ParameterRef, Type, TypeRef},
     },
 };
@@ -16,7 +18,7 @@ use kagari_types::{
     declaration::{
         FieldDef, TypeDef, TypeDefKind, host::HostTypePolicy, verify::type_definition_valid,
     },
-    ty::{GenericParam, Ty},
+    ty::{GenericBound, GenericParam, Ty},
 };
 use std::sync::Arc;
 
@@ -29,6 +31,8 @@ pub struct TypeBuilder<'module> {
     documentation: Option<String>,
     storage: Option<Storage>,
     fields: Vec<FieldDef>,
+    bounds: Vec<GenericBound>,
+    register_mapping: Option<fn(&mut DeclarationCatalog, Type) -> NativeResult<()>>,
 }
 
 enum Storage {
@@ -37,6 +41,24 @@ enum Storage {
 }
 
 impl ModuleBuilder {
+    /// Declare an ordinary opaque payload with its single Rust storage policy.
+    /// Generic applications retain contextual Rust mapping checks at use sites.
+    pub fn define_opaque<P: NativePayload>(
+        &mut self,
+        name: impl Into<String>,
+    ) -> NativeResult<TypeBuilder<'_>> {
+        let storage = P::registration_storage();
+        if !storage.accepts_payload::<P>() {
+            return Err(RuntimeError::metadata_conflict(
+                "opaque storage policy differs from its Rust payload",
+            ));
+        }
+        let mut builder = TypeBuilder::new(self, name.into())?;
+        builder.native_storage(storage)?;
+        builder.register_mapping = Some(|catalog, ty| catalog.insert_rust_type::<Opaque<P>>(ty));
+        Ok(builder)
+    }
+
     /// Install storage for a local native type authored in a portable declaration.
     /// The complete declaration and layout must match; provider types cannot be rebound.
     pub fn bind_storage(&mut self, ty: &TypeRef, storage: NativeStorage) -> NativeResult<()> {
@@ -81,6 +103,8 @@ impl<'module> TypeBuilder<'module> {
             documentation: None,
             storage: None,
             fields: vec![],
+            bounds: vec![],
+            register_mapping: None,
         })
     }
 
@@ -110,6 +134,21 @@ impl<'module> TypeBuilder<'module> {
         Ok(ParameterRef {
             ty: Type::from_semantic(parameter.as_type(), &self.module.providers.definitions())?,
         })
+    }
+
+    /// Add a declaration-owned trait obligation; finish checks its binder scope.
+    pub fn bound(&mut self, ty: Type, interface: Type) -> NativeResult<()> {
+        let ty = ty.adopt(self.module.context())?;
+        let Ty::Trait(interface) = interface.adopt(self.module.context())? else {
+            return Err(RuntimeError::metadata_conflict(
+                "native type bound requires a trait application",
+            ));
+        };
+        self.bounds.push(GenericBound {
+            ty,
+            constraints: vec![interface],
+        });
+        Ok(())
     }
 
     pub fn sequence_storage(&mut self, element: &ParameterRef) -> NativeResult<()> {
@@ -209,7 +248,14 @@ impl<'module> TypeBuilder<'module> {
                 Storage::External(policy) => TypeDefKind::Host(*policy),
             },
             generic_params: self.parameters,
-            bounds: vec![],
+            bounds: GenericBound::normalize(
+                self.bounds,
+                &self.module.providers.definitions(),
+                &CancellationToken::default(),
+            )
+            .map_err(|error| {
+                RuntimeError::metadata_conflict(format!("native type bounds: {error:?}"))
+            })?,
             fields: self.fields,
             variants: vec![],
         };
@@ -233,11 +279,17 @@ impl<'module> TypeBuilder<'module> {
         self.module
             .providers
             .insert_type(self.id, declaration.clone())?;
-        Ok(TypeRef {
+        let result = TypeRef {
             id: self.id,
             definitions: self.module.providers.definitions(),
             declaration: Arc::new(declaration),
             parameter_names: self.parameter_names,
-        })
+        };
+        if result.declaration.generic_params.is_empty()
+            && let Some(register) = self.register_mapping
+        {
+            register(&mut self.module.providers, result.apply([])?)?;
+        }
+        Ok(result)
     }
 }
