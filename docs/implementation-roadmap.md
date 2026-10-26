@@ -387,6 +387,22 @@ frontend work requires a separately authorized scope. Full incremental compilati
 permanent engine reuse, R7/R8 changes, global caches, artifact pruning and AOT
 expansion remain separate.
 
+## Compilation cancellation polling
+
+The [polling plan](compilation-cancellation-plan.md) proposes CP01-CP04: establish
+actual read-cost/response baselines, pilot operation-owned batching in syntax
+scanning, integrate selected compiler lowering/update-budget paths, then validate
+and hand off. It is proposed only; implementation and commits are not authorized.
+
+Keep `CancellationToken::check()` immediate and retain exact resource accounting,
+latched failures, error precedence and cache/result boundary checks. Batch only
+bounded cheap traversal work under an explicit owner; do not mechanically remove
+checks from every loop. HIR's exact iterator cancellation contracts remain intact.
+VM instruction checks, GC, native/host/await boundaries and runtime cancellation
+semantics are excluded. The plan owns the finite scope, proposed latency gates and
+progress ledger. No polling overhead, speedup or responsiveness result is claimed,
+and this does not reopen the general startup-latency project.
+
 ## Program-owned generic instance worklist
 
 R7-01 through R7-04 are implemented and locally accepted. The

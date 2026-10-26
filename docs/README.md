@@ -70,6 +70,10 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   goal explicitly unmet. Further frontend preparation work is deferred; the
   [measurements](performance-baseline.md#direct-source-preparation-2026-10-21)
   retain the evidence and limits. Full incremental compilation stays separate.
+- [Compilation cancellation polling](compilation-cancellation-plan.md): proposed
+  CP01-CP04 measure polling cost/latency and batch selected bounded traversals,
+  preserving limits, cache/error boundaries and runtime cancellation semantics.
+  Implementation is not started or authorized; intervals and gates remain proposals.
 - [Program-owned generic instance scheduling](implementation-roadmap.md#program-owned-generic-instance-worklist):
   R7-01 through R7-04 are implemented and locally accepted. Retained module state
   and delta extraction replace whole-module regeneration, preserving shared bodies
