@@ -15,7 +15,7 @@ impl GcHeap {
                 "native extraction during an active operation",
             ));
         }
-        let object = {
+        let mut retired = {
             let mut objects = self.objects_mut()?;
             let Some(object) = self.native_ref(&objects, id) else {
                 return Err(RuntimeError::module_validation(
@@ -35,27 +35,20 @@ impl GcHeap {
             moved
                 .try_reserve(1)
                 .map_err(|_| RuntimeError::resource_limit("moved identity registry"))?;
-            let mut free = self
-                .free
-                .try_borrow_mut()
-                .map_err(|_| RuntimeError::module_validation("heap free slots are borrowed"))?;
-            free.try_reserve(1)
-                .map_err(|_| RuntimeError::resource_limit("heap free slots"))?;
-            let Some(object) = objects.detach_native(id) else {
+
+            let Some(retired) = objects.detach(id) else {
                 unreachable!("validated native extraction receiver")
             };
             moved.insert(id);
-            let slot = &mut objects.slots[id.index()];
-            if let Some(generation) = slot.generation.checked_add(1) {
-                slot.generation = generation;
-                free.push(id.index());
-            }
+
             // Keep the existing header unit for the inert identity until its last
             // traced alias disappears. Payload storage is no longer heap-owned.
             self.resources.release_heap_charge(charge);
-            object
+            retired
         };
+        let payload = retired.take_native::<T>();
         // Metadata and descriptor destruction occur with no storage-table borrow.
-        Ok(object.into_payload::<T>())
+        self.dispose_payload(retired);
+        Ok(payload)
     }
 }

@@ -288,7 +288,7 @@ fn exhausted_object_generation_retires_storage_without_aliasing_old_values() {
 }
 
 #[test]
-fn sparse_collection_preserves_aliases_and_mutation_across_payload_relocation() {
+fn sparse_collection_preserves_aliases_and_mutation_without_relocating_payloads() {
     let runtime = Runtime::default();
     let heap = runtime.gc();
     let mut retained = Vec::new();

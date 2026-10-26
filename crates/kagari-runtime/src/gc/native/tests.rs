@@ -13,7 +13,10 @@ fn reserved_empty_string_drives_automatic_collection() {
         .alloc_string(String::with_capacity(128 * 1024))
         .unwrap();
     assert_eq!(runtime.gc().stats().current_heap_units, 1);
-    assert_eq!(runtime.gc().stats().current_retained_bytes, 128 * 1024);
+    assert_eq!(
+        runtime.gc().stats().current_retained_bytes,
+        128 * 1024 + 1024
+    );
     assert!(runtime.gc().collection_due());
     let root = runtime.root_value(value).unwrap();
     runtime.gc_safepoint().unwrap();
@@ -21,7 +24,7 @@ fn reserved_empty_string_drives_automatic_collection() {
     assert!(!runtime.gc().collection_due());
     drop(root);
     let collection = runtime.collect_garbage().unwrap();
-    assert_eq!(collection.reclaimed_retained_bytes, 128 * 1024);
+    assert_eq!(collection.reclaimed_retained_bytes, 128 * 1024 + 1024);
     assert_eq!(runtime.gc().stats().current_retained_bytes, 0);
     assert!(!runtime.gc().validate_value(&value));
 }
@@ -77,7 +80,7 @@ fn native_charge_is_queried_once_and_never_during_release() {
         .unwrap();
     let id = runtime.gc().alloc_native(object).unwrap();
     let before = runtime.gc().stats();
-    assert_eq!(before.current_retained_bytes, size_of::<Payload>() as u128);
+    assert_eq!(before.current_retained_bytes, 1024);
     runtime
         .gc()
         .with_native::<Payload, _>(id, |_| Ok(()))
@@ -143,7 +146,7 @@ fn rejected_provider_charge_never_publishes_storage_or_counters() {
 }
 
 #[test]
-fn native_revision_survives_relocation_replacement_and_rejects_exhaustion() {
+fn native_revision_survives_sparse_sweep_replacement_and_rejects_exhaustion() {
     let mut runtime = Runtime::default();
     let owner = sequence_owner(&mut runtime);
     let mut context = ConversionContext::new(&runtime, &owner).unwrap();
@@ -310,7 +313,7 @@ fn sequence_layouts_charge_capacity_not_values_or_zst_capacity_sentinel() {
         let capacity = heap
             .with_native::<SequencePayload, _>(id, |payload| Ok(payload.values.capacity()))
             .unwrap();
-        let bytes = size_of::<SequencePayload>() + capacity.checked_mul(width).unwrap();
+        let bytes = 1024 + capacity.checked_mul(width).unwrap();
         assert_eq!(heap.stats().current_retained_bytes, bytes as u128);
         runtime.collect_garbage().unwrap();
         assert_eq!(heap.stats().current_retained_bytes, 0);
@@ -373,7 +376,7 @@ fn take_releases_recorded_backing_once_and_keeps_the_inert_identity() {
     let owner = allocation_owner(&mut runtime);
     let queries = Arc::new(AtomicUsize::new(0));
     let bytes = Vec::with_capacity(4096);
-    let expected = bytes.capacity() + size_of::<Payload>();
+    let expected = bytes.capacity() + 1024;
     let object = NativeStorage::takeable::<Payload>()
         .prepare_payload(
             runtime.gc(),
@@ -400,7 +403,7 @@ fn take_releases_recorded_backing_once_and_keeps_the_inert_identity() {
     runtime.collect_garbage().unwrap();
     assert_eq!(queries.load(Ordering::Relaxed), 1);
     assert_eq!(runtime.gc().stats().current_heap_units, 0);
-    assert_eq!(payload.bytes.capacity(), expected - size_of::<Payload>());
+    assert_eq!(payload.bytes.capacity(), expected - 1024);
 }
 
 #[test]
@@ -473,13 +476,11 @@ fn hash_mutations_and_partial_reservation_update_the_recorded_charge() {
         assert!(result.is_err());
         assert_eq!(heap.stats().current_heap_units, expected_units);
         assert!(heap.stats().current_retained_bytes > before);
-        let expected_bytes =
-            heap.with_map(id, HashMapStorage::pressure_bytes).unwrap() + size_of::<MapPayload>();
+        let expected_bytes = heap.with_map(id, HashMapStorage::pressure_bytes).unwrap() + 1024;
         assert_eq!(heap.stats().current_retained_bytes, expected_bytes as u128);
         heap.map_clear(id).unwrap();
         assert_eq!(heap.uses_builtin_keys(&value).unwrap(), builtin);
-        let expected_bytes =
-            heap.with_map(id, HashMapStorage::pressure_bytes).unwrap() + size_of::<MapPayload>();
+        let expected_bytes = heap.with_map(id, HashMapStorage::pressure_bytes).unwrap() + 1024;
         assert_eq!(heap.stats().current_heap_units, 1);
         assert_eq!(heap.stats().current_retained_bytes, expected_bytes as u128);
         drop(root);

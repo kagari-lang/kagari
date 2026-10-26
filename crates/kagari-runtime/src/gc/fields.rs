@@ -1,9 +1,9 @@
-//! Ordinary structs borrow initialized arena bytes under the heap storage guard.
+//! Ordinary structs borrow initialized inline bytes under the heap storage guard.
 mod codec;
 
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
-    gc::{GcHeap, HeapObjectId},
+    gc::{GcHeap, HeapObjectId, directory::descriptors::Descriptor},
     module::{
         StructLayoutRef,
         layout_storage::{StoredField, StructStorageKey, StructStorageLayout},
@@ -20,7 +20,7 @@ use std::{
 
 #[derive(Debug, Default)]
 pub(super) struct StructStorageLayouts {
-    entries: HashMap<StructStorageKey, Weak<StructStorageLayout>>,
+    entries: HashMap<StructStorageKey, Weak<Descriptor>>,
 }
 
 impl StructStorageLayouts {
@@ -32,11 +32,11 @@ impl StructStorageLayouts {
 /// Unpublished values already admitted by the allocation owner.
 #[derive(Debug)]
 pub(super) struct StructInitializer {
-    pub(super) description: Arc<StructStorageLayout>,
+    pub(super) descriptor: Arc<Descriptor>,
     pub(super) values: Vec<Value>,
 }
 
-/// Views cannot escape the heap's storage borrow; allocation and sweep may move bytes.
+/// Views cannot escape the heap's storage borrow; sweep may destroy their allocation.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct StructView<'a> {
     pub(super) description: &'a StructStorageLayout,
@@ -115,7 +115,8 @@ impl GcHeap {
         if values.len() != layout.layout().fields.len() {
             return Err(field_error("invalid heap target, index, or payload"));
         }
-        let description = self.struct_storage_description(layout)?;
+        let descriptor = self.struct_storage_description(layout)?;
+        let description = descriptor.structure_layout();
         // Closed scalar domains need no lexical type resolution. Managed fields
         // still require heap admission and nominal/environment compatibility.
         for (slot, (field, value)) in description.fields.iter().zip(&values).enumerate() {
@@ -146,16 +147,13 @@ impl GcHeap {
                 return Err(field_error("invalid heap target, index, or payload"));
             }
         }
-        Ok(StructInitializer {
-            description,
-            values,
-        })
+        Ok(StructInitializer { descriptor, values })
     }
 
     fn struct_storage_description(
         &self,
         layout: StructLayoutRef,
-    ) -> Result<Arc<StructStorageLayout>, RuntimeError> {
+    ) -> Result<Arc<Descriptor>, RuntimeError> {
         let key = layout.storage_key();
         let mut layouts = self
             .struct_layouts
@@ -164,10 +162,10 @@ impl GcHeap {
         if let Some(layout) = layouts.entries.get(&key).and_then(Weak::upgrade) {
             return Ok(layout);
         }
-        let layout = Arc::new(
+        let layout = Descriptor::structure(
             StructStorageLayout::prepare(layout)
                 .ok_or_else(|| RuntimeError::module_validation("closed struct storage layout"))?,
-        );
+        )?;
         layouts
             .entries
             .try_reserve(1)

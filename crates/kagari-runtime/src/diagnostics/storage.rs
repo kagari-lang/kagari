@@ -21,12 +21,33 @@ impl BufferUsage {
     }
 }
 
-/// Heap backing stores and native payload boxes/sequence buffers. Shared
-/// descriptions, roots, metadata, other payload children and allocator overhead
-/// are outside these byte counts. Logical GC units are not allocator bytes.
+/// Physical heap backing and side tables. Slab and large bytes are disjoint;
+/// initialized payload and Native payload bytes are subsets, not additional allocations.
+/// Unused backing includes vacant slots, class rounding and page tails. Arc control
+/// records for allocation backing and representation descriptors are counted explicitly.
+/// HashMap bucket/control arrays, canonical struct layout children, native registration
+/// metadata, roots, other payload children and allocator overhead remain outside these
+/// byte counts; registry entry counts/capacities are reported, not claimed as exact bytes.
+/// Logical GC units are not allocator bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StorageUsage {
-    pub buffers: [BufferUsage; 15],
+    pub buffers: [BufferUsage; 2],
+    pub slab_bytes: usize,
+    pub large_bytes: usize,
+    pub slot_metadata_bytes: usize,
+    pub bitmap_bytes: usize,
+    pub page_directory_bytes: usize,
+    pub page_metadata_bytes: usize,
+    pub large_metadata_bytes: usize,
+    pub backing_control_bytes: usize,
+    pub descriptor_bytes: usize,
+    pub representation_descriptors: usize,
+    pub descriptor_directory_bytes: usize,
+    /// Registry occupancy/capacity; HashMap bucket/control overhead is not included.
+    pub descriptor_registry_entries: usize,
+    pub descriptor_registry_capacity: usize,
+    pub initialized_payload_bytes: usize,
+    pub unused_backing_bytes: usize,
     pub interface_snapshots: BufferUsage,
     pub distinct_struct_layouts: usize,
     pub initialization_owners: usize,

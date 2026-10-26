@@ -570,9 +570,15 @@ was activated at `50ab194b` on 2026-10-26. PG00/NC01 contract closure and baseli
 are locally complete at `47be3cb7`. PG01/NC02 general provider capabilities and the
 external OrderedMap fixture are locally complete after focused tests, source-free
 fixture regeneration/artifact tests, repaired review blockers and final local checks.
-PG02 paged physical storage is next. [NC03-NC06](native-collections-plan.md) collection
-migration and integration remain outstanding; legacy standard collection paths are
-not removed. Full CI and future performance/peak/pause gate measurements remain unrun.
+PG01 is committed at `fc651b92`. PG02 implements nonmoving inline native/struct
+storage in the worktree, with the measured 4 KiB-to-independent-1 KiB slab correction;
+focused GC/Miri checks and diagnostic memory evidence are recorded in the
+[PG02 ledger](paged-incremental-gc-design.md#pg02-physical-model-correction-and-checkpoint-evidence).
+Final focused dependent/source-free tests, workspace Clippy and independent storage
+review passed; PG02 is locally complete. PG03/NC03-NC04 is next.
+[NC03-NC06](native-collections-plan.md) collection migration and integration remain
+outstanding; legacy standard collection paths are not removed. Full CI, timing
+and final paired performance/peak/pause acceptance remain unrun; PG00 gates are unchanged.
 Their [runtime storage predecessor](#runtime-storage-redesign) is locally complete;
 reuse the resulting heap/descriptor contracts and NC01's audited API/code inventory
 against the current scoped identity APIs.

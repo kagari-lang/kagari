@@ -318,9 +318,10 @@ Identity and release boundaries:
   writers and immutable snapshots have deliberate, separately measured lifetimes.
 - **Objects:** `HeapObjectId` identifies heap owner, directory slot and generation.
   `Value` carries typed scalar data or handles, not unrestricted Rust references.
-  Directory identity is stable while typed payload records and packed struct bytes
-  may relocate. It is inaccurate to describe this as either raw-pointer moving GC
-  or wholly immobile storage.
+  PG02 keeps directory identity stable and actual native/struct payloads nonmoving
+  in slabs/large allocations. Mutable indirect buffers can still reallocate through
+  checked edits; stable payload placement does not permit raw references across GC
+  or reentry. The collector remains synchronous pending later PG phases.
 - **Functions/modules/code:** local slots are interpreted within a loaded program;
   `LoadedModule` owns an `Arc<ProgramDescriptor>`. Executable admission also requires
   live runtime/version authority. Keeping old type facts does not resurrect retired

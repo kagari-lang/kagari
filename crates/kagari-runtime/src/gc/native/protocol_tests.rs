@@ -229,7 +229,7 @@ fn general_edits_reconcile_completed_changes_on_error_and_unwind() {
         heap.with_native::<Slots, _>(id, |payload| {
             let objects = heap.objects.borrow();
             let object = heap.native_ref(&objects, id).unwrap();
-            assert_eq!(object.charge, object.storage_charge(payload.charge()));
+            assert_eq!(object.charge, payload.charge());
             assert_eq!(object.revision, payload.0.len() as u64 - 1);
             Ok(())
         })

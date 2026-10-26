@@ -17,13 +17,13 @@ use crate::{
 use std::{
     any::Any,
     panic::{AssertUnwindSafe, catch_unwind},
-    ptr,
+    ptr::{self, NonNull},
 };
 
 struct PayloadLoan<'heap> {
     heap: &'heap GcHeap,
     id: HeapObjectId,
-    payload: Option<Box<dyn Any + Send>>,
+    payload: NonNull<dyn Any + Send>,
     storage: NativeStorage,
     revision: u64,
     max_units: usize,
@@ -34,13 +34,14 @@ struct PayloadLoan<'heap> {
 
 impl Drop for PayloadLoan<'_> {
     fn drop(&mut self) {
-        let payload = self.payload.take().expect("active payload loan");
-        let charge = self.change.as_ref().map(|_| {
-            catch_unwind(AssertUnwindSafe(|| {
-                self.storage.installed_charge(payload.as_ref())
-            }))
-        });
-        // Entry acquired exclusive directory access before removing the payload.
+        // SAFETY: the nonmoving allocation is pinned by _borrow, and the header's
+        // loan flag rejects every competing payload view until restoration below.
+        let payload = unsafe { self.payload.as_ref() };
+        let charge = self
+            .change
+            .as_ref()
+            .map(|_| catch_unwind(AssertUnwindSafe(|| self.storage.installed_charge(payload))));
+        // Entry acquired exclusive directory access before lending the payload.
         // While _borrow is alive, public directory-backed views are rejected;
         // internal validation views are scoped and cannot escape into the callback.
         let mut objects = self.heap.objects.borrow_mut();
@@ -48,11 +49,11 @@ impl Drop for PayloadLoan<'_> {
             .heap
             .native_mut(&mut objects, self.id)
             .expect("loaned identity is pinned");
-        object.restore_payload(payload);
+        object.restore_payload();
         object.revision = self.revision;
         if let Some(charge) = charge {
             match charge {
-                Ok(Ok(charge))
+                Ok(charge)
                     if charge.logical_units <= self.max_units
                         && self
                             .cleanup_bytes
@@ -144,7 +145,7 @@ impl GcHeap {
         Ok(PayloadLoan {
             heap: self,
             id,
-            payload: Some(payload),
+            payload,
             storage,
             revision,
             max_units,
@@ -164,10 +165,10 @@ impl GcHeap {
         self.check_native_operation(id, operation, false)?;
         self.check_native_payload::<P>(id, false)?;
         let mut loan = self.loan_native(id, None, false)?;
-        let payload = loan
-            .payload
-            .as_deref()
-            .and_then(|p| p.downcast_ref::<P>())
+        // SAFETY: the active loan owns access to initialized, nonmoving T. The
+        // callback cannot retain this reference or collect/reenter through an alias.
+        let payload = unsafe { loan.payload.as_ref() }
+            .downcast_ref::<P>()
             .expect("checked payload type");
         let mut access = StorageAccess::new(runtime, &mut loan.revision, None, false);
         read(payload, &mut access)
@@ -203,10 +204,9 @@ impl GcHeap {
             None
         };
         let mut loan = self.loan_native(id, Some(plan), false)?;
-        let payload = loan
-            .payload
-            .as_deref_mut()
-            .and_then(|p| p.downcast_mut::<P>())
+        // SAFETY: exclusive loan flag and NativeBorrow exclude all competing T access.
+        let payload = unsafe { loan.payload.as_mut() }
+            .downcast_mut::<P>()
             .expect("checked payload type");
         let mut access = StorageAccess::new(runtime, &mut loan.revision, next, false);
         edit(payload, &mut access)
@@ -266,7 +266,8 @@ impl GcHeap {
                 true,
             )?;
             loan.revision = next;
-            let payload = loan.payload.as_deref_mut().expect("active recovery loan");
+            // SAFETY: recovery uses the same exclusive loan, including on unwind.
+            let payload = unsafe { loan.payload.as_mut() };
             let mut access = StorageAccess::new(runtime, &mut loan.revision, Some(next), true);
             recovery(payload, &mut access);
             Ok(())

@@ -3,7 +3,9 @@
 Status: joint PG00-PG06 migration activated by the user on 2026-10-26 at
 `50ab194b30b0218e9befe3176d6b5711ecf17a28`; PG00/NC01 contract closure and baseline
 are locally complete (`47be3cb7`). PG01/NC02 is locally complete after coordinated
-review and focused/final local validation; PG02 paged physical storage is next.
+review and focused/final local validation (commit `fc651b92`). PG02 nonmoving
+inline storage is locally complete; focused tests, Miri, memory probes and final
+local checks are recorded below. PG03/NC03-NC04 is next.
 Initial implementation parameters remain selected policy, not measured optima or
 acceptance of future performance gates. The execution breakdown
 was originally recorded against `bb836eff`, following the design at `8c2a4568`.
@@ -59,16 +61,18 @@ remain separate work.
 
 ## Current implementation and reason for change
 
-The current [heap](../crates/kagari-runtime/src/gc.rs) owns a checked object
+At activation, the [heap](../crates/kagari-runtime/src/gc.rs) owned a checked object
 directory, dense typed payload stores, roots, executable metadata stores, operation
 leases, pressure state and collection-specific descriptor caches. The
 [marker](../crates/kagari-runtime/src/gc/collector.rs) completes its worklist in one
 operation. [Collection](../crates/kagari-runtime/src/gc/collection.rs) builds the
 validated live graph and dead-object inventory, detaches storage, then disposes it.
-[Directory storage](../crates/kagari-runtime/src/gc/directory.rs) compacts affected
-stores and packed struct bytes. This is sound full-collection organization, not an
-incremental protocol: simply yielding inside its traversal would allow mutations
-to hide reachable objects.
+PG02 [directory storage](../crates/kagari-runtime/src/gc/directory.rs) now uses
+nonmoving slabs/large allocations and actual inline native/struct payloads instead
+of compacting dense stores and packed struct bytes. The synchronous marker and
+dead-list lifecycle remain: simply yielding inside traversal would still allow
+mutations to hide reachable objects. PG04 owns epochs/publication and PG05 owns
+incremental sweep, including dead-list and interface-batch-filter removal.
 
 `sequence_storage`, `map_storage`, `set_storage` and `cursor_storage` are cached
 `NativeStorage` descriptors, not element buffers. Removing those fields alone
@@ -90,7 +94,7 @@ replace compact representations with one boxed `Value` per field or element.
 | Algorithm | Precise incremental mark-sweep, with a complete marking closure before sweeping |
 | Identity | Keep stable owner/slot/generation handles; payload location is private and separate |
 | Storage | Paged small-object storage; separately tracked large allocations; ordinary cycles do not move surviving payloads |
-| Page grouping | Selected 4 KiB slabs, finite stride classes and two edge-capability groups; no pool per nominal type; see the physical parameters below |
+| Page grouping | Independent 1 KiB slabs supersede the initial 4 KiB choice after PG02 memory failures; unchanged stride classes and two edge-capability groups, no pool per nominal type |
 | Marking | Runtime-local mark state and resumable work tasks, not new per-cycle hash sets duplicating every live object |
 | Mutation | Runtime-owned insertion barriers for roots, payloads and executable metadata; admission pre-reserves work capacity so recovery publication of existing targets cannot allocate |
 | Native execution | Native entry does not disable GC; release payload loans and protect temporary references before collecting helpers or script callbacks |
@@ -250,18 +254,20 @@ the old allocation has finished or will reject its full identity. No queued raw
 borrow or address survives page reclamation. The page-to-directory association
 supports retirement without searching the directory.
 
-The initial compact directory encoding uses three u32 words: generation, tagged
-location index, and location auxiliary word. Two tag bits distinguish vacant, small,
-large and interface locations. Small locations carry a page-table index and slot;
-large locations name a tracked allocation; interface locations carry a stable
-occupied-wrapper index and snapshot index. Enforce the tag-reduced index range with
-checked admission; never truncate. A vacant saturated generation is permanently
-excluded from the free chain. Assert size/alignment and all encode/decode bounds in
-PG02; this is a private locator, not a change to the full public handle.
+PG02's compact directory remains 12 bytes on the measured target: generation plus
+private kind, allocation/snapshot index and slot fields. This replaces the initial
+two-tag-bit encoding sketch without changing public full handles. Small locations
+carry an allocation-table index and slot; large locations name a tracked allocation;
+interfaces directly locate snapshots and have a separate occupied-wrapper index,
+not slab payloads. Vacant fields carry the next free identity, eliminating the
+separate free-identity Vec. Checked admission never truncates indices; saturated
+generations remain excluded from the free chain.
 
-Released page-table indices are not reused until the current cycle ends. Object scan
-work names full identities, not page addresses. Interface occupancy uses stable slots,
-not the current shifting vector. Keep the compact snapshot-index binding only with
+PG02 releases backing only after disposal and preserves identity generations;
+its synchronous collector has no outstanding interleaved page cursor. For PG04/PG05,
+released page-table indices must not be reused while old cycle work can name them.
+Object scan work names full identities, not page addresses. Interface occupancy
+must gain stable cursors instead of the current synchronous batch-filtered vector. Keep the compact snapshot-index binding only with
 heap-wrapper-before-interface-metadata sweep ordering and phase-aware access; a
 condemned wrapper cannot resolve a reused metadata slot. Metadata tokens still carry
 and validate their own complete identity.
@@ -271,10 +277,12 @@ model decision, not an incidental allocator optimization.
 
 ### Pages and large objects
 
-Selected initial parameters at activation (not measured optima):
+Current physical parameters after the PG02 measured correction (not measured optima):
 
-- Each small page has a 4096-byte payload slab aligned to 16 bytes, with separately
-  accounted side metadata. Strides, in bytes, are:
+- Each small page has an independently allocated **1024-byte payload slab**, aligned
+  to 16 bytes, with separately accounted side metadata. This explicitly supersedes
+  the initial 4096-byte choice; it is not a 1 KiB subpage inside retained 4 KiB backing.
+  PG00's historical model and frozen gates are unchanged. Strides, in bytes, are:
 
   ```text
   8, 16, 24, 32, 40, 48, 56, 64,
@@ -290,22 +298,25 @@ Selected initial parameters at activation (not measured optima):
   metadata edges count too. Bounded/resumable/indivisible scanning is per descriptor,
   not another pool per type or scanner. The descriptor must conservatively cover
   edges that later mutation may introduce.
-- Page side metadata owns occupied, retiring, discovered and scanned bitmaps,
-  epoch, free-slot summaries/non-full-page links, directory back-references and
-  representation descriptor IDs. Allocation never searches every page. The smallest
-  class has 512 slots; clearing both mark bitmaps touches at most 128 bytes.
+- PG02 page side metadata owns occupied/retiring bitmaps, non-full/active-page links,
+  directory back-references and numeric representation descriptor IDs. Allocation
+  does not search every page. The smallest class has 128 slots. Discovered/scanned
+  bits and epochs remain PG04 work; two future mark bitmaps would occupy at most
+  32 bytes per slab, not evidence that incremental marking already exists.
 - Release empty slab backing immediately after the last retired slot finishes
   disposal. Initially retain no empty-page cache. Keep page-index reuse separate
   from backing release. Partial-page fragmentation remains a measured cost; release
   to the Rust allocator is not proof of immediate RSS reduction.
 - A combined physical layout larger than 1024 bytes or aligned above 16 uses one
   separately tracked allocation with its exact checked Layout, descriptor, identity,
-  mark state and disposal state. There is no page-sized rounding requirement on this
+  disposal state; incremental mark state remains PG04 work. Its compact control has
+  no small-page slot array/bitmaps. There is no page-sized rounding requirement on this
   path. Owned container/String backing remains indirect payload-owned storage, not
   a GC object per element; a large Vec buffer does not make its small header large.
 
 These classes explicitly trade dense packing and shared pools against sparse-page
-retention. The [reproducible slab model](../benchmarks/lua-comparison/examples/runtime_storage/slab_model.rs)
+retention. **Historical PG00 4 KiB payload-only model (not the current allocator):**
+the [reproducible slab model](../benchmarks/lua-comparison/examples/runtime_storage/slab_model.rs)
 retains 24 pages (98,304 bytes) for 1,536 live payload bytes after allocating 4,096
 24-byte slots and retaining every 64th: only one of the original 25 pages empties.
 The remaining backing includes 96,384 vacant-slot bytes and 384 page-tail bytes.
@@ -316,10 +327,12 @@ rather than 32 nominal-type pages, but does not eliminate sparse retention. Thes
 are payload-only model results, excluding headers, descriptors, directory, bitmaps,
 queues and allocator overhead, not measurements of an implemented paged collector.
 Immediate empty release is selected, not a low-memory guarantee or speedup claim;
-whole-runtime baseline/acceptance remains in the PG00 handoff.
+whole-runtime baseline/acceptance remains in the PG00 handoff. PG02's actual
+metadata-inclusive correction and measurements are recorded in its ledger below;
+the original model remains reproducible as historical evidence, not retuned to 1 KiB.
 
-Normal collection never shifts surviving payloads. Replace both the dense struct
-record and compacting global byte arena: a struct slot contains its initialized
+Normal collection never shifts surviving payloads. PG02 replaces both the dense
+struct record and compacting global byte arena: a struct slot contains its initialized
 field bytes, and the slot descriptor identifies its shared StructStorageLayout.
 Keep the existing native-endian byte-copy codecs, exact scalar widths and 13-byte
 managed fields (tag plus complete owner/slot/generation). Point { x: i32, y: i32 }
@@ -339,13 +352,16 @@ partial initialization and panic. No payload view crosses collection or reentry.
 PG02 must cover zero-sized and over-aligned payloads, failed construction, native take,
 page reuse and Runtime teardown with Miri or applicable sanitizers.
 
-A runtime-local descriptor registry retains shared representation/struct-layout facts
-for every live or detached allocation. Descriptor IDs are checked, non-aliasing tokens;
+A runtime-local numeric descriptor table retains shared representation/struct-layout
+facts through counted admissions for every live or retiring allocation, avoiding
+per-slot Arc ownership. Retired disposal tokens retain dispatch/backing independently.
+The existing StructStorageLayouts owner supplies canonical semantic interning;
+there is no second structural semantic-key map in the physical descriptor table. Descriptor IDs are checked, non-aliasing tokens;
 reuse requires that no allocation, active scan or disposal token can name the old ID.
 Pure reusable dispatch may be shared, but applied runtime identities/marks may not.
 Keep descriptor/drop code alive through disposal without making immutable type
-provenance an executable graph root. Remove the old native Box shallow charge when
-payload bytes become part of charged slab/large backing; indirect charge stays disjoint.
+provenance an executable graph root. PG02 removes the old native Box shallow charge:
+payload bytes are part of charged slab/large backing; indirect charge stays disjoint.
 
 ### Mark information
 
@@ -1237,8 +1253,8 @@ allocations, directory/page/descriptor bookkeeping, reserved collector queue/cur
 capacity, native/String indirect backing, metadata/root/frame backing and detached
 storage without double counting. Detached backing stays in its original backing
 category with a disposal-state attribution until actually released; it is not an
-additional allocation. Remove the old erased-Box shallow native charge for inline
-payloads. Use committed charge updates and ownership transfer, not provider rescans
+additional allocation. PG02 removes the old erased-Box shallow native charge for
+inline payloads. Use committed charge updates and ownership transfer, not provider rescans
 on release. Keep estimates, allocator requests, actual retained capacity and RSS
 separate. Measure page occupancy, allocator calls and peak working memory as well
 as work, full cycles and pauses.
@@ -1358,9 +1374,10 @@ or measured optima. Measured timing and requested-memory peaks establish the bas
 future incremental measurements are not passed by selecting parameters.
 
 1. **Physical representation:** selected in the concrete-data-structures section:
-   slab/classes/alignment, large path, descriptor lifetime, checked epochs, inline
-   struct/native storage and immediate empty release. PG02 still owes exact layout
-   assertions, unsafe-kernel proof and focused validation; no memory win is assumed.
+   slab/classes/alignment, large path, descriptor lifetime, inline struct/native
+   storage and immediate empty release. PG02 implements the corrected 1 KiB model
+   with focused GC/Miri evidence below, pending final checkpoint checks. Checked
+   marking epochs remain PG04 work; no unmeasured performance win is assumed.
 2. **Mutation and scan protocol:** selected here and in NC01: unsafe NativePayload,
    read/edit, retained extraction, same-payload sort, indexed hash, checked MutableList
    bridge and verifier-owned bounded-application evidence. The publication inventory,
@@ -1851,8 +1868,9 @@ family rather than paging Native records alone.
 
 **Work:**
 
-- Implement PG00's checked size/alignment/page/large-object choices and descriptor
-  lifetime. Retain identity history independently of released payload pages.
+- Implement the checked size/alignment/page/large-object model and descriptor
+  lifetime, with PG02's explicit 1 KiB correction to PG00's initial 4 KiB choice.
+  Retain identity history independently of released payload pages.
 - Replace dense locators and both packed struct records/field backing; preserve
   scalar widths, initialization-before-publication and exact destruction.
 - Route allocation, access, retirement and disposal through the new store. Retain
@@ -2095,6 +2113,8 @@ Documentation-only work needs content/link/diff checks, not Rust builds.
   roots, frames, module/static/metadata and allocation/destruction owners.
 - [x] Select initial 4 KiB/classes/large-object/empty-release parameters, inline
   struct/native storage, checked epochs and descriptor/interface sweep lifetimes.
+  PG02 explicitly supersedes slab size with independent 1 KiB backing below;
+  historical PG00 measurements/model and frozen gates remain unchanged.
 - [x] Record admission-reserved allocation-free recovery barriers, stable graph-owner
   IDs, single-active-cursor progress, publication inventory and removal checkpoints.
 - [x] Select 1024-unit normal work, 32-item retired cap, explicit finish-active-plus-fresh
@@ -2107,7 +2127,7 @@ Documentation-only work needs content/link/diff checks, not Rust builds.
   selected 1024-unit initial policy without claiming a measured pause bound.
 - [x] PG00: Contract closure and baseline (with NC01).
 - [x] PG01: General Native protocol and external proof (with NC02), locally complete.
-- [ ] PG02: Paged physical storage.
+- [x] PG02: Paged physical storage (locally complete).
 - [ ] PG03: Remove privileged collection paths (NC03/NC04 handoff).
 - [ ] PG04: Incremental graph state and complete publication coverage.
 - [ ] PG05: Incremental sweep, disposal and execution driving (with NC05).
@@ -2202,14 +2222,122 @@ NativeData diagnostic test covers this path and benchmark callers compile agains
 the fallible API. Earlier reviewer blockers are repaired/covered; no known selected
 local failure remains.
 
-**Status and next handoff:** PG01/NC02 is locally complete; PG02 pages/inline storage
-is next and replaces the temporary boxed-loan physical path without weakening its
-checks. PG03/NC03-NC04 still owns removal of legacy Vec/Map/Set paths and host
+**Status and next handoff at PG01 close:** PG01/NC02 is locally complete at
+`fc651b92`. PG02's replacement of the temporary boxed-loan physical path is now
+implemented as recorded below, with final checkpoint validation pending. PG03/NC03-NC04 still owns removal of legacy Vec/Map/Set paths and host
 adapters; PG04 owns persistent scanner state, graph reservations and complete
 publication coverage; PG05 owns actual interleaving. The external fixture does not
 remove those legacy paths. Full-workspace and complete feature/backend/platform
 CI remain unrun, as do future post-change performance/peak/pause gate measurements.
 Local protocol acceptance does not pass those future gates.
+
+### PG02 physical-model correction and checkpoint evidence
+
+**Status:** locally complete after PG01 `fc651b92`. Actual native T and struct field bytes now occupy
+nonmoving slab/large backing. The collector remains synchronous. No post-change
+timing, full CI or final seven-alternating-pair performance acceptance was run.
+
+**Failure and architectural diagnosis.** The initial 4 KiB implementation exceeded
+PG00's frozen retained-backing comparison on sparse types (108,480 B versus
+77,424 B baseline), mixed native layouts (615,088 versus 505,024 B), and sparse cycles
+after churn (821,648 versus 385,356 B). This was not addressed by relaxing gates.
+Breakdown review identified large allocations carrying full small-page metadata,
+per-slot Arc descriptor ownership, unnecessary interface slab wrappers, duplicate
+struct semantic descriptor interning, a separate free-identity Vec and sparse
+survivors pinning oversized slabs. Those ownership/layout costs were corrected
+before selecting independent 1 KiB slabs with the same stride table, alignment 16
+and separate >1024/overaligned path. Object generations and exactly-once disposal
+remain mandatory; smaller slabs do not permit survivor relocation.
+
+For example, the 32-type/four-instance family still has 128 distinct objects and
+128 interface wrappers, but their wrappers now point directly to snapshots rather
+than consume slab slots. Canonical struct descriptions are interned once; slots
+carry numeric representation IDs whose admission lasts through retirement. A large
+native payload uses one exact-layout allocation and compact large control, not a
+one-element small page. On this target the large record, backing control and one
+allocation-directory entry total **96 B**, excluding spare directory capacity,
+shared descriptors and allocator overhead. This is not a claim of 96 B total
+per-object runtime cost.
+
+**Reviewed mechanism and tradeoff.** The independent layout audit reused the
+[Boehm allocator description](https://www.hboehm.info/gc/gcdescr.html) (unversioned)
+for size/kind segregation and a distinct large-object path, and
+[gc-arena 0.7.0 types](https://docs.rs/crate/gc-arena/0.7.0/source/src/types.rs) for
+separating representation/dispatch facts from object ownership. Kagari retains
+precise full-generation identities, checked loans and panic-contained disposal,
+not conservative scanning or direct branded pointers. Numeric descriptor tokens
+with live/retiring admissions are the local ownership adaptation, not an upstream
+speed guarantee. Smaller independent slabs reduce sparse pinning but increase
+page/control count: dense-cycle backing rose from 3,024,656 B in the initial 4 KiB
+candidate to 3,104,776 B after the complete correction. These changes were made
+together; the measurements do not isolate slab size or prove a throughput win.
+
+**Measurement method and reproduction.** The tracked
+[storage harness](../benchmarks/lua-comparison/examples/runtime_storage/README.md)
+retains the PG00 workloads and allocator interval attribution. The inspected logs
+were `target/pg02/families-4k-breakdown.log` and
+`target/pg02/families-1k-final.log`; they are disposable provenance, not required
+documentation inputs. Reproduce the current candidate with:
+
+```sh
+cargo build --release --locked -p kagari-lua-benchmark --example runtime_storage --features diagnostics
+target/release/examples/runtime_storage --families
+```
+
+The PG00 host is Apple M1 Max/32 GiB; this documentation inspection confirmed the
+same macOS 26.6.2 (25G83), rustc 1.99.1 (58cf8f9c3), LLVM 23.1.1, Cargo 1.99.1 and
+aarch64 target. Use workspace release/default target/parallelism and existing
+source/native plus diagnostics features; execution is interpreter-only. The harness
+warms shared owners once, then measures three fresh Runtime lifecycles per family,
+with automatic GC disabled and explicit synchronous collections. Compilation and
+preparation are outside the Runtime allocation scope. Logs do not independently
+stamp build-cache/thermal state or establish paired runs; no timing conclusion is
+available. All **21 teardown checks return zero** and all **34 phase rows have
+identical deltas across three repetitions**. First-use caches are separate.
+
+All values below are calling-thread requested retained-byte deltas relative to that
+Runtime's setup, not payload-only bytes or RSS. Ceilings apply the unchanged PG00
+`baseline + max(10%, 4096 B)` formula (rounded up to whole bytes); these are unpaired
+checkpoint comparisons, not completion of the required final paired gate.
+
+| Family / phase | PG00 baseline B | Initial 4 KiB B | Corrected 1 KiB B | PG00 ceiling B |
+| --- | ---: | ---: | ---: | ---: |
+| Sparse types / live | 77,424 | 108,480 | 79,212 | 85,167 |
+| Mixed native / live | 505,024 | 615,088 | 539,384 | 555,527 |
+| Mixed native / empty | 26,576 | 32,248 | 24,892 | 30,672 |
+| Scalar 65,536 / live | 269,072 | 272,444 | 268,996 | 295,980 |
+| References 8,192 / live | 597,604 | 540,056 | 479,264 | 657,365 |
+| Cycles 4,096 / dense | 3,222,668 | 3,024,656 | 3,104,776 | 3,544,935 |
+| Cycles / post-churn plateau | 385,356 | 821,648 | 331,360 | 423,892 |
+| Retained reload / retained | 37,934,828 | 38,046,516 | 38,033,424 | 41,728,311 |
+| Script-key Map / live | 133,340 | 137,377 | 99,465 | 146,674 |
+
+Corrected cycles first sparsify to 329,824 B, then retain 331,360 B after each of
+three churn rounds and the final sparse-live collection. Empty mixed-native backing
+is not zero because directory/descriptor capacities and other runtime state remain;
+Runtime teardown is separately zero. Final post-setup peak deltas, in the same row
+order by family (sparse, mixed, scalar, references, cycles, reload, script-key), are
+156,096 / 650,680 / 270,804 / 1,716,424 / 4,128,944 / 55,318,361 / 273,613 B.
+Setup high-water is 20,464,213 B for the first five, 15,856,949 B for reload and
+16,346,101 B for script keys. Peaks include construction, verification, root drops,
+collection, churn/reload and teardown—not GC-only peak—and exclude other threads,
+allocator overhead and internal realloc overlap. PG00's baseline, historical 4 KiB
+model, setup 1.10 rule, backing/peak bounds, timing gates and seven-pair requirement
+are **unchanged**; these diagnostics do not pass future pause/timing gates.
+
+**Validation and remaining ownership.** Parent reports 72 focused GC tests, Miri
+7 storage plus 5 protocol tests, structure and formatting passing. This documentation
+pass inspected source/logs, not reran those tests. Final parent validation passed:
+`cargo clippy --workspace --all-targets -- -D warnings`, formatting/diff checks,
+the six public provider tests, two safe NativeData loan-view tests, collecting Hash/Eq
+and retained-zip reload sentinels (one each), and the source-disabled
+source_free_algorithms_and_application_payload_share_the_native_boundary artifact
+test. Independent review found no remaining storage safety blocker. No failing
+command is carried. PG03 still removes legacy collection paths.
+PG04 owns epoch marking and active scanner/work reservations; PG05 removes the
+synchronous dead list and interface batch filtering and supplies incremental
+sweep/disposal. Descriptor pruning and other synchronous maintenance must also obey
+those later bounded-work contracts; no implicit incremental acceptance is claimed.
 
 Subsequent checkpoints record actual implementation, structural debt, failures and
 bridge removal under their owning phase here; NC-specific results stay in its ledger

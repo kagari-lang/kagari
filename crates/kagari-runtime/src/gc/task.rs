@@ -72,10 +72,7 @@ impl GcHeap {
         if payload.id != task || payload.outcome.is_some() {
             return Err(RuntimeError::module_validation("Task already completed"));
         }
-        let charge = object.storage_charge(HeapCharge::new(
-            1,
-            TaskPayload::outcome_bytes(Some(&outcome)),
-        ));
+        let charge = HeapCharge::new(1, TaskPayload::outcome_bytes(Some(&outcome)));
         let change = self
             .resources
             .prepare_cleanup_heap_change(object.charge, charge.logical_units)?;

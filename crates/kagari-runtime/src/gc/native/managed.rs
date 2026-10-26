@@ -110,7 +110,7 @@ impl GcHeap {
         let mut objects = self.objects_mut()?;
         let object = self.native_mut(&mut objects, id).ok_or_else(invalid)?;
         let revision = object.revision.checked_add(1).ok_or_else(invalid)?;
-        let charge = object.storage_charge(replacement.charge());
+        let charge = replacement.charge();
         let change = self
             .resources
             .prepare_heap_change(object.charge, charge.logical_units)?;

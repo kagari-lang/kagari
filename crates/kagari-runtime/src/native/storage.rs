@@ -1,6 +1,7 @@
 //! One traced Rust payload mechanism for native script-heap objects.
 //! Factories and Rust type identity are local installation data, never portable ABI.
 pub mod access;
+mod erasure;
 pub mod scan;
 use crate::{
     Runtime,
@@ -15,7 +16,10 @@ use crate::{
         binding::NativeResult,
         context::{LinkedCallable, LinkedOperation},
         payload::{data::NativeData, managed::ManagedSchema, take::NativeTake},
-        storage::scan::{NativeScanKind, ScanBudget, ScanEntries, ScanStatus, ScanWorkspace},
+        storage::{
+            erasure::{Erasure, Payload},
+            scan::{NativeScanKind, ScanBudget, ScanEntries, ScanStatus, ScanWorkspace},
+        },
         storage_type::StorageType,
         stored_selection::StoredSelection,
     },
@@ -26,10 +30,12 @@ use kagari_common::identity::table::DefinitionId;
 use kagari_contract::standard::RuntimePrimitive;
 use kagari_types::{declaration::native::NativeStorageLayout, ty::Ty};
 use std::{
+    alloc::Layout,
     any::{Any, TypeId},
     fmt,
     fmt::Debug,
-    mem::size_of_val,
+    mem,
+    ptr::NonNull,
     slice,
     sync::Arc,
 };
@@ -165,6 +171,7 @@ type Charge = dyn Fn(&dyn Any) -> HeapCharge + Send + Sync;
 
 struct StorageEntries {
     rust_type: TypeId,
+    erasure: Erasure,
     layout: NativeStorageLayout,
     factory: Option<Box<Factory>>,
     scan: ScanEntries,
@@ -268,6 +275,7 @@ impl NativeStorage {
         Self {
             entries: Arc::new(StorageEntries {
                 rust_type: TypeId::of::<S>(),
+                erasure: Erasure::new::<S>(),
                 layout,
                 factory,
                 scan: ScanEntries::new::<S>(),
@@ -284,8 +292,8 @@ impl NativeStorage {
         }
     }
 
-    pub(crate) fn installed_charge(&self, payload: &(dyn Any + Send)) -> NativeResult<HeapCharge> {
-        (self.entries.charge)(payload).with_shallow_bytes(size_of_val(payload))
+    pub(crate) fn installed_charge(&self, payload: &(dyn Any + Send)) -> HeapCharge {
+        (self.entries.charge)(payload)
     }
 
     pub(crate) fn scan_payload<'a>(
@@ -387,12 +395,11 @@ impl NativeStorage {
                 "native factory retained an invalid script value",
             ));
         }
-        let charge = (self.entries.charge)(payload.as_ref())
-            .with_shallow_bytes(size_of_val(payload.as_ref()))?;
+        let charge = (self.entries.charge)(payload.as_ref());
         Ok(NativeObject {
             charge,
             storage: self.clone(),
-            payload: Some(payload),
+            payload: Payload::Staged(payload),
             ty: ty.clone(),
             _owner: owner.clone(),
             scope: None,
@@ -411,10 +418,9 @@ pub(crate) struct NativeObject {
     /// Runtime-owned mutation state travels with this identity's native record.
     /// Replacing its Rust payload preserves it; a new allocation starts at zero.
     pub(crate) revision: u64,
-    /// Authoritative committed payload charge, including the erased Box's shallow
-    /// allocation but excluding the heap identity. Moves preserve this record.
+    /// Committed indirect payload charge; slab/large backing is accounted separately.
     pub(crate) charge: HeapCharge,
-    payload: Option<Box<dyn Any + Send>>,
+    payload: Payload,
     pub(crate) ty: Ty,
     _owner: ExecutableModule,
     pub(crate) scope: Option<TypeArgument>,
@@ -431,18 +437,53 @@ impl Debug for NativeObject {
 }
 
 impl NativeObject {
+    #[cfg(feature = "execution-diagnostics")]
     pub(crate) fn payload_bytes(&self) -> usize {
-        size_of_val(self.payload.as_deref().expect("payload is not loaned"))
+        self.storage.entries.erasure.layout.size()
     }
 
-    pub(crate) fn into_payload<S: NativeTake>(self) -> S {
-        // The GC preflights Rust identity before any detachment. This immutable
-        // erased record cannot change payload types between validation and move.
-        *self
-            .payload
-            .expect("payload is not loaned")
-            .downcast::<S>()
-            .expect("validated extraction payload type")
+    pub(crate) fn physical_layout(&self) -> NativeResult<(Layout, usize)> {
+        Layout::new::<Self>()
+            .extend(self.storage.entries.erasure.layout)
+            .map(|(layout, offset)| (layout.pad_to_align(), offset))
+            .map_err(|_| RuntimeError::resource_limit("native inline layout"))
+    }
+
+    pub(crate) fn payload_type(&self) -> TypeId {
+        self.storage.entries.rust_type
+    }
+
+    /// # Safety
+    /// Destination is disjoint, aligned, uninitialized storage for this descriptor's T,
+    /// retained alongside this header until its destruction or checked take.
+    pub(crate) unsafe fn place_payload(mut self, destination: NonNull<u8>) -> Self {
+        let Payload::Staged(value) = mem::replace(&mut self.payload, Payload::Taken) else {
+            unreachable!("only unpublished native objects are placed")
+        };
+        // SAFETY: caller reserves the checked combined layout before placement.
+        unsafe { (self.storage.entries.erasure.place)(value, destination) };
+        self.payload = Payload::Inline {
+            pointer: destination,
+            loaned: false,
+        };
+        self
+    }
+
+    pub(crate) fn take_payload<S: NativeTake>(&mut self) -> S {
+        assert!(
+            self.storage.accepts_payload::<S>(),
+            "checked native take TypeId"
+        );
+        let Payload::Inline {
+            pointer,
+            loaned: false,
+        } = mem::replace(&mut self.payload, Payload::Taken)
+        else {
+            unreachable!("checked live inline extraction")
+        };
+        // SAFETY: checked TypeId, exclusive retired allocation and initialized T.
+        // Taken prevents Drop from touching the moved value.
+        unsafe { pointer.cast::<S>().as_ptr().read() }
     }
 
     pub(crate) fn owner(&self) -> &ExecutableModule {
@@ -470,30 +511,42 @@ impl NativeObject {
         workspace: &mut ScanWorkspace,
         visit: &mut dyn FnMut(&'payload Value),
     ) -> NativeResult<()> {
-        let payload = self
-            .payload
-            .as_deref()
-            .ok_or_else(|| RuntimeError::module_validation("native payload is loaned"))?;
+        let payload = self.payload.view(&self.storage.entries.erasure)?;
         self.storage.entries.scan.trace(payload, workspace, visit)
     }
 
-    pub(crate) fn loan_payload(&mut self) -> NativeResult<Box<dyn Any + Send>> {
-        self.payload
-            .take()
-            .ok_or_else(|| RuntimeError::module_validation("native payload is loaned"))
+    pub(crate) fn loan_payload(&mut self) -> NativeResult<NonNull<dyn Any + Send>> {
+        self.payload.loan(&self.storage.entries.erasure)
     }
 
-    pub(crate) fn restore_payload(&mut self, payload: Box<dyn Any + Send>) {
-        assert!(self.payload.is_none(), "exclusive native payload loan");
-        self.payload = Some(payload);
+    pub(crate) fn restore_payload(&mut self) {
+        self.payload.end_loan();
     }
 
-    /// Sealed storage owners describe the completed edit without invoking an
-    /// erased provider callback. All indirect allocations are disjoint from Box.
-    pub(crate) fn storage_charge(&self, charge: HeapCharge) -> HeapCharge {
-        charge
-            .with_shallow_bytes(self.payload_bytes())
-            .expect("owned storage allocations fit the address space")
+    /// Swap a prepared same-type value into its existing inline allocation. The
+    /// returned staged object owns the old value for disposal outside storage borrows.
+    pub(crate) fn replace_payload(&mut self, mut prepared: Self) -> NativeResult<Self> {
+        if self.payload_type() != prepared.payload_type() {
+            return Err(RuntimeError::module_validation("native replacement TypeId"));
+        }
+        let Payload::Inline {
+            pointer,
+            loaned: false,
+        } = self.payload
+        else {
+            return Err(RuntimeError::module_validation(
+                "native replacement during loan",
+            ));
+        };
+        let Payload::Staged(value) = &mut prepared.payload else {
+            return Err(RuntimeError::module_validation(
+                "replacement is not unpublished",
+            ));
+        };
+        // SAFETY: matching descriptor TypeId and exclusive access to both values.
+        unsafe { (self.storage.entries.erasure.swap)(pointer, value.as_mut()) };
+        mem::swap(&mut self.charge, &mut prepared.charge);
+        Ok(prepared)
     }
 
     pub(crate) fn replaced_payload<S: NativePayload>(&self, payload: S) -> NativeResult<Self> {
@@ -502,11 +555,11 @@ impl NativeObject {
                 "native replacement payload type mismatch",
             ));
         }
-        let charge = payload.charge().with_shallow_bytes(size_of_val(&payload))?;
+        let charge = payload.charge();
         Ok(Self {
             charge,
             storage: self.storage.clone(),
-            payload: Some(Box::new(payload)),
+            payload: Payload::Staged(Box::new(payload)),
             ty: self.ty.clone(),
             _owner: self._owner.clone(),
             scope: self.scope.clone(),
@@ -517,8 +570,8 @@ impl NativeObject {
 
     pub(crate) fn payload<S: 'static>(&self) -> NativeResult<&S> {
         self.payload
-            .as_deref()
-            .and_then(|payload| payload.downcast_ref())
+            .view(&self.storage.entries.erasure)?
+            .downcast_ref()
             .ok_or_else(|| {
                 RuntimeError::module_validation(
                     "native payload access codec differs from the installed storage",
@@ -528,8 +581,8 @@ impl NativeObject {
 
     pub(crate) fn payload_mut<S: 'static>(&mut self) -> NativeResult<&mut S> {
         self.payload
-            .as_deref_mut()
-            .and_then(|payload| payload.downcast_mut())
+            .view_mut(&self.storage.entries.erasure)?
+            .downcast_mut()
             .ok_or_else(|| {
                 RuntimeError::module_validation(
                     "native payload access codec differs from the installed storage",

@@ -3,10 +3,7 @@ use crate::{
     clock::Instant,
     error::RuntimeError,
     execution_metadata::{MetadataLive, MetadataTrace},
-    gc::{
-        GcCollection, GcHeap, HeapObjectId, collector, directory::DetachedCounts,
-        storage::append_value_edges,
-    },
+    gc::{GcCollection, GcHeap, HeapObjectId, collector, storage::append_value_edges},
     module::{ModuleKey, ModuleStore, collection::ProgramGraph},
     resource::HeapCharge,
     value::Value,
@@ -189,7 +186,7 @@ impl GcHeap {
             let mut dead = Vec::new();
             for index in objects.occupied_directories() {
                 let slot = objects.slots.get(index)?;
-                let location = slot.location?;
+                let location = slot.location()?;
                 let id = HeapObjectId::new(self.owner, index, slot.generation);
                 if !live.contains(&id) {
                     let charge = objects
@@ -216,29 +213,24 @@ impl GcHeap {
             .try_fold(retired_identities, |sum, (_, charge)| {
                 sum.checked_add(charge.logical_units)
             })?;
-        let reclaimed_retained_bytes = dead.iter().try_fold(0u128, |sum, (_, charge)| {
+        let mut reclaimed_retained_bytes = dead.iter().try_fold(0u128, |sum, (_, charge)| {
             sum.checked_add(charge.retained_bytes as u128)
         })?;
 
-        // Extraction maintains its own capacity; sweep only touches changed stores.
-        let retired = if dead.is_empty() {
-            None
-        } else {
+        // Temporary synchronous dead-list adapter; PG05 replaces this driver with
+        // bounded sweep. Reserve all orchestration before detaching any identity.
+        let mut retired = Vec::new();
+        retired.try_reserve_exact(dead.len()).ok()?;
+        if !dead.is_empty() {
             let mut objects = self.objects.try_borrow_mut().ok()?;
-            let mut free = self.free.try_borrow_mut().ok()?;
-            let mut counts = DetachedCounts::default();
+
             for (index, charge) in dead {
                 let id = HeapObjectId::new(self.owner, index, objects.slots[index].generation);
-                objects.mark_detached(id, &mut counts);
+                retired.push(objects.detach(id)?);
                 self.resources.release_heap_charge(charge);
-                let slot = &mut objects.slots[index];
-                if let Some(generation) = slot.generation.checked_add(1) {
-                    slot.generation = generation;
-                    free.push(index);
-                }
             }
-            Some(objects.detach_marked(counts))
-        };
+        }
+        self.objects.borrow_mut().retire_wrappers();
         moved.retain(|id| live_moved.contains(id));
         self.resources
             .release_heap_charge(HeapCharge::new(retired_identities, 0));
@@ -262,12 +254,10 @@ impl GcHeap {
         self.roots.borrow_mut().drain_released();
         // Destructors run with no storage-table borrow. Finish disposal even when
         // one panics; the execution gate keeps the affected runtime quarantined.
-        if let Some(retired) = retired {
-            retired.dispose(|| {
-                self.resources
-                    .quarantine("native payload destruction panicked");
-            });
+        for retired in retired {
+            reclaimed_retained_bytes += self.dispose_payload(retired) as u128;
         }
+        self.objects.borrow_mut().prune(live.len());
         for group in retired_groups {
             if catch_unwind(AssertUnwindSafe(|| drop(group))).is_err() {
                 self.resources

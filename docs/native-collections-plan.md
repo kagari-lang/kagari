@@ -4,8 +4,8 @@ Status: PG00/NC01 audit, contract closure and shared baseline locally complete,
 activated at `50ab194b30b0218e9befe3176d6b5711ecf17a28`, 2026-10-26. The user authorized
 the joint PG00-PG06/NC migration with one commit per PG phase. PG00/NC01 is committed
 at `47be3cb7`; PG01/NC02's general protocol and external proof are locally complete
-after coordinated final validation. PG02 is next; standard collection migration
-remains PG03. The
+after coordinated final validation (PG01 commit `fc651b92`). PG02 physical storage
+is locally complete; standard collection migration follows at PG03. The
 [roadmap](implementation-roadmap.md#library-owned-native-collections) owns sequencing;
 this plan owns NC01-NC06, the selected Native contracts and the collection ledger.
 General provider APIs below are implemented; later collection algorithms and
@@ -934,10 +934,11 @@ owners. Later collection and incremental acceptance is not implied by that resul
   of runtime traits for std containers directly into stdlib.
 - Raw access safety: NativePayload and general raw payload access are now unsafe;
   safe shared/mutable typed loans require NativeData, including paired receivers.
-  NativeTake alone is not shared-loan evidence. Boxed short loans block escaping
-  public string/tuple/enum/closure views, while internal scoped validation retains
-  actual aggregate/type/owner checks. PG02 replaces physical storage, not these
-  lifetime, retention or accounting guarantees.
+  NativeTake alone is not shared-loan evidence. PG02 short loans pin the actual
+  inline payload rather than detach a Box; public string/tuple/enum/closure views
+  still cannot escape the loan. Internal scoped validation retains actual aggregate/
+  type/owner checks. Physical placement does not relax lifetime, retention or
+  accounting guarantees.
 
 Reuse roots/conversion scopes and runtime-owned NativeObject revisions throughout.
 NC02's public-only fixture exercises these signatures without private imports;
@@ -1011,8 +1012,8 @@ new speed target or the Lua parity workstream; do not repeatedly run full benchm
 
 The [Iterable APIs](spec/builtins.md#iteration-protocols) and
 [retained native cursors](spec/standard-declarations.md#sorting-and-lazy-iteration)
-are implemented at this baseline; NC01/NC02 are locally complete. PG02 is next,
-followed by NC03/NC04 at PG03; NC03-NC06 remain outstanding.
+are implemented at this baseline; NC01/NC02 are locally complete. PG02 is implemented
+pending final validation, followed by NC03/NC04 at PG03; NC03-NC06 remain outstanding.
 Use the current [scoped identity APIs](architecture.md#definition-identity-ownership).
 NC01 audited those APIs; reuse that inventory rather than rebuilding path/ID variants
 or treating historical baseline signatures as a compatibility requirement.
@@ -1031,7 +1032,7 @@ NC02 may prove the public protocol with the synchronous collector and isolated
 scanner tests, but cannot claim interleaved GC acceptance. Record collection
 results only in this ledger; link PG results rather than copy their checklist.
 The user authorized this phase sequence at the activation revision. PG00/NC01 and
-PG01/NC02 have passed local acceptance; paged storage at PG02 is the next checkpoint.
+PG01/NC02 and PG02 have passed local acceptance; PG03/NC03-NC04 is next.
 Cancellation policy and cx.poll redesign remain outside the migration.
 
 | Phase | Scope and exit condition |
@@ -1208,12 +1209,15 @@ operation-guard bypass, HIR/compiler bounds and diagnostic-panic history are own
 by the [PG01 handoff](paged-incremental-gc-design.md#pg01-implementation-handoff-2026-10-27-locally-complete),
 not inferred from the earlier verifier results.
 
-PG02 is next and replaces the temporary boxed-loan storage path. PG03/NC03-NC04
+PG02 now replaces the temporary boxed-loan storage path in the worktree; its
+[physical-model correction and evidence](paged-incremental-gc-design.md#pg02-physical-model-correction-and-checkpoint-evidence)
+passed final local acceptance. PG03/NC03-NC04
 owns removal of legacy collection codecs, special type/value/wire paths, snapshots,
 constructor resolution and runtime-owned host adapters. PG04 owns active scanner
 continuation/publication reservations beyond current synchronous idle workspace
-growth; PG05/NC05 owns actual driver interleaving. Full CI and future performance,
-peak-memory and pause gates remain unrun; no new performance pass is claimed.
+growth; PG05/NC05 owns actual driver interleaving. PG02 diagnostic memory results
+are not final paired acceptance. Full CI, timing and future performance/peak/pause
+gate acceptance remain unrun; no new performance pass is claimed.
 
 Remaining real gates, not alternative API drafts:
 

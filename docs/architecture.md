@@ -1113,9 +1113,11 @@ General `Opaque::read`/`edit` are unsafe short loans with checked `StorageAccess
 retention/publication, `EditPlan` accounting and native-object revisions. Operation
 guards protect callback-spanning work and sealed same-payload recovery. Payload
 loans cannot span collection or reentry; safe typed loans require NativeData, not
-merely NativeTake or empty scanning. The boxed loan releases the directory borrow
-but blocks escaping public string/tuple/enum/closure views until restoration;
-internal scoped aggregate validation remains active.
+merely NativeTake or empty scanning. A short loan pins the actual inline payload,
+sets its header's loan flag and releases the directory borrow; it does not detach
+a permanent payload Box. Competing payload views and escaping public
+string/tuple/enum/closure views remain blocked until loan finalization. Internal
+scoped aggregate validation remains active.
 
 `NativeType::create(cx, payload, selected_slots)` is the typed creation entrypoint;
 a native constructor obtains its descriptor through `result_native_type`. Bounded
@@ -1784,34 +1786,47 @@ outside the script heap. Runtime-only ephemeral IDs remain a distinct value tag.
 Every heap access still checks owner, generation and object kind. Saturated slot
 generations retire storage; owner/slot exhaustion cannot truncate or wrap identity.
 
-The heap directory stores generation and a kind/store locator (12 bytes on the
-measured 64-bit target). Runtime-owned native
-records carry their u64 mutation revision next to the erased Rust payload, so other
-object kinds do not pay for native invalidation state. Allocation initializes a new
-native identity's revision even when its payload was copied from a mutated object;
-payload replacement within an existing identity preserves and commits that identity's
-revision. Dense typed stores own each payload family; native
-arrays, collections and custom Rust payloads retain their existing native owner.
-Rare candidate-initialization ownership is keyed by full identity outside the
-common directory slot. Sweep updates private locators when compacting records,
-keeps generation tombstones, shrinks payload capacity with hysteresis and disposes
-only nonempty detached batches outside storage borrows. Exact per-kind retirement
-counts avoid rescanning unchanged stores; a wholly dead store transfers its buffer.
-Native destructor panics remain isolated per payload and quarantine execution
-while cleanup continues. Dead-object discovery walks occupied concrete stores via
-their directory back-references rather than scanning generation tombstones.
-Interface wrappers alone need a narrow occupied-directory index: they retain the
-direct snapshot locator, and the index neither owns metadata nor equates snapshot
-liveness with wrapper liveness. This is not a second all-object liveness table or
-a claim that total GC is O(live); root-table snapshots, marking, metadata scans and
-changed-store compaction retain their separate costs.
+The heap directory stores generation and a private kind/location (12 bytes on the
+measured 64-bit target). It locates nonmoving small slots or separately allocated
+large payloads; vacant identities carry their own free-chain link, not a second
+free-identity Vec. Generations survive backing release and saturated identities
+never reenter that chain. Rare candidate-initialization ownership remains keyed
+by full identity outside the common slot.
+
+Small allocations share independent 1 KiB, 16-byte-aligned slabs grouped by finite
+stride class and edge capability, not nominal type. The first class fitting the
+combined layout and its alignment is selected; size above 1024 or alignment above
+16 uses an exact-layout large allocation. PG02's measured correction supersedes
+initial 4 KiB slabs: these are separately released allocations, not subpages of a
+retained 4 KiB block. Slab side metadata holds occupied/retiring bits, directory
+back-references and numeric representation tokens; large records do not carry
+small-page slot arrays or bitmaps. Empty backing is released after its last retired
+payload is disposed; surviving payloads never move during ordinary collection.
+
+Native allocations contain their identity-local header and actual aligned Rust T,
+not a permanently boxed T behind a paged header. Mutation revisions remain in the
+native header; new identities start fresh and replacement preserves the receiver's
+revision. Staging/factory transport may use a temporary Box before placement.
+Runtime-local descriptor admissions cover live and retiring allocations. Slots
+store numeric tokens rather than per-slot Arc owners; disposal retains dispatch
+and backing until destruction completes. Canonical struct layouts remain with
+one semantic interning owner, not a duplicate physical semantic-key map.
+
+The collector still completes synchronous graph validation and builds a dead list.
+It retires identities before disposal outside storage borrows; destructor panics
+quarantine execution while cleanup continues. Interface identities directly locate
+snapshots and use a narrow occupied-directory index, with no slab wrapper payload.
+The synchronous dead list and interface batch filtering remain PG05 removal work;
+epoch marking/continuations remain PG04 work. Nonmoving storage alone is not an
+incremental collector, O(live) total-GC claim, or measured throughput improvement.
 
 `ResourceState` owns aggregate logical occupancy and attributed backing pressure.
 `HeapCharge` carries `logical_units` and `retained_bytes`; each `NativeObject` owns
 its committed payload charge, excluding the heap identity. Admission and completed
 general edits sample infallible `NativePayload::charge()`, including error/unwind
-finalization; the runtime adds the erased Box's shallow size exactly once.
-Checked storage owners update the record on mutation; relocation preserves it and
+finalization. Providers report indirect backing only; shallow native header/T bytes
+belong to physical slab/large backing, charged separately once. There is no added
+per-object Box shallow charge. Checked storage owners update the record on mutation;
 sweep/take release it without resampling providers. Strings and native buffers use
 known capacities; hash tables use capacity-based estimates. Shared metadata,
 referenced objects, external host resources and runtime arenas are not attributed
@@ -1835,19 +1850,19 @@ requested allocation that failed. Kagari owns Rust buffers and records their
 charges at checked storage transitions; it does not copy Lua's emergency collection
 inside allocation or incremental GC-debt policy.
 
-Script struct records share a closed physical layout and locate their initialized
-bytes in one heap-owned arena. Scalar fields use exact semantic widths, Unit uses
-no bytes, and managed fields store a tag plus the full 12-byte checked identity.
+Script structs share a closed physical layout and store their initialized field
+bytes directly in a nonmoving slot or exact-layout large allocation. Scalar fields
+use exact semantic widths, Unit uses no bytes, and managed fields store a tag plus the full 12-byte checked identity.
 Point { x: i32, y: i32 } therefore uses eight field bytes, independently of its
-directory/record/shared-description cost. Safe native-endian byte copies support
+directory/side-metadata/shared-description cost. Safe native-endian byte copies support
 unaligned fields and preserve float bits. GC scans only described reference fields.
 Construction admits scalar Values through the closed description and shared scalar
 domain rules; managed fields still check heap ownership and nominal/environment
 compatibility. Admission finishes before accounting or object publication. Rejected
-construction publishes no object or description root. Allocation reserves arena/record
-capacity before publication; collection compacts surviving rows and updates offsets
-under the same exclusive heap borrow. No raw
-address or view survives either operation. General Value/reflection APIs use the
+construction publishes no object or description root. Allocation reserves physical
+storage and descriptor admission before publication. No packed global byte arena,
+survivor extraction or relocation repair remains. Stable physical addresses do not
+relax scoped loans: no public raw address or view crosses collection or reentry. General Value/reflection APIs use the
 same field codec; tuple/enum slots and native buffers keep their existing models.
 
 Physical-description lookup reuses canonical layout identities scoped by registry

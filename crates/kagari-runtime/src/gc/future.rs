@@ -230,7 +230,7 @@ impl GcHeap {
                 .cold
                 .take()
                 .expect("checked cold state");
-            let remaining = object.storage_charge(HeapCharge::default());
+            let remaining = HeapCharge::default();
             let released = HeapCharge::new(
                 object.charge.logical_units - remaining.logical_units,
                 object.charge.retained_bytes - remaining.retained_bytes,
@@ -259,7 +259,7 @@ impl GcHeap {
                         "Future has already been awaited",
                     )
                 })?;
-            let remaining = object.storage_charge(HeapCharge::default());
+            let remaining = HeapCharge::default();
             let released = HeapCharge::new(
                 object.charge.logical_units - remaining.logical_units,
                 object.charge.retained_bytes - remaining.retained_bytes,

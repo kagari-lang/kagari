@@ -12,6 +12,7 @@ use crate::{
 
 use crate::native::hash_storage::{HashMapStorage, HashSetStorage};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreparedCollectionCommit {
@@ -166,9 +167,15 @@ impl GcHeap {
         let change = self
             .resources
             .prepare_heap_change(target.charge, charge.logical_units)?;
-        *target = prepared;
+        let retired = target.replace_payload(prepared)?;
         target.revision = revision;
         change.commit(charge);
+        drop(objects);
+        if catch_unwind(AssertUnwindSafe(|| drop(retired))).is_err() {
+            return Err(self
+                .resources
+                .quarantine("native replacement destruction panicked"));
+        }
         Ok(())
     }
 

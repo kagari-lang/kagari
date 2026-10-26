@@ -43,7 +43,7 @@ impl ObjectAccess for Owned {
     type Structure = StructInitializer;
 
     fn field_count(structure: &Self::Structure) -> usize {
-        structure.description.fields.len()
+        structure.descriptor.structure_layout().fields.len()
     }
 }
 

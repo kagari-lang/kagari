@@ -94,7 +94,14 @@ metadata, not merely object payloads.
 
 ## Slab occupancy model
 
-The model uses the proposed 4,096-byte payload slabs, alignment at most 16 and strides:
+The model preserves PG00's historical 4,096-byte payload-slab proposal, alignment
+at most 16 and the strides below. PG02's measured allocator correction selects
+independent 1,024-byte slabs; this model is intentionally not retuned and must not
+be mistaken for the current physical layout. Actual metadata-inclusive measurements
+and unchanged acceptance gates belong to the
+[PG ledger](../../../../docs/paged-incremental-gc-design.md#pg02-physical-model-correction-and-checkpoint-evidence).
+
+Historical model strides:
 
 ```text
 8 16 24 32 40 48 56 64 80 96 112 128 160 192 224 256

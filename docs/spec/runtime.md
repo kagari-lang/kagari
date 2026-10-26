@@ -147,8 +147,8 @@ and trace their payloads through the same mark-sweep root mechanism. Publication
 does not invalidate old values; rooted old enum objects keep their original layout.
 
 Script struct objects share a closed layout derived from `StructLayoutRef` and
-store positional field bytes in a compact heap arena. Scalars use their exact
-semantic widths, preserving float bits; Unit needs no bytes. Managed fields retain
+store positional field bytes inline in nonmoving slab slots or large allocations.
+Scalars use their exact semantic widths, preserving float bits; Unit needs no bytes. Managed fields retain
 a tag and full owner/slot/generation identity. Layout-directed tracing visits only
 reference fields. Safe byte codecs also serve Value-based host/reflection access.
 The layout comes from a verified `ExecutableModule` and retains immutable version
@@ -247,9 +247,15 @@ Its responsibilities include:
 The GC must not own Rust host borrows.
 
 The implemented collector uses stop-the-world mark-sweep over stable checked
-handles. A compact generation directory locates dense typed payload stores; sweep
-can compact those stores and struct field bytes without changing handle identity. Scoped storage borrows
-exclude collection and relocation. It traverses
+handles. A compact generation directory locates nonmoving slab slots and separately
+tracked large allocations. Small backing uses independent 1 KiB slabs aligned to
+16 bytes, shared by size class and edge capability rather than nominal type.
+Combined layouts above 1024 bytes or aligned above 16 use exact-layout large
+allocations. These are not subdivisions of a retained 4 KiB block. Native headers
+and actual Rust payloads are colocated; struct field bytes are inline, not stored
+in a compacting global arena. No permanent per-native-payload Box remains, although
+admission/factory transport may stage one before placement. Scoped storage borrows
+still exclude collection and reentry. It traverses
 tuples, enum payloads, array/map values and struct fields with an explicit work stack,
 handles cycles, and reclaims unreachable slots. Reuse increments the slot generation;
 a saturated generation retires its slot. Reads, writes, root registration and script
@@ -258,7 +264,8 @@ validation cannot consume heap growth units or change the target object.
 
 Native mutation revisions belong to runtime-owned native records, separately from
 the common identity generation/locator. New identities begin with a fresh revision;
-record relocation preserves it and payload replacement keeps the receiver's state.
+ordinary collection leaves its address unchanged and payload replacement keeps
+the receiver's state.
 Structural edits, checked native writes and detached sequence restoration retain
 their operation-specific invalidation/commit order. Exhaustion rejects the operation
 without wrapping. A temporarily detached sequence has no readable traversal revision.
@@ -311,16 +318,23 @@ parameter_types and return_type inspection requires the owning Runtime and check
 the root identity. Public signature inspection returns copied data; call preparation
 and dispatch read the record through scoped views.
 
-Dead heap-object discovery visits occupied concrete payload stores through their
+Dead heap-object discovery visits occupied page/large allocations through their
 directory back-references, not every historical directory slot. Interface wrappers
 have no concrete payload row, so a narrow index records their occupied directory
 slots without owning snapshots or replacing the direct snapshot locator. Wrapper
-retirement removes those index entries before directory reuse. Generation tombstones,
-checked relocation and the separate inert identities left by native take remain.
-This bounds object discovery by occupied objects, including not-yet-collected garbage;
-it is not an O(live) bound for the whole collector. Root snapshots still scan root
-table slots, and marking, executable-metadata scans and changed-store compaction
-remain separate work.
+retirement removes those index entries before directory reuse; no wrapper is placed
+in a slab. Generation tombstones and the separate inert identities left by native
+take remain. Vacant directory slots form the free-identity chain without a separate
+free Vec. Representation tokens retain descriptor admission for live and retiring
+payloads; a slot or large allocation cannot be reused until disposal finishes.
+The last disposed slot releases empty slab backing immediately, independently of
+directory identity history. Descriptor/drop provenance survives disposal, including
+panic-contained cleanup, without becoming an executable graph root.
+
+This is not an O(live) bound for the whole collector. Root snapshots, synchronous
+marking, metadata scans, the complete dead-object list and interface batch filtering
+remain separate costs. Persistent epochs/publication are PG04 work; incremental
+sweep and removal of dead-list/interface-batch adapters are PG05 work.
 
 Collection completes marking and accounting before
 removing any slots, then detaches unreachable objects, operation groups, method
@@ -368,9 +382,10 @@ pressure, not RSS, allocator usable size, all runtime memory or a heap quota.
 The current attribution is deliberately bounded:
 
 - Strings contribute their actual capacity, not just UTF-8 length.
-- Native records include the erased payload Box's shallow size exactly once, plus
-  the provider's exclusively owned indirect backing. Sequence buffers use actual
-  capacity times their physical element width (zero for Unit, `Value` width for
+- Physical slab/large backing includes inline native headers/payloads and struct
+  bytes once, including retained class/page slack. Native provider charges include
+  exclusively owned indirect backing, not a second shallow Box allocation. Sequence
+  buffers use actual capacity times their physical element width (zero for Unit, `Value` width for
   traced slots). Managed field buffers, iterator key buffers and cold native Future
   capture/parameter buffers likewise use their known capacities. Task failure
   payloads include their owned error-message capacity.
@@ -378,15 +393,16 @@ The current attribution is deliberately bounded:
   known collision-token vector capacities. Rust's standard hash collections do
   not expose exact bucket/control allocation sizes; these are pressure estimates.
 - Referenced GC objects are charged separately. Shared type/code/layout metadata,
-  external host resources and runtime directories, store/frame/struct-byte arenas
-  are excluded from byte attribution. Other non-native object backing is not
+  external host resources and runtime directory/side-table/frame backing
+  are excluded from this pressure attribution. Other non-native object backing is not
   covered by this byte ledger. Providers must identify unobservable allocations
   as excluded, not claim that a zero report proves no allocation.
 
 Unsafe `NativePayload::charge() -> HeapCharge` is infallible and constant-time.
 Admission and every completed general edit sample it, including error/unwind
-finalization, and the runtime adds the shallow Box size once. The runtime-owned
-`NativeObject` records that charge; allocation uses it, relocation preserves it,
+finalization. Physical backing accounts for shallow payload bytes separately;
+there is no additional Box-size charge. The runtime-owned `NativeObject` records
+the provider charge; allocation uses it, nonmoving storage preserves it,
 and checked storage mutations update it alongside committed storage. Sweep and take
 release recorded charges without provider calls. Scanner and loan obligations are
 specified by the [provider protocol](host-interop.md#general-native-payload-protocol).
@@ -394,7 +410,7 @@ A prepared replacement has its own charge; unchanged logical length does not imp
 unchanged capacity. Detached sequence editing keeps the original buffer charged
 until restoration; removals reduce logical units but do not invent a capacity
 release. Claiming a cold Future transfers its capture backing out of the payload's
-charge, leaving its Box charged. Native take releases payload units and bytes but
+charge; its physical allocation remains charged until released. Native take releases payload units and bytes but
 keeps one logical identity unit until its inert aliases are no longer traced.
 See [provider obligations](host-interop.md#native-payload-accounting) and
 [reservation failure](failure-semantics.md#modification-guarantees).
@@ -402,11 +418,18 @@ See [provider obligations](host-interop.md#native-payload-accounting) and
 With `execution-diagnostics`,
 `GcHeap::storage_usage() -> Result<StorageUsage, RuntimeError>` inspects concrete
 backing lengths/capacities without creating roots, descriptors or backing buffers.
-It rejects an active native payload loan or conflicting heap/free-slot/interface
-storage borrow; temporarily detached payloads cannot be reported accurately. Callers
-must handle that error, not treat it as an empty snapshot. Its partial backing
-counts exclude roots, metadata, shared descriptions, other payload children and
-allocator overhead; they are neither process totals nor a peak-memory measurement.
+It rejects an active native payload loan or conflicting heap/interface storage
+borrow; exclusively loaned inline payloads cannot be inspected. Callers must handle
+that error, not treat it as an empty snapshot. Diagnostics separately report slab
+and large backing, slot metadata, occupancy/retirement bitmaps, page-directory
+capacity, small/large controls, backing Arc controls, representation descriptors
+and descriptor-directory capacity. `initialized_payload_bytes` and
+`native_payload_bytes` are subsets of backing, not additional allocations;
+`unused_backing_bytes` includes vacant slots, class rounding and page tails.
+Descriptor registry occupancy/capacity is reported without claiming exact hash
+bucket/control bytes. Roots, executable metadata, canonical layout children,
+registration metadata, other payload children and allocator overhead remain outside
+these partial counts. They are neither process totals nor a peak-memory measurement.
 
 `GcHeapConfig.collection_threshold` enables automatic collection at execution
 safepoints, including the current scalar JIT helper. Collection never runs inside

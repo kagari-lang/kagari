@@ -347,9 +347,10 @@ Advanced payload implementations implement unsafe `NativePayload`, including one
 `begin_scan`/`scan` protocol and infallible `charge(&self) -> HeapCharge`.
 Use `HeapCharge` from `kagari_runtime::resource`: logical units exclude the heap
 identity, and retained bytes cover exclusively owned indirect backing, such as a
-byte vector's capacity. Do not add the payload's shallow Rust size: preparation
-adds the erased Box size exactly once. Do not charge referenced GC objects, shared
-metadata or external host resources. Label capacity-based estimates and excluded
+byte vector's capacity. Do not add the payload's shallow Rust size: physical
+slab/large backing accounts for inline header/T bytes separately, without a
+permanent erased Box or a second shallow charge. Do not charge referenced GC objects,
+shared metadata or external host resources. Label capacity-based estimates and excluded
 unobservable allocations; these numbers are GC pressure, not exact allocator/RSS
 measurements or quotas.
 

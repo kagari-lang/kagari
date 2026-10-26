@@ -9,7 +9,7 @@ use crate::{
         interfaces::{InterfaceSnapshotId, InterfaceStore},
     },
     gc::{
-        directory::{ObjectSlot, ObjectStorage, PayloadKind, PayloadLocation},
+        directory::{ObjectStorage, PayloadKind, PayloadLocation},
         fields::{StructStorageLayouts, StructView, StructViewMut},
         interfaces::InterfaceValueSnapshot,
         leases::{LeaseTable, OwnedLease},
@@ -197,7 +197,7 @@ pub struct GcHeap {
     config: GcHeapConfig,
     objects: RefCell<ObjectStorage>,
     struct_layouts: RefCell<StructStorageLayouts>,
-    free: RefCell<Vec<usize>>,
+
     moved: RefCell<HashSet<HeapObjectId>>,
     roots: RefCell<RootTable>,
     pub(crate) environments: RefCell<EnvironmentStore>,
@@ -268,7 +268,7 @@ impl GcHeap {
             cursor_storage: OnceCell::new(),
             objects: RefCell::new(ObjectStorage::default()),
             struct_layouts: RefCell::new(StructStorageLayouts::default()),
-            free: RefCell::new(Vec::new()),
+
             moved: RefCell::new(HashSet::new()),
             roots: RefCell::new(RootTable::new(owner)),
             environments: RefCell::new(EnvironmentStore::new(owner)),
@@ -435,6 +435,7 @@ impl GcHeap {
             PayloadKind::Interface => GcObjectKind::Interface,
             PayloadKind::Closure => GcObjectKind::Closure,
             PayloadKind::Cell => GcObjectKind::Cell,
+            PayloadKind::Vacant => return None,
         })
     }
 
@@ -693,8 +694,7 @@ impl GcHeap {
             .filter(|session| session.options.phase == ExecutionPhase::CandidateInitialization)
             .map(|session| session.root.program_root().key());
         let mut objects = self.objects_mut()?;
-        let mut free = self.free.borrow_mut();
-        let index = free.last().copied().unwrap_or(objects.slots.len());
+        let index = objects.next_directory();
         let directory =
             u32::try_from(index).map_err(|_| self.resource_limit("heap object slots"))?;
         if index == objects.slots.len() {
@@ -709,21 +709,19 @@ impl GcHeap {
                 .try_reserve(1)
                 .map_err(|_| self.resource_limit("initialization owners"))?;
         }
-        let location = objects
-            .insert(directory, object)
-            .map_err(|_| self.resource_limit("allocation capacity"))?;
-        let slot = if index == objects.slots.len() {
-            objects.slots.push(ObjectSlot {
-                generation: 0,
-                location: Some(location),
-            });
-            index
-        } else {
-            free.pop();
-            objects.slots[index].location = Some(location);
-            index
-        };
-        let id = HeapObjectId::new(self.owner, slot, objects.slots[slot].generation);
+        // Shared slab/large backing is charged only on acquisition, independently
+        // of per-object indirect storage. Preflight before transferring ownership.
+        charge
+            .retained_bytes
+            .checked_add(ObjectStorage::backing_bound(&object)?)
+            .ok_or_else(|| self.resource_limit("payload backing charge"))?;
+        let before_backing = objects.backing_bytes();
+        let location = objects.insert(directory, object)?;
+        let charge = charge
+            .with_shallow_bytes(objects.backing_bytes() - before_backing)
+            .expect("preflighted payload backing charge");
+        objects.publish(index, location);
+        let id = HeapObjectId::new(self.owner, index, objects.slots[index].generation);
         if let Some(owner) = initialization_owner {
             objects.initialization_owners.insert(id, owner);
         }
@@ -742,7 +740,7 @@ impl GcHeap {
         }
         let slot = objects.slots.get(id.index())?;
         (slot.generation == id.generation)
-            .then_some(slot.location)
+            .then_some(slot.location())
             .flatten()
     }
 

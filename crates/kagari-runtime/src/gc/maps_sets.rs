@@ -240,7 +240,6 @@ impl GcHeap {
         let result = f(entries);
         let changed = entries.len() != old_len;
         let charge = HeapCharge::new(entries.len(), entries.pressure_bytes());
-        let charge = object.storage_charge(charge);
         if changed {
             object.revision = revision;
         }
@@ -288,7 +287,7 @@ impl GcHeap {
         let result = f(entries);
         let changed = entries.len() != old_len;
         let charge = HeapCharge::new(entries.len(), entries.pressure_bytes());
-        let charge = object.storage_charge(charge);
+
         if changed {
             object.revision = revision;
         }

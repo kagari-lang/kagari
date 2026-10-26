@@ -205,7 +205,7 @@ impl GcHeap {
 mod tests {
     use super::*;
     use crate::gc::{
-        ObjectSlot,
+        directory::ObjectSlot,
         roots::RootedValue,
         storage::{Exclusive, Shared},
     };

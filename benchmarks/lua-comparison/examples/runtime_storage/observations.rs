@@ -3,7 +3,10 @@ use kagari::runtime::Runtime;
 use std::time::Instant;
 
 #[cfg(feature = "diagnostics")]
-use kagari_runtime::diagnostics::allocations::{self, Counts};
+use kagari_runtime::diagnostics::{
+    allocations::{self, Counts},
+    storage::StorageUsage,
+};
 #[cfg(not(feature = "diagnostics"))]
 use std::array;
 
@@ -15,6 +18,8 @@ pub(super) struct Phase {
     objects: usize,
     #[cfg(feature = "diagnostics")]
     counts: Counts,
+    #[cfg(feature = "diagnostics")]
+    storage: Option<StorageUsage>,
 }
 
 #[derive(Default)]
@@ -32,6 +37,8 @@ impl Record {
             objects: runtime.runtime().gc().stats().allocated_objects,
             #[cfg(feature = "diagnostics")]
             counts: allocations::checkpoint().unwrap(),
+            #[cfg(feature = "diagnostics")]
+            storage: Some(runtime.runtime().gc().storage_usage().unwrap()),
         };
         self.len += 1;
     }
@@ -76,6 +83,11 @@ pub(super) fn run(name: &str, action: impl Fn() -> Record) {
         }
         previous = Some(deltas);
         for phase in &record.phases[..record.len] {
+            println!(
+                "family_storage,{name},repeat={repetition},phase={},usage={:?}",
+                phase.label,
+                phase.storage.unwrap()
+            );
             println!(
                 "family_memory,{name},repeat={repetition},phase={},objects={},net_bytes={},net_delta_bytes={},interval_peak_bytes={},requests_since_setup={},requested_bytes_since_setup={}",
                 phase.label,

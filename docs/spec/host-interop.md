@@ -467,8 +467,9 @@ the finite derive/Serde subset and directional converters.
 Advanced runtime-owned storage implements
 unsafe `NativePayload`, with `charge(&self) -> HeapCharge`.
 `HeapCharge` carries logical payload units excluding the heap identity, and bytes
-for exclusively owned indirect backing. The runtime adds the erased payload Box's
-shallow size exactly once; providers must not include it again. Referenced GC
+for exclusively owned indirect backing. The runtime accounts shallow header/T
+bytes through physical slab/large backing; providers must not include them again.
+Installed native payloads are inline, with no permanent erased Box charge. Referenced GC
 objects, shared metadata and external host resources do not belong to that charge.
 Report known capacities where available, distinguish estimates, and document
 unobservable allocations as excluded rather than asserting an exact zero.
@@ -540,11 +541,12 @@ script execution, panic, charge growth or new edge retention/publication. Ordina
 fallible preparation cannot be deferred into recovery. Contract violations can
 quarantine execution; completed callback effects are not undone.
 
-The current boxed short-loan implementation temporarily removes the payload while
-releasing the directory borrow. Public escaping string, tuple, enum and closure
-views are blocked during that loan, so restoration cannot conflict with a retained
-directory borrow. Internal scoped validation still checks actual aggregates and
-ownership; it is not disabled to permit loans. This is not a paged-storage claim.
+A short loan pins the actual inline payload and marks its header loaned while
+releasing the directory borrow. It does not move the payload into a temporary
+owner. Competing payload views and public escaping string, tuple, enum and closure
+views are blocked until finalization clears the loan flag and reconciles charge
+and revision. Internal scoped validation still checks actual aggregates and
+ownership; stable physical placement does not waive collection/reentry exclusion.
 
 ## Native application admission
 
