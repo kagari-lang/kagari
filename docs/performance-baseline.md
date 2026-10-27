@@ -16,7 +16,11 @@ Keep workloads, hashes, environment and timing scope together. Allocation reques
 are not RSS; compilation/setup and execution are separate. Small differences are
 not significance claims, and local correctness does not imply GitHub CI or Lua parity.
 
-## Current Kagari/Lua cost attribution, Windows 2026-10-27
+The latest compiler-loop result is [BO13-BO16 on the i9-12900K](#bo13-bo16-scalar-loops-windows-2026-10-27).
+It includes all 19 current original/forms timings and arithmetic machine-code
+attribution. Earlier i7 measurements below remain revision-specific evidence.
+
+## BO08 Kagari/Lua cost attribution, Windows 2026-10-27
 
 This is a fresh analysis of production revision `03246d94a1a153b18746f0c245ec2c07cb015421`,
 with a clean working tree during measurement and no runtime changes. It supersedes
@@ -4791,3 +4795,183 @@ reentry contracts pass, as do structure, formatting, diff and workspace all-targ
 Clippy checks. The BO12 repair specifically passes six runtime numeric boundary,
 three payload and eleven VM numeric tests. Full workspace/backend/feature/platform
 correctness remains CI-only and unrun; local evidence does not close that acceptance.
+
+## BO13-BO16 scalar loops, Windows 2026-10-27
+
+Production `41d613a9` reaches the arithmetic target: four scalar slots, eight static
+run instructions and four instructions per iteration. Independent counting confirms
+300,008 -> 200,007 instructions for n=50,000, including unchanged main/run calls.
+All 19 original/forms execution gates pass against the freshly frozen `36c4419c`
+image. Arithmetic's median paired ratio is 0.77414 (22.6% lower elapsed time),
+against the predeclared <=0.90 target; every other row is below its 1.05 limit.
+This completes BO13-BO16 locally, not full CI or earlier BO04/BO08/IP12 gates.
+
+### Environment and matched measurement
+
+Windows 11 Pro 10.0.26300, Intel Core i9-12900K, 24 logical CPUs, 66,843,692 KiB
+visible memory. Rust 1.99.1 (`58cf8f9c3`, LLVM 23.1.1), Cargo 1.99.1 (`5f94df478`),
+x86_64-pc-windows-msvc; workspace release opt-level 3, default target and Cargo
+parallelism. Kagari source/native and vendored PUC Lua 5.4.9 are compiled in;
+execution is interpreter-only. No environment, affinity or priority overrides.
+Use fresh process/runtime state, three warmups, eleven execution samples per
+process and seven alternating baseline/candidate pairs per suite. Compilation,
+preparation and linking are excluded from execution. Builds, tests, counting and
+profiling do not overlap throughput measurements. Baseline freezes began at
+14:03:28 and 14:05:42 UTC; paired original/forms runs at 14:17:02 and 14:20:37 UTC.
+
+Baseline executable SHA-256:
+`de8d76c7c7754cab3c2a1ed990d5d14d8f832640dc79880f9c21f826993ed154`.
+Candidate executable SHA-256:
+`d7c2457b345ba1ead750d3d51b72da2618032efaca5a982a552facefdb180697`.
+Both paired suites use that same candidate image with a clean tracked working tree.
+The existing [driver](../scripts/benchmark_lua.py) and
+[gate checker](../scripts/check_benchmark.py) validate unchanged inputs, samples,
+hashes and every checksum. Reproduction commands and the frozen-image procedure are
+in the [active plan](bytecode-optimization-plan.md#measurement-contract-and-acceptance).
+
+Times below are medians of seven process medians, in microseconds per complete
+workload. Paired ratios are medians of seven within-pair ratios, so they need not
+equal the quotient of the displayed medians. All pairs, including the broad
+arithmetic/branches/field minima, remain in the evidence; no retry or outlier
+deletion was used. Small changes on unaffected paths are not proven speedups.
+
+| Workload | Before us | After us | Lua us | After/Lua | Paired after/before | Pair minimum..maximum |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| arithmetic | 644.700 | 503.700 | 366.500 | 1.37 | 0.77414 | 0.62756..0.79492 |
+| arrays | 7646.400 | 7526.600 | 84.300 | 89.28 | 0.97594 | 0.94961..1.00737 |
+| branches | 1006.600 | 869.700 | 670.800 | 1.30 | 0.87085 | 0.64380..0.91947 |
+| calls | 5723.100 | 5496.800 | 212.700 | 25.84 | 0.95938 | 0.93771..0.99669 |
+| entry | 2.007 | 1.953 | 0.037 | 52.35 | 0.96385 | 0.88853..0.98826 |
+| fibonacci | 12741.400 | 12326.800 | 303.300 | 40.64 | 0.96241 | 0.94027..1.01224 |
+| maps | 5841.100 | 5835.200 | 83.900 | 69.55 | 0.98372 | 0.95176..1.00883 |
+| forms_byte_state | 14612.700 | 14225.700 | 135.800 | 104.75 | 0.97352 | 0.94658..1.00853 |
+| forms_capture_cell | 6295.700 | 6190.200 | 130.800 | 47.33 | 0.98231 | 0.95324..1.01143 |
+| forms_concrete_generic | 2823.000 | 2757.100 | 112.600 | 24.49 | 0.96455 | 0.94363..1.01708 |
+| forms_direct | 68.700 | 68.700 | 55.200 | 1.24 | 0.99858 | 0.93452..1.02537 |
+| forms_field | 706.200 | 701.900 | 102.000 | 6.88 | 0.99886 | 0.80180..1.02294 |
+| forms_helper | 2769.300 | 2739.700 | 114.500 | 23.93 | 0.98924 | 0.88234..1.03230 |
+| forms_host_callback | 3484.900 | 3409.200 | 224.200 | 15.21 | 0.98011 | 0.92644..1.00781 |
+| forms_interface | 9140.900 | 8707.200 | 122.700 | 70.96 | 0.95811 | 0.89056..0.96163 |
+| forms_native | 3445.600 | 3370.000 | 114.800 | 29.36 | 0.97084 | 0.96100..1.00564 |
+| forms_shared_generic | 13222.700 | 12677.900 | 118.400 | 107.08 | 0.95674 | 0.93835..0.99480 |
+| forms_string_calls | 7269.300 | 7051.100 | 137.600 | 51.24 | 0.96651 | 0.93919..0.99405 |
+| forms_string_constants | 4087.100 | 4002.400 | 80.400 | 49.78 | 0.97649 | 0.89710..1.00409 |
+
+Entry's underlying medians are 1.9526 us versus 0.0373 us; rounding explains the
+displayed ratio. Original workload sizes/checksums and the 5,000-iteration forms
+are unchanged. Kagari checked i32 arithmetic and Lua integer arithmetic have
+different overflow contracts; these bounded workloads match results. Byte-state
+compares typed u8 storage/casts with Lua's integer/table representation.
+`forms_native` compares a Rust callback with a Lua script helper and is diagnostic,
+not equivalent native-boundary performance. `forms_host_callback` invokes the same
+checked Rust helper from both engines. No numeric/backend matrix was added here.
+Earlier i7 timings cannot establish gains or regressions on this i9 machine.
+
+Candidate build wall time is 18.964 seconds; forms reuses it in 0.389 seconds.
+Arithmetic setup process medians, before -> after: source-to-artifact 801.678 ->
+809.058 ms; artifact preparation 266.779 -> 271.042 ms; program link 25.815 ->
+25.307 ms; runtime initialization 20.1 -> 19.5 us. These are separate setup
+diagnostics, not costs hidden in the 503.7 us execution time.
+
+### Instruction shape, generality and storage
+
+The unchanged arithmetic body is `sum = sum + i % 97; i = i + 1`. Rotation now
+runs before copy propagation, preserving its closed-condition eligibility. Numeric
+constant selection removes a shared literal temporary only when the next retained,
+same-origin home initializer anchors its original observation. Runtime preparation
+and instruction handlers are unchanged. Equivalent final bytecode is:
+
+```text
+load i, 0
+load sum, 0
+branch 0 < n -> body, else -> done
+body:
+  rem t, i, 97
+  add sum, sum, t
+  add i, i, 1
+  branch i < n -> body, else -> done
+done:
+  return sum
+```
+
+The entry guard preserves negative/zero-trip behavior. Every successful result
+commits separately; overflow, cancellation, source observations and sliced resume
+keep their contracts. Final instruction observation reports BinaryOperands 100,000,
+PredicateBranch 50,001, Binary 50,000, LoadConst 3, Return 2 and Call 1. Both logical
+and physical run slots fall from five to four. Lua's independent hook reports
+250,007 instructions: fewer Kagari dispatches now coexist with higher elapsed time.
+One bytecode in either VM is not an equal unit of machine work.
+
+Unchanged branch/call/array sources also benefit: static run instructions/slots
+change 19/11 -> 18/10, 11/7 -> 10/6 and 35/23 -> 32/20 respectively. All three
+array loops use conditional backedges. The pre-call sum and managed object snapshots
+remain. These results demonstrate general compiler rules, not a benchmark match;
+they do not remove the much larger collection/call-boundary costs in the table.
+
+Run's canonical instruction payload falls 1,296 -> 1,152 bytes (144 bytes each);
+prepared instructions 216 -> 192 bytes (24 bytes each); physical scalar payload plus
+initialization bytes 45 -> 36. These are selected payload arrays, excluding metadata,
+headers and allocator overhead, not RSS. Whole executable bytes change 32,896,000 ->
+32,904,192; PE SizeOfCode 26,198,528 -> 26,204,672 (+6 KiB). The runtime scalar-loop
+function remains 25,615 bytes; this compiler change does not shrink each handler.
+
+### Remaining arithmetic costs
+
+A separate ten-second profile began at 14:21:44 UTC using the exact candidate image
+and PDB SHA-256 `de19f3024a7083ebc21029b4c9c5e48bf5c5ef97a89aaff601c5a55e43aa54ef`.
+The [sampler](../scripts/profile_lua_comparison.py) waits for warmup completion,
+briefly suspends the main thread at jittered 1.5..2.5 ms intervals and records RIP;
+it does not collect inclusive stacks. There are 4,219 samples and zero capture
+errors. Counting occurs after the sampling window. The window records zero GC
+collections, zero script heap-object allocations and zero live-object delta.
+
+PDB names leave 99.41% unresolved. Match the same-build runtime rlib's COFF function
+section against the exact PE, masking only relocation bytes, then map samples by
+module-relative address. The unique match verifies 25,227 of 25,615 bytes at RVA
+`0x010a9310..0x010af71f`; it agrees with unwind function bounds and attributes 4,177
+samples (99.00%) to unbounded `ExecutionCursor::execute_slice`. The bounded
+28,025-byte function at RVA 0x010a2590 has zero samples. Reproduce symbol/assembly
+inspection with `llvm-nm` / `llvm-objdump` on the matching release runtime archive;
+the sampler command is:
+
+```text
+uv run python scripts/profile_lua_comparison.py arithmetic --executable target/release/kagari-lua-benchmark.exe --pdb target/release/kagari_lua_benchmark.pdb
+```
+
+Offsets below are relative to the matched unbounded function, half-open. The
+comparison path is split by LLVM's shared tails; retain these exact intervals when
+reclassifying the saved sample addresses.
+
+| Machine-code offsets | Sample location | Samples / all |
+| --- | --- | ---: |
+| 0x72..0xc4 | Boundary control and cancellation/observer/abandonment polling | 697 / 16.52% |
+| 0xc4..0xf5 | Checked fetch, PC advance and opcode dispatch | 663 / 15.71% |
+| 0x5d30..0x5d5d | Checked result writeback, initialization and backedge | 409 / 9.69% |
+| 0x2c86..0x2ce7 | i32 immediate remainder, operand/domain/divisor checks | 1416 / 33.56% |
+| 0x8ac..0x924; 0x15cd..0x15dd | i32 register add, operand/domain/overflow checks | 365 / 8.65% |
+| 0x4d5e..0x4da5 | i32 immediate add, operand/domain/overflow checks | 174 / 4.12% |
+| 0x4452..0x44d9; 0x59b2..0x59ba; 0x5a0a..0x5a1b; 0x5c48..0x5c61 | i32 predicate operands, condition dispatch and checked target | 453 / 10.74% |
+| Outside the matched function | Other/unmapped | 42 / 1.00% |
+
+Polling/fetch/writeback account for 41.93% of sampled locations. The remainder
+handler still loads 97 from prepared runtime data and executes `idiv r8d`; it is
+not native compile-time constant division. Of all samples, 1,053 occur at 0x2cdf,
+immediately after idiv. Sampling skid and data dependencies prevent interpreting
+these as precise division cycles or removable-time percentages. Remainder is also
+work Lua must perform, so this profile alone does not attribute the entire Lua gap.
+
+The source/assembly evidence now places remaining arithmetic cost in executing the
+required operations, rather than excess counter transport. The scalar loop retains
+bank bounds/initialization checks, i32 payload-domain validation, checked overflow
+and target checks. Comparison also selects its condition inside the typed handler.
+GC, script allocations and repeated function calls are not hot-loop causes here.
+Review prepared execution validity and dispatch ownership before any further runtime
+optimization: a private proof would have to cover every writer, public frame access,
+debug/manual side entry and resume. Preserve overflow commits and per-instruction
+polling. Constant-divisor specialization needs a separate general design and measured
+case; no new opcode, unchecked path or reduced cancellation frequency follows from
+these samples automatically. These questions remain in the existing plan ledger.
+
+The selected compiler/VM contracts and required structure/fmt/workspace Clippy/diff
+checks pass; details are in the BO14-BO15 checkpoint. Only documentation changed
+after that implementation checkpoint. Exhaustive tests remain CI-only and unrun.

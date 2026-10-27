@@ -767,15 +767,18 @@ costs. Full CI is pending; earlier BO04/BO08/IP12 failures remain unchanged. Pub
 frame initialization checks and logical polling frequency stay in the contract.
 
 The user-requested [BO13-BO16 scalar-loop execution plan](bytecode-optimization-plan.md#general-scalar-loop-follow-up-bo13-bo16)
-is active. A frozen baseline precedes the copy/rotation scheduling repair and
-source-preserving constant selection. Focused validation precedes matched timing
-and remaining-cost attribution. Arithmetic targets four
-scalar slots and four instructions per iteration (200,007 per 50,000-iteration
-entry), with preserved traps, debug states and source-free correspondence. Pass
-scheduling is evaluated before adding cross-block proof machinery. New opcodes,
-runtime check removal and collection/call-boundary tuning remain outside this
-scope; prior BO04/BO08/IP12 failures remain independent. No new timing result or
-full CI acceptance is claimed before measurement and CI respectively.
+is locally complete at production `41d613a9`. Rotation precedes copies, and numeric
+constant selection retains same-origin initializer observations. Arithmetic reaches
+four scalar slots and four instructions per iteration (200,007 per 50,000-iteration
+entry), preserving traps, debug states and source-free correspondence. All 19 fresh
+original/forms paired gates pass on the i9-12900K: arithmetic 644.7 -> 503.7 us,
+paired ratio 0.77414, versus Lua 366.5 us. The
+[report](performance-baseline.md#bo13-bo16-scalar-loops-windows-2026-10-27) records
+remaining polling/dispatch/writeback and checked arithmetic costs. No new opcodes,
+runtime check removal or collection/call-boundary tuning was needed. A further
+runtime validity/dispatch decision belongs to the existing plan; it is not an
+automatically activated phase. Full CI remains pending and prior BO04/BO08/IP12
+failures remain independent.
 
 ## Module-owned standard-library registration
 

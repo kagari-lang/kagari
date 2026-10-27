@@ -16,7 +16,7 @@ BO09-BO12 implementation and selected local evidence are complete; full CI remai
 unrun. Earlier BO04/BO08/IP12 failures are unchanged.
 BO13-BO16 are the general scalar-loop follow-up authorized on 2026-10-27;
 see [the execution sequence](#general-scalar-loop-follow-up-bo13-bo16). This
-implementation proceeds in validated batches, followed by remaining-cost attribution.
+implementation and remaining-cost attribution are locally complete; full CI is pending.
 The user explicitly requested a separate plan that can proceed before the previous
 interpreter performance work finishes. The original BO01-BO04 scope covers general typed
 slots, direct destinations, predicate branches and constant operands. It replaces
@@ -76,7 +76,8 @@ runs or benchmark timing overlapping builds/tests/profiling.
 
 ## General scalar-loop follow-up (BO13-BO16)
 
-**Status: active; implementation and coherent batch commits authorized on 2026-10-27.**
+**Status: BO13-BO16 implementation, local validation and attribution complete;
+full CI pending. Coherent batch commits were authorized on 2026-10-27.**
 The user requested reaching the ideal bytecode before attributing remaining time. This
 section owns the finite work breakdown and progress; earlier failed timing gates
 remain independent. It supersedes the inspection-only disposition for planning,
@@ -112,7 +113,7 @@ may need regeneration at the final coherent checkpoint; no compatibility bridge.
 
 ### Architecture and implementation decisions
 
-The current pipeline runs constants, copies, rotation, verification and dead
+At BO13 entry the pipeline ran constants, copies, rotation, verification and dead
 cleanup. Copies can share the header's local read with the body, while rotation
 requires closed conditions and placement only removes same-block local reads.
 Inspect intermediate MIR before changing those rules: final bytecode establishes
@@ -195,7 +196,7 @@ References and applicability:
   Unsafe snapshots remain intact, and direct plus portable-MIR/source-free paths
   agree. Record declines with their actual safety reason rather than promising every
   collection/call case improves. No forced runtime allocator change to meet counts.
-- [ ] **BO16 — Measure, diagnose and hand off.** Complete focused local validation
+- [x] **BO16 — Measure, diagnose and hand off.** Complete focused local validation
   and required quality checks, then measure unchanged original/forms workloads once
   using the frozen image and predeclared protocol below. Record instruction/slot
   changes alongside timing, including regressions and retained declines. If gates
@@ -236,8 +237,8 @@ At implementation checkpoints run `uv run --locked scripts/check_structure.py`,
 and `git diff --check`. Review imports, visibility/re-exports, effective LOC and
 ownership manually; no blanket exceptions or forwarding layers. Reuse passing
 evidence for unaffected code. Full workspace tests and the exhaustive backend/
-feature/platform matrix remain CI-only. This planning-only change requires content,
-link and diff checks, not Rust builds/tests or a benchmark run.
+feature/platform matrix remain CI-only. Documentation-only checkpoints require
+content, link and diff checks, not Rust builds/tests or a benchmark run.
 
 ### Measurement contract and acceptance
 
@@ -2490,3 +2491,52 @@ visibility, new reexports, size exceptions, runtime checks removed or ABI change
 The source-free numeric and portable-MIR tests retain independent validation.
 Full workspace/backend/feature/platform testing remains CI-only and unrun. BO16
 timing and sampling follow this implementation checkpoint without overlapping builds.
+
+### BO16 matched timing and remaining-cost handoff, 2026-10-27
+
+Implementation is committed as `41d613a9`. On that clean revision both unchanged
+original/forms suites complete seven alternating process pairs, three warmups and
+eleven samples per process; every checksum passes. Candidate image SHA-256 is
+d7c2457b345ba1ead750d3d51b72da2618032efaca5a982a552facefdb180697. Original run began
+14:17:02 UTC and forms 14:20:37 UTC. The gate checker passes all 19 execution rows:
+arithmetic 0.77414 against 0.90; other rows 0.87085..0.99886 against 1.05.
+No retry, affinity restriction or sample deletion was used. All paired ranges,
+absolute VM/Lua times, environment, setup/build and storage diagnostics are in the
+[durable report](performance-baseline.md#bo13-bo16-scalar-loops-windows-2026-10-27).
+This new baseline does not close earlier BO04/BO08/IP12 collection/lifecycle gates.
+
+Arithmetic process medians are 644.7 -> 503.7 us, Lua 366.5 us (1.37 times Lua).
+The median paired reduction is 22.6%, distinct from the quotient of these medians.
+Branches' paired ratio is 0.87085; already-optimized forms_direct is essentially
+unchanged at 0.99858. Generality does not imply every workload gets a timing win.
+The original and forms release builds took 18.964 / 0.389 seconds respectively;
+timing excludes source compilation, artifact preparation and linking.
+
+Independent observation confirms 200,007 arithmetic instructions and four logical/
+physical scalar slots, versus baseline 300,008/five; Lua remains 250,007. A separate
+ten-second main-thread profile at 14:21:44 UTC uses the identical image and matching
+PDB, with 4,219 samples and no capture errors. Script allocations, collections and
+live-object delta are zero. Exact COFF-to-PE matching attributes 99.00% of samples
+to the unbounded scalar execution function; unresolved PDB labels alone are not
+used as attribution. Polling/fetch/writeback accounts for 41.93% of sampled locations,
+checked remainder 33.56%, the two checked additions 12.78%, predicate/target handling
+10.74%, and other code 1.00% (rounding applies). The report records byte ranges,
+matching evidence and reproduction; sampling locations are not causal cycle or
+removable-time percentages. `% 97` remains runtime `idiv`, with many samples just
+after it; no constant-divisor speedup is inferred.
+
+Remaining decision: if more arithmetic speed is requested, review execution-validity
+and dispatch ownership at `frame/cursor/scalars.rs` / prepared execution rather than
+adding more loop bytecode rewrites. Bounds/initialization and payload-domain checks
+remain alongside observable overflow/polling guarantees. Any private validity proof
+must cover all writers, manual/debug side entry and resume; division specialization
+would need its own general design and evidence. No runtime removal, special loop
+opcode or collection/call-boundary optimization is activated by this handoff.
+
+BO13-BO16's finite local implementation/measurement scope is complete. There are no
+carried local build/test/timing failures in these phases. Focused correctness and
+quality evidence from the implementation checkpoint remains valid; this reporting
+checkpoint changes documentation only and checks content/links/diff. Full workspace,
+backend, feature and platform correctness remains CI-only and unrun. The plan stays
+open for its earlier unresolved gates and this explicit CI limit; no parallel queue
+or new implementation phase is introduced.
