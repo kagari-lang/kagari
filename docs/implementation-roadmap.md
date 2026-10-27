@@ -738,6 +738,26 @@ of scope. Required verifier/debug/native/AOT mapping updates are part of the coh
 bytecode replacement. The independent plan can be completed and retired regardless
 of whether IP12 remains open. BO phase commits use their own Plan-Phase trailers.
 
+On 2026-10-27 the user explicitly authorized the reviewed BO05-BO08 follow-up.
+BO05-BO07 implement general scalar transport removal, guarded bounded MIR rotation
+and read-before-write scalar location reuse. Direct is now 11 static / 30,005
+dynamic instructions with 4 physical scalars; paired execution improves 12.7%.
+All 19 execution gates pass. BO08 measured/attributed remaining costs, but integrated
+acceptance retains two unrestricted collection timing failures; one predeclared
+affinity diagnosis failed different rows and did not close them. Full CI is unrun.
+The [new report](performance-baseline.md#general-loop-placement-follow-up-windows-2026-10-27)
+and existing plan retain these results separately from BO04/IP12. General call
+admission, invocation allocation and native/container boundary findings are review
+inputs, not automatically activated implementation phases.
+
+The user subsequently requested the concrete
+[BO09-BO12 prepared scalar execution proposal](bytecode-optimization-plan.md#prepared-scalar-execution-follow-up-bo09-bo12).
+It specifies typed internal handlers, shared numeric semantics, segment-local PC
+publication, migration/removal checkpoints and validation. It is queued planning;
+production implementation has not started, and earlier acceptance results remain
+unchanged. Public frame initialization checks and logical polling frequency stay
+in the contract.
+
 ## Module-owned standard-library registration
 
 Module-owned standard-library registration is implemented across core/alloc/std.

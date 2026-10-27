@@ -4193,3 +4193,430 @@ a longer session sequence; it does not prove whole-harness memory bounds, compar
 fresh-baseline lifetimes, or replace the earlier deferred preparation acceptance.
 Keep the baseline bounded to the test process. The existing plan retains the
 controlled compile/link and original preparation timing/memory follow-ups.
+
+
+## General loop placement follow-up (Windows, 2026-10-27)
+
+The user authorized BO05-BO08 after the direct bytecode review. Compiler placement
+now initializes scalar homes directly, selects stable multi-use destinations,
+forwards scalar tail returns with their visible bindings, and removes final
+fallthrough jumps. A bounded MIR pass retains entry guards and clones closed
+scalar conditions on dominated Jump backedges with fresh temporaries and original
+spans/scopes. Runtime allocation reuses dying unnamed scalar inputs only where
+handlers read inputs before computation and commit after success. Named/parameter
+homes and managed storage retain their existing boundaries. The
+[architecture](architecture.md) and
+[public frame contract](spec/execution.md#public-frame-access) own these mechanisms;
+the [active plan](bytecode-optimization-plan.md#authorized-general-follow-up-2026-10-27)
+owns the still-open integrated acceptance.
+
+This is a general, conservative selection, with no benchmark-name recognition,
+numeric-for opcode, numeric-kernel ABI change, collector change or call-boundary
+rewrite. Header snapshots consumed outside a closed condition and suspending
+functions are declined. Not every while loop acquires the direct shape, and no
+speedup is inferred for unchanged cases. The first-entry guard remains even when
+a separate future proof could establish one iteration.
+
+### Measurement contract and validation
+
+Baseline production is 03246d94, frozen at documentation HEAD 22854ff9 before edits;
+candidate production is f6aa9cbc. Ordinary binary SHA-256 values are
+883ea385c40e3d262b5019889ddc7ad697209ac9a585734ded4426f69ee07f9a and
+01791dd819e30149109b0ac294bee2090c94bce0a6fd8fb18224c9a76d2c04e8.
+The machine is an i7-10700F, 16 logical CPUs, 64 GiB RAM, Windows 10 Pro
+10.0.19045, x86_64 MSVC. Toolchain: rustc 1.99.1 (58cf8f9c3), LLVM 23.1.1,
+Cargo 1.99.1. Workspace release defaults, opt-level 3, source/native and
+mlua lua54/vendored features, default Cargo parallelism, sequential single-thread
+benchmark processes and unchanged workloads/estimators were used. No build,
+test, profiler or diagnostic allocator overlapped a throughput window. Build and
+source/artifact/runtime/link preparation were excluded from execution timings.
+
+Freeze all three ordinary suites before changing production. On the candidate run:
+
+```text
+uv run python scripts/benchmark_lua.py --interpreter-only --baseline-executable target/lua-comparison/general-before
+uv run python scripts/benchmark_lua.py --interpreter-only --source-forms --baseline-executable target/lua-comparison/general-before
+uv run python scripts/benchmark_lua.py --interpreter-only --execution-controls --baseline-executable target/lua-comparison/general-before
+```
+
+Each suite used seven alternating baseline/candidate pairs, three warmups per
+route and 11 samples per process. Fresh runtime/process state is separate from
+warmed execution. All checksums and image/contract validation passed. Gates use
+the median of seven within-pair candidate/baseline process-median ratios, not a
+ratio of the displayed seven-process medians. UTC starts: original 08:14:02,
+forms 08:18:54, controls 08:20:10. Both ordinary check routes also passed before
+throughput measurement; their cold single-sample numbers are not speed evidence.
+
+Focused local parser, compiler lowering/pass/canonical/invalid-artifact, runtime
+frame/allocation/layout/origin, VM numeric/trap/loop/slice/cancellation checks pass.
+The loop fixture exposed a pre-existing frontend error: a block condition was
+also selected as the body. WhileStmt now selects the correct body position,
+including binding conditions; optimized/unoptimized and decoded execution pass.
+The structure check (1,732 files, zero exceptions), format check, full workspace
+all-target Clippy with denied warnings and diff check pass. Full workspace tests
+and the complete backend/feature/platform matrix remain CI-only and unrun here.
+
+### Execution results
+
+All 7 original and 12 forms execution gates pass, including the predeclared direct
+limit 0.90 and other limits 1.05. This does not mean every case improved. In
+particular, helper and concrete_generic slowed about 4.17% and 3.97% by the paired
+estimator; arithmetic is essentially unchanged. Those results are retained.
+
+| Workload | Baseline median (us) | Candidate median (us) | Paired candidate/baseline | Candidate VM/Lua |
+| --- | ---: | ---: | ---: | ---: |
+| arithmetic | 1580.700 | 1583.500 | 1.00316 | 1.77 |
+| arrays | 12325.800 | 11398.400 | 0.92758 | 79.10 |
+| branches | 2140.400 | 2114.000 | 0.98152 | 1.45 |
+| calls | 8630.400 | 8663.300 | 1.01645 | 19.10 |
+| entry | 2.850 | 2.743 | 0.97375 | 53.37 |
+| fibonacci | 19007.400 | 18707.100 | 0.97884 | 39.68 |
+| maps | 9507.200 | 9293.600 | 0.98153 | 69.93 |
+| forms_byte_state | 21081.100 | 21412.100 | 1.01106 | 100.06 |
+| forms_capture_cell | 9567.400 | 9740.200 | 1.01613 | 44.68 |
+| forms_concrete_generic | 4298.200 | 4472.300 | 1.03967 | 23.34 |
+| forms_direct | 206.500 | 179.700 | 0.87306 | 1.51 |
+| forms_field | 1082.600 | 1102.200 | 0.99427 | 6.10 |
+| forms_helper | 4206.600 | 4362.300 | 1.04174 | 22.08 |
+| forms_host_callback | 5180.800 | 5184.100 | 1.00949 | 10.61 |
+| forms_interface | 12559.400 | 12489.500 | 0.99376 | 57.85 |
+| forms_native | 5139.800 | 5236.300 | 1.01815 | 26.72 |
+| forms_shared_generic | 18428.700 | 18425.100 | 0.99962 | 89.36 |
+| forms_string_calls | 10389.600 | 10802.700 | 1.02534 | 49.37 |
+| forms_string_constants | 5869.300 | 5951.900 | 1.01407 | 41.77 |
+
+Direct's paired ratio is 0.873062, range 0.853751..0.894915: about 12.7% less time.
+Its displayed medians are 206.5 -> 179.7 us; the median-of-ratios estimator differs
+from their quotient. Candidate Lua is 119.4 us, making VM/Lua about 1.51. Lua's
+paired direct ratio is 1.00758. Cross-engine ratios for the host_callback row need
+care: Lua's own paired ratio was 1.28560 while Kagari's was 1.00949, so that row
+does not establish an improvement in Kagari's host-call implementation.
+
+### Direct executable and retained storage
+
+The real full forms module produces the following simplified canonical code,
+with checked arithmetic and success-only destination commits:
+
+```text
+0  const state, 1
+1  const sum, 0
+2  const i, 0
+3  branch (i < 5000), body, exit
+body:
+4  mul scratch_a, state, 3
+5  add scratch_b, scratch_a, 7
+6  rem state, scratch_b, 251
+7  checked_add sum, sum, state
+8  checked_add i, i, 1
+9  branch (i < 5000), body, exit
+exit:
+10 return sum
+```
+
+The two logical scratch values share one physical location. Static instructions
+15 -> 11; logical slots 8 -> 5; physical scalar locations 5 -> 4. The independent
+observer pass counts 40,008 -> 30,005 actual instructions, with 6 loop operations.
+Lua's unchanged hook counts 40,006 instructions, with the previously established
+8-operation successful integer loop. These are dispatch counts, not equal-cost
+operations or evidence of Lua code-density parity. Prepared Kagari instructions
+remain 24 bytes and scalar sites 48 bytes; no byte-packing migration was made.
+
+A temporary private-owner probe loaded both complete KBCs, adopted/verified them,
+and compared the baseline/current allocator and layout. A separate public probe
+cloned canonical functions exactly as VerifiedProgram::from_bytecode does and
+measured vector capacities times element size. Temporary source was removed.
+The intermediate decoder reserves 16 canonical instruction elements in both
+cases; that staging capacity is not the runtime's cloned retained code payload.
+All changed instruction/site/layout/origin/debug array payloads are included below:
+
+| Direct retained payload | Before (bytes) | After (bytes) |
+| --- | ---: | ---: |
+| Canonical instructions, 144 bytes each | 2160 | 1584 |
+| Prepared instructions | 360 | 264 |
+| Prepared scalar sites, 5 -> 6 | 240 | 288 |
+| Logical location table | 64 | 40 |
+| Reuse guards, 4 -> 2 records | 160 | 80 |
+| Scalar payload and initialization banks | 45 | 36 |
+| Mandatory origins, 28 -> 31 | 1120 | 1240 |
+| Actual-origin selections, 7 -> 10 | 56 | 80 |
+| Slot types plus debug frame slot types | 16 | 10 |
+| Debug spans, lines and points | 2496 | 2760 |
+| Debug local range records | 216 | 216 |
+| Control targets | 12 | 8 |
+| Selected payload sum | 6945 | 6606 |
+
+This is a selected retained-array/bank comparison, not whole-program allocator or
+RSS accounting; unchanged headers, declarations, shared source metadata and other
+heap allocations are outside the sum. Hot prepared instruction/site storage is
+600 -> 552 bytes, while additional origins/debug columns offset part of the
+transport savings. The entire forms KBC, including all modules and portable MIR,
+is 1,738,824 -> 1,743,458 bytes (+0.267%). Fewer executed operations do not imply
+a smaller complete artifact or a proportional memory reduction.
+
+### Remaining execution costs
+
+Fresh ordinary-image Windows samples used the existing sampler, copied matching
+PDBs, selected the main thread, three warmups and independent 10-second windows.
+Instruction/GC counting ran afterward and was excluded from throughput. Original
+arrays/maps began 08:25:50 UTC; forms direct/helper/interface/native/byte_state/
+string_constants began 08:26:19. PDB attribution is incomplete: unresolved samples
+range from 25.0% to 53.5% for boundary-heavy cases and 98.4% for direct. Only range-
+verified names are treated as sampled evidence. No precise direct kernel/dispatch
+percentage, inclusive call-chain total or attribution of unresolved preceding
+symbols is claimed.
+
+| Workload | Kagari instructions | Lua instructions | Kagari Calls | GC collections/entry | Heap objects/entry |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| direct | 30005 | 40006 | 0 | 0 | 0 |
+| helper | 45005 | 65007 | 5000 | 0 | 0 |
+| interface | 50008 | 65009 | 5000 | 4.910 | 1 |
+| native | 25005 | 65007 | 5000 | 0 | 0 |
+| byte_state | 130011 | 80523 | 15001 | 1 | 2 |
+| string_constants | 67505 | 52506 | 5000 | 0 | 0 |
+| arrays | 56016 | 42012 | 8002 | 2 | 1 |
+| maps | 46017 | 24012 | 4002 | 6 | 2001 |
+
+Native body work and metadata admissions have no script-bytecode event; the
+counts do not measure the operations inside a native callback.
+
+The source paths and these measurements identify the following review order:
+
+1. **General call admission/return.** Helper executes fewer bytecodes than Lua,
+   yet takes about 22 times as long; direct and helper run the same 5,000-step
+   recurrence. Range-verified samples include select_call_route, installation
+   validation/current capture, DefaultHasher/HostFrameId hashing, termination
+   checks, type comparison, bank allocation and memmove. Source
+   [call selection](../crates/kagari-runtime/src/module/dispatch/mod.rs) captures
+   the current installation and validates it; subsequent admission/metadata and
+   host paths perform more checks/lookups. Review which facts can be owned across
+   an exact internal transition while preserving publication selection, reentry,
+   cleanup and host borrow validation. This is a lifetime/ownership review, not
+   evidence that all generation, argument or cancellation checks are redundant.
+   Calls/Fibonacci and concrete/shared/captured variants inherit this boundary.
+2. **Interface invocation allocation.**
+   [MethodInvocation::admit](../crates/kagari-runtime/src/objects/invocation.rs)
+   allocates a MethodComputation for each newly live invocation to pin its selected
+   body/environment. Reusable semantic application caches do not remove this
+   allocation. The interface profile observes about 4.91 collections per 5,000
+   method calls even though ordinary heap-object allocations are only the one
+   interface object. Application/computation allocation is a separate metadata
+   store and is not counted by heap_object_allocations. Invocation ownership and
+   exact-method pinning require review before considering a cache or alternate
+   allocation owner; shared generic witness/environment work is additional.
+3. **Native boundaries for Vec/String.**
+   [prepare_calls](../crates/kagari-runtime/src/module/execution/calls.rs) replaces
+   all native-import sites with common prepared Calls and sets native_calls to
+   zero. Existing in-region Vec/String primitive handlers are consequently not
+   selected for these sites. Index/len/get/set operations still enter generic
+   selection, native frame, argument/borrow and return handling. The fresh array,
+   byte-state and string profiles resolve those boundary/check/allocation paths.
+   Warm string_constants has zero heap-object allocations and collections, so
+   repeated string allocation is not its observed bottleneck. Native and host
+   callback bodies also retain their checked Value adapters.
+4. **Container-specific work after admission.** Map insertion performs an outer
+   contains_key, another in HashMapStorage::insert and the final insert. This is
+   repeated probing visible in
+   [maps_sets](../crates/kagari-runtime/src/gc/maps_sets.rs) and
+   [hash storage](../crates/kagari-runtime/src/native/hash_storage.rs). Map gets
+   construct Option records; the fixture produces 2,001 heap objects and 6
+   collections per complete workload. Option representation, checked collection
+   mutation and host boundaries are current semantic costs; they are separate
+   from the clearly repeated probe. Scalar field/cell cases retain object identity,
+   generation/type checks and shared mutation semantics. Local transport removal
+   does not erase those requirements.
+
+Direct has no observed GC or heap allocation. Checked arithmetic, indirect numeric
+kernels, prepared-site operand selection, initialized/bounded bank access and
+final-executable polling are visible source-level remaining costs. The unresolved
+profile prevents assigning precise shares among them. More bytecode removal or
+unsafe check deletion is not justified by the instruction count alone. Helper
+still has an explicit call-result commit Move per iteration; that conservative
+call/observation boundary is outside scalar destination selection and cannot
+explain the much larger whole-call cost by itself.
+
+### Lifecycle timing remains open
+
+Unrestricted controls pass 22/24 gates. The failures are:
+
+| Phase/workload | Paired ratio | Pair range | Limit |
+| --- | ---: | --- | ---: |
+| collect/roots_256_forward_complete | 1.101449 | 0.324786..2.033333 | 1.05 |
+| collect/roots_256_random_cancel | 1.078947 | 0.490683..1.586667 | 1.05 |
+
+One bounded diagnostic was declared before running it: the PowerShell parent and
+children used affinity mask 0x4 (logical CPU 2), unchanged binaries/workloads,
+seven pairs and the same limits. At 08:23:08 UTC this also passed 22/24, but failed
+different rows: forward_cancel collection 1.271429 (1.029412..2.25) and
+random_complete collection 1.273973 (0.739496..2.197183). The two original failed
+rows were 0.944444 and 0.985915 in that diagnostic. Pinning did not stabilize the
+collection rows or establish the cause; no more samples, threshold relaxation,
+GC tuning or passing-result substitution was performed. Both default failures
+remain unaccepted. BO08 integrated acceptance and full CI remain open; BO05-BO07
+implementation/correctness and the 19 execution gates are reported separately.
+The older BO04/IP12 failures keep their own owners and are not closed by this run.
+
+## Direct scalar execution attribution (Windows, 2026-10-27)
+
+The user requested a deeper direct-only diagnosis after BO05-BO07. This is analysis
+of the unchanged production candidate f6aa9cbc, documented at HEAD 179f0dbe; it
+does not activate a runtime implementation phase or close BO08/IP12/BO04 gates.
+The preceding paired result remains 179.7 us versus Lua 119.4 us (1.51x).
+No new throughput comparison or speculative speedup is reported here.
+
+### Measurement and address validation
+
+Reuse the preceding report's i7-10700F / Windows 10 19045 / Rust 1.99.1,
+LLVM 23.1.1, x64 MSVC, default workspace release profile and source/native plus
+vendored Lua 5.4.9 configuration. There was no rebuild, feature/profile change,
+affinity override or concurrent build/test. A fresh process with three warmups and
+a ten-second main-thread sample window reproduced the earlier direct profile.
+The executable SHA-256 remains
+`01791dd819e30149109b0ac294bee2090c94bce0a6fd8fb18224c9a76d2c04e8`;
+PDB SHA-256 is `5bb577186aa927be5ee73c8d858b3087836cab8d82ad54447f7faef7708a3d72`.
+Both windows report zero script heap allocations and zero collections; independent
+observer counting remains 30,005 Kagari / 40,006 Lua instructions.
+
+Public PDB lookup alone leaves approximately 98% unresolved. Resolve these addresses
+by comparing the same-build release COFF function sections with the exact sampled
+PE image, masking only COFF relocation bytes. Find a unique full match of all
+remaining bytes, translate the file offset through the PE section table to RVA,
+then subtract the sampled module base from each RIP. Do not use preceding PDB
+names as evidence. The unbounded loop matches 2,005 of 2,169 bytes; the other 164
+are relocation fields. Its interval also agrees with the sampled unwind range.
+The matching typed kernels are complete leaf-function sections:
+
+| Function | PE RVA interval, half-open | Nonrelocation / total bytes |
+| --- | --- | ---: |
+| Unbounded `ExecutionCursor::execute_slice` | `0x00ffbfe0..0x00ffc859` | 2005 / 2169 |
+| `integer_value::<0,32,true>` (add) | `0x017d0200..0x017d025b` | 83 / 91 |
+| `integer_value::<2,32,true>` (multiply) | `0x017d06e0..0x017d073c` | 84 / 92 |
+| `integer_value::<4,32,true>` (remainder) | `0x017d0d70..0x017d0e03` | 135 / 147 |
+| `integer_binary::<7,32,true>` (less-than) | `0x017d19b0..0x017d19f8` | 68 / 72 |
+
+Reproduction uses the existing sampler and MSVC 14.51.36260.0 dumpbin `/symbols`
+and `/disasm` on the ordinary release `kagari_runtime` and `kagari_types` rlibs:
+
+```text
+uv run python scripts/profile_lua_comparison.py direct --source-forms --executable target/release/kagari-lua-benchmark.exe --pdb target/release/kagari_lua_benchmark.pdb
+dumpbin /symbols target/release/deps/libkagari_runtime-<current-hash>.rlib
+dumpbin /disasm target/release/deps/libkagari_runtime-<current-hash>.rlib
+dumpbin /disasm target/release/deps/libkagari_types-<current-hash>.rlib
+```
+
+The first and repeated windows contain 3,904 / 3,921 successful RIP samples:
+
+| Sampled function | First samples (%) | Repeat samples (%) |
+| --- | ---: | ---: |
+| Scalar interpreter loop | 2758 (70.65) | 2744 (69.98) |
+| i32 remainder kernel | 584 (14.96) | 598 (15.25) |
+| i32 add kernel, three sites per iteration | 275 (7.04) | 276 (7.04) |
+| i32 multiply kernel | 127 (3.25) | 115 (2.93) |
+| i32 less-than kernel | 70 (1.79) | 67 (1.71) |
+| Everything else, including remaining unresolved addresses | 90 (2.31) | 121 (3.09) |
+
+Within the interpreter, the following disjoint code ranges account for these
+fractions of *all* samples. Offsets are relative to the unbounded function start:
+
+| Instruction range / work | First (%) | Repeat (%) |
+| --- | ---: | ---: |
+| `0x1ad..0x222`: site lookup, operand shape, checked constant-slot input and argument arrangement | 22.98 | 23.00 |
+| `0xb8..0xf4`: instruction bounds, PC publication, fetch and jump-table dispatch | 13.70 | 13.57 |
+| `0x63..0xb8`: executing reset, cancellation, observer, collection and abandonment polling | 13.22 | 13.75 |
+| `0x371..0x38c`: site kernel call and Result unpack | 5.35 | 4.54 |
+| `0x38c..0x3d6`: site destination selection and conditional branch | 5.35 | 4.79 |
+
+The remaining loop samples cover two-slot arithmetic, result reloads, destination
+bounds, payload/initialization writes and branch-PC writes. These are sampled
+locations, not exclusive causal cycle accounting, confidence intervals or removable
+time. A load/branch sample does not identify its cache-miss or prediction cause;
+call/return effects can appear at adjacent instructions. No hardware counters or
+ablation timings were collected. In particular, 70% in the loop is not 70% opcode
+dispatch, and a range's percentage is not a promised optimization gain.
+
+### Confirmed work and its ownership
+
+For `i += 1`, bytecode placement already emits one constant-operand operation.
+Physical preparation still represents it as `OperandSite { index }`. The
+[scalar loop](../crates/kagari-runtime/src/frame/cursor/scalars.rs) checks that
+index, loads a 48-byte site's operand variant, checks the scalar bank and
+initialization state, selects constant-left/right, calls a function pointer,
+unpacks a stack-returned Result, selects Store versus Branch, and finally checks
+and writes the destination. The successful arithmetic itself is a 32-bit add plus
+overflow branch. This second generic execution layer is a concrete cost even
+though operation/type selection already happened during preparation.
+
+The complete direct invocation performs 25,001 site lookups, 30,001 indirect
+numeric-kernel calls, 35,002 scalar payload reads and 25,003 payload writes.
+Each current input read checks two slice bounds and an initialization flag; each
+output write checks two bounds and writes that flag again. The generated machine
+code retains these checks. Each of the 30,001 kernels validates both u64 carriers
+against the i32 domain, including prepared constants: 60,002 carrier checks.
+These are dynamic operation counts derived from the verified stream and inspected
+handlers, not time shares.
+
+The [kernel ABI](../crates/kagari-types/src/payload.rs),
+`fn(u64, u64) -> Result<u64, &'static str>`, also survives unchanged in machine
+code. The caller passes a stack result address; successful kernels store the
+payload and success status there, and the caller reloads both. Caller-saved bank
+and polling registers are restored after the call. Even the less-than predicate
+uses this path, then checks the returned payload is boolean and selects a target.
+Typed input selection therefore avoids dynamic type dispatch but does not avoid
+carrier validation, the indirect call or its result transport.
+
+The remainder kernel uses ordinary 32-bit `idiv`, not an i128 division helper.
+It also tests zero divisor and signed MIN/-1 overflow. The prepared divisor 251
+is passed as an ordinary runtime argument, so this kernel cannot exploit it as a
+compile-time constant. Remainder is a real cost, but its whole kernel accounts for
+about 15%, not the majority. The i128 source implementation has already optimized
+to native 32-bit arithmetic on these paths; replacing it merely because its source
+mentions i128 would misdiagnose the generated code.
+
+The cancellation token check is now an inlined acquire load, contrary to the older
+out-of-line cancellation observation in historical reports. The hot loop still
+checks cancellation, observation, invariant collection-due state, automatic-GC
+policy and asynchronous module abandonment on each final logical instruction.
+It resets and republishes executing-PC state and advances the memory-resident PC.
+No optional slice countdown survives in this unbounded instantiation. Zero actual
+collections does not mean zero polling cost.
+
+The mature comparison is the locally vendored PUC Lua **5.4.9** `lvm.c`:
+`op_arithI`, `op_arith_aux`, `op_arithK`, `vmfetch`, and `dojump`. Integer add/mul
+fast paths perform arithmetic inside their handlers after tag checks, without
+Kagari's per-arithmetic function-pointer/Result boundary. Fetch uses a local PC
+and hook/trap state; selected boundaries save state or refresh it. This explains
+how Lua can execute more bytecodes yet less machinery per arithmetic operation.
+Lua integers wrap and its hooks/GC/publication rules differ, so copying its unchecked
+arithmetic or polling policy is not a valid Kagari optimization. The inspected
+vendored source agrees with the relevant mechanisms in the official
+[Lua 5.4.9 interpreter source](https://www.lua.org/source/5.4/lvm.c.html).
+
+### Recommended finite next review
+
+Prioritize prepared scalar execution shape and numeric-call transport. The semantic
+owner stays `kagari-types`; reusable typed checked operations should remain the
+single arithmetic implementation. `ExecutionModule::prepare` can establish the
+operation, width, operand shape and destination kind once; review a bounded set of
+closed handlers that can inline those shared semantics rather than rediscover the
+shape and invoke an opaque pointer. For example, a prepared i32 add-constant and
+an i32 compare-constant branch can carry their actual operands directly. Measure
+handler/code-size growth as well as time; do not create direct-specific opcodes,
+unbounded specialization or a duplicate unchecked arithmetic implementation.
+
+Repeated carrier/bounds validation is a proof-ownership issue. Prepared constants,
+validated frame inputs and successful typed results establish facts currently lost
+at the generic u64/slice boundary. Review carrying those facts into the privately
+borrowed, callback-free region. Public frame mutation, arbitrary debugger jumps,
+resume and uninitialized states still require admission checks; their guarantees
+cannot be deleted just because normal direct execution never exercises them.
+Keep overflow, divisor checks where not proven, read-before-write failure commits,
+trap origins and same-PC reuse semantics. Only after this boundary is explicit
+should internal redundant checks be considered for elimination.
+
+Review PC publication and invariant poll inputs second. Cancellation and asynchronous
+abandonment remain genuinely dynamic; preserving the existing observation/trap
+contract is mandatory. Do not obtain a benchmark win by disabling checks or moving
+them to backedges without an explicit semantic decision. Any later implementation
+needs focused checked-trap, source-free validation, scalar reuse, debug mutation /
+side-entry, cancellation and cleanup coverage, followed by paired direct timing and
+a small scalar regression set. This analysis makes no production code changes;
+earlier failed gates and pending CI remain unchanged.
