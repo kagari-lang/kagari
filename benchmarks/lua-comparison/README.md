@@ -32,17 +32,19 @@ uv run python scripts/benchmark_lua.py --check --runs 1
 cargo test -p kagari-lua-benchmark -- --test-threads=1
 ```
 
-The [latest Windows follow-up evaluation](../../docs/performance-baseline.md#interpreter-follow-up-evaluation-windows-2026-10-17)
-records retained call/polling changes, rejected collection experiments and 16 matched
-workloads at 2.20-41.07x PUC Lua 5.4.9 time. Execution/setup/size gates passed;
-lifecycle collection timing acceptance remains outstanding. The
-[preceding investigation](../../docs/performance-baseline.md#interpreter-attribution-windows-2026-10-17)
-records independent instruction/protocol counts and release-object inspection.
-The [macOS call-lifecycle evaluation](../../docs/performance-baseline.md#interpreter-call-lifecycle-2026-10-17)
-records the previous matched optimization checkpoint separately. Parity remains
-unmet; full GitHub CI acceptance was unverified. Each report records its environment,
-revision and measurement limits. [The roadmap](../../docs/implementation-roadmap.md#interpreter-performance-follow-up)
-owns active/deferred follow-up work; completed execution plans live in Git history.
+The [current-revision cost attribution](../../docs/performance-baseline.md#current-kagarilua-cost-attribution-windows-2026-10-27)
+records 29 original/source-form/numeric rows and independent instruction/lifetime
+observations at `03246d94` on Windows 10 / i7-10700F. The 16 matched non-entry
+workloads take 1.47-100.84x PUC Lua 5.4.9 time. Current native-frame routing and
+per-invocation method computation records supersede applying old boundary/allocation
+attribution to HEAD. This is fresh analysis, not a before/after regression claim.
+
+The [earlier Windows follow-up evaluation](../../docs/performance-baseline.md#interpreter-follow-up-evaluation-windows-2026-10-17)
+records retained call/polling changes and rejected collection experiments on its
+own image/machine; lifecycle timing acceptance remains outstanding. The
+[roadmap](../../docs/implementation-roadmap.md#interpreter-performance-follow-up)
+owns active/deferred work. These analysis measurements do not close IP12/BO04,
+establish Lua parity or substitute for complete GitHub CI acceptance.
 
 ## Matching and timing
 

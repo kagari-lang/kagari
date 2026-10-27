@@ -852,3 +852,168 @@ Linux/backend/platform acceptance remains CI-owned and has not been rerun here.
 No timing or retained-memory measurements were repeated after the reuse-guard
 metadata change: earlier image/layout measurements remain historical evidence,
 not measurements of this repair. BO04's four timing gates remain blocked.
+
+### Direct target instruction shape, 2026-10-27
+
+The user requested the ideal output before discussing implementation. This is a
+proposed target and comparison, not another activated implementation phase or a
+change to BO04 acceptance. The [actual direct listing](performance-baseline.md#direct-bytecode-inspection-2026-10-27)
+contains fifteen instructions, eight logical slots/five prepared scalar locations,
+and 40,008 dynamic operations. The current source is unchanged by this review.
+
+A general register-style target uses state, sum and i homes plus one scalar scratch
+location, constant operands, success-only arithmetic destinations, direct return
+and a conditional backedge. The following is pseudobytecode: typed names explain
+contracts, not required new opcodes; constants may use the existing prepared pool
+operands. The initial guard retains zero-iteration behavior without relying on
+benchmark-specific bounds. Each conditional evaluates the original i32 less-than
+and applies polarity; the other successor is the following instruction.
+
+```text
+00  const.i32 state, 1
+01  const.i32 sum, 0
+02  const.i32 i, 0
+03  branch_false.i32.lt i, 5000, exit
+body:
+04  mul_checked.i32 scratch, state, 3
+05  add_checked.i32 scratch, scratch, 7
+06  rem_checked.i32 state, scratch, 251
+07  add_checked.i32 sum, sum, state
+08  add_checked.i32 i, i, 1
+09  branch_true.i32.lt i, 5000, body
+exit:
+10  return.i32 sum
+```
+
+This target has eleven stored instructions and 30,005 dynamic operations for
+5,000 iterations: three initializations, one initial guard, six operations per
+iteration and one return. The prior 35,005-operation proposal retains the original
+loop-header/backedge arrangement; it is a separate, smaller placement change.
+The conditional-backedge form eliminates a dispatched unconditional jump on every
+successful iteration without merging arithmetic operations. If ordinary constant
+propagation proves the first condition true (here i=0 and bound=5000), the entry
+guard can additionally disappear: ten stored instructions / 30,004 operations.
+These are work counts for proposed layouts, not measured runtime/retained-memory
+improvements or evidence that the existing pipeline can emit/verify them unchanged.
+Four scalar locations are a target, not a new observation of physical allocation.
+
+Success-only destination publication is essential: state must remain unchanged if
+multiply/add/remainder fails, sum must retain its old value if its own addition
+fails, and i must remain unchanged until its own increment succeeds. scratch can
+be overwritten after each successful operation because its earlier intermediate
+has no later use. Do not algebraically combine the multiply/add/remainder or
+reorder checked operations based only on this fixture's safe inputs.
+
+Existing constant operands and PredicateBranch already supply the operation model.
+Multi-use result-to-home forwarding and physical scratch reuse have different
+owners: bytecode placement consumes verified MIR facts, while runtime preparation
+owns location allocation. Loop rotation is an additional compiler CFG/layout
+proposal beyond the implemented block-local placement rules. Duplicating/moving
+condition code requires explicit semantic origins/canonical correspondence,
+statement/loop debug states, checked initialization and source-free validation;
+it must not be implemented by skipping final bytecode instructions in the runtime.
+Final executable boundaries still own cancellation, slicing and observation.
+The target does not replace the recurrence with a closed-form result or a
+workload-specific opcode. Retain the whole semantic validation model even if its final
+physical code has fewer operations.
+
+Primary references checked on 2026-10-27: Lua 5.4.9
+[lopcodes.h](https://www.lua.org/source/5.4/lopcodes.h.html) uses register destinations
+and immediate/constant arithmetic operands;
+[lvm.c](https://www.lua.org/source/5.4/lvm.c.html) consumes comparison-controlled
+jumps in its comparison handler. These support direct operand/control transport,
+not Lua's wrapping arithmetic, raw value pointers or an identical code encoding.
+The rolling Rust [MIR guide](https://rustc-dev-guide.rust-lang.org/mir/index.html)
+describes typed CFG operations and constant/place operands; Kagari retains the
+separate verified semantic MIR, interpreter placement and physical allocation
+owners. Its checked commits, source origins and cancellation boundaries require
+those adaptations. Before implementation, freeze same-machine baseline images
+and select focused numeric overflow/trap order, debug/origin, empty-loop,
+cancellation/slice and source-free contract coverage. Existing failed lifecycle
+performance gates remain open; no unmeasured speedup is claimed.
+
+The [exact Lua direct dump](performance-baseline.md#direct-lua-instruction-comparison-2026-10-27)
+confirms four Lua registers, nineteen stored 32-bit words and 40,006 successful-input
+hook dispatches. Its loop reloads 5000 into the scratch register, and still has a
+separate backedge: eight dispatched handlers versus the proposed six. Arithmetic
+metamethod fallback words are skipped on integer success. Lua instruction storage
+is denser; no new Kagari encoding or per-handler/elapsed performance claim follows.
+
+### General implementation ownership for the direct target, 2026-10-27
+
+The user asked which changes the ideal output requires and whether they generalize.
+This records a bounded design review, not implementation activation, another BO phase
+or disposition of the outstanding gates. These are general scalar placement, CFG
+and allocation rules; no source/function-name, literal-count or recurrence matching
+is justified. Existing MIR BasicBlock/Terminator, bytecode PredicateBranch/constant
+operands and prepared scalar kernels are the foundations; no second IR or execution
+semantics is proposed.
+
+| Required behavior | Current owner / concrete gap | General adjustment |
+| --- | --- | --- |
+| Final arithmetic result writes directly to its local home | compiler bytecode/placement.rs requires the temporary's sole use to be the following Move | Extend bounded scalar destination selection using definition/use and clobber facts. Rewrite additional uses only while the home still carries the same value; retain snapshots across writes, calls, cells, managed access or uncertain debug states. |
+| Constants initialize homes; return consumes the original result | The same placement owner retains shared-zero initialization and exit transport in direct | Fold eligible constant-to-home initialization and forward terminal copies using existing full type, initialization, debug/origin and lifetime facts. Duplication of a cheap scalar literal must not duplicate managed materialization or side effects. |
+| No jump to the next emitted instruction | compiler bytecode.rs lowers every MIR Jump; placement already repacks PCs | Add bounded final fallthrough cleanup with shared target/origin/debug remapping. Protect entry, target and completion/inspection contracts instead of merely deleting a word. |
+| Conditional backedge replaces separate test and jump | MIR passes.rs has scalar/copy/dead passes but no loop rotation; MirFunction::emission_order is entry then block-ID order | A bounded MIR CFG transformation produces guarded rotated loops before fresh verification and origin emission. Start with simple reducible loops and closed scalar conditions, preserve break/continue and condition evaluation count/order, and decline uncertain/suspending/reentrant shapes. Bytecode's existing predicate selection then emits the conditional backedge. |
+| Entry guard disappears only when proven true | MIR constants pass owns scalar/branch simplification | Feed the transformed CFG into the existing verified simplification pipeline where adequate facts exist. Keep guards for unknown/false bounds; proving this fixture's first test true is optional after the general layout works. |
+| Three homes plus one physical scratch location | runtime module/execution/allocation.rs uses inclusive first/last-PC intervals and expires an active color only when last < start | Review read-before-write reuse for eligible scalar operations. A dying input may share its successful output's physical location, but named binding availability, suspended/native views and public inspection must retain correct before/after values. This is separate from removing bytecode Move dispatches. |
+| Preserve complete executable correspondence | compiler native_input.rs re-lowers portable verified MIR and compares all canonical facts | Use the same deterministic lowering/selection for source compilation and source-free comparison; regenerate transformed MIR analyses, origins, roots, debug ranges and actual-origin selections. Do not bypass equality or independently recreate optimization semantics in verifier/runtime. |
+
+A multi-use temporary is not automatically a home alias. In the sequence t=expr;
+x=t; x=other; use(t), forwarding the final use to x changes its value. Likewise,
+x=x+f() may require preserving the pre-call x if f mutates an alias. Eligibility
+must be established over the exact interval, not by removing the single-use guard
+without replacing its proof. Arithmetic inputs are consumed before destination
+publication; failed arithmetic retains the previous local home.
+
+The four-location goal needs an explicit allocation decision. Current intervals
+record both an operation's last input use and first output definition at the same
+PC, then require last < start for reuse, so an otherwise dying scalar input and
+output cannot share a color under that rule. Simply changing it to <= would affect
+all instructions and public reused-slot inspection. Retain the current conservative
+rule unless operation-specific read/write phases, definition/lifetime guards and
+actual handler behavior establish safe reuse; managed roots/callbacks are outside
+the first bounded scalar review. Six loop operations can be delivered independently
+of the four-location target. Logical slot count need not equal physical bank count.
+
+Loop rotation is an additional CFG mechanism beyond implemented block-local BO
+selection. The existing nondecreasing semantic-origin-to-PC contract makes arbitrary
+post-hoc block movement inappropriate. Prefer transforming/reverifying MIR before
+assigning its canonical emission origins, and let the single deterministic bytecode
+lowering consume those facts. Each duplicated condition site must receive correct
+verified program-point/debug correspondence; do not widen artifact rules just to
+hide a mapping failure. Existing Terminator::Branch already carries two successors;
+compare-plus-branch selection can remain bytecode-owned rather than adding another
+MIR predicate terminator solely for this example.
+
+Suggested review order is destination/copy/fallthrough placement, guarded loop
+rotation with correspondence, then any justified scalar allocation refinement.
+Bytecode packing and the 24-byte prepared instruction / scalar-site footprint are
+separate design work: matching the six-operation target does not require an encoding
+migration, numeric-kernel ABI change, collector change or more native backend support.
+No promised end-to-end speedup follows from these operation counts.
+
+References checked on 2026-10-27: Lua 5.4.9
+[lcode.c](https://www.lua.org/source/5.4/lcode.c.html) directs a local assignment's
+expression into its target register and manages temporary registers. Kagari must
+add its checked commits, lexical/type/ownership facts and debug availability rather
+than copy that source frontend's mechanism. LLVM 22.1.0
+[rotated loops](https://releases.llvm.org/22.1.0/docs/LoopTerminology.html#rotated-loops)
+use a guard when a first iteration is not proven, supporting the proposed control
+shape. LLVM's SSA/LoopInfo, undefined-overflow assumptions and backend ownership are
+not Kagari contracts. The rolling Rust
+[MIR optimization guide](https://rustc-dev-guide.rust-lang.org/mir/optimizations.html)
+supports applying typed transformations before codegen; Kagari's existing optimizer
+consumes its old seal and rebuilds verification rather than accepting edited facts.
+
+Implementation validation must reuse focused owners: checked arithmetic/trap and
+completed-assignment semantics; clobbered scalar snapshots; zero/one/multiple loop
+iterations plus break/continue; float predicate polarity where shared selection is
+affected; debug actual origins and reused-slot before/after inspection; cancellation,
+slicing, traps and source-free native-input canonical correspondence. Add only
+uncovered contracts. Compare full retained instruction/site/layout/origin storage,
+not opcode counts alone, then run a frozen same-machine original/forms comparison
+and the selected dependent lifecycle controls without changing old gate outcomes.
+Required implementation structure/fmt/workspace Clippy/diff checks and CI-only full
+matrix policy remain unchanged. This review has no implementation tests or new
+measurements to report.

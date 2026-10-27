@@ -16,6 +16,441 @@ Keep workloads, hashes, environment and timing scope together. Allocation reques
 are not RSS; compilation/setup and execution are separate. Small differences are
 not significance claims, and local correctness does not imply GitHub CI or Lua parity.
 
+## Current Kagari/Lua cost attribution, Windows 2026-10-27
+
+This is a fresh analysis of production revision `03246d94a1a153b18746f0c245ec2c07cb015421`,
+with a clean working tree during measurement and no runtime changes. It supersedes
+the applicability of older attribution to this revision, not the older measurements
+or their unresolved IP12/BO04 acceptance gates. The 16 matched non-entry rows take
+1.47..100.84 times PUC Lua time on this machine. Ordinary calls and native/library
+boundaries now explain much more of the gap than excess scalar instruction count.
+These measurements do not establish a regression against another revision/machine.
+
+### Environment and timing method
+
+Intel Core i7-10700F, 16 logical CPUs, 67,017,248 KiB visible memory, Windows 10
+10.0.19045; rustc 1.99.1 (`58cf8f9c3`, LLVM 23.1.1), Cargo 1.99.1 (`5f94df478`),
+x86_64-pc-windows-msvc. Workspace release defaults (opt-level 3), default Cargo
+parallelism and target directory; no environment overrides, affinity or priority
+changes. Kagari source/native features are compiled in, but JIT backend preparation and
+execution are disabled by `--interpreter-only`. Lua is vendored PUC 5.4.9 through
+mlua 0.12.2 / lua-src 551.0.2, not LuaJIT.
+
+The original, source-form and numeric suites ran sequentially, each with two fresh
+processes, three warmups and eleven checked execution samples per engine/workload.
+Workload/engine order reverses in the second process. Tables report the median of
+the two process medians, normalized by batch size. Each process's full sample range
+remains in raw data; the final column below is only the range of process medians,
+not a confidence interval. All 1,276 timed batches and warmups passed independent
+result checks. No build, test or profiling process overlapped throughput timing.
+The original release rebuild took 206.154 seconds; forms/numeric reused it (0.263 /
+0.293 seconds). Compilation, validation, linking and construction are excluded from
+execution. Host entry/result handling and default automatic GC remain included.
+Desktop activity/frequency/temperature were uncontrolled; two processes do not
+establish significance for close rankings among numeric types.
+
+Executable SHA-256: `883ea385c40e3d262b5019889ddc7ad697209ac9a585734ded4426f69ee07f9a`;
+Cargo.lock: `23d256429adeecc8ad6c0501a6c2ee3e900532aecb6e4571c3b06862b0ccfca4`.
+Original/forms/numeric workload SHA-256 values are respectively
+`cbe3cd56a118fcca729ecdbdfaf09291fbb6f73a31d1ee19a8d80e01b644b57d`,
+`38a7c148386d55a90a6c8aa2e632552d8cf632fb527db739db927b58a003889b`,
+`81cc727e81bedcac2e27a99c61716fe212f85c1e6822e7c65be91d229f91fa95`.
+
+### Execution observations
+
+Times are microseconds per complete workload; entry is per host call from a batch
+of 1,000. Original sources use matched while loops. Source forms use 5,000
+iterations; `native` compares a Kagari Rust callback with a Lua script helper and
+is diagnostic only. `host_callback` invokes the same checked Rust helper through
+both adapters. Interface/shared-generic rows match algorithms, not type systems.
+
+| Workload | Kagari (us) | Lua (us) | K/L | Kagari process medians (us) |
+| --- | ---: | ---: | ---: | --- |
+| arithmetic | 1,568.350 | 891.100 | 1.76 | 1,562.200..1,574.500 |
+| arrays | 11,748.100 | 145.950 | 80.49 | 11,734.100..11,762.100 |
+| branches | 2,169.750 | 1,480.500 | 1.47 | 2,114.000..2,225.500 |
+| calls | 8,690.450 | 433.050 | 20.07 | 8,673.400..8,707.500 |
+| entry | 2.800 | 0.061 | 46.02 | 2.779..2.822 |
+| fibonacci | 18,659.850 | 469.050 | 39.78 | 18,499.000..18,820.700 |
+| maps | 9,486.850 | 131.700 | 72.03 | 9,471.600..9,502.100 |
+
+| Workload | Kagari (us) | Lua (us) | K/L | Kagari process medians (us) |
+| --- | ---: | ---: | ---: | --- |
+| forms_byte_state | 21,378.550 | 212.000 | 100.84 | 21,316.400..21,440.700 |
+| forms_capture_cell | 9,551.550 | 218.400 | 43.73 | 9,480.200..9,622.900 |
+| forms_concrete_generic | 4,252.550 | 189.700 | 22.42 | 4,204.800..4,300.300 |
+| forms_direct | 210.150 | 118.350 | 1.78 | 205.600..214.700 |
+| forms_field | 1,085.600 | 180.700 | 6.01 | 1,082.800..1,088.400 |
+| forms_helper | 4,176.600 | 195.350 | 21.38 | 4,174.700..4,178.500 |
+| forms_host_callback | 5,127.500 | 384.550 | 13.33 | 5,111.400..5,143.600 |
+| forms_interface | 12,603.000 | 217.150 | 58.04 | 12,437.300..12,768.700 |
+| forms_native | 5,149.050 | 196.550 | 26.20 | 5,126.200..5,171.900 |
+| forms_shared_generic | 18,723.250 | 205.600 | 91.07 | 18,099.300..19,347.200 |
+| forms_string_calls | 10,463.150 | 215.800 | 48.49 | 10,411.000..10,515.300 |
+| forms_string_constants | 5,858.300 | 140.500 | 41.70 | 5,852.300..5,864.300 |
+
+The numeric matrix uses 20,000 iterations. Kagari uses while and fixed-width
+checked arithmetic/casts; Lua uses numeric-for and its integer/double domains.
+These are bounded-input diagnostics, outside the matched parity gate. In
+particular, f32 is not equivalent to Lua's double semantics, and the rows do not
+justify ranking integer widths by implementation quality.
+
+| Workload | Kagari (us) | Lua (us) | K/L | Kagari process medians (us) |
+| --- | ---: | ---: | ---: | --- |
+| numeric_f32 | 1,183.450 | 444.000 | 2.67 | 1,183.400..1,183.500 |
+| numeric_f64 | 1,431.450 | 593.550 | 2.41 | 1,191.000..1,671.900 |
+| numeric_i16 | 1,880.550 | 913.850 | 2.06 | 1,467.500..2,293.600 |
+| numeric_i32 | 1,435.250 | 723.450 | 1.98 | 1,432.500..1,438.000 |
+| numeric_i64 | 1,508.400 | 728.200 | 2.07 | 1,440.500..1,576.300 |
+| numeric_i8 | 1,467.350 | 726.300 | 2.02 | 1,452.800..1,481.900 |
+| numeric_u16 | 1,374.100 | 722.300 | 1.90 | 1,367.200..1,381.000 |
+| numeric_u32 | 1,743.350 | 761.800 | 2.29 | 1,431.400..2,055.300 |
+| numeric_u64 | 1,403.550 | 725.250 | 1.94 | 1,403.500..1,403.600 |
+| numeric_u8 | 1,402.550 | 732.300 | 1.92 | 1,369.800..1,435.300 |
+
+### Independent instruction and lifetime observations
+
+After throughput, the existing Windows sampler ran the same saved executable/PDB
+for every original and source-form row, one process at a time. Each has three
+warmups and a ten-second ordinary execution window. GC/object deltas come from
+that window; observer-based Kagari counts and Lua instruction hooks run separately,
+outside the window. Object counts exclude executable metadata records, including
+admitted method computations. Counts are logical VM operations, not CPU instructions
+or equally costly units. Sampling timings are not substituted into the tables.
+
+| Workload | Kagari instructions | Lua instructions | Objects / invocation | Collections / invocation | Unresolved RIP samples |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| arithmetic | 300,011 | 250,007 | 0.000 | 0.0000 | 99.6% |
+| arrays | 56,021 | 42,012 | 1.000 | 2.0000 | 43.7% |
+| branches | 390,012 | 309,968 | 0.000 | 0.0000 | 99.2% |
+| calls | 120,011 | 110,007 | 0.000 | 0.0000 | 37.3% |
+| entry | 2 | 2 | 0.000 | 0.0000 | 68.6% |
+| fibonacci | 164,183 | 120,400 | 0.000 | 0.0000 | 27.9% |
+| maps | 46,021 | 24,012 | 2001.000 | 6.0000 | 50.6% |
+| byte_state | 130,014 | 80,523 | 2.000 | 1.0000 | 25.0% |
+| capture_cell | 70,013 | 75,007 | 2.000 | 0.0057 | 46.5% |
+| concrete_generic | 55,008 | 60,007 | 0.000 | 0.0000 | 47.6% |
+| direct | 40,008 | 40,006 | 0.000 | 0.0000 | 98.4% |
+| field | 60,010 | 55,008 | 1.000 | 0.0019 | 57.7% |
+| helper | 50,008 | 65,007 | 0.000 | 0.0000 | 41.1% |
+| host_callback | 30,008 | 45,006 | 0.000 | 0.0000 | 46.2% |
+| interface | 55,010 | 65,009 | 1.000 | 4.9107 | 41.9% |
+| native | 30,008 | 65,007 | 0.000 | 0.0000 | 43.0% |
+| shared_generic | 60,010 | 60,009 | 1.000 | 4.9196 | 31.1% |
+| string_calls | 90,008 | 77,506 | 0.000 | 0.0000 | 35.2% |
+| string_constants | 70,008 | 52,506 | 0.000 | 0.0000 | 42.4% |
+
+RIP samples use local release PDB names only when size/unwind boundaries verify the
+address. Many addresses remain unresolved, especially scalar loops. Identified
+call samples include route selection, installation validation, frame/window setup,
+driver transitions, polling and hashing. They corroborate those paths but do not
+partition total execution into CPU percentages; unresolved samples must not be
+relabelled as dispatch, numeric kernels or some nearby PDB symbol. No new assembly
+or hardware-counter attribution was collected. The prepared operation is 24 bytes,
+canonical bytecode instruction 144 bytes, Value and return packet 16/24 bytes on
+this build; canonical size is not the hot-stream footprint.
+
+### Current mechanisms and avoidable work
+
+**Scalar loops (arithmetic, branches, direct, numeric).** The old 550,015-operation
+arithmetic stream no longer applies: arithmetic executes 300,011 operations versus
+Lua's 250,007, with 50,004 remaining Moves. Branches executes 390,012 versus
+309,968, with 60,004 Moves. Direct is already 40,008 versus 40,006. Unified slots,
+direct destinations, constant operands and predicate branches are implemented.
+Remaining work includes transport retained by conservative placement, per-instruction
+PC/initialization/state checks, and indirect calls to shared numeric payload kernels
+returning Result. Checked overflow, source width, trap position and cancellation
+are real contracts; source code alone does not prove which checks survive LLVM or
+their elapsed shares. The current token check is inline, unlike the old Windows
+assembly finding. See [scalar execution](../crates/kagari-runtime/src/frame/cursor/scalars.rs)
+and [payload kernels](../crates/kagari-types/src/payload.rs).
+
+**Small script calls (calls, fibonacci, helper, concrete_generic, string_calls).**
+Helper takes 19.87 times direct time, although it dispatches only 1.25 times as many
+Kagari operations and fewer than Lua's helper. Calls executes 120,011 operations
+versus Lua's 110,007; no script objects or GC occur. Fibonacci admits 21,892 script
+frames including main. Each invocation selects the current route, admits its
+publication and arguments, reserves/initializes banks, copies parameters, publishes
+dependencies, leaves/reenters the driver, retires the window and publishes return
+values. [Route selection](../crates/kagari-runtime/src/module/dispatch/mod.rs)
+captures current code through a Mutex; [installation validation](../crates/kagari-runtime/src/module/installation.rs)
+also locks current metadata, and [frame admission](../crates/kagari-runtime/src/frame/admission.rs)
+validates executable metadata again. Repeated registry/liveness admission inside
+one callback-free transition and initializing parameter storage before overwriting
+it are concrete ownership-review candidates, not permission to remove checks.
+Same-publication correspondence no longer rebuilds an identity table, and direct
+scalar calls already avoid temporary argument Vecs. Ordinary nested windows retire
+at the tail; independent-session compaction does not explain these rows.
+
+**Native/library routing (arrays, byte_state, string_constants, native,
+host_callback, maps).** [prepare_calls](../crates/kagari-runtime/src/module/execution/calls.rs)
+rewrites native imports into the common current-selection Call operation and sets
+native_calls to zero. Thus the earlier region-native descriptors for String length
+and Vec index/set are not selected by these ordinary prepared functions. This
+source change is present in `4d9f2afa`; it prevents a pinned old native callback
+from bypassing current publication selection. It also means every such operation
+now pays explicit native frame admission, entry, result publication and return
+through [native frames](../crates/kagari-runtime/src/frame/native.rs). Arrays has
+8,001 native invocations (construction, 2,000 push, 4,000 get, 2,000 set), plus its
+call to run. Byte_state has 15,000 index/set calls and one Vec construction.
+String constants has 5,000 native len calls. A length load or scalar element read
+is therefore surrounded by a general invocation protocol. Merely editing the old
+cursor-native handler would not optimize these selected execution paths.
+
+**Vec-specific repeated admission (arrays, byte_state).** Storage is already
+Vec<i32>/Vec<u8>, not a boxed object per scalar. Sequence argument checking,
+sequence-family admission and buffer access repeatedly resolve the same handle
+and storage contract. [VecSet](../crates/kagari-runtime/src/native/primitive.rs)
+checks its value signature and runs replacement preflight, then
+[buffer_set](../crates/kagari-runtime/src/gc/buffers.rs) repeats mutable/type/bounds
+admission; multiple polls surround those stages. General SDK conversion may
+reenter, so that gap requires revalidation; the closed primitive has no such gap.
+Byte_state additionally executes 40,000 conversions, 25,005 Moves and 10,000
+numeric operations for its explicit width/bit rules. These are additional costs,
+not evidence that eight-bit arithmetic itself is 100 times slower. Arrays allocates
+one script object and collects twice per workload; byte_state allocates two objects
+and collects once. Per-element object allocation is not their explanation.
+
+**Map insertion/results (maps).** Integer keys use the builtin-key branch, with
+no script Hash/Eq invocation. [map_insert](../crates/kagari-runtime/src/gc/maps_sets.rs)
+checks contains_key and reserves, then [HashMapStorage::insert](../crates/kagari-runtime/src/native/hash_storage.rs)
+checks contains_key and reserves again before insert. The 2,000 inserts therefore
+make 6,000 explicit membership/insertion searches, plus 2,000 gets (rehash work is
+additional). [Option construction](../crates/kagari-stdlib/src/foundation/enumerations/value.rs)
+allocates a heap enum and payload buffer for every successful get. The workload
+allocates 2,001 script objects and collects six times, then separately executes
+2,000 variant tests and 2,000 payload reads through
+[canonical VM handlers](../crates/kagari-vm/src/executor/aggregate_ops.rs).
+Repeated searches and result protocol are concrete excess work; their separate
+elapsed shares are unknown. IP11 previously rejected an insertion-only prototype
+after it missed its timing target, so that experiment is not a promised solution.
+
+**Interfaces and shared_generic.** Interface has 55,010 Kagari instructions versus
+65,009 Lua; shared_generic has 60,010 versus 60,009. Slowdown therefore cannot be
+explained by a large opcode-count multiplier. Each fresh
+[MethodInvocation](../crates/kagari-runtime/src/objects/invocation.rs) repeatedly
+constructs/views current selection during application, compatibility and admission;
+admit then inserts a MethodComputation in the
+[application store](../crates/kagari-runtime/src/execution_metadata/applications.rs).
+The 5,000 calls therefore create 5,000 admitted metadata records, independently of
+whether semantic application/environment caches hit. Retirement drops the frame
+edge; records are reclaimed by metadata GC, not immediately on return. Both runs
+collect about 4.9 times per workload despite creating only one ordinary interface
+object. Shared_generic additionally validates type arguments, looks up an application,
+transports scoped generic Values and validates adapted results. A Value carrying i32
+is not itself a heap box. Application-cache hits do not eliminate this invocation
+work, and historical zero warm application-allocation claims do not cover it.
+
+**Captured cell and fields.** capture_cell creates one closure and one cell per
+workload, not per iteration. Its 5,000 calls add 10,000 ReadCell and 5,000 WriteCell
+operations through canonical VM boundaries; those repeatedly acquire frame/slot/type
+and checked heap access. Field uses the prepared scalar-field path and only one
+struct allocation per workload; 10,000 field reads and 5,000 writes still admit the
+current heap identity/layout, acquire storage and decode/encode field bytes. Neither
+row is repeated object copying. Cell access needs shared mutation semantics; fields
+must keep alias-visible writes and trap order. A prepared cell operation is a
+candidate for the existing region owner, not scalar replacement across arbitrary calls.
+
+**Strings and entry.** Both warmed string windows allocate zero script objects and
+perform zero GC. Literal materialization is once per module constant pool; handle
+copies do not copy the 62/68-byte texts. string_constants is primarily the length
+call protocol plus managed transport; string_calls adds 5,000 identity script calls
+and managed argument/result admission. Entry executes the same two logical operations
+as Lua but includes SDK selection/context validation, outer session scope, VM nested
+scope admission (same session, not a second independent session), frame execution,
+rooted result/report creation and retirement. Its 2.800 us host cost is a distinct
+embedding/API question, not the scalar engine's arithmetic throughput.
+
+### Direct bytecode inspection, 2026-10-27
+
+A follow-up inspection compiled the full SOURCE string from the source-form harness
+with the same declared native_step interface, default compilation options and SDK
+artifact verification. A temporary Rust probe linked the existing release libraries
+and used PreparedDisassembly to inspect the resulting validated artifact. No runtime
+source or benchmark timing changed. direct has eight logical slots (state=s0,
+sum=s1, i=s2) and fifteen stored instructions. The existing execution count of
+40,008 is exactly five entry operations, 5,000 iterations of eight operations,
+one final predicate and two exit operations. Simplified operand spelling below
+resolves constant-pool operands and abbreviates checked i32 operation names:
+
+```text
+00  load_const s0, 1
+01  load_const s3, 0
+02  move s1, s3
+03  move s2, s3
+04  jump 05
+05  predicate_branch.lt s2, 5000, then=06, else=13
+06  mul s4, s0, 3
+07  add s5, s4, 7
+08  rem s6, s5, 251
+09  move s0, s6
+10  checked_add s1, s1, s6
+11  checked_add s2, s2, 1
+12  jump 05
+13  move s7, s1
+14  return s7
+```
+
+The hot redundancy candidate is 08-10: the final remainder can commit directly to
+state, with the following sum reading state, eliminating the 5,000 executions of
+09. Multiplication/addition must keep their intermediate results separate from
+state: if either traps, the assignment must not partially commit. The current
+[placement rule](../crates/kagari-compiler/src/bytecode/placement.rs) only redirects
+an adjacent producer/Move when the temporary's sole use is that Move. The displayed
+result also supplies the sum, so this multi-use form requires a more general proof
+and rewriting of later uses. Full types, origin selection, debugger availability
+and successful assignment publication still constrain the transformation.
+
+The jump at 04 targets the immediately following instruction; the return temporary
+at 13 carries no additional computed value; and the zero temporary at 01-03 uses
+three instructions where two direct constant-to-home writes could suffice. These
+are entry/exit savings, not per-iteration costs. Together with the hot Move, an
+illustrative compact form would have eleven stored instructions and 35,005 dynamic
+operations, assuming those origin/debug/commit proofs are supplied. This is a
+work-count proposal, not an implemented change or a measured elapsed improvement.
+Scalar physical slot reuse does not itself remove the Move instruction/dispatch.
+
+Constant operands 3, 7, 251, 1 and 5000 already avoid per-iteration LoadConst;
+PredicateBranch already combines comparison and control without materializing a
+Boolean slot. There is no repeated type resolution, heap operation or call in the
+loop body. The arithmetic operations, loop predicate and backedge do real work;
+intermediate slots alone are not proof of redundant operations. The full disposable
+dump is target/lua-comparison/direct-bytecode.txt; the listing and method above
+preserve the relevant evidence independently of that local file.
+
+### Direct Lua instruction comparison, 2026-10-27
+
+A temporary Rust probe linked the benchmark's existing mlua release library and
+compiled the exact Lua direct source generated by forms.rs (the explicit while,
+not numeric-for). Function::dump(true) produced the stripped 5.4 chunk. A local
+reader followed the vendored Lua 5.4.9 ldump.c layout and lopcodes.h bit fields,
+checked its header/sizes/native test numbers, consumed the entire stripped chunk,
+and resolved all instruction words/constants. The vendored Lua execution returned
+569840 and its independently attached instruction hook counted exactly 40,006,
+matching the original profile. No new execution timing was measured. The artifact
+and reader are disposable target/lua-comparison/direct-lua54.luac and
+read-direct-lua.py; relevant decoded facts are retained here.
+
+Lua uses four register slots (state=R0, sum=R1, i=R2, scratch=R3), two constants
+K0=3/K1=251, and nineteen 32-bit instruction words. Its decoded body is:
+
+```text
+00 LOADI    R0, 1
+01 LOADI    R1, 0
+02 LOADI    R2, 0
+03 LOADI    R3, 5000
+04 LT       R2, R3, polarity=0
+05 JMP      17
+06 MULK     R3, R0, K0
+07 MMBINK   (multiply fallback)
+08 ADDI     R3, R3, 7
+09 MMBINI   (add fallback)
+10 MODK     R0, R3, K1
+11 MMBINK   (modulo fallback)
+12 ADD      R1, R1, R0
+13 MMBIN    (add fallback)
+14 ADDI     R2, R2, 1
+15 MMBINI   (add fallback)
+16 JMP      03
+17 RETURN1  R1
+18 RETURN0
+```
+
+Successful integer arithmetic skips its following metamethod fallback. LT consumes
+or skips its following jump without a second dispatch. RETURN0 is unreachable after
+the explicit return. The successful iteration therefore dispatches eight handlers:
+LOADI bound, LT/conditional control, MULK, ADDI, MODK, ADD, ADDI and the backedge
+JMP. Its temporary R3 also holds the bound, so LOADI 5000 executes on every check,
+including the last failed check. This explains exactly 40,006 total dispatches:
+three initializations, 5,000 * eight handlers, two final-check handlers and RETURN1.
+Fallback instruction words still occupy code storage; they do not add five dispatches
+per successful iteration.
+
+The proposed [Kagari target](bytecode-optimization-plan.md#direct-target-instruction-shape-2026-10-27)
+has eleven semantic instructions, four target scalar locations and 30,005 dynamic
+operations with the entry guard retained (30,004 after proving that guard true).
+Both engines can use one scratch register, write the final remainder directly to
+state and update sum/i in place. Kagari's target saves a standalone bound load
+through its constant comparison operand, and saves the unconditional backedge
+through a conditional-backedge layout. This is two fewer dispatches per successful
+iteration (six versus eight), about 25% fewer dynamic dispatches for this fixture.
+The earlier placement-only target has seven per iteration / 35,005 total; current
+unmodified Kagari still has eight / 40,008. These are representation/work-count
+comparisons, not measured CPU instruction counts or elapsed speedups.
+
+Storage density is a separate result. Lua's nineteen encoded words occupy 76 bytes
+of instruction code, including the skipped fallbacks/dead return. Current Kagari
+prepared instructions are 24 bytes each and scalar sites occupy additional tables.
+If eleven target instructions retain that representation, their instruction array
+alone is 264 bytes before sites/origins/layouts; the target has no finalized new
+encoding. Do not claim that fewer operations automatically gives a smaller hot code
+representation. Lua's wire chunk size, Kagari's serialized artifact size and their
+complete runtime metadata are not being equated with these instruction arrays.
+
+Primary confirmation: vendored PUC Lua 5.4.9
+[lopcodes.h](https://www.lua.org/source/5.4/lopcodes.h.html),
+[lvm.c](https://www.lua.org/source/5.4/lvm.c.html) arithmetic skip and comparison/jump
+macros, and [ldump.c](https://www.lua.org/source/5.4/ldump.c.html). Kagari arithmetic
+retains checked i32 commits; Lua has dynamic numeric/metamethod handling and different
+integer overflow semantics. One handler in either engine is not an equal unit of
+machine work. No runtime source, compiler pass or benchmark fixture was changed.
+
+### Review order and preserved guarantees
+
+1. Review the selected call/native owner first: carry current target and admission
+   facts through one closed transition; avoid repeated selection/registry checks
+   where the synchronous publication guard proves stability. Preserve candidate
+   restrictions, current-call reload semantics, depth, cancellation, traces, reentry,
+   native result rooting and suspended exact bodies. Never restore a stale callback
+   captured only in the caller's old publication. The reusable semantic application
+   and one admitted computation need distinct lifetimes; investigate frame-owned
+   selection rather than mandatory GC records for every synchronous invocation.
+2. Address native collection transactions within the existing joint GC/native
+   collection plans, retaining one owner for checked handle access, type/mutation
+   admission, accounting and fallible reserve/commit. Do not revive the rejected
+   IP11 prototype or run a parallel concrete-container migration. Preserve custom
+   key callbacks, SDK reentry gaps and replacement-without-growth behavior.
+3. Review prepared enum/cell handlers and general enum representation separately.
+   Option discrimination is required; one heap object/payload buffer plus separate
+   boundary dispatches is a representation choice. A map-only sentinel shortcut
+   would create incompatible semantics. A new GC alone does not remove these allocations.
+4. Revisit scalar kernels/transport using new machine-code attribution after the
+   common invocation boundary is understood. Keep source-width arithmetic and
+   executable/inspection proofs; do not remove initialization checks or per-instruction
+   observations merely because a source program typechecks.
+
+Mature references checked for this diagnosis: Lua 5.4.9
+[lvm.c](https://www.lua.org/source/5.4/lvm.c.html) and
+[ldo.c](https://www.lua.org/source/5.4/ldo.c.html) keep ordinary script calls in the
+interpreter with arguments already in stack slots and implement length/table
+access as VM operations; [ltable.c](https://www.lua.org/source/5.4/ltable.c.html)
+owns table storage. Rust 1.99.1
+[Entry](https://doc.rust-lang.org/std/collections/hash_map/enum.Entry.html) carries an
+occupied/vacant lookup into update. These support ownership/transport models, not
+copying Lua pointers or unchecked integer semantics into Kagari. Kagari additionally
+requires checked runtime handles, explicit native-frame observability, hot publication
+selection and fallible allocation/commit order. Any implementation needs a frozen
+same-machine candidate/baseline comparison plus focused ownership, reload, cancellation,
+depth, alias/effect/trap-order and source-free validation; these analysis measurements
+activate no new implementation phase and do not close existing performance gates.
+
+Reproduce with the existing drivers, running each command sequentially:
+
+```text
+uv run python scripts/benchmark_lua.py --interpreter-only
+uv run python scripts/benchmark_lua.py --source-forms
+uv run python scripts/benchmark_lua.py --numeric-matrix
+uv run python scripts/profile_lua_comparison.py entry arithmetic branches calls fibonacci arrays maps --executable target/release/kagari-lua-benchmark.exe --pdb target/release/kagari_lua_benchmark.pdb
+uv run python scripts/profile_lua_comparison.py direct helper concrete_generic interface shared_generic capture_cell field native byte_state host_callback string_constants string_calls --source-forms --executable target/release/kagari-lua-benchmark.exe --pdb target/release/kagari_lua_benchmark.pdb
+```
+
+Raw reports were saved under target/lua-comparison at 20261027T034301Z,
+20261027T034721Z-forms and 20261027T034746Z-numeric; profiles at
+profile/windows-20261027T034806Z and profile/windows-20261027T035017Z. These are
+disposable evidence, not required links or documentation dependencies. This report
+retains the method, scope, results and source explanation. No production code or
+test assertions changed; full workspace tests/feature/backend CI were not run.
+
 ## Program-owned instance scheduling, 2026-10-26
 
 ### Method and workload

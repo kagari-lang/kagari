@@ -741,3 +741,38 @@ Documentation links/whitespace and final diff are checked at this handoff. Full
 workspace/backend/platform CI was not run; Lua parity is unmet at 2.20-41.07x across
 the 16 matched workloads. Keep this plan because a required gate remains unresolved;
 do not remove it as a completed ledger.
+
+### Current-revision attribution refresh, 2026-10-27
+
+The user requested another per-workload Kagari/Lua analysis. The
+[current measurement record](performance-baseline.md#current-kagarilua-cost-attribution-windows-2026-10-27)
+retains the fresh original/forms/numeric observations and independent instruction,
+object/collection counts at `03246d94`, on Windows 10 / i7-10700F. This is analysis,
+not an IP12 candidate/baseline rerun or authorization of another phase. IP12 and
+BO04 failed lifecycle gates remain unresolved; no thresholds or acceptance changed.
+
+BO placement has reduced arithmetic to 300,011 instructions and direct to 40,008
+(Lua 250,007 / 40,006). UP02 current-call selection now routes all native imports
+through explicit native frames, so old in-region Vec/String attribution no longer
+describes their selected path. Each interface invocation also allocates an admitted
+MethodComputation record independently of warm semantic application caching; the
+5,000-call rows collect about 4.9 times per workload. Current string windows allocate
+zero script objects, while arrays/maps allocate 1 / 2,001 and collect 2 / 6 times.
+These facts supersede applying the older warm/no-application and native-boundary
+counts to HEAD, not the historical evidence itself.
+
+Review must first distinguish current selection/admission and computation lifetime
+from useful native/body work, preserving reload, candidate, trace/depth, root,
+reentry and cancellation contracts. Existing joint GC/native collection plans own
+storage changes; no parallel implementation queue is added. Rejected IP11 candidates
+remain rejected. Scalar polling/initialization/kernel costs lack current assembly
+attribution, and high unresolved PDB sample rates prohibit invented CPU shares.
+No runtime source or tests changed in this refresh.
+
+The same follow-up inspected direct's actual fifteen-instruction bytecode. One
+producer-to-home Move executes 5,000 times because the result also feeds the next
+sum and the existing redirect rule requires a single-use temporary. Entry fallthrough
+jump, shared-zero initialization and return transport offer only once-per-call
+savings. The [direct listing](performance-baseline.md#direct-bytecode-inspection-2026-10-27)
+records the candidate, successful-commit/debug-origin constraints and illustrative
+work counts; no optimization was implemented or performance gate rerun.
