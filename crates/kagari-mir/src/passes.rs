@@ -14,6 +14,7 @@ mod compaction;
 mod constants;
 mod copies;
 mod dead;
+mod rotation;
 mod scalar;
 
 #[derive(Debug, Clone)]
@@ -64,6 +65,7 @@ pub fn optimize(
     let (definitions, mut raw) = module.into_unverified().into_parts();
     constants::simplify(&mut raw, &mut statistics, &mut work)?;
     copies::simplify(&mut raw, &mut statistics, &mut work)?;
+    rotation::apply(&mut raw, &mut work)?;
     let raw = DefinitionMetadata::checked(definitions, raw, cancel).map_err(mapping_error)?;
     let module = verify_mir(raw, cancel)?;
     let removals = dead::find(&module, &mut work)?;

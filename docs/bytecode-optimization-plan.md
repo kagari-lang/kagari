@@ -41,7 +41,7 @@ is authorized by this follow-up. Implement finite shared rules, not benchmark
 recognition, and retain all existing source-free, debug and execution validation.
 
 - [x] BO05: General scalar destinations, constant/home/return transport and fallthrough cleanup.
-- [ ] BO06: Bounded guarded MIR loop rotation, reverified facts and canonical correspondence.
+- [x] BO06: Bounded guarded MIR loop rotation, reverified facts and canonical correspondence.
 - [ ] BO07: Eligible scalar read-before-write reuse with public frame lifetime checks.
 - [ ] BO08: Focused correctness, local quality checks, matched execution/lifecycle comparison and remaining-cost attribution.
 
@@ -1139,3 +1139,10 @@ Seven-pair timing/storage attribution remains BO08 work, separate from these che
 BO05 checkpoint: scalar home/return/fallthrough placement is implemented and
 locally verified. Its six-operation loop depends on the separately checked BO06
 rotation; timing acceptance remains BO08.
+
+BO06 checkpoint: guarded closed-condition rotation and fresh semantic/debug
+facts are implemented. The non-benchmark recurrence proves a conditional backedge
+and full canonical native-input correspondence; selected loop behavior passes with
+optimization disabled/enabled and both artifact routes. The real forms direct dump
+is 11 static instructions and 5 logical slots; timing and physical attribution
+remain BO08.

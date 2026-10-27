@@ -1984,7 +1984,20 @@ Compiler placement forwards proven stable block-local scalar reads and redirects
 eligible adjacent scalar assignments into binding homes when full types and debug
 states agree. Inputs are read before successful commit; failure leaves the old
 home unchanged. Managed/cell/call/await and uncertain snapshots remain explicit.
-MIR's semantic namespaces and its own pass pipeline remain separate. See the
+Subsequent uses may share that home only while same-block no-clobber and observation
+facts preserve their snapshots. Scalar literals initialize homes directly; eligible
+tail reads return their source slot, retaining the tail's visible names. Final
+fallthrough jumps are removed after constant/predicate selection.
+
+MIR's bounded pass pipeline may retain an entry guard and duplicate a closed scalar
+condition onto dominated Jump backedges. The condition's inputs are defined inside
+it, its outputs do not escape, and every copy receives fresh temporaries and the
+original span/scope columns. Suspending functions and effectful conditions are
+declined. Limits are 16 condition instructions and 256 duplicated instructions per
+function, under the existing work/cancellation budget. Fresh MIR verification
+rebuilds facts before deterministic bytecode lowering assigns final PCs; portable
+MIR must still reproduce the complete canonical bytecode. No new terminator or
+runtime instruction decoder is needed. See the
 [bytecode contract](spec/bytecode.md#semantic-projection-and-placement).
 
 VerifiedProgram derives compact physical operations once from sealed bytecode.
