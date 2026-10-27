@@ -2726,3 +2726,69 @@ production checkpoint; documentation-only completion checks content, links and d
 No local build/test/timing failure remains for BO17-BO19. Full workspace, backend,
 feature and platform correctness is CI-only and unrun. Earlier BO04/BO08/IP12
 failures retain their existing owners, so the broader plan remains open.
+
+### Cancellation ablation diagnostic, 2026-10-27
+
+The user explicitly requested temporarily masking only the scalar loop's
+`cancellation.check().is_err()` term to measure its effect. This is a diagnostic,
+not a production semantic change or a new optimization phase. Observer attachment,
+collection-due and automatic-collection/abandonment checks remain unchanged, as do
+outer driver cancellation checks. Unobserved unbounded scalar loops can therefore
+delay cancellation indefinitely in this temporary image; it is not accepted code.
+
+Start from clean `2b72affc` (production `19aa9570`). Freeze arithmetic alone at
+15:03:59 UTC with `uv run python scripts/benchmark_lua.py --interpreter-only
+--workload arithmetic --freeze-baseline target/lua-comparison/cancellation-before`.
+The baseline executable SHA-256 is
+735352aeda2e1b85259a0590cc80a20ab0b086d78a51e13a2fb20308310fa834.
+Remove only the first OR term in `frame/cursor/scalars.rs::poll_requested`, then
+run the same driver with `--interpreter-only --workload arithmetic
+--baseline-executable target/lua-comparison/cancellation-before`.
+Seven alternating pairs start at 15:04:11 UTC, with three warmups and eleven
+samples per process, n=50,000 and batch=1. Every checksum is 2,398,830.
+The temporary image SHA-256 is
+c6885df5b5ae32106cdae2756c873747372f1fc0e2cbad2d93a098deb0b7c9b7.
+
+Environment matches BO19: Windows 11 Pro 10.0.26300, i9-12900K, 24 logical CPUs,
+66,843,692 KiB RAM; Rust 1.99.1/LLVM 23.1.1, Cargo 1.99.1, x86_64-pc-windows-msvc.
+Workspace release defaults/opt-level 3, default Cargo parallelism/target,
+source/native and vendored Lua 5.4.9 features, interpreter-only execution.
+Build cache is reused where possible; fresh processes prepare separate states,
+then warm execution. Frozen/candidate build walls are 0.386 / 27.986 seconds,
+excluded along with setup from execution. No affinity/environment override,
+concurrent builds/tests/profiles, sample deletion or performance-target tuning.
+
+| Pair | Original us | Cancellation masked us | Masked/original |
+| --- | ---: | ---: | ---: |
+| 1 | 485.5 | 448.9 | 0.92461 |
+| 2 | 459.8 | 440.3 | 0.95759 |
+| 3 | 463.8 | 442.4 | 0.95386 |
+| 4 | 470.5 | 443.4 | 0.94240 |
+| 5 | 461.4 | 442.4 | 0.95882 |
+| 6 | 465.0 | 438.4 | 0.94280 |
+| 7 | 466.4 | 450.1 | 0.96505 |
+
+Medians are 465.0 -> 442.4 us. The median paired ratio is 0.95386: 4.6% less
+elapsed time, with individual reductions of 3.5%..7.5%. This includes any codegen
+and linked-image layout effects; it is not the isolated cost of an atomic load.
+The unchanged Lua logic also changes 364.8 -> 331.9 us, paired ratio 0.91325,
+so the experiment cannot attribute the full Kagari difference solely to polling.
+
+To check process-order noise without rerunning the ablation, an A/A control starts
+15:06:16 UTC and invokes the exact frozen executable for both roles. It retains
+the same seven alternating pairs, arguments/reverse order, warmups/samples,
+checksums and shared report validator. No compilation occurs during the control.
+Kagari medians are 468.3 / 466.5 us, paired ratio 0.99531 with range
+0.96845..1.04597. Lua medians are 365.9 / 361.0 us, paired ratio 1.01448 with
+range 0.95275..1.02097. This smaller median A/A difference supports an observed
+ablation-image improvement but neither isolates layout effects nor establishes
+cross-session statistical confidence or a pure cancellation cost.
+
+Restore `scalars.rs` byte-for-byte after measurement and rebuild the default
+release benchmark (27.73 seconds). Its restored-image SHA-256 is
+c2f317ed6c33129179ca633e50aed88fd7e284ae0f2fb77c2668e11218e4d91e;
+relinking need not preserve the prior image hash. The restored image's focused
+`--check --interpreter-only --workload=arithmetic` passes both engine checksums.
+No Rust changes remain. Final validation is documentation content/links/diff;
+no correctness, full-matrix performance or CI acceptance is claimed for the
+semantically weakened experiment. Production retains per-instruction cancellation.

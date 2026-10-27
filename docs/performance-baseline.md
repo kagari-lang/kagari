@@ -5118,3 +5118,21 @@ cost still includes polling/dispatch, initialization, payload-domain validation 
 checked arithmetic. The former duplicate bank-bound comparison is gone; required
 guards remain. No division specialization or new execution-validity model is
 automatically activated by this result.
+
+### Cancellation-only diagnostic after BO19
+
+At the user's request, temporarily removing only the scalar loop cancellation
+poll produces arithmetic medians of 465.0 -> 442.4 us in seven alternating pairs:
+median ratio 0.95386 (4.6% less elapsed time), range 0.92461..0.96505. All other
+scalar polls and outer cancellation checks remain. The same-image A/A control has
+median ratio 0.99531, range 0.96845..1.04597. Unchanged Lua logic also speeds up
+in the ablation comparison (paired ratio 0.91325), so this is an observed image
+difference, not an isolated atomic-load cost. Code-generation/layout effects and
+environmental variation remain possible contributors.
+
+The [diagnostic ledger](bytecode-optimization-plan.md#cancellation-ablation-diagnostic-2026-10-27)
+records every Kagari pair, hashes, environment, reproduction, A/A evidence and
+restoration. Production source and the default release binary were restored and
+the arithmetic checksum check passes. This experiment weakens cancellation and
+is not an accepted optimization; it does not change BO19 acceptance or activate
+a new implementation phase.
