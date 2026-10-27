@@ -2048,3 +2048,18 @@ polling costs. Existing checks cannot simply be removed. These are findings for 
 future user-directed decision, not newly activated implementation checkpoints.
 BO12 local scope is complete; full CI is unrun. BO04's four lifecycle gates, BO08's
 two collection gates and IP12's independent historical gate remain unresolved.
+
+### BO05 verifier fixture follow-up, 2026-10-27
+
+The malformed local-slot test still replaced instruction 1 with an invalid Move.
+After scalar transfer removal, that position is the Return, so verification rejected
+missing termination before reaching the intended invalid-register check. The fixture
+now inserts the malformed Move before the retained return, using its actual source
+slot and the existing instruction-metadata replacement helper. Error-kind and code
+assertions remain intact; verifier production behavior is unchanged.
+
+All 22 compiler bytecode-validation tests pass, covering the reported failure plus
+adjacent slot, flow, debug and source-free artifact contracts. The final assertion
+cleanup also passes the exact reported test; structure, formatting, workspace
+all-target Clippy and diff checks pass. Full workspace tests and the exhaustive
+feature/backend/platform matrix remain CI-owned.

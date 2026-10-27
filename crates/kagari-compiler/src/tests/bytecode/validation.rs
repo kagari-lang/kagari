@@ -519,21 +519,27 @@ fn verifier_rejects_malformed_register_local_and_control_flow_bytecode() {
         &context,
         common::bytecode_ok("fn main() -> i32 { val value = 1; value }"),
     );
-    invalid_local.modules[invalid_local.root.index()].functions[0].instructions[1] =
+    let function = &mut invalid_local.modules[invalid_local.root.index()].functions[0];
+    let Some(BytecodeInstruction::Return(Some(src))) = function.instructions.last() else {
+        panic!("expected a returned local value");
+    };
+    let mut instructions = function.instructions.clone();
+    // Scalar forwarding may remove every Move; preserve the return terminator.
+    instructions.insert(
+        instructions.len() - 1,
         BytecodeInstruction::Move {
             dst: Slot::new(999),
-            src: Slot::new(0),
-        };
-    assert!(matches!(
-        verify_program(&invalid_local, &context.snapshot(), &Default::default()),
-        Err(BytecodeVerificationError::InvalidRegister { .. })
-    ));
-    assert_eq!(
-        verify_program(&invalid_local, &context.snapshot(), &Default::default())
-            .unwrap_err()
-            .code(),
-        "KG_BYTECODE_INVALID_REGISTER"
+            src: *src,
+        },
     );
+    replace_fixture_code(function, instructions);
+    let error =
+        verify_program(&invalid_local, &context.snapshot(), &Default::default()).unwrap_err();
+    assert!(
+        matches!(error, BytecodeVerificationError::InvalidRegister { .. }),
+        "{error:?}"
+    );
+    assert_eq!(error.code(), "KG_BYTECODE_INVALID_REGISTER");
 
     let mut invalid_jump = common::adopt_bytecode(
         &context,
