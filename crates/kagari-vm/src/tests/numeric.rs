@@ -23,7 +23,7 @@ fn rotated_loops_preserve_entry_control_flow_and_condition_effects() {
     let source = "fn scan(n: i32) -> i32 { var i = 0; var sum = 0;
          while i < n { i += 1; if i == 2 { continue; } if i == 5 { break; } sum += i; }
          i * 100 + sum }
-         pub fn guards() -> bool { scan(0) == 0 && scan(1) == 101 && scan(4) == 408 && scan(8) == 508 }
+         pub fn guards() -> bool { scan(-1) == 0 && scan(0) == 0 && scan(1) == 101 && scan(4) == 408 && scan(8) == 508 }
          fn effects(n: i32) -> i32 { var checks = 0; var steps = 0;
          while { checks += 1; steps < n } { steps += 1; } checks * 10 + steps }
          pub fn effectful() -> bool { effects(0) == 10 && effects(3) == 43 }

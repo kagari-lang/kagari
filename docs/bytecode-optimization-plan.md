@@ -14,9 +14,9 @@ see [the execution plan](#prepared-scalar-execution-follow-up-bo09-bo12). Runtim
 implementation resumed after the user approved the checked-semantics revision;
 BO09-BO12 implementation and selected local evidence are complete; full CI remains
 unrun. Earlier BO04/BO08/IP12 failures are unchanged.
-BO13-BO16 are the planned general scalar-loop follow-up requested on 2026-10-27;
+BO13-BO16 are the general scalar-loop follow-up authorized on 2026-10-27;
 see [the execution sequence](#general-scalar-loop-follow-up-bo13-bo16). This
-checkpoint prepares the plan; implementation and new measurements have not started.
+implementation proceeds in validated batches, followed by remaining-cost attribution.
 The user explicitly requested a separate plan that can proceed before the previous
 interpreter performance work finishes. The original BO01-BO04 scope covers general typed
 slots, direct destinations, predicate branches and constant operands. It replaces
@@ -76,8 +76,8 @@ runs or benchmark timing overlapping builds/tests/profiling.
 
 ## General scalar-loop follow-up (BO13-BO16)
 
-**Status: planned, implementation unstarted.** The user requested an execution
-plan after reviewing the arithmetic instruction target and its generality. This
+**Status: active; implementation and coherent batch commits authorized on 2026-10-27.**
+The user requested reaching the ideal bytecode before attributing remaining time. This
 section owns the finite work breakdown and progress; earlier failed timing gates
 remain independent. It supersedes the inspection-only disposition for planning,
 without treating this documentation checkpoint as an implementation result.
@@ -167,7 +167,7 @@ References and applicability:
 
 ### Phase order and checkpoints
 
-- [ ] **BO13 — Freeze evidence and settle pass composition.** Preserve a fresh
+- [x] **BO13 — Freeze evidence and settle pass composition.** Preserve a fresh
   ordinary release baseline before production edits, recording revision, executable
   hash, toolchain/machine/features, cache/build settings and original/forms reports.
   Capture arithmetic MIR before/after copies and rotation, canonical disassembly,
@@ -176,7 +176,7 @@ References and applicability:
   why scheduling is sufficient or the minimal additional proof needed. Acceptance:
   reproducible baseline, fixed eligibility/ownership decisions and frozen test and
   timing selection. Do not claim the earlier dev-profile counts as release timings.
-- [ ] **BO14 — Repair copy/rotation composition.** Implement the BO13 decision at
+- [x] **BO14 — Repair copy/rotation composition.** Implement the BO13 decision at
   `crates/kagari-mir/src/passes.rs`, `passes/copies.rs` and `passes/rotation.rs`, only
   where needed. Retain entry guards, dominated latch requirements, fresh identities,
   16-instruction condition / 256-instruction duplication limits and shared work
@@ -184,7 +184,7 @@ References and applicability:
   MIR and exercise positive/negative snapshot, nested-loop and break/continue
   contracts. Acceptance: general eligible loops rotate safely, checked facts and
   origins remain coherent, and previously optimized recurrences stay optimized.
-- [ ] **BO15 — Finish placement and prove generality.** Inspect BO14 output before
+- [x] **BO15 — Finish placement and prove generality.** Inspect BO14 output before
   modifying `crates/kagari-compiler/src/bytecode/placement.rs` and its ordinary child
   modules. Implement only the remaining proved scalar transport/destination changes;
   retain the existing compaction and metadata owners. If BO14 already meets every
@@ -2415,3 +2415,78 @@ bounded home-validity proof. There are no new carried build failures. Historical
 BO04/BO08/IP12 results retain their existing owners and disposition. Planning
 validation checks document links, content consistency and `git diff --check`;
 no Rust tests/builds or new timing runs are needed for this documentation change.
+
+### BO13 baseline and pass-composition decision, 2026-10-27
+
+Execution and validated batch commits are now authorized. Baseline is `36c4419c`,
+ordinary executable SHA-256 de8d76c7c7754cab3c2a1ed990d5d14d8f832640dc79880f9c21f826993ed154,
+frozen as target/lua-comparison/loop-before. Original/forms freeze runs at
+14:03:28 / 14:05:42 UTC pass every checksum. Environment: Windows 11 build 26300,
+i9-12900K, 64 GiB, Rust 1.99.1 / LLVM 23.1.1, workspace release opt-level 3,
+source/native plus vendored Lua 5.4.9, default Cargo target/parallelism and sequential
+single-thread execution. Initial release build took 107.064 seconds, forms reused
+it in 0.365 seconds. Timing excludes compilation/preparation. Original arithmetic
+freeze medians are 645.1 us Kagari / 364.9 us Lua; final acceptance uses seven paired
+runs, not this one-process freeze. Independent baseline observation confirms 300,008
+instructions, five scalar slots and zero script heap allocations/collections.
+
+The existing placement test now includes a non-benchmark counter recurrence using
+modulus 13 and runtime n. Before the production change its exact counter_snapshot
+case fails the existing no-Move assertion. Temporary MIR inspection confirms header
+read t2 is initially separate from the body reads; copies rewrites both remainder
+and increment to t2. Rotation then leaves the CFG unchanged because t2 escapes the
+header. The temporary inspection code is removed. BO14 selects constants -> rotation
+-> copies -> verification/dead cleanup, retaining the closed-condition proof and
+fresh temporary identities. No escaping-value repair or new home analysis is yet
+justified; BO15 will inspect the resulting general cases.
+
+Selected checks: compiler passes/placement/program_points and bytecode validation;
+VM numeric loop/snapshot/trap/NaN contracts, optimized breakpoint binding states and
+owned_drive::async_owned_drive_contract (its synchronous slice/cancellation cases).
+Placement already verifies portable-MIR canonical correspondence. All required
+local quality checks apply; exhaustive workspace/backend/feature/platform tests
+remain CI-only. The source test and documentation edits after the original freeze
+do not alter the saved release image; the forms freeze verifies the same hash.
+
+BO14 scheduling passes 16 compiler and seven selected VM contracts. Arithmetic now
+has a four-instruction body but still nine static instructions/five logical slots:
+copies forwards the entry's shared zero into the one-time guard, while placement
+separately materializes zero into i and sum. BO15 therefore needs no general new
+home-validity analysis. Extend the existing numeric constant selection only when a
+retained, same-origin home initializer already preserves the removed constant's
+observation. That anchor must precede any use, have the same complete scalar type
+and constant, and preserve debug state/control path. The original immutable constant
+can then feed immediate operands across blocks without moving its observation to
+a different source path. Unsupported consumers still decline. Existing definition,
+verification, budget and origin remapping remain authoritative. This is a finite
+completion of constant/home materialization, not a runtime or CFG model expansion.
+
+### BO14-BO15 implementation checkpoint, 2026-10-27
+
+The composed implementation meets the target: arithmetic run has eight canonical
+instructions and four logical slots. Its entry compares immediate zero with n;
+the body is remainder, sum add, counter add and conditional backedge. No Move,
+standalone backedge Jump or temporary boolean remains. The non-benchmark modulus-13
+recurrence asserts the same shape and independently verifies portable-MIR canonical
+correspondence. Existing zero/one/many loop coverage now also checks a negative bound.
+
+Fresh disassembly demonstrates generality with unchanged workloads (n=100 for these
+shape probes): branches changes 19 instructions/11 slots to 18/10, calls 11/7 to
+10/6, and arrays 35/23 to 32/20. Their counter snapshots and standalone loop
+backjumps disappear; arrays has three guarded conditional backedges. The pre-call
+sum snapshot, managed array snapshots and branch-body state transport remain under
+the existing safety proofs. No cross-block mutable-home forwarding was necessary.
+
+Validation: the initial scheduling change passed 16 compiler passes/placement/
+program-point tests. Constant selection passed 25 placement/validation/program-point
+tests; tightening the anchor to the next retained instruction passed the three
+placement/program-point cases again. Final seven selected VM cases pass: rotated
+loops (including negative bounds, nesting, break/continue and effectful-condition
+declines), local/captured snapshots, overflow commits, NaN predicates, breakpoint
+binding state and both matching owned-drive contracts. All four local quality checks
+pass: structure (1,737 files, zero violations/exceptions), fmt, workspace all-target
+Clippy with warnings denied, and diff whitespace. Manual review finds no widened
+visibility, new reexports, size exceptions, runtime checks removed or ABI changes.
+The source-free numeric and portable-MIR tests retain independent validation.
+Full workspace/backend/feature/platform testing remains CI-only and unrun. BO16
+timing and sampling follow this implementation checkpoint without overlapping builds.

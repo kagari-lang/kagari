@@ -7,13 +7,27 @@ use crate::{
 };
 use kagari_bytecode::instruction::BytecodeInstruction as I;
 use kagari_mir::codec::encode_program;
+use rstest::rstest;
 
-#[test]
-fn scalar_recurrence_commits_to_homes_without_transport_instructions() {
-    let input = common::program_ok(
+#[rstest]
+#[case::recurrence(
         "fn recurrence(n: i32) -> i32 { var state = 2; var sum = 0; var i = 0;
          while i < n { state = (state * 5 + 11) % 257; sum += state; i += 1; } sum }",
-    );
+    &["n", "state", "sum", "i"],
+    None
+)]
+#[case::counter_snapshot(
+    "fn recurrence(n: i32) -> i32 { var sum = 0; var i = 0;
+     while i < n { sum = sum + i % 13; i = i + 1; } sum }",
+    &["n", "sum", "i"],
+    Some((4, 8))
+)]
+fn scalar_recurrence_commits_to_homes_without_transport_instructions(
+    #[case] source: &str,
+    #[case] bindings: &[&str],
+    #[case] shape: Option<(u32, usize)>,
+) {
+    let input = common::program_ok(source);
     let mir = lower_program_to_mir(
         &input,
         &MirLoweringOptions {
@@ -31,6 +45,10 @@ fn scalar_recurrence_commits_to_homes_without_transport_instructions() {
         .iter()
         .find(|function| function.name == "recurrence")
         .unwrap();
+    if let Some((slots, instructions)) = shape {
+        assert_eq!(function.slot_count, slots);
+        assert_eq!(function.instructions.len(), instructions);
+    }
     assert!(
         function
             .instructions
@@ -51,28 +69,15 @@ fn scalar_recurrence_commits_to_homes_without_transport_instructions() {
                 !matches!(instruction, I::Jump { target } if target.index() == pc + 1)
             })
     );
-    assert!(
-        function
-            .metadata
-            .debug
-            .local_live_ranges
-            .iter()
-            .any(|range| range.name == "state")
-    );
-    assert!(
-        function
-            .metadata
-            .debug
-            .local_live_ranges
-            .iter()
-            .any(|range| range.name == "sum")
-    );
-    assert!(
-        function
-            .metadata
-            .debug
-            .local_live_ranges
-            .iter()
-            .any(|range| range.name == "i")
-    );
+    for binding in bindings {
+        assert!(
+            function
+                .metadata
+                .debug
+                .local_live_ranges
+                .iter()
+                .any(|range| range.name == *binding),
+            "missing visible binding {binding}"
+        );
+    }
 }

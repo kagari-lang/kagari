@@ -1989,6 +1989,11 @@ facts preserve their snapshots. Scalar literals initialize homes directly; eligi
 tail reads return their source slot, retaining the tail's visible names. Final
 fallthrough jumps are removed after constant/predicate selection.
 
+Numeric constant selection may cross blocks when the next retained instruction is
+a same-origin home initializer with the same complete type, literal and debug state.
+That initializer anchors the removed load's observation; only supported immediate
+consumers are rewritten. Other cases retain the existing block-local proof.
+
 MIR's bounded pass pipeline may retain an entry guard and duplicate a closed scalar
 condition onto dominated Jump backedges. The condition's inputs are defined inside
 it, its outputs do not escape, and every copy receives fresh temporaries and the
@@ -1999,6 +2004,11 @@ rebuilds facts before deterministic bytecode lowering assigns final PCs; portabl
 MIR must still reproduce the complete canonical bytecode. No new terminator or
 runtime instruction decoder is needed. See the
 [bytecode contract](spec/bytecode.md#semantic-projection-and-placement).
+
+Pass order is constants, guarded rotation, copies, verification and dead cleanup.
+Rotation precedes copy propagation so sharing a condition snapshot with the body
+does not unnecessarily make an otherwise closed condition escape. Copy propagation
+then meets facts across the transformed CFG; immutable snapshot semantics stay intact.
 
 VerifiedProgram derives compact physical operations once from sealed bytecode.
 Bounded control-flow liveness, parameter entry, suspension uses and retained binding

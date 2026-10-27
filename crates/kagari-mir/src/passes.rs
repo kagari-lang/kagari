@@ -64,8 +64,10 @@ pub fn optimize(
     let mut statistics = PassStatistics::default();
     let (definitions, mut raw) = module.into_unverified().into_parts();
     constants::simplify(&mut raw, &mut statistics, &mut work)?;
-    copies::simplify(&mut raw, &mut statistics, &mut work)?;
+    // Rotate closed conditions before copy propagation shares their snapshots
+    // with the body. The subsequent copy pass meets the new incoming edges.
     rotation::apply(&mut raw, &mut work)?;
+    copies::simplify(&mut raw, &mut statistics, &mut work)?;
     let raw = DefinitionMetadata::checked(definitions, raw, cancel).map_err(mapping_error)?;
     let module = verify_mir(raw, cancel)?;
     let removals = dead::find(&module, &mut work)?;
