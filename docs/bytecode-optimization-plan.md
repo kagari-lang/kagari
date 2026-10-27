@@ -2141,3 +2141,61 @@ ten-second window precedes observer counting; its elapsed time is not compared
 with the earlier i7-10700F release results. Official luac 5.4.9 was built against
 the vendored 5.4.9 sources solely for disassembly. Temporary products stay under
 ignored `target/arithmetic-review`; this entry retains the findings independently.
+
+### Arithmetic target instruction contract, 2026-10-27
+
+The user requested an explicit ideal bytecode standard before optimizing the
+implementation. Under the existing general instruction set, target this shape
+for the unchanged `run(n: i32)` fixture. This is a proposed acceptance target,
+not a description of current emitted code or an implementation checkpoint.
+
+```text
+slots: s0 = n, s1 = i, s2 = sum, s3 = remainder; all i32
+0: load_const s1, 0
+1: load_const s2, 0
+2: predicate_branch.lt s1, s0 -> 3, else -> 7
+3: binary_operands.rem s3, s1, const(97):i32
+4: binary.add s2, s2, s3
+5: binary_operands.add s1, s1, const(1):i32
+6: predicate_branch.lt s1, s0 -> 3, else -> 7
+7: return s2
+```
+
+The entry guard handles every `n <= 0` without entering the body. The loop has
+three arithmetic instructions and one conditional backedge, no local snapshot
+Move, materialized boolean or standalone Jump. `run` has eight static instructions
+and four logical/physical scalar slots. Existing `main` retains its three-instruction
+load/call/return boundary; inlining and tail-call changes are not needed to meet
+this target. For a successful `n > 0` execution, run executes `4*n + 4` logical instructions; with the
+unchanged main, total execution is `4*n + 7`, or 200,007 at n=50,000. For `n <= 0`,
+run executes four instructions and returns zero. Slot numbers and textual block
+ordering are illustrative; acceptance concerns equivalent control/data flow.
+
+Preparation should select existing Constant, I32RemRK, I32AddRR, I32AddRK and
+I32CompareBranchRR handlers, retaining one prepared instruction per final canonical
+PC. Immediate constant fields are prepared once; no per-iteration constant load,
+type inference or ordinary Value transport is required. All existing runtime
+operand/domain/initialization and polling guarantees remain. Remainder is still
+an ordinary checked operation with a runtime immediate, not a promise of native
+constant-divisor strength reduction.
+
+Correctness constrains this target: read all operands before writing an overlapping
+destination; trap before committing a failed add; preserve a successful sum update
+if a later operation fails; retain zero-trip behavior, snapshots across intervening
+writes/calls, full source types and source/debug origins. Every final instruction
+keeps normal cancellation, observation and slice behavior. The execution and
+debugger specifications permit recompilation to change instruction counts and PCs;
+runtime preparation must not silently omit boundaries from already verified code.
+The target does not combine sum and counter updates into a special loop instruction.
+
+Implementation acceptance should pair the shape above with existing semantic owners:
+zero/single/many iterations, checked overflow and completed effects, cross-block
+snapshots and joins, break/continue, debug values, cancellation/slicing, and source-free
+verification/canonical correspondence. Reuse existing tests and add only distinct
+uncovered contracts. Demonstrate general applicability with existing non-benchmark
+recurrences rather than source/constant recognition. After correctness and required
+local checks, compare unchanged release arithmetic on the same machine/toolchain
+with a frozen before image and the existing paired driver. Reuse small directly
+affected regression selections; the exhaustive matrix remains CI-owned. The target
+reduces dispatch count by about one third, not a promised one-third elapsed-time
+improvement; residual runtime costs require fresh attribution after measurement.
