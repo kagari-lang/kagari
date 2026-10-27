@@ -16,9 +16,10 @@ Keep workloads, hashes, environment and timing scope together. Allocation reques
 are not RSS; compilation/setup and execution are separate. Small differences are
 not significance claims, and local correctness does not imply GitHub CI or Lua parity.
 
-The latest compiler-loop result is [BO13-BO16 on the i9-12900K](#bo13-bo16-scalar-loops-windows-2026-10-27).
-It includes all 19 current original/forms timings and arithmetic machine-code
-attribution. Earlier i7 measurements below remain revision-specific evidence.
+The latest result is [BO17-BO19 scalar dispatch on the i9-12900K](#bo17-bo19-scalar-dispatch-windows-2026-10-27).
+It includes all 19 original/forms timings and arithmetic machine-code attribution.
+[BO13-BO16](#bo13-bo16-scalar-loops-windows-2026-10-27) records the preceding bytecode
+improvement. Earlier i7 measurements below remain revision-specific evidence.
 
 ## BO08 Kagari/Lua cost attribution, Windows 2026-10-27
 
@@ -4975,3 +4976,145 @@ these samples automatically. These questions remain in the existing plan ledger.
 The selected compiler/VM contracts and required structure/fmt/workspace Clippy/diff
 checks pass; details are in the BO14-BO15 checkpoint. Only documentation changed
 after that implementation checkpoint. Exhaustive tests remain CI-only and unrun.
+
+## BO17-BO19 scalar dispatch, Windows 2026-10-27
+
+Production `19aa9570` preserves the ideal BO16 bytecode and reduces work inside
+its checked interpreter handlers. All 19 original/forms timing gates pass against
+the new `817147a7` baseline. Arithmetic's median paired ratio is 0.92315
+(7.7% less elapsed time), against the predeclared <=0.95 target. Every other
+row passes <=1.05. This is local acceptance; exhaustive CI and earlier independent
+BO04/BO08/IP12 gates remain open.
+
+### Method and complete matched results
+
+Use the same Windows 11 Pro 10.0.26300 / i9-12900K / 24-logical-CPU / 66,843,692 KiB
+machine as BO16, Rust 1.99.1 (`58cf8f9c3`, LLVM 23.1.1), Cargo 1.99.1 (`5f94df478`),
+x86_64-pc-windows-msvc. Workspace release defaults, opt-level 3, default target/build
+parallelism; source/native plus vendored Lua 5.4.9, interpreter-only execution.
+No affinity, priority or environment overrides. Each suite uses seven alternating
+process pairs, three warmups and eleven samples per process, with unchanged
+workloads/batches/checksums. Fresh process/state and warmed execution are separate
+from source compilation, artifact preparation and linking. No build, test, observer
+counting or sampling overlaps the timing windows. All samples/outliers are retained.
+
+Freeze original/forms with the existing driver using
+`--freeze-baseline target/lua-comparison/dispatch-before`; compare with
+`--baseline-executable target/lua-comparison/dispatch-before`, adding `--source-forms`
+for forms. Check the original results with `--target arithmetic=0.95`, forms with
+the default 1.05 limit. The [plan](bytecode-optimization-plan.md#scalar-dispatch-follow-up-bo17-bo19)
+records the rejected images, diagnosis, exact timestamps and local validation.
+Baseline image SHA-256 is
+`d7c2457b345ba1ead750d3d51b72da2618032efaca5a982a552facefdb180697`;
+final image is
+`735352aeda2e1b85259a0590cc80a20ab0b086d78a51e13a2fb20308310fa834`.
+Both final suites measure the same image on clean production `19aa9570`.
+
+Original/forms start at 14:49:02 / 14:52:02 UTC. The final release rebuild takes
+53.05 seconds; paired-driver cached builds take 0.395 / 0.364 seconds. These and
+setup are excluded from execution. Arithmetic setup medians, before -> after:
+source-to-artifact 794.6342 -> 790.9557 ms, artifact preparation 269.0252 ->
+266.7526 ms, program linking 25.6411 -> 25.1917 ms, runtime initialization
+0.0193 -> 0.0201 ms. Forms module setup: source-to-artifact 1196.4798 ->
+1197.4837 ms, preparation 285.5042 -> 279.0743 ms, linking 27.4192 ->
+27.1705 ms, runtime initialization 0.0264 -> 0.0240 ms. Setup has one sample
+per process and is diagnostic, not a compile-time improvement claim.
+
+Times are medians of seven process medians, in microseconds per complete workload.
+Paired ratios use the median of the seven individual ratios, not the quotient of
+displayed medians. Small differences do not establish a stable improvement on
+unaffected paths. Lua times are from these candidate processes, not older reports.
+
+| Workload | Before us | After us | Lua us | After/Lua | Paired after/before | Pair minimum..maximum |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| arithmetic | 504.900 | 467.100 | 362.300 | 1.29 | 0.92315 | 0.88084..0.93145 |
+| arrays | 7495.900 | 7463.000 | 87.400 | 85.39 | 1.01522 | 0.97338..1.03052 |
+| branches | 876.800 | 869.500 | 690.900 | 1.26 | 0.99209 | 0.97421..1.00251 |
+| calls | 5368.700 | 5349.700 | 206.700 | 25.88 | 0.99247 | 0.97263..1.01911 |
+| entry | 1.937 | 1.952 | 0.038 | 51.37 | 1.01467 | 0.99010..1.01988 |
+| fibonacci | 12207.700 | 12293.400 | 299.400 | 41.06 | 1.01007 | 0.97489..1.02028 |
+| maps | 5741.800 | 5888.000 | 80.900 | 72.78 | 1.00938 | 0.91824..1.04804 |
+| forms_byte_state | 14243.800 | 14405.100 | 134.700 | 106.94 | 1.00347 | 0.96729..1.07423 |
+| forms_capture_cell | 6107.100 | 6063.100 | 130.500 | 46.46 | 0.98154 | 0.96864..1.03037 |
+| forms_concrete_generic | 2715.700 | 2756.000 | 109.000 | 25.28 | 1.01648 | 0.95961..1.06334 |
+| forms_direct | 68.700 | 67.400 | 56.100 | 1.20 | 0.97962 | 0.61267..1.00446 |
+| forms_field | 703.600 | 706.700 | 99.200 | 7.12 | 1.00441 | 0.95398..1.18207 |
+| forms_helper | 2699.700 | 2683.100 | 114.300 | 23.47 | 0.98313 | 0.92761..1.04270 |
+| forms_host_callback | 3340.600 | 3335.900 | 234.900 | 14.20 | 1.00173 | 0.93210..1.03694 |
+| forms_interface | 8713.000 | 8879.900 | 124.600 | 71.27 | 1.01916 | 0.99077..1.06132 |
+| forms_native | 3335.900 | 3334.800 | 114.200 | 29.20 | 0.99967 | 0.95603..1.01102 |
+| forms_shared_generic | 12448.600 | 12687.400 | 118.400 | 107.16 | 1.01134 | 0.98499..1.04713 |
+| forms_string_calls | 6971.900 | 6991.700 | 135.100 | 51.75 | 0.99952 | 0.94546..1.02014 |
+| forms_string_constants | 3944.400 | 3960.500 | 80.600 | 49.14 | 1.00340 | 0.98291..1.02600 |
+
+The BO16 comparability limits still apply: checked i32 and Lua integer overflow
+contracts differ; these bounded workloads match outputs. Byte-state uses typed u8
+storage versus Lua integer/table storage. `forms_native` compares a Rust callback
+with a Lua script helper and is diagnostic; `forms_host_callback` invokes the same
+checked Rust helper from both engines. No new native/numeric/lifecycle matrix or
+cross-machine claim is made.
+
+### What changed and what was rejected
+
+The admitted scalar payload and initialization slices already cover the same range.
+Their separate slice lengths cross a non-inlined execution-function boundary, so
+LLVM previously emitted two bounds comparisons for an operand and two for writeback.
+An explicit equality check at segment entry now exposes one shared bound. For each
+read, that bound and the initialization flag are still checked; the handler still
+validates the full payload domain. Writes still commit only a successfully computed
+result. The code uses ordinary checked `.get` / `.get_mut`; no unsafe indexing,
+new bank layout, validity cache or weakened public-frame rule is introduced.
+
+Known-domain comparison functions now request `inline(always)`, while dynamic
+domain evaluation retains `inline(never)`. These are the same shared checked
+comparison bodies. Actual final assembly has no calls to the known-domain
+comparison helpers inside the scalar loop; source annotations alone are not proof.
+
+Two earlier images were rejected, with their full failed evidence retained in the
+plan. The common-tail dispatch experiment misses arithmetic at 0.95635 and slows
+branches to 1.04945: per-handler register saves offset the eliminated checks. The
+equal-length-only image misses arithmetic at 0.97106 and arrays at 1.05377. Assembly
+shows LLVM outlining the i32 comparison into a call with a stack-returned Result.
+The final implementation retains the original loop control flow and preserves the
+intended inline typed comparison boundary. It does not tune collection routing or
+change the acceptance threshold to hide either failure.
+
+### Code size, observations and remaining cost
+
+Bytecode/prepared instruction layouts remain 144 / 24 bytes. Arithmetic still has
+eight static run instructions, four logical/physical scalar slots and 200,007
+dynamic instructions; Lua remains 250,007. The same-image 14:47:46 UTC observer
+window independently confirms these counts, with zero script heap allocations,
+zero collections and zero live-object delta. No interpreter boundary was skipped.
+
+Unbounded scalar machine code shrinks 25,615 -> 20,101 bytes (21.5%); bounded code
+28,025 -> 21,150 bytes. PE SizeOfCode changes 26,204,672 -> 26,194,944 bytes (-9,728),
+and whole executable bytes 32,904,192 -> 32,894,464. Bank storage and retained
+bytecode/prepared data sizes do not change; these measurements are not RSS.
+
+The separate ten-second profile uses the exact final image and PDB SHA-256
+`6e0f8fe97a1d86e159e841debd20b87f0501ff2dc540e8f9eae80929c9f7792b`.
+It records 4,224 main-thread RIP samples with no capture errors. Matching the same
+runtime COFF function section to PE while masking relocation bytes verifies 19,809
+of 20,101 bytes at RVA 0x010a7830 and attributes 4,169 samples (98.70%) to the
+unbounded loop. The bounded function has no samples. Counting runs separately
+after sampling; sampled calls/second are never used as throughput acceptance.
+
+| Matched function offsets, half-open | Sample location | Samples / all |
+| --- | --- | ---: |
+| 0x70..0xb8 | Boundary control and cancellation/observer/abandonment polling | 741 / 17.54% |
+| 0xb8..0xed | Fetch, PC advance and dispatch | 733 / 17.35% |
+| 0x4870..0x489c | Checked writeback and loop backedge | 455 / 10.77% |
+| 0x2204..0x225b | Checked i32 immediate remainder | 1375 / 32.55% |
+| 0x69d..0x704; 0x3c73..0x3caf | Checked additions and shared result tail | 412 / 9.75% |
+| Remaining offsets in the matched loop | Predicate handling | 453 / 10.72% |
+| Outside the matched loop | Other/unmapped | 55 / 1.30% |
+
+These are locations, not causal cycle percentages or predicted removable time.
+1,038 samples fall immediately after `idiv` at +0x2253; sampling skid and dependency
+stalls preclude assigning that count solely to division. Remainder is shared
+workload work, not an explanation by itself for the Lua gap. Remaining interpreter
+cost still includes polling/dispatch, initialization, payload-domain validation and
+checked arithmetic. The former duplicate bank-bound comparison is gone; required
+guards remain. No division specialization or new execution-validity model is
+automatically activated by this result.

@@ -785,8 +785,12 @@ BO17-BO18 establish shared scalar-bank bounds with safe slice access and preserv
 inline known-domain comparison handlers. Numeric, frame, observation and slice
 checks pass. A common-tail rearrangement was rejected after register-pressure
 costs; two failed timing images remain recorded. The final image's assembly keeps
-checked comparisons inline and reduces scalar code size. BO19 paired acceptance
-is pending; runtime validation, polling and canonical instruction counts remain.
+checked comparisons inline and reduces scalar code size. BO19 passes all 19
+original/forms timing gates: arithmetic 504.9 -> 467.1 us, paired ratio 0.92315,
+versus Lua 362.3 us (1.29 times). Runtime validation, polling and canonical
+instruction counts remain. The [report](performance-baseline.md#bo17-bo19-scalar-dispatch-windows-2026-10-27)
+records remaining costs and both rejected variants. This finite follow-up is locally
+complete; full CI and earlier independent BO04/BO08/IP12 failures remain open.
 
 ## Module-owned standard-library registration
 

@@ -17,6 +17,8 @@ unrun. Earlier BO04/BO08/IP12 failures are unchanged.
 BO13-BO16 are the general scalar-loop follow-up authorized on 2026-10-27;
 see [the execution sequence](#general-scalar-loop-follow-up-bo13-bo16). This
 implementation and remaining-cost attribution are locally complete; full CI is pending.
+BO17-BO19's finite scalar-dispatch follow-up is also locally complete: all 19
+original/forms timing gates pass; full CI and earlier independent failures remain open.
 The user explicitly requested a separate plan that can proceed before the previous
 interpreter performance work finishes. The original BO01-BO04 scope covers general typed
 slots, direct destinations, predicate branches and constant operands. It replaces
@@ -44,7 +46,8 @@ trailer below. No additional phase activates automatically after BO04.
 
 ## Scalar dispatch follow-up (BO17-BO19)
 
-Status: authorized on 2026-10-27 after BO16 attribution; implementation active.
+Status: authorized on 2026-10-27 after BO16 attribution; local implementation,
+measurement and attribution complete. Full CI remains pending.
 Task: reduce repeated scalar interpreter boundary/bank work without weakening
 checked values, initialization, public side entry or logical polling semantics.
 Context: `frame/cursor/scalars.rs` owns the closed borrowed execution loop;
@@ -85,7 +88,7 @@ that boundary before introducing a different storage/proof model.
   assembly and run affected frame, numeric, observation, cancellation and slice
   contracts. Retain one execution event per canonical instruction and shared
   checked arithmetic semantics. Run required structure/fmt/workspace Clippy/diff.
-- [ ] BO19: Seven alternating pairs of unchanged original/forms, three warmups and
+- [x] BO19: Seven alternating pairs of unchanged original/forms, three warmups and
   eleven samples per process. Arithmetic target <=0.95, every other row <=1.05;
   these are criteria, not predicted gains. No overlap with builds/tests/profiling.
   Retain failures; a miss requires diagnosis before any further local adjustment.
@@ -2690,3 +2693,36 @@ register-save prefix. Unbounded/bounded scalar code is 20,101 / 21,150 bytes ver
 baseline 25,615 / 28,025. PE SizeOfCode falls 26,204,672 -> 26,194,944 bytes; physical
 bank and bytecode/prepared instruction layouts are unchanged. BO19 still requires
 fresh paired timing against dispatch-before; sampling throughput is not acceptance.
+
+### BO19 final paired acceptance and handoff, 2026-10-27
+
+Clean production `19aa9570` completes both unchanged suites against `817147a7`:
+original starts 14:49:02 UTC, forms 14:52:02 UTC. Both use final image
+735352aeda2e1b85259a0590cc80a20ab0b086d78a51e13a2fb20308310fa834 and seven alternating
+process pairs, three warmups and eleven samples per process. Every checksum passes;
+all observations and outliers are retained. No test/build/profile overlaps timing.
+Cached build walls are 0.395 / 0.364 seconds and are excluded from execution.
+
+All 19 execution gates pass. Arithmetic is 504.9 -> 467.1 us, paired ratio 0.92315
+(0.88084..0.93145), meeting the predeclared <=0.95 target. Paired elapsed-time
+reduction is 7.7%; same-suite Lua is 362.3 us, giving 1.29 times Lua.
+Other paired medians span 0.97962..1.01916 against <=1.05. Individual pair ranges
+are retained even when they exceed 1.05; acceptance uses the predeclared median.
+The [report](performance-baseline.md#bo17-bo19-scalar-dispatch-windows-2026-10-27)
+records every row, setup diagnostics, image/storage sizes, code-generation and
+independent instruction/GC/sample evidence. Neither rejected image is accepted or
+rerun; their failed results and architectural diagnoses remain above.
+
+The finite optimization is complete: expose the admitted banks' shared length at
+the scalar boundary and preserve inline known-domain checked comparisons. Retain
+the original execution loop, all public-frame checks and logical polling. The
+200,007 instructions/four slots stay unchanged. Remaining sampled locations include
+polling/fetch/writeback (45.66%) and checked remainder (32.55%); these are not causal
+cycle shares or predicted speedups. No additional bytecode rewrite, unchecked
+execution model, divisor specialization or collection work activates automatically.
+
+Focused correctness and all four required local quality checks passed for the
+production checkpoint; documentation-only completion checks content, links and diff.
+No local build/test/timing failure remains for BO17-BO19. Full workspace, backend,
+feature and platform correctness is CI-only and unrun. Earlier BO04/BO08/IP12
+failures retain their existing owners, so the broader plan remains open.
