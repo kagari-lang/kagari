@@ -2063,3 +2063,81 @@ adjacent slot, flow, debug and source-free artifact contracts. The final asserti
 cleanup also passes the exact reported test; structure, formatting, workspace
 all-target Clippy and diff checks pass. Full workspace tests and the exhaustive
 feature/backend/platform matrix remain CI-owned.
+
+### Arithmetic bytecode review, 2026-10-27
+
+User-requested inspection at `4553fc74`, without an implementation change. The
+original `arithmetic` fixture calls `run(50000)` and computes
+`sum = sum + i % 97; i = i + 1` in a while loop. Fresh CLI artifact emission and
+disassembly show nine instructions in `run` and three in `main`. With symbolic
+names substituted for slots, the complete run body is:
+
+```text
+0: i = 0
+1: sum = 0
+2: snapshot = i
+3: branch snapshot < n -> 4, else -> 8
+4: remainder = snapshot % const(97)
+5: sum = sum + remainder
+6: i = snapshot + const(1)
+7: jump 2
+8: return sum
+```
+
+The existing benchmark's independent observation pass confirms 300,008 Kagari
+instructions: 100,000 BinaryOperands, 50,001 Move, 50,001 PredicateBranch, 50,000
+Binary, 50,000 Jump, three LoadConst, two Return and one Call. `run` uses five
+logical and five physical scalar slots, no managed slots. The separate execution
+window reports zero script heap allocations and collections. This is instruction
+and layout evidence, not a fresh release throughput comparison.
+
+PUC Lua 5.4.9's matching `luac -l -l -p` output has 13 static run instructions and
+four slots. The normal loop dispatches LT, MODK, ADD, ADDI and its backward JMP;
+successful arithmetic skips MMBIN/MMBINK/MMBINI, and the successful condition
+skips the exit JMP. The benchmark's actual Lua hook count is 250,007. Thus Kagari
+executes one additional copy per condition evaluation, or 50,001 more dispatched
+instructions, about 20% more overall. The Lua fallback rules are owned by
+[Lua 5.4.9 lvm.c](https://www.lua.org/source/5.4/lvm.c.html); encoded words must not
+be mistaken for executed instructions. Lua wrapping arithmetic, dynamic values
+and hook rules do not replace Kagari's checked arithmetic and observation contract.
+
+Source review explains the remaining snapshot and unrotated loop:
+[copy propagation](../crates/kagari-mir/src/passes/copies.rs) forwards the header's
+local read into the body. [Rotation](../crates/kagari-mir/src/passes/rotation.rs),
+which runs after copies, rejects header outputs used in another block.
+[Bytecode placement](../crates/kagari-compiler/src/bytecode/placement.rs) likewise
+only eliminates local reads whose uses stay in the defining block. Each restriction
+protects valid snapshot semantics, but their composition misses this scalar loop.
+The physical allocator does not recover that lost optimization: all five locations
+remain distinct. Constants are already inline operands after preparation, results
+write their homes directly, and comparison/branch are already combined.
+
+A bounded follow-up should reconcile cross-block local-home validity and condition
+snapshot ownership at MIR/placement, retaining the existing immutable MIR values
+and typed runtime handlers. First prove that the home cannot change before every
+substituted use; do not globally alias mutable locals to immutable temporaries.
+Then evaluate guarded rotation with correct body-use remapping. LLVM's
+[rotated-loop description](https://llvm.org/docs/LoopTerminology.html#rotated-loops)
+(rolling documentation reviewed 2026-10-27) supplies the entry-guard/latch model;
+its SSA/PHI and undefined-overflow assumptions differ from Kagari's local homes,
+checked traps and source observations. No copied LLVM runtime model is proposed.
+Removing the copy alone would give 250,007 logical instructions; a four-operation
+rotated body would give 200,007. These are proposed instruction counts, not measured
+speedups or implemented behavior. Preserve zero-trip loops, read-before-write,
+overflow/side-effect order, debug values, cancellation and bounded analysis.
+Reuse their existing semantic tests, verify source-free canonical correspondence,
+and only then measure the unchanged arithmetic workload in release before attributing
+remaining cost to dispatch, bank checks or polling. No new optimization phase is
+activated by this inspection.
+
+Reproduction: substitute `__N__` with `50000` in the tracked arithmetic fixtures,
+then `cargo run -p kagari-cli --bin kg -- emit -o <artifact> <source>` and
+`kg disasm <artifact> --list-functions` / `--function <run-selector>`.
+Count with `cargo run -p kagari-lua-benchmark -- --interpreter-only --profile=arithmetic`.
+The count run used Rust 1.99.1 / LLVM 23.1.1, Windows x64 MSVC, i9-12900K,
+workspace dev opt-level 1, existing build cache, default Cargo parallelism/target,
+source/native plus vendored lua54, and the ordinary single-thread driver. The
+ten-second window precedes observer counting; its elapsed time is not compared
+with the earlier i7-10700F release results. Official luac 5.4.9 was built against
+the vendored 5.4.9 sources solely for disassembly. Temporary products stay under
+ignored `target/arithmetic-review`; this entry retains the findings independently.
