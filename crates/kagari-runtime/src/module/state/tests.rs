@@ -7,7 +7,9 @@ mod initialization;
 use super::*;
 use crate::{
     error::RuntimeErrorKind,
+    gc::graph::GraphIdentity,
     module::{VerifiedProgram, state::cells::CellId},
+    native::storage::scan::{ScanBudget, ScanStatus},
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
@@ -29,6 +31,143 @@ use kagari_contract::{
 };
 use kagari_types::visibility::Visibility;
 use kagari_types::{declaration::ConstDef, scalar::BuiltinType, ty::Ty};
+
+#[test]
+fn black_static_initialization_replacement_and_sweep_reload_preserve_published_edges() {
+    let mut runtime = Runtime::default();
+    let code = program(Ty::Builtin(BuiltinType::String), true);
+    let program = runtime.load_program("state", code.clone()).unwrap();
+    let owner = runtime.select_program(&program).unwrap();
+    let initial = runtime.gc.alloc_string("initialized".into()).unwrap();
+    let replacement = runtime.gc.alloc_string("replaced".into()).unwrap();
+    let dead = runtime.gc.alloc_string("condemned".into()).unwrap();
+    let mut roots = runtime
+        .gc
+        .begin_initial_roots(runtime.modules(), runtime.host())
+        .unwrap();
+    loop {
+        if runtime
+            .gc
+            .scan_initial_root_slice(
+                runtime.modules(),
+                runtime.host(),
+                &mut roots,
+                &mut ScanBudget::new(1),
+            )
+            .unwrap()
+            == ScanStatus::Complete
+        {
+            break;
+        }
+    }
+    runtime.gc.drain_graph_work(runtime.modules()).unwrap();
+    {
+        let _session = runtime.begin_execution(&owner, Default::default()).unwrap();
+        let mut initialization = runtime
+            .prepare_static_initialization(&owner, ModuleSlot::new(0))
+            .unwrap()
+            .unwrap();
+        initialization.begin(&runtime).unwrap();
+        initialization.commit(&runtime, initial).unwrap();
+        runtime
+            .write_module_slot(&owner, ModuleSlot::new(0), replacement)
+            .unwrap();
+    }
+    runtime.gc.drain_graph_work(runtime.modules()).unwrap();
+    runtime.gc.graph.lock().close_mark().unwrap();
+    for value in [initial, replacement] {
+        assert!(
+            runtime
+                .gc
+                .graph_survivor(
+                    runtime.modules(),
+                    GraphIdentity::Object(value.object_id().unwrap())
+                )
+                .unwrap()
+        );
+    }
+    assert!(
+        runtime
+            .write_module_slot(&owner, ModuleSlot::new(0), dead)
+            .is_err()
+    );
+    assert_eq!(
+        runtime
+            .read_module_slot(&owner, ModuleSlot::new(0))
+            .unwrap(),
+        replacement
+    );
+    let staged = runtime.stage_reload_program(&program, None, code).unwrap();
+    let current = staged.module().clone();
+    runtime.publish_staged_reload(staged).unwrap();
+    assert_eq!(
+        cell(runtime.modules(), &current, 0),
+        cell(runtime.modules(), &owner, 0)
+    );
+    assert_eq!(
+        runtime
+            .read_module_slot(&current, ModuleSlot::new(0))
+            .unwrap(),
+        replacement
+    );
+    runtime.gc.graph.lock().finish_sweep().unwrap();
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.gc.validate_value(&replacement));
+    assert!(!runtime.gc.validate_value(&initial));
+    assert!(!runtime.gc.validate_value(&dead));
+}
+
+#[cfg(feature = "execution-diagnostics")]
+#[test]
+fn repeated_static_reload_releases_superseded_singleton_work_credits() {
+    let mut runtime = Runtime::default();
+    let code = program(scalar(), true);
+    let program = runtime.load_program("state", code.clone()).unwrap();
+    let owner = runtime.select_program(&program).unwrap();
+    ready(&runtime, &owner, 0, Value::I32(42));
+    let original = cell(runtime.modules(), &owner, 0);
+    drop(owner);
+    let mut baseline = None;
+    for round in 0..18 {
+        let staged = runtime
+            .stage_reload_program(&program, None, code.clone())
+            .unwrap();
+        runtime.publish_staged_reload(staged).unwrap();
+        runtime.collect_garbage().unwrap();
+        let current = runtime.select_program(&program).unwrap();
+        assert_eq!(cell(runtime.modules(), &current, 0), original);
+        assert_eq!(runtime.modules.inner.borrow().cells.len(), 1);
+        assert_eq!(runtime.modules.loaded_count(), 1);
+        assert_eq!(
+            runtime
+                .read_module_slot(&current, ModuleSlot::new(0))
+                .unwrap(),
+            Value::I32(42)
+        );
+        let usage = runtime.gc.storage_usage().unwrap();
+        let capacity = usage
+            .buffers
+            .iter()
+            .find(|buffer| buffer.name == "graph_pending")
+            .unwrap()
+            .capacity;
+        // Warm both alternating module slots before checking that a fixed live
+        // graph does not retain singleton queue credits from reload history.
+        if round == 1 {
+            baseline = Some((usage.graph_credits, usage.graph_work_credits, capacity));
+        } else if let Some((identities, work, pending)) = baseline {
+            assert_eq!(
+                usage.graph_credits, identities,
+                "identity credits at reload {round}"
+            );
+            assert_eq!(
+                usage.graph_work_credits, work,
+                "work credits at reload {round}"
+            );
+            assert_eq!(capacity, pending, "pending capacity at reload {round}");
+        }
+    }
+}
 
 pub(crate) fn add_static(
     context: &DefinitionContext,

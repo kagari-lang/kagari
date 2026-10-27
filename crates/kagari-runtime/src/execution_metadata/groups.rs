@@ -1,13 +1,17 @@
 //! Runtime-owned operation groups, addressed by checked identities.
+use crate::module::ModuleStore;
 use crate::{
     error::RuntimeError,
     execution_metadata::{groups::group::OperationGroup, operation::BoundOperation},
-    gc::GcHeap,
+    gc::{
+        GcHeap,
+        graph::{
+            GraphIdentity,
+            marks::{Domain, MarkBlocks, MarkRef},
+        },
+    },
 };
-use std::{
-    cell::Ref,
-    collections::{HashSet, TryReserveError},
-};
+use std::{cell::Ref, collections::TryReserveError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct OperationGroupId {
@@ -33,6 +37,7 @@ struct Slot {
 pub(crate) struct OperationGroupStore {
     owner: u64,
     slots: Vec<Slot>,
+    marks: MarkBlocks,
     free: Vec<usize>,
     count: usize,
 }
@@ -42,6 +47,7 @@ impl OperationGroupStore {
         Self {
             owner,
             slots: Vec::new(),
+            marks: MarkBlocks::default(),
             free: Vec::new(),
             count: 0,
         }
@@ -51,6 +57,8 @@ impl OperationGroupStore {
         &mut self,
         entries: Vec<BoundOperation>,
     ) -> Result<OperationGroupId, TryReserveError> {
+        self.marks
+            .prepare(self.free.last().copied().unwrap_or(self.slots.len()))?;
         let slot = match self.free.pop() {
             Some(slot) => slot,
             None => {
@@ -87,20 +95,43 @@ impl OperationGroupStore {
         self.get(id.group)?.get(id)
     }
 
+    pub(crate) fn mark(&self, id: OperationGroupId) -> Option<MarkRef<'_>> {
+        self.get(id)?;
+        Some(self.marks.slot(Domain::Group, id.slot))
+    }
+
+    pub(crate) fn next_gray(&self, block: usize, epoch: u64) -> (Option<GraphIdentity>, bool) {
+        let (index, more) = self.marks.next_gray(block, epoch);
+        let id = index.map(|index| {
+            let slot = &self.slots[index];
+            assert!(slot.group.is_some(), "gray owner is occupied");
+            GraphIdentity::Group(OperationGroupId {
+                owner: self.owner,
+                slot: index,
+                generation: slot.generation,
+            })
+        });
+        (id, more)
+    }
+
     pub(crate) fn count(&self) -> usize {
         self.count
     }
 
     /// The whole graph has been marked and validated before any store detaches.
-    pub(crate) fn detach(&mut self, live: &HashSet<OperationGroupId>) -> Vec<OperationGroup> {
+    pub(crate) fn detach_batch(
+        &mut self,
+        cursor: &mut usize,
+        limit: usize,
+        mut survivor: impl FnMut(MarkRef<'_>) -> bool,
+    ) -> Vec<OperationGroup> {
+        assert!(limit != 0);
         let mut retired = Vec::new();
-        for (index, slot) in self.slots.iter_mut().enumerate() {
-            let id = OperationGroupId {
-                owner: self.owner,
-                slot: index,
-                generation: slot.generation,
-            };
-            if !live.contains(&id)
+        while *cursor < self.slots.len() && retired.len() < limit {
+            let index = *cursor;
+            *cursor += 1;
+            let slot = &mut self.slots[index];
+            if !survivor(self.marks.slot(Domain::Group, index))
                 && let Some(group) = slot.group.take()
             {
                 retired.push(group);
@@ -118,25 +149,48 @@ impl OperationGroupStore {
 impl GcHeap {
     pub(crate) fn alloc_operation_group(
         &self,
+        modules: &ModuleStore,
         entries: Vec<BoundOperation>,
     ) -> Result<OperationGroupId, RuntimeError> {
         self.ensure_execution_allowed()?;
-        self.operation_groups
+        for operation in &entries {
+            for field in 0..5 {
+                if let Some(edge) = operation.scan_field(field) {
+                    self.publish_metadata_edge(modules, edge)?;
+                }
+            }
+        }
+        let mut graph = self
+            .graph
+            .try_lock()
+            .map_err(|_| RuntimeError::module_validation("graph admission is borrowed"))?;
+        graph.prepare_identity()?;
+        let id = self
+            .operation_groups
             .try_borrow_mut()
             .map_err(|_| RuntimeError::module_validation("operation group store is borrowed"))?
             .insert(entries)
-            .map_err(|_| self.resource_limit("operation group storage"))
+            .map_err(|_| self.resource_limit("operation group storage"))?;
+        self.with_heap_mark(GraphIdentity::Group(id), |mark| {
+            graph.admit_prepared(GraphIdentity::Group(id), mark);
+            Ok(())
+        })?;
+        Ok(id)
     }
 
     pub(crate) fn alloc_bound_operation(
         &self,
+        modules: &ModuleStore,
         operation: BoundOperation,
     ) -> Result<OperationId, RuntimeError> {
-        let group = self.alloc_operation_group(vec![operation])?;
+        let group = self.alloc_operation_group(modules, vec![operation])?;
         Ok(OperationId { group, member: 0 })
     }
 
     pub(crate) fn bound_operation(&self, id: OperationId) -> Option<Ref<'_, BoundOperation>> {
+        if !self.heap_identity_accessible(GraphIdentity::Group(id.group)) {
+            return None;
+        }
         Ref::filter_map(self.operation_groups.try_borrow().ok()?, |store| {
             store.operation(id)
         })
@@ -144,6 +198,9 @@ impl GcHeap {
     }
 
     pub(crate) fn operation_group(&self, id: OperationGroupId) -> Option<Ref<'_, OperationGroup>> {
+        if !self.heap_identity_accessible(GraphIdentity::Group(id)) {
+            return None;
+        }
         Ref::filter_map(self.operation_groups.try_borrow().ok()?, |store| {
             store.get(id)
         })

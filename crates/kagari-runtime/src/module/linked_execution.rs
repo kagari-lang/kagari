@@ -23,7 +23,7 @@ use crate::{
     native::binding::LinkedNativeFunction,
 };
 use kagari_contract::ids::FunctionRef;
-use std::sync::Arc;
+use std::{cell::RefCell, sync::Arc};
 
 #[derive(Debug, Clone)]
 pub(crate) struct LinkedFunction {
@@ -71,19 +71,36 @@ type FunctionApplications = DescriptorIndex<EnvironmentId, FunctionRef, Arc<Link
 #[derive(Debug)]
 pub(super) struct LinkedExecution {
     functions: Box<[Option<Arc<LinkedFunction>>]>,
-    applications: Option<Box<FunctionApplications>>,
+    // Only the optional derived-layout cache mutates during frame preparation.
+    // Executable ownership and the base links stay under the shared store borrow.
+    applications: RefCell<Option<Box<FunctionApplications>>>,
     builtin_results: Option<Box<BuiltinResults>>,
 }
 
 impl LinkedExecution {
-    pub(super) fn trace<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
-        pending.extend(self.functions.iter().flatten().flat_map(|function| {
-            function
-                .calls
-                .iter()
-                .filter_map(LinkedCall::interface)
-                .map(|call| MetadataEdge::InterfaceCall(call))
-        }));
+    // Applied functions share the base calls/constants and add only AggregateLayout
+    // facts. Their environment-keyed cache is not an additional executable edge:
+    // the frame owns its environment, including in release builds where the layout
+    // assertion's EnvironmentId is absent.
+    pub(super) fn scan_len(&self) -> usize {
+        self.functions.len()
+    }
+
+    pub(super) fn scan_call_count(&self, function: usize) -> usize {
+        self.functions
+            .get(function)
+            .and_then(Option::as_ref)
+            .map_or(0, |function| function.calls.len())
+    }
+
+    pub(super) fn scan_call(&self, function: usize, call: usize) -> Option<MetadataEdge<'_>> {
+        self.functions
+            .get(function)?
+            .as_ref()?
+            .calls
+            .get(call)?
+            .interface()
+            .map(|call| MetadataEdge::InterfaceCall(call))
     }
 }
 
@@ -125,11 +142,20 @@ impl Runtime {
         if record.execution.is_some() {
             return Err(RuntimeError::module_validation("duplicate execution links"));
         }
-        record.execution = Some(LinkedExecution {
+        let execution = LinkedExecution {
             functions: functions.into_boxed_slice(),
-            applications: None,
+            applications: RefCell::new(None),
             builtin_results: None,
-        });
+        };
+        for function in 0..execution.scan_len() {
+            for call in 0..execution.scan_call_count(function) {
+                if let Some(edge) = execution.scan_call(function, call) {
+                    let id = self.gc.metadata_scan_identity(edge)?;
+                    self.gc.publish_heap_identity(id)?;
+                }
+            }
+        }
+        record.execution = Some(execution);
         Ok(())
     }
 }
@@ -141,9 +167,22 @@ impl ModuleStore {
         function: FunctionRef,
         environment: Option<EnvironmentId>,
     ) -> Option<Arc<LinkedFunction>> {
-        let mut records = self.inner.try_borrow_mut().ok()?;
-        let execution = records.resolve_mut(owner)?.execution.as_mut()?;
-        let linked = execution.functions.get(function.index())?.as_ref()?;
+        let records = self.inner.try_borrow().ok()?;
+        records
+            .resolve(owner)?
+            .execution
+            .as_ref()?
+            .function(function, environment)
+    }
+}
+
+impl LinkedExecution {
+    pub(super) fn function(
+        &self,
+        function: FunctionRef,
+        environment: Option<EnvironmentId>,
+    ) -> Option<Arc<LinkedFunction>> {
+        let linked = self.functions.get(function.index())?.as_ref()?;
         let Some(layouts) = linked
             .layouts
             .as_ref()
@@ -152,9 +191,8 @@ impl ModuleStore {
             return Some(linked.clone());
         };
         let environment = environment?;
-        let applications = execution
-            .applications
-            .get_or_insert_with(|| Box::new(DescriptorIndex::default()));
+        let mut applications = self.applications.try_borrow_mut().ok()?;
+        let applications = applications.get_or_insert_with(|| Box::new(DescriptorIndex::default()));
         if let Some(applied) = applications.get(&environment, &function) {
             return Some(applied.clone());
         }

@@ -2,17 +2,14 @@
 use crate::{
     closure::ClosureValueSnapshot,
     error_trace::ErrorTrace,
-    execution_metadata::{
-        MetadataEdge,
-        interfaces::{InterfaceSnapshotId, InterfaceStore},
-    },
+    execution_metadata::interfaces::{InterfaceSnapshotId, InterfaceStore},
     gc::{
         HeapObjectId,
         fields::{StructInitializer, StructView, StructViewMut},
         values::TupleData,
     },
     host::{HostPathViewHandle, HostRootHandle},
-    native::storage::{NativeObject, scan::ScanWorkspace},
+    native::storage::NativeObject,
     range::RangeValue,
     resource::HeapCharge,
     value::{EnumValueSnapshot, EphemeralValue, Value},
@@ -136,31 +133,29 @@ impl<A: ObjectAccess> HeapObject<A> {
 }
 
 impl<'a> HeapObject<Shared<'a>> {
-    /// Executable state is retained by graph reachability, never by an internal root.
-    /// Plain data layouts only retain immutable type metadata.
-    pub(super) fn metadata(self) -> Option<MetadataEdge<'a>> {
-        match self {
-            Self::Interface { snapshot, .. } => Some(MetadataEdge::Interface(snapshot)),
-            Self::Closure { snapshot } => Some(MetadataEdge::Closure(snapshot)),
-            Self::Native(object) if !object.selected.is_empty() => {
-                Some(MetadataEdge::Selections(&object.selected))
-            }
-            _ => None,
-        }
-    }
-
-    /// Append stored edges in the existing LIFO traversal order.
-    pub(super) fn trace(
+    /// Inspection uses the provider's scoped state, independent of a suspended
+    /// collector cursor. Representation edge semantics remain shared with tracing.
+    pub(super) fn inspect(
         self,
         interfaces: &'a InterfaceStore,
-        workspace: &mut ScanWorkspace,
         visit: &mut dyn FnMut(Value),
+    ) -> Option<()> {
+        self.visit_edges(interfaces, visit, |object, visit| {
+            object.inspect(&mut |value| visit(*value)).ok()
+        })
+    }
+
+    fn visit_edges(
+        self,
+        interfaces: &'a InterfaceStore,
+        visit: &mut dyn FnMut(Value),
+        native: impl FnOnce(&'a NativeObject, &mut dyn FnMut(Value)) -> Option<()>,
     ) -> Option<()> {
         match self {
             Self::String(_) | Self::Range(_) | Self::HostRoot(_) | Self::Ephemeral(_) => {}
             Self::Tuple(tuple) => tuple.members.iter().rev().copied().for_each(visit),
             Self::HostPath(path) => path.retained_values().copied().for_each(visit),
-            Self::Native(object) => object.trace(workspace, &mut |value| visit(*value)).ok()?,
+            Self::Native(object) => native(object, visit)?,
             Self::Enum(snapshot, _) => snapshot.fields.iter().rev().copied().for_each(visit),
             Self::Struct { storage } => storage.trace(visit)?,
             Self::Interface { snapshot, .. } => visit(interfaces.get(snapshot)?.data),

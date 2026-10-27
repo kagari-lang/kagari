@@ -38,13 +38,13 @@ fn foreign_stale_out_of_bounds_and_exhausted_application_ids_cannot_alias() {
             })
             .is_none()
     );
-    assert_eq!(store.detach(&HashSet::new()).len(), 1);
+    assert_eq!(store.detach_batch(&mut 0, 32, |_| false).len(), 1);
     let next = store.insert(application()).unwrap();
     assert_eq!(next.slot, old.slot);
     assert_ne!(next.generation, old.generation);
     assert!(store.get(old).is_none());
     store.slots[next.slot].generation = u64::MAX;
-    assert_eq!(store.detach(&HashSet::new()).len(), 1);
+    assert_eq!(store.detach_batch(&mut 0, 32, |_| false).len(), 1);
     let fresh = store.insert(application()).unwrap();
     assert_ne!(fresh.slot, next.slot);
     assert_eq!(store.count(), 1);
@@ -53,7 +53,10 @@ fn foreign_stale_out_of_bounds_and_exhausted_application_ids_cannot_alias() {
 #[test]
 fn rooted_application_keeps_its_environment_edges_until_last_lease() {
     let runtime = Runtime::default();
-    let group = runtime.gc.alloc_operation_group(vec![]).unwrap();
+    let group = runtime
+        .gc
+        .alloc_operation_group(runtime.modules(), vec![])
+        .unwrap();
     let mut environment =
         EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap();
     environment.add_receiver(&runtime.gc, group).unwrap();
@@ -61,7 +64,10 @@ fn rooted_application_keeps_its_environment_edges_until_last_lease() {
     let environment_id = environment.id;
     let mut prepared = application();
     prepared.environment = Some(environment);
-    let id = runtime.gc.alloc_method_application(prepared).unwrap();
+    let id = runtime
+        .gc
+        .alloc_method_application(runtime.modules(), prepared)
+        .unwrap();
     let root = runtime
         .root_metadata(vec![MetadataRoot::Application(id)])
         .unwrap();
@@ -75,7 +81,10 @@ fn rooted_application_keeps_its_environment_edges_until_last_lease() {
     assert_eq!(collected.reclaimed_operation_groups, 1);
     assert!(runtime.gc.method_application(id).is_none());
     assert!(runtime.gc.environment(environment_id).is_none());
-    let replacement = runtime.gc.alloc_method_application(application()).unwrap();
+    let replacement = runtime
+        .gc
+        .alloc_method_application(runtime.modules(), application())
+        .unwrap();
     assert_eq!(replacement.slot, id.slot);
     assert_ne!(replacement.generation, id.generation);
     let before = runtime.gc.stats();
@@ -100,7 +109,10 @@ fn application_only_growth_is_collected_at_safepoints_unless_disabled(
     config.gc.collection_threshold = threshold;
     let runtime = Runtime::new(config);
     for _ in 0..64 {
-        runtime.gc.alloc_method_application(application()).unwrap();
+        runtime
+            .gc
+            .alloc_method_application(runtime.modules(), application())
+            .unwrap();
         runtime.gc_safepoint().unwrap();
         if threshold.is_some() {
             assert!(runtime.gc.stats().method_applications < 4);
@@ -125,14 +137,20 @@ fn borrowed_application_view_prevents_allocation_and_any_partial_sweep() {
         .gc
         .alloc_cell(ValueType::I32, Value::I32(7))
         .unwrap();
-    let group = runtime.gc.alloc_operation_group(vec![]).unwrap();
-    let id = runtime.gc.alloc_method_application(application()).unwrap();
+    let group = runtime
+        .gc
+        .alloc_operation_group(runtime.modules(), vec![])
+        .unwrap();
+    let id = runtime
+        .gc
+        .alloc_method_application(runtime.modules(), application())
+        .unwrap();
     let view = runtime.gc.method_application(id).unwrap();
     let before = runtime.gc.stats();
     assert_eq!(
         runtime
             .gc
-            .alloc_method_application(application())
+            .alloc_method_application(runtime.modules(), application())
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::ModuleValidation
@@ -158,8 +176,14 @@ fn invalid_application_root_aborts_before_other_records_are_detached() {
         .gc
         .alloc_cell(ValueType::I32, Value::I32(7))
         .unwrap();
-    let group = runtime.gc.alloc_operation_group(vec![]).unwrap();
-    let id = runtime.gc.alloc_method_application(application()).unwrap();
+    let group = runtime
+        .gc
+        .alloc_operation_group(runtime.modules(), vec![])
+        .unwrap();
+    let id = runtime
+        .gc
+        .alloc_method_application(runtime.modules(), application())
+        .unwrap();
     let invalid = ApplicationId {
         generation: id.generation + 1,
         ..id

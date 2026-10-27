@@ -8,8 +8,10 @@ use crate::{
             ApplicationArguments, ApplicationKey, InterfaceMethodIdentity, MethodIdentity,
         },
         applications::MethodApplication,
+        links::MetadataCache,
     },
-    frame::types::{EnvironmentRecord, construction::ConstructionScope},
+    frame::types::construction::ConstructionScope,
+    gc::{graph::GraphIdentity, interfaces::InterfaceMethodBinding},
     module::{ExecutableModule, Program},
     value::Value,
     value_semantics::identity_equal,
@@ -18,8 +20,8 @@ use kagari_bytecode::instruction::StructId;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_types::{callable::Signature, ty::Ty};
-use std::sync::Arc;
+use kagari_types::{callable::Signature, scalar::BuiltinType, ty::Ty};
+use std::sync::{Arc, OnceLock};
 
 fn load_source(source: &str) -> (Runtime, Program, ExecutableModule) {
     let mut sources = SourceDatabase::default();
@@ -68,11 +70,166 @@ fn fixture() -> (Runtime, Program, ExecutableModule, usize, Value) {
     (runtime, loaded_program, loaded, table, value)
 }
 
+#[test]
+fn shared_description_admission_and_detached_arc_access_obey_mark_closure() {
+    for retained in [false, true] {
+        let (runtime, _program, _owner, _table, value) = fixture();
+        let id = identity(&runtime, &value);
+        let description = runtime
+            .gc
+            .interface_metadata(id)
+            .unwrap()
+            .description
+            .clone();
+        runtime.gc.graph.lock().begin_cycle().unwrap();
+        if retained {
+            runtime
+                .publish_metadata_edge(MetadataEdge::InterfaceDescription(&description))
+                .unwrap();
+        }
+        runtime.gc.graph.lock().finish_roots().unwrap();
+        runtime.gc.drain_graph_work(runtime.modules()).unwrap();
+        runtime.gc.graph.lock().close_mark().unwrap();
+        assert_eq!(
+            runtime
+                .validate_metadata(MetadataEdge::InterfaceDescription(&description))
+                .is_ok(),
+            retained
+        );
+        assert!(
+            runtime.gc.interface_metadata(id).is_none(),
+            "a description is not a receiver root"
+        );
+        let mut candidate = None;
+        let result = runtime
+            .gc
+            .admit_interface_description(runtime.modules(), |scan_id| {
+                candidate = Some(scan_id);
+                InterfaceDescription {
+                    scan_id,
+                    receiver_operations: MetadataCache::new(),
+                    receiver_table: description.receiver_table.clone(),
+                    parents: description.parents.clone(),
+                    concrete_type: description.concrete_type.clone(),
+                    concrete_expression: description.concrete_expression.clone(),
+                    interface_type: description.interface_type.clone(),
+                    interface_expression: description.interface_expression.clone(),
+                    environment: description.environment.clone(),
+                    implementation: description.implementation.clone(),
+                    methods: description
+                        .methods
+                        .iter()
+                        .map(|method| {
+                            method.as_ref().map(|method| InterfaceMethodBinding {
+                                identity: OnceLock::new(),
+                                receiver_operations: MetadataCache::new(),
+                                parameters: method.parameters.clone(),
+                                entry_parameters: method.entry_parameters.clone(),
+                                entry_arguments: method.entry_arguments.clone(),
+                                result_adapter: method.result_adapter.clone(),
+                                method: method.method,
+                                target: method.target,
+                                parameter_types: method.parameter_types.clone(),
+                                return_type: method.return_type.clone(),
+                            })
+                        })
+                        .collect(),
+                }
+            });
+        assert_eq!(result.is_ok(), retained);
+        assert_eq!(
+            runtime
+                .gc
+                .interface_descriptions
+                .borrow()
+                .get(candidate.unwrap())
+                .is_some(),
+            retained
+        );
+        runtime.gc.graph.lock().finish_sweep().unwrap();
+    }
+}
+
 fn identity(runtime: &Runtime, value: &Value) -> InterfaceSnapshotId {
     let Value::Interface(id) = value else {
         panic!("interface fixture")
     };
     runtime.gc.interface_snapshot_id(*id).unwrap()
+}
+
+#[test]
+fn lazy_parent_link_publishes_an_existing_target_after_the_snapshot_is_black() {
+    let (runtime, _program, loaded, table, value) = fixture();
+    let owner = identity(&runtime, &value);
+    let other = runtime
+        .make_interface(&loaded, table, Value::I32(7))
+        .unwrap();
+    let view = runtime.gc.interface_metadata(owner).unwrap();
+    let source = view.description.interface_type().clone();
+    let target = view.description.parents[0].interface.clone();
+    drop(view);
+    let parent = runtime.upcast_interface(&other, &source, &target).unwrap();
+    let parent_id = identity(&runtime, &parent);
+    let other_id = identity(&runtime, &other);
+    runtime.gc.graph.lock().begin_cycle().unwrap();
+    runtime
+        .publish_metadata_edge(MetadataEdge::Interface(owner))
+        .unwrap();
+    runtime.gc.graph.lock().finish_roots().unwrap();
+    runtime.gc.drain_graph_work(&runtime.modules).unwrap();
+    runtime.cache_parent_interface(owner, 0, parent_id).unwrap();
+    runtime.gc.drain_graph_work(&runtime.modules).unwrap();
+    runtime.gc.graph.lock().close_mark().unwrap();
+    assert!(
+        runtime
+            .gc
+            .graph_survivor(&runtime.modules, GraphIdentity::Interface(parent_id))
+            .unwrap()
+    );
+    assert!(
+        !runtime
+            .gc
+            .graph_survivor(&runtime.modules, GraphIdentity::Interface(other_id))
+            .unwrap()
+    );
+    runtime.gc.graph.lock().finish_sweep().unwrap();
+}
+
+#[test]
+fn weak_description_and_wrapper_promotion_reject_condemned_metadata() {
+    let (runtime, _program, _, _, value) = fixture();
+    let snapshot = identity(&runtime, &value);
+    let (key, retained) = {
+        let store = runtime.gc.interfaces.borrow();
+        let (key, weak) = store.descriptions.iter().next().unwrap();
+        (key.clone(), weak.upgrade().unwrap())
+    };
+    runtime.gc.graph.lock().begin_cycle().unwrap();
+    runtime.gc.graph.lock().finish_roots().unwrap();
+    runtime.gc.drain_graph_work(&runtime.modules).unwrap();
+    runtime.gc.graph.lock().close_mark().unwrap();
+    assert!(
+        !runtime
+            .gc
+            .graph_survivor(
+                &runtime.modules,
+                GraphIdentity::InterfaceDescription(retained.scan_id)
+            )
+            .unwrap()
+    );
+    let before = runtime.gc.stats();
+    assert!(
+        runtime.gc.interface_description(&key).is_none(),
+        "Arc upgrade is not graph admission"
+    );
+    assert!(runtime.gc.alloc_interface(snapshot).is_err());
+    assert!(
+        runtime
+            .root_metadata(vec![MetadataRoot::Interface(snapshot)])
+            .is_err()
+    );
+    assert_eq!(runtime.gc.stats(), before);
+    runtime.gc.graph.lock().finish_sweep().unwrap();
 }
 
 #[test]
@@ -147,10 +304,16 @@ fn application_publication_checks_owners_and_retains_only_published_edges() {
         environment: None,
         result_adapter: None,
     };
-    let stale = runtime.gc.alloc_method_application(application()).unwrap();
+    let stale = runtime
+        .gc
+        .alloc_method_application(runtime.modules(), application())
+        .unwrap();
     runtime.collect_garbage().unwrap();
     let foreign = Runtime::default();
-    let foreign_id = foreign.gc.alloc_method_application(application()).unwrap();
+    let foreign_id = foreign
+        .gc
+        .alloc_method_application(foreign.modules(), application())
+        .unwrap();
     for invalid in [stale, foreign_id] {
         assert!(
             runtime
@@ -163,12 +326,23 @@ fn application_publication_checks_owners_and_retains_only_published_edges() {
             .publish_method_application(&loaded, key.clone(), foreign_id)
             .is_err()
     );
-    assert!(runtime.modules.method_application(&loaded, &key).is_none());
-    let prepared = runtime.gc.alloc_method_application(application()).unwrap();
+    assert!(
+        runtime
+            .modules
+            .method_application(&runtime.gc, &loaded, &key)
+            .is_none()
+    );
+    let prepared = runtime
+        .gc
+        .alloc_method_application(runtime.modules(), application())
+        .unwrap();
     runtime
         .publish_method_application(&loaded, key.clone(), prepared)
         .unwrap();
-    let unused = runtime.gc.alloc_method_application(application()).unwrap();
+    let unused = runtime
+        .gc
+        .alloc_method_application(runtime.modules(), application())
+        .unwrap();
     assert!(
         runtime
             .publish_method_application(&loaded, key.clone(), unused)
@@ -188,7 +362,10 @@ fn application_publication_checks_owners_and_retains_only_published_edges() {
     runtime.publish_staged_reload(candidate).unwrap();
     runtime.collect_garbage().unwrap();
     assert!(runtime.gc.method_application(prepared).is_none());
-    let fresh = runtime.gc.alloc_method_application(application()).unwrap();
+    let fresh = runtime
+        .gc
+        .alloc_method_application(runtime.modules(), application())
+        .unwrap();
     assert!(
         runtime
             .publish_method_application(&loaded, key, fresh)
@@ -201,10 +378,16 @@ fn receiver_cache_rejects_invalid_edges_before_publishing_either_cell() {
     let (runtime, _program, _, _, value) = fixture();
     let id = identity(&runtime, &value);
     let _root = runtime.root_value(value).unwrap();
-    let stale = runtime.gc.alloc_operation_group(vec![]).unwrap();
+    let stale = runtime
+        .gc
+        .alloc_operation_group(runtime.modules(), vec![])
+        .unwrap();
     runtime.collect_garbage().unwrap();
     let foreign = Runtime::default();
-    let foreign_id = foreign.gc.alloc_operation_group(vec![]).unwrap();
+    let foreign_id = foreign
+        .gc
+        .alloc_operation_group(foreign.modules(), vec![])
+        .unwrap();
     for invalid in [stale, foreign_id] {
         assert!(
             runtime
@@ -212,7 +395,10 @@ fn receiver_cache_rejects_invalid_edges_before_publishing_either_cell() {
                 .is_err()
         );
     }
-    let prepared = runtime.gc.alloc_operation_group(vec![]).unwrap();
+    let prepared = runtime
+        .gc
+        .alloc_operation_group(runtime.modules(), vec![])
+        .unwrap();
     assert!(
         runtime
             .cache_receiver_operations(id, usize::MAX, Some(prepared))
@@ -437,7 +623,10 @@ fn interface_ids_reject_foreign_stale_bounds_and_exhausted_generations() {
 fn borrowed_interface_view_prevents_any_partial_reclamation() {
     let (runtime, _loaded_program, loaded, table, value) = fixture();
     let id = identity(&runtime, &value);
-    let group = runtime.gc.alloc_operation_group(vec![]).unwrap();
+    let group = runtime
+        .gc
+        .alloc_operation_group(runtime.modules(), vec![])
+        .unwrap();
     let view = runtime.gc.interface_metadata(id).unwrap();
     let before = runtime.gc.stats();
     assert_eq!(
@@ -495,26 +684,27 @@ fn invalid_cached_parent_aborts_before_any_storage_is_detached() {
 
 #[test]
 fn interface_metadata_root_and_prepared_method_do_not_own_records_after_teardown() {
-    let (runtime, _loaded_program, _loaded, _table, value) = fixture();
+    let (runtime, _loaded_program, loaded) = load_source(
+        "trait Read { fn read(self) -> i32; }\n         impl<T> Read for [T] { fn read(self) -> i32 { 7 } }\n         fn main() -> Read { [7] }",
+    );
+    let array = runtime
+        .alloc_array(&loaded, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
+        .unwrap();
+    let table = loaded
+        .bytecode
+        .interface_tables
+        .iter()
+        .position(|table| table.arguments == [Ty::Builtin(BuiltinType::I32)])
+        .expect("applied array implementation");
+    let value = runtime
+        .make_interface(&loaded, table, Value::Array(array))
+        .unwrap();
     let id = identity(&runtime, &value);
     let view = runtime.gc.interface_metadata(id).unwrap();
     let target = view.description.interface_type().clone();
+    let environment_id = view.description.environment.as_ref().unwrap().id;
     drop(view);
-    // An empty scope adds no substitutions; its checked ID observes record disposal.
-    let environment = runtime
-        .alloc_environment(
-            EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap(),
-        )
-        .unwrap();
-    let environment_id = environment.id;
     let runtime_owner = runtime.resources().lifetime_probe();
-    {
-        let mut store = runtime.gc.interfaces.borrow_mut();
-        // Remove the weak registry entry before modifying this isolated fixture.
-        store.descriptions.clear();
-        let snapshot = store.slots[id.slot].interface.as_mut().unwrap();
-        Arc::get_mut(&mut snapshot.description).unwrap().environment = Some(environment);
-    }
     let root = runtime
         .root_metadata(vec![MetadataRoot::Interface(id)])
         .unwrap();

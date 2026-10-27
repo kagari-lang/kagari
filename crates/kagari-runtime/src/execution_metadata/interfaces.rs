@@ -4,13 +4,17 @@ use crate::{
     frame::types::{compatibility::TypeIdentity, construction::ConstructionIdentity},
     gc::{
         GcHeap,
+        graph::{
+            GraphIdentity,
+            marks::{Domain, MarkBlocks, MarkRef},
+        },
         interfaces::{InterfaceDescription, InterfaceValueSnapshot},
     },
     module::ModuleKey,
 };
 use std::{
     cell::Ref,
-    collections::{HashMap, HashSet, TryReserveError},
+    collections::{HashMap, TryReserveError},
     sync::{Arc, Weak},
 };
 
@@ -53,6 +57,7 @@ struct Slot {
 pub(crate) struct InterfaceStore {
     owner: u64,
     slots: Vec<Slot>,
+    marks: MarkBlocks,
     free: Vec<usize>,
     count: usize,
     descriptions: HashMap<InterfaceDescriptionKey, Weak<InterfaceDescription>>,
@@ -63,6 +68,7 @@ impl InterfaceStore {
         Self {
             owner,
             slots: Vec::new(),
+            marks: MarkBlocks::default(),
             free: Vec::new(),
             count: 0,
             descriptions: HashMap::new(),
@@ -73,6 +79,8 @@ impl InterfaceStore {
         &mut self,
         interface: InterfaceValueSnapshot,
     ) -> Result<InterfaceSnapshotId, TryReserveError> {
+        self.marks
+            .prepare(self.free.last().copied().unwrap_or(self.slots.len()))?;
         let slot = match self.free.pop() {
             Some(slot) => slot,
             None => {
@@ -128,23 +136,43 @@ impl InterfaceStore {
             .retain(|_, description| description.strong_count() != 0);
     }
 
+    pub(crate) fn mark(&self, id: InterfaceSnapshotId) -> Option<MarkRef<'_>> {
+        self.get(id)?;
+        Some(self.marks.slot(Domain::Interface, id.slot))
+    }
+
+    pub(crate) fn next_gray(&self, block: usize, epoch: u64) -> (Option<GraphIdentity>, bool) {
+        let (index, more) = self.marks.next_gray(block, epoch);
+        let id = index.map(|index| {
+            let slot = &self.slots[index];
+            assert!(slot.interface.is_some(), "gray owner is occupied");
+            GraphIdentity::Interface(InterfaceSnapshotId {
+                owner: self.owner,
+                slot: index,
+                generation: slot.generation,
+            })
+        });
+        (id, more)
+    }
+
     pub(crate) fn count(&self) -> usize {
         self.count
     }
 
     /// The whole graph has been marked and validated before any store detaches.
-    pub(crate) fn detach(
+    pub(crate) fn detach_batch(
         &mut self,
-        live: &HashSet<InterfaceSnapshotId>,
+        cursor: &mut usize,
+        limit: usize,
+        mut survivor: impl FnMut(MarkRef<'_>) -> bool,
     ) -> Vec<InterfaceValueSnapshot> {
+        assert!(limit != 0);
         let mut retired = Vec::new();
-        for (index, slot) in self.slots.iter_mut().enumerate() {
-            let id = InterfaceSnapshotId {
-                owner: self.owner,
-                slot: index,
-                generation: slot.generation,
-            };
-            if !live.contains(&id)
+        while *cursor < self.slots.len() && retired.len() < limit {
+            let index = *cursor;
+            *cursor += 1;
+            let slot = &mut self.slots[index];
+            if !survivor(self.marks.slot(Domain::Interface, index))
                 && let Some(interface) = slot.interface.take()
             {
                 retired.push(interface);
@@ -164,12 +192,16 @@ impl GcHeap {
         &self,
         key: &InterfaceDescriptionKey,
     ) -> Option<Arc<InterfaceDescription>> {
-        self.interfaces
+        let description = self
+            .interfaces
             .try_borrow()
             .ok()?
             .descriptions
             .get(key)?
-            .upgrade()
+            .upgrade()?;
+        self.publish_heap_identity(GraphIdentity::InterfaceDescription(description.scan_id))
+            .ok()?;
+        Some(description)
     }
 
     /// Called after complete preparation and before publication, without a safepoint.
@@ -179,6 +211,7 @@ impl GcHeap {
         description: &Arc<InterfaceDescription>,
     ) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
+        self.publish_heap_identity(GraphIdentity::InterfaceDescription(description.scan_id))?;
         let mut store = self
             .interfaces
             .try_borrow_mut()
@@ -196,17 +229,40 @@ impl GcHeap {
         interface: InterfaceValueSnapshot,
     ) -> Result<InterfaceSnapshotId, RuntimeError> {
         self.ensure_execution_allowed()?;
-        self.interfaces
+        self.publish_value(interface.data)?;
+        self.publish_heap_identity(GraphIdentity::InterfaceDescription(
+            interface.description.scan_id,
+        ))?;
+        for parent in &interface.parent_views {
+            if let Some(parent) = parent.get() {
+                self.publish_heap_identity(GraphIdentity::Interface(*parent))?;
+            }
+        }
+        let mut graph = self
+            .graph
+            .try_lock()
+            .map_err(|_| RuntimeError::module_validation("graph admission is borrowed"))?;
+        graph.prepare_identity()?;
+        let id = self
+            .interfaces
             .try_borrow_mut()
             .map_err(|_| RuntimeError::module_validation("interface snapshot store is borrowed"))?
             .insert(interface)
-            .map_err(|_| self.resource_limit("interface snapshot storage"))
+            .map_err(|_| self.resource_limit("interface snapshot storage"))?;
+        self.with_heap_mark(GraphIdentity::Interface(id), |mark| {
+            graph.admit_prepared(GraphIdentity::Interface(id), mark);
+            Ok(())
+        })?;
+        Ok(id)
     }
 
     pub(crate) fn interface_metadata(
         &self,
         id: InterfaceSnapshotId,
     ) -> Option<Ref<'_, InterfaceValueSnapshot>> {
+        if !self.heap_identity_accessible(GraphIdentity::Interface(id)) {
+            return None;
+        }
         Ref::filter_map(self.interfaces.try_borrow().ok()?, |store| store.get(id)).ok()
     }
 }

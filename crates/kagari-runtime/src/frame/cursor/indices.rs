@@ -78,9 +78,6 @@ impl ExecutionCursor<'_> {
                     }
                 }
                 .ok_or(RegionError::InvalidIndex(index))?;
-                if !self.runtime.gc().validate_value(&value) {
-                    return Err(self.invalid().into());
-                }
                 self.values
                     .write_location(dst, value)
                     .ok_or_else(|| self.invalid())?;

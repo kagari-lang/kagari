@@ -260,6 +260,7 @@ impl GcHeap {
                 "field is read-only or value has the wrong concrete type",
             ));
         }
+        self.publish_value(next_value)?;
         self.with_struct_mut(id, |mut storage| {
             if !storage.description.semantic.matches(expected) {
                 return Err(field_error("struct layout mismatch"));

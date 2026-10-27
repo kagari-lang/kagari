@@ -279,12 +279,18 @@ checks remain at token admission and metadata access. The compact directory loca
 requires a representable snapshot slot; publication fails before heap growth or
 identity publication when that bound is exceeded. Collection validates the complete
 graph and accounts dead wrapper units before invalidating heap IDs and detaching
-metadata. Borrow conflicts cannot produce a partial sweep.
+metadata. Cross-store borrow conflicts are preflighted before the first irreversible
+detach. Later physical preparation failures obey the batch-atomic contract below,
+not whole-cycle rollback.
 
-The marker walks identities through storage-provided edges. Object representations
-own reference traversal; closure signatures and runtime type compatibility have
-separate execution owners. Heap objects and executable programs share one mark
-worklist. Published and staged programs, active-call/code leases, host roots and
+The phase/epoch marker walks checked identities through storage-provided edges.
+Object representations own reference traversal; closure signatures and runtime type
+compatibility have separate execution owners. Heap objects and executable programs
+share one graph driver. Its pending jobs name 128-slot blocks in original identity
+stores, with discovered/scanned bitmaps, or singleton static identities. They are
+not payload slab addresses. Each block has at most one queued job, while one owned
+cursor scans an individual identity; generations remain checked by the original
+store. Work-queue credits and admitted-identity credits have separate bounds. Published and staged programs, active-call/code leases, host roots and
 heap root records seed traversal. Runtime-owned execution windows independently
 seed their values and program/environment metadata, including suspended callers.
 Prepared-method and selected-native-call metadata is stored alongside persistent
@@ -297,6 +303,17 @@ excludes pure layout provenance from executable state retention. Program edges
 validate the installed generation and runtime identity. An obsolete
 program/cell/closure cycle, or mutually referring obsolete programs, does not by
 itself keep either side alive.
+
+Publication validates the original owner's full identity and value representation
+before consulting authoritative graph phase, even while Idle. Graph-only marks are
+constructed only when needed; this is not an exemption from ordinary managed-write
+validation. The generic managed tag accepts occupied managed kinds; the specialized
+Array tag additionally checks the native Array subtype. Reads do not create retention.
+Explicit Faulted state permits diagnostic graph reads but rejects publication/new
+admission. Poisoned state instead rejects graph access, publication and work acquisition:
+interrupted graph-guard work publishes this terminal state before unlock, including
+when the guard was acquired during unwinding. Pure identity inspection is not graph
+access; production collection faults also quarantine execution.
 
 Operation groups live in a runtime-owned generational store. They contain receiver
 tables and individual concrete selections. Environments carry an OperationId for a
@@ -332,19 +349,34 @@ The last disposed slot releases empty slab backing immediately, independently of
 directory identity history. Descriptor/drop provenance survives disposal, including
 panic-contained cleanup, without becoming an executable graph root.
 
-This is not an O(live) bound for the whole collector. Root snapshots, synchronous
-marking, metadata scans, the complete dead-object list and interface batch filtering
-remain separate costs. Persistent epochs/publication are PG04 work; incremental
-sweep and removal of dead-list/interface-batch adapters are PG05 work.
+Initial roots and graph owners expose slice cursors, and managed frame writes shade
+before publication even after the root cursor has passed their slot. Native publication
+and existing-edge republication join the same marker. Production nevertheless drains
+these slices synchronously; no incremental safepoint scheduling is enabled yet.
+Physical page/slot sweep uses a persistent cursor and reusable bounded page/range
+disposal, not a complete heap dead-object list; inspected holes and survivors also
+consume work. Remaining metadata/module inventories and interface batch filtering
+remain separate costs, not an O(live) total-collector bound. PG04 is locally complete
+pending commit; the
+[phase ledger](../paged-incremental-gc-design.md#pg04-marker-implementation-and-open-acceptance)
+separates fresh and reused evidence. PG05 owns remaining sweep adapters, pressure-driven
+execution scheduling and production interleaving. The selected 1024-unit normal budget
+is not a measured wall-clock deadline; PG06 and full CI acceptance remain outstanding.
 
-Collection completes marking and accounting before
-removing any slots, then detaches unreachable objects, operation groups, method
-applications, interface snapshots and module instances before running their
-Rust destructors outside storage-table borrows. Tracing and destruction cannot
+Collection closes marking and preflights cross-store borrows before removing slots,
+then prepares accounting and detaches unreachable objects and metadata in batches of
+at most 32 owners total. A full-page token counts all its payloads; the current batch
+finishes disposal before another batch/domain detaches. Physical preparation is
+batch-atomic: identity/location/charge checks and aggregate credit subtraction are
+prepared before that batch detaches. A later preparation failure faults/quarantines
+the runtime with the failing batch still stored; earlier batches remain retired and
+accounted. There is no whole-cycle rollback. Rust destructors run outside storage-table
+borrows, consuming initialization before dispatch. Tracing and destruction cannot
 reenter execution or mutate roots. A tracing panic quarantines the runtime without
-sweeping a partial graph. Destructor panics quarantine it while disposal continues
-for other detached objects; each payload is dropped once. Process aborts, including
-a second panic during Rust's own unwinding, remain outside recovery guarantees.
+sweeping a partial graph. Destructor panics quarantine it before the next destructor
+while disposal continues for other detached objects; each payload is dropped once.
+Process aborts, including a second panic during Rust's own unwinding, remain outside
+recovery guarantees.
 Runtime::collect_garbage reports reclaimed heap objects, reclaimed_operation_groups,
 reclaimed_method_applications, reclaimed_interface_snapshots and reclaimed_modules;
 there is no independent module-only sweep that could discard code reached from the heap.

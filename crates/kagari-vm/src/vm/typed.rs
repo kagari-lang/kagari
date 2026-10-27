@@ -17,7 +17,7 @@ use kagari_runtime::{
         function_handle::Function,
         typed::NativeContext,
     },
-    session::ExecutionOptions,
+    session::{ExecutionOptions, ExecutionRetention},
     value::Value,
 };
 use std::slice;
@@ -94,6 +94,29 @@ impl Vm {
         entry: impl Into<ProgramEntry<'a>>,
         arguments: A,
     ) -> Result<R, VmError> {
+        self.execute_typed_inner(module, entry, arguments, None)
+    }
+
+    /// Execute a typed entry while borrowing an existing exact execution retention.
+    /// Uncovered selected owners use ordinary conversion retention. This does not
+    /// start a session early or bypass entry, conversion or publication admission.
+    pub fn execute_typed_in_execution<'a, A: IntoKagariArguments, R: FromKagari>(
+        &self,
+        module: &ExecutableModule,
+        entry: impl Into<ProgramEntry<'a>>,
+        arguments: A,
+        authority: &ExecutionRetention<'_>,
+    ) -> Result<R, VmError> {
+        self.execute_typed_inner(module, entry, arguments, Some(authority))
+    }
+
+    fn execute_typed_inner<'a, A: IntoKagariArguments, R: FromKagari>(
+        &self,
+        module: &ExecutableModule,
+        entry: impl Into<ProgramEntry<'a>>,
+        arguments: A,
+        authority: Option<&ExecutionRetention<'_>>,
+    ) -> Result<R, VmError> {
         self.runtime.validate_executable_module(module)?;
         let entry = entry.into();
         let (owner, function) = entry
@@ -124,7 +147,10 @@ impl Vm {
             .resolve_type_arguments(module, slice::from_ref(result))?
             .pop()
             .ok_or_else(invalid)?;
-        let mut conversion = ConversionContext::new(&self.runtime, module)?;
+        let mut conversion = match authority {
+            Some(authority) => ConversionContext::in_execution(&self.runtime, module, authority)?,
+            None => ConversionContext::new(&self.runtime, module)?,
+        };
         conversion.check_type::<R>(&result)?;
         let _session = self.begin_execution(module)?;
         let roots = arguments.into_arguments(&mut conversion, &params)?;

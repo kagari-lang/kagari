@@ -255,7 +255,7 @@ impl NativeStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::layouts::allocation_owner;
+    use crate::{gc::graph::GraphIdentity, test_support::layouts::allocation_owner};
     use kagari_types::{scalar::BuiltinType, ty::Ty};
 
     #[derive(Debug)]
@@ -270,6 +270,66 @@ mod tests {
             _: &Waker,
         ) -> NativeResult<Box<dyn PendingNative>> {
             panic!("claiming captures must not submit the producer")
+        }
+    }
+
+    #[test]
+    fn capture_roots_cover_pair_claims_between_marker_slices_without_submitting() {
+        let mut runtime = Runtime::default();
+        let owner = allocation_owner(&mut runtime);
+        let ty = Ty::Builtin(BuiltinType::Unit);
+        let output = runtime
+            .resolve_type_arguments(&owner, slice::from_ref(&ty))
+            .unwrap()
+            .remove(0);
+        let children = [
+            runtime.gc.alloc_string("left".into()).unwrap(),
+            runtime.gc.alloc_string("right".into()).unwrap(),
+        ];
+        let ids = children.map(|child| {
+            let payload = FuturePayload {
+                cold: Some(ColdFuture::Native(NativeFuture {
+                    origin: None,
+                    owner: owner.clone(),
+                    parameters: vec![],
+                    output: output.clone(),
+                    values: vec![child],
+                    producer: Arc::new(Unstarted),
+                })),
+            };
+            let object = NativeStorage::future()
+                .prepare_payload(&runtime.gc, &ty, payload, &owner)
+                .unwrap();
+            runtime.gc.alloc_native(object).unwrap()
+        });
+        runtime.gc.graph.lock().begin_cycle().unwrap();
+        runtime.gc.graph.lock().finish_roots().unwrap();
+        for id in ids {
+            runtime.gc.publish_value(Value::GcHandle(id)).unwrap();
+        }
+        // Both source payloads are still gray. Capture publication must protect
+        // their values before take removes the only heap edges to those values.
+        let roots = runtime.gc.prepare_future_pair(ids).unwrap();
+        let cold = runtime.gc.take_cold_future_pair(ids).unwrap();
+        runtime.gc.drain_graph_work(runtime.modules()).unwrap();
+        runtime.gc.graph.lock().close_mark().unwrap();
+        for (index, child) in children.iter().enumerate() {
+            assert_eq!(cold[index].values(), slice::from_ref(child));
+            assert!(
+                runtime
+                    .gc
+                    .graph_survivor(
+                        runtime.modules(),
+                        GraphIdentity::Object(child.object_id().unwrap())
+                    )
+                    .unwrap()
+            );
+        }
+        runtime.gc.graph.lock().finish_sweep().unwrap();
+        drop(roots);
+        runtime.collect_garbage().unwrap();
+        for child in children {
+            assert!(!runtime.gc.validate_value(&child));
         }
     }
 

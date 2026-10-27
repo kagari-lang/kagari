@@ -1,5 +1,9 @@
 use super::*;
-use crate::test_support::native::program::ProgramFixture;
+use crate::{
+    gc::graph::{GraphIdentity, objects::ScanEdge},
+    native::storage::scan::{ScanBudget, ScanStatus},
+    test_support::native::program::ProgramFixture,
+};
 use kagari_bytecode::artifact::{ArtifactBuildOptions, KbcArtifact};
 use kagari_contract::types::PublicItem;
 use kagari_types::declaration::{TypeDeclaration, path::HostPathDeclaration};
@@ -253,8 +257,14 @@ fn portable_path_segments_reject_unbound_types_before_publication() {
     }
 }
 
-#[test]
-fn heap_path_temporaries_survive_collection_during_write_preparation() {
+#[rstest::rstest]
+#[case(false, false)]
+#[case(true, false)]
+#[case(false, true)]
+fn heap_path_temporaries_survive_collection_during_write_preparation(
+    #[case] fault_before_commit: bool,
+    #[case] interleaved_clear: bool,
+) {
     let mut runtime = path_mutation_runtime();
     root_module(
         "game::Player",
@@ -279,6 +289,8 @@ fn heap_path_temporaries_survive_collection_during_write_preparation() {
     let previous = Arc::new(Mutex::new(None));
     let read_previous = previous.clone();
     let write_previous = previous.clone();
+    let commits = Arc::new(Mutex::new(0));
+    let write_commits = commits.clone();
     runtime
         .register_host_path_adapter(
             descriptor,
@@ -299,7 +311,9 @@ fn heap_path_temporaries_survive_collection_during_write_preparation() {
                     let value = record.new_value;
                     let runtime = cx.runtime();
                     // The scoped host descriptor and both script arrays are roots.
-                    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 3);
+                    if !interleaved_clear || *write_commits.lock().unwrap() == 0 {
+                        assert_eq!(runtime.collect_garbage().unwrap().live_objects, 3);
+                    }
                     assert_eq!(
                         runtime
                             .gc()
@@ -310,7 +324,14 @@ fn heap_path_temporaries_survive_collection_during_write_preparation() {
                         panic!("array path value")
                     };
                     assert_eq!(runtime.gc().array_get(next, 0), Some(Value::I32(2)));
-                    Ok(PreparedHostPathWrite::new(|| {}))
+                    if fault_before_commit {
+                        runtime.gc.graph.lock().begin_cycle().unwrap();
+                        runtime.gc.graph.lock().fault();
+                    }
+                    let commits = write_commits.clone();
+                    Ok(PreparedHostPathWrite::new(move || {
+                        *commits.lock().unwrap() += 1
+                    }))
                 }),
         )
         .unwrap();
@@ -321,14 +342,77 @@ fn heap_path_temporaries_survive_collection_during_write_preparation() {
             vec![Value::I32(2)],
         )
         .unwrap();
-    runtime
-        .set_host_path(
-            &runtime.gc().alloc_host_root(root).unwrap(),
-            descriptor,
-            vec![],
-            Value::Array(next),
-        )
-        .unwrap();
+    let result = runtime.set_host_path(
+        &runtime.gc().alloc_host_root(root).unwrap(),
+        descriptor,
+        vec![],
+        Value::Array(next),
+    );
+    if fault_before_commit {
+        assert!(result.is_err());
+        assert_eq!(
+            *commits.lock().unwrap(),
+            0,
+            "publication failure precedes irreversible host commit"
+        );
+        assert!(runtime.host.dirty_paths().is_empty());
+        assert_eq!(runtime.gc().active_roots(), 0);
+        return;
+    }
+    result.unwrap();
+    assert_eq!(*commits.lock().unwrap(), 1);
+    if interleaved_clear {
+        let replacement = runtime
+            .alloc_array(
+                &allocation,
+                Ty::Builtin(BuiltinType::I32),
+                vec![Value::I32(2)],
+            )
+            .unwrap();
+        runtime.gc.graph.lock().begin_cycle().unwrap();
+        let mut cursor = runtime.host.begin_root_scan().unwrap();
+        let mut visit = |edge: ScanEdge<'_>| runtime.gc.shade_graph_edge(runtime.modules(), edge);
+        assert_eq!(
+            runtime
+                .host
+                .scan_root_slice(&mut cursor, &mut ScanBudget::new(1), &mut visit)
+                .unwrap(),
+            ScanStatus::Pending
+        );
+        runtime.clear_host_dirty_paths();
+        runtime
+            .set_host_path(
+                &runtime.gc.alloc_host_root(root).unwrap(),
+                descriptor,
+                vec![],
+                Value::Array(replacement),
+            )
+            .unwrap();
+        let mut budget = ScanBudget::new(1);
+        assert_eq!(
+            runtime
+                .host
+                .scan_root_slice(&mut cursor, &mut budget, &mut visit)
+                .unwrap(),
+            ScanStatus::Complete
+        );
+        assert_eq!(
+            budget.spent(),
+            0,
+            "clear invalidates the captured prefix rather than rescanning reused records"
+        );
+        runtime.gc.graph.lock().finish_roots().unwrap();
+        runtime.gc.drain_graph_work(runtime.modules()).unwrap();
+        runtime.gc.graph.lock().close_mark().unwrap();
+        assert!(
+            runtime
+                .gc
+                .graph_survivor(runtime.modules(), GraphIdentity::Object(replacement))
+                .unwrap()
+        );
+        runtime.gc.graph.lock().finish_sweep().unwrap();
+        assert_eq!(*commits.lock().unwrap(), 2);
+    }
     assert_eq!(runtime.gc().active_roots(), 0);
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
     runtime.clear_host_dirty_paths();

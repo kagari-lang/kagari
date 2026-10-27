@@ -7,6 +7,7 @@ use crate::{
     error::RuntimeError,
     execution_metadata::{
         MetadataEdge, application_key::ApplicationArguments, groups::OperationId,
+        scan_records::InterfaceCallScanId,
     },
     frame::types::{
         TypeEnvironment, arguments::TypeArgument, compatibility::TypeView,
@@ -28,6 +29,7 @@ pub(crate) struct InterfaceCallSite {
 /// edges participate in the linked program's bounded descriptor retention.
 #[derive(Debug)]
 pub(crate) struct ScopedInterfaceCall {
+    pub(crate) scan_id: InterfaceCallScanId,
     pub(crate) interface: TypeArgument,
     pub(crate) arguments: ApplicationArguments,
     pub(crate) operations: OperationBindings,
@@ -43,10 +45,26 @@ impl ScopedInterfaceCall {
         interface
     }
 
+    pub(crate) fn scan_len(&self) -> usize {
+        1 + self.operations.scan_len() + self.arguments.constructions().scan_len()
+    }
+
+    pub(crate) fn scan_field(&self, index: usize) -> Option<MetadataEdge<'_>> {
+        if index == 0 {
+            return self.operation.map(MetadataEdge::Operation);
+        }
+        let index = index - 1;
+        if index < self.operations.scan_len() {
+            self.operations.scan_field(index)
+        } else {
+            self.arguments
+                .constructions()
+                .scan_field(index - self.operations.scan_len())
+        }
+    }
+
     pub(crate) fn trace<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
-        self.operations.trace_metadata(pending);
-        self.arguments.constructions().trace(pending);
-        pending.extend(self.operation.map(MetadataEdge::Operation));
+        pending.extend((0..self.scan_len()).filter_map(|index| self.scan_field(index)));
     }
 }
 
@@ -60,7 +78,7 @@ impl Runtime {
         self.validate_executable_module(owner)?;
         let scope = environment.id;
         self.validate_environment(scope)?;
-        if let Some(prepared) = self.modules.interface_call(owner, scope, site) {
+        if let Some(prepared) = self.modules.interface_call(&self.gc, owner, scope, site) {
             return Ok(prepared);
         }
         let invalid = || RuntimeError::module_validation("invalid linked interface contract");
@@ -118,13 +136,16 @@ impl Runtime {
             self.bind_constructions_in(owner, environment.clone(), &contract.constructions)?,
         )?;
         let operations = self.bind_operations_in(owner, environment, &contract.operations)?;
-        let prepared = Arc::new(ScopedInterfaceCall {
-            interface,
-            arguments,
-            operations,
-            operation,
-            slot: contract.method_slot as usize,
-        });
+        let prepared =
+            self.gc
+                .admit_interface_call(self.modules(), |scan_id| ScopedInterfaceCall {
+                    scan_id,
+                    interface,
+                    arguments,
+                    operations,
+                    operation,
+                    slot: contract.method_slot as usize,
+                })?;
         Ok(prepared)
     }
 }

@@ -240,12 +240,23 @@ impl ResourceState {
         self.execution.close();
     }
 
+    #[inline]
     pub fn ensure_execution_allowed(&self) -> Result<(), RuntimeError> {
+        self.admit_active_session().map(drop)
+    }
+
+    /// Check permission and lend the exact active owner for immediate internal
+    /// scope validation. No callback or execution transition may retain this borrow.
+    #[inline]
+    pub(crate) fn admit_active_session(
+        &self,
+    ) -> Result<Option<Ref<'_, SessionState>>, RuntimeError> {
         self.execution.ensure_allowed()?;
-        if let Some(error) = self.termination() {
-            return Err(error);
+        let session = self.active_session();
+        if let Some(session) = &session {
+            session.check_termination()?;
         }
-        Ok(())
+        Ok(session)
     }
 
     pub fn is_quarantined(&self) -> bool {

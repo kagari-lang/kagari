@@ -231,7 +231,9 @@ impl Runtime {
         let mut snapshot = self.prepare_closure(implementation, function, captures, environment)?;
         snapshot.bind_named(self)?;
         self.validate_metadata(MetadataEdge::Closure(&snapshot))?;
-        self.gc.alloc_closure(snapshot).map(Value::Closure)
+        self.gc
+            .alloc_closure(self.modules(), snapshot)
+            .map(Value::Closure)
     }
 
     /// Cold computation creation has already selected its resume body and values.
@@ -244,7 +246,9 @@ impl Runtime {
     ) -> Result<Value, RuntimeError> {
         let snapshot = self.prepare_closure(implementation, function, captures, environment)?;
         self.validate_metadata(MetadataEdge::Closure(&snapshot))?;
-        self.gc.alloc_closure(snapshot).map(Value::Closure)
+        self.gc
+            .alloc_closure(self.modules(), snapshot)
+            .map(Value::Closure)
     }
 
     fn prepare_closure(

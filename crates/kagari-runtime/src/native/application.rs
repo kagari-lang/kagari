@@ -3,28 +3,44 @@
 use crate::diagnostics::{self, Event};
 
 use crate::{
-    Runtime, error::RuntimeError, execution_metadata::MetadataEdge, frame::types::TypeEnvironment,
-    module::ExecutableModule, native::binding::LinkedNativeFunction,
+    Runtime,
+    error::RuntimeError,
+    execution_metadata::{MetadataEdge, scan_records::NativeApplicationScanId},
+    frame::types::TypeEnvironment,
+    module::ExecutableModule,
+    native::binding::LinkedNativeFunction,
 };
 use kagari_bytecode::instruction::NativeImportId;
 use std::sync::Arc;
 
 #[derive(Debug)]
 pub(crate) struct NativeApplication {
+    pub(crate) scan_id: NativeApplicationScanId,
     pub(crate) owner: ExecutableModule,
     pub(crate) environment: TypeEnvironment,
     pub(crate) function: LinkedNativeFunction,
 }
 
 impl NativeApplication {
-    pub(crate) fn trace<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
-        pending.push(MetadataEdge::Program(&self.owner));
-        pending.push(MetadataEdge::Environment(self.environment.id));
-        for operation in &self.function.selected {
-            if let Some(callable) = operation.ready() {
-                callable.trace(&self.owner, pending);
-            }
+    pub(crate) fn scan_len(&self) -> usize {
+        2 + self.function.selected.len() * 2
+    }
+
+    pub(crate) fn scan_field(&self, index: usize) -> Option<MetadataEdge<'_>> {
+        match index {
+            0 => Some(MetadataEdge::Program(&self.owner)),
+            1 => Some(MetadataEdge::Environment(self.environment.id)),
+            _ => self
+                .function
+                .selected
+                .get((index - 2) / 2)?
+                .ready()?
+                .scan_field(&self.owner, (index - 2) % 2),
         }
+    }
+
+    pub(crate) fn trace<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
+        pending.extend((0..self.scan_len()).filter_map(|index| self.scan_field(index)));
     }
 }
 
@@ -41,9 +57,9 @@ impl Runtime {
                 "invalid native application environment",
             ));
         }
-        if let Some(application) = self
-            .modules
-            .native_application(owner, import, environment.id)
+        if let Some(application) =
+            self.modules
+                .native_application(&self.gc, owner, import, environment.id)
         {
             return Ok(application);
         }
@@ -72,11 +88,15 @@ impl Runtime {
             Some(environment.clone()),
             &owner.bytecode.native_imports[import.index()].callables,
         )?;
-        let prepared = Arc::new(NativeApplication {
-            owner: owner.clone(),
-            function: function.apply(self, owner, environment.clone(), &operations)?,
-            environment,
-        });
+        let function = function.apply(self, owner, environment.clone(), &operations)?;
+        let prepared = self
+            .gc
+            .admit_native_application(self.modules(), |scan_id| NativeApplication {
+                scan_id,
+                owner: owner.clone(),
+                function,
+                environment,
+            })?;
         self.publish_native_application(owner, import, prepared.clone())?;
         Ok(prepared)
     }

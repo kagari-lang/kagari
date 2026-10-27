@@ -2,28 +2,18 @@
 use crate::{
     clock::Instant,
     error::RuntimeError,
-    execution_metadata::{MetadataLive, MetadataTrace},
     gc::{GcCollection, GcHeap, HeapObjectId, collector, storage::append_value_edges},
-    module::{ModuleKey, ModuleStore, collection::ProgramGraph},
+    host::HostRegistry,
+    module::{ModuleStore, collection::ModuleSweep},
+    native::storage::scan::{ScanBudget, ScanStatus},
     resource::HeapCharge,
     value::Value,
 };
 
-use std::{
-    collections::HashSet,
-    panic::{AssertUnwindSafe, catch_unwind},
-};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-enum Node {
-    Object(HeapObjectId),
-    Program(ModuleKey),
-}
-
-struct MarkedGraph {
-    nodes: Vec<Node>,
-    metadata: MetadataLive,
-}
+// One domain's batch is completely disposed before the next is detached.
+const RETIRE_BATCH: usize = 32;
 
 impl GcHeap {
     pub(super) fn trace_values(&self, values: &[Value]) -> Option<Vec<HeapObjectId>> {
@@ -32,13 +22,12 @@ impl GcHeap {
         }
         let interfaces = self.interfaces.try_borrow().ok()?;
         let objects = self.objects.try_borrow().ok()?;
-        let mut workspace = self.native_scan_workspace.try_borrow_mut().ok()?;
         let mut pending = Vec::new();
         let mut edges = values.iter().rev().copied().collect();
         append_value_edges(&mut edges, &mut pending);
         collector::mark(pending, |id, pending| {
             let object = self.object_ref(&objects, id)?;
-            object.trace(&interfaces, &mut workspace, &mut |value| edges.push(value))?;
+            object.inspect(&interfaces, &mut |value| edges.push(value))?;
             if self.resources.is_quarantined() {
                 return None;
             }
@@ -47,257 +36,263 @@ impl GcHeap {
         })
     }
 
-    /// Mark before detaching any storage. Native tracing/destruction cannot
-    /// reenter execution, allocate or mutate the graph during this operation.
+    /// Drain the sole marker synchronously. Each owner uses the same finite slice
+    /// protocol exercised by test-only mutator interleaving; PG05 owns scheduling.
     pub(crate) fn collect(
         &self,
         modules: &ModuleStore,
-        additional_roots: &[Value],
+        host: &HostRegistry,
     ) -> Result<GcCollection, RuntimeError> {
-        self.resources
-            .collect_operation(|| self.collect_inner(modules, additional_roots))?
-            .ok_or_else(|| {
-                self.resources
-                    .quarantine("invalid or borrowed storage in collection graph")
-            })
-    }
-
-    // Only successful take creates these inert native identities. All public
-    // publication/access validation still uses validate_value and rejects them.
-    fn collection_value_valid(&self, value: &Value) -> bool {
-        if let Value::GcHandle(id) = value
-            && self
-                .moved
-                .try_borrow()
-                .is_ok_and(|moved| moved.contains(id))
-        {
-            return true;
-        }
-        self.validate_value(value)
-    }
-
-    fn trace_graph(&self, programs: &ProgramGraph<'_>, values: &[Value]) -> Option<MarkedGraph> {
-        if !values
-            .iter()
-            .all(|value| self.collection_value_valid(value))
-        {
-            return None;
-        }
-        let objects = self.objects.try_borrow().ok()?;
-        let mut workspace = self.native_scan_workspace.try_borrow_mut().ok()?;
-        let metadata_roots = self.metadata_snapshots()?;
-        let groups = self.operation_groups.try_borrow().ok()?;
-        let applications = self.applications.try_borrow().ok()?;
-        let interfaces = self.interfaces.try_borrow().ok()?;
-        let environments = self.environments.try_borrow().ok()?;
-        let mut metadata = MetadataTrace::new(&environments, &groups, &applications, &interfaces);
-        let mut pending = programs
-            .roots()
-            .into_iter()
-            .map(Node::Program)
-            .collect::<Vec<_>>();
-        for root in &metadata_roots {
-            metadata.programs(root.edge(), |owner| {
-                pending.push(Node::Program(programs.executable_edge(owner)?));
-                Some(())
-            })?;
-        }
-        let mut edges = values.iter().rev().copied().collect();
-        metadata.append_values(&mut edges);
-        if !edges.iter().all(|value| self.collection_value_valid(value)) {
-            return None;
-        }
-        let mut object_edges = Vec::new();
-        append_value_edges(&mut edges, &mut object_edges);
-        pending.extend(object_edges.drain(..).map(Node::Object));
-        let live = collector::mark(pending, |node, pending| {
-            match node {
-                Node::Object(id) => {
-                    if self.moved.try_borrow().ok()?.contains(&id) {
-                        return Some(());
-                    }
-                    let object = self.object_ref(&objects, id)?;
-                    object.trace(&interfaces, &mut workspace, &mut |value| edges.push(value))?;
-                    if let Some(edge) = object.metadata() {
-                        metadata.programs(edge, |owner| {
-                            pending.push(Node::Program(programs.executable_edge(owner)?));
-                            Some(())
-                        })?;
-                    }
-                }
-                Node::Program(id) => {
-                    let mut applications = Vec::new();
-                    programs.trace(id, &mut |value| edges.push(*value), &mut applications)?;
-                    for edge in applications {
-                        metadata.programs(edge, |owner| {
-                            pending.push(Node::Program(programs.executable_edge(owner)?));
-                            Some(())
-                        })?;
-                    }
-                }
-            }
-            if self.resources.is_quarantined() {
-                return None;
-            }
-            metadata.append_values(&mut edges);
-            if !edges.iter().all(|value| self.collection_value_valid(value)) {
-                return None;
-            }
-            append_value_edges(&mut edges, &mut object_edges);
-            pending.extend(object_edges.drain(..).map(Node::Object));
-            Some(())
-        })?;
-        Some(MarkedGraph {
-            nodes: live,
-            metadata: metadata.into_live_records(),
-        })
-    }
-
-    fn collect_inner(
-        &self,
-        modules: &ModuleStore,
-        additional_roots: &[Value],
-    ) -> Option<GcCollection> {
         let started = Instant::now();
-        let mut programs = modules.collection_graph()?;
-        let mut values = self.root_snapshots()?;
-        values.extend_from_slice(additional_roots);
-        let mut live = HashSet::new();
-        let mut live_programs = HashSet::new();
-        let mut live_moved = HashSet::new();
-        let graph = self.trace_graph(&programs, &values)?;
-        for node in graph.nodes {
-            match node {
-                Node::Object(id) => {
-                    if self.moved.try_borrow().ok()?.contains(&id) {
-                        live_moved.insert(id);
-                    } else {
-                        live.insert(id);
+        let mut programs = modules.begin_collection();
+        let result = (|| {
+            let mut roots = self.begin_initial_roots(modules, host)?;
+            while self.scan_initial_root_slice(
+                modules,
+                host,
+                &mut roots,
+                &mut ScanBudget::new(usize::MAX),
+            )? == ScanStatus::Pending
+            {}
+            self.drain_graph_work(modules)?;
+            self.resources.collect_operation(|| {
+                self.graph.try_lock()?.close_mark()?;
+                self.sweep_closed(&mut programs, started).ok_or_else(|| {
+                    RuntimeError::module_validation("invalid closed graph retirement")
+                })
+            })?
+        })();
+        if result.is_err() {
+            if let Ok(mut graph) = self.graph.try_lock() {
+                graph.fault();
+            }
+            return Err(self.resources.quarantine("collection graph failed"));
+        }
+        result
+    }
+
+    /// No store borrow spans destruction. A panic quarantines execution but does
+    /// not abandon other detached records or leave their accounting outstanding.
+    fn dispose_batches<T>(
+        &self,
+        mut detach: impl FnMut(&mut usize, usize) -> Vec<T>,
+        release_credits: bool,
+        panic_message: &'static str,
+    ) -> usize {
+        let mut cursor = 0;
+        let mut count = 0;
+        loop {
+            let retired = detach(&mut cursor, RETIRE_BATCH);
+            if retired.is_empty() {
+                return count;
+            }
+            assert!(retired.len() <= RETIRE_BATCH);
+            count += retired.len();
+            {
+                let mut graph = self.graph.lock();
+                graph.observe_retirement(retired.len());
+                if release_credits {
+                    for _ in 0..retired.len() {
+                        graph.retire_prepared();
                     }
                 }
-                Node::Program(id) => {
-                    live_programs.insert(id);
+            }
+            for record in retired {
+                if catch_unwind(AssertUnwindSafe(|| drop(record))).is_err() {
+                    self.resources.quarantine(panic_message);
                 }
             }
         }
-        // Read committed runtime charges before detaching. No provider size hooks.
-        let (dead, dead_units, mut reclaimed_retained_bytes) = {
-            let objects = self.objects.try_borrow().ok()?;
-            let mut dead = Vec::new();
-            let mut units = 0usize;
-            let mut bytes = 0u128;
-            for index in objects.occupied_directories() {
-                let slot = objects.slots.get(index)?;
-                let location = slot.location()?;
-                let id = HeapObjectId::new(self.owner, index, slot.generation);
-                if !live.contains(&id) {
-                    let charge = objects
-                        .get(location, &self.interfaces)?
-                        .charge(&self.interfaces)?;
-                    units = units.checked_add(charge.logical_units)?;
-                    bytes = bytes.checked_add(charge.retained_bytes as u128)?;
-                    dead.push(index);
-                }
-            }
-            (dead, units, bytes)
-        };
+    }
+
+    fn sweep_closed(
+        &self,
+        programs: &mut ModuleSweep<'_>,
+        started: Instant,
+    ) -> Option<GcCollection> {
         if self.resources.is_quarantined() {
             return None;
         }
-        let dead_programs = programs.prepare_sweep(&live_programs);
-        let mut groups = self.operation_groups.try_borrow_mut().ok()?;
-        let mut applications = self.applications.try_borrow_mut().ok()?;
-        let mut interfaces = self.interfaces.try_borrow_mut().ok()?;
-        let mut environments = self.environments.try_borrow_mut().ok()?;
-        let mut moved = self.moved.try_borrow_mut().ok()?;
-        let retired_identities = moved.len() - live_moved.len();
-        let reclaimed_objects = dead.len();
-        let reclaimed_units = dead_units.checked_add(retired_identities)?;
+        let mut dead_programs = programs.prepare_sweep()?;
+        // Preflight every storage borrow before the first irreversible detach.
+        let groups = self.operation_groups.try_borrow_mut().ok()?;
+        let applications = self.applications.try_borrow_mut().ok()?;
+        let interfaces = self.interfaces.try_borrow_mut().ok()?;
+        let environments = self.environments.try_borrow_mut().ok()?;
+        let native = self.native_applications.try_borrow_mut().ok()?;
+        let calls = self.interface_calls.try_borrow_mut().ok()?;
+        let descriptions = self.interface_descriptions.try_borrow_mut().ok()?;
+        let mut objects = self.objects.try_borrow_mut().ok()?;
+        let moved = self.moved.try_borrow_mut().ok()?;
+        let retired_identities = {
+            let graph = self.graph.lock();
+            moved
+                .values()
+                .filter(|mark| !graph.is_survivor(*mark).expect("closed moved marks"))
+                .count()
+        };
+        let counters = self.resources.counters();
+        objects.begin_physical_sweep(
+            &self.graph.lock(),
+            counters
+                .current_heap_units
+                .checked_sub(retired_identities)?,
+            counters.current_retained_bytes,
+        )?;
 
-        // Temporary synchronous dead-list adapter; PG05 replaces this driver with
-        // bounded sweep. Reserve all orchestration before detaching any identity.
-        let retired = self
-            .objects
-            .try_borrow_mut()
-            .ok()?
-            .detach_many(self.owner, &dead)?;
-        self.resources.release_heap_totals(
-            reclaimed_units - retired_identities,
-            reclaimed_retained_bytes,
-        );
-        drop(dead);
+        drop((
+            groups,
+            applications,
+            interfaces,
+            environments,
+            native,
+            calls,
+            descriptions,
+            objects,
+            moved,
+        ));
+        self.graph.lock().begin_retirement();
+        // The physical owner prepares/consumes charges once and retains progress.
+        // Production still drains synchronously; PG05 owns driver interleaving.
+        let mut released_backing = 0u128;
+        loop {
+            let batch = self.objects.borrow_mut().sweep_batch(
+                self.owner,
+                &self.interfaces,
+                &mut self.graph.lock(),
+                &mut ScanBudget::new(1024),
+            )?;
+            let complete = batch.complete;
+            released_backing += self.dispose_sweep_batch(batch) as u128;
+            if complete {
+                break;
+            }
+        }
+        let totals = self.objects.borrow_mut().finish_physical_sweep()?;
+        let reclaimed_objects = totals.objects;
+        let reclaimed_units = totals.units.checked_add(retired_identities)?;
+        let reclaimed_retained_bytes = totals.bytes.checked_add(released_backing)?;
+        let live_objects = totals.live;
         self.objects.borrow_mut().retire_wrappers();
-        moved.retain(|id| live_moved.contains(id));
+        {
+            let mut moved = self.moved.borrow_mut();
+            let mut graph = self.graph.lock();
+            moved.retain(|_, mark| {
+                if graph.is_survivor(mark).expect("closed moved marks") {
+                    return true;
+                }
+                graph.can_retire(mark).expect("closed moved work");
+                graph.retire_prepared();
+                false
+            });
+        }
         self.resources
             .release_heap_charge(HeapCharge::new(retired_identities, 0));
-        drop(moved);
-        let retired_groups = groups.detach(&graph.metadata.groups);
-        let reclaimed_operation_groups = retired_groups.len();
-        let retired_applications = applications.detach(&graph.metadata.applications);
-        let reclaimed_method_applications = retired_applications.len();
-        let retired_interfaces = interfaces.detach(&graph.metadata.interfaces);
-        let reclaimed_interface_snapshots = retired_interfaces.len();
-        let retired_environments = environments.detach(&graph.metadata.environments);
-        let reclaimed_environments = retired_environments.len();
-        drop(environments);
-        drop(interfaces);
-        drop(applications);
-        drop(groups);
-        let retired_modules = programs.detach(dead_programs);
-        let reclaimed_modules = retired_modules.iter().map(|module| module.key).collect();
-        drop(programs);
-
+        let reclaimed_operation_groups = self.dispose_batches(
+            |cursor, limit| {
+                let graph = self.graph.lock();
+                self.operation_groups
+                    .borrow_mut()
+                    .detach_batch(cursor, limit, |mark| {
+                        graph.is_survivor(mark).expect("closed metadata marks")
+                    })
+            },
+            true,
+            "operation group destruction panicked",
+        );
+        let reclaimed_method_applications = self.dispose_batches(
+            |cursor, limit| {
+                let graph = self.graph.lock();
+                self.applications
+                    .borrow_mut()
+                    .detach_batch(cursor, limit, |mark| {
+                        graph.is_survivor(mark).expect("closed metadata marks")
+                    })
+            },
+            true,
+            "method application destruction panicked",
+        );
+        let reclaimed_interface_snapshots = self.dispose_batches(
+            |cursor, limit| {
+                let graph = self.graph.lock();
+                self.interfaces
+                    .borrow_mut()
+                    .detach_batch(cursor, limit, |mark| {
+                        graph.is_survivor(mark).expect("closed metadata marks")
+                    })
+            },
+            true,
+            "interface metadata destruction panicked",
+        );
+        let reclaimed_environments = self.dispose_batches(
+            |cursor, limit| {
+                let graph = self.graph.lock();
+                self.environments
+                    .borrow_mut()
+                    .detach_batch(cursor, limit, |mark| {
+                        graph.is_survivor(mark).expect("closed metadata marks")
+                    })
+            },
+            true,
+            "environment metadata destruction panicked",
+        );
+        let mut reclaimed_modules = Vec::new();
+        self.dispose_batches(
+            |_, limit| {
+                let retired = programs.detach_program_batch(&mut dead_programs, limit);
+                reclaimed_modules.extend(retired.iter().map(|record| record.key));
+                retired
+            },
+            false,
+            "module metadata destruction panicked",
+        );
+        self.dispose_batches(
+            |_, limit| programs.detach_cell_batch(&mut dead_programs, limit),
+            false,
+            "static cell destruction panicked",
+        );
+        programs.finish(dead_programs);
+        #[cfg(feature = "execution-diagnostics")]
+        programs.record_storage_usage();
         self.roots.borrow_mut().drain_released();
-        // Destructors run with no storage-table borrow. Finish disposal even when
-        // one panics; the execution gate keeps the affected runtime quarantined.
-        for payload in retired.payloads {
-            reclaimed_retained_bytes += self.dispose_payload(payload) as u128;
+        self.objects.borrow_mut().prune(live_objects);
+        self.dispose_batches(
+            |cursor, limit| {
+                self.native_applications.borrow_mut().detach_batch(
+                    cursor,
+                    limit,
+                    &mut self.graph.lock(),
+                )
+            },
+            false,
+            "native application destruction panicked",
+        );
+        self.dispose_batches(
+            |cursor, limit| {
+                self.interface_calls.borrow_mut().detach_batch(
+                    cursor,
+                    limit,
+                    &mut self.graph.lock(),
+                )
+            },
+            false,
+            "interface call destruction panicked",
+        );
+        self.dispose_batches(
+            |cursor, limit| {
+                self.interface_descriptions.borrow_mut().detach_batch(
+                    cursor,
+                    limit,
+                    &mut self.graph.lock(),
+                )
+            },
+            false,
+            "interface description destruction panicked",
+        );
+        if self.resources.is_quarantined() {
+            return None;
         }
-        for mut page in retired.pages {
-            page.dispose(|| {
-                self.resources
-                    .quarantine("native payload destruction panicked");
-            });
-            let released = self.objects.borrow_mut().finish_page(&page);
-            if page.release() {
-                self.resources
-                    .quarantine("representation owner destruction panicked");
-            }
-            self.resources
-                .release_heap_charge(HeapCharge::new(0, released));
-            reclaimed_retained_bytes += released as u128;
-        }
-        self.objects.borrow_mut().prune(live.len());
-        for group in retired_groups {
-            if catch_unwind(AssertUnwindSafe(|| drop(group))).is_err() {
-                self.resources
-                    .quarantine("operation group destruction panicked");
-            }
-        }
-        for application in retired_applications {
-            if catch_unwind(AssertUnwindSafe(|| drop(application))).is_err() {
-                self.resources
-                    .quarantine("method application destruction panicked");
-            }
-        }
-        for interface in retired_interfaces {
-            if catch_unwind(AssertUnwindSafe(|| drop(interface))).is_err() {
-                self.resources
-                    .quarantine("interface metadata destruction panicked");
-            }
-        }
-        for environment in retired_environments {
-            if catch_unwind(AssertUnwindSafe(|| drop(environment))).is_err() {
-                self.resources
-                    .quarantine("environment metadata destruction panicked");
-            }
-        }
-        for module in retired_modules {
-            if catch_unwind(AssertUnwindSafe(|| drop(module))).is_err() {
-                self.resources
-                    .quarantine("module metadata destruction panicked");
-            }
-        }
+        self.graph.try_lock().ok()?.finish_sweep().ok()?;
         self.interfaces.borrow_mut().prune_descriptions();
         self.struct_layouts.borrow_mut().prune();
         self.native_operations.prune();
@@ -311,10 +306,10 @@ impl GcHeap {
             self.resources
                 .counters()
                 .current_heap_units
-                .saturating_add(graph.metadata.groups.len())
-                .saturating_add(graph.metadata.applications.len())
-                .saturating_add(graph.metadata.interfaces.len())
-                .saturating_add(graph.metadata.environments.len())
+                .saturating_add(self.operation_groups.borrow().count())
+                .saturating_add(self.applications.borrow().count())
+                .saturating_add(self.interfaces.borrow().count())
+                .saturating_add(self.environments.borrow().count())
                 .saturating_mul(2)
                 .max(self.config.collection_threshold.unwrap_or(usize::MAX))
                 .max(1),
@@ -335,7 +330,7 @@ impl GcHeap {
             reclaimed_objects,
             reclaimed_units,
             reclaimed_retained_bytes,
-            live_objects: live.len(),
+            live_objects,
             pause,
         })
     }

@@ -134,7 +134,10 @@ fn nominal_type_origins_keep_bindings_without_retaining_execution_parents() {
         .unwrap()
         .pop()
         .unwrap();
-    let group = runtime.gc.alloc_operation_group(vec![]).unwrap();
+    let group = runtime
+        .gc
+        .alloc_operation_group(runtime.modules(), vec![])
+        .unwrap();
     let mut parent = EnvironmentRecord::new(
         runtime.definition_context(),
         vec![parameter.clone()],

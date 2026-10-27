@@ -66,9 +66,6 @@ fn execute_primitive(
     runtime.resources().poll_execution()?;
     let value = result.map_err(RegionError::Runtime)?;
     if let Some(destination) = destination {
-        if !runtime.gc().validate_value(&value) {
-            return Err(invalid_operand(runtime).into());
-        }
         values
             .write_location(destination, value)
             .ok_or_else(|| invalid_operand(runtime))?;

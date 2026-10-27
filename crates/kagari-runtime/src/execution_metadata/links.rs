@@ -51,6 +51,7 @@ impl Runtime {
         let invalid = || RuntimeError::module_validation("invalid parent interface cache");
         let view = self.gc.interface_metadata(owner).ok_or_else(invalid)?;
         let parent = view.parent_views.get(slot).ok_or_else(invalid)?;
+        self.publish_metadata_edge(MetadataEdge::Interface(prepared))?;
         parent.0.set(prepared).map_err(|_| invalid())
     }
 
@@ -82,6 +83,9 @@ impl Runtime {
             })
         {
             return Err(invalid());
+        }
+        if let Some(group) = prepared {
+            self.publish_metadata_edge(MetadataEdge::Group(group))?;
         }
         // Validate both cells before either write; no callback or safepoint can
         // intervene. None caches successful preparation with no required group.

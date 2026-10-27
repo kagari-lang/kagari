@@ -1,9 +1,10 @@
 //! Fixed storage controls, distinct from full owned-session lifecycle measurements.
-use super::module;
+use super::{TestFrameMetadata, module};
 use crate::{
+    Runtime,
     frame::{
         arguments::FrameArguments,
-        values::{ExecutionValues, FrameMetadata, FrameSlots},
+        values::{ExecutionValues, FrameSlots},
     },
     module::{
         ExecutableModule,
@@ -86,13 +87,19 @@ impl Control {
         }
     }
 
-    fn allocate(&self, values: &mut ExecutionValues, module: &ExecutableModule) -> FrameSlots {
+    fn allocate(
+        &self,
+        runtime: &Runtime,
+        values: &mut ExecutionValues,
+        module: &ExecutableModule,
+    ) -> FrameSlots {
         values
-            .allocate(
+            .allocate_test(
+                runtime,
                 self.width,
                 &(0..self.arguments.len()).collect::<Vec<_>>(),
                 &FrameArguments::plain(&self.arguments),
-                FrameMetadata {
+                TestFrameMetadata {
                     program: module.clone(),
                     environment: None,
                     invocation: None,
@@ -104,17 +111,19 @@ impl Control {
 
     fn fill(
         &self,
+        runtime: &Runtime,
         values: &mut ExecutionValues,
         module: &ExecutableModule,
         slots: &mut Vec<FrameSlots>,
     ) {
         for _ in 0..self.depth {
-            slots.push(self.allocate(values, module));
+            slots.push(self.allocate(runtime, values, module));
         }
     }
 
     fn fragment(
         &self,
+        runtime: &Runtime,
         values: &mut ExecutionValues,
         module: &ExecutableModule,
         slots: &mut [FrameSlots],
@@ -123,7 +132,7 @@ impl Control {
             values.release(slots[index]).unwrap();
         }
         for index in (0..self.depth).step_by(2) {
-            slots[index] = self.allocate(values, module);
+            slots[index] = self.allocate(runtime, values, module);
         }
     }
 
@@ -143,7 +152,7 @@ impl Control {
 #[ignore = "manual release-profile storage timing; never run concurrently with builds or diagnostics"]
 #[cfg(not(feature = "execution-diagnostics"))]
 fn window_storage_timing() {
-    let (_runtime, _program, module) = module();
+    let (runtime, _program, module) = module();
     for (depth, width, order) in CASES {
         let control = Control::new(depth, width, order);
         let mut values = ExecutionValues::default();
@@ -152,14 +161,14 @@ fn window_storage_timing() {
             let mut totals = [0_u128; 3];
             for _ in 0..32 {
                 let started = Instant::now();
-                control.fill(&mut values, &module, &mut slots);
+                control.fill(&runtime, &mut values, &module, &mut slots);
                 totals[0] += started.elapsed().as_nanos();
                 let started = Instant::now();
                 control.retire(&mut values, &mut slots);
                 totals[1] += started.elapsed().as_nanos();
-                control.fill(&mut values, &module, &mut slots);
+                control.fill(&runtime, &mut values, &module, &mut slots);
                 let started = Instant::now();
-                control.fragment(&mut values, &module, &mut slots);
+                control.fragment(&runtime, &mut values, &module, &mut slots);
                 totals[2] += started.elapsed().as_nanos();
                 control.retire(&mut values, &mut slots);
             }
@@ -179,7 +188,7 @@ fn window_storage_timing() {
 #[ignore = "manual allocation/transition counts, not throughput"]
 #[cfg(feature = "execution-diagnostics")]
 fn window_storage_counts() {
-    let (_runtime, _program, module) = module();
+    let (runtime, _program, module) = module();
     for (depth, width, order) in CASES {
         let control = Control::new(depth, width, order);
         let mut slots = Vec::with_capacity(depth);
@@ -191,9 +200,9 @@ fn window_storage_counts() {
                     allocations::Counts::default(),
                 ); 3];
                 for phase in &mut phases {
-                    control.fill(&mut values, &module, &mut slots);
+                    control.fill(&runtime, &mut values, &module, &mut slots);
                     phase.0 = allocations::current().unwrap();
-                    control.fragment(&mut values, &module, &mut slots);
+                    control.fragment(&runtime, &mut values, &module, &mut slots);
                     control.retire(&mut values, &mut slots);
                     phase.1 = allocations::current().unwrap();
                 }

@@ -2,10 +2,11 @@
 #[cfg(feature = "execution-diagnostics")]
 use crate::diagnostics::{self, Event};
 
+#[cfg(test)]
+use crate::frame::{arguments::ArgumentSource, values::ExecutionValues};
 use crate::{
     Runtime,
     error::RuntimeError,
-    execution_metadata::MetadataRoot,
     frame::{
         ExecutionFrame, ExecutionStack, FrameDispatch, FrameEntry, NativeEntryState,
         ReturnDestination, arguments::FrameArguments, driver::ExecutionAction,
@@ -14,6 +15,98 @@ use crate::{
     module::ExecutableModule,
 };
 use kagari_bytecode::{instruction::Slot, module::CallableTarget};
+
+/// Publication belongs to this exact argument list and one internal preparation
+/// interval. Only frame entry constructs it in production, and allocation consumes
+/// it before static entry or any callback. No source bank or heap borrow is retained.
+/// Candidate scanners cannot reenter/mutate, and successful depth polling, linking,
+/// reservation and metadata publication neither advance GC nor change arguments.
+/// Early shading may conservatively retain targets if later preparation fails.
+/// It is not reusable validity evidence for another operation or argument list.
+pub(super) struct ArgumentPublication<'args> {
+    arguments: FrameArguments<'args>,
+    heap_valid: bool,
+    publication: Result<(), RuntimeError>,
+}
+
+impl<'args> ArgumentPublication<'args> {
+    fn new(runtime: &Runtime, arguments: FrameArguments<'args>) -> Result<Self, RuntimeError> {
+        let heap = runtime.gc();
+        let mut heap_valid = true;
+        let mut publication = Ok(());
+        if !arguments.all_managed(runtime, |value| {
+            if !heap.validate_candidate_value(value) {
+                return false;
+            }
+            // Keep checking candidate membership and source windows after any
+            // failure. Heap errors retain their earlier boundary; graph errors
+            // remain deferred until after metadata and bank preparation.
+            if heap_valid {
+                if publication.is_ok() {
+                    if let Err(error) = heap.publish_value(*value) {
+                        // The successful path resolves once. Only a failed
+                        // publication needs to distinguish invalid identity from
+                        // a graph failure without classifying error messages.
+                        heap_valid = heap.validate_value(value);
+                        publication = Err(error);
+                    }
+                } else {
+                    heap_valid = heap.validate_value(value);
+                }
+            }
+            true
+        })? {
+            return Err(RuntimeError::execution_phase_violation(
+                "external object in candidate call arguments",
+            ));
+        }
+        Ok(Self {
+            arguments,
+            heap_valid,
+            publication,
+        })
+    }
+
+    pub(super) fn arguments(&self) -> FrameArguments<'args> {
+        self.arguments
+    }
+
+    pub(super) fn finish(self) -> Result<(), RuntimeError> {
+        self.publication
+    }
+
+    #[cfg(test)]
+    pub(super) fn for_test(
+        runtime: &Runtime,
+        values: &ExecutionValues,
+        arguments: FrameArguments<'args>,
+    ) -> Result<Self, RuntimeError> {
+        // Bank fixtures also exercise standalone ExecutionValues. Resolve their
+        // exact source owner rather than borrowing the runtime's unrelated bank.
+        let operands = arguments.window().map(|slots| values.read_operands(slots));
+        let mut publication = Ok(());
+        for argument in arguments.iter() {
+            let value = match argument {
+                ArgumentSource::Value(value) => *value,
+                ArgumentSource::Window(location) if location.operand.scalar().is_some() => continue,
+                ArgumentSource::Window(location) => operands
+                    .as_ref()
+                    .and_then(Option::as_ref)
+                    .and_then(|operands| operands.with_value(location, |value| *value))
+                    .ok_or_else(|| RuntimeError::module_validation("invalid argument window"))?,
+            };
+            publication = runtime.gc().publish_value(value);
+            if publication.is_err() {
+                break;
+            }
+        }
+        Ok(Self {
+            arguments,
+            heap_valid: publication.is_ok(),
+            publication,
+        })
+    }
+}
 
 impl ExecutionStack<'_> {
     /// Reuse a checked stack only across internal preparation without callbacks.
@@ -47,20 +140,7 @@ impl ExecutionStack<'_> {
         }
         let heap = runtime.gc();
         let resources = runtime.resources();
-        let mut heap_arguments_valid = true;
-        if !args.all_managed(runtime, |value| {
-            if !heap.validate_candidate_value(value) {
-                return false;
-            }
-            // Heap rejection is deferred. Even after it fails, finish checking
-            // candidate membership and source windows in their original order.
-            heap_arguments_valid = heap_arguments_valid && heap.validate_value(value);
-            true
-        })? {
-            return Err(RuntimeError::execution_phase_violation(
-                "external object in candidate call arguments",
-            ));
-        }
+        let arguments = ArgumentPublication::new(runtime, args)?;
         if loaded
             .execution()
             .callee(target)
@@ -151,47 +231,51 @@ impl ExecutionStack<'_> {
             let slot_layout = Some(callee.slot_layout.clone());
 
             heap.ensure_execution_allowed()?;
-            if !heap_arguments_valid {
+            if !arguments.heap_valid {
                 return Err(RuntimeError::module_validation("invalid heap argument"));
             }
-            runtime.validate_metadata(MetadataRoot::Program(loaded.clone()).edge())?;
-            if let Some(environment) = &environment {
-                runtime.validate_environment(environment.id)?;
-            }
-            let links = match target {
-                CallableTarget::Script(function)
-                    if loaded.execution().functions[function.index()].needs_runtime_links() =>
-                {
-                    Some(
-                        runtime
-                            .modules
-                            .linked_function(
-                                &loaded,
-                                function,
-                                environment.as_ref().map(|scope| scope.id),
-                            )
-                            .ok_or_else(|| {
-                                RuntimeError::module_validation("missing linked function execution")
-                            })?,
-                    )
+            let (slots, links) = runtime.with_frame_admission(&loaded, |program| {
+                if let Some(environment) = &environment {
+                    runtime.validate_environment(environment.id)?;
                 }
-                _ => None,
-            };
-            let slots = resources
-                .frame_values
-                .try_borrow_mut()
-                .map_err(|_| resources.quarantine("execution slots borrowed during frame entry"))?
-                .allocate(
-                    slot_count,
-                    parameter_slots,
-                    &args,
-                    FrameMetadata {
-                        program: loaded.clone(),
-                        environment: environment.clone(),
-                        invocation,
-                    },
-                    slot_layout.clone(),
-                )?;
+                let links = match target {
+                    CallableTarget::Script(function)
+                        if loaded.execution().functions[function.index()].needs_runtime_links() =>
+                    {
+                        Some(
+                            program
+                                .linked_function(
+                                    function,
+                                    environment.as_ref().map(|scope| scope.id),
+                                )
+                                .ok_or_else(|| {
+                                    RuntimeError::module_validation(
+                                        "missing linked function execution",
+                                    )
+                                })?,
+                        )
+                    }
+                    _ => None,
+                };
+                let slots = resources
+                    .frame_values
+                    .try_borrow_mut()
+                    .map_err(|_| {
+                        resources.quarantine("execution slots borrowed during frame entry")
+                    })?
+                    .allocate_published(
+                        slot_count,
+                        parameter_slots,
+                        arguments,
+                        FrameMetadata {
+                            program,
+                            environment: environment.clone(),
+                            invocation,
+                        },
+                        slot_layout.clone(),
+                    )?;
+                Ok((slots, links))
+            })?;
             Ok((
                 ExecutionFrame {
                     links,

@@ -177,7 +177,13 @@ impl ExecutionStack<'_> {
                                 .resources()
                                 .quarantine("field operands borrowed during publication")
                         })?
-                        .set_scalar_location(frame.slots, dst, dst.representation, bits)
+                        .set_scalar_location(
+                            &runtime.gc,
+                            frame.slots,
+                            dst,
+                            dst.representation,
+                            bits,
+                        )
                         .ok_or_else(|| {
                             runtime.resources().quarantine("invalid field destination")
                         })?;
@@ -223,9 +229,7 @@ impl ExecutionStack<'_> {
                     .quarantine("field access contract mismatch")
                     .into());
             };
-            if !runtime.gc().validate_value(&value) {
-                return Err(runtime.resources().quarantine("invalid field value").into());
-            }
+
             runtime
                 .resources()
                 .frame_values
@@ -235,7 +239,7 @@ impl ExecutionStack<'_> {
                         .resources()
                         .quarantine("field operands borrowed during publication")
                 })?
-                .set_location(frame.slots, dst, value)
+                .set_location(&runtime.gc, frame.slots, dst, value)
                 .ok_or_else(|| runtime.resources().quarantine("invalid field destination"))?;
         }
         drop(result_root);

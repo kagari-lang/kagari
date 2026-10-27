@@ -1,6 +1,6 @@
 //! Checked executable selections and their generic invocation metadata.
 use crate::{
-    execution_metadata::applications::ApplicationId,
+    execution_metadata::{MetadataEdge, applications::ApplicationId},
     frame::types::{TypeEnvironment, compatibility::TypeIdentity},
     gc::interfaces::InterfaceResultBinding,
     module::ExecutableModule,
@@ -38,6 +38,21 @@ pub(crate) struct BoundGenericMethod {
 }
 
 impl BoundOperation {
+    pub(crate) fn scan_field(&self, field: usize) -> Option<MetadataEdge<'_>> {
+        match field {
+            0 => Some(MetadataEdge::Program(&self.owner)),
+            1 => self.application.map(MetadataEdge::Application),
+            2 | 3 => self.generic.as_ref()?.receiver_table.scan_field(field - 2),
+            4 => self
+                .generic
+                .as_ref()?
+                .receiver_environment
+                .as_ref()
+                .map(|environment| MetadataEdge::Environment(environment.id)),
+            _ => None,
+        }
+    }
+
     pub(crate) fn matches_requirement(&self, required: &NativeCallableRequirement) -> bool {
         self.requirement.receiver == required.receiver
             && self.requirement.member == required.member

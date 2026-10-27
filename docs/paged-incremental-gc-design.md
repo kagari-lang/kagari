@@ -6,9 +6,12 @@ are locally complete (`47be3cb7`). PG01/NC02 is locally complete after coordinat
 review and focused/final local validation (commit `fc651b92`). PG02 nonmoving
 inline storage is locally complete; focused tests, Miri, memory probes and final
 local checks are recorded below (PG02 commit `4d8aa0c1`). PG03/NC03-NC04 is
-locally complete in the worktree after final independent review, selected focused
-contracts, paired gates and parent local checks. PG04 is next; incremental GC and
-full CI are not established by the synchronous PG03 measurements.
+locally complete and committed at `8d597b93` after final independent review,
+selected focused contracts, paired gates and parent local checks. PG04 is locally
+complete, pending commit, after parent acceptance of final Map/arrays paired gates,
+scoped reuse of unaffected timing/memory evidence, repaired review blockers and final
+local checks. Production marking and physical sweep remain synchronously drained.
+PG05/NC05 is next; PG06/NC06 and full CI remain outstanding.
 Initial implementation parameters remain selected policy, not measured optima or
 acceptance of future performance gates. The execution breakdown
 was originally recorded against `bb836eff`, following the design at `8c2a4568`.
@@ -31,8 +34,9 @@ redesign. PG phases reference NC handoffs, not duplicate NC completion records.
 Migration authorization does not waive phase dependencies or baseline acceptance.
 NC01's provider, collection representation and evidence decisions are selected;
 the general provider and collection proofs are locally accepted through PG03/NC04.
-Incremental proofs remain with PG04-PG06/NC05-NC06. PG00-PG03 and NC01-NC04 are
-closed locally; full-workspace/feature/backend/platform CI remains unrun.
+Production interleaving and joint incremental acceptance remain with PG05-PG06/
+NC05-NC06. PG00-PG04 and NC01-NC04 are closed locally; full-workspace/feature/backend/
+platform CI remains unrun.
 
 ## Goals and scope
 
@@ -67,15 +71,17 @@ remain separate work.
 At activation, the [heap](../crates/kagari-runtime/src/gc.rs) owned a checked object
 directory, dense typed payload stores, roots, executable metadata stores, operation
 leases, pressure state and collection-specific descriptor caches. The
-[marker](../crates/kagari-runtime/src/gc/collector.rs) completes its worklist in one
-operation. [Collection](../crates/kagari-runtime/src/gc/collection.rs) builds the
-validated live graph and dead-object inventory, detaches storage, then disposes it.
-PG02 [directory storage](../crates/kagari-runtime/src/gc/directory.rs) now uses
-nonmoving slabs/large allocations and actual inline native/struct payloads instead
-of compacting dense stores and packed struct bytes. The synchronous marker and
-dead-list lifecycle remain: simply yielding inside traversal would still allow
-mutations to hide reachable objects. PG04 owns epochs/publication and PG05 owns
-incremental sweep, including dead-list and interface-batch-filter removal.
+former marker completed a temporary worklist in one operation. PG04 now installs
+one [phase/epoch marker](../crates/kagari-runtime/src/gc/graph.rs) and owned scan
+cursors; [collection](../crates/kagari-runtime/src/gc/collection.rs) drains it
+synchronously before sweeping. The old collector helper remains for guarded trace
+inspection, not as a second production marker. PG02
+[directory storage](../crates/kagari-runtime/src/gc/directory.rs) supplies nonmoving
+slabs/large allocations and actual inline native/struct payloads. PG04 brings forward
+the 32-total detached-owner bound, but still builds the whole dead-ID inventory.
+PG05 owns incremental sweep, dead-list/interface-batch-filter removal and legal
+production interleaving. PG04's timing and singleton-static lifecycle blockers
+remain open in its ledger below.
 
 At activation, `sequence_storage`, `map_storage`, `set_storage` and `cursor_storage`
 were cached NativeStorage descriptors, not element buffers. PG03 removes those
@@ -237,7 +243,7 @@ SmallObjectPage
 
 Collector
     phase and collection epoch
-    admission-reserved, deduplicated pending node identities
+    admission-reserved, deduplicated owner-block jobs and singleton identities
     one active owned scan cursor
     root/metadata scan progress
     sweep progress
@@ -303,16 +309,18 @@ Current physical parameters after the PG02 measured correction (not measured opt
   edges that later mutation may introduce.
 - PG02 page side metadata owns occupied/retiring bitmaps, non-full/active-page links,
   directory back-references and numeric representation descriptor IDs. Allocation
-  does not search every page. The smallest class has 128 slots. Discovered/scanned
-  bits and epochs remain PG04 work; two future mark bitmaps would occupy at most
-  32 bytes per slab, not evidence that incremental marking already exists.
+  does not search every page. The smallest class has 128 slots. PG04 instead places
+  discovered/scanned bits in 128-slot blocks of the original identity stores, not
+  physical slabs. Two color bitmaps use 32 bytes per owner block, excluding its epoch,
+  registration/queued state and capacity; this is not total collector backing.
 - Release empty slab backing immediately after the last retired slot finishes
   disposal. Initially retain no empty-page cache. Keep page-index reuse separate
   from backing release. Partial-page fragmentation remains a measured cost; release
   to the Rust allocator is not proof of immediate RSS reduction.
 - A combined physical layout larger than 1024 bytes or aligned above 16 uses one
   separately tracked allocation with its exact checked Layout, descriptor, identity,
-  disposal state; incremental mark state remains PG04 work. Its compact control has
+  disposal state; PG04 resolves mark state through its original identity-store block.
+  Its compact control has
   no small-page slot array/bitmaps. There is no page-sized rounding requirement on this
   path. Owned container/String backing remains indirect payload-owned storage, not
   a GC object per element; a large Vec buffer does not make its small header large.
@@ -369,10 +377,11 @@ payload bytes are part of charged slab/large backing; indirect charge stays disj
 ### Mark information
 
 Discovered means reachable in this cycle; scanned means all required edges have
-been processed successfully. Use a checked u64 collection epoch. Small-page
-bitmaps initialize lazily on epoch mismatch; metadata records use owner-local
-epoch/color fields. Charge bitmap initialization as work; do not reset every page
-at cycle start. New/reused slots explicitly initialize their current-cycle state.
+been processed successfully. Use a checked u64 collection epoch. PG04's original-owner
+slot blocks hold discovered/scanned bitmaps and an epoch; non-reused static cells
+hold singleton epoch/color state. This supersedes the proposed physical-page/per-record
+placement. Blocks initialize lazily on epoch mismatch; charge their four-word
+bitmap reset as work, rather than resetting all blocks at cycle start. New/reused slots explicitly initialize their current-cycle state.
 Epoch increment never wraps: exhaustion fails before starting a new cycle, without
 sweeping or treating stale marks as current. No routine global reset is required.
 
@@ -925,20 +934,23 @@ A need not be rescanned merely to rediscover that one inserted edge.
 Validation and preparation precede irreversible commit, but recovery must not depend
 on a fresh queue allocation. Select an admission-reserved work-capacity contract:
 
-1. Every admitted traceable graph owner has one pending-work credit, including heap
-   objects, stable metadata owners, programs/static cells and inert moved identities.
-   Before exposing a new owner, reserve queue capacity for the increased admitted
-   population and any required shared active-cursor scratch. Failure rejects admission
-   before publication and preserves charges for successfully acquired retained backing.
-2. Select one private `Vec<GraphIdentity>` pending stack, with capacity at least N,
-   where N counts all admitted identities eligible for pending/active work, including
-   retired-but-uncleared identities. Check arithmetic and reserve N+1 before exposing
-   an additional identity in any phase. Only white-to-gray enqueues; the active owner
-   remains gray and repeated shading is a no-op. Thus `pending + active <= N`, even
-   when recovery shades every existing target. Popping/resuming uses the same credit;
-   no duplicate edge log or intrusive per-owner continuation is needed. Cancel/reconcile
-   work before releasing its credit or reusing an identity. Take reserves its independent
-   moved-ledger credit before releasing the physical object's credit.
+1. Every admitted traceable identity retains an identity credit and original-owner
+   mark, including heap objects, metadata, programs/statics and inert moved identities.
+   PG04 separates queue work credits from identity credits: each registered 128-slot
+   owner block and live singleton reserves one queue position before publication.
+   Failure rejects admission and preserves charges for acquired retained backing.
+2. PG04 supersedes the per-identity `Vec<GraphIdentity>` proposal with one private
+   pending Vec of `Group(WorkGroup)` or `Singleton(GraphIdentity)` jobs. A block's
+   queued bit deduplicates its job while gray identities remain represented by
+   discovered-minus-scanned bits. The driver resolves one current full identity at a
+   time from its original store and keeps one active cursor. Thus pending jobs are
+   bounded by work credits, and gray identities including the active owner by identity
+   credits; these are distinct bounds. Original-store generations remain authoritative,
+   with no second ID registry. An empty job left by take keeps its registered block
+   credit until resolved; moved identities use their own original-owner blocks.
+   Singleton retirement must release its credit exactly once. The static reload
+   lifecycle repair is still open in the PG04 ledger, so this is not a completed
+   proof of all release/reuse paths.
 3. Shading an already admitted valid target, including recovery-time restoration,
    cannot allocate, call provider code, or fail for work-queue capacity. Reserve checks
    occur at admission, not after a destructive move. Do not shrink reserved work
@@ -1276,7 +1288,7 @@ storage alone while keeping those privileged routes is not completion.
 | --- | --- |
 | NativePayload/storage registration and unrestricted payload read escape in [native/storage.rs](../crates/kagari-runtime/src/native/storage.rs) and Native access adapters | PG01/NC02: unsafe provider/read/edit boundary, retained extraction, dynamic accounting, operation protection and admission-reserved scan/publication services. External raw payload admission stays validated; prepared transfer is not unchecked admission. |
 | Dense typed stores and packed struct arena in [directory.rs](../crates/kagari-runtime/src/gc/directory.rs), [fields.rs](../crates/kagari-runtime/src/gc/fields.rs), [storage.rs](../crates/kagari-runtime/src/gc/storage.rs) | PG02: selected pages/large allocations, inline struct field bytes and native payloads; remove swap-remove locator repair, survivor extraction/relocation, global arena compaction and permanent small-native erased Boxes. Route take and teardown through the same storage owner. |
-| Whole-traversal collector live/visited sets in [collector.rs](../crates/kagari-runtime/src/gc/collector.rs), [collection.rs](../crates/kagari-runtime/src/gc/collection.rs), [execution_metadata.rs](../crates/kagari-runtime/src/execution_metadata.rs) | PG04: one phase/epoch marker, stable metadata owners, bounded active cursor and admission-reserved pending IDs. Remove MarkedGraph/MetadataLive from collection, not semantic validation. PG05 removes the synchronous whole-dead-inventory adapter. |
+| Whole-traversal collector live/visited sets in [collector.rs](../crates/kagari-runtime/src/gc/collector.rs), [collection.rs](../crates/kagari-runtime/src/gc/collection.rs), [execution_metadata.rs](../crates/kagari-runtime/src/execution_metadata.rs) | PG04: one phase/epoch marker, stable metadata owners, bounded active cursor and admission-reserved block/singleton jobs. Remove MarkedGraph/MetadataLive from collection, not semantic validation. Physical dead-ID inventory removal is complete; PG05 removes remaining metadata/module inventories and sweep adapters. |
 | Assignment-only roots, fields, frames and metadata | PG04: instrument every owner in the publication inventory, including direct OperandWindow writes, lazy cells and host dirty-record commit. Preserve lease lifetime, type/access and generation checks. |
 | Root/frame/host snapshots and borrowed metadata worklists | PG04: stable root/window/record cursors and the exhaustive MetadataEdge owner/ordinal map above. Replace collector address deduplication and borrowed tasks; preserve synchronous semantic validation. No final whole-root rescan. |
 | Root-release transport in [gc/roots.rs](../crates/kagari-runtime/src/gc/roots.rs) | PG01/NC02 implements reserved pending-ID transport and free-slot capacity, replacing allocating mpsc; local acceptance complete. Generations, final-clone and cross-thread release remain checked. This is separate from PG04 marker queue reservations. |
@@ -1284,9 +1296,9 @@ storage alone while keeping those privileged routes is not completion.
 | ProgramGraph full-lifecycle borrow, DeadPrograms and global static referenced-set reconstruction in [module/collection.rs](../crates/kagari-runtime/src/module/collection.rs) | PG04 establishes program/static nodes and short-borrow access; PG05 removes whole dead inventories and detach loops, using stable record/static sweep cursors. Existing module publication, reload and candidate availability remain owners. |
 | Inert native-take identities in [gc/native/take.rs](../crates/kagari-runtime/src/gc/native/take.rs) | PG02 preserves take/identity retirement; PG04 adds independent moved-ledger mark/work state; PG05 sweeps its occupied slots. Never remove inert-alias behavior or conflate old and reused generations. |
 | Whole-object Native tracing and sequence-edit retention prepass | PG01/NC02 establishes one scanner for admission/full/incremental use. PG03/NC03 replaces detached sorting/root snapshots with same-payload scratch; NC04 installs indexed hash scans. Newly populated external payload validation remains required. Explicit indivisible providers are documented exceptions, not a second collector. |
-| Sequence edit snapshots, concrete hash guards/cursors, collection descriptor caches and accounting downcasts | PG03/NC03-NC04 worktree inventory closed: stdlib algorithms/storage use the public general protocol; concrete type/value/wire families, Vec primitives, linked Vector execution, host codecs/constructors and diagnostic downcasts are removed. Builtin Array and generic helpers remain. Final independent review passed; this is PG03 local acceptance, not NC06 completion. |
-| Full-cycle scheduling and unbounded disposal/pruning in [gc/collection.rs](../crates/kagari-runtime/src/gc/collection.rs), Runtime and driver entrypoints | PG05: common incremental service, 1024-unit normal work, 32-item disposal cap, explicit finish-active-plus-fresh completion and separate pressure/work statistics. Bound or make release-driven weak registry/lease maintenance; HashMap::retain at cycle end is not bounded work. |
-| Temporary storage/sweep adapters | PG02 may adapt the synchronous sweeper within the same heap; PG04 may drain the replacement marker into the existing sweep adapter. PG05 removes remaining whole-dead-list/sweep bridges; PG06/NC06 confirms no compatibility routes or second collector remain. |
+| Sequence edit snapshots, concrete hash guards/cursors, collection descriptor caches and accounting downcasts | PG03/NC03-NC04 inventory closed at `8d597b93`: stdlib algorithms/storage use the public general protocol; concrete type/value/wire families, Vec primitives, linked Vector execution, host codecs/constructors and diagnostic downcasts are removed. Builtin Array and generic helpers remain. Final independent review passed; this is PG03 local acceptance, not NC06 completion. |
+| Full-cycle scheduling and unbounded disposal/pruning in [gc/collection.rs](../crates/kagari-runtime/src/gc/collection.rs), Runtime and driver entrypoints | PG04 brings forward physical page/slot sweep, reusable bounded page/range disposal and the 32-total detached-owner cap under synchronous draining. PG05 still owns the common incremental service, 1024-unit normal work, explicit finish-active-plus-fresh completion and separate pressure/work statistics. Bound or make release-driven weak registry/lease maintenance; HashMap::retain at cycle end is not bounded work. |
+| Temporary storage/sweep adapters | PG04 synchronously drains the replacement marker and physical sweep/disposal. PG05 removes remaining metadata/module inventories and interface batch filtering, then enables common-driver interleaving; PG06/NC06 confirms no compatibility routes or second collector remain. |
 
 The collector/storage audit also inspected [roots.rs](../crates/kagari-runtime/src/gc/roots.rs),
 [frame banks](../crates/kagari-runtime/src/frame/values.rs), module/static records,
@@ -1381,15 +1393,17 @@ future incremental measurements are not passed by selecting parameters.
 1. **Physical representation:** selected in the concrete-data-structures section:
    slab/classes/alignment, large path, descriptor lifetime, inline struct/native
    storage and immediate empty release. PG02 implements the corrected 1 KiB model
-   with focused GC/Miri evidence below, pending final checkpoint checks. Checked
-   marking epochs remain PG04 work; no unmeasured performance win is assumed.
+   with locally accepted GC/Miri evidence below. Checked marking epochs are now
+   implemented and locally accepted in PG04; PG05 production interleaving and PG06
+   joint acceptance remain open. No unmeasured performance win is assumed.
 2. **Mutation and scan protocol:** selected here and in NC01: unsafe NativePayload,
    read/edit, retained extraction, same-payload sort, indexed hash, checked MutableList
    bridge and verifier-owned bounded-application evidence. The publication inventory,
    exhaustive MetadataEdge map, reserved pending/root-release capacity and aligned
    single continuation close the design choices. PG01/NC02 locally validates synchronous
-   provider recovery and isolated scans; PG04 still owes integrated partial-scan,
-   newborn, sweep-admission and phase-aware-cache proofs.
+   provider recovery and isolated scans; PG04 locally validates partial-scan publication,
+   newborn/sweep admission and phase-aware access. PG05/NC05 still owes their integrated
+   production-driver schedules.
 3. **Lifecycle and scheduling surface:** selected 1024-unit normal work, 32 retired
    items, pressure escalation and explicit finish-active-plus-fresh full collection;
    preserve poll and automatic-disable semantics. PG05 owes driver/statistics and
@@ -1920,7 +1934,11 @@ privileged storage paths until final acceptance.
 
 **Dependency:** PG03. Integrate one replacement marker with existing graph owners;
 production collection still drains its work synchronously until PG05 opens the
-interleaving boundary.
+interleaving boundary. PG04 is locally complete pending commit, with fresh/reused
+acceptance evidence in the [PG04 ledger](#pg04-marker-implementation-and-open-acceptance).
+Physical page/slot sweep, reusable page/range disposal and the 32-total detached-owner
+bound were explicitly brought forward from PG05; remaining metadata/module sweep and
+production scheduling are not complete.
 
 **Primary surfaces:** gc/collector, gc/collection, gc/roots, payload/field/cell writes,
 frame and argument/result windows, native helpers, statics, module graph and
@@ -1938,9 +1956,10 @@ execution_metadata stores. Preserve joint object/program reachability.
 - Define phase-aware access and root admission, including weak internal caches and
   condemned-but-not-yet-swept identities. Current calls and retained computations
   preserve their existing distinct metadata ownership.
-- Replace old mark/visited/live-set construction with the new state machine. A
-  synchronous completion wrapper may feed the existing sweep adapter temporarily;
-  record it here and remove the obsolete whole-dead-inventory adapter in PG05.
+- Replace old mark/visited/live-set construction with the new state machine. The
+  synchronous wrapper now drains physical page/slot sweep and bounded page/range
+  disposal as well, replacing the whole-heap dead-ID inventory. Remaining metadata/
+  module inventories and interface batch filtering stay with PG05.
 - Use tiny-step tests with mutations between steps to prove publication, scan
   progress, root replacement, failed admission reservation and trace-fault closure.
   Inject allocation failure after extraction/callback progress and prove restoration
@@ -1958,9 +1977,10 @@ external/cursor proof under the same interleaved service as the standard library
 
 **Work:**
 
-- Implement page/slot and metadata sweep cursors, bounded detached batches, safe
-  identity retirement/reuse, newborn exclusion and release-driven accounting.
-  Remove whole-cycle dead inventories and the PG04 synchronous sweep adapter.
+- Reuse PG04's physical page/slot cursor, bounded page/range disposal and 32-total
+  detached-owner bound. Finish metadata/module sweep cursors and interface pruning,
+  remove their remaining inventories/adapters, and integrate safe retirement/reuse,
+  newborn exclusion and release-driven accounting with the interleaved driver.
 - Wire one phase driver into legal existing safepoints for synchronous, owned/async
   and reentrant execution, and supported native execution helpers. No payload loan
   may be bypassed by a captured Runtime alias; Native entry does not suppress GC.
@@ -2135,7 +2155,11 @@ Documentation-only work needs content/link/diff checks, not Rust builds.
 - [x] PG02: Paged physical storage (locally complete).
 - [x] PG03: Remove privileged collection paths (locally complete with NC03/NC04;
   final independent review, selected gates and parent local checks passed).
-- [ ] PG04: Incremental graph state and complete publication coverage.
+- [x] PG04: Incremental graph state and complete publication coverage (locally complete,
+  pending commit; synchronously drained marker and physical sweep/bounded disposal.
+  Fresh Map 1.031376 / arrays 0.920740 pass; scoped timing and 55-memory/21-zero-teardown
+  evidence reuse are explicit below. Final focused/quality checks pass; known blockers
+  fixed. This is not production interleaving or joint CI acceptance).
 - [ ] PG05: Incremental sweep, disposal and execution driving (with NC05).
 - [ ] PG06: Joint integration and acceptance (with NC06).
 
@@ -2148,10 +2172,10 @@ from PG00.
 
 ### PG03 collection migration evidence and handoff
 
-**Status, 2026-10-27:** locally complete against PG02 `4d8aa0c1`. Final independent
-review approved the current tree; selected focused checks, all selected numerical
-gates and parent final local checks passed. PG03/NC03/NC04 are checked complete;
-PG04 is next. This documentation pass did not rerun builds, tests or timings. The
+**Status, 2026-10-27:** locally complete and committed at `8d597b93` against PG02
+`4d8aa0c1`. Final independent review approved that checkpoint; selected focused checks,
+all selected numerical gates and parent local checks passed. PG03/NC03/NC04 are
+checked complete; the locally complete PG04 checkpoint has separate evidence below. This documentation pass did not rerun builds, tests or timings. The
 [NC ledger](native-collections-plan.md#nc03nc04-implementation-handoff-2026-10-27-locally-complete)
 owns collection scope and the closed finite removal inventory. PG00's historical
 measurements and frozen gates above are unchanged.
@@ -2419,8 +2443,327 @@ passed: stdlib collections **5 tests**, ownership plus page-quarantine **7 tests
 and retention **15 variants**. These repeat existing contract evidence and are not
 added to earlier totals. The parent confirms final structure **1766 files, zero
 violations**, formatting, workspace all-target Clippy and diff checks passed.
-PG03/NC03/NC04 are therefore locally complete. PG04 is next; NC05/NC06, incremental
-pause/interleaving acceptance and the full CI matrix remain outstanding.
+PG03/NC03/NC04 are therefore locally complete at `8d597b93`. PG04 is subsequently
+locally complete pending commit, with separate evidence below. PG05/NC05 is next;
+PG06/NC06, incremental pause/interleaving acceptance and the full CI matrix remain
+outstanding.
+
+### PG04 marker implementation and open acceptance
+
+**Status: locally complete, pending commit**, accepted by the parent on 2026-10-27
+against committed PG03 `8d597b93fc69f688faf674f847cfdac4b0596ff9` plus the reviewed
+PG04 overlay. Final fresh Map/arrays gates pass; unaffected timing and authenticated
+memory evidence retain the provenance below. Known review blockers are fixed. Parent
+reports final focused/quality checks passing. This heading remains stable for incoming
+links; **joint acceptance**, not PG04 local closure, remains open. PG05/NC05 is next;
+PG06/NC06 and full CI remain outstanding. Production still drains marking and physical
+sweep synchronously: no production interleaving or incremental pause acceptance is claimed.
+This is the single owning PG04 ledger, not a parallel collection correction queue.
+
+#### Implemented model and bounded adaptations
+
+Current contracts live in [runtime architecture](architecture.md#runtime-model) and
+[GC semantics](spec/runtime.md#gc-heap). Material decisions and handoff:
+
+- [GraphState/GraphMarker](../crates/kagari-runtime/src/gc/graph.rs) owns authoritative
+  phase/epoch state, admission credits and one active owned cursor. Original stores
+  keep [128-slot block marks](../crates/kagari-runtime/src/gc/graph/marks.rs), with
+  discovered/scanned bitmaps and deduplicated block jobs; static cells have singleton
+  jobs. These blocks are not payload slabs. Full generations resolve through original
+  owners, not a second ID registry. Identity and block/singleton work credits are
+  distinct and reserved before admission; queued empty blocks after take remain counted.
+  Root/metadata/object cursors retain owned progress, never borrowed pointers across slices.
+  Active Copy scanner state survives aligned workspace growth transactionally. Finite
+  external scanner chunks are **256 units**, distinct from the selected normal driver
+  budget **1024**, which is not a measured deadline.
+- Phase-first service skips inactive graph preparation, not identity validation.
+  Original-owner access checks owner, bounds, full generation and occupied kind under
+  the same borrow. Generic managed values avoid irrelevant native subtype reads;
+  specialized Array values still check the native subtype. New allocation marks use
+  the just-published directory index, not reverse physical lookup. Ordinary publication
+  validates identity/representation before lazy mark construction. Explicit Faulted
+  permits diagnostic reads but rejects publication/admission; terminal Poisoned rejects
+  graph access and work acquisition too. One acquire phase load replaces ordinary
+  advisory-poison observation, without another field/cache. Every graph mutex acquisition,
+  including Debug, is immediately wrapped; unwinding guard Drop publishes Poisoned
+  before unlock, even when acquired during unwind. Standard mutex poison remains a
+  backstop. Provider scan failures outside the guard explicitly fault/quarantine.
+- [Module records](../crates/kagari-runtime/src/module/records/storage.rs) keep compact
+  generation slots and `Option<Box<ModuleRecord>>` live backing. This is module backing,
+  **not permanent native payload boxes or boxed Vec algorithm state**; VecStorage's
+  `Option<Work>` remains inline. `ResolvedRecord` borrows the original compact owner,
+  without an eager record/graph tuple. Program-owned current/staged root eligibility
+  avoids repeated member discovery (focused case: **2 roots / 80 charged slots**),
+  but does not replace all reached-member graph jobs.
+- Frame admission retains earlier validation for original error order. `AdmittedExecutable`
+  scopes the exact module borrow/candidate pin and existing linked-cache RefCell.
+  `ArgumentPublication` is a private exact-argument transaction: successful arguments
+  validate/shade once; failures report at their original heap/late graph boundary.
+  No callback, phase advance or argument mutation can intervene; abort may conservatively
+  shade. It is **not** the removed bulk-frame proof. Managed operand writes always retain
+  central identity validation and shading; the sealed `OperandWindow` admits execution
+  once per closed region, while standalone writes keep preflight/bounds before permission.
+  `admit_active_session` and immediate top-frame validation borrow the same SessionStore
+  owner, without cached permission or a borrow across callbacks.
+- `ExecutionRetention` names an exact live runtime/program generation.
+  `ConversionContext::in_execution` borrows matching authority instead of walking the
+  same program again; unmatched owners use owned retention and foreign authority is
+  rejected. No registry Ref crosses converters/user code. Even covered conversion calls
+  `publish_program` once to reject explicit Faulted admission, without a member walk.
+  Root-slice/single-target publication retains concrete owner borrows; the generic
+  PublicationSource scaffold and bulk-frame proof were removed.
+- **Physical page/slot sweep and reusable bounded page/range disposal moved from PG05
+  into PG04 with explicit parent approval.** [Collection](../crates/kagari-runtime/src/gc/collection.rs)
+  drains a persistent physical cursor with fixed preparation workspace, not a whole-heap
+  dead-ID inventory. Inspected holes and survivors consume work. At most **32 actual
+  detached-but-undisposed owners total** exist across domains; a full-page token counts
+  every payload. One batch finishes before the next detaches. `SweepGraph` and checked
+  physical ranges cover phase, full identities/locations, aggregate credits, free-list
+  updates and page finish under original borrows. Cross-store borrows preflight before
+  first detach. Preparation is **batch-atomic, not whole-cycle rollback**: later failure
+  leaves that batch stored; earlier batches stay retired/accounted, and the runtime
+  faults/quarantines. Destruction consumes initialization once, outside storage borrows;
+  a panic quarantines before the next destructor while remaining detached cleanup continues.
+  Geometry evidence: **1,027 owners -> 66 ranges + 19 individual tokens = 85 tokens**,
+  zero preparation allocations. The separate script lifecycle's 71 ranges/72 batches
+  is a different workload, not a conflicting geometry count.
+
+**Primary-source applicability:** Go's [Green Tea explanation](https://go.dev/blog/greenteagc)
+(Michael Knyszek/Austin Clements, Go 1.25 experiment) supports grouped seen/scanned
+work and deduplicated owner-block jobs, not Go's direct pointers, 8 KiB pages,
+concurrency or vector kernels. OpenJDK **25 GA**
+[`G1BarrierSet.inline.hpp`](https://raw.githubusercontent.com/openjdk/jdk/jdk-25-ga/src/hotspot/share/gc/g1/g1BarrierSet.inline.hpp)
+supports phase-first inactive/active service separation, not SATB/deletion barriers,
+concurrent thread queues or oop representation. Lua **5.4.8**
+[`lgc.c::sweeplist`](https://raw.githubusercontent.com/lua/lua/v5.4.8/lgc.c) supports bounded
+cursor progress, not Lua's object layout/finalizers or batch size. Rust **1.99.1**
+[`Vec::IntoIter`](https://doc.rust-lang.org/src/alloc/vec/into_iter.rs.html) supports
+consume-before-drop and retained backing; Rust **1.90.0**
+[`Mutex`](https://raw.githubusercontent.com/rust-lang/rust/1.90.0/library/std/src/sync/poison/mutex.rs)
+and [poison flag](https://raw.githubusercontent.com/rust-lang/rust/1.90.0/library/std/src/sync/poison.rs)
+explain Debug acquisition and entry/exit panic snapshots. Kagari's terminal phase also
+covers acquisition during unwind. These mechanisms preserve checked identities,
+precise scanners, joint executable edges and single-driver ownership; none predicts speed.
+
+#### Latest separate memory evidence
+
+Final acceptance **reuses**, rather than reruns, the directory + Poisoned candidate's
+**55/55 passing memory gates**, three observations per metric with the maximum tested,
+and **21 zero-net requested-byte teardowns**. All original baseline/limit pairs and raw
+hashes were authenticated before/after final timing. The final delta is exactly two
+attributes in [publication owners](../crates/kagari-runtime/src/gc/graph/owners.rs):
+`#[inline]` on `publish_value`, `#[cold]` on existing private `invalid()`. Removing these
+lines reproduces the prior owner hash; every other entry in the **2,334-entry** source/
+configuration manifest is unchanged. Bodies, call sites, layouts, allocation/capacity,
+scanner, retirement and workloads are unchanged. This is **reviewed equivalent allocation
+behavior**, not source identity. Executable text/native stack may change and are outside
+these allocator-byte gates; the tradeoff below remains explicit.
+
+| Family / phase | PG00 baseline B | PG04 candidate B | Frozen ceiling B |
+| --- | ---: | ---: | ---: |
+| Sparse nominal types / live GC | 77,424 | **82,612** | 85,166.4 |
+| Sparse nominal types / post-setup high-water delta | 148,212 | **116,052** | 163,033.2 |
+| Sparse cycles / final sparse-live GC delta | 385,356 | **333,432** | **351,802** |
+| Retained reload / release old GC | 227,048 | **72,292** | 249,752.8 |
+| Retained reload / release all GC | 200,152 | **48,308** | 220,167.2 |
+
+All three sparse-live observations are 333,432 B. These rows are requested allocator
+**deltas relative to each run's post-setup balance**, not RSS/usable size or absolute
+balances. Sparse cycles: **20,171,459 absolute − 19,838,027 setup = 333,432 B**. Setup
+retained/peak and lifecycle peak are separately gated absolute measurements; post-setup
+high-water subtracts that run's setup retained balance. This interval includes subsequent
+construction, verification, GC, mutation/reload, root release and teardown, including
+collector temporaries. Reload release rows are residuals, not retained-live totals;
+retained live delta is **36,897,193 B**.
+
+**Historical cap discrepancy, resolved:** the older PG04 gate file incorrectly used the
+generic **423,891.6 B** ceiling for final sparse-live cycles. Authenticated PG03 review-
+retention freezes **351,802 B** for that row with the same original 385,356 B baseline.
+The old and corrected candidates both pass the stricter cap; no gate was relaxed.
+Churn and sparse-nominal rows have different ceilings. All 55 frozen pairs were checked
+without rerunning the probe to repair this bookkeeping error. PG00 gates stay unchanged.
+
+Memory reproduction uses the tracked runtime_storage harness, not an ignored script:
+
+```sh
+cargo build --release -p kagari-lua-benchmark --features diagnostics --example runtime_storage
+target/release/examples/runtime_storage --families
+```
+
+These commands describe the **reused** measurement's owner and intervals, not a fresh
+final run. Preserved diagnostic SHA256:
+`5a6a60d981257e52bdf4ab6c4dd91c24894477c23ca03150db6c9a073e19e654`.
+
+#### Selected timing acceptance: exact evidence and reproduction
+
+Final publication-inline timing freshly measures **exactly two gates**. Seven alternating
+baseline/candidate process pairs per workload, three warmups and eleven samples per
+fresh process; acceptance is the **median of seven paired process-median C/B ratios**,
+not the ratio of the aggregate medians shown below. The frozen limit remains **1.05**.
+
+| Fresh workload | Baseline median ns | Candidate median ns | Paired C/B | Result |
+| --- | ---: | ---: | ---: | --- |
+| Map execute | 5,593,750 | 5,792,584 | **1.031376340** | PASS |
+| Vec/arrays execute | 7,624,416 | 7,065,875 | **0.920739605** | PASS |
+
+All Map pairs, in schedule order: **1.025911179, 1.036590453, 1.031376340,
+1.057450928, 1.063010478, 1.030038968, 1.010823151**. Two exceed 1.05 and remain
+included. This passes the frozen median gate, **not every pair or environment**. Arrays
+ratios: 0.922272867, 0.920582329, 0.928487662, 0.920739605, 0.928341075, 0.910253165,
+0.920411233. No retry, omitted sample, favorable-window selection or outlier removal.
+All **28 timing processes** succeeded; all 154 Map samples have checksum **47995**, and
+all 154 arrays samples checksum **286670**. Compilation/artifact/linking costs remain
+separate from execution. No GC, script-key, construction or sort timing ran in this final scope.
+
+**Reused sort/construction evidence:** the six passing rows from the shared-execution
+checkpoint retain their original candidate/provenance, rather than becoming fresh passes:
+
+| Reused workload | Baseline median ns | Candidate median ns | Paired C/B |
+| --- | ---: | ---: | ---: |
+| Scalar construction | 527,292 | 521,792 | 0.984534 |
+| Scalar sort | 9,250 | 8,500 | 0.927239 |
+| Cheap-script construction | 751,208 | 737,750 | 0.978178 |
+| Cheap-script sort | 17,418,042 | 15,598,583 | 0.896541 |
+| Allocating construction | 756,584 | 738,125 | 0.974226 |
+| Allocating sort | 36,970,750 | 34,621,333 | 0.934422 |
+
+Older admission/roots/sweep evidence is also explicitly reused: script-key construction
+**0.936889**, live GC C/B **0.682472** / normalized **0.568726**, release GC **1.012847** /
+normalized **0.830214**. GC acceptance remains
+`median(C / max(1.2*B, B+10000ns)) <= 1`. Sort uses the **reconstructed/adapted PG00
+baseline** documented in the PG03 handoff, not an original PG00 `--sort` run. No baseline
+was rebuilt for the final measurement. This is two fresh gates plus scoped evidence
+reuse, not eight/eleven fresh passes or complete PG06 acceptance.
+
+**Environment/provenance:** Apple M1 Max / 32 GiB / ten logical CPUs, macOS 26.6.2 arm64
+(machine identity inherited from authenticated evidence); rustc **1.99.1**
+(`58cf8f9c3`, 2026-10-13), LLVM **23.1.1**, Cargo **1.99.1** (`5f94df478`, 2026-08-27).
+Default workspace release profile/target/parallelism, ordinary source/native interpreter,
+no diagnostics, warm dependencies, fresh processes. No affinity, cache flush or thermal
+control; OS background activity is uncontrolled. Nineteen stable/idle observations over
+93.408 s preceded the run; no detected conflicting heavy process or source change.
+One release build took **23.020 s**, then the 28-process timing schedule **45.951 s**.
+Initial offline authentication stopped before any build/timing because manifest scopes
+were 2,261 versus 2,334 entries; all 2,261 matched and the remaining 73 were unchanged.
+Correcting this scope assertion did not rerun a benchmark.
+
+- Frozen PG00 revision: `50ab194b30b0218e9befe3176d6b5711ecf17a28`.
+- Baseline binary SHA256: `e7d46a8421226d4f3272b68f15c91a5906d104df24090bd9fb49a625a00ab5f4`.
+- Final ordinary candidate SHA256: `624548aa18ec4ef1656da64b2998944aed6039f4f275d8a352ce2294bf402765`.
+  It is byte-identical to the reviewed publication-codegen candidate, **not** the earlier
+  phase/directory image. Final quality/source manifests match all 2,334 entries before/
+  after measurement. HEAD alone does not identify the uncommitted PG04 candidate.
+
+Executed build/workload commands from repository root (each workload pair runs seven
+times, alternating order, baseline first on pairs 1/3/5/7):
+
+```sh
+cargo build --release -p kagari-lua-benchmark --bin kagari-lua-benchmark
+target/pg00-baseline/arrays-before --interpreter-only --workload=maps
+target/pg04-marker/timing-publication-inline/candidate-maps --interpreter-only --workload=maps
+target/pg00-baseline/arrays-before --interpreter-only --workload=arrays
+target/pg04-marker/timing-publication-inline/candidate-maps --interpreter-only --workload=arrays
+```
+
+The tracked benchmark's `--interpreter-only --workload=maps|arrays` entrypoints and the
+estimator above define reproduction without ignored orchestration scripts. Retained
+paths identify measured binaries; a new build must preserve/authenticate the intended
+baseline and candidate separately. No diagnostics build/probe accompanied this final run.
+
+#### Closed diagnosis and parent-owned closure
+
+**Failed iterations and architectural lessons (history, not current failures):**
+
+- Initial and phase/frame-corrected candidates failed **10/11** selected gates. Eager
+  module record/mark tuple construction and arbitrary 32-ID disposal chunks were real
+  boundary defects: sampled inclusive module resolution rose PG03 -> early PG04 from
+  2.01% -> 13.25% (Map), 4.34% -> 21.41% (arrays); 1,027 retired owners used **697 tokens**
+  versus PG03's 73, with **2,054 charge reads**. Compact borrow-scoped resolution and
+  physical batching replaced those paths; no Arc synchronization rewrite or collection
+  algorithm change was authorized. Resolved-sweep passed 4/11, admission/roots/sweep 7/11
+  and closed the selected GC regressions. Remaining metadata/module work stays PG05.
+- The bulk-frame/generic PublicationSource proof regressed to **1/8** fresh passes
+  despite semantic identity reuse; it was removed. Retain module `AdmittedExecutable`,
+  concrete root-slice/single-target borrowing and the later exact-argument transaction,
+  not four guards/two visits per source. Those counts were not CPU attribution.
+- Shared session ownership reduced admissions **411,271 -> 299,235** and top-frame
+  validation **168,054 -> 56,018**; execution checks **187,269**, phase observations
+  **46,439** and publications **16,047** were unchanged. Directory correction removed
+  **12,046 -> 0** irrelevant native-subtype reads while validations **16,052**, publications
+  and phase counts stayed unchanged. No ordinary managed-write exemption was introduced.
+- The Option allocation hypothesis was not Map-dominant; frame environment/invocation/
+  native-application preparation was absent across **4,003 frames**, and narrowing
+  **4,001 calls / 10,000 parameters** matched unchanged PG03 code with no scalar
+  read/validation branch. The inline metadata probe's **0.125 us** was not the cause.
+  No speculative metadata cache or native conversion rewrite followed.
+- A `for_each` probe removed an external iterator boundary but measured only **11.625 us
+  / about 0.2%**, insufficient evidence for promotion; **no foreach patch was promoted**.
+  Byte-identical short windows ranged across the gate (diagnostic ratio 1.04287 versus
+  earlier 1.066), demonstrating variance, not acceptance. Instrumented inclusive timers
+  overlap/perturb execution and sometimes invert ordinary ordering; they cannot be added
+  or treated as exact residual CPU cost. Cross-run ratios do not isolate patch causality.
+- Last formal failures were shared-execution Map **1.088901** and first directory +
+  Poisoned Map **1.059518** (all seven pairs **1.052396–1.060892**). The phase correctness
+  repair itself showed no diagnostic speedup. Final promotion was **only two attributes**
+  on publication/rejection owners. Assembly removed an observed Idle wrapper call and
+  eager **12-byte identity stack packing**; the success discriminant remains. Baseline
+  success did not copy/allocate a full RuntimeError. The operand-write caller grew
+  **380 -> 716 bytes**, local stack **176 -> 336 bytes**; do not infer whole-program
+  code/stack savings or attribute every publication's cost to this caller.
+  Six fixed diagnostic triplets covering all orders (18 processes, 198 samples) measured
+  median candidate/current **0.983000138**, **−97.625 us**, retaining one adverse
+  **+138.958 us**. Diagnostic candidate/PG00 **1.033178834** was not acceptance or a
+  predicted saving. The separate final seven-pair result above closes the frozen gate.
+
+**Reproduced blockers, repaired and reviewed:** static reload leaked singleton work
+credits at reload index **2** (**5**, expected **4**); repeated-static and black-static
+publication/reload tests now pass. The 600-slot external provider lost finite continuation
+under `usize::MAX` drain (`pending >= 2` failed); 256-unit chunks restored all **seven**
+fixtures with unchanged assertions. Covered conversion incorrectly accepted explicit
+nonpoison Faulted state and invoked mapping; one authoritative `publish_program` fixed
+it, with three conversion cases plus SDK coverage. This was not a public quarantine
+bypass: production faults quarantine. Standalone write permission ran before bounds and
+could quarantine invalid writes during collection; both paths reproduced and the fix
+passed **11 focused cases**. Closed OperandWindow reuse remains approved. Hidden Debug
+raw mutex acquisition was wrapped; phase/poison coverage passed **40 focused cases**.
+Independent b680 review closed these blockers and approved the actual final two-attribute
+patch, not just an isolated probe. Frame early-publication and shared-execution changes
+also received source approval. Source review is not a test run.
+
+**Validation provenance:** parent reports final **22 focused tests passed**, structure
+**1,794 files / zero violations / zero exceptions**, workspace all-target Clippy with
+warnings denied, fmt and diff passed. Final source manifests match the measured 2,334
+entries. Earlier focused selections include 29 frame, 31 roots/retention and 19 directory
+checks; physical preparation and later batch cases also passed Miri on
+**`nightly-2026-07-27`** (three physical and later two batch cases). These overlapping
+selections and earlier reviewer reruns are **not summed**, nor relabeled as final fresh
+coverage. The isolated two-attribute snapshot passed 55 tests (5 publication + 26 graph +
+24 frame-value), with one existing manual timing case ignored; those are tests, not the
+55 memory gates. No test/Clippy/Miri was rerun by this documentation pass.
+
+Representative executed focused commands retained from the implementation evidence:
+
+```sh
+cargo test -p kagari-runtime --lib --features execution-diagnostics repeated_static_reload_releases_superseded_singleton_work_credits
+cargo test -p kagari-runtime --lib black_static_initialization_replacement_and_sweep_reload_preserve_published_edges
+cargo test -p kagari --test native_storage_provider indexed_scanner_continuation_and_existing_iteration_adapters
+cargo test -p kagari-runtime --lib gc::publication::tests
+cargo test -p kagari-runtime --lib gc::graph::
+cargo test -p kagari-runtime --lib frame::values::tests
+cargo fmt --all -- --check
+uv run --locked scripts/check_structure.py
+cargo clippy --workspace --all-targets -- -D warnings
+git diff --check
+```
+
+The three broad filters describe the isolated publication-codegen snapshot selection,
+not invented filters/counts for the parent's final 22 tests. Remaining handoff is finite:
+**PG05/NC05** owns metadata/module sweep adapters, interface batch filtering, pressure-
+driven execution scheduling and production interleaving, reusing PG04 physical sweep/
+bounded disposal. **PG06/NC06** owns broader integration/performance and full CI acceptance.
+Normal work remains selected **1024**, not a hard pause guarantee. The future incremental
+step gate and indivisible exemptions remain as frozen in PG00; no future pause is passed
+by synchronous timing. PG04 local closure does not close those obligations.
 
 ### PG01 implementation handoff (2026-10-27; locally complete)
 
@@ -2455,14 +2798,14 @@ collection migration. PG01 integrated the protocol under existing native/heap/ro
   instead validates the actual object's identity/type/representation. No runtime
   trait resolver or callable-constructor authority is inferred from a type witness.
 
-**Deliberate synchronous adaptation:** the runtime-local aligned scanner workspace
-is reserved on admission and reused by the sole scanner. The current driver drains
-it completely; its internal resumable chunk is 256 work units, not the selected
-**1024-unit normal incremental driver budget**. Idle workspace growth may replace
-storage because no continuation is live. PG04 must preserve an active continuation
-through admission/growth, supply graph credits/barriers and measure queue/workspace
-backing against PG00's gates. Synchronous scanner tests do not prove that reservation
-invariant or production pause bounds. PG05 still owns legal driver interleaving.
+**Historical PG01 synchronous adaptation:** the runtime-local aligned scanner
+workspace was reserved on admission and reused by the sole scanner. That driver
+drained it completely with internal 256-unit chunks, not the selected
+**1024-unit normal incremental driver budget**. Idle growth could replace storage
+because no continuation was live. PG04 now implements preserved active Copy state,
+graph credits and barriers; its measured backing and open timing/lifecycle acceptance
+belong to the PG04 ledger. The old synchronous scanner tests alone do not prove
+these later guarantees or production pause bounds. PG05 still owns legal interleaving.
 This historical PG01 evidence did not establish post-change performance acceptance;
 the subsequent PG03 paired/backing results are recorded in its handoff above.
 

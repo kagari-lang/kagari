@@ -6,6 +6,7 @@ use std::ptr;
 use crate::{
     Runtime,
     error::RuntimeError,
+    gc::publication::CheckedTarget,
     native::{
         binding::NativeResult, context::CallContext, storage_type::StorageType,
         value_handle::ScriptValue,
@@ -48,6 +49,14 @@ impl<'loan> StorageAccess<'loan> {
     }
 
     fn validate(&self, contract: &StorageType, value: &Value) -> NativeResult<()> {
+        self.checked_target(contract, value).map(|_| ())
+    }
+
+    fn checked_target(
+        &self,
+        contract: &StorageType,
+        value: &Value,
+    ) -> NativeResult<CheckedTarget<'_>> {
         if self.recovery {
             return Err(RuntimeError::module_validation(
                 "native recovery cannot retain or publish new values",
@@ -56,15 +65,19 @@ impl<'loan> StorageAccess<'loan> {
         self.runtime.resources().ensure_execution_allowed()?;
         contract.argument()?.validate(self.runtime)?;
         let heap = self.runtime.gc();
-        if !value.is_default_heap_payload(heap)
-            || !heap.validate_value(value)
-            || !contract.accepts_value(heap, value)
-        {
-            return Err(RuntimeError::module_validation(
-                "native storage value differs from its closed contract",
-            ));
+        let invalid = || {
+            RuntimeError::module_validation("native storage value differs from its closed contract")
+        };
+        if !value.is_default_heap_payload(heap) {
+            return Err(invalid());
         }
-        Ok(())
+        let target = heap.checked_target(*value).ok_or_else(invalid)?;
+        // Nominal/layout admission is independent of the checked directory target.
+        // Its payload reads remain inside this same protected owner borrow.
+        if !contract.accepts_value(heap, value) {
+            return Err(invalid());
+        }
+        Ok(target)
     }
 
     /// Retain a checked edge before it leaves this payload loan.
@@ -87,6 +100,7 @@ impl<'loan> StorageAccess<'loan> {
         }
         let value = input.storage_value(self.runtime, contract)?;
         self.validate(contract, &value)?;
+        self.runtime.gc().publish_value(value)?;
         Ok(value)
     }
 
@@ -116,7 +130,7 @@ impl<'loan> StorageAccess<'loan> {
             ));
         }
         let value = call.argument(index)?;
-        self.validate(contract, &value)?;
+        self.checked_target(contract, &value)?.publish()?;
         Ok(value)
     }
 
@@ -128,10 +142,10 @@ impl<'loan> StorageAccess<'loan> {
     pub unsafe fn republish_existing(&mut self, value: &Value) {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::ExistingEdgePublication);
-        // Identity validation is allocation-free and requires no execution admission.
-        // Full synchronous scans see the final slot arrangement after the loan.
+        // Existing targets consume their admission-reserved queue credit. This
+        // path calls no provider and requires no fresh execution admission.
         if !value.is_default_heap_payload(self.runtime.gc())
-            || !self.runtime.gc().validate_value(value)
+            || self.runtime.gc().publish_value(*value).is_err()
         {
             self.runtime
                 .resources()

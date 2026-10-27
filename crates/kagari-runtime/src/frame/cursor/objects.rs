@@ -87,9 +87,6 @@ impl ExecutionCursor<'_> {
             let FieldAccess::Read { dst } = operation.access else {
                 return Err(self.invalid().into());
             };
-            if !self.runtime.gc().validate_value(&value) {
-                return Err(self.invalid().into());
-            }
             self.values
                 .write_location(dst, value)
                 .ok_or_else(|| self.invalid())?;

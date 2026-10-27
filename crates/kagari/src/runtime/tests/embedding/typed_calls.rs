@@ -16,10 +16,13 @@ use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     Runtime,
     error::RuntimeError,
-    frame::ExecutionFrame,
+    frame::{ExecutionFrame, types::arguments::TypeArgument},
     native::{
         assembly::{ModuleDefinition, ModuleSetBuilder},
+        binding::NativeResult,
         builder::ModuleBuilder,
+        catalog::DeclarationCatalog,
+        conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
         declarations::MethodDecl,
         function_handle::Function,
         interfaces::Interface,
@@ -30,6 +33,7 @@ use kagari_runtime::{
     },
     session::{ExecutionEvent, ExecutionObserver},
     source::{SourceQuery, SourceUnavailableReason},
+    value::Value,
 };
 use kagari_source::{
     source::SourceFile,
@@ -71,6 +75,155 @@ fn prepare_typed_program(source: &str, providers: &[NativeModule]) -> PreparedPr
     let artifact =
         KbcArtifact::with_source_package(artifact, &package, &Default::default()).unwrap();
     PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
+}
+
+struct EntryArgument {
+    value: i32,
+    registrations: usize,
+    calls: Arc<AtomicUsize>,
+}
+
+impl KagariType for EntryArgument {
+    fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
+        i32::kagari_type(catalog)
+    }
+}
+
+impl IntoKagari for EntryArgument {
+    fn into_kagari(
+        self,
+        cx: &mut ConversionContext<'_>,
+        expected: &TypeArgument,
+    ) -> NativeResult<Value> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        assert_eq!(
+            cx.runtime()
+                .modules()
+                .retention_counts(cx.owner().key())
+                .active_calls,
+            self.registrations
+        );
+        // Converters may reenter and collect. Neither registry borrow may escape
+        // the authority check, and the borrowed conversion adds no registration.
+        let nested = cx
+            .runtime()
+            .begin_execution(cx.owner(), cx.runtime().execution_options())?;
+        cx.runtime().collect_garbage()?;
+        drop(nested);
+        self.value.into_kagari(cx, expected)
+    }
+}
+
+struct BorrowedResult(i32);
+
+impl KagariType for BorrowedResult {
+    fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
+        i32::kagari_type(catalog)
+    }
+}
+
+impl FromKagari for BorrowedResult {
+    fn from_kagari(
+        cx: &mut ConversionContext<'_>,
+        expected: &TypeArgument,
+        value: &Value,
+    ) -> NativeResult<Self> {
+        assert_eq!(
+            cx.runtime()
+                .modules()
+                .retention_counts(cx.owner().key())
+                .active_calls,
+            1
+        );
+        cx.runtime().collect_garbage()?;
+        i32::from_kagari(cx, expected, value).map(Self)
+    }
+}
+
+#[test]
+fn typed_entry_borrows_exact_execution_retention_but_direct_vm_keeps_owned_fallback() {
+    let prepared = prepare_typed_program(
+        r#"
+        pub struct Player { pub var hp: i32 }
+        pub fn make() -> Player { Player { hp: 100 } }
+        pub fn divide(value: i32) -> i32 { 42 / value }
+    "#,
+        &[],
+    );
+    let mut runtime = SdkRuntime::new(Runtime::default(), Default::default());
+    let program = runtime.load_program(&prepared, Default::default()).unwrap();
+    let owner = runtime.runtime().select_program(&program).unwrap();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let argument = |value, registrations| EntryArgument {
+        value,
+        registrations,
+        calls: calls.clone(),
+    };
+    let result: BorrowedResult = runtime
+        .execute_typed(&program, "divide", (argument(2, 1),), &Default::default())
+        .unwrap();
+    assert_eq!(result.0, 21);
+    assert_eq!(
+        runtime
+            .runtime()
+            .modules()
+            .retention_counts(owner.key())
+            .active_calls,
+        0
+    );
+    assert_eq!(
+        runtime
+            .vm
+            .execute_typed::<_, i32>(&owner, "divide", (argument(3, 2),))
+            .unwrap(),
+        14
+    );
+    let before = calls.load(Ordering::SeqCst);
+    // Rust output mismatch precedes argument conversion on both entry paths.
+    assert!(
+        runtime
+            .execute_typed::<_, String>(&program, "divide", (argument(2, 1),), &Default::default(),)
+            .is_err()
+    );
+    assert!(
+        runtime
+            .vm
+            .execute_typed::<_, String>(&owner, "divide", (argument(2, 2),))
+            .is_err()
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), before);
+    assert!(
+        runtime
+            .execute_typed::<_, BorrowedResult>(
+                &program,
+                "divide",
+                (argument(0, 1),),
+                &Default::default(),
+            )
+            .is_err()
+    );
+    assert_eq!(
+        runtime
+            .runtime()
+            .modules()
+            .retention_counts(owner.key())
+            .active_calls,
+        0
+    );
+    let player: Object = runtime
+        .execute_typed(&program, "make", (), &Default::default())
+        .unwrap();
+    runtime.runtime().collect_garbage().unwrap();
+    let hp = runtime
+        .runtime()
+        .bind_field::<i32>(player.object_type(), "hp")
+        .unwrap();
+    runtime
+        .with_context(&owner, &Default::default(), |cx| {
+            assert_eq!(player.get(cx, &hp)?, 100);
+            Ok(())
+        })
+        .unwrap();
 }
 
 fn future_provider() -> NativeModule {

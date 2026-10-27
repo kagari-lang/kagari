@@ -1,6 +1,6 @@
 use crate::{
     PreparedReload, Runtime, StagedLoad, StagedReload,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::RuntimeError,
     module::{
         ExecutableModule, Installation, LinkedHostBindings, LinkedProgramBindings,
         ModuleEpochRetention, Program, VerifiedProgram, retention::ProgramLease,
@@ -104,30 +104,6 @@ impl Runtime {
             self.link_execution(&owner)?;
         }
         Ok(staged)
-    }
-
-    pub fn validate_executable_module(
-        &self,
-        module: &ExecutableModule,
-    ) -> Result<(), RuntimeError> {
-        self.resources().ensure_execution_allowed()?;
-        if !module.belongs_to(self.host.owner()) {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::StaleHandle,
-                "executable module belongs to another runtime",
-            ));
-        }
-        let loaded = self.modules.contains_module(module).map_err(|_| {
-            self.resources()
-                .quarantine("module store is borrowed across execution")
-        })?;
-        if !loaded {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::StaleHandle,
-                "executable module has been released",
-            ));
-        }
-        self.modules.validate_executable_installation(module)
     }
 
     pub fn load_program(

@@ -86,17 +86,80 @@ impl ExecutionStack<'_> {
             return self.finish_static_return(runtime, packet);
         }
         let destination = frame.return_to;
+        let has_destination = !matches!(
+            destination,
+            ReturnDestination::Slot(None) | ReturnDestination::Prepared(None)
+        );
+        let mut completion = None;
+        if frames.len() == self.base + 1 {
+            let value = packet
+                .materialize()
+                .ok_or_else(|| RuntimeError::module_validation("return representation"))?;
+            runtime.gc.publish_value(value)?;
+            completion = Some(value);
+        } else if has_destination {
+            let caller = &frames[frames.len() - 2];
+            if let ReturnDestination::Slot(Some(register)) = destination
+                && register.index() >= caller.slot_count
+            {
+                return Err(runtime.resources().quarantine("invalid frame register"));
+            }
+            // Publish through the common bank boundary while the callee still
+            // roots the result. Failure must not retire its window or call depth.
+            let mut values = runtime
+                .resources()
+                .frame_values
+                .try_borrow_mut()
+                .map_err(|_| {
+                    runtime
+                        .resources()
+                        .quarantine("return operands are borrowed")
+                })?;
+            let published = if let Some((representation, bits)) = packet.payload() {
+                match destination {
+                    ReturnDestination::Slot(Some(register)) => values.set_scalar(
+                        &runtime.gc,
+                        caller.slots,
+                        register.index(),
+                        representation,
+                        bits,
+                    ),
+                    ReturnDestination::Prepared(Some(location)) => values.set_scalar_location(
+                        &runtime.gc,
+                        caller.slots,
+                        location,
+                        representation,
+                        bits,
+                    ),
+                    _ => unreachable!("present return destination"),
+                }
+            } else {
+                let value = packet
+                    .materialize()
+                    .ok_or_else(|| RuntimeError::module_validation("return representation"))?;
+                match destination {
+                    ReturnDestination::Slot(Some(register)) => {
+                        values.set(&runtime.gc, caller.slots, register.index(), value)
+                    }
+                    ReturnDestination::Prepared(Some(location)) => {
+                        values.set_location(&runtime.gc, caller.slots, location, value)
+                    }
+                    _ => unreachable!("present return destination"),
+                }
+            };
+            published
+                .ok_or_else(|| runtime.resources().quarantine("invalid return destination"))?;
+        }
+        // No callback or collection separates destination publication and retirement.
         let frame = frames.pop().expect("checked return frame");
-        let mut values = frame.retire_values(self.session.resources);
+        let values = frame.retire_values(self.session.resources);
         drop(frame);
         self.session.resources.leave_call();
         runtime.gc.ensure_execution_allowed()?;
         if frames.len() == self.base {
             drop(values);
             drop(frames);
-            let value = packet
-                .materialize()
-                .ok_or_else(|| RuntimeError::module_validation("return representation"))?;
+            let value = completion.expect("prepared completion value");
             return self
                 .finish_factory_result(runtime, value)
                 .map(|value| match value {
@@ -106,51 +169,9 @@ impl ExecutionStack<'_> {
                 });
         }
         let caller = frames.last_mut().expect("retained caller");
-        if matches!(
-            destination,
-            ReturnDestination::Slot(None) | ReturnDestination::Prepared(None)
-        ) {
-            return caller.execution_action(runtime).map(ReturnAction::Continue);
+        if has_destination {
+            caller.completed = caller.executing;
         }
-        if let ReturnDestination::Slot(Some(register)) = destination
-            && register.index() >= caller.slot_count
-        {
-            return Err(runtime.resources().quarantine("invalid frame register"));
-        }
-        // Retirement and publication form a closed transition: no allocation,
-        // collection or callback can observe an unrooted managed return value.
-        let values = values
-            .as_mut()
-            .expect("retirement admitted execution storage");
-        let published = if let Some((representation, bits)) = packet.payload() {
-            match destination {
-                ReturnDestination::Slot(Some(register)) => {
-                    values.set_scalar(caller.slots, register.index(), representation, bits)
-                }
-                ReturnDestination::Prepared(Some(location)) => {
-                    values.set_scalar_location(caller.slots, location, representation, bits)
-                }
-                _ => unreachable!("present return destination"),
-            }
-        } else {
-            let value = packet
-                .materialize()
-                .ok_or_else(|| RuntimeError::module_validation("return representation"))?;
-            if !runtime.gc.validate_value(&value) {
-                return Err(runtime.resources().quarantine("invalid return value"));
-            }
-            match destination {
-                ReturnDestination::Slot(Some(register)) => {
-                    values.set(caller.slots, register.index(), value)
-                }
-                ReturnDestination::Prepared(Some(location)) => {
-                    values.set_location(caller.slots, location, value)
-                }
-                _ => unreachable!("present return destination"),
-            }
-        };
-        published.ok_or_else(|| runtime.resources().quarantine("invalid return destination"))?;
-        caller.completed = caller.executing;
         caller.execution_action(runtime).map(ReturnAction::Continue)
     }
 }

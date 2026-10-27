@@ -64,6 +64,9 @@ impl GcHeap {
         {
             return Err(RuntimeError::module_validation("Task output"));
         }
+        if let Ok(value) = &outcome {
+            self.publish_value(*value)?;
+        }
         let mut objects = self.objects_mut()?;
         let Some(object) = self.native_mut(&mut objects, id) else {
             return Err(RuntimeError::module_validation("Task payload"));
@@ -87,10 +90,76 @@ impl GcHeap {
 mod tests {
     use super::*;
     use crate::{
-        Runtime, error::RuntimeErrorKind, native::storage::NativeStorage, task::store::Identity,
-        test_support::layouts::allocation_owner,
+        Runtime, error::RuntimeErrorKind, gc::graph::GraphIdentity, native::storage::NativeStorage,
+        task::store::Identity, test_support::layouts::allocation_owner,
     };
     use kagari_types::{scalar::BuiltinType, ty::Ty};
+
+    #[test]
+    fn completion_publishes_after_blackening_and_rejects_condemned_results_before_commit() {
+        let mut runtime = Runtime::default();
+        let owner = allocation_owner(&mut runtime);
+        let task = TaskId(Identity {
+            owner: 1,
+            slot: 0,
+            generation: 0,
+        });
+        let allocate = || {
+            let object = NativeStorage::task()
+                .prepare_payload(
+                    &runtime.gc,
+                    &Ty::Builtin(BuiltinType::Unit),
+                    TaskPayload {
+                        id: task,
+                        outcome: None,
+                    },
+                    &owner,
+                )
+                .unwrap();
+            runtime.gc.alloc_native(object).unwrap()
+        };
+        let id = allocate();
+        let result = runtime.gc.alloc_string("result".into()).unwrap();
+        let dead = runtime.gc.alloc_string("condemned".into()).unwrap();
+        runtime.gc.graph.lock().begin_cycle().unwrap();
+        runtime.gc.graph.lock().finish_roots().unwrap();
+        runtime.gc.publish_value(Value::GcHandle(id)).unwrap();
+        runtime.gc.drain_graph_work(runtime.modules()).unwrap();
+        runtime.gc.complete_task(id, task, Ok(result)).unwrap();
+        runtime.gc.drain_graph_work(runtime.modules()).unwrap();
+        runtime.gc.graph.lock().close_mark().unwrap();
+        assert!(
+            runtime
+                .gc
+                .graph_survivor(
+                    runtime.modules(),
+                    GraphIdentity::Object(result.object_id().unwrap())
+                )
+                .unwrap()
+        );
+        let newborn = allocate();
+        assert!(runtime.gc.complete_task(newborn, task, Ok(dead)).is_err());
+        assert!(
+            runtime
+                .gc
+                .task_snapshot(&Value::GcHandle(newborn))
+                .unwrap()
+                .1
+                .is_none()
+        );
+        runtime.gc.complete_task(newborn, task, Ok(result)).unwrap();
+        assert_eq!(
+            runtime
+                .gc
+                .task_snapshot(&Value::GcHandle(newborn))
+                .unwrap()
+                .1
+                .unwrap()
+                .unwrap(),
+            result
+        );
+        runtime.gc.graph.lock().finish_sweep().unwrap();
+    }
 
     #[test]
     fn task_error_message_is_charged_even_when_publication_is_cleanup() {

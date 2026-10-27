@@ -1,138 +1,135 @@
-//! Module instances participate in the same graph as heap objects.
+//! Synchronous retirement adapter over authoritative owner-local marks.
+//! PG05 replaces the dead inventory with bounded owner cursors.
 use crate::{
-    execution_metadata::MetadataEdge,
+    gc::graph::GraphState,
     module::{
-        ExecutableModule, ModuleKey, ModuleStore, ModuleStoreInner, records::ModuleRecord,
-        root_programs, state::StaticState,
+        ModuleKey, ModuleStore,
+        records::ModuleRecord,
+        state::cells::{CellId, StaticCell},
     },
-    value::Value,
 };
-use std::{
-    cell::RefMut,
-    collections::HashSet,
-    sync::atomic::{AtomicBool, Ordering},
-};
+use std::{sync::atomic::Ordering, vec::IntoIter};
 
-/// Exclusive access prevents instance writes between marking and detachment.
-pub(crate) struct ProgramGraph<'a> {
-    store: RefMut<'a, ModuleStoreInner>,
-    current_roots: Vec<ModuleKey>,
-    abandoned: &'a AtomicBool,
+pub(crate) struct ModuleSweep<'a> {
+    modules: &'a ModuleStore,
+    graph: &'a GraphState,
     restore_abandonment: bool,
 }
 
 /// Detached together with dead heap slots, then disposed outside storage borrows.
 pub(crate) struct RetiredModule {
     pub(crate) key: ModuleKey,
-    _record: ModuleRecord,
+    _record: Box<ModuleRecord>,
 }
 
-pub(crate) struct DeadPrograms(Vec<ModuleKey>);
+pub(crate) struct RetiredCell {
+    _cell: StaticCell,
+}
+
+pub(crate) struct DeadPrograms {
+    modules: IntoIter<ModuleKey>,
+    cells: IntoIter<CellId>,
+}
 
 impl ModuleStore {
-    pub(crate) fn collection_graph(&self) -> Option<ProgramGraph<'_>> {
-        let current_roots = self.current_roots().ok()?;
-        let store = self.inner.try_borrow_mut().ok()?;
-        // Acknowledge before tracing. Releases racing with this collection leave
-        // their own request set, including programs already reached by marking.
-        Some(ProgramGraph {
-            store,
-            current_roots,
-            abandoned: &self.abandoned,
+    pub(crate) fn begin_collection(&self) -> ModuleSweep<'_> {
+        // A release racing with root enumeration must leave its own request set.
+        ModuleSweep {
+            modules: self,
+            graph: &self.graph,
             restore_abandonment: self.abandoned.swap(false, Ordering::AcqRel),
-        })
+        }
     }
 }
 
-impl Drop for ProgramGraph<'_> {
+impl Drop for ModuleSweep<'_> {
     fn drop(&mut self) {
         if self.restore_abandonment {
-            self.abandoned.store(true, Ordering::Release);
+            self.modules.abandoned.store(true, Ordering::Release);
         }
     }
 }
 
-impl ProgramGraph<'_> {
-    pub(crate) fn roots(&self) -> HashSet<ModuleKey> {
-        root_programs(&self.store, self.current_roots.iter().copied())
+impl ModuleSweep<'_> {
+    #[cfg(feature = "execution-diagnostics")]
+    pub(crate) fn record_storage_usage(&self) {
+        let store = self.modules.inner.borrow();
+        self.graph
+            .lock()
+            .record_module_storage(store.records.storage_usage());
     }
 
-    pub(crate) fn executable_edge(&self, module: &ExecutableModule) -> Option<ModuleKey> {
-        Some(self.store.resolve(module)?.module.program_key())
-    }
-
-    pub(crate) fn trace<'a>(
-        &'a self,
-        key: ModuleKey,
-        visit: &mut dyn FnMut(&'a Value),
-        metadata: &mut Vec<MetadataEdge<'a>>,
-    ) -> Option<()> {
-        let program = &self.store.records.get(&key)?.module;
-        if program.program_key() != key {
-            return None;
-        }
-        for member in program.members() {
-            let record = self.store.records.get(&member.key())?;
-            record.descriptors.trace(&self.store, metadata);
-            if let Some(calls) = &record.execution {
-                calls.trace(metadata);
-            }
-            record.constants.iter().rev().for_each(&mut *visit);
-            if record.bindings.len() != member.bytecode.module_slots.len() {
-                return None;
-            }
-            for slot in 0..record.bindings.len() {
-                let cell = self.store.bound_cell(record, slot)?;
-                // A poisoned frame attempt no longer owns an executable recipe edge.
-                if cell.failed_attempt() {
-                    continue;
-                }
-                match &cell.state {
-                    StaticState::Ready(value) => visit(value),
-                    StaticState::Uninitialized(recipe) | StaticState::Initializing(recipe) => {
-                        metadata.push(MetadataEdge::Program(&recipe.module))
-                    }
-                    StaticState::Failed(_) => {}
-                }
+    pub(crate) fn prepare_sweep(&self) -> Option<DeadPrograms> {
+        let store = self.modules.inner.try_borrow_mut().ok()?;
+        let graph = self.graph.try_lock().ok()?;
+        let mut dead = Vec::new();
+        for (key, record) in store.records.iter() {
+            let id = store.records.scan_id(&record.module)?;
+            if !graph.is_survivor(store.records.mark(id)?).ok()? {
+                dead.push(*key);
             }
         }
-        Some(())
-    }
-
-    pub(crate) fn prepare_sweep(&self, live: &HashSet<ModuleKey>) -> DeadPrograms {
-        let dead = self
-            .store
-            .records
-            .iter()
-            .filter_map(|(key, module)| {
-                (!live.contains(&module.module.program_key())).then_some(*key)
-            })
-            .collect::<Vec<_>>();
-        DeadPrograms(dead)
+        let mut cells = Vec::new();
+        for (id, cell) in &store.cells {
+            if !graph.is_survivor(cell.mark.as_ref()).ok()? {
+                graph.can_retire(cell.mark.as_ref()).ok()?;
+                cells.push(*id);
+            }
+        }
+        Some(DeadPrograms {
+            modules: dead.into_iter(),
+            cells: cells.into_iter(),
+        })
     }
 
     /// Call only after the entire graph and heap accounting have been validated.
-    pub(crate) fn detach(&mut self, dead: DeadPrograms) -> Vec<RetiredModule> {
-        let retired = dead
-            .0
-            .into_iter()
+    pub(crate) fn detach_program_batch(
+        &mut self,
+        dead: &mut DeadPrograms,
+        limit: usize,
+    ) -> Vec<RetiredModule> {
+        assert!(limit != 0);
+        let mut store = self.modules.inner.borrow_mut();
+        let mut graph = self.graph.lock();
+        dead.modules
+            .by_ref()
+            .take(limit)
             .map(|key| {
-                self.store.retentions.remove(&key);
-                self.store.staged.remove(&key);
+                store.retentions.remove(&key);
+                store.staged.remove(&key);
                 RetiredModule {
                     key,
-                    _record: self.store.records.remove(&key).expect("dead module record"),
+                    _record: store
+                        .records
+                        .remove(&key, &mut graph)
+                        .expect("dead module record"),
                 }
             })
-            .collect::<Vec<_>>();
-        let referenced = self
-            .store
-            .records
-            .values()
-            .flat_map(|record| record.bindings.iter().copied())
-            .collect::<HashSet<_>>();
-        self.store.cells.retain(|id, _| referenced.contains(id));
+            .collect()
+    }
+
+    pub(crate) fn detach_cell_batch(
+        &mut self,
+        dead: &mut DeadPrograms,
+        limit: usize,
+    ) -> Vec<RetiredCell> {
+        assert!(limit != 0);
+        let mut store = self.modules.inner.borrow_mut();
+        let mut graph = self.graph.lock();
+        dead.cells
+            .by_ref()
+            .take(limit)
+            .map(|id| {
+                let cell = store.cells.remove(&id).expect("dead static cell");
+                graph.release_singleton(cell.mark.as_ref());
+                graph.retire_prepared();
+                RetiredCell { _cell: cell }
+            })
+            .collect()
+    }
+
+    pub(crate) fn finish(&mut self, dead: DeadPrograms) {
+        assert!(dead.modules.len() == 0 && dead.cells.len() == 0);
         self.restore_abandonment = false;
-        retired
     }
 }

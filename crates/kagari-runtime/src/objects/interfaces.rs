@@ -16,7 +16,6 @@ use kagari_bytecode::module::CallableTarget;
 use kagari_common::identity::DefinitionKind;
 use kagari_contract::types::{self as abi, PublicItem};
 use kagari_types::ty::{Ty, substitution::TypeSubstitution};
-use std::sync::Arc;
 
 impl Runtime {
     pub(super) fn prepare_interface_snapshot(
@@ -233,40 +232,45 @@ impl Runtime {
         if !interface_type.is_concrete() {
             return Err(invalid());
         }
-        let description = Arc::new(InterfaceDescription {
-            receiver_operations: MetadataCache::new(),
-            receiver_table,
-            parents: linked
-                .parents
-                .iter()
-                .map(|parent| {
-                    Ok(InterfaceParentBinding {
-                        interface: substitution
-                            .apply_nominal(&parent.interface, &Default::default())
-                            .map_err(|_| invalid())?,
-                        binding: calls::interface_binding(
-                            implementation,
-                            &parent.implementation,
-                            environment.clone(),
-                        )?,
-                        view: parent.view,
-                    })
+        let parents = linked
+            .parents
+            .iter()
+            .map(|parent| {
+                Ok(InterfaceParentBinding {
+                    interface: substitution
+                        .apply_nominal(&parent.interface, &Default::default())
+                        .map_err(|_| invalid())?,
+                    binding: calls::interface_binding(
+                        implementation,
+                        &parent.implementation,
+                        environment.clone(),
+                    )?,
+                    view: parent.view,
                 })
-                .collect::<Result<_, RuntimeError>>()?,
-            concrete_type,
-            concrete_expression: template.for_type.clone(),
-            interface_type,
-            interface_expression: match view {
-                Some(view) => Ty::Trait(view.interface.clone()),
-                None => match &template.trait_type {
-                    Ty::Trait(_) => template.trait_type.clone(),
-                    _ => return Err(invalid()),
-                },
+            })
+            .collect::<Result<_, RuntimeError>>()?;
+        let interface_expression = match view {
+            Some(view) => Ty::Trait(view.interface.clone()),
+            None => match &template.trait_type {
+                Ty::Trait(_) => template.trait_type.clone(),
+                _ => return Err(invalid()),
             },
-            environment,
-            implementation: implementation.clone(),
-            methods,
-        });
+        };
+        let description = self
+            .gc
+            .admit_interface_description(self.modules(), |scan_id| InterfaceDescription {
+                scan_id,
+                receiver_operations: MetadataCache::new(),
+                receiver_table,
+                parents,
+                concrete_type,
+                concrete_expression: template.for_type.clone(),
+                interface_type,
+                interface_expression,
+                environment,
+                implementation: implementation.clone(),
+                methods,
+            })?;
         self.gc.cache_interface_description(key, &description)?;
         Ok(InterfaceValueSnapshot::new(description, data))
     }

@@ -8,6 +8,9 @@ pub(crate) mod groups;
 pub(crate) mod interfaces;
 pub(crate) mod links;
 pub(crate) mod operation;
+mod publication;
+pub(crate) mod scan_records;
+pub(crate) mod scanning;
 #[cfg(feature = "execution-diagnostics")]
 use crate::diagnostics::{self, Event};
 
@@ -26,9 +29,10 @@ use crate::{
     gc::interfaces::{InterfaceDescription, InterfaceResultBinding, InterfaceValueSnapshot},
     module::ExecutableModule,
     native::{application::NativeApplication, stored_selection::StoredSelection},
-    value::Value,
 };
-use std::{collections::HashSet, sync::Arc};
+use std::collections::HashSet;
+#[cfg(test)]
+use std::sync::Arc;
 
 impl Runtime {
     pub(crate) fn validate_metadata(&self, edge: MetadataEdge<'_>) -> Result<(), RuntimeError> {
@@ -57,10 +61,13 @@ impl Runtime {
         mut visit: impl FnMut(&ExecutableModule),
     ) -> Result<(), RuntimeError> {
         if let MetadataEdge::Program(owner) = edge {
+            // Executable admission already checks availability and condemnation
+            // on the same exact owner. Do not resolve it again as a graph view.
             self.validate_executable_module(owner)?;
             visit(owner);
             return Ok(());
         }
+        self.gc.check_metadata_access(self.modules(), edge)?;
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::MetadataValidation);
         let mut error = None;
@@ -101,6 +108,7 @@ impl Runtime {
 /// The same descriptors inside a heap object are ordinary graph edges.
 #[derive(Debug, Clone)]
 pub(crate) enum MetadataRoot {
+    #[cfg(test)]
     NativeApplication(Arc<NativeApplication>),
     Program(ExecutableModule),
     Environment(EnvironmentId),
@@ -112,6 +120,7 @@ pub(crate) enum MetadataRoot {
 impl MetadataRoot {
     pub(crate) fn edge(&self) -> MetadataEdge<'_> {
         match self {
+            #[cfg(test)]
             Self::NativeApplication(value) => MetadataEdge::NativeApplication(value),
             Self::Program(value) => MetadataEdge::Program(value),
             Self::Environment(value) => MetadataEdge::Environment(*value),
@@ -164,13 +173,6 @@ impl MetadataEdge<'_> {
     }
 }
 
-pub(crate) struct MetadataLive {
-    pub(crate) groups: HashSet<OperationGroupId>,
-    pub(crate) environments: HashSet<EnvironmentId>,
-    pub(crate) applications: HashSet<ApplicationId>,
-    pub(crate) interfaces: HashSet<InterfaceSnapshotId>,
-}
-
 /// Addresses deduplicate borrowed immutable views during this traversal only;
 /// program edges are subsequently checked against the owning runtime's store.
 pub(crate) struct MetadataTrace<'a> {
@@ -179,7 +181,7 @@ pub(crate) struct MetadataTrace<'a> {
     groups: &'a OperationGroupStore,
     interfaces: &'a InterfaceStore,
     live_interfaces: HashSet<InterfaceSnapshotId>,
-    values: Vec<Value>,
+
     applications: &'a ApplicationStore,
     live_applications: HashSet<ApplicationId>,
     live_groups: HashSet<OperationGroupId>,
@@ -201,22 +203,13 @@ impl<'a> MetadataTrace<'a> {
             groups,
             interfaces,
             live_interfaces: HashSet::new(),
-            values: Vec::new(),
+
             applications,
             live_applications: HashSet::new(),
             live_groups: HashSet::new(),
             seen_operations: HashSet::new(),
             seen: HashSet::new(),
             pending: Vec::new(),
-        }
-    }
-
-    pub(crate) fn into_live_records(self) -> MetadataLive {
-        MetadataLive {
-            environments: self.live_environments,
-            groups: self.live_groups,
-            applications: self.live_applications,
-            interfaces: self.live_interfaces,
         }
     }
 
@@ -250,16 +243,8 @@ impl<'a> MetadataTrace<'a> {
                     if !self.seen_operations.insert(id) {
                         continue;
                     }
-                    let operation = self.groups.operation(id)?;
+                    self.groups.operation(id)?;
                     self.pending.push(MetadataEdge::Group(id.group));
-                    self.pending.push(MetadataEdge::Program(&operation.owner));
-                    self.pending
-                        .extend(operation.application.map(MetadataEdge::Application));
-                    if let Some(generic) = &operation.generic {
-                        self.pending
-                            .push(MetadataEdge::Binding(&generic.receiver_table));
-                        self.environment(generic.receiver_environment.as_ref());
-                    }
                 }
                 MetadataEdge::Interface(id) => {
                     if !self.live_interfaces.insert(id) {
@@ -269,7 +254,6 @@ impl<'a> MetadataTrace<'a> {
                         .push(MetadataEdge::InterfaceView(self.interfaces.get(id)?));
                 }
                 MetadataEdge::InterfaceView(snapshot) => {
-                    self.values.push(snapshot.data);
                     self.pending
                         .push(MetadataEdge::InterfaceDescription(&snapshot.description));
                     for parent in &snapshot.parent_views {
@@ -279,25 +263,9 @@ impl<'a> MetadataTrace<'a> {
                     }
                 }
                 MetadataEdge::InterfaceDescription(snapshot) => {
-                    self.pending
-                        .push(MetadataEdge::Program(&snapshot.implementation));
-                    self.pending
-                        .push(MetadataEdge::Binding(&snapshot.receiver_table));
-                    self.environment(snapshot.environment.as_ref());
-                    if let Some(group) = snapshot.receiver_operations.get() {
-                        self.pending.push(MetadataEdge::Group(*group));
-                    }
-                    for parent in &snapshot.parents {
-                        self.pending.push(MetadataEdge::Binding(&parent.binding));
-                    }
-                    for method in snapshot.methods.iter().flatten() {
-                        if let Some(Some(group)) = method.receiver_operations.get() {
-                            self.pending.push(MetadataEdge::Group(*group));
-                        }
-                        if let Some(adapter) = &method.result_adapter {
-                            self.pending.push(MetadataEdge::Binding(adapter));
-                        }
-                    }
+                    self.pending.extend(
+                        (0..snapshot.scan_len()).filter_map(|field| snapshot.scan_field(field)),
+                    );
                 }
                 MetadataEdge::Application(id) => {
                     if !self.live_applications.insert(id) {
@@ -306,8 +274,8 @@ impl<'a> MetadataTrace<'a> {
                     self.applications.record(id)?.trace(&mut self.pending);
                 }
                 MetadataEdge::Binding(binding) => {
-                    self.pending.push(MetadataEdge::Program(&binding.owner));
-                    self.environment(binding.environment.as_ref());
+                    self.pending
+                        .extend((0..2).filter_map(|field| binding.scan_field(field)));
                 }
                 MetadataEdge::Operations(operations) => {
                     operations.trace_metadata(&mut self.pending)
@@ -332,10 +300,6 @@ impl<'a> MetadataTrace<'a> {
             }
         }
         Some(())
-    }
-
-    pub(crate) fn append_values(&mut self, values: &mut Vec<Value>) {
-        values.append(&mut self.values);
     }
 
     fn environment(&mut self, environment: Option<&'a TypeEnvironment>) {

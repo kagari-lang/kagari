@@ -154,6 +154,7 @@ impl Runtime {
                 "static semantic type mismatch",
             ));
         }
+        self.gc.publish_value(value)?;
         self.modules
             .replace_static(module, slot, value)
             .ok_or_else(|| {

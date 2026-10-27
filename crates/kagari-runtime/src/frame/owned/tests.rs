@@ -4,8 +4,14 @@ use crate::{
     Runtime,
     error::RuntimeErrorKind,
     frame::{ExecutionStack, NativeEntryState},
-    gc::retention_probe::{measure, replace_cell},
-    module::ExecutableModule,
+    gc::{
+        graph::GraphIdentity,
+        retention_probe::{measure, replace_cell},
+    },
+    module::{
+        ExecutableModule,
+        execution::{OperandSlot, layout::Location},
+    },
     native::storage::{NativePayload, NativeStorage},
     resource::HeapCharge,
     session::owned::OwnedExecution,
@@ -106,8 +112,22 @@ fn graph(runtime: &Runtime, size: usize, cyclic: bool) -> Value {
 pub(in crate::frame) fn set_frame(runtime: &Runtime, stack: &ExecutionStack<'_>, value: Value) {
     let frame = stack.current().unwrap();
     let mut windows = runtime.resources().frame_values.borrow_mut();
-    let range = windows.ranges(frame.slots).unwrap().managed;
-    windows.values[range].fill(value);
+    let count = windows.managed_values(frame.slots).unwrap().len();
+    for index in 0..count {
+        windows
+            .set_location(
+                runtime.gc(),
+                frame.slots,
+                Location {
+                    operand: OperandSlot::new(index, true),
+                    representation: ValueType::Generic,
+                    semantic: None,
+                    borrowed_receiver: false,
+                },
+                value,
+            )
+            .unwrap();
+    }
 }
 
 fn fixture(
@@ -156,6 +176,88 @@ fn transition(runtime: &Runtime, stack: ExecutionStack<'_>) {
     let mut activation = Some(stack);
     assert!(ExecutionStack::try_park_ready(&mut activation, runtime).unwrap());
     assert!(activation.is_none());
+}
+
+#[test]
+fn parked_frames_keep_replacements_published_after_initial_root_enumeration() {
+    let mut runtime = Runtime::default();
+    let module = module(&mut runtime, 1, false);
+    let owner = runtime
+        .start_owned_execution(&module, FunctionRef::new(0), &[], Default::default())
+        .unwrap();
+    let mut activation = Some(runtime.resume_owned_execution(&owner).unwrap());
+    let old = runtime.gc.alloc_string("old".into()).unwrap();
+    let replacement = runtime.gc.alloc_string("replacement".into()).unwrap();
+    let dead = runtime.gc.alloc_string("unrooted".into()).unwrap();
+    let slots = activation.as_ref().unwrap().current().unwrap().slots;
+    let location = Location {
+        operand: OperandSlot::new(0, true),
+        representation: ValueType::Str,
+        semantic: None,
+        borrowed_receiver: false,
+    };
+    slots.set_location(&runtime.gc, location, old).unwrap();
+    let mut roots = runtime
+        .gc
+        .begin_initial_roots(runtime.modules(), runtime.host())
+        .unwrap();
+    loop {
+        if runtime
+            .gc
+            .scan_initial_root_slice(
+                runtime.modules(),
+                runtime.host(),
+                &mut roots,
+                &mut ScanBudget::new(1),
+            )
+            .unwrap()
+            == ScanStatus::Complete
+        {
+            break;
+        }
+    }
+    runtime.gc.drain_graph_work(runtime.modules()).unwrap();
+    slots
+        .set_location(&runtime.gc, location, replacement)
+        .unwrap();
+    assert!(ExecutionStack::try_park_ready(&mut activation, &runtime).unwrap());
+    assert!(activation.is_none());
+    runtime.gc.drain_graph_work(runtime.modules()).unwrap();
+    runtime.gc.graph.lock().close_mark().unwrap();
+    assert!(
+        runtime
+            .gc
+            .graph_survivor(
+                runtime.modules(),
+                GraphIdentity::Object(replacement.object_id().unwrap())
+            )
+            .unwrap()
+    );
+    assert!(
+        !runtime
+            .gc
+            .graph_survivor(
+                runtime.modules(),
+                GraphIdentity::Object(dead.object_id().unwrap())
+            )
+            .unwrap()
+    );
+    let resumed = runtime.resume_owned_execution(&owner).unwrap();
+    let resumed_slots = resumed.current().unwrap().slots;
+    assert!(
+        resumed_slots
+            .set_location(&runtime.gc, location, dead)
+            .is_none()
+    );
+    assert_eq!(
+        resumed_slots.with_location(&runtime.gc, location, |value| *value),
+        Some(replacement)
+    );
+    runtime.gc.graph.lock().finish_sweep().unwrap();
+    drop(resumed);
+    runtime.finish_owned_execution(&owner).unwrap();
+    runtime.collect_garbage().unwrap();
+    assert!(!runtime.gc.validate_value(&replacement));
 }
 
 #[test]

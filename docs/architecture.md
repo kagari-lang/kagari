@@ -1129,9 +1129,11 @@ identity and representation. A type witness is not callable constructor evidence
 See [provider contracts](spec/host-interop.md#general-native-payload-protocol).
 
 One runtime-local aligned scanner workspace is reserved on payload admission and
-reused for traversal. The current driver drains it synchronously; idle growth is
-allowed because no continuation survives a traversal. PG04 owns persistent active
-continuations and reservation across interleaved mutation, not a second scanner.
+reused for traversal. PG04 retains one active Copy continuation across graph slices;
+workspace growth preserves its bytes/alignment transactionally, leaving the old state
+intact on allocation failure. Admission/inspection uses the same scanner protocol
+without overwriting suspended graph state. The production wrapper still drains all
+slices synchronously; this does not enable PG05 mutator/collector interleaving.
 [Stdlib collections](../crates/kagari-stdlib/src/collections.rs) own Vec, HashMap,
 HashSet, their cursors and Rust adapters. All three are ordinary nominal opaque
 applications, without collection-specific type/value tags, constructors, codecs,
@@ -1344,11 +1346,15 @@ borrow crosses collection or callbacks. Closed execution allocates no applicatio
 index. This replaces per-operation type resolution and the separate scoped-field
 argument copies; ordinary enum heap allocation is unchanged.
 
-Typed callbacks borrow their enclosing synchronous call's program retention.
-Public standalone conversion scopes and escaping handles retain independent leases.
-Argument values snapshot before user converters, and custom Rust mapping checks
-continue to execute before effects. This preparation does not change enum allocation,
-mutation commit ordering or the collector algorithm.
+Typed callbacks can borrow their enclosing synchronous call's exact runtime/program-
+generation retention through `ExecutionRetention` and `ConversionContext::in_execution`.
+A matching live authority avoids another whole-program retention walk, not graph
+admission: the scope still publishes the program once and rejects Faulted publication.
+An unmatched owner falls back to owned retention; foreign runtime authority is rejected.
+No registry borrow crosses converters/user code. Public standalone conversion scopes
+and escaping handles retain independent leases. Argument values snapshot before user
+converters, and custom Rust mapping checks continue to execute before effects. This
+preparation does not change enum allocation or mutation commit ordering.
 
 ## Interface dispatch
 
@@ -1845,11 +1851,46 @@ store numeric tokens rather than per-slot Arc owners; disposal retains dispatch
 and backing until destruction completes. Canonical struct layouts remain with
 one semantic interning owner, not a duplicate physical semantic-key map.
 
-The collector still completes synchronous graph validation and builds an index-only
-dead list, accumulating checked committed-charge totals during enumeration. Before
-retiring identities it exactly reserves separate payload/page retirement queues.
-Wholly dead full homogeneous pages may transfer backing and one descriptor owner;
-partial/mixed/already-retiring pages retain per-object disposal. All destructors run
+The current replacement marker has checked phase/epoch state, original-owner marks
+and one active owned scan cursor. Each 128-slot identity-store block holds discovered/
+scanned bitmaps and deduplicates a pending block job; non-reused static cells use
+singleton marks/jobs. Queue work credits count registered blocks/singletons separately
+from identity credits. Full generations resolve through original stores, not a second
+ID registry or payload address. This grouping is independent of physical slab size.
+Frame allocation and managed operand writes publish strong edges before exposing the
+window/slot, including writes behind an advanced root cursor; scalar banks need no
+reference barrier. Module scan slots retain compact generation history and optional
+boxed ModuleRecord backing, so vacant reload slots do not retain full record capacity.
+This Box is not a native payload or Vec work-state allocation. Module resolution
+borrows the compact original record without constructing an eager graph tuple;
+current/staged root discovery belongs to the program store, while reached member
+jobs keep their existing graph responsibilities.
+
+Directory access validates owner, bounds, full generation and occupied kind under
+the original borrow. Generic managed values do not perform irrelevant native-subtype
+classification; specialized Array values still check their native subtype. Ordinary
+publication validates identity/representation before consulting authoritative phase.
+Graph-only mark construction is lazy, not a validation bypass. One acquire phase load
+selects Idle versus active service; no mirrored phase or permission cache is added.
+Explicit Faulted state permits diagnostic graph reads but rejects publication/admission.
+Terminal Poisoned state rejects graph access and work acquisition as well. Every graph
+mutex acquisition, including Debug formatting, is wrapped immediately; unwinding guard
+Drop publishes Poisoned with release ordering before unlock, even for acquisition during
+unwind. The standard mutex poison flag remains an advisory backstop, not the ordinary
+phase observer. Provider scan failure outside a guard explicitly faults/quarantines.
+
+Production synchronously drains the persistent marker and physical page/slot sweep.
+The physical cursor uses reusable bounded page/range disposal instead of a whole-heap
+dead-ID list. Inspected holes and survivors consume work as well as dead slots.
+Retirement is capped at 32 simultaneously detached owners **total**, counting every
+payload in a full-page token. Each batch is completely disposed before another
+batch/domain detaches. Cross-store borrows are preflighted before the first detach;
+`SweepGraph` and checked physical ranges authorize each batch's identities, aggregate
+credits, free-list updates and page completion. Preparation is **batch-atomic**, not
+whole-cycle rollback: a later preparation fault leaves that batch stored, while earlier
+batches remain retired/accounted and the runtime is quarantined. Wholly dead full
+homogeneous pages may transfer backing and one descriptor owner; partial/mixed pages
+use bounded page-local ranges or individual disposal. All destructors run
 outside storage borrows, consuming initialization before dispatch. Each panic
 quarantines execution before the next destructor; cleanup continues exactly once.
 Descriptor evidence skips destruction only when Rust needs_drop is false or encoded
@@ -1857,9 +1898,14 @@ struct bytes own no Rust resources; native payloads retain their actual destruct
 Edge-freedom is not destructor-freedom. Descriptor and backing owners release outside
 borrows after disposal. Interface identities directly locate
 snapshots and use a narrow occupied-directory index, with no slab wrapper payload.
-The synchronous dead list and interface batch filtering remain PG05 removal work;
-epoch marking/continuations remain PG04 work. Nonmoving storage alone is not an
-incremental collector, O(live) total-GC claim, or measured throughput improvement.
+Physical sweep and bounded disposal were brought forward into PG04, now locally
+complete pending commit; the
+[PG04 ledger](paged-incremental-gc-design.md#pg04-marker-implementation-and-open-acceptance)
+records fresh versus reused acceptance evidence. Remaining metadata/module inventories,
+interface batch filtering and pressure-driven production interleaving belong to PG05.
+The selected normal budget remains 1024 work units, not a wall-clock deadline.
+Neither synchronous slicing nor local acceptance establishes an O(live) total-GC
+bound, incremental pause acceptance or completion of joint CI.
 
 `ResourceState` owns aggregate logical occupancy and attributed backing pressure.
 `HeapCharge` carries `logical_units` and `retained_bytes`; each `NativeObject` owns
@@ -2032,7 +2078,16 @@ the region releases them before returning to GC, observation, calls or reentry.
 Checked external frame access and region entry still enforce sticky termination and
 quarantine. Internal writes retain heap-value validation, bounds and slot representation
 checks through the same bank access implementation as external frame access.
-Window generation checks continue to reject expired native views.
+Window generation checks continue to reject expired native views. The closed
+`OperandWindow` reuses one execution permission for its sealed region, not a blanket
+exemption for managed writes: every managed publication still validates identity and
+shades centrally. Standalone writes retain bounds/representation preflight before
+permission, preserving error order. Active-session admission and immediate top-frame
+validation borrow the same SessionStore owner; no cached permission or borrow crosses
+callbacks. Frame admission retains its earlier metadata/error checks. Its private
+exact-argument publication transaction validates/shades successful arguments once,
+records failures for their original late boundary and allows only conservative early
+shading on abort. No callback, phase advance or argument mutation can intervene.
 
 The VM driver classifies authoritative runtime state on activation/resume and after
 await transitions. Internal call, native-entry and return transitions carry the action

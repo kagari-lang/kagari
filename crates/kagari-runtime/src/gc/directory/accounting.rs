@@ -6,7 +6,12 @@ use crate::{
 };
 
 impl ObjectStorage {
-    pub(crate) fn storage_usage(&self, interface_snapshots: BufferUsage) -> StorageUsage {
+    pub(crate) fn storage_usage(
+        &self,
+        interface_snapshots: BufferUsage,
+        graph_pending: BufferUsage,
+        graph_credits: usize,
+    ) -> StorageUsage {
         let mut native_payload_bytes = 0;
         let mut array_element_bytes = 0;
         let mut array_capacity_bytes = 0;
@@ -35,7 +40,11 @@ impl ObjectStorage {
             buffers: [
                 BufferUsage::new("directory", &self.slots),
                 BufferUsage::new("interface_wrappers", &self.interface_directories),
+                graph_pending,
             ],
+            graph_credits,
+            graph_work_credits: 0,
+            retirement: Default::default(),
             slab_bytes: usage.slabs,
             large_bytes: usage.large,
             slot_metadata_bytes: usage.slots,

@@ -25,11 +25,13 @@ fn foreign_executable_edges_abort_collection_before_any_storage_is_detached() {
     // Deliberately bypass Runtime::make_closure to exercise corrupted storage.
     let closure = runtime
         .gc()
-        .alloc_closure(ClosureValueSnapshot {
-            implementation: foreign_owner,
-            target: ClosureTarget::Script(FunctionRef::new(0)),
-            captures: vec![],
-            environment: None,
+        .alloc_object(HeapObject::Closure {
+            snapshot: ClosureValueSnapshot {
+                implementation: foreign_owner,
+                target: ClosureTarget::Script(FunctionRef::new(0)),
+                captures: vec![],
+                environment: None,
+            },
         })
         .unwrap();
     let _root = runtime.root_value(Value::Closure(closure)).unwrap();
@@ -480,7 +482,7 @@ fn occupied_discovery_excludes_taken_native_identity_after_slot_reuse() {
     reset_discovery_visits(heap);
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
     assert_eq!(discovery_visits(heap), 2);
-    assert!(heap.moved.borrow().contains(&taken));
+    assert!(heap.moved.borrow().contains_key(&taken));
     assert_eq!(
         heap.with_native::<i32, _>(roots[1].1, |value| Ok(*value))
             .unwrap(),

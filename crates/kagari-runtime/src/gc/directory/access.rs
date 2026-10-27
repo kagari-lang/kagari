@@ -71,7 +71,7 @@ impl ObjectStorage {
                 snapshot: interfaces
                     .try_borrow()
                     .ok()?
-                    .directory_binding(location.page)?,
+                    .directory_binding(self.snapshot_index(location)?)?,
             });
         }
         if location.kind == PayloadKind::Struct {
@@ -129,7 +129,7 @@ impl ObjectStorage {
                 snapshot: interfaces
                     .try_borrow()
                     .ok()?
-                    .directory_binding(location.page)?,
+                    .directory_binding(self.snapshot_index(location)?)?,
             });
         }
         if location.kind == PayloadKind::Struct {

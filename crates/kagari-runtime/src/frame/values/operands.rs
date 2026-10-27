@@ -1,6 +1,7 @@
 //! Borrowed banks preserve the ordinary slot representation rules after window admission.
 use crate::{
     frame::values::{ExecutionValues, FrameSlots},
+    gc::GcHeap,
     module::execution::layout::Location,
     value::{Value, scalar},
 };
@@ -13,8 +14,12 @@ pub(crate) struct OperandView<'a> {
     initialized: &'a [bool],
 }
 
-pub(crate) struct OperandWindow<'a> {
-    pub(crate) managed: &'a mut [Value],
+/// Execution permission is admitted once for a closed interpreter borrow. No
+/// callback, collection, native loan, or error recovery may intervene before this
+/// window is dropped. Every managed write still validates and publishes its value.
+pub(in crate::frame) struct OperandWindow<'a> {
+    heap: &'a GcHeap,
+    managed: &'a mut [Value],
     pub(crate) payloads: &'a mut [u64],
     pub(crate) initialized: &'a mut [bool],
 }
@@ -29,12 +34,18 @@ impl ExecutionValues {
         })
     }
 
-    pub(crate) fn borrow_operands(&mut self, slots: FrameSlots) -> Option<OperandWindow<'_>> {
+    pub(in crate::frame) fn borrow_operands<'a>(
+        &'a mut self,
+        heap: &'a GcHeap,
+        slots: FrameSlots,
+    ) -> Option<OperandWindow<'a>> {
         // Validate owner/generation once, before any references into the banks escape.
         self.window(slots)?;
         let window = self.windows.get(slots.index)?;
         window.slot_layout.as_ref()?;
+        heap.ensure_execution_allowed().ok()?;
         Some(OperandWindow {
+            heap,
             managed: self.values.get_mut(window.ranges.managed.clone())?,
             payloads: self.payloads.get_mut(window.ranges.scalars.clone())?,
             initialized: self.initialized.get_mut(window.ranges.scalars.clone())?,
@@ -79,6 +90,10 @@ impl OperandView<'_> {
 }
 
 impl OperandWindow<'_> {
+    pub(crate) fn managed_value(&self, index: usize) -> Option<Value> {
+        self.managed.get(index).copied()
+    }
+
     // Consume the projection in its caller, including the shared decoder below.
     #[inline(always)]
     pub(crate) fn with_value<R>(
@@ -101,11 +116,13 @@ impl OperandWindow<'_> {
 
     pub(crate) fn write_location(&mut self, location: Location, value: Value) -> Option<()> {
         write_operand(
+            self.heap,
             self.managed,
             self.payloads,
             self.initialized,
             location,
             value,
+            || Some(()),
         )
     }
 }
@@ -141,22 +158,34 @@ fn with_operand<R>(
     Some(read(&value))
 }
 
+// Only internal permission actions are supplied here: a standalone write checks
+// execution after representation/bounds preflight; a closed OperandWindow already
+// admitted it. Keep that ordering because permission rejection can quarantine.
 pub(super) fn write_operand(
+    heap: &GcHeap,
     managed: &mut [Value],
     payloads: &mut [u64],
     initialized: &mut [bool],
     location: Location,
     value: Value,
+    admit_managed_write: impl FnOnce() -> Option<()>,
 ) -> Option<()> {
     if !location.admits(&value) {
         return None;
     }
     let slot = location.operand;
     if slot.managed() {
-        *managed.get_mut(slot.index())? = value;
+        let destination = managed.get_mut(slot.index())?;
+        admit_managed_write()?;
+        // Every managed bank publication, including direct frame transfers, must
+        // protect a new edge even when the root cursor has passed this slot.
+        heap.publish_value(value).ok()?;
+        *destination = value;
     } else {
-        *payloads.get_mut(slot.index())? = scalar::encode(&value)?;
-        *initialized.get_mut(slot.index())? = true;
+        let destination = payloads.get_mut(slot.index())?;
+        let initialized = initialized.get_mut(slot.index())?;
+        *destination = scalar::encode(&value)?;
+        *initialized = true;
     }
     Some(())
 }

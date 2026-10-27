@@ -41,6 +41,8 @@ impl Runtime {
         // No LinkedCallable, ProgramLease or RootSet is embedded in the heap.
         // The ordinary closure program/environment edges retain this native entry.
         self.validate_metadata(MetadataEdge::Closure(&snapshot))?;
-        self.gc.alloc_closure(snapshot).map(Value::Closure)
+        self.gc
+            .alloc_closure(self.modules(), snapshot)
+            .map(Value::Closure)
     }
 }

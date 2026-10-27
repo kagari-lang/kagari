@@ -5,14 +5,16 @@ activated at `50ab194b30b0218e9befe3176d6b5711ecf17a28`, 2026-10-26. The user au
 the joint PG00-PG06/NC migration with one commit per PG phase. PG00/NC01 is committed
 at `47be3cb7`; PG01/NC02's general protocol and external proof are locally complete
 after coordinated final validation (PG01 commit `fc651b92`). PG02 physical storage
-is locally complete at `4d8aa0c1`. PG03/NC03-NC04 is locally complete in the worktree
-after final independent review, focused contracts, selected paired gates and parent
-local checks. The finite removal inventory below is closed; PG04 is next, not a claim
-of NC05/NC06 or incremental acceptance. The
+is locally complete at `4d8aa0c1`. PG03/NC03-NC04 is locally complete and committed
+at `8d597b93` after final independent review, focused contracts, selected paired gates
+and parent local checks. The finite removal inventory below is closed. PG04 is locally
+complete pending commit, with synchronously drained marking and bounded physical sweep;
+PG05/NC05 is next. This is not NC06, production interleaving or joint CI acceptance. The
 [roadmap](implementation-roadmap.md#library-owned-native-collections) owns sequencing;
 this plan owns NC01-NC06, the selected Native contracts and the collection ledger.
 General provider APIs and standard collection algorithms below are implemented;
-incremental mechanisms and interleaved acceptance remain future work. The [PG00 baseline](paged-incremental-gc-design.md#pg00-contract-closure-and-baseline)
+PG04 graph/publication mechanisms have passed local acceptance under synchronous
+draining; production interleaving remains PG05 work. The [PG00 baseline](paged-incremental-gc-design.md#pg00-contract-closure-and-baseline)
 owns shared measurements, frozen gates and actual local validation.
 
 Storage inventory refresh, 2026-10-18: the prioritized
@@ -151,7 +153,7 @@ current code. This migration makes no unmeasured performance claim.
 ### Finite removal inventory
 
 All rows are closed and locally accepted after final independent review of the
-PG03 worktree based on `4d8aa0c1`. This is not NC06/CI completion.
+PG03 checkpoint `8d597b93` based on `4d8aa0c1`. This is not NC06/CI completion.
 
 | Removed privilege | Current owner / preserved boundary |
 | --- | --- |
@@ -209,7 +211,7 @@ They do not by themselves provide checked resizing, public revision/commit acces
 factory-level key-call registration. PG01/NC02 now preserves `RootedValue` from
 `call_stored_values`; typed creation uses `NativeType::create(cx, payload, slots)`.
 The general protocol below is locally accepted in PG01/NC02; the standard
-collection special paths are removed in the PG03 worktree.
+collection special paths were removed in PG03 commit `8d597b93`.
 
 ## Ownership and representation
 
@@ -527,47 +529,37 @@ unshaded outgoing edges; the PG owner defines newborn/sweep phase handling.
 
 #### Allocation-free insertion work
 
-Select one collector-owned `Vec<GraphIdentity>` pending stack, with capacity reserved
-at graph-identity admission, rather than an intrusive queue record and continuation
-allocation per identity. GraphIdentity here denotes the existing object/program/
-metadata identity domains, not a new public handle. Reuse per-identity mark state for
-deduplication. The insertion barrier only shades/enqueues; it never starts a scan.
+The implemented PG04 marker reserves one collector-owned pending queue at admission.
+Its entries name deduplicated **128-slot original-owner blocks** or singleton static
+jobs, not one entry/continuation allocation per graph identity. Discovered/scanned
+bitmaps and full-generation resolution remain with the original stores. These are
+identity-store blocks, not payload slabs. The insertion barrier shades/enqueues; it
+never begins a scan. One owned active identity cursor retains scan progress.
 
-| Candidate | Safety and ownership cost |
-| --- | --- |
-| Per-identity queue record | Intrusive links and optional per-identity continuation backing make enqueue allocation-free, but add lifecycle/layout state to every graph owner and reserve continuation space for inactive identities. Not selected. |
-| Admission-reserved pending capacity | One private vector, existing mark state and one active scan continuation suffice. It can retain high-water capacity/slack; no claim that it always uses fewer bytes. Selected for the concrete finite-capacity proof and fewer ownership mechanisms. |
+Identity credits and block/singleton work credits have separate bounds. Admission
+reserves the applicable work capacity before exposing an identity; checked reservation
+failure leaves it unpublished. Credits remain until queued/active work is impossible,
+including empty pending blocks after take and superseded static jobs. Repeated shading
+does not duplicate pending block work; resuming the active task uses its existing
+reservation. No second ID registry, duplicate edge log or backward regray queue is
+needed. Faults prevent partial-graph sweep, rather than blackening incomplete work.
+Queue capacity/slack is included in the PG owner's measured backing/peak gates;
+reservation is a safety invariant, not a claimed saving.
 
-Maintain capacity >= N, where N counts all admitted graph identities still eligible
-to appear in pending/active work, including metadata and retired-but-not-yet-cleared
-work identities. Before publishing any additional identity in any phase, reserve
-capacity for N+1 with checked arithmetic; failure leaves it unpublished. Release a
-credit only after its queued/active work is impossible. Slot reuse/generation changes
-cannot leave stale queued entries consuming an uncounted credit. Do not shrink below
-N; reserve incrementally at admission, not by a graph/retention prepass at cycle start.
+The single aligned erased scanner workspace is reserved before payload admission.
+PG04 transactionally preserves an active Copy continuation through growth; failure
+leaves the old state intact. No scanner/loan holds a workspace pointer across growth.
+Builtin/metadata scan state and root/frame enumeration use owned resumable cursors,
+not root snapshots. Existing-target barrier enqueue, scanner start/resume and cleanup
+republication require no allocation. Retaining a new external root may fail before
+removal, never as recovery work. Production still drains synchronously, with finite
+256-unit resumable scanner chunks; this is distinct from the selected 1024-unit normal
+driver budget and does not enable PG05 interleaving. The
+[PG04 ledger](paged-incremental-gc-design.md#pg04-marker-implementation-and-open-acceptance)
+owns local evidence and source applicability.
 
-Only white-to-gray adds an entry; gray includes the active scan and repeated shading
-is a no-op. Pop one identity into the single active task, retaining its continuation
-across steps until its finite scan completes. New child publications enqueue distinct
-white identities. Thus pending + active <= N; resuming/requeueing the active task
-uses its existing credit. No duplicate edge log or backward regray queue is needed.
-Unexpected scan panic/invariant failure must preserve unfinished work and prevent
-sweeping, not mark the incomplete task black.
-
-PG04's active-continuation requirement follows. PG01 currently reserves an idle
-workspace at payload admission and drains scanning synchronously; no active state
-survives workspace growth. Reserve the single erased continuation workspace's
-size/alignment at descriptor installation, before an instance can be admitted. Grow it transactionally
-when installing a larger descriptor, preserving an existing Copy continuation; no
-scanner/loan may hold a pointer into the workspace across that operation. Builtin
-and metadata scan state obey the same fixed-storage rule. Root/frame enumeration
-uses runtime-owned resumable cursors, not a new root snapshot. Barrier enqueue,
-root replacement using an existing lease, scanner start/resume and cleanup
-republication consequently require no allocation. Retaining a new external root
-may fail, but it occurs before removal, never as recovery work.
-
-Root release must satisfy the same cleanup promise: PG01 replaces RootLease::drop's
-allocating std mpsc transport in gc/roots.rs with a shared mutex-protected pending-ID Vec,
+Root release satisfies the same cleanup promise: RootLease::drop uses a shared
+mutex-protected pending-ID Vec rather than allocating std mpsc transport in gc/roots.rs,
 reserving one notification credit per admitted root registration. Clones share that
 registration and only the last drop enqueues once. Reserve the root free-slot Vec
 at root-slot admission too, so draining notifications cannot allocate. Keep pending
@@ -921,15 +913,17 @@ owners. Later collection and incremental acceptance is not implied by that resul
   EditPlan preflight retention/publication, logical accounting and revisions; edit
   finalization records actual backing on success/error/unwind. General safe access
   remains [fixed NativeData](../crates/kagari-runtime/src/native/payload/data.rs).
-  Incremental shading is PG04 work, not implemented by synchronous validation alone.
+  PG04 supplies locally accepted graph shading under synchronous draining;
+  production interleaving and joint acceptance remain PG05/PG06 work.
 - Operation protection: participating general access checks now enforce
   ReadOnlyCallbacks/ExclusiveSlots, and operation guards own preflighted sealed
   recovery outside payload loans. The external fixture exercises callback alias
   rejection and same-payload scratch recovery; standard sorting now uses this owner.
 - Scan/admission: one `begin_scan`/`scan` protocol supports EdgeFree, Bounded,
   Resumable and Indivisible providers, with an admission-reserved aligned workspace.
-  The current driver drains synchronously. PG04 must preserve active continuations
-  across growth/mutation; PG03 removes the old sequence-edit reference snapshots. New external payload admission still validates every edge;
+  The current driver drains synchronously. PG04 now preserves active Copy state
+  across workspace growth and supplies graph publication, with PG04 locally complete. PG03 removed the old sequence-edit reference snapshots. New external
+  payload admission still validates every edge;
   merely moving a filled buffer into Opaque is not traversal-free admission.
 - Type/selected-call construction: `StorageContext::element_contract` is public,
   [NativeType::create](../crates/kagari-runtime/src/native/payload/mod.rs) accepts
@@ -1040,7 +1034,8 @@ NC02 may prove the public protocol with the synchronous collector and isolated
 scanner tests, but cannot claim interleaved GC acceptance. Record collection
 results only in this ledger; link PG results rather than copy their checklist.
 The user authorized this phase sequence at the activation revision. PG00/NC01 and
-PG01/NC02, PG02 and PG03/NC03-NC04 have passed local acceptance. PG04 is next.
+PG01/NC02, PG02, PG03/NC03-NC04 and PG04 have passed local acceptance. PG04 is pending
+commit; its fresh/reused evidence is owned by the PG ledger. PG05/NC05 is next.
 Cancellation policy and cx.poll redesign remain outside the migration.
 
 | Phase | Scope and exit condition |
@@ -1186,7 +1181,7 @@ acceptance. The current PG03/NC03-NC04 handoff and historical PG01/NC02 evidence
 
 ### NC03/NC04 implementation handoff (2026-10-27; locally complete)
 
-The finite inventory above is closed in the worktree: collections, cursors, host
+The finite inventory above is closed at commit `8d597b93`: collections, cursors, host
 adapters and Serde conversion policy live in stdlib; no concrete runtime type/value,
 layout/constructor/codec, Vec primitive or compatibility facade remains. Script Vec
 is unchanged; Rust owned conversion uses VecValues. The public OrderedMap fixture
@@ -1220,9 +1215,15 @@ sorting, scoped-evidence and disposal boundaries. Independent reruns passed stdl
 collections 5, ownership/page-quarantine 7 and retention 15 variants; parent structure
 (1766 files, zero violations), formatting, workspace Clippy and diff checks passed.
 These are repeated contract checks, not additional distinct-test totals.
-NC03/NC04 are locally complete with PG03. PG04 is next; PG04/PG05 own actual
-incremental barriers, continuations and legal driver interleaving. Full CI remains
-unrun. No new recurring inventory or compatibility phase is introduced.
+NC03/NC04 are locally complete with PG03 at `8d597b93`. The
+[PG04 ledger](paged-incremental-gc-design.md#pg04-marker-implementation-and-open-acceptance)
+owns the locally complete, pending-commit synchronously drained marker, 128-slot
+owner-block queue, physical sweep, 32-total bounded disposal and module/frame
+corrections. Final Map/arrays paired gates pass; six sort/construction and older
+script-key/GC results retain their prior provenance. Authenticated memory reuse is
+55/55 with 21 zero-net teardowns, not a fresh probe. Known blockers are fixed and
+parent final local checks pass. PG05/NC05 is next; PG06/NC06 and full CI remain
+outstanding. No parallel collection correction queue is added.
 
 ### NC02 implementation handoff (2026-10-27; locally complete)
 
@@ -1265,26 +1266,25 @@ passed final local acceptance. PG03/NC03-NC04 then removed legacy collection cod
 special type/value/wire paths, snapshots, constructor resolution and runtime-owned
 host adapters, with selected paired/backing acceptance recorded in the PG03 handoff.
 Current VecStorage keeps inline `Option<Work>` and same-payload main/scratch buffers.
-PG04 owns active scanner continuation/publication reservations beyond synchronous
-idle workspace growth; PG05/NC05 owns actual driver interleaving. Full CI and future
+PG04 implements active scanner continuation/publication reservations beyond idle
+workspace growth; PG05/NC05 owns actual driver interleaving. Full CI and future
 incremental performance/peak/pause acceptance remain unrun; historical NC02/PG02
 results alone do not establish those gates.
 
 Remaining real gates, not alternative API drafts:
 
-- PG04/PG06: measure actual pending-capacity high-water/slack and single continuation
-  workspace against PG00's frozen total backing/peak gates. Current-runtime measurements
-  cannot measure nonexistent collector queues; their future overhead is not exempt from
-  those gates. Reservation is selected by its safety invariant, not a claimed saving.
-- PG04: extend the locally accepted PG01/NC02 bounded admission, retention,
-  charge/revision finalization and sealed recovery into actual incremental graph
-  operation. Reserved root-release transport replaces allocating mpsc but is not
-  the marker queue. Prove active-workspace growth and graph-admission failure paths;
-  recovery must not allocate, reacquire ordinary execution admission or lose an element.
-- PG04-PG06/NC05-NC06: extend PG03's locally accepted same-payload sorting/compaction
-  and indexed hash relocation to actual interleaved partial scans. Instrument every
-  object/root/frame/metadata publication site before production interleaving and
-  preserve the closed collection removal inventory. Isolated scanner tests and
+- PG05/PG06: preserve PG04's locally accepted pending-capacity/slack, continuation
+  workspace and bounded disposal under PG00's unchanged backing/peak gates as the
+  driver opens production interleaving. Reservation remains a safety invariant,
+  not a speedup claim; root-release transport is distinct from the marker queue.
+- PG05/NC05: retain bounded admission, exact retention, charge/revision finalization
+  and sealed recovery under actual driver schedules. PG04 covers active-workspace
+  growth and graph-admission failures; recovery must continue to avoid allocation,
+  ordinary execution readmission and element loss.
+- PG05-PG06/NC05-NC06: extend PG03's locally accepted same-payload sorting/compaction
+  and indexed hash relocation to actual interleaved partial scans. Preserve PG04's
+  reviewed object/root/frame/metadata publication coverage and the closed collection
+  removal inventory. Isolated scanner tests and
   synchronous callback/recovery evidence do not establish integrated incremental GC safety.
 
 Keep these gates in the existing PG/NC ledgers; do not add parallel progress docs.

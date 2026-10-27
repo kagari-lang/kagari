@@ -106,19 +106,15 @@ impl<'runtime> ExecutionStack<'runtime> {
     }
 
     fn validate_top(&self) -> Result<(), RuntimeError> {
-        self.session.resources.ensure_execution_allowed()?;
-        if !self
-            .session
-            .resources
-            .active_session()
-            .is_some_and(|active| active.id == self.session.id)
-        {
-            return Err(self
-                .session
-                .resources
-                .quarantine("execution used a suspended session"));
-        }
-        if self.session.state().frame_scopes.borrow().last() != Some(&self.id) {
+        let active = self.session.resources.admit_active_session()?;
+        let active = active
+            .filter(|active| active.id == self.session.id)
+            .ok_or_else(|| {
+                self.session
+                    .resources
+                    .quarantine("execution used a suspended session")
+            })?;
+        if active.frame_scopes.borrow().last() != Some(&self.id) {
             return Err(self
                 .session
                 .resources

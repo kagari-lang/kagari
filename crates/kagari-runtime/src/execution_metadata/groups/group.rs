@@ -25,13 +25,16 @@ pub(crate) struct OperationGroup {
 }
 
 impl OperationGroup {
+    pub(crate) fn scan_len(&self) -> usize {
+        self.entries.len() * 5
+    }
+
+    pub(crate) fn scan_field(&self, index: usize) -> Option<MetadataEdge<'_>> {
+        self.entries.get(index / 5)?.scan_field(index % 5)
+    }
+
     pub(crate) fn trace_metadata<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
-        pending.extend(self.entries.iter().enumerate().map(|(member, _)| {
-            MetadataEdge::Operation(OperationId {
-                group: self.id,
-                member,
-            })
-        }));
+        pending.extend((0..self.scan_len()).filter_map(|field| self.scan_field(field)));
     }
 
     pub(crate) fn new(entries: Vec<BoundOperation>, id: OperationGroupId) -> Self {

@@ -47,13 +47,13 @@ fn foreign_stale_out_of_bounds_and_exhausted_ids_cannot_alias() {
             })
             .is_none()
     );
-    assert_eq!(store.detach(&HashSet::new()).len(), 1);
+    assert_eq!(store.detach_batch(&mut 0, 32, |_| false).len(), 1);
     let next = store.insert(record()).unwrap();
     assert_eq!(next.slot, old.slot);
     assert_ne!(next.generation, old.generation);
     assert!(store.get(old).is_none());
     store.slots[next.slot].generation = u64::MAX;
-    assert_eq!(store.detach(&HashSet::new()).len(), 1);
+    assert_eq!(store.detach_batch(&mut 0, 32, |_| false).len(), 1);
     let fresh = store.insert(record()).unwrap();
     assert_ne!(fresh.slot, next.slot);
     assert_eq!(store.count(), 1);
@@ -97,7 +97,10 @@ fn publication_rejects_expired_or_foreign_edges_without_allocating_records() {
     let mut pending = empty(&runtime);
     pending.include(Some(parent.clone())).unwrap();
     // Deliberately retain a draft across collection: publication must recheck its IDs.
-    let group = runtime.gc.alloc_operation_group(vec![]).unwrap();
+    let group = runtime
+        .gc
+        .alloc_operation_group(runtime.modules(), vec![])
+        .unwrap();
     let mut selected = empty(&runtime);
     selected.add_receiver(&runtime.gc, group).unwrap();
     runtime.collect_garbage().unwrap();
@@ -120,7 +123,10 @@ fn publication_rejects_expired_or_foreign_edges_without_allocating_records() {
 fn extensions_publish_a_new_record_and_do_not_change_existing_handles() {
     let runtime = Runtime::default();
     let original = runtime.alloc_environment(empty(&runtime)).unwrap();
-    let group = runtime.gc.alloc_operation_group(vec![]).unwrap();
+    let group = runtime
+        .gc
+        .alloc_operation_group(runtime.modules(), vec![])
+        .unwrap();
     let mut operations = OperationBindings::default();
     operations.receiver(&runtime.gc, group).unwrap();
     let extended = extend(&runtime, &original, operations).unwrap();

@@ -129,7 +129,6 @@ impl Windows {
         self.slots.iter().filter_map(Slot::window)
     }
 
-    #[cfg(test)]
     pub(super) fn len(&self) -> usize {
         self.slots.len()
     }

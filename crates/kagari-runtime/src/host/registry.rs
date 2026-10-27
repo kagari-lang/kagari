@@ -48,19 +48,6 @@ impl HostRegistry {
         self.definitions.snapshot()
     }
 
-    pub(crate) fn gc_roots(&self) -> Vec<Value> {
-        let mut roots = Vec::new();
-        for record in self.dirty_paths.borrow().iter() {
-            roots.extend(record.old_value.iter().cloned());
-            roots.push(record.new_value);
-            roots.extend(record.dynamic_args.as_slice().iter().map(|arg| arg.value));
-            if let Some(view) = &record.base_view {
-                roots.extend(view.retained_values().copied());
-            }
-        }
-        roots
-    }
-
     pub(crate) fn owner(&self) -> HostRegistryId {
         self.owner
     }
@@ -590,6 +577,8 @@ impl HostRegistry {
     }
 
     pub fn clear_dirty_paths(&self) {
+        self.dirty_revision
+            .set(self.dirty_revision.get().saturating_add(1));
         self.dirty_paths.borrow_mut().clear();
     }
 
@@ -734,6 +723,12 @@ impl HostRegistry {
                 error.message()
             ))
         })?;
+        if self.dirty_revision.get() == u64::MAX {
+            return Err(RuntimeError::module_validation(
+                "dirty-root revision exhausted",
+            ));
+        }
+        record.publish_edges(gc)?;
         let mut dirty = self.dirty_paths.borrow_mut();
         gc.prepare_dirty_record(dirty.len())?;
         dirty

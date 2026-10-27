@@ -16,6 +16,10 @@ impl GcHeap {
         let interfaces = self.interfaces.try_borrow().map_err(|_| {
             RuntimeError::module_validation("interface storage is borrowed during diagnostics")
         })?;
-        Ok(objects.storage_usage(interfaces.storage_usage()))
+        let (pending, credits, work_credits, retirement) = self.graph.try_lock()?.storage_usage();
+        let mut usage = objects.storage_usage(interfaces.storage_usage(), pending, credits);
+        usage.graph_work_credits = work_credits;
+        usage.retirement = retirement;
+        Ok(usage)
     }
 }

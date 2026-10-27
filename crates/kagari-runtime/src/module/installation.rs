@@ -1,11 +1,13 @@
 //! Installation identity and live metadata admission, separate from executable leases.
+#[cfg(test)]
+use crate::module::ModuleKey;
 use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
     host::HostRegistryId,
     module::{
-        ExecutableModule, Installation, InstallationId, Module, ModuleKey, ModuleSnapshot,
-        ModuleStore, Program,
+        ExecutableModule, Installation, InstallationId, Module, ModuleSnapshot, ModuleStore,
+        Program,
     },
 };
 use kagari_common::identity::ModuleIdentity;
@@ -187,6 +189,7 @@ impl ModuleStore {
         installation.capture_current()
     }
 
+    #[cfg(test)]
     pub(super) fn current_roots(&self) -> Result<Vec<ModuleKey>, RuntimeError> {
         self.installations
             .values()

@@ -71,7 +71,7 @@ impl PreparedClosure {
         };
         let value = if named {
             runtime.validate_metadata(MetadataEdge::Closure(&selected))?;
-            Value::Closure(runtime.gc().alloc_closure(selected)?)
+            Value::Closure(runtime.gc().alloc_closure(runtime.modules(), selected)?)
         } else {
             self.value
         };

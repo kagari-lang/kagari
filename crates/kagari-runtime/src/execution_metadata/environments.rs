@@ -7,13 +7,16 @@ use crate::{
     error::RuntimeError,
     execution_metadata::MetadataEdge,
     frame::types::{EnvironmentRecord, TypeEnvironment},
-    gc::GcHeap,
+    gc::{
+        GcHeap,
+        graph::{
+            GraphIdentity,
+            marks::{Domain, MarkBlocks, MarkRef},
+        },
+    },
     module::ExecutableModule,
 };
-use std::{
-    cell::Ref,
-    collections::{HashSet, TryReserveError},
-};
+use std::{cell::Ref, collections::TryReserveError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct EnvironmentId {
@@ -40,6 +43,7 @@ pub(crate) struct PublishedEnvironment {
 pub(crate) struct EnvironmentStore {
     owner: u64,
     slots: Vec<Slot>,
+    marks: MarkBlocks,
     free: Vec<usize>,
     count: usize,
 }
@@ -49,6 +53,7 @@ impl EnvironmentStore {
         Self {
             owner,
             slots: Vec::new(),
+            marks: MarkBlocks::default(),
             free: Vec::new(),
             count: 0,
         }
@@ -58,6 +63,8 @@ impl EnvironmentStore {
         &mut self,
         environment: PublishedEnvironment,
     ) -> Result<EnvironmentId, TryReserveError> {
+        self.marks
+            .prepare(self.free.last().copied().unwrap_or(self.slots.len()))?;
         let slot = match self.free.pop() {
             Some(slot) => slot,
             None => {
@@ -94,20 +101,43 @@ impl EnvironmentStore {
             .flatten()
     }
 
+    pub(crate) fn mark(&self, id: EnvironmentId) -> Option<MarkRef<'_>> {
+        self.published(id)?;
+        Some(self.marks.slot(Domain::Environment, id.slot))
+    }
+
+    pub(crate) fn next_gray(&self, block: usize, epoch: u64) -> (Option<GraphIdentity>, bool) {
+        let (index, more) = self.marks.next_gray(block, epoch);
+        let id = index.map(|index| {
+            let slot = &self.slots[index];
+            assert!(slot.environment.is_some(), "gray owner is occupied");
+            GraphIdentity::Environment(EnvironmentId {
+                owner: self.owner,
+                slot: index,
+                generation: slot.generation,
+            })
+        });
+        (id, more)
+    }
+
     pub(crate) fn count(&self) -> usize {
         self.count
     }
 
     /// The whole graph has been marked and validated before any store detaches.
-    pub(crate) fn detach(&mut self, live: &HashSet<EnvironmentId>) -> Vec<PublishedEnvironment> {
+    pub(crate) fn detach_batch(
+        &mut self,
+        cursor: &mut usize,
+        limit: usize,
+        mut survivor: impl FnMut(MarkRef<'_>) -> bool,
+    ) -> Vec<PublishedEnvironment> {
+        assert!(limit != 0);
         let mut retired = Vec::new();
-        for (index, slot) in self.slots.iter_mut().enumerate() {
-            let id = EnvironmentId {
-                owner: self.owner,
-                slot: index,
-                generation: slot.generation,
-            };
-            if !live.contains(&id)
+        while *cursor < self.slots.len() && retired.len() < limit {
+            let index = *cursor;
+            *cursor += 1;
+            let slot = &mut self.slots[index];
+            if !survivor(self.marks.slot(Domain::Environment, index))
                 && let Some(environment) = slot.environment.take()
             {
                 retired.push(environment);
@@ -133,7 +163,14 @@ impl Runtime {
         // Validate before installing any identity. Environment, group and operation
         // edges are immutable; extensions must publish a new environment record.
         let dependencies = self.metadata_dependencies(MetadataEdge::EnvironmentView(&record))?;
+        self.publish_metadata_edge(MetadataEdge::EnvironmentView(&record))?;
         let types = record.types.clone();
+        let mut graph = self
+            .gc
+            .graph
+            .try_lock()
+            .map_err(|_| RuntimeError::module_validation("graph admission is borrowed"))?;
+        graph.prepare_identity()?;
         let id = self
             .gc
             .environments
@@ -144,11 +181,24 @@ impl Runtime {
                 dependencies,
             })
             .map_err(|_| self.gc.resource_limit("environment storage"))?;
+        self.gc
+            .with_heap_mark(GraphIdentity::Environment(id), |mark| {
+                graph.admit_prepared(GraphIdentity::Environment(id), mark);
+                Ok(())
+            })?;
         Ok(TypeEnvironment { id, types })
     }
 
     pub(crate) fn validate_environment(&self, id: EnvironmentId) -> Result<(), RuntimeError> {
         self.gc.ensure_execution_allowed()?;
+        if !self
+            .gc
+            .heap_identity_accessible(GraphIdentity::Environment(id))
+        {
+            return Err(RuntimeError::module_validation(
+                "invalid execution environment",
+            ));
+        }
         let environments = self
             .gc
             .environments
@@ -169,6 +219,9 @@ impl Runtime {
 
 impl GcHeap {
     pub(crate) fn environment(&self, id: EnvironmentId) -> Option<Ref<'_, EnvironmentRecord>> {
+        if !self.heap_identity_accessible(GraphIdentity::Environment(id)) {
+            return None;
+        }
         Ref::filter_map(self.environments.try_borrow().ok()?, |store| store.get(id)).ok()
     }
 }

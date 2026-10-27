@@ -21,6 +21,16 @@ impl BufferUsage {
     }
 }
 
+/// Last synchronous sweep's allocation snapshot and bounded detached-owner peak.
+/// Balances are relative to an enclosing allocation measurement, if active.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct RetirementUsage {
+    pub pre_detach_net_bytes: Option<i128>,
+    pub pre_detach_interval_peak_bytes: Option<i128>,
+    pub max_detached: usize,
+    pub module_slots: Option<BufferUsage>,
+}
+
 /// Physical heap backing and side tables. Slab and large bytes are disjoint;
 /// initialized payload and Native payload bytes are subsets, not additional allocations.
 /// Unused backing includes vacant slots, class rounding and page tails. Arc control
@@ -31,7 +41,12 @@ impl BufferUsage {
 /// Logical GC units are not allocator bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StorageUsage {
-    pub buffers: [BufferUsage; 2],
+    pub buffers: [BufferUsage; 3],
+    /// Admitted identities represented by owner-local marks, including active work.
+    pub graph_credits: usize,
+    /// Registered slot blocks plus singleton owners covered by pending capacity.
+    pub graph_work_credits: usize,
+    pub retirement: RetirementUsage,
     pub slab_bytes: usize,
     pub large_bytes: usize,
     pub slot_metadata_bytes: usize,

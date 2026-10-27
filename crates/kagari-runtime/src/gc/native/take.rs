@@ -1,7 +1,7 @@
 //! Successful extraction detaches storage and preserves inert moved identities.
 use crate::{
     error::RuntimeError,
-    gc::{GcHeap, HeapObjectId},
+    gc::{GcHeap, HeapObjectId, graph::GraphIdentity},
     native::{binding::NativeResult, payload::take::NativeTake},
 };
 
@@ -32,14 +32,28 @@ impl GcHeap {
             let mut moved = self.moved.try_borrow_mut().map_err(|_| {
                 RuntimeError::module_validation("moved identity registry is borrowed")
             })?;
-            moved
-                .try_reserve(1)
-                .map_err(|_| RuntimeError::resource_limit("moved identity registry"))?;
+            moved.prepare(id)?;
 
+            let mut graph = self
+                .graph
+                .try_lock()
+                .map_err(|_| RuntimeError::module_validation("graph admission is borrowed"))?;
+            let location = self
+                .object_location(&objects, id)
+                .expect("checked take identity");
+            let source_mark = objects.mark(location).expect("occupied take mark");
+            if !graph.accessible(source_mark) {
+                return Err(RuntimeError::module_validation(
+                    "condemned native extraction receiver",
+                ));
+            }
+            graph.prepare_identity()?;
+            let mark = moved.insert_prepared(id);
+            graph.admit_moved_prepared(GraphIdentity::Moved(id), source_mark, mark);
             let Some(retired) = objects.detach(id) else {
                 unreachable!("validated native extraction receiver")
             };
-            moved.insert(id);
+            graph.retire_prepared();
 
             // Keep the existing header unit for the inert identity until its last
             // traced alias disappears. Payload storage is no longer heap-owned.

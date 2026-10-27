@@ -52,12 +52,12 @@ impl<'runtime> ExecutionStack<'runtime> {
                 if matches!(frame.native_entry, NativeEntryState::Running) {
                     return Ok(false);
                 }
-                let ranges = values.ranges(frame.slots).ok_or_else(|| {
+                let retained = values.managed_values(frame.slots).ok_or_else(|| {
                     self.session
                         .resources
                         .quarantine("invalid parked frame window")
                 })?;
-                let retained = &values.values[ranges.managed];
+
                 if !retained.iter().all(|value| value.is_storable(runtime.gc())) {
                     return Ok(false);
                 }

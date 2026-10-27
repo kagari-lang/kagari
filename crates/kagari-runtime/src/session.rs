@@ -23,6 +23,7 @@ use std::{
     cell::{Cell, Ref, RefCell},
     collections::HashSet,
     fmt::Debug,
+    ptr,
     sync::{Arc, atomic::AtomicUsize},
 };
 
@@ -317,10 +318,27 @@ impl SessionState {
         self.termination.borrow_mut().get_or_insert(error).clone()
     }
 
-    pub(crate) fn poll(&self, resources: &ResourceState) -> Result<(), RuntimeError> {
-        if let Some(error) = self.termination.borrow().as_ref() {
-            return Err(error.clone());
+    /// Admission observes the owning session without transporting an owned error
+    /// through every successful check. Only rejection snapshots the sticky error.
+    #[inline]
+    pub(crate) fn check_termination(&self) -> Result<(), RuntimeError> {
+        if self.termination.borrow().is_some() {
+            return Err(self.termination_error());
         }
+        Ok(())
+    }
+
+    #[cold]
+    fn termination_error(&self) -> RuntimeError {
+        self.termination
+            .borrow()
+            .as_ref()
+            .expect("termination checked without callbacks")
+            .clone()
+    }
+
+    pub(crate) fn poll(&self, resources: &ResourceState) -> Result<(), RuntimeError> {
+        self.check_termination()?;
         if self.options.cancellation.check().is_err() {
             return Err(self.terminate(
                 resources,
@@ -350,6 +368,38 @@ pub struct ExecutionSession<'runtime> {
     pub(crate) _activation: SynchronousActivation<'runtime>,
 }
 
+/// Borrowed retention of one live execution's exact program generation.
+///
+/// This token adds no lease and holds no registry borrow. Consumers still validate
+/// executable availability; a different program generation is not covered merely
+/// because it can enter the same session. The token cannot outlive its scope.
+pub struct ExecutionRetention<'scope> {
+    session: &'scope ExecutionSession<'scope>,
+}
+
+impl ExecutionRetention<'_> {
+    pub(crate) fn covers(
+        &self,
+        runtime: &Runtime,
+        owner: &ExecutableModule,
+    ) -> Result<bool, RuntimeError> {
+        if !ptr::eq(self.session.resources, runtime.resources()) {
+            return Err(RuntimeError::module_validation(
+                "foreign execution retention",
+            ));
+        }
+        let state = self
+            .session
+            .resources
+            .sessions
+            .get(self.session.id)
+            .ok_or_else(|| {
+                RuntimeError::module_validation("execution retention state is borrowed or expired")
+            })?;
+        Ok(state.root.program_identity() == owner.program_identity())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExecutionCounters {
     pub current_call_depth: u32,
@@ -360,6 +410,12 @@ pub struct ExecutionCounters {
 }
 
 impl ExecutionSession<'_> {
+    /// Lend this scope's exact program retention without another registration.
+    /// No session or module-store borrow is held across the consumer's work.
+    pub fn retention(&self) -> ExecutionRetention<'_> {
+        ExecutionRetention { session: self }
+    }
+
     pub(crate) fn state(&self) -> Ref<'_, SessionState> {
         self.resources
             .sessions

@@ -122,12 +122,20 @@ impl OperationBindings {
         })
     }
 
-    pub(crate) fn trace_metadata<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
-        pending.extend(self.segments().iter().map(|segment| match segment {
+    pub(crate) fn scan_len(&self) -> usize {
+        self.segments().len()
+    }
+
+    pub(crate) fn scan_field(&self, index: usize) -> Option<MetadataEdge<'_>> {
+        Some(match self.segments().get(index)? {
             OperationSegment::Selected(operation) => MetadataEdge::Operation(*operation),
             OperationSegment::Receiver(group) => MetadataEdge::Group(*group),
             OperationSegment::Transported(key) => MetadataEdge::Operation(key.id),
-        }));
+        })
+    }
+
+    pub(crate) fn trace_metadata<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
+        pending.extend((0..self.scan_len()).filter_map(|index| self.scan_field(index)));
     }
 
     pub(crate) fn associated_interfaces(&self) -> Arc<Vec<AssociatedInterface>> {

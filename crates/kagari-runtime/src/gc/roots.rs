@@ -1,4 +1,5 @@
 //! Heap-owned roots. Leases retain entries without owning their values or storage.
+pub(crate) mod scanning;
 #[cfg(feature = "execution-diagnostics")]
 use crate::diagnostics::{self, Event};
 use crate::{
@@ -123,6 +124,7 @@ impl RootSet {
         }
         for root in &metadata {
             runtime.validate_metadata(root.edge())?;
+            runtime.publish_metadata_edge(root.edge())?;
         }
         let previous = {
             let mut roots = heap
@@ -177,9 +179,10 @@ impl RootSet {
 
     pub fn set(&self, heap: &GcHeap, index: usize, value: Value) -> Option<()> {
         heap.ensure_execution_allowed().ok()?;
-        if self.id.owner != heap.owner || !heap.validate_value(&value) {
+        if self.id.owner != heap.owner {
             return None;
         }
+        heap.checked_target(value)?.publish().ok()?;
         let mut roots = heap.roots.try_borrow_mut().ok()?;
         roots.entry(self)?;
         *roots
@@ -356,6 +359,7 @@ impl RootTable {
         values
     }
 
+    #[cfg(test)]
     fn metadata_snapshots(&mut self) -> Vec<MetadataRoot> {
         let mut metadata = Vec::new();
         self.visit_snapshots(|entry| metadata.extend_from_slice(&entry.metadata));
@@ -388,6 +392,7 @@ impl Runtime {
 }
 
 impl GcHeap {
+    #[cfg(test)]
     pub(super) fn metadata_snapshots(&self) -> Option<Vec<MetadataRoot>> {
         let mut roots = self.roots.try_borrow_mut().ok()?.metadata_snapshots();
         self.resources
@@ -417,11 +422,13 @@ impl GcHeap {
                 "native root retention requires an active payload loan",
             ));
         }
-        if !value.is_storable(self) || !self.validate_value(&value) {
-            return Err(RuntimeError::module_validation(
-                "invalid native root value or conflicting heap borrow",
-            ));
+        let invalid = || {
+            RuntimeError::module_validation("invalid native root value or conflicting heap borrow")
+        };
+        if !value.is_storable(self) {
+            return Err(invalid());
         }
+        self.checked_target(value).ok_or_else(invalid)?.publish()?;
         let mut roots = self
             .roots
             .try_borrow_mut()
@@ -439,9 +446,7 @@ impl GcHeap {
 
     pub fn root_execution_values(&self, values: Vec<Value>) -> Option<RootSet> {
         self.ensure_execution_allowed().ok()?;
-        if !values.iter().all(|value| self.validate_value(value)) {
-            return None;
-        }
+        self.publish_root_values(&values)?;
         self.roots.try_borrow_mut().ok()?.insert(values)
     }
 

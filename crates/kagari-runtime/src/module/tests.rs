@@ -4,7 +4,7 @@ use crate::value::Value;
 use kagari_types::visibility::Visibility;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
-use crate::host::HostRegistryId;
+use crate::host::{HostRegistry, HostRegistryId};
 use crate::reload::validate_verified_reload_candidate;
 use crate::resource::ResourceState;
 use crate::{Runtime, RuntimeConfig, error::RuntimeErrorKind, gc::GcHeap};
@@ -14,19 +14,27 @@ use kagari_bytecode::program::ModuleRef;
 use super::*;
 
 fn collect(store: &ModuleStore) -> Vec<ModuleKey> {
-    GcHeap::new(Default::default(), ResourceState::default())
-        .collect(store, &[])
+    let mut heap = GcHeap::new(Default::default(), ResourceState::default());
+    heap.graph = store.graph.clone();
+    heap.collect(store, &HostRegistry::default())
         .unwrap()
         .reclaimed_modules
 }
 
 fn slot_values(store: &ModuleStore) -> Vec<Value> {
-    let graph = store.collection_graph().unwrap();
+    let inner = store.inner.borrow();
     let mut values = Vec::new();
-    for key in graph.roots() {
-        graph
-            .trace(key, &mut |value| values.push(*value), &mut Vec::new())
-            .unwrap();
+    for key in root_programs(&inner, store.current_roots().unwrap()) {
+        for member in inner.records[&key].module.members() {
+            let record = &inner.records[&member.key()];
+            for slot in 0..record.bindings.len() {
+                if let state::StaticState::Ready(value) =
+                    inner.bound_cell(record, slot).unwrap().snapshot()
+                {
+                    values.push(value);
+                }
+            }
+        }
     }
     values
 }

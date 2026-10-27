@@ -400,24 +400,26 @@ mod tests {
                 );
             }
             let mut values = ExecutionValues::default();
-            let frame = values
-                .allocate(
-                    6,
-                    &[],
-                    &FrameArguments::plain(&[]),
-                    FrameMetadata {
-                        program: module.clone(),
-                        environment: None,
-                        invocation: None,
-                    },
-                    Some(Arc::new(layout)),
-                )
+            let frame = runtime
+                .with_frame_admission(&module, |program| {
+                    values.allocate(
+                        6,
+                        &[],
+                        &FrameArguments::plain(&[]),
+                        FrameMetadata {
+                            program,
+                            environment: None,
+                            invocation: None,
+                        },
+                        Some(Arc::new(layout)),
+                    )
+                })
                 .unwrap();
             assert_eq!(
                 (
                     values.payloads.len(),
                     values.initialized.len(),
-                    values.values.len()
+                    values.managed_values(frame).unwrap().len()
                 ),
                 (expected.0, expected.0, expected.1)
             );

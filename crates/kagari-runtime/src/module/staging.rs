@@ -71,6 +71,7 @@ impl StagedProgram {
 
     pub(crate) fn publish(self, store: &ModuleStore) -> Result<ExecutableModule, RuntimeError> {
         store.validate_installation(&self.installation, self.module.registry_owner)?;
+        store.publish_program(&self.module)?;
         let replacement = self.module.program.clone();
         let mut inner = store.inner.try_borrow_mut().map_err(|_| {
             RuntimeError::module_validation("module store is borrowed during publication")

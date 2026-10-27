@@ -10,9 +10,10 @@ use crate::{
         environments::EnvironmentId,
     },
     frame::types::{TypeEnvironment, operations::OperationBindings},
+    gc::GcHeap,
     module::{
         ExecutableModule, ModuleKey, ModuleStore, ModuleStoreInner,
-        descriptor_index::DescriptorIndex,
+        descriptor_index::{DescriptorIndex, DescriptorSlot},
     },
     native::application::NativeApplication,
 };
@@ -26,11 +27,17 @@ struct Published<T> {
     dependencies: Vec<ExecutableModule>,
 }
 
-impl<T> Published<T> {
-    fn is_available(&self, store: &ModuleStoreInner) -> bool {
-        self.dependencies
+impl<T: Descriptor + Clone> Published<T> {
+    fn promote(&self, modules: &ModuleStore, store: &ModuleStoreInner, gc: &GcHeap) -> Option<T> {
+        if !self
+            .dependencies
             .iter()
             .all(|owner| store.resolve(owner).is_some())
+        {
+            return None;
+        }
+        gc.publish_metadata_edge(modules, self.value.edge()).ok()?;
+        Some(self.value.clone())
     }
 }
 
@@ -89,50 +96,86 @@ impl Descriptor for TypeEnvironment {
     }
 }
 
+pub(super) struct DescriptorView<'a> {
+    pub(super) dependencies: &'a [ExecutableModule],
+    pub(super) edge: MetadataEdge<'a>,
+}
+
+impl DescriptorView<'_> {
+    pub(super) fn field_count(&self) -> usize {
+        match self.edge {
+            MetadataEdge::Operations(operations) => operations.scan_len(),
+            _ => 1,
+        }
+    }
+
+    pub(super) fn field(&self, index: usize) -> Option<MetadataEdge<'_>> {
+        match self.edge {
+            MetadataEdge::Operations(operations) => operations.scan_field(index),
+            edge => (index == 0).then_some(edge),
+        }
+    }
+}
+
 impl LinkedDescriptors {
-    pub(super) fn trace<'a>(
-        &'a self,
-        store: &ModuleStoreInner,
-        pending: &mut Vec<MetadataEdge<'a>>,
-    ) {
-        // Expiration removes optional retention, not validation of independently
-        // rooted facts. These graphs are immutable after publication.
-        pending.extend(
-            self.interface_calls
-                .values()
-                .filter(|value| value.is_available(store))
-                .map(|value| value.value.edge()),
-        );
-        pending.extend(
-            self.native
-                .values()
-                .filter(|value| value.is_available(store))
-                .map(|value| value.value.edge()),
-        );
-        pending.extend(
-            self.applications
-                .values()
-                .filter(|value| value.is_available(store))
-                .map(|value| value.value.edge()),
-        );
-        pending.extend(
-            self.witnesses
-                .values()
-                .filter(|value| value.is_available(store))
-                .map(|value| value.value.edge()),
-        );
-        pending.extend(
-            self.shared
-                .values()
-                .filter(|value| value.is_available(store))
-                .map(|value| value.value.edge()),
-        );
+    pub(super) fn scan_extents(&self) -> [usize; 5] {
+        [
+            self.interface_calls.scan_extent(),
+            self.native.scan_extent(),
+            self.applications.scan_extent(),
+            self.witnesses.scan_extent(),
+            self.shared.scan_extent(),
+        ]
+    }
+
+    pub(super) fn scan_start(&mut self, kind: usize, index: usize) -> Option<DescriptorSlot> {
+        match kind {
+            0 => self.interface_calls.scan_start(index),
+            1 => self.native.scan_start(index),
+            2 => self.applications.scan_start(index),
+            3 => self.witnesses.scan_start(index),
+            4 => self.shared.scan_start(index),
+            _ => None,
+        }
+    }
+
+    pub(super) fn scan_view(
+        &self,
+        kind: usize,
+        slot: DescriptorSlot,
+    ) -> Option<DescriptorView<'_>> {
+        fn view<T: Descriptor>(value: &Published<T>) -> DescriptorView<'_> {
+            DescriptorView {
+                dependencies: &value.dependencies,
+                edge: value.value.edge(),
+            }
+        }
+        match kind {
+            0 => self.interface_calls.scan_entry(slot).map(view),
+            1 => self.native.scan_entry(slot).map(view),
+            2 => self.applications.scan_entry(slot).map(view),
+            3 => self.witnesses.scan_entry(slot).map(view),
+            4 => self.shared.scan_entry(slot).map(view),
+            _ => None,
+        }
+    }
+
+    pub(super) fn scan_finish(&mut self, kind: usize, slot: DescriptorSlot) {
+        match kind {
+            0 => self.interface_calls.scan_finish(slot),
+            1 => self.native.scan_finish(slot),
+            2 => self.applications.scan_finish(slot),
+            3 => self.witnesses.scan_finish(slot),
+            4 => self.shared.scan_finish(slot),
+            _ => unreachable!("descriptor kind"),
+        }
     }
 }
 
 impl ModuleStore {
     pub(crate) fn interface_call(
         &self,
+        gc: &GcHeap,
         owner: &ExecutableModule,
         environment: EnvironmentId,
         site: InterfaceCallSite,
@@ -143,11 +186,12 @@ impl ModuleStore {
             .descriptors
             .interface_calls
             .get(&environment, &site)?;
-        entry.is_available(&records).then(|| entry.value.clone())
+        entry.promote(self, &records, gc)
     }
 
     pub(crate) fn native_application(
         &self,
+        gc: &GcHeap,
         owner: &ExecutableModule,
         import: NativeImportId,
         environment: EnvironmentId,
@@ -158,11 +202,12 @@ impl ModuleStore {
             .descriptors
             .native
             .get(&environment, &import)?;
-        entry.is_available(&records).then(|| entry.value.clone())
+        entry.promote(self, &records, gc)
     }
 
     pub(crate) fn method_application(
         &self,
+        gc: &GcHeap,
         owner: &ExecutableModule,
         key: &ApplicationKey,
     ) -> Option<ApplicationId> {
@@ -172,11 +217,12 @@ impl ModuleStore {
             .descriptors
             .applications
             .get(&(), key)?;
-        entry.is_available(&records).then_some(entry.value)
+        entry.promote(self, &records, gc)
     }
 
     pub(crate) fn operation_bindings(
         &self,
+        gc: &GcHeap,
         owner: &ExecutableModule,
         environment: Option<EnvironmentId>,
         witnesses: &[OperationWitness],
@@ -187,11 +233,12 @@ impl ModuleStore {
             .descriptors
             .witnesses
             .get(&environment, witnesses)?;
-        entry.is_available(&records).then(|| entry.value.clone())
+        entry.promote(self, &records, gc)
     }
 
     pub(crate) fn shared_environment(
         &self,
+        gc: &GcHeap,
         owner: &ExecutableModule,
         scope: &SharedScope,
         contract: &SharedCall,
@@ -202,7 +249,7 @@ impl ModuleStore {
             .descriptors
             .shared
             .get(scope, contract)?;
-        entry.is_available(&records).then(|| entry.value.clone())
+        entry.promote(self, &records, gc)
     }
 }
 
@@ -240,6 +287,7 @@ impl Runtime {
         self.gc.ensure_execution_allowed()?;
         self.validate_metadata(MetadataEdge::Program(owner))?;
         let dependencies = self.metadata_dependencies(value.edge())?;
+        self.publish_metadata_edge(value.edge())?;
         let mut records = self.modules.inner.try_borrow_mut().map_err(|_| {
             RuntimeError::module_validation(
                 "module store is borrowed during descriptor publication",

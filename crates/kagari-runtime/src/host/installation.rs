@@ -69,6 +69,7 @@ impl HostRegistry {
             path_descriptors: prepared.path_descriptors,
             path_adapters: prepared.path_adapters,
             dirty_paths: Default::default(),
+            dirty_revision: Default::default(),
         }
     }
 

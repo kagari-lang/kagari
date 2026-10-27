@@ -75,10 +75,12 @@ fn lifecycle(engine: &KagariEngine, program: &PreparedProgram, case: &Case) -> R
     let start = Instant::now();
     runtime.runtime().collect_garbage().unwrap();
     record.capture("live_gc", &runtime, start);
+    let start = Instant::now();
     let checked: i32 = runtime
         .execute_typed(&loaded, case.check, (values.clone(),), &context)
         .unwrap();
     assert_eq!(checked, case.expected);
+    record.capture("verified", &runtime, start);
     drop(values);
     let start = Instant::now();
     let empty = runtime.runtime().collect_garbage().unwrap();

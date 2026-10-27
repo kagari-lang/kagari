@@ -1,11 +1,15 @@
 use crate::test_support::native::program::ProgramFixture;
+mod admission;
 mod measurements;
+mod publication;
 
 use super::*;
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
+    execution_metadata::MetadataEdge,
     frame::{execution_frames::loaded, types::EnvironmentRecord},
+    gc::graph::{GraphIdentity, objects::ScanEdge},
     module::{Program, execution::layout::Location},
     native::{
         application::NativeApplication,
@@ -24,6 +28,39 @@ use kagari_common::identity::{
 use kagari_contract::ids::FunctionRef;
 use kagari_types::{callable::Signature, scalar::BuiltinType, ty::Ty};
 use std::mem::size_of;
+
+struct TestFrameMetadata {
+    program: ExecutableModule,
+    environment: Option<TypeEnvironment>,
+    invocation: Option<MethodInvocation>,
+}
+
+impl ExecutionValues {
+    // Fixtures use the production admission scope, never fabricate its proof.
+    fn allocate_test(
+        &mut self,
+        runtime: &Runtime,
+        count: usize,
+        parameters: &[usize],
+        arguments: &FrameArguments<'_>,
+        metadata: TestFrameMetadata,
+        layout: Option<Arc<FrameLayout>>,
+    ) -> Result<FrameSlots, RuntimeError> {
+        runtime.with_frame_admission(&metadata.program, |program| {
+            self.allocate(
+                count,
+                parameters,
+                arguments,
+                FrameMetadata {
+                    program,
+                    environment: metadata.environment,
+                    invocation: metadata.invocation,
+                },
+                layout,
+            )
+        })
+    }
+}
 
 fn module() -> (Runtime, Program, ExecutableModule) {
     let mut runtime = Runtime::default();
@@ -103,16 +140,17 @@ fn frame_generation_failure_terminates_session_before_unwind() {
 
 #[test]
 fn frame_windows_reject_foreign_and_reused_identities() {
-    let (_runtime, _program, module) = module();
+    let (runtime, _program, module) = module();
     let mut values = ExecutionValues::default();
     let mut foreign = ExecutionValues::default();
     let arguments = FrameArguments::plain(&[Value::I32(42)]);
     let first = values
-        .allocate(
+        .allocate_test(
+            &runtime,
             2,
             &(1..(1) + arguments.len()).collect::<Vec<_>>(),
             &arguments,
-            FrameMetadata {
+            TestFrameMetadata {
                 program: module.clone(),
                 environment: None,
                 invocation: None,
@@ -121,11 +159,12 @@ fn frame_windows_reject_foreign_and_reused_identities() {
         )
         .unwrap();
     let other = foreign
-        .allocate(
+        .allocate_test(
+            &runtime,
             2,
             &(1..(1) + arguments.len()).collect::<Vec<_>>(),
             &arguments,
-            FrameMetadata {
+            TestFrameMetadata {
                 program: module.clone(),
                 environment: None,
                 invocation: None,
@@ -137,11 +176,12 @@ fn frame_windows_reject_foreign_and_reused_identities() {
     assert!(values.release(other).is_none());
     values.release(first).unwrap();
     let second = values
-        .allocate(
+        .allocate_test(
+            &runtime,
             2,
             &(1..(1) + arguments.len()).collect::<Vec<_>>(),
             &arguments,
-            FrameMetadata {
+            TestFrameMetadata {
                 program: module,
                 environment: None,
                 invocation: None,
@@ -158,18 +198,19 @@ fn frame_windows_reject_foreign_and_reused_identities() {
 
 #[test]
 fn trimming_out_of_order_holes_preserves_live_and_reused_identities() {
-    let (_runtime, _program, module) = module();
+    let (runtime, _program, module) = module();
     for width in [0, 2] {
         let mut values = ExecutionValues::default();
         let allocate = |values: &mut ExecutionValues, value: i32| {
             let arguments = [Value::I32(value)];
             values
-                .allocate(
+                .allocate_test(
+                    &runtime,
                     width,
                     &(0..FrameArguments::plain(&arguments[..width.min(1)]).len())
                         .collect::<Vec<_>>(),
                     &FrameArguments::plain(&arguments[..width.min(1)]),
-                    FrameMetadata {
+                    TestFrameMetadata {
                         program: module.clone(),
                         environment: None,
                         invocation: None,
@@ -185,11 +226,12 @@ fn trimming_out_of_order_holes_preserves_live_and_reused_identities() {
         values.release(original[4]).unwrap();
         assert!(
             values
-                .allocate(
+                .allocate_test(
+                    &runtime,
                     0,
                     &(0..FrameArguments::plain(&[Value::I32(99)]).len()).collect::<Vec<_>>(),
                     &FrameArguments::plain(&[Value::I32(99)]),
-                    FrameMetadata {
+                    TestFrameMetadata {
                         program: module.clone(),
                         environment: None,
                         invocation: None
@@ -232,14 +274,15 @@ fn trimming_out_of_order_holes_preserves_live_and_reused_identities() {
 
 #[test]
 fn retiring_an_outer_window_does_not_unroot_a_suspended_inner_window() {
-    let (_runtime, _program, module) = module();
+    let (runtime, _program, module) = module();
     let mut values = ExecutionValues::default();
     let first = values
-        .allocate(
+        .allocate_test(
+            &runtime,
             1,
             &(0..FrameArguments::plain(&[Value::I32(1)]).len()).collect::<Vec<_>>(),
             &FrameArguments::plain(&[Value::I32(1)]),
-            FrameMetadata {
+            TestFrameMetadata {
                 program: module.clone(),
                 environment: None,
                 invocation: None,
@@ -248,11 +291,12 @@ fn retiring_an_outer_window_does_not_unroot_a_suspended_inner_window() {
         )
         .unwrap();
     let second = values
-        .allocate(
+        .allocate_test(
+            &runtime,
             1,
             &(0..FrameArguments::plain(&[Value::I32(2)]).len()).collect::<Vec<_>>(),
             &FrameArguments::plain(&[Value::I32(2)]),
-            FrameMetadata {
+            TestFrameMetadata {
                 program: module.clone(),
                 environment: None,
                 invocation: None,
@@ -282,14 +326,15 @@ fn retiring_an_outer_window_does_not_unroot_a_suspended_inner_window() {
         Value::U64(17),
         Value::F64(-0.0),
         Value::I32(-7),
-        _runtime.gc().alloc_string("kept".into()).unwrap(),
+        runtime.gc().alloc_string("kept".into()).unwrap(),
     ];
     let mut previous = values
-        .allocate(
+        .allocate_test(
+            &runtime,
             4,
             &(0..FrameArguments::plain(&args).len()).collect::<Vec<_>>(),
             &FrameArguments::plain(&args),
-            FrameMetadata {
+            TestFrameMetadata {
                 program: module.clone(),
                 environment: None,
                 invocation: None,
@@ -299,11 +344,12 @@ fn retiring_an_outer_window_does_not_unroot_a_suspended_inner_window() {
         .unwrap();
     for _ in 0..16 {
         let next = values
-            .allocate(
+            .allocate_test(
+                &runtime,
                 4,
                 &(0..FrameArguments::plain(&args).len()).collect::<Vec<_>>(),
                 &FrameArguments::plain(&args),
-                FrameMetadata {
+                TestFrameMetadata {
                     program: module.clone(),
                     environment: None,
                     invocation: None,
@@ -326,15 +372,17 @@ fn retiring_an_outer_window_does_not_unroot_a_suspended_inner_window() {
 
 #[test]
 fn register_arguments_survive_growth_reordering_and_repeated_sources() {
-    let (_runtime, _program, module) = module();
+    let (runtime, _program, module) = module();
+    let first = runtime.gc.alloc_string("first".into()).unwrap();
+    let second = runtime.gc.alloc_string("second".into()).unwrap();
     let mut values = ExecutionValues::default();
     let caller = values
-        .allocate(
+        .allocate_test(
+            &runtime,
             2,
-            &(0..FrameArguments::plain(&[Value::I64(11), Value::I64(23)]).len())
-                .collect::<Vec<_>>(),
-            &FrameArguments::plain(&[Value::I64(11), Value::I64(23)]),
-            FrameMetadata {
+            &[0, 1],
+            &FrameArguments::plain(&[first, second]),
+            TestFrameMetadata {
                 program: module.clone(),
                 environment: None,
                 invocation: None,
@@ -354,12 +402,17 @@ fn register_arguments_survive_growth_reordering_and_repeated_sources() {
         })
         .collect::<Vec<_>>();
     let arguments = FrameArguments::frame(caller, &transfers);
+    // Initial roots have finished without visiting this source window. Admission
+    // must protect all transferred edges before the fresh window is published.
+    runtime.gc.graph.lock().begin_cycle().unwrap();
+    runtime.gc.graph.lock().finish_roots().unwrap();
     let callee = values
-        .allocate(
+        .allocate_test(
+            &runtime,
             8192,
             &(4096..(4096) + arguments.len()).collect::<Vec<_>>(),
             &arguments,
-            FrameMetadata {
+            TestFrameMetadata {
                 program: module.clone(),
                 environment: None,
                 invocation: None,
@@ -369,21 +422,33 @@ fn register_arguments_survive_growth_reordering_and_repeated_sources() {
         .unwrap();
     assert_eq!(
         &values.get(callee).unwrap()[4096..4099],
-        &[Value::I64(23), Value::I64(11), Value::I64(23)]
+        &[second, first, second]
     );
-    assert_eq!(
-        values.get(caller).unwrap(),
-        &[Value::I64(11), Value::I64(23)]
-    );
+    assert_eq!(values.get(caller).unwrap(), &[first, second]);
+    runtime.gc.drain_graph_work(runtime.modules()).unwrap();
+    runtime.gc.graph.lock().close_mark().unwrap();
+    for value in [first, second] {
+        assert!(
+            runtime
+                .gc
+                .graph_survivor(
+                    runtime.modules(),
+                    GraphIdentity::Object(value.object_id().unwrap())
+                )
+                .unwrap()
+        );
+    }
+    runtime.gc.graph.lock().finish_sweep().unwrap();
     values.release(callee).unwrap();
     values.release(caller).unwrap();
     assert!(
         values
-            .allocate(
+            .allocate_test(
+                &runtime,
                 3,
                 &(0..arguments.len()).collect::<Vec<_>>(),
                 &arguments,
-                FrameMetadata {
+                TestFrameMetadata {
                     program: module,
                     environment: None,
                     invocation: None
@@ -440,14 +505,15 @@ fn scalar_windows_preserve_bits_initialization_and_managed_roots() {
         size_of::<Location>(),
         size_of::<Window>()
     );
-    let (_runtime, _program, module) = module();
+    let (runtime, _program, module) = module();
     let mut values = ExecutionValues::default();
     let slots = values
-        .allocate(
+        .allocate_test(
+            &runtime,
             4,
             &(0..FrameArguments::plain(&[]).len()).collect::<Vec<_>>(),
             &FrameArguments::plain(&[]),
-            FrameMetadata {
+            TestFrameMetadata {
                 program: module,
                 environment: None,
                 invocation: None,
@@ -462,21 +528,23 @@ fn scalar_windows_preserve_bits_initialization_and_managed_roots() {
             .is_none()
     );
     assert_eq!(values.with_value(slots, 0, Value::clone), Some(Value::Unit));
-    values.set(slots, 0, Value::U64(u64::MAX)).unwrap();
+    values
+        .set(&runtime.gc, slots, 0, Value::U64(u64::MAX))
+        .unwrap();
     for bits in [0x8000_0000_0000_0000, 0x7ff0_0000_0000_0001, u64::MAX] {
         values
-            .set(slots, 1, Value::F64(f64::from_bits(bits)))
+            .set(&runtime.gc, slots, 1, Value::F64(f64::from_bits(bits)))
             .unwrap();
         let Some(Value::F64(v)) = values.with_value(slots, 1, Value::clone) else {
             panic!()
         };
         assert_eq!(v.to_bits(), bits);
     }
-    assert!(values.set(slots, 2, Value::I32(128)).is_none());
-    assert!(values.set(slots, 2, Value::I64(1)).is_none());
-    values.set(slots, 2, Value::I32(-128)).unwrap();
-    let string = _runtime.gc().alloc_string("root".into()).unwrap();
-    values.set(slots, 3, string).unwrap();
+    assert!(values.set(&runtime.gc, slots, 2, Value::I32(128)).is_none());
+    assert!(values.set(&runtime.gc, slots, 2, Value::I64(1)).is_none());
+    values.set(&runtime.gc, slots, 2, Value::I32(-128)).unwrap();
+    let string = runtime.gc().alloc_string("root".into()).unwrap();
+    values.set(&runtime.gc, slots, 3, string).unwrap();
     let mut roots = Vec::new();
     values.append_values(&mut roots);
     assert_eq!(roots, [string]);
@@ -489,7 +557,7 @@ fn scalar_windows_preserve_bits_initialization_and_managed_roots() {
 
 #[test]
 fn char_windows_preserve_the_tag_in_scalar_transfers() {
-    let (_runtime, _program, module) = module();
+    let (runtime, _program, module) = module();
     let mut layout = scalar_layout();
     Arc::get_mut(&mut layout).unwrap().locations[0] = Location {
         operand: OperandSlot::new(0, false),
@@ -498,13 +566,14 @@ fn char_windows_preserve_the_tag_in_scalar_transfers() {
         borrowed_receiver: false,
     };
     let mut values = ExecutionValues::default();
-    let metadata = || FrameMetadata {
+    let metadata = || TestFrameMetadata {
         program: module.clone(),
         environment: None,
         invocation: None,
     };
     let source = values
-        .allocate(
+        .allocate_test(
+            &runtime,
             4,
             &[0],
             &FrameArguments::plain(&[Value::Char('🙂')]),
@@ -517,11 +586,16 @@ fn char_windows_preserve_the_tag_in_scalar_transfers() {
         values.with_value(source, 0, Value::clone),
         Some(Value::Char('🙂'))
     );
-    assert!(values.set(source, 0, Value::I64(0x1f642)).is_none());
+    assert!(
+        values
+            .set(&runtime.gc, source, 0, Value::I64(0x1f642))
+            .is_none()
+    );
     let transfers = [layout.location(0).unwrap()];
     assert!(
         values
-            .allocate(
+            .allocate_test(
+                &runtime,
                 4,
                 &[0],
                 &FrameArguments::frame(source, &transfers),
@@ -531,7 +605,8 @@ fn char_windows_preserve_the_tag_in_scalar_transfers() {
             .is_err()
     );
     let target = values
-        .allocate(
+        .allocate_test(
+            &runtime,
             4,
             &[0],
             &FrameArguments::frame(source, &transfers),
@@ -549,16 +624,81 @@ fn char_windows_preserve_the_tag_in_scalar_transfers() {
 }
 
 #[test]
+fn late_argument_publication_failure_preserves_banks_and_window_identity() {
+    let (runtime, _program, module) = module();
+    let foreign = Runtime::default();
+    let valid = runtime.gc.alloc_string("valid".into()).unwrap();
+    let invalid = foreign.gc.alloc_string("foreign".into()).unwrap();
+    let mut values = ExecutionValues::default();
+    let metadata = || TestFrameMetadata {
+        program: module.clone(),
+        environment: None,
+        invocation: None,
+    };
+    let original = [Value::U64(7), Value::F64(-0.0), Value::I32(-8), valid];
+    let existing = values
+        .allocate_test(
+            &runtime,
+            4,
+            &[0, 1, 2, 3],
+            &FrameArguments::plain(&original),
+            metadata(),
+            Some(scalar_layout()),
+        )
+        .unwrap();
+    let managed = values.values.clone();
+    let scalars = values.payloads.clone();
+    let initialized = values.initialized.clone();
+    let generation = values.next_generation;
+    // Both arguments fit the destination representation; the second fails heap
+    // publication only after the first was admitted. No bank may be initialized.
+    assert!(
+        values
+            .allocate_test(
+                &runtime,
+                2,
+                &[0, 1],
+                &FrameArguments::plain(&[valid, invalid]),
+                metadata(),
+                None,
+            )
+            .is_err()
+    );
+    assert_eq!(values.values, managed);
+    assert_eq!(values.payloads, scalars);
+    assert_eq!(values.initialized, initialized);
+    assert_eq!(values.next_generation, generation);
+    assert_eq!(values.active_windows(), 1);
+    assert_eq!(values.get(existing).unwrap(), original);
+    let accepted = values
+        .allocate_test(
+            &runtime,
+            2,
+            &[0, 1],
+            &FrameArguments::plain(&[valid, valid]),
+            metadata(),
+            None,
+        )
+        .unwrap();
+    assert_eq!(values.get(accepted).unwrap(), [valid, valid]);
+    assert_eq!(accepted.generation, generation + 1);
+    values.release(accepted).unwrap();
+    assert_eq!(values.get(existing).unwrap(), original);
+    values.release(existing).unwrap();
+}
+
+#[test]
 fn invalid_scalar_admission_never_publishes_a_partial_frame() {
-    let (_runtime, _program, module) = module();
+    let (runtime, _program, module) = module();
     let mut values = ExecutionValues::default();
     assert!(
         values
-            .allocate(
+            .allocate_test(
+                &runtime,
                 4,
                 &(2..(2) + FrameArguments::plain(&[Value::I32(128)]).len()).collect::<Vec<_>>(),
                 &FrameArguments::plain(&[Value::I32(128)]),
-                FrameMetadata {
+                TestFrameMetadata {
                     program: module.clone(),
                     environment: None,
                     invocation: None
@@ -570,11 +710,12 @@ fn invalid_scalar_admission_never_publishes_a_partial_frame() {
     assert_eq!(values.active_windows(), 0);
     assert!(values.payloads.is_empty());
     let slots = values
-        .allocate(
+        .allocate_test(
+            &runtime,
             4,
             &(0..FrameArguments::plain(&[Value::U64(u64::MAX)]).len()).collect::<Vec<_>>(),
             &FrameArguments::plain(&[Value::U64(u64::MAX)]),
-            FrameMetadata {
+            TestFrameMetadata {
                 program: module.clone(),
                 environment: None,
                 invocation: None,
@@ -591,11 +732,12 @@ fn invalid_scalar_admission_never_publishes_a_partial_frame() {
     let transfers = [scalar_layout().location(0).unwrap()];
     assert!(
         values
-            .allocate(
+            .allocate_test(
+                &runtime,
                 4,
                 &(0..FrameArguments::frame(slots, &transfers).len()).collect::<Vec<_>>(),
                 &FrameArguments::frame(slots, &transfers),
-                FrameMetadata {
+                TestFrameMetadata {
                     program: module.clone(),
                     environment: None,
                     invocation: None
@@ -610,13 +752,14 @@ fn invalid_scalar_admission_never_publishes_a_partial_frame() {
         values.with_value(slots, 0, Value::clone),
         Some(Value::U64(u64::MAX))
     );
-    values.set(slots, 0, Value::U64(255)).unwrap();
+    values.set(&runtime.gc, slots, 0, Value::U64(255)).unwrap();
     let accepted = values
-        .allocate(
+        .allocate_test(
+            &runtime,
             4,
             &(0..FrameArguments::frame(slots, &transfers).len()).collect::<Vec<_>>(),
             &FrameArguments::frame(slots, &transfers),
-            FrameMetadata {
+            TestFrameMetadata {
                 program: module,
                 environment: None,
                 invocation: None,
@@ -661,32 +804,36 @@ fn native_application_eviction_keeps_active_window_edges_without_host_roots() {
     let selected_id = selected.id;
     // Isolate the native descriptor's selected-call edge from its source scope.
     // The selected environment has no other executable parent or owning handle.
-    let application = Arc::new(NativeApplication {
-        owner: loaded.clone(),
-        environment: source.clone(),
-        function: LinkedNativeFunction {
-            import: NativeImportId::new(0),
-            environment: Some(source.clone()),
-            declaration,
-            binding: NativeBinding::new(vec![], Codec::Value, |_| Ok(Value::Unit)),
-            signature: Signature {
-                params: vec![],
-                result: Ty::Builtin(BuiltinType::Unit),
+    let application = runtime
+        .gc
+        .admit_native_application(runtime.modules(), |scan_id| NativeApplication {
+            scan_id,
+            owner: loaded.clone(),
+            environment: source.clone(),
+            function: LinkedNativeFunction {
+                import: NativeImportId::new(0),
+                environment: Some(source.clone()),
+                declaration,
+                binding: NativeBinding::new(vec![], Codec::Value, |_| Ok(Value::Unit)),
+                signature: Signature {
+                    params: vec![],
+                    result: Ty::Builtin(BuiltinType::Unit),
+                },
+                prepared_signature: Default::default(),
+                result_adapter: None,
+                selected: vec![LinkedOperation::Ready(LinkedCallable {
+                    owner: CallableOwner::Resolved(loaded.clone()),
+                    target: CallableTarget::Script(FunctionRef::new(0)),
+                    params: Box::new([]),
+                    result: Ty::Builtin(BuiltinType::Unit),
+                    primitive: None,
+                    environment: Some(selected),
+                    scoped_signature: None,
+                })]
+                .into_boxed_slice(),
             },
-            prepared_signature: Default::default(),
-            result_adapter: None,
-            selected: vec![LinkedOperation::Ready(LinkedCallable {
-                owner: CallableOwner::Resolved(loaded.clone()),
-                target: CallableTarget::Script(FunctionRef::new(0)),
-                params: Box::new([]),
-                result: Ty::Builtin(BuiltinType::Unit),
-                primitive: None,
-                environment: Some(selected),
-                scoped_signature: None,
-            })]
-            .into_boxed_slice(),
-        },
-    });
+        })
+        .unwrap();
     let import = NativeImportId::new(0);
     runtime
         .publish_native_application(&loaded, import, application.clone())
@@ -695,11 +842,12 @@ fn native_application_eviction_keeps_active_window_edges_without_host_roots() {
         .resources()
         .frame_values
         .borrow_mut()
-        .allocate(
+        .allocate_test(
+            &runtime,
             0,
             &(0..FrameArguments::plain(&[]).len()).collect::<Vec<_>>(),
             &FrameArguments::plain(&[]),
-            FrameMetadata {
+            TestFrameMetadata {
                 program: loaded.clone(),
                 environment: Some(source),
                 invocation: None,
@@ -719,15 +867,100 @@ fn native_application_eviction_keeps_active_window_edges_without_host_roots() {
     for _ in 0..160 {
         let mut function = application.function.clone();
         function.selected = Box::new([]);
-        let next = Arc::new(NativeApplication {
-            owner: loaded.clone(),
-            environment: empty(),
-            function,
-        });
+        let environment = empty();
+        let next = runtime
+            .gc
+            .admit_native_application(runtime.modules(), |scan_id| NativeApplication {
+                scan_id,
+                owner: loaded.clone(),
+                environment,
+                function,
+            })
+            .unwrap();
         runtime
             .publish_native_application(&loaded, import, next)
             .unwrap();
     }
+    let condemned = empty();
+    // The shared registry resolves an evicted application while its own job
+    // follows selected-call environments; it is not a root by registry ownership.
+    runtime.gc.graph.lock().begin_cycle().unwrap();
+    runtime
+        .gc
+        .shade_graph_edge(
+            runtime.modules(),
+            ScanEdge::Metadata(MetadataEdge::NativeApplication(&application)),
+        )
+        .unwrap();
+    runtime.gc.graph.lock().finish_roots().unwrap();
+    runtime.gc.drain_graph_work(runtime.modules()).unwrap();
+    let mut graph = runtime.gc.graph.lock();
+    graph.close_mark().unwrap();
+    assert!(
+        runtime
+            .gc
+            .with_graph_mark(
+                runtime.modules(),
+                GraphIdentity::NativeApplication(application.scan_id),
+                |mark| graph.is_survivor(mark)
+            )
+            .unwrap()
+    );
+    assert!(
+        runtime
+            .gc
+            .with_graph_mark(
+                runtime.modules(),
+                GraphIdentity::Environment(selected_id),
+                |mark| graph.is_survivor(mark)
+            )
+            .unwrap()
+    );
+    drop(graph);
+    let mut rejected_id = None;
+    let mut invalid_function = application.function.clone();
+    let LinkedOperation::Ready(selected) = &mut invalid_function.selected[0] else {
+        panic!("selected fixture")
+    };
+    selected.environment = Some(condemned);
+    assert!(
+        runtime
+            .gc
+            .admit_native_application(runtime.modules(), |scan_id| {
+                rejected_id = Some(scan_id);
+                NativeApplication {
+                    scan_id,
+                    owner: loaded.clone(),
+                    environment: application.environment.clone(),
+                    function: invalid_function,
+                }
+            })
+            .is_err()
+    );
+    assert!(
+        runtime
+            .gc
+            .native_applications
+            .borrow()
+            .get(rejected_id.unwrap())
+            .is_none()
+    );
+    let newborn = runtime
+        .gc
+        .admit_native_application(runtime.modules(), |scan_id| NativeApplication {
+            scan_id,
+            owner: loaded.clone(),
+            environment: application.environment.clone(),
+            function: application.function.clone(),
+        })
+        .unwrap();
+    assert!(
+        runtime
+            .gc
+            .heap_identity_accessible(GraphIdentity::NativeApplication(newborn.scan_id))
+    );
+    runtime.gc.graph.lock().finish_sweep().unwrap();
+    drop(newborn);
     drop(application);
     runtime.collect_garbage().unwrap();
     // Root accounting includes this one execution window; no host root was added.

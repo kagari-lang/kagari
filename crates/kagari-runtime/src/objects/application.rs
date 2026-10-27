@@ -79,19 +79,20 @@ impl Runtime {
         drop(view);
         let receiver_operations = method.receiver_operations(self)?;
         let key = ApplicationKey::new(identity, arguments, receiver_operations, &operations);
-        let application = if let Some(prepared) = self.modules.method_application(&owner, &key) {
-            prepared
-        } else {
-            let prepared = self.prepare_method_application(
-                &method,
-                arguments,
-                operations,
-                receiver_operations,
-            )?;
-            let prepared = self.gc.alloc_method_application(prepared)?;
-            self.publish_method_application(&owner, key, prepared)?;
-            prepared
-        };
+        let application =
+            if let Some(prepared) = self.modules.method_application(&self.gc, &owner, &key) {
+                prepared
+            } else {
+                let prepared = self.prepare_method_application(
+                    &method,
+                    arguments,
+                    operations,
+                    receiver_operations,
+                )?;
+                let prepared = self.gc.alloc_method_application(self.modules(), prepared)?;
+                self.publish_method_application(&owner, key, prepared)?;
+                prepared
+            };
         method.application = Some(application);
         Ok(method)
     }

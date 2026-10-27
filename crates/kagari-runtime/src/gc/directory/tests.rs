@@ -222,24 +222,19 @@ fn destructor_panics_quarantine_without_retry_and_teardown_drains_survivors() {
     let mut runtime = Runtime::default();
     let owner = allocation_owner(&mut runtime);
     let drops = Arc::new(AtomicUsize::new(0));
-    allocate(
-        &runtime,
-        &owner,
-        Probe {
-            drops: drops.clone(),
-            panic: true,
-            bytes: [0; 3],
-        },
-    );
-    allocate(
-        &runtime,
-        &owner,
-        Probe {
-            drops: drops.clone(),
-            panic: false,
-            bytes: [0; 3],
-        },
-    );
+    // Cross multiple 32-owner batches. Quarantine in the first batch must not
+    // abandon later detached disposal or retry an already consumed destructor.
+    for index in 0..70 {
+        allocate(
+            &runtime,
+            &owner,
+            Probe {
+                drops: drops.clone(),
+                panic: index % 32 == 0,
+                bytes: [0; 3],
+            },
+        );
+    }
     let live = allocate(
         &runtime,
         &owner,
@@ -253,13 +248,13 @@ fn destructor_panics_quarantine_without_retry_and_teardown_drains_survivors() {
     let result = catch_unwind(AssertUnwindSafe(|| runtime.collect_garbage()));
     assert!(result.is_ok());
     assert!(runtime.is_quarantined());
-    assert_eq!(drops.load(Ordering::SeqCst), 2);
+    assert_eq!(drops.load(Ordering::SeqCst), 70);
     // Root and descriptor provenance may outlive teardown, but cannot keep payloads alive.
     assert!(catch_unwind(AssertUnwindSafe(|| drop(runtime))).is_ok());
-    assert_eq!(drops.load(Ordering::SeqCst), 3);
+    assert_eq!(drops.load(Ordering::SeqCst), 71);
     drop(root);
     drop(owner);
-    assert_eq!(drops.load(Ordering::SeqCst), 3);
+    assert_eq!(drops.load(Ordering::SeqCst), 71);
 }
 
 #[test]

@@ -33,12 +33,25 @@ pub(crate) struct EnvironmentRecord {
 }
 
 impl EnvironmentRecord {
-    pub(crate) fn trace_metadata<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
-        if let Some(parent) = &self.parent {
-            pending.push(MetadataEdge::Environment(*parent));
+    pub(crate) fn scan_len(&self) -> usize {
+        1 + self.operations.scan_len() + self.constructions.scan_len()
+    }
+
+    pub(crate) fn scan_field(&self, index: usize) -> Option<MetadataEdge<'_>> {
+        if index == 0 {
+            return self.parent.map(MetadataEdge::Environment);
         }
-        self.operations.trace_metadata(pending);
-        self.constructions.trace(pending);
+        let index = index - 1;
+        if index < self.operations.scan_len() {
+            self.operations.scan_field(index)
+        } else {
+            self.constructions
+                .scan_field(index - self.operations.scan_len())
+        }
+    }
+
+    pub(crate) fn trace_metadata<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
+        pending.extend((0..self.scan_len()).filter_map(|index| self.scan_field(index)));
     }
 
     pub(crate) fn new(

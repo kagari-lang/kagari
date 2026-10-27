@@ -25,7 +25,18 @@ impl ExecutionState {
         RuntimeError::new(RuntimeErrorKind::EngineFault, reason)
     }
 
+    #[inline]
     pub(crate) fn ensure_allowed(&self) -> Result<(), RuntimeError> {
+        if matches!(self.0.get(), Phase::Ready) {
+            return Ok(());
+        }
+        self.reject_execution()
+    }
+
+    // Host commit/collection reentry still quarantines at the original check;
+    // error construction and state transition do not belong to the ready path.
+    #[cold]
+    fn reject_execution(&self) -> Result<(), RuntimeError> {
         match self.0.get() {
             Phase::Ready => Ok(()),
             Phase::Closed => Err(RuntimeError::new(

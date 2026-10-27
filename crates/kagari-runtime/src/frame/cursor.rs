@@ -78,11 +78,13 @@ impl ExecutionStack<'_> {
                     .resources()
                     .quarantine("execution slots borrowed across instruction")
             })?;
-        let values = values.borrow_operands(frame.slots).ok_or_else(|| {
-            runtime
-                .resources()
-                .quarantine("invalid execution frame window")
-        })?;
+        let values = values
+            .borrow_operands(runtime.gc(), frame.slots)
+            .ok_or_else(|| {
+                runtime
+                    .resources()
+                    .quarantine("invalid execution frame window")
+            })?;
         let session = self.session.state();
         // Split immutable execution facts from the only frame state a closed
         // region may change. Every handler shares this admitted function view;

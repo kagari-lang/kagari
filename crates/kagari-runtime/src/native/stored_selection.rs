@@ -64,6 +64,10 @@ impl StoredSelection {
         Function::from_selected(runtime, &self.owner, &self.callable)
     }
 
+    pub(crate) fn scan_field(&self, field: usize) -> Option<MetadataEdge<'_>> {
+        self.callable.scan_field(&self.owner, field)
+    }
+
     pub(crate) fn trace<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
         self.callable.trace(&self.owner, pending);
     }

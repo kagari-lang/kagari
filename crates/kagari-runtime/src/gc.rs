@@ -4,21 +4,32 @@ use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     error_trace::ErrorTrace,
     execution_metadata::{
+        MetadataEdge,
         applications::ApplicationStore,
+        call_contracts::ScopedInterfaceCall,
         environments::EnvironmentStore,
         groups::OperationGroupStore,
         interfaces::{InterfaceSnapshotId, InterfaceStore},
+        scan_records::{
+            InterfaceCallScanId, InterfaceDescriptionScanId, NativeApplicationScanId,
+            SharedScanStore,
+        },
     },
     gc::{
-        directory::{ObjectStorage, PayloadKind, PayloadLocation},
+        directory::{ObjectSlot, ObjectStorage, PayloadKind, PayloadLocation},
         fields::{StructStorageLayouts, StructView, StructViewMut},
-        interfaces::InterfaceValueSnapshot,
+        graph::{GraphIdentity, GraphState, driver::ActiveScan},
+        interfaces::{InterfaceDescription, InterfaceValueSnapshot},
         leases::LeaseTable,
+        moved::MovedLedger,
         roots::RootTable,
         storage::{Exclusive, HeapObject, Shared},
     },
-    module::{EnumVariantRef, ModuleKey, StructLayoutRef},
-    native::storage::{NativeObject, NativeStorage, scan::ScanWorkspace},
+    module::{EnumVariantRef, ModuleKey, ModuleStore, StructLayoutRef},
+    native::{
+        application::NativeApplication,
+        storage::{NativeObject, NativeStorage, scan::ScanWorkspace},
+    },
     resource::{HeapCharge, ResourceState},
     session::ExecutionPhase,
     value::{EnumTag, EnumValueSnapshot, InterfaceObjectId, Value},
@@ -28,7 +39,6 @@ use kagari_abi::representation::ValueType;
 use kagari_types::ty::Ty;
 use std::{
     cell::{Cell, OnceCell, Ref, RefCell, RefMut},
-    collections::HashSet,
     slice,
     sync::{
         Arc,
@@ -52,9 +62,12 @@ mod buffers;
 mod collection;
 mod collector;
 mod directory;
+pub(crate) mod graph;
 pub(crate) mod interfaces;
 mod iter;
 pub(crate) mod leases;
+mod moved;
+pub(crate) mod publication;
 pub mod roots;
 mod storage;
 mod string_iter;
@@ -183,7 +196,7 @@ pub struct GcHeap {
     objects: RefCell<ObjectStorage>,
     struct_layouts: RefCell<StructStorageLayouts>,
 
-    moved: RefCell<HashSet<HeapObjectId>>,
+    moved: RefCell<MovedLedger>,
     roots: RefCell<RootTable>,
     pub(crate) environments: RefCell<EnvironmentStore>,
     pub(crate) interfaces: RefCell<InterfaceStore>,
@@ -196,6 +209,13 @@ pub struct GcHeap {
     native_operations: LeaseTable,
     native_borrows: Cell<usize>,
     native_scan_workspace: RefCell<ScanWorkspace>,
+    pub(crate) graph: GraphState,
+    graph_scan: RefCell<Option<ActiveScan>>,
+    pub(crate) native_applications:
+        RefCell<SharedScanStore<NativeApplication, NativeApplicationScanId>>,
+    pub(crate) interface_calls: RefCell<SharedScanStore<ScopedInterfaceCall, InterfaceCallScanId>>,
+    pub(crate) interface_descriptions:
+        RefCell<SharedScanStore<InterfaceDescription, InterfaceDescriptionScanId>>,
     // Heap-local immutable codecs contain no object identity or loaded types.
     // Initialize only when used; descriptor construction cannot execute callbacks.
     array_storage: OnceCell<NativeStorage>,
@@ -239,12 +259,17 @@ impl GcHeap {
             native_operations: Default::default(),
             native_borrows: Cell::new(0),
             native_scan_workspace: RefCell::default(),
+            graph: GraphState::default(),
+            graph_scan: RefCell::default(),
+            native_applications: RefCell::new(SharedScanStore::new(owner)),
+            interface_calls: RefCell::new(SharedScanStore::new(owner)),
+            interface_descriptions: RefCell::new(SharedScanStore::new(owner)),
             array_storage: OnceCell::new(),
             cursor_storage: OnceCell::new(),
             objects: RefCell::new(ObjectStorage::default()),
             struct_layouts: RefCell::new(StructStorageLayouts::default()),
 
-            moved: RefCell::new(HashSet::new()),
+            moved: RefCell::new(MovedLedger::default()),
             roots: RefCell::new(RootTable::new(owner)),
             environments: RefCell::new(EnvironmentStore::new(owner)),
             interfaces: RefCell::new(InterfaceStore::new(owner)),
@@ -390,6 +415,10 @@ impl GcHeap {
     pub fn object_kind(&self, id: HeapObjectId) -> Option<GcObjectKind> {
         let objects = self.objects.try_borrow().ok()?;
         let location = self.object_location(&objects, id)?;
+        Self::object_kind_at(&objects, location)
+    }
+
+    fn object_kind_at(objects: &ObjectStorage, location: PayloadLocation) -> Option<GcObjectKind> {
         Some(match location.kind {
             PayloadKind::String => GcObjectKind::String,
             PayloadKind::Tuple => GcObjectKind::Tuple,
@@ -435,12 +464,14 @@ impl GcHeap {
             .directory_index()
             .ok_or_else(|| self.resource_limit("interface snapshot locator"))?;
         drop(view);
+        self.publish_heap_identity(GraphIdentity::Interface(snapshot))?;
         self.alloc_object(HeapObject::Interface { snapshot })
             .map(InterfaceObjectId)
     }
 
     pub(crate) fn alloc_closure(
         &self,
+        modules: &ModuleStore,
         snapshot: ClosureValueSnapshot,
     ) -> Result<HeapObjectId, RuntimeError> {
         self.ensure_execution_allowed()?;
@@ -454,6 +485,7 @@ impl GcHeap {
                 "invalid closure capture",
             ));
         }
+        self.publish_metadata_edge(modules, MetadataEdge::Closure(&snapshot))?;
         self.alloc_object(HeapObject::Closure { snapshot })
     }
 
@@ -504,6 +536,7 @@ impl GcHeap {
                 "invalid cell value",
             ));
         }
+        self.publish_value(value)?;
         let mut objects = self.objects_mut()?;
         match self.object_mut(&mut objects, id) {
             Some(HeapObject::Cell {
@@ -579,7 +612,39 @@ impl GcHeap {
     }
 
     pub fn validate_value(&self, value: &Value) -> bool {
-        let (id, expected) = match value {
+        if value.object_id().is_none() {
+            return true;
+        }
+        self.objects
+            .try_borrow()
+            .is_ok_and(|objects| self.validate_heap_value(&objects, value).is_some())
+    }
+
+    /// Check identity and representation under the original directory borrow.
+    /// Scalars have no heap identity; physical access is needed only for Array.
+    fn validate_heap_value(&self, objects: &ObjectStorage, value: &Value) -> Option<()> {
+        let slot = self.object_slot(objects, value.object_id()?)?;
+        let kind = slot.kind();
+        // Occupied directory kinds are installed only after payload initialization
+        // and retired before disposal. Generic handles impose no narrower kind;
+        // only Array needs nominal information beyond that original-owner record.
+        let matches = match value {
+            Value::GcHandle(_) => true,
+            Value::Str(_) => kind == PayloadKind::String,
+            Value::Tuple(_) => kind == PayloadKind::Tuple,
+            Value::Range(_) => kind == PayloadKind::Range,
+            Value::HostRoot(_) => kind == PayloadKind::HostRoot,
+            Value::HostPathView(_) => kind == PayloadKind::HostPath,
+            Value::Ephemeral(_) => kind == PayloadKind::Ephemeral,
+            Value::Array(_) => {
+                kind == PayloadKind::Native
+                    && matches!(objects.native(slot.location()?)?.ty, Ty::Array(..))
+            }
+            Value::Enum(_) => kind == PayloadKind::Enum,
+            Value::Struct(_) => kind == PayloadKind::Struct,
+            Value::Interface(_) => kind == PayloadKind::Interface,
+            Value::Closure(_) => kind == PayloadKind::Closure,
+            Value::Cell(_) => kind == PayloadKind::Cell,
             Value::Unit
             | Value::Bool(_)
             | Value::Char(_)
@@ -588,24 +653,9 @@ impl GcHeap {
             | Value::U64(_)
             | Value::F32(_)
             | Value::F64(_)
-            | Value::RuntimeEphemeral(_) => return true,
-            Value::Str(id) => (*id, Some(GcObjectKind::String)),
-            Value::Tuple(id) => (*id, Some(GcObjectKind::Tuple)),
-            Value::Range(id) => (*id, Some(GcObjectKind::Range)),
-            Value::HostRoot(id) => (*id, Some(GcObjectKind::HostRoot)),
-            Value::HostPathView(id) => (*id, Some(GcObjectKind::HostPath)),
-            Value::Ephemeral(id) => (*id, Some(GcObjectKind::Ephemeral)),
-            Value::Array(id) => (*id, Some(GcObjectKind::Array)),
-
-            Value::Enum(id) => (*id, Some(GcObjectKind::Enum)),
-            Value::Struct(id) => (*id, Some(GcObjectKind::Struct)),
-            Value::Interface(id) => (id.0, Some(GcObjectKind::Interface)),
-            Value::Closure(id) => (*id, Some(GcObjectKind::Closure)),
-            Value::Cell(id) => (*id, Some(GcObjectKind::Cell)),
-            Value::GcHandle(id) => (*id, None),
+            | Value::RuntimeEphemeral(_) => return None,
         };
-        self.object_kind(id)
-            .is_some_and(|actual| expected.is_none_or(|kind| actual == kind))
+        matches.then_some(())
     }
 
     pub(crate) fn validate_candidate_value(&self, value: &Value) -> bool {
@@ -654,6 +704,47 @@ impl GcHeap {
     }
 
     fn alloc_object(&self, object: HeapObject) -> Result<HeapObjectId, RuntimeError> {
+        // Publish candidate fields before transferring storage. Native admission
+        // already visits its edges through the provider's scoped scanner.
+        match &object {
+            HeapObject::Tuple(tuple) => {
+                for value in &tuple.members {
+                    self.publish_value(*value)?;
+                }
+            }
+            HeapObject::Enum(snapshot, _) => {
+                for value in &snapshot.fields {
+                    self.publish_value(*value)?;
+                }
+            }
+            HeapObject::Struct { storage } => {
+                for value in &storage.values {
+                    self.publish_value(*value)?;
+                }
+            }
+            HeapObject::Closure { snapshot } => {
+                for value in &snapshot.captures {
+                    self.publish_value(*value)?;
+                }
+                if let Some(environment) = &snapshot.environment {
+                    self.publish_heap_identity(GraphIdentity::Environment(environment.id))?;
+                }
+            }
+            HeapObject::Cell { value, .. } => self.publish_value(*value)?,
+            HeapObject::HostPath(path) => {
+                for value in path.retained_values() {
+                    self.publish_value(*value)?;
+                }
+            }
+            HeapObject::Interface { snapshot } => {
+                self.publish_heap_identity(GraphIdentity::Interface(*snapshot))?
+            }
+            HeapObject::String(_)
+            | HeapObject::Range(_)
+            | HeapObject::HostRoot(_)
+            | HeapObject::Ephemeral(_)
+            | HeapObject::Native(_) => {}
+        }
         let charge = object.charge(&self.interfaces).ok_or_else(|| {
             RuntimeError::module_validation("invalid or borrowed interface accounting")
         })?;
@@ -687,6 +778,11 @@ impl GcHeap {
             .retained_bytes
             .checked_add(ObjectStorage::backing_bound(&object)?)
             .ok_or_else(|| self.resource_limit("payload backing charge"))?;
+        let mut graph = self
+            .graph
+            .try_lock()
+            .map_err(|_| RuntimeError::module_validation("graph admission is borrowed"))?;
+        graph.prepare_identity()?;
         let before_backing = objects.backing_bytes();
         let location = objects.insert(directory, object)?;
         let charge = charge
@@ -694,6 +790,7 @@ impl GcHeap {
             .expect("preflighted payload backing charge");
         objects.publish(index, location);
         let id = HeapObjectId::new(self.owner, index, objects.slots[index].generation);
+        graph.admit_prepared(GraphIdentity::Object(id), objects.mark_for_directory(index));
         if let Some(owner) = initialization_owner {
             objects.initialization_owners.insert(id, owner);
         }
@@ -702,18 +799,24 @@ impl GcHeap {
         Ok(id)
     }
 
+    fn object_slot<'a>(
+        &self,
+        objects: &'a ObjectStorage,
+        id: HeapObjectId,
+    ) -> Option<&'a ObjectSlot> {
+        if u64::from(id.owner) != self.owner {
+            return None;
+        }
+        let slot = objects.slots.get(id.index())?;
+        (slot.generation == id.generation && slot.kind() != PayloadKind::Vacant).then_some(slot)
+    }
+
     fn object_location(
         &self,
         objects: &ObjectStorage,
         id: HeapObjectId,
     ) -> Option<PayloadLocation> {
-        if u64::from(id.owner) != self.owner {
-            return None;
-        }
-        let slot = objects.slots.get(id.index())?;
-        (slot.generation == id.generation)
-            .then_some(slot.location())
-            .flatten()
+        self.object_slot(objects, id)?.location()
     }
 
     fn readable_location(
@@ -722,6 +825,13 @@ impl GcHeap {
         id: HeapObjectId,
     ) -> Option<PayloadLocation> {
         let location = self.object_location(objects, id)?;
+        if !self
+            .graph
+            .with_access(|| objects.mark_for_directory(id.index()))
+            .ok()?
+        {
+            return None;
+        }
         if let Some(session) = self
             .resources
             .active_session()

@@ -1,4 +1,5 @@
 //! Region results remain inspectable only after successful publication and released borrows.
+mod managed_writes;
 use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},

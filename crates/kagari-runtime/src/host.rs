@@ -1,6 +1,7 @@
 mod borrows;
 pub(crate) mod installation;
 mod registry;
+pub(crate) mod scanning;
 pub mod scoped;
 mod views;
 use crate::{
@@ -26,7 +27,7 @@ use kagari_types::declaration::{
     path::{HostPathDeclaration, HostPathSegmentDeclaration},
 };
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::HashMap,
     fmt, iter,
     sync::{
@@ -364,6 +365,10 @@ impl HostPathViewHandle {
 
     pub fn root(&self) -> HostRootHandle {
         self.root
+    }
+
+    pub(crate) fn scan_base(&self) -> Option<Arc<HostPathViewHandle>> {
+        self.base.clone()
     }
 
     pub fn base(&self) -> Option<&HostPathViewHandle> {
@@ -904,6 +909,7 @@ pub struct HostRegistry {
     path_descriptors: HashMap<HostPathDescriptorId, HostPathDescriptor>,
     path_adapters: HashMap<HostPathDescriptorId, HostPathAdapter>,
     dirty_paths: RefCell<Vec<HostPathMutationRecord>>,
+    dirty_revision: Cell<u64>,
 }
 
 /// Runtime slots derived from checked declaration owners, without another schema

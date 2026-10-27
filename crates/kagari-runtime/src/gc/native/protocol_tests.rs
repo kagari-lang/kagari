@@ -2,13 +2,16 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    gc::HeapObjectId,
+    gc::{
+        HeapObjectId,
+        graph::{GraphIdentity, objects::ScanEdge},
+    },
     native::{
         conversion::context::ConversionContext,
         storage::{
             NativePayload, NativeStorage,
             access::EditPlan,
-            scan::{NativeScanKind, ScanBudget, ScanStatus},
+            scan::{NativeScanKind, ScanBudget, ScanEntries, ScanStatus},
         },
         storage_type::StorageType,
         views::{NativeOperationGuard, NativeOperationKind},
@@ -18,7 +21,13 @@ use crate::{
     value::Value,
 };
 use kagari_types::{scalar::BuiltinType, ty::Ty};
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::{
+    panic::{AssertUnwindSafe, catch_unwind},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 
 #[derive(Debug)]
 struct Slots(Vec<Value>);
@@ -70,6 +79,147 @@ fn allocate(
         )
         .unwrap();
     runtime.gc().alloc_native(object).unwrap()
+}
+
+#[derive(Debug)]
+struct WideCursorPayload;
+
+#[derive(Clone, Copy)]
+#[repr(align(256))]
+struct WideCursor([usize; 128]);
+
+// SAFETY: Edge-free payload; the over-aligned Copy state has no borrowed data.
+unsafe impl NativePayload for WideCursorPayload {
+    type ScanState = WideCursor;
+    const SCAN_KIND: NativeScanKind = NativeScanKind::EdgeFree;
+
+    fn begin_scan(&self) -> WideCursor {
+        WideCursor([7; 128])
+    }
+
+    fn scan<'a>(
+        &'a self,
+        state: &mut WideCursor,
+        budget: &mut ScanBudget,
+        _: &mut dyn FnMut(&'a Value),
+    ) -> ScanStatus {
+        assert_eq!(state.0, [7; 128]);
+        budget.charge(1);
+        ScanStatus::Complete
+    }
+
+    fn charge(&self) -> HeapCharge {
+        HeapCharge::default()
+    }
+}
+
+#[test]
+fn payload_admission_and_inspection_preserve_a_suspended_heap_scan_workspace() {
+    let mut runtime = Runtime::default();
+    let owner = allocation_owner(&mut runtime);
+    let heap = runtime.gc();
+    let values = (0..3)
+        .map(|i| heap.alloc_string(i.to_string()).unwrap())
+        .collect::<Vec<_>>();
+    let id = allocate(&runtime, &owner, values.clone());
+    let entries = ScanEntries::new::<Slots>();
+    let mut visited = Vec::new();
+    heap.with_native::<Slots, _>(id, |payload| {
+        let mut workspace = heap.native_scan_workspace.borrow_mut();
+        entries.begin(payload, &mut workspace)?;
+        assert_eq!(
+            entries.resume(payload, &mut workspace, &mut ScanBudget::new(1), &mut |v| {
+                visited.push(*v)
+            })?,
+            ScanStatus::Pending
+        );
+        Ok(())
+    })
+    .unwrap();
+    let object = NativeStorage::payload::<WideCursorPayload>()
+        .prepare_payload(
+            heap,
+            &Ty::Builtin(BuiltinType::Unit),
+            WideCursorPayload,
+            &owner,
+        )
+        .unwrap();
+    let wide = heap.alloc_native(object).unwrap();
+    assert!(heap.validate_value(&Value::GcHandle(wide)));
+    // Both inspection clients previously shared and overwrote the collector state.
+    assert_eq!(heap.trace_value(&Value::GcHandle(id)).unwrap().len(), 4);
+    heap.validate_async_values(&[Value::GcHandle(id)]).unwrap();
+    heap.with_native::<Slots, _>(id, |payload| {
+        let mut workspace = heap.native_scan_workspace.borrow_mut();
+        while entries.resume(payload, &mut workspace, &mut ScanBudget::new(1), &mut |v| {
+            visited.push(*v)
+        })? == ScanStatus::Pending
+        {}
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(
+        visited, values,
+        "growth and inspection must not restart or replace the cursor"
+    );
+    let result = runtime.collect_garbage().unwrap();
+    assert_eq!(result.reclaimed_objects, 5);
+}
+
+#[derive(Debug)]
+struct TraceFault(Arc<AtomicBool>);
+
+// Deliberate provider fault injection after successful admission.
+unsafe impl NativePayload for TraceFault {
+    type ScanState = ();
+    const SCAN_KIND: NativeScanKind = NativeScanKind::Resumable;
+
+    fn begin_scan(&self) {}
+
+    fn scan<'a>(
+        &'a self,
+        _: &mut (),
+        budget: &mut ScanBudget,
+        _: &mut dyn FnMut(&'a Value),
+    ) -> ScanStatus {
+        budget.charge(1);
+        assert!(!self.0.load(Ordering::Relaxed), "provider trace fault");
+        ScanStatus::Complete
+    }
+
+    fn charge(&self) -> HeapCharge {
+        HeapCharge::default()
+    }
+}
+
+#[test]
+fn provider_scan_panic_prevents_any_sweep_or_retry() {
+    let mut runtime = Runtime::default();
+    let owner = allocation_owner(&mut runtime);
+    let heap = runtime.gc();
+    let dead = heap
+        .alloc_string("unreachable but not swept".into())
+        .unwrap();
+    let fault = Arc::new(AtomicBool::new(false));
+    let object = NativeStorage::payload::<TraceFault>()
+        .prepare_payload(
+            heap,
+            &Ty::Builtin(BuiltinType::Unit),
+            TraceFault(fault.clone()),
+            &owner,
+        )
+        .unwrap();
+    let id = heap.alloc_native(object).unwrap();
+    let _root = runtime.root_value(Value::GcHandle(id)).unwrap();
+    let before = heap.stats();
+    fault.store(true, Ordering::Relaxed);
+    assert!(runtime.collect_garbage().is_err());
+    assert!(runtime.is_quarantined());
+    assert_eq!(heap.stats(), before);
+    assert!(heap.validate_value(&dead));
+    fault.store(false, Ordering::Relaxed);
+    assert!(runtime.collect_garbage().is_err());
+    assert_eq!(heap.stats(), before);
 }
 
 #[test]
@@ -180,6 +330,65 @@ fn operation_policy_blocks_iterator_receiver_before_preview_or_finish() {
         heap.advance_iter_with(&cursor, &ty, Ok).unwrap(),
         Some(Value::I32(20))
     );
+}
+
+#[test]
+fn partial_native_cursor_keeps_an_edge_moved_behind_it_without_restart() {
+    let mut runtime = Runtime::default();
+    let owner = allocation_owner(&mut runtime);
+    let child = runtime
+        .gc
+        .alloc_string("moved behind cursor".into())
+        .unwrap();
+    let id = allocate(&runtime, &owner, vec![Value::Unit, child]);
+    let heap = &runtime.gc;
+    heap.graph.lock().begin_cycle().unwrap();
+    heap.shade_graph_edge(&runtime.modules, ScanEdge::Value(Value::GcHandle(id)))
+        .unwrap();
+    heap.graph.lock().finish_roots().unwrap();
+    for _ in 0..7 {
+        assert_eq!(
+            heap.scan_graph_slice(&runtime.modules, &mut ScanBudget::new(1))
+                .unwrap(),
+            ScanStatus::Pending
+        );
+    }
+    heap.edit_native::<Slots, ()>(
+        &runtime,
+        id,
+        None,
+        EditPlan {
+            max_logical_units: 2,
+            structural: true,
+        },
+        |payload, access| {
+            // SAFETY: The target is still an initialized edge of this exact payload.
+            unsafe {
+                access.republish_existing(&payload.0[1]);
+            }
+            access.commit_structure();
+            payload.0.swap(0, 1);
+            Ok(())
+        },
+    )
+    .unwrap();
+    heap.drain_graph_work(&runtime.modules).unwrap();
+    heap.graph.lock().close_mark().unwrap();
+    assert!(
+        heap.graph_survivor(
+            &runtime.modules,
+            GraphIdentity::Object(child.object_id().unwrap())
+        )
+        .unwrap()
+    );
+    assert_eq!(
+        heap.with_native::<Slots, _>(id, |payload| Ok(payload.0.clone()))
+            .unwrap(),
+        [child, Value::Unit]
+    );
+    heap.graph.lock().finish_sweep().unwrap();
+    runtime.collect_garbage().unwrap();
+    assert!(!heap.validate_value(&child));
 }
 
 #[test]

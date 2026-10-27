@@ -224,12 +224,15 @@ fn publication_allows_parked_frames_but_excludes_resume_and_scheduler_turns() {
     let closure = Value::Closure(
         runtime
             .gc()
-            .alloc_closure(ClosureValueSnapshot {
-                environment: None,
-                implementation: module.clone(),
-                target: ClosureTarget::Script(FunctionRef::new(0)),
-                captures: vec![],
-            })
+            .alloc_closure(
+                runtime.modules(),
+                ClosureValueSnapshot {
+                    environment: None,
+                    implementation: module.clone(),
+                    target: ClosureTarget::Script(FunctionRef::new(0)),
+                    captures: vec![],
+                },
+            )
             .unwrap(),
     );
     let closure_root = runtime.root_value(closure).unwrap();

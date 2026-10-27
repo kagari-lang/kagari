@@ -13,6 +13,7 @@ use crate::{
         storage::NativePayload,
         types::{Type, TypeRef},
     },
+    session::ExecutionRetention,
     value::Value,
 };
 use kagari_common::identity::DefinitionPath;
@@ -94,16 +95,66 @@ impl<'runtime> ConversionContext<'runtime> {
         owner: &'runtime ExecutableModule,
         limits: ConversionLimits,
     ) -> NativeResult<Self> {
+        Self::prepare(runtime, owner, limits, None)
+    }
+
+    /// Convert within an explicitly borrowed execution retention scope.
+    ///
+    /// Exact runtime/program-generation coverage avoids a second registration.
+    /// Uncovered owners retain independently, just like `new`; foreign authority
+    /// is rejected. Executable, candidate, installation and execution checks still
+    /// run before conversion. The context cannot outlive the lending scope.
+    ///
+    /// ```compile_fail
+    /// use kagari_runtime::{Runtime, module::ExecutableModule};
+    /// use kagari_runtime::native::conversion::context::ConversionContext;
+    /// fn escape(runtime: &Runtime, owner: &ExecutableModule) {
+    ///     let session = runtime.begin_execution(owner, runtime.execution_options()).unwrap();
+    ///     let authority = session.retention();
+    ///     let context = ConversionContext::in_execution(runtime, owner, &authority).unwrap();
+    ///     drop(session);
+    ///     drop(context);
+    /// }
+    /// ```
+    pub fn in_execution(
+        runtime: &'runtime Runtime,
+        owner: &'runtime ExecutableModule,
+        authority: &'runtime ExecutionRetention<'_>,
+    ) -> NativeResult<Self> {
+        Self::prepare(runtime, owner, ConversionLimits::default(), Some(authority))
+    }
+
+    fn prepare(
+        runtime: &'runtime Runtime,
+        owner: &'runtime ExecutableModule,
+        limits: ConversionLimits,
+        authority: Option<&'runtime ExecutionRetention<'_>>,
+    ) -> NativeResult<Self> {
         runtime.gc().ensure_no_native_borrow()?;
         runtime.resources().ensure_execution_allowed()?;
         runtime.validate_executable_module(owner)?;
-        let program = runtime
-            .retain_program(owner, ModuleEpochRetention::ActiveCall)
-            .ok_or_else(|| RuntimeError::module_validation("conversion program retention"))?;
+        let covered = authority
+            .map(|authority| authority.covers(runtime, owner))
+            .transpose()?
+            .unwrap_or(false);
+        let program = if covered {
+            // Borrowed retention replaces the lease/member walk, not publication
+            // admission: diagnostic availability alone permits a faulted graph.
+            runtime.modules().publish_program(owner)?;
+            None
+        } else {
+            Some(
+                runtime
+                    .retain_program(owner, ModuleEpochRetention::ActiveCall)
+                    .ok_or_else(|| {
+                        RuntimeError::module_validation("conversion program retention")
+                    })?,
+            )
+        };
         Ok(Self {
             runtime,
             owner,
-            _program: Some(program),
+            _program: program,
             limits,
             depth: 0,
             nodes: 0,

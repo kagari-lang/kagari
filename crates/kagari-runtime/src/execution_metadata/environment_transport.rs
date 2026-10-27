@@ -56,7 +56,10 @@ impl Runtime {
         if let Some(environment) = &caller_environment {
             self.validate_environment(environment.id)?;
         }
-        if let Some(prepared) = self.modules.shared_environment(caller, &scope, contract) {
+        if let Some(prepared) = self
+            .modules
+            .shared_environment(&self.gc, caller, &scope, contract)
+        {
             return Ok(prepared);
         }
         #[cfg(feature = "execution-diagnostics")]

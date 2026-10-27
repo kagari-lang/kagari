@@ -2,6 +2,7 @@ use super::*;
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
+    frame::types::EnvironmentRecord,
     module::{LinkedModule, ModuleEpochRetention, Program, ProgramDescriptor, VerifiedProgram},
     native::{
         binding::{BindingEntry, Codec, NativeBinding},
@@ -24,7 +25,10 @@ use kagari_types::{
     scalar::BuiltinType,
     ty::{GenericParam, NominalTy, Ty},
 };
-use std::{slice, thread};
+use std::{
+    panic::{AssertUnwindSafe, catch_unwind},
+    slice, thread,
+};
 
 fn fixture() -> (
     Runtime,
@@ -820,6 +824,7 @@ fn abandoned_candidates_release_links_even_when_their_descriptors_are_retained()
         .stage_reload_program(&loaded_program, None, code)
         .unwrap();
     let owner = native_owner(candidate.module());
+    runtime.publish_executable_module(&owner).unwrap();
     let link = runtime
         .modules
         .native_binding(&owner, NativeImportId::new(0))
@@ -827,6 +832,7 @@ fn abandoned_candidates_release_links_even_when_their_descriptors_are_retained()
     let probe = Arc::downgrade(&link);
     drop(link);
     drop(candidate);
+    assert!(runtime.publish_executable_module(&owner).is_err());
     assert!(
         runtime
             .modules
@@ -840,11 +846,98 @@ fn abandoned_candidates_release_links_even_when_their_descriptors_are_retained()
 }
 
 #[test]
+fn frame_admission_pins_candidate_and_releases_proof_on_unwind() {
+    let (runtime, loaded_program, _loaded, code) = fixture();
+    let candidate = runtime
+        .stage_reload_program(&loaded_program, None, code)
+        .unwrap();
+    let owner = candidate.module().clone();
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        runtime.with_frame_admission(&owner, |admitted| -> Result<(), RuntimeError> {
+            drop(candidate);
+            assert!(runtime.modules.inner.try_borrow_mut().is_err());
+            admitted.publish()?;
+            assert!(runtime.validate_executable_module(&owner).is_ok());
+            panic!("injected preparation unwind");
+        })
+    }));
+    assert!(result.is_err());
+    assert!(runtime.modules.inner.try_borrow_mut().is_ok());
+    assert_eq!(
+        runtime
+            .validate_executable_module(&owner)
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::StaleHandle
+    );
+    assert!(runtime.with_frame_admission(&owner, |_| Ok(())).is_err());
+    assert!(!runtime.is_quarantined());
+}
+
+#[test]
+fn admitted_owner_prepares_scoped_links_without_reborrowing_mutable_module_storage() {
+    let (runtime, _program, owner, _) = fixture();
+    let function = owner
+        .bytecode
+        .functions
+        .iter()
+        .find(|function| {
+            owner.execution().functions[function.id.index()]
+                .frame
+                .generic
+                && owner.execution().functions[function.id.index()].needs_runtime_links()
+        })
+        .expect("generic aggregate constructor")
+        .id;
+    let environment = runtime
+        .alloc_environment(
+            EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap(),
+        )
+        .unwrap();
+    let linked = runtime
+        .with_frame_admission(&owner, |admitted| {
+            runtime.validate_environment(environment.id)?;
+            assert!(runtime.modules.inner.try_borrow_mut().is_err());
+            let first = admitted
+                .linked_function(function, Some(environment.id))
+                .unwrap();
+            let second = admitted
+                .linked_function(function, Some(environment.id))
+                .unwrap();
+            assert!(Arc::ptr_eq(&first, &second));
+            assert!(first.applied_layouts.is_some());
+            admitted.publish()?;
+            Ok(first)
+        })
+        .unwrap();
+    let later = runtime
+        .modules
+        .linked_function(&owner, function, Some(environment.id))
+        .unwrap();
+    assert!(Arc::ptr_eq(&linked, &later));
+    assert!(!runtime.is_quarantined());
+}
+
+#[test]
 fn matching_keys_and_copied_bindings_do_not_authorize_an_uninstalled_descriptor() {
     let (runtime, _loaded_program, loaded, _) = fixture();
     let forged = detached_copy(&loaded);
     assert_eq!(loaded.key(), forged.key());
     assert!(forged.belongs_to(runtime.host.owner()));
+    assert_eq!(
+        runtime
+            .publish_executable_module(&forged)
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::StaleHandle
+    );
+    assert_eq!(
+        Runtime::default()
+            .publish_executable_module(&loaded)
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::StaleHandle
+    );
     let before = runtime.modules.loaded_count();
     assert_eq!(
         runtime

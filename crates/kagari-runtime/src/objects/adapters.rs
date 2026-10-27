@@ -132,24 +132,30 @@ impl Runtime {
                 .collect(),
             result: result.ty().clone(),
         };
-        let application = self.gc.alloc_method_application(MethodApplication {
-            signature: signature.clone(),
-            scoped_signature: Some(ScopedSignature { params, result }),
-            environment: Some(applied),
-            result_adapter: None,
-        })?;
+        let application = self.gc.alloc_method_application(
+            self.modules(),
+            MethodApplication {
+                signature: signature.clone(),
+                scoped_signature: Some(ScopedSignature { params, result }),
+                environment: Some(applied),
+                result_adapter: None,
+            },
+        )?;
         let target = CallableTarget::Script(target.id);
-        self.gc.alloc_bound_operation(BoundOperation {
-            receiver_identity,
-            application: Some(application),
-            generic: None,
-            associated_interface: requirement.interface.clone(),
-            requirement,
-            slot: 0,
-            primitive: None,
-            owner: owner.clone(),
-            target,
-            signature,
-        })
+        self.gc.alloc_bound_operation(
+            self.modules(),
+            BoundOperation {
+                receiver_identity,
+                application: Some(application),
+                generic: None,
+                associated_interface: requirement.interface.clone(),
+                requirement,
+                slot: 0,
+                primitive: None,
+                owner: owner.clone(),
+                target,
+                signature,
+            },
+        )
     }
 }

@@ -74,9 +74,8 @@ impl GcHeap {
                 Err(invalid())
             }
         })?;
+        self.publish_value(value)?;
         self.with_managed_mut(id, |payload: &mut Managed<T>| {
-            // The old edge is still present here. A future write barrier belongs
-            // at this boundary, before dropping it and publishing the new edge.
             payload.values[slot] = value;
             Ok(())
         })
@@ -107,6 +106,9 @@ impl GcHeap {
             }
         })?;
         self.ensure_structure_mutable(id)?;
+        for value in &replacement.values {
+            self.publish_value(*value)?;
+        }
         let mut objects = self.objects_mut()?;
         let object = self.native_mut(&mut objects, id).ok_or_else(invalid)?;
         let revision = object.revision.checked_add(1).ok_or_else(invalid)?;

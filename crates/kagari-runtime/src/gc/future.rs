@@ -48,16 +48,13 @@ impl AsyncValues<'_> {
             }
             let objects = heap.objects.try_borrow().ok()?;
             let interfaces = heap.interfaces.try_borrow().ok()?;
-            let mut workspace = heap.native_scan_workspace.try_borrow_mut().ok()?;
+
             append_value_edges(edges, pending);
             visited.mark(pending, |id, pending| {
                 #[cfg(test)]
                 retention_probe::record(heap, Event::Object(id));
-                heap.readable_object(&objects, id)?.trace(
-                    &interfaces,
-                    &mut workspace,
-                    &mut |value| edges.push(value),
-                )?;
+                heap.readable_object(&objects, id)?
+                    .inspect(&interfaces, &mut |value| edges.push(value))?;
                 #[cfg(test)]
                 retention_probe::record(heap, Event::Edges(id, edges.len()));
                 if !valid_edges(edges) {

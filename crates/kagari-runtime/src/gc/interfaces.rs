@@ -1,8 +1,9 @@
 //! Retained dynamic method and representation-adapter metadata.
 use crate::{
     execution_metadata::{
-        application_key::MethodIdentity, groups::OperationGroupId, interfaces::InterfaceSnapshotId,
-        links::MetadataCache,
+        MetadataEdge, application_key::MethodIdentity, groups::OperationGroupId,
+        interfaces::InterfaceSnapshotId, links::MetadataCache,
+        scan_records::InterfaceDescriptionScanId,
     },
     frame::types::{TypeEnvironment, bindings::TypeBindings, compatibility::TypeView},
     module::ExecutableModule,
@@ -35,6 +36,19 @@ pub(crate) struct InterfaceResultBinding {
     pub(crate) environment: Option<TypeEnvironment>,
 }
 
+impl InterfaceResultBinding {
+    pub(crate) fn scan_field(&self, field: usize) -> Option<MetadataEdge<'_>> {
+        match field {
+            0 => Some(MetadataEdge::Program(&self.owner)),
+            1 => self
+                .environment
+                .as_ref()
+                .map(|environment| MetadataEdge::Environment(environment.id)),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct InterfaceParentBinding {
     pub(crate) interface: NominalTy,
@@ -44,6 +58,7 @@ pub(crate) struct InterfaceParentBinding {
 
 #[derive(Debug)]
 pub(crate) struct InterfaceDescription {
+    pub(crate) scan_id: InterfaceDescriptionScanId,
     pub(crate) receiver_operations: MetadataCache<OperationGroupId>,
     pub(crate) receiver_table: InterfaceResultBinding,
     pub(crate) parents: Vec<InterfaceParentBinding>,
@@ -57,6 +72,46 @@ pub(crate) struct InterfaceDescription {
 }
 
 impl InterfaceDescription {
+    pub(crate) fn scan_len(&self) -> usize {
+        5 + self.parents.len() * 2 + self.methods.len() * 3
+    }
+
+    pub(crate) fn scan_field(&self, index: usize) -> Option<MetadataEdge<'_>> {
+        match index {
+            0 => return Some(MetadataEdge::Program(&self.implementation)),
+            1 | 2 => return self.receiver_table.scan_field(index - 1),
+            3 => {
+                return self
+                    .environment
+                    .as_ref()
+                    .map(|environment| MetadataEdge::Environment(environment.id));
+            }
+            4 => {
+                return self
+                    .receiver_operations
+                    .get()
+                    .copied()
+                    .map(MetadataEdge::Group);
+            }
+            _ => {}
+        }
+        let index = index - 5;
+        if index < self.parents.len() * 2 {
+            return self.parents[index / 2].binding.scan_field(index % 2);
+        }
+        let index = index - self.parents.len() * 2;
+        let method = self.methods.get(index / 3)?.as_ref()?;
+        match index % 3 {
+            0 => method
+                .receiver_operations
+                .get()
+                .copied()
+                .flatten()
+                .map(MetadataEdge::Group),
+            field => method.result_adapter.as_ref()?.scan_field(field - 1),
+        }
+    }
+
     pub(crate) fn interface_type(&self) -> &NominalTy {
         let Ty::Trait(interface) = &self.interface_type else {
             unreachable!("prepared interface type");

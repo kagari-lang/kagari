@@ -574,18 +574,32 @@ PG01 is committed at `fc651b92`; PG02 at `4d8aa0c1` implements nonmoving inline
 native/struct storage with the measured 4 KiB-to-independent-1 KiB slab correction.
 Focused GC/Miri, dependent/source-free checks and independent storage review passed;
 [PG02 evidence](paged-incremental-gc-design.md#pg02-physical-model-correction-and-checkpoint-evidence)
-is locally complete. PG03/NC03-NC04 is also locally complete in the worktree: stdlib owns
+is locally complete. PG03/NC03-NC04 is locally complete at commit `8d597b93`: stdlib owns
 ordinary nominal collections/cursors, VecValues Rust conversion and Serde; legacy
 runtime collection families/primitives/facades are removed. The finite NC inventory
 is closed. Final independent review approved the current tree and independently
 passed stdlib collections 5, ownership/page-quarantine 7 and retention 15 variants;
 parent structure (1766 files, zero violations), fmt, workspace Clippy and diff passed.
 The [PG03 handoff](paged-incremental-gc-design.md#pg03-collection-migration-evidence-and-handoff)
-records latest seven-pair gates (Map 1.030554, Vec 0.897900), all 55 memory gates,
+records that checkpoint's seven-pair gates (Map 1.030554, Vec 0.897900), all 55 memory gates,
 21 zero-net teardowns and selected focused/local checks. It also records reconstructed
 sort-baseline provenance and the current Map/Set selected-call Program retention
-limit accepted in the scoped final review. PG00 gates are unchanged. PG04 is next; NC05/NC06,
-incremental pause/interleaving proof and full CI remain outstanding.
+limit accepted in the scoped final review. PG00 gates are unchanged.
+
+[PG04](paged-incremental-gc-design.md#pg04-marker-implementation-and-open-acceptance)
+is **locally complete, pending commit**, with synchronously drained owner-block
+marking, checked publication and physical page/slot sweep plus 32-total bounded
+disposal brought forward from PG05. Final fresh seven-pair median gates pass:
+Map **1.031376** and arrays **0.920740** against unchanged 1.05 limits; two adverse
+Map pairs remain included. Six sort/construction rows and older script-key/live-GC/
+release-GC evidence retain their original provenance. Authenticated equivalent-
+allocation memory reuse passes **55/55**, with **21 zero-net teardowns**, not a fresh
+memory run. Parent reports 22 focused checks and final structure (1794 files, zero
+violations/exceptions), fmt, workspace Clippy and diff passing; known blockers are fixed.
+The PG04 ledger owns exact evidence, limitations and concise failed-experiment lessons.
+**PG05/NC05 is next**: remaining metadata/module sweep adapters, driver pressure and
+production interleaving. PG06/NC06, incremental pause acceptance and full CI remain
+outstanding; PG04 local acceptance is not joint completion.
 Their [runtime storage predecessor](#runtime-storage-redesign) is locally complete;
 reuse the resulting heap/descriptor contracts and NC01's audited API/code inventory
 against the current scoped identity APIs.

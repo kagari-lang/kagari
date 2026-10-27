@@ -8,10 +8,18 @@ mod retirement;
 #[cfg(test)]
 mod tests;
 
-use self::pages::{Pages, Retired, SLAB_BYTES};
+use self::{
+    pages::{Pages, Retired, SLAB_BYTES},
+    retirement::Sweep,
+};
 use crate::{
     error::RuntimeError,
-    gc::{GcHeap, HeapObjectId, fields::StructViewMut, storage::HeapObject},
+    gc::{
+        GcHeap, HeapObjectId,
+        fields::StructViewMut,
+        graph::marks::{Domain, MarkBlocks, MarkRef},
+        storage::HeapObject,
+    },
     module::ModuleKey,
     native::{binding::NativeResult, storage::NativeObject},
     resource::HeapCharge,
@@ -80,9 +88,33 @@ pub(super) struct ObjectSlot {
 }
 
 impl ObjectSlot {
+    pub(super) fn kind(&self) -> PayloadKind {
+        self.location.kind
+    }
+
     pub(super) fn location(&self) -> Option<PayloadLocation> {
         (self.location.kind != PayloadKind::Vacant).then_some(self.location)
     }
+
+    /// The caller has validated occupancy and owns this identity's retirement.
+    /// Exhausted generations stay vacant but never rejoin the reusable chain.
+    fn retire(&mut self, index: u32, free: &mut Option<u32>) {
+        self.location = PayloadLocation {
+            kind: PayloadKind::Vacant,
+            page: free.unwrap_or(0),
+            slot: u16::from(free.is_some()),
+        };
+        if let Some(generation) = self.generation.checked_add(1) {
+            self.generation = generation;
+            *free = Some(index);
+        }
+    }
+}
+
+#[derive(Debug)]
+struct InterfaceWrapper {
+    directory: u32,
+    snapshot: u32,
 }
 
 #[derive(Debug, Default)]
@@ -90,14 +122,61 @@ pub(super) struct ObjectStorage {
     pub(super) slots: Vec<ObjectSlot>,
     pub(super) initialization_owners: HashMap<HeapObjectId, ModuleKey>,
     pages: Pages,
+    marks: MarkBlocks,
     free_identity: Option<u32>,
+    // Current occupancy, unlike generation history or a sweep's visited survivors.
+    occupied: usize,
+    sweep: Option<Sweep>,
     // Occupancy index of stable wrapper identities, not another payload store.
-    interface_directories: Vec<u32>,
+    interface_directories: Vec<InterfaceWrapper>,
     #[cfg(test)]
     pub(super) discovery_visits: Cell<usize>,
 }
 
 impl ObjectStorage {
+    /// The caller has resolved this occupied directory under the same storage
+    /// borrow. Marks belong to directory slots, so no physical-page reverse lookup
+    /// is needed after checking the full object identity.
+    pub(in crate::gc) fn mark_for_directory(&self, index: usize) -> MarkRef<'_> {
+        self.marks.slot(Domain::Object, index)
+    }
+
+    pub(in crate::gc) fn mark(&self, location: PayloadLocation) -> Option<MarkRef<'_>> {
+        let directory = if location.kind == PayloadKind::Interface {
+            self.interface_directories
+                .get(location.page as usize)?
+                .directory
+        } else {
+            self.pages.directory(location)?
+        };
+        Some(self.marks.slot(Domain::Object, directory as usize))
+    }
+
+    pub(in crate::gc) fn next_gray(
+        &self,
+        owner: u64,
+        block: usize,
+        epoch: u64,
+    ) -> (Option<HeapObjectId>, bool) {
+        let (index, more) = self.marks.next_gray(block, epoch);
+        (
+            index.map(|index| {
+                let slot = &self.slots[index];
+                assert!(slot.location().is_some(), "gray heap directory occupied");
+                HeapObjectId::new(owner, index, slot.generation)
+            }),
+            more,
+        )
+    }
+
+    fn snapshot_index(&self, location: PayloadLocation) -> Option<u32> {
+        Some(
+            self.interface_directories
+                .get(location.page as usize)?
+                .snapshot,
+        )
+    }
+
     pub(super) fn next_directory(&self) -> usize {
         self.free_identity
             .map_or(self.slots.len(), |index| index as usize)
@@ -115,19 +194,20 @@ impl ObjectStorage {
             self.free_identity = (vacant.location.slot != 0).then_some(vacant.location.page);
             vacant.location = location;
         }
+        self.occupied = self
+            .occupied
+            .checked_add(1)
+            .expect("bounded directory occupancy");
     }
 
     fn retire_identity(&mut self, index: usize) {
         let slot = &mut self.slots[index];
-        slot.location = PayloadLocation {
-            kind: PayloadKind::Vacant,
-            page: self.free_identity.unwrap_or(0),
-            slot: u16::from(self.free_identity.is_some()),
-        };
-        if let Some(generation) = slot.generation.checked_add(1) {
-            slot.generation = generation;
-            self.free_identity = Some(index as u32);
-        }
+        assert!(slot.location().is_some(), "retire occupied identity");
+        self.occupied = self
+            .occupied
+            .checked_sub(1)
+            .expect("occupied directory count");
+        slot.retire(index as u32, &mut self.free_identity);
     }
 
     /// Upper bound used to preflight per-admission byte arithmetic before placement.
@@ -150,6 +230,9 @@ impl ObjectStorage {
         directory: u32,
         object: HeapObject,
     ) -> NativeResult<PayloadLocation> {
+        self.marks
+            .prepare(directory as usize)
+            .map_err(|_| RuntimeError::resource_limit("heap block marks"))?;
         match object {
             HeapObject::String(value) => self.place(directory, PayloadKind::String, false, value),
             HeapObject::Tuple(value) => self.place(directory, PayloadKind::Tuple, true, value),
@@ -176,12 +259,17 @@ impl ObjectStorage {
                 self.interface_directories
                     .try_reserve(1)
                     .map_err(|_| RuntimeError::resource_limit("interface wrapper occupancy"))?;
-                self.interface_directories.push(directory);
-                Ok(PayloadLocation {
-                    kind: PayloadKind::Interface,
-                    page: snapshot
+                let index = u32::try_from(self.interface_directories.len())
+                    .map_err(|_| RuntimeError::resource_limit("interface wrapper slots"))?;
+                self.interface_directories.push(InterfaceWrapper {
+                    directory,
+                    snapshot: snapshot
                         .directory_index()
                         .expect("admitted interface locator"),
+                });
+                Ok(PayloadLocation {
+                    kind: PayloadKind::Interface,
+                    page: index,
                     slot: 0,
                 })
             }
@@ -235,19 +323,6 @@ impl ObjectStorage {
         })
     }
 
-    /// Enumerate occupied slots, not permanent generation tombstones. Wrapper
-    /// occupancy is independent of the separately owned interface metadata.
-    pub(super) fn occupied_directories(&self) -> impl Iterator<Item = usize> + '_ {
-        self.pages
-            .occupied_directories()
-            .chain(self.interface_directories.iter().copied())
-            .map(|index| {
-                #[cfg(test)]
-                self.discovery_visits.set(self.discovery_visits.get() + 1);
-                index as usize
-            })
-    }
-
     /// Detach without running payload destructors under the directory borrow.
     pub(super) fn detach(&mut self, id: HeapObjectId) -> Option<Retired> {
         let slot = self.slots.get_mut(id.index())?;
@@ -273,8 +348,23 @@ impl ObjectStorage {
     // The synchronous sweep removes wrapper occupancy before metadata retirement.
     // PG05 replaces this batch compaction with the bounded wrapper sweep driver.
     pub(super) fn retire_wrappers(&mut self) {
-        self.interface_directories
-            .retain(|&index| self.slots[index as usize].location().is_some());
+        assert!(
+            self.sweep.is_none(),
+            "wrapper ordinals stay stable during physical sweep"
+        );
+        let mut ordinal = 0;
+        self.interface_directories.retain(|wrapper| {
+            let keep = self.slots[wrapper.directory as usize]
+                .location()
+                .is_some_and(|location| {
+                    location.kind == PayloadKind::Interface && location.page as usize == ordinal
+                });
+            ordinal += 1;
+            keep
+        });
+        for (index, wrapper) in self.interface_directories.iter().enumerate() {
+            self.slots[wrapper.directory as usize].location.page = index as u32;
+        }
         if self.interface_directories.capacity()
             > self.interface_directories.len().saturating_mul(4).max(16)
         {
@@ -300,8 +390,16 @@ impl ObjectStorage {
     /// Teardown cannot allocate a dead list. Each token keeps both descriptor and
     /// backing alive while all initialized values are destroyed, including panics.
     pub(super) fn teardown(&mut self, mut panic: impl FnMut()) {
-        while let Some(index) = self.interface_directories.pop() {
-            self.retire_identity(index as usize);
+        while let Some(wrapper) = self.interface_directories.pop() {
+            if self.slots[wrapper.directory as usize]
+                .location()
+                .is_some_and(|location| {
+                    location.kind == PayloadKind::Interface
+                        && location.page as usize == self.interface_directories.len()
+                })
+            {
+                self.retire_identity(wrapper.directory as usize);
+            }
         }
         loop {
             let location = self.pages.occupied().next().map(|(_, location)| location);

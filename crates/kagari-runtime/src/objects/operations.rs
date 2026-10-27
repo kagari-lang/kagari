@@ -231,6 +231,6 @@ impl Runtime {
                 )?);
             }
         }
-        self.gc.alloc_operation_group(operations)
+        self.gc.alloc_operation_group(self.modules(), operations)
     }
 }

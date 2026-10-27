@@ -6,6 +6,7 @@ pub mod scan;
 use crate::{
     Runtime,
     error::RuntimeError,
+    execution_metadata::MetadataEdge,
     frame::types::{
         arguments::{TypeArgument, type_parameter},
         compatibility::TypeView,
@@ -295,14 +296,16 @@ impl NativeStorage {
         (self.entries.charge)(payload)
     }
 
+    pub(crate) fn scan_layout(&self) -> Layout {
+        self.entries.scan.layout
+    }
+
     pub(crate) fn scan_payload<'a>(
         &self,
         payload: &'a dyn Any,
-        workspace: &mut ScanWorkspace,
         visit: &mut dyn FnMut(&'a Value),
     ) -> NativeResult<()> {
-        workspace.reserve(self.entries.scan.layout)?;
-        self.entries.scan.trace(payload, workspace, visit)
+        self.entries.scan.inspect(payload, visit)
     }
 
     pub fn layout(&self) -> NativeStorageLayout {
@@ -339,6 +342,7 @@ impl NativeStorage {
         runtime.resources().poll_execution()?;
         let mut object = self.prepare_payload(runtime.gc(), context.ty, payload, context.owner)?;
         object.scope = Some(scope.clone());
+        runtime.publish_metadata_edge(MetadataEdge::Selections(&selected))?;
         object.selected = selected;
         let id = runtime.gc().alloc_native(object)?;
         let root = runtime
@@ -372,7 +376,7 @@ impl NativeStorage {
     ) -> NativeResult<NativeObject> {
         let mut valid = true;
         heap.scan_native_payload(self, payload.as_ref(), &mut |value| {
-            valid &= value.is_default_heap_payload(heap) && heap.validate_value(value);
+            valid &= value.is_default_heap_payload(heap) && heap.publish_value(*value).is_ok();
         })?;
         if !valid {
             return Err(RuntimeError::module_validation(
@@ -512,13 +516,30 @@ impl NativeObject {
         actual.compatible(expected)
     }
 
-    pub(crate) fn trace<'payload>(
+    pub(crate) fn begin_scan(&self, workspace: &mut ScanWorkspace) -> NativeResult<()> {
+        let payload = self.payload.view(&self.storage.entries.erasure)?;
+        self.storage.entries.scan.begin(payload, workspace)
+    }
+
+    pub(crate) fn scan_slice<'payload>(
         &'payload self,
         workspace: &mut ScanWorkspace,
+        budget: &mut ScanBudget,
+        visit: &mut dyn FnMut(&'payload Value),
+    ) -> NativeResult<ScanStatus> {
+        let payload = self.payload.view(&self.storage.entries.erasure)?;
+        self.storage
+            .entries
+            .scan
+            .resume(payload, workspace, budget, visit)
+    }
+
+    pub(crate) fn inspect<'payload>(
+        &'payload self,
         visit: &mut dyn FnMut(&'payload Value),
     ) -> NativeResult<()> {
         let payload = self.payload.view(&self.storage.entries.erasure)?;
-        self.storage.entries.scan.trace(payload, workspace, visit)
+        self.storage.entries.scan.inspect(payload, visit)
     }
 
     pub(crate) fn loan_payload(&mut self) -> NativeResult<NonNull<dyn Any + Send>> {

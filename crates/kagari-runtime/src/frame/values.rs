@@ -2,29 +2,34 @@
 #[cfg(feature = "execution-diagnostics")]
 use crate::diagnostics::{self, Event};
 
+#[cfg(test)]
+use crate::{execution_metadata::MetadataRoot, frame::arguments::FrameArguments};
 use kagari_abi::representation::ValueType;
 
 pub(crate) mod operands;
+pub(crate) mod scanning;
 mod windows;
 
 use crate::{
     error::RuntimeError,
-    execution_metadata::MetadataRoot,
+    execution_metadata::MetadataEdge,
     frame::{
-        arguments::{ArgumentSource, FrameArguments},
+        admission::ArgumentPublication,
+        arguments::ArgumentSource,
         types::TypeEnvironment,
         values::{
             operands::{read_operand, write_operand},
             windows::Windows,
         },
     },
-    gc::GcHeap,
+    gc::{GcHeap, graph::GraphIdentity},
     module::{
         ExecutableModule,
         execution::{
             OperandSlot, ScalarSlot,
             layout::{FrameLayout, Location},
         },
+        records::AdmittedExecutable,
     },
     native::application::NativeApplication,
     objects::invocation::MethodInvocation,
@@ -46,8 +51,8 @@ pub(crate) struct FrameSlots {
 }
 
 /// Dependencies published atomically with the callee's parameter roots.
-pub(crate) struct FrameMetadata {
-    pub program: ExecutableModule,
+pub(crate) struct FrameMetadata<'a> {
+    pub program: AdmittedExecutable<'a>,
     pub environment: Option<TypeEnvironment>,
     pub invocation: Option<MethodInvocation>,
 }
@@ -90,7 +95,7 @@ impl Window {
 pub(crate) struct ExecutionValues {
     owner: u64,
     next_generation: u64,
-    pub(crate) values: Vec<Value>,
+    values: Vec<Value>,
     pub(crate) payloads: Vec<u64>,
     pub(crate) initialized: Vec<bool>,
     windows: Windows,
@@ -115,14 +120,30 @@ impl Default for ExecutionValues {
 }
 
 impl ExecutionValues {
+    #[cfg(test)]
     pub(crate) fn allocate(
         &mut self,
         count: usize,
         parameter_slots: &[usize],
         arguments: &FrameArguments<'_>,
-        metadata: FrameMetadata,
+        metadata: FrameMetadata<'_>,
         slot_layout: Option<Arc<FrameLayout>>,
     ) -> Result<FrameSlots, RuntimeError> {
+        let arguments =
+            ArgumentPublication::for_test(metadata.program.runtime(), self, *arguments)?;
+        self.allocate_published(count, parameter_slots, arguments, metadata, slot_layout)
+    }
+
+    pub(super) fn allocate_published(
+        &mut self,
+        count: usize,
+        parameter_slots: &[usize],
+        publication: ArgumentPublication<'_>,
+        metadata: FrameMetadata<'_>,
+        slot_layout: Option<Arc<FrameLayout>>,
+    ) -> Result<FrameSlots, RuntimeError> {
+        let runtime = metadata.program.runtime();
+        let arguments = publication.arguments();
         if parameter_slots.len() != arguments.len()
             || parameter_slots.iter().any(|&slot| slot >= count)
         {
@@ -198,6 +219,22 @@ impl ExecutionValues {
         self.allocation_order
             .try_reserve(1)
             .map_err(|_| RuntimeError::resource_limit("execution frame order"))?;
+        // All strong targets are protected before any bank or window publication.
+        metadata.program.publish()?;
+        if let Some(environment) = &metadata.environment {
+            runtime.publish_metadata_edge(MetadataEdge::Environment(environment.id))?;
+        }
+        if let Some(invocation) = metadata.invocation {
+            for field in 0..3 {
+                if let Some(root) = invocation.metadata_field(field) {
+                    runtime.publish_metadata_edge(root.edge())?;
+                }
+            }
+        }
+        // Initial admission already shaded these exact sources without a callback
+        // or GC step since. Report its first publication failure at the original
+        // late boundary, after metadata, transfer checks and all reservations.
+        publication.finish()?;
         let scalar_start = self.payloads.len();
         let managed_start = self.values.len();
         self.payloads.resize(scalar_start + scalar_count, 0);
@@ -220,15 +257,25 @@ impl ExecutionValues {
             scalars: scalar_start..scalar_start + scalar_count,
             managed: managed_start..managed_start + managed_count,
         };
-        // Exclusive bank access excludes GC and callbacks. Initialize reserved
-        // parameter ranges before publishing their identity and metadata roots.
+        // Admission published every argument and preflight checked every transfer.
+        // Exclusive bank access keeps the sources unchanged and excludes GC/reentry until
+        // commit. Confine barrier-free initialization to these fresh ranges;
+        // ordinary writes to published windows still go through write_operand.
+        let initialize_admitted = |storage: &mut Self, target: Location, value: Value| {
+            if target.operand.managed() {
+                storage.values[ranges.managed.clone()][target.operand.index()] = value;
+            } else {
+                storage
+                    .write_range(runtime.gc(), &ranges, target, value)
+                    .expect("admitted scalar argument");
+            }
+        };
         for (index, source) in arguments.iter().enumerate() {
             let target =
                 destination(parameter_slots[index]).expect("admitted argument destination");
             match source {
                 ArgumentSource::Value(value) => {
-                    self.write_range(&ranges, target, *value)
-                        .expect("admitted argument");
+                    initialize_admitted(self, target, *value);
                 }
                 ArgumentSource::Window(location) => {
                     let source = source_ranges.as_ref().expect("admitted source window");
@@ -245,8 +292,7 @@ impl ExecutionValues {
                         let value = self
                             .with_range(source, location, Value::clone)
                             .expect("checked source window");
-                        self.write_range(&ranges, target, value)
-                            .expect("admitted argument");
+                        initialize_admitted(self, target, value);
                     }
                 }
             }
@@ -254,7 +300,7 @@ impl ExecutionValues {
         let index = self.windows.insert(Window {
             generation,
             ranges,
-            program: metadata.program,
+            program: metadata.program.module().clone(),
             environment: metadata.environment,
             invocation: metadata.invocation,
             native_application: None,
@@ -294,6 +340,7 @@ impl ExecutionValues {
 
     pub(crate) fn set_scalar(
         &mut self,
+        heap: &GcHeap,
         slots: FrameSlots,
         logical: usize,
         representation: ValueType,
@@ -301,11 +348,12 @@ impl ExecutionValues {
     ) -> Option<()> {
         let window = self.window(slots)?;
         let location = window.location(logical)?;
-        self.set_scalar_location(slots, location, representation, bits)
+        self.set_scalar_location(heap, slots, location, representation, bits)
     }
 
     pub(crate) fn set_scalar_location(
         &mut self,
+        heap: &GcHeap,
         slots: FrameSlots,
         location: Location,
         representation: ValueType,
@@ -313,7 +361,7 @@ impl ExecutionValues {
     ) -> Option<()> {
         let window = self.window(slots)?;
         if location.operand.managed() {
-            return self.set_location(slots, location, scalar::decode(representation, bits)?);
+            return self.set_location(heap, slots, location, scalar::decode(representation, bits)?);
         }
         if !location.admits_payload(representation, bits) {
             return None;
@@ -345,6 +393,10 @@ impl ExecutionValues {
 
     pub(crate) fn ranges(&self, slots: FrameSlots) -> Option<WindowRanges> {
         Some(self.window(slots)?.ranges.clone())
+    }
+
+    pub(crate) fn managed_values(&self, slots: FrameSlots) -> Option<&[Value]> {
+        self.values.get(self.window(slots)?.ranges.managed.clone())
     }
 
     /// Only checked await facts may clear dead storage. Ordinary typed writes
@@ -398,34 +450,44 @@ impl ExecutionValues {
         Some(read(&value))
     }
 
-    pub(crate) fn set(&mut self, slots: FrameSlots, logical: usize, value: Value) -> Option<()> {
+    pub(crate) fn set(
+        &mut self,
+        heap: &GcHeap,
+        slots: FrameSlots,
+        logical: usize,
+        value: Value,
+    ) -> Option<()> {
         let window = self.window(slots)?;
         let location = window.location(logical)?;
-        self.set_location(slots, location, value)
+        self.set_location(heap, slots, location, value)
     }
 
     pub(crate) fn set_location(
         &mut self,
+        heap: &GcHeap,
         slots: FrameSlots,
         location: Location,
         value: Value,
     ) -> Option<()> {
         let ranges = self.window(slots)?.ranges.clone();
-        self.write_range(&ranges, location, value)
+        self.write_range(heap, &ranges, location, value)
     }
 
     fn write_range(
         &mut self,
+        heap: &GcHeap,
         ranges: &WindowRanges,
         location: Location,
         value: Value,
     ) -> Option<()> {
         write_operand(
+            heap,
             self.values.get_mut(ranges.managed.clone())?,
             self.payloads.get_mut(ranges.scalars.clone())?,
             self.initialized.get_mut(ranges.scalars.clone())?,
             location,
             value,
+            || heap.ensure_execution_allowed().ok(),
         )
     }
 
@@ -512,6 +574,7 @@ impl ExecutionValues {
         roots.extend_from_slice(&self.values);
     }
 
+    #[cfg(test)]
     pub(crate) fn append_metadata(&self, roots: &mut Vec<MetadataRoot>) {
         for window in self.windows.iter() {
             if let Some(invocation) = window.invocation {
@@ -552,6 +615,7 @@ impl FrameSlots {
         {
             return Err(invalid());
         }
+        heap.publish_heap_identity(GraphIdentity::NativeApplication(application.scan_id))?;
         values
             .windows
             .get_mut(self.index)
@@ -598,20 +662,14 @@ impl FrameSlots {
         value: Value,
     ) -> Option<()> {
         heap.ensure_execution_allowed().ok()?;
-        if !heap.validate_value(&value) {
-            return None;
-        }
         let mut values = heap.resources().frame_values.try_borrow_mut().ok()?;
-        values.set_location(self, location, value)
+        values.set_location(heap, self, location, value)
     }
 
     pub(crate) fn set(self, heap: &GcHeap, index: usize, value: Value) -> Option<()> {
         heap.ensure_execution_allowed().ok()?;
-        if !heap.validate_value(&value) {
-            return None;
-        }
         let mut values = heap.resources().frame_values.try_borrow_mut().ok()?;
-        values.set(self, index, value)
+        values.set(heap, self, index, value)
     }
 }
 

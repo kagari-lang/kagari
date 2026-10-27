@@ -3,9 +3,11 @@
 use crate::{
     error::RuntimeError,
     frame::types::compatibility::TypeView,
+    gc::graph::{GraphIdentity, GraphState, marks::OwnerMark},
     module::{
         ExecutableModule, InstallationId, ModuleStore, ModuleStoreInner,
         records::ModuleRecord,
+        scanning::StaticScanId,
         state::{StaticRecipe, StaticState, compatibility, initialization::InitializationAttempt},
     },
 };
@@ -17,10 +19,11 @@ use std::{
 
 /// Monotonic within one runtime; IDs are never reused after retirement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(in crate::module) struct CellId(u64);
+pub(crate) struct CellId(u64);
 
 #[derive(Debug)]
 pub(in crate::module) struct StaticCell {
+    pub(in crate::module) mark: OwnerMark,
     /// Immutable type provenance, not an executable graph root.
     pub(in crate::module) owner: ExecutableModule,
     pub(in crate::module) slot: usize,
@@ -61,6 +64,9 @@ impl ModuleStoreInner {
         }
         let expected = &record.module.bytecode.module_slots.get(slot)?.contract;
         let cell = self.cells.get(record.bindings.get(slot)?)?;
+        if !self.graph.try_lock().ok()?.accessible(cell.mark.as_ref()) {
+            return None;
+        }
         let descriptor = cell.owner.bytecode.module_slots.get(cell.slot)?;
         if cell.lineage != record.static_lineage
             || cell.lineage != record.module.installation_id()
@@ -81,6 +87,7 @@ impl ModuleStoreInner {
     pub(in crate::module) fn allocate_statics(
         &mut self,
         root: &ExecutableModule,
+        graph: &GraphState,
     ) -> Result<(), RuntimeError> {
         let mut bindings = HashMap::new();
         let mut pending = Vec::new();
@@ -110,6 +117,7 @@ impl ModuleStoreInner {
                 pending.push((
                     id,
                     StaticCell {
+                        mark: OwnerMark::default(),
                         owner: owner.clone(),
                         slot,
                         lineage: root.installation_id(),
@@ -142,7 +150,19 @@ impl ModuleStoreInner {
             })
             .collect::<Result<Vec<_>, RuntimeError>>()?;
         self.next_cell = next;
-        self.cells.extend(pending);
+        for (id, cell) in pending {
+            let mut graph = graph.try_lock()?;
+            graph.prepare_identity()?;
+            self.cells
+                .try_reserve(1)
+                .map_err(|_| RuntimeError::resource_limit("static cell storage"))?;
+            let scan = StaticScanId {
+                owner: cell.owner.registry_owner,
+                cell: id,
+            };
+            self.cells.insert(id, cell);
+            graph.admit_prepared(GraphIdentity::Static(scan), self.cells[&id].mark.as_ref());
+        }
         for (key, bindings) in plans {
             self.records.get_mut(&key).expect("staged member").bindings = bindings;
         }
@@ -215,19 +235,46 @@ impl ModuleStore {
                 "persistent static deletion, rename or move",
             ));
         }
+        let mut graph = self.graph.try_lock()?;
+        // Prepare every replacement before changing any binding. In particular,
+        // sweep cannot revive a baseline cell merely because storage still exists.
+        for (_, bindings) in &plans {
+            for id in bindings {
+                let cell = &store.cells[id];
+                graph.shade(
+                    GraphIdentity::Static(StaticScanId {
+                        owner: cell.owner.registry_owner,
+                        cell: *id,
+                    }),
+                    cell.mark.as_ref(),
+                )?;
+            }
+        }
         // Both publications already belong to the same installation. Reuse cells
         // without changing their introducing publication or lazy initializer recipe.
         for (key, bindings) in plans {
             let record = store.records.get_mut(&key).expect("staged member");
             record.bindings = bindings;
         }
-        // Superseded candidate-only allocations have no observable owners.
+        // Superseded candidate-only cells may still own queued scan work. Keep
+        // their physical backing until collection can retire it; never invalidate
+        // an active cursor after the binding transaction has committed.
         let referenced = store
             .records
             .values()
             .flat_map(|record| record.bindings.iter().copied())
             .collect::<HashSet<_>>();
-        store.cells.retain(|id, _| referenced.contains(id));
+        store.cells.retain(|id, cell| {
+            if referenced.contains(id) {
+                return true;
+            }
+            if graph.can_retire(cell.mark.as_ref()).is_err() {
+                return true;
+            }
+            graph.release_singleton(cell.mark.as_ref());
+            graph.retire_prepared();
+            false
+        });
         Ok(())
     }
 }

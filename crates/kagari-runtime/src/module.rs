@@ -15,8 +15,9 @@ pub(crate) mod layout_storage;
 mod layouts;
 pub(crate) mod linked_execution;
 mod normalization;
-mod records;
+pub(crate) mod records;
 pub mod retention;
+pub(crate) mod scanning;
 pub(crate) mod staging;
 pub mod state;
 #[cfg(test)]
@@ -24,6 +25,7 @@ mod tests;
 use crate::{
     cache::ReloadDependencySnapshot,
     error::{RuntimeError, RuntimeErrorKind},
+    gc::graph::GraphState,
     host::{HostPathDescriptorId, HostRegistryId},
     metadata::TypeId,
     module::state::{
@@ -36,7 +38,7 @@ use crate::{
         layout_admission::{AggregateKind, LayoutAdmissions, LayoutEndpoint},
         layout_identity::{LayoutIdentity, ProgramLayouts},
         layout_scope::LayoutScope,
-        records::ModuleRecord,
+        records::{ModuleRecord, storage::ModuleRecords},
         retention::{ProgramLease, Retentions},
         staging::{CandidateLease, StagedProgram},
     },
@@ -693,8 +695,9 @@ pub struct ModuleInstance {
     pub module_slots: Vec<StaticState>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ModuleStore {
+    graph: GraphState,
     // Separate from executable storage so teardown can revoke metadata authority
     // even while storage is borrowed by a failing execution/collection path.
     installations: HashMap<InstallationId, Arc<Installation>>,
@@ -704,18 +707,37 @@ pub struct ModuleStore {
 
 #[derive(Debug, Default)]
 struct ModuleStoreInner {
+    graph: GraphState,
     epochs: ModuleEpochAllocator,
     next_cell: u64,
     cells: HashMap<CellId, StaticCell>,
     next_id: u64,
     next_installation: u64,
     ids_by_member: HashMap<(InstallationId, ModuleIdentity), ModuleId>,
-    records: HashMap<ModuleKey, ModuleRecord>,
+    records: ModuleRecords,
     staged: HashMap<ModuleKey, Weak<CandidateLease>>,
     retentions: HashMap<ModuleKey, Retentions>,
 }
 
+impl Default for ModuleStore {
+    fn default() -> Self {
+        Self::with_graph(GraphState::default())
+    }
+}
+
 impl ModuleStore {
+    pub(crate) fn with_graph(graph: GraphState) -> Self {
+        Self {
+            inner: RefCell::new(ModuleStoreInner {
+                graph: graph.clone(),
+                ..Default::default()
+            }),
+            graph,
+            installations: HashMap::new(),
+            abandoned: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
     pub(crate) fn source_observation_owner(
         &self,
         publication: PublicationToken,
@@ -752,6 +774,7 @@ impl ModuleStore {
         module: &ExecutableModule,
         kind: ModuleEpochRetention,
     ) -> Option<ProgramLease> {
+        self.publish_program(module).ok()?;
         let mut inner = self.inner.try_borrow_mut().ok()?;
         if !module
             .members()
@@ -888,7 +911,9 @@ impl ModuleStore {
         for (member, native) in loaded.members().zip(native_links) {
             let key = member.key();
             inner.retentions.entry(key).or_default();
-            inner.records.insert(key, ModuleRecord::new(member, native));
+            inner
+                .records
+                .insert(ModuleRecord::new(member, native), &mut self.graph.lock())?;
         }
         let lease = Arc::new(CandidateLease::new(
             self.abandoned.clone(),
@@ -899,7 +924,9 @@ impl ModuleStore {
             .insert(loaded.program_key(), Arc::downgrade(&lease));
         // Allocation is fallible. Install abandonment authority first so a failure
         // cannot leave partially prepared records available as an ordinary load.
-        inner.allocate_statics(&loaded)?;
+        inner.allocate_statics(&loaded, &self.graph)?;
+        drop(inner);
+        self.publish_program(&loaded)?;
         Ok(StagedProgram {
             installation,
             module: loaded,
@@ -972,6 +999,7 @@ impl ModuleStore {
         module: &ExecutableModule,
         kind: ModuleEpochRetention,
     ) -> Option<ProgramLease> {
+        self.publish_program(module).ok()?;
         let mut inner = self.inner.try_borrow_mut().ok()?;
         inner.resolve(module)?;
         Some(inner.retentions.get_mut(&module.key())?.retain_member(kind))
@@ -1009,6 +1037,7 @@ impl ModuleStore {
     }
 }
 
+#[cfg(test)]
 fn root_programs(
     inner: &ModuleStoreInner,
     current: impl IntoIterator<Item = ModuleKey>,

@@ -83,7 +83,7 @@ impl ExecutionStack<'_> {
                             .resources()
                             .quarantine("tuple operands borrowed during publication")
                     })?
-                    .set_location(frame.slots, base, tuple)
+                    .set_location(&runtime.gc, frame.slots, base, tuple)
                     .ok_or_else(|| runtime.resources().quarantine("invalid tuple destination"))?;
                 frame.completed = frame.executing;
                 Ok(RegionExit::Safepoint)
@@ -118,7 +118,7 @@ impl ExecutionStack<'_> {
                             .resources()
                             .quarantine("execution slots borrowed during constant publication")
                     })?
-                    .set_location(frame.slots, dst, value)
+                    .set_location(&runtime.gc, frame.slots, dst, value)
                     .ok_or_else(|| {
                         runtime
                             .resources()

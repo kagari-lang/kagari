@@ -4,6 +4,7 @@ use crate::{
     Runtime, RuntimeConfig, StagedLoad, StagedReload,
     error::RuntimeErrorKind,
     module::{Module, ModuleEpochRetention, Program, VerifiedProgram},
+    native::storage::scan::{ScanBudget, ScanStatus},
 };
 use kagari_bytecode::{
     module::BytecodeModule,
@@ -285,7 +286,7 @@ fn abandoned_programs_are_retired_at_safepoints_and_before_further_staging() {
     // A failed/incomplete graph walk must not consume a pending request.
     let candidate = stage(&mut runtime, &baseline);
     drop(candidate);
-    let graph = runtime.modules.collection_graph().unwrap();
+    let graph = runtime.modules.begin_collection();
     assert!(!runtime.modules.abandonment_pending());
     drop(graph);
     assert!(runtime.modules.abandonment_pending());
@@ -295,11 +296,30 @@ fn abandoned_programs_are_retired_at_safepoints_and_before_further_staging() {
     // Last release after root discovery needs another collection even when
     // that program was already retained by the in-progress mark.
     let candidate = stage(&mut runtime, &baseline);
-    let mut graph = runtime.modules.collection_graph().unwrap();
-    let roots = graph.roots();
+    let mut graph = runtime.modules.begin_collection();
+    let mut roots = runtime
+        .gc
+        .begin_initial_roots(&runtime.modules, &runtime.host)
+        .unwrap();
+    while runtime
+        .gc
+        .scan_initial_root_slice(
+            &runtime.modules,
+            &runtime.host,
+            &mut roots,
+            &mut ScanBudget::new(1),
+        )
+        .unwrap()
+        == ScanStatus::Pending
+    {}
     thread::spawn(move || drop(candidate)).join().unwrap();
-    let dead = graph.prepare_sweep(&roots);
-    assert!(graph.detach(dead).is_empty());
+    runtime.gc.drain_graph_work(&runtime.modules).unwrap();
+    runtime.gc.graph.lock().close_mark().unwrap();
+    let mut dead = graph.prepare_sweep().unwrap();
+    assert!(graph.detach_program_batch(&mut dead, 32).is_empty());
+    assert!(graph.detach_cell_batch(&mut dead, 32).is_empty());
+    graph.finish(dead);
+    runtime.gc.graph.lock().finish_sweep().unwrap();
     drop(graph);
     assert!(runtime.modules.abandonment_pending());
     runtime.gc_safepoint().unwrap();

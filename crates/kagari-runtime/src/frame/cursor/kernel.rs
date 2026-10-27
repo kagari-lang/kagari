@@ -102,9 +102,6 @@ impl ExecutionCursor<'_> {
                             constant,
                         }));
                     };
-                    if !self.runtime.gc().validate_value(&value) {
-                        return Err(self.invalid().into());
-                    }
                     self.values
                         .write_location(dst, value)
                         .ok_or_else(|| self.invalid())?;
@@ -113,16 +110,13 @@ impl ExecutionCursor<'_> {
                     dst,
                     src,
                 })) => {
-                    // The admitted banks own both roots. Keep the ordinary heap
-                    // identity and destination representation checks; copying a
-                    // Value cannot allocate, collect, run a destructor or reenter.
+                    // Copying cannot allocate, collect, run a destructor or reenter.
+                    // The shared write owner checks representation and current heap
+                    // identity while publishing; being rooted is not validity proof.
                     let value = self
                         .values
                         .read_location(src)
                         .ok_or_else(|| self.invalid())?;
-                    if !self.runtime.gc().validate_value(&value) {
-                        return Err(self.invalid().into());
-                    }
                     self.values
                         .write_location(dst, value)
                         .ok_or_else(|| self.invalid())?;
@@ -134,9 +128,7 @@ impl ExecutionCursor<'_> {
                     // Common retirement/publication permits no GC or callback gap.
                     let value = self
                         .values
-                        .managed
-                        .get(value.index())
-                        .copied()
+                        .managed_value(value.index())
                         .ok_or_else(|| self.invalid())?;
                     return Ok(CursorExit::Region(RegionExit::Return(
                         ReturnValue::general(value),

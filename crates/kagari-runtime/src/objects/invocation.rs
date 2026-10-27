@@ -86,19 +86,31 @@ impl MethodInvocation {
             environment: view.environment().cloned(),
         };
         drop(view);
-        self.dispatch = MethodDispatch::Admitted(runtime.gc.alloc_method_computation(computation)?);
+        self.dispatch = MethodDispatch::Admitted(
+            runtime
+                .gc
+                .alloc_method_computation(runtime.modules(), computation)?,
+        );
         Ok(self)
     }
 
-    pub(crate) fn append_metadata(self, roots: &mut Vec<MetadataRoot>) {
-        roots.push(match self.selection {
-            MethodSelection::Interface { snapshot, .. } => MetadataRoot::Interface(snapshot),
-            MethodSelection::Operation(id) => MetadataRoot::Operation(id),
-        });
-        roots.extend(self.application.map(MetadataRoot::Application));
-        if let MethodDispatch::Admitted(id) = self.dispatch {
-            roots.push(MetadataRoot::Application(id));
+    pub(crate) fn metadata_field(self, index: usize) -> Option<MetadataRoot> {
+        match index {
+            0 => Some(match self.selection {
+                MethodSelection::Interface { snapshot, .. } => MetadataRoot::Interface(snapshot),
+                MethodSelection::Operation(id) => MetadataRoot::Operation(id),
+            }),
+            1 => self.application.map(MetadataRoot::Application),
+            2 => match self.dispatch {
+                MethodDispatch::Admitted(id) => Some(MetadataRoot::Application(id)),
+                MethodDispatch::Live => None,
+            },
+            _ => None,
         }
+    }
+
+    pub(crate) fn append_metadata(self, roots: &mut Vec<MetadataRoot>) {
+        roots.extend((0..3).filter_map(|field| self.metadata_field(field)));
     }
 
     pub(crate) fn view<'a>(&self, runtime: &'a Runtime) -> Result<MethodView<'a>, RuntimeError> {

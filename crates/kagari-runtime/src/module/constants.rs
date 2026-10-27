@@ -22,8 +22,12 @@ impl ConstantPool {
         self.values.get(constant.index())?.get().copied()
     }
 
-    pub(super) fn iter(&self) -> impl DoubleEndedIterator<Item = &Value> {
-        self.values.iter().filter_map(OnceLock::get)
+    pub(super) fn scan_len(&self) -> usize {
+        self.values.len()
+    }
+
+    pub(super) fn scan_field(&self, index: usize) -> Option<Value> {
+        self.values.get(index)?.get().copied()
     }
 
     /// The caller admits and retains the owning program before entering. This
@@ -39,6 +43,7 @@ impl ConstantPool {
             .get(constant.index())
             .ok_or_else(|| RuntimeError::module_validation("constant index out of bounds"))?;
         if let Some(value) = cell.get() {
+            runtime.gc.publish_value(*value)?;
             return Ok(*value);
         }
         let source = owner
@@ -59,6 +64,7 @@ impl ConstantPool {
             ConstantOperand::F64(value) => Value::F64(*value),
             ConstantOperand::Str(text) => runtime.gc.alloc_string(text.clone())?,
         };
+        runtime.gc.publish_value(value)?;
         cell.set(value).map_err(|_| {
             runtime
                 .resources()

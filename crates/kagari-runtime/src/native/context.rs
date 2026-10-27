@@ -192,19 +192,30 @@ impl LinkedCallable {
         })
     }
 
+    pub(crate) fn scan_field<'a>(
+        &'a self,
+        caller: &'a ExecutableModule,
+        field: usize,
+    ) -> Option<MetadataEdge<'a>> {
+        match field {
+            0 => Some(MetadataEdge::Program(match &self.owner {
+                CallableOwner::Program(_) => caller,
+                CallableOwner::Resolved(owner) | CallableOwner::Pinned(owner, _) => owner,
+            })),
+            1 => self
+                .environment
+                .as_ref()
+                .map(|environment| MetadataEdge::Environment(environment.id)),
+            _ => None,
+        }
+    }
+
     pub(crate) fn trace<'a>(
         &'a self,
         caller: &'a ExecutableModule,
         pending: &mut Vec<MetadataEdge<'a>>,
     ) {
-        let owner = match &self.owner {
-            CallableOwner::Program(_) => caller,
-            CallableOwner::Resolved(owner) | CallableOwner::Pinned(owner, _) => owner,
-        };
-        pending.push(MetadataEdge::Program(owner));
-        if let Some(environment) = &self.environment {
-            pending.push(MetadataEdge::Environment(environment.id));
-        }
+        pending.extend((0..2).filter_map(|field| self.scan_field(caller, field)));
     }
 
     pub(crate) fn owner(&self, caller: &ExecutableModule) -> NativeResult<ExecutableModule> {

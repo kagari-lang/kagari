@@ -3,14 +3,18 @@ use crate::{
     error::RuntimeError,
     execution_metadata::MetadataEdge,
     frame::types::{TypeEnvironment, arguments::ScopedSignature},
-    gc::{GcHeap, interfaces::InterfaceResultBinding},
-    module::dispatch::SelectedTarget,
+    gc::{
+        GcHeap,
+        graph::{
+            GraphIdentity,
+            marks::{Domain, MarkBlocks, MarkRef},
+        },
+        interfaces::InterfaceResultBinding,
+    },
+    module::{ModuleStore, dispatch::SelectedTarget},
 };
 use kagari_types::callable::Signature;
-use std::{
-    cell::Ref,
-    collections::{HashSet, TryReserveError},
-};
+use std::{cell::Ref, collections::TryReserveError};
 
 #[derive(Debug)]
 pub(crate) struct MethodApplication {
@@ -37,24 +41,40 @@ pub(crate) enum ApplicationRecord {
 }
 
 impl ApplicationRecord {
+    pub(crate) fn scan_field(&self, field: usize) -> Option<MetadataEdge<'_>> {
+        match self {
+            Self::Semantic(application) => match field {
+                0 => application
+                    .environment
+                    .as_ref()
+                    .map(|environment| MetadataEdge::Environment(environment.id)),
+                1 | 2 => application.result_adapter.as_ref()?.scan_field(field - 1),
+                _ => None,
+            },
+            Self::Admitted(computation) => match field {
+                0 => Some(MetadataEdge::Program(computation.selected.owner())),
+                1 => computation
+                    .environment
+                    .as_ref()
+                    .map(|environment| MetadataEdge::Environment(environment.id)),
+                _ => None,
+            },
+        }
+    }
+
     pub(crate) fn trace<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
-        let environment = match self {
+        match self {
             Self::Semantic(application) => {
-                if let Some(adapter) = &application.result_adapter {
-                    pending.push(MetadataEdge::Binding(adapter));
-                }
-                &application.environment
+                pending.extend(self.scan_field(0));
+                pending.extend(
+                    application
+                        .result_adapter
+                        .as_ref()
+                        .map(MetadataEdge::Binding),
+                );
             }
-            Self::Admitted(computation) => {
-                pending.push(MetadataEdge::Program(computation.selected.owner()));
-                &computation.environment
-            }
-        };
-        pending.extend(
-            environment
-                .iter()
-                .map(|environment| MetadataEdge::Environment(environment.id)),
-        );
+            Self::Admitted(_) => pending.extend((0..3).filter_map(|field| self.scan_field(field))),
+        }
     }
 }
 
@@ -75,6 +95,7 @@ struct Slot {
 pub(crate) struct ApplicationStore {
     owner: u64,
     slots: Vec<Slot>,
+    marks: MarkBlocks,
     free: Vec<usize>,
     count: usize,
 }
@@ -84,11 +105,13 @@ impl ApplicationStore {
         Self {
             owner,
             slots: Vec::new(),
+            marks: MarkBlocks::default(),
             free: Vec::new(),
             count: 0,
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn insert(
         &mut self,
         application: MethodApplication,
@@ -100,6 +123,8 @@ impl ApplicationStore {
         &mut self,
         application: ApplicationRecord,
     ) -> Result<ApplicationId, TryReserveError> {
+        self.marks
+            .prepare(self.free.last().copied().unwrap_or(self.slots.len()))?;
         let slot = match self.free.pop() {
             Some(slot) => slot,
             None => {
@@ -139,20 +164,43 @@ impl ApplicationStore {
             .flatten()
     }
 
+    pub(crate) fn mark(&self, id: ApplicationId) -> Option<MarkRef<'_>> {
+        self.record(id)?;
+        Some(self.marks.slot(Domain::Application, id.slot))
+    }
+
+    pub(crate) fn next_gray(&self, block: usize, epoch: u64) -> (Option<GraphIdentity>, bool) {
+        let (index, more) = self.marks.next_gray(block, epoch);
+        let id = index.map(|index| {
+            let slot = &self.slots[index];
+            assert!(slot.application.is_some(), "gray owner is occupied");
+            GraphIdentity::Application(ApplicationId {
+                owner: self.owner,
+                slot: index,
+                generation: slot.generation,
+            })
+        });
+        (id, more)
+    }
+
     pub(crate) fn count(&self) -> usize {
         self.count
     }
 
     /// The whole graph has been marked and validated before any store detaches.
-    pub(crate) fn detach(&mut self, live: &HashSet<ApplicationId>) -> Vec<ApplicationRecord> {
+    pub(crate) fn detach_batch(
+        &mut self,
+        cursor: &mut usize,
+        limit: usize,
+        mut survivor: impl FnMut(MarkRef<'_>) -> bool,
+    ) -> Vec<ApplicationRecord> {
+        assert!(limit != 0);
         let mut retired = Vec::new();
-        for (index, slot) in self.slots.iter_mut().enumerate() {
-            let id = ApplicationId {
-                owner: self.owner,
-                slot: index,
-                generation: slot.generation,
-            };
-            if !live.contains(&id)
+        while *cursor < self.slots.len() && retired.len() < limit {
+            let index = *cursor;
+            *cursor += 1;
+            let slot = &mut self.slots[index];
+            if !survivor(self.marks.slot(Domain::Application, index))
                 && let Some(application) = slot.application.take()
             {
                 retired.push(application);
@@ -170,20 +218,48 @@ impl ApplicationStore {
 impl GcHeap {
     pub(crate) fn alloc_method_computation(
         &self,
+        modules: &ModuleStore,
         computation: MethodComputation,
     ) -> Result<ApplicationId, RuntimeError> {
+        self.alloc_application_record(modules, ApplicationRecord::Admitted(computation))
+    }
+
+    fn alloc_application_record(
+        &self,
+        modules: &ModuleStore,
+        record: ApplicationRecord,
+    ) -> Result<ApplicationId, RuntimeError> {
         self.ensure_execution_allowed()?;
-        self.applications
+        for field in 0..3 {
+            if let Some(edge) = record.scan_field(field) {
+                self.publish_metadata_edge(modules, edge)?;
+            }
+        }
+        let mut graph = self
+            .graph
+            .try_lock()
+            .map_err(|_| RuntimeError::module_validation("graph admission is borrowed"))?;
+        graph.prepare_identity()?;
+        let id = self
+            .applications
             .try_borrow_mut()
             .map_err(|_| RuntimeError::module_validation("method application store is borrowed"))?
-            .insert_record(ApplicationRecord::Admitted(computation))
-            .map_err(|_| self.resource_limit("method computation storage"))
+            .insert_record(record)
+            .map_err(|_| self.resource_limit("method computation storage"))?;
+        self.with_heap_mark(GraphIdentity::Application(id), |mark| {
+            graph.admit_prepared(GraphIdentity::Application(id), mark);
+            Ok(())
+        })?;
+        Ok(id)
     }
 
     pub(crate) fn method_computation(
         &self,
         id: ApplicationId,
     ) -> Option<Ref<'_, MethodComputation>> {
+        if !self.heap_identity_accessible(GraphIdentity::Application(id)) {
+            return None;
+        }
         Ref::filter_map(self.applications.try_borrow().ok()?, |store| {
             match store.record(id)? {
                 ApplicationRecord::Admitted(computation) => Some(computation),
@@ -195,20 +271,19 @@ impl GcHeap {
 
     pub(crate) fn alloc_method_application(
         &self,
+        modules: &ModuleStore,
         application: MethodApplication,
     ) -> Result<ApplicationId, RuntimeError> {
-        self.ensure_execution_allowed()?;
-        self.applications
-            .try_borrow_mut()
-            .map_err(|_| RuntimeError::module_validation("method application store is borrowed"))?
-            .insert(application)
-            .map_err(|_| self.resource_limit("method application storage"))
+        self.alloc_application_record(modules, ApplicationRecord::Semantic(application))
     }
 
     pub(crate) fn method_application(
         &self,
         id: ApplicationId,
     ) -> Option<Ref<'_, MethodApplication>> {
+        if !self.heap_identity_accessible(GraphIdentity::Application(id)) {
+            return None;
+        }
         Ref::filter_map(self.applications.try_borrow().ok()?, |store| store.get(id)).ok()
     }
 }

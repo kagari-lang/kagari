@@ -3,6 +3,7 @@
 use crate::{
     Runtime,
     error::RuntimeError,
+    execution_metadata::MetadataEdge,
     module::{
         ExecutableModule,
         state::{StaticFailure, StaticRecipe, StaticState},
@@ -55,6 +56,7 @@ impl StaticInitialization {
     }
 
     pub(crate) fn begin(&mut self, runtime: &Runtime) -> Result<(), RuntimeError> {
+        runtime.publish_metadata_edge(MetadataEdge::Program(&self.recipe.module))?;
         let mut store = runtime.modules.inner.try_borrow_mut().map_err(|_| {
             runtime
                 .resources()
@@ -127,6 +129,7 @@ impl StaticInitialization {
                 .resources()
                 .quarantine("static return lost attempt authority"));
         }
+        runtime.gc.publish_value(value)?;
         self.attempt
             .completion
             .set(Ok(()))

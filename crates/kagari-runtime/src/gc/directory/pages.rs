@@ -1,10 +1,11 @@
 //! One nonmoving allocator and disposal protocol with small-slab and large controls.
 mod backing;
 pub(super) mod retirement;
+mod sweep;
 #[cfg(test)]
 mod tests;
 
-use self::backing::Backing;
+use self::{backing::Backing, sweep::Cursor};
 use crate::{
     error::RuntimeError,
     gc::directory::{
@@ -36,10 +37,31 @@ struct Slot {
     descriptor: Option<DescriptorId>,
 }
 
-#[derive(Debug, Default, Clone, Copy)]
+/// Allocation admission reserves MAX as the absent link, avoiding two padded
+/// Option<u32> fields per list while retaining full owner-local mark epochs.
+#[derive(Debug, Clone, Copy)]
 struct Links {
-    previous: Option<u32>,
-    next: Option<u32>,
+    previous: u32,
+    next: u32,
+}
+
+impl Default for Links {
+    fn default() -> Self {
+        Self {
+            previous: u32::MAX,
+            next: u32::MAX,
+        }
+    }
+}
+
+impl Links {
+    fn previous(self) -> Option<u32> {
+        (self.previous != u32::MAX).then_some(self.previous)
+    }
+
+    fn next(self) -> Option<u32> {
+        (self.next != u32::MAX).then_some(self.next)
+    }
 }
 
 #[derive(Debug)]
@@ -105,10 +127,9 @@ impl Small {
 #[derive(Debug)]
 struct Large {
     backing: Arc<Backing>,
-    descriptor: DescriptorId,
+    descriptor: Option<DescriptorId>,
     directory: u32,
     active: Links,
-    occupied: bool,
 }
 
 #[derive(Debug)]
@@ -150,6 +171,7 @@ pub(super) struct Pages {
     free: Option<u32>,
     available: [Option<u32>; 48],
     first_active: Option<u32>,
+    sweep: Cursor,
     pub(super) descriptors: Descriptors,
     pub(super) backing_bytes: usize,
     _not_sync: PhantomData<Cell<()>>,
@@ -162,6 +184,7 @@ impl Default for Pages {
             free: None,
             available: [None; 48],
             first_active: None,
+            sweep: Cursor::default(),
             descriptors: Descriptors::default(),
             backing_bytes: 0,
             _not_sync: PhantomData,
@@ -293,11 +316,11 @@ impl Pages {
         let group = self.small(index).group;
         let next = self.available[group];
         if let Some(next) = next {
-            self.small_mut(next).available.previous = Some(index);
+            self.small_mut(next).available.previous = index;
         }
         self.small_mut(index).available = Links {
-            previous: None,
-            next,
+            previous: u32::MAX,
+            next: next.unwrap_or(u32::MAX),
         };
         self.available[group] = Some(index);
     }
@@ -305,12 +328,12 @@ impl Pages {
     fn unlink_available(&mut self, index: u32) {
         let page = self.small(index);
         let (group, links) = (page.group, page.available);
-        if let Some(previous) = links.previous {
+        if let Some(previous) = links.previous() {
             self.small_mut(previous).available.next = links.next;
         } else {
-            self.available[group] = links.next;
+            self.available[group] = links.next();
         }
-        if let Some(next) = links.next {
+        if let Some(next) = links.next() {
             self.small_mut(next).available.previous = links.previous;
         }
         self.small_mut(index).available = Links::default();
@@ -320,6 +343,7 @@ impl Pages {
         let index = self
             .free
             .map_or_else(|| u32::try_from(self.allocations.len()).ok(), Some)
+            .filter(|index| *index != u32::MAX)
             .ok_or_else(|| RuntimeError::resource_limit("physical allocation index"))?;
         if index as usize == self.allocations.len() {
             self.allocations
@@ -330,9 +354,9 @@ impl Pages {
             .backing_bytes
             .checked_add(allocation.bytes())
             .ok_or_else(|| RuntimeError::resource_limit("backing accounting"))?;
-        allocation.active_mut().next = self.first_active;
+        allocation.active_mut().next = self.first_active.unwrap_or(u32::MAX);
         if let Some(next) = self.first_active {
-            self.allocations[next as usize].active_mut().previous = Some(index);
+            self.allocations[next as usize].active_mut().previous = index;
         }
         if index as usize == self.allocations.len() {
             self.allocations.push(allocation);
@@ -356,12 +380,13 @@ impl Pages {
         let allocation = &self.allocations[index as usize];
         let links = *allocation.active().unwrap();
         let bytes = allocation.bytes();
-        if let Some(previous) = links.previous {
+        self.sweep.unlink(index, links.next());
+        if let Some(previous) = links.previous() {
             self.allocations[previous as usize].active_mut().next = links.next;
         } else {
-            self.first_active = links.next;
+            self.first_active = links.next();
         }
-        if let Some(next) = links.next {
+        if let Some(next) = links.next() {
             self.allocations[next as usize].active_mut().previous = links.previous;
         }
         let allocation = mem::replace(
@@ -427,10 +452,9 @@ impl Pages {
                 let pointer = backing.pointer;
                 let index = self.publish_allocation(Allocation::Large(Box::new(Large {
                     backing,
-                    descriptor: id,
+                    descriptor: None,
                     directory,
                     active: Links::default(),
-                    occupied: false,
                 })))?;
                 (index, 0, pointer)
             };
@@ -460,10 +484,19 @@ impl Pages {
                     descriptor: Some(id),
                 };
             }
-            Allocation::Large(large) => large.occupied = true,
+            Allocation::Large(large) => large.descriptor = Some(id),
             Allocation::Vacant(_) => unreachable!(),
         }
         Ok(location)
+    }
+
+    pub(super) fn directory(&self, location: PayloadLocation) -> Option<u32> {
+        self.get(location)?;
+        match self.allocations.get(location.page as usize)? {
+            Allocation::Small(page) => Some(page.slots[location.slot as usize].directory),
+            Allocation::Large(large) => Some(large.directory),
+            Allocation::Vacant(_) => None,
+        }
     }
 
     pub(super) fn get(&self, location: PayloadLocation) -> Option<(NonNull<u8>, &Descriptor)> {
@@ -472,8 +505,8 @@ impl Pages {
                 let slot = page.slots.get(location.slot as usize)?;
                 (page.pointer(location.slot as usize), slot.descriptor?)
             }
-            Allocation::Large(large) if large.occupied && location.slot == 0 => {
-                (large.backing.pointer, large.descriptor)
+            Allocation::Large(large) if location.slot == 0 => {
+                (large.backing.pointer, large.descriptor?)
             }
             _ => return None,
         };
@@ -483,7 +516,7 @@ impl Pages {
 
     fn occupied_slots(&self) -> impl Iterator<Item = (u32, u32, u16, DescriptorId)> + '_ {
         iter::successors(self.first_active, |&index| {
-            self.allocations[index as usize].active().unwrap().next
+            self.allocations[index as usize].active().unwrap().next()
         })
         .flat_map(move |index| {
             let allocation = &self.allocations[index as usize];
@@ -497,18 +530,12 @@ impl Pages {
                     Allocation::Small(page) => {
                         (page.slots[slot].directory, page.slots[slot].descriptor?)
                     }
-                    Allocation::Large(large) if large.occupied => {
-                        (large.directory, large.descriptor)
-                    }
+                    Allocation::Large(large) => (large.directory, large.descriptor?),
                     _ => return None,
                 };
                 Some((directory, index, slot as u16, id))
             })
         })
-    }
-
-    pub(super) fn occupied_directories(&self) -> impl Iterator<Item = u32> + '_ {
-        self.occupied_slots().map(|(directory, _, _, _)| directory)
     }
 
     pub(super) fn occupied(&self) -> impl Iterator<Item = (u32, PayloadLocation)> + '_ {
@@ -539,10 +566,7 @@ impl Pages {
                 page.bits[words + slot / 64] |= 1 << (slot % 64);
                 (page.backing.clone(), id, slot * page.stride)
             }
-            Allocation::Large(large) => {
-                large.occupied = false;
-                (large.backing.clone(), large.descriptor, 0)
-            }
+            Allocation::Large(large) => (large.backing.clone(), large.descriptor.take()?, 0),
             Allocation::Vacant(_) => unreachable!(),
         };
         Some(Retired::Payload {
@@ -593,7 +617,7 @@ impl Pages {
                 }
             }
             Allocation::Large(large) => {
-                assert!(!large.occupied);
+                assert!(large.descriptor.is_none());
                 self.release_allocation(location.page);
             }
             Allocation::Vacant(_) => unreachable!("retiring allocation"),
@@ -604,7 +628,7 @@ impl Pages {
     pub(super) fn corrupt_structure(&mut self, location: PayloadLocation) {
         let id = match &self.allocations[location.page as usize] {
             Allocation::Small(page) => page.slots[location.slot as usize].descriptor.unwrap(),
-            Allocation::Large(large) => large.descriptor,
+            Allocation::Large(large) => large.descriptor.unwrap(),
             _ => unreachable!(),
         };
         self.descriptors.corrupt_structure(id);

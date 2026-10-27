@@ -76,13 +76,13 @@ impl Runtime {
         let entry = entry.into();
         context.validate_for_execute(entry.label())?;
         let module = self.runtime().select_program(program)?;
-        let _session = self
+        let session = self
             .vm
             .runtime()
             .begin_execution(&module, context.runtime_options())
             .map_err(|error| EmbeddingError::vm(VmError::RuntimeError(error)))?;
         self.vm
-            .execute_typed(&module, entry, arguments)
+            .execute_typed_in_execution(&module, entry, arguments, &session.retention())
             .map_err(EmbeddingError::vm)
     }
 }

@@ -39,12 +39,15 @@ impl GcHeap {
         visit: &mut dyn FnMut(&'a Value),
     ) -> NativeResult<()> {
         self.ensure_execution_allowed()?;
-        let mut workspace = self.native_scan_workspace.try_borrow_mut().map_err(|_| {
-            RuntimeError::module_validation("conflicting native scan workspace borrow")
-        })?;
+        self.native_scan_workspace
+            .try_borrow_mut()
+            .map_err(|_| {
+                RuntimeError::module_validation("conflicting native scan workspace borrow")
+            })?
+            .reserve(storage.scan_layout())?;
         self.native_borrows.set(self.native_borrows.get() + 1);
         let _borrow = NativeBorrow(&self.native_borrows);
-        storage.scan_payload(payload, &mut workspace, visit)
+        storage.scan_payload(payload, visit)
     }
 
     pub(crate) fn with_native_data_mut<S: Send + 'static, R>(

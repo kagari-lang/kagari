@@ -150,16 +150,29 @@ impl ConstructionScope {
         }
     }
 
-    pub(crate) fn trace<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
-        pending.extend(self.programs.iter().map(MetadataEdge::Program));
-        for binding in self.selections.iter() {
-            pending.push(MetadataEdge::Program(&binding.owner));
-            if let Some(selection) = &binding.selection {
-                pending.push(MetadataEdge::Program(&selection.owner));
-                if let Some(environment) = &selection.environment {
-                    pending.push(MetadataEdge::Environment(environment.id));
-                }
-            }
+    pub(crate) fn scan_len(&self) -> usize {
+        self.programs.len() + self.selections.len() * 3
+    }
+
+    pub(crate) fn scan_field(&self, index: usize) -> Option<MetadataEdge<'_>> {
+        if let Some(program) = self.programs.get(index) {
+            return Some(MetadataEdge::Program(program));
+        }
+        let index = index.checked_sub(self.programs.len())?;
+        let binding = self.selections.get(index / 3)?;
+        match index % 3 {
+            0 => Some(MetadataEdge::Program(&binding.owner)),
+            1 => binding
+                .selection
+                .as_ref()
+                .map(|selection| MetadataEdge::Program(&selection.owner)),
+            2 => binding
+                .selection
+                .as_ref()?
+                .environment
+                .as_ref()
+                .map(|environment| MetadataEdge::Environment(environment.id)),
+            _ => unreachable!(),
         }
     }
 }

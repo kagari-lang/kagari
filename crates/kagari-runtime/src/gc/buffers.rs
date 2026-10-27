@@ -100,6 +100,7 @@ impl GcHeap {
             prepared.append_repeated(value, (length - start).min(1024))?;
         }
         self.ensure_execution_allowed()?;
+        self.publish_value(value)?;
         self.with_buffer_mut(id, 0, |values| *values = prepared)
     }
 
@@ -127,6 +128,7 @@ impl GcHeap {
             .with_buffer(source, |values| values.copy_range(0, length))
             .ok_or_else(invalid)??;
         self.ensure_execution_allowed()?;
+        self.publish_buffer(&prepared)?;
         self.with_buffer_mut(target, 0, |values| *values = prepared)
     }
 
@@ -165,6 +167,7 @@ impl GcHeap {
             .with_buffer(target, |values| values.copy_range(start, end))
             .ok_or_else(bounds)??;
         self.ensure_execution_allowed()?;
+        self.publish_buffer(&prepared)?;
         self.with_buffer_mut(target, 0, |values| values.overwrite(destination, prepared))?
     }
 
@@ -177,6 +180,7 @@ impl GcHeap {
         let index = index.try_into().ok();
         self.ensure_execution_allowed()?;
         self.validate_buffer_value(id, &value)?;
+        self.publish_value(value)?;
         self.with_buffer_mut(id, 0, |values| {
             let index = index.ok_or_else(|| {
                 RuntimeError::new(
@@ -186,6 +190,13 @@ impl GcHeap {
             })?;
             values.set(index, value)
         })?
+    }
+
+    fn publish_buffer(&self, values: &ArrayStorage) -> Result<(), RuntimeError> {
+        for index in 0..values.len() {
+            self.publish_value(values.get(index).ok_or_else(invalid)?)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn with_buffer<R>(

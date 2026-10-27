@@ -152,9 +152,9 @@ impl Runtime {
                 "invalid operation preparation scope",
             ));
         }
-        if let Some(prepared) = self
-            .modules
-            .operation_bindings(owner, environment_id, witnesses)
+        if let Some(prepared) =
+            self.modules
+                .operation_bindings(&self.gc, owner, environment_id, witnesses)
         {
             return Ok(prepared);
         }
@@ -293,18 +293,21 @@ impl Runtime {
                             .identity()
                             .ok_or_else(invalid)?,
                     );
-                    self.gc.alloc_bound_operation(BoundOperation {
-                        receiver_identity,
-                        application: None,
-                        associated_interface,
-                        generic: None,
-                        slot,
-                        primitive: callable_primitive(selected, owner.definitions()),
-                        requirement: selected.requirement.clone(),
-                        owner,
-                        target,
-                        signature: selected.signature.clone(),
-                    })?
+                    self.gc.alloc_bound_operation(
+                        self.modules(),
+                        BoundOperation {
+                            receiver_identity,
+                            application: None,
+                            associated_interface,
+                            generic: None,
+                            slot,
+                            primitive: callable_primitive(selected, owner.definitions()),
+                            requirement: selected.requirement.clone(),
+                            owner,
+                            target,
+                            signature: selected.signature.clone(),
+                        },
+                    )?
                 }
             };
             operations.push(&self.gc, operation)?;

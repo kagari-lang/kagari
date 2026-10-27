@@ -202,6 +202,8 @@ impl Runtime {
         let host = HostRegistry::new(native_entries.catalog.types.context().clone(), host_types);
         let resources = ResourceState::new(config.limits);
         let types = native_entries.metadata.runtime_registry();
+        let gc = GcHeap::new(config.gc, resources);
+        let modules = ModuleStore::with_graph(gc.graph.clone());
         Self {
             scheduler: Scheduler::new(config.async_limits),
             groups: RefCell::default(),
@@ -209,13 +211,13 @@ impl Runtime {
             tasks: RefCell::new(TaskStore::new(config.async_limits)),
             operations: OnceLock::new(),
             async_limits: config.async_limits,
-            gc: GcHeap::new(config.gc, resources),
+            gc,
             types,
             host,
             native_entries,
             host_borrows: HostBorrowTable::default(),
 
-            modules: ModuleStore::default(),
+            modules,
             interpreter_caches: InterpreterCacheRegistry::default(),
             object_bindings: RefCell::default(),
             function_bindings: RefCell::default(),
@@ -660,7 +662,7 @@ impl Runtime {
         self.resources().ensure_not_publishing()?;
         self.gc.ensure_no_native_borrow()?;
         self.resources().ensure_execution_allowed()?;
-        self.gc.collect(&self.modules, &self.host.gc_roots())
+        self.gc.collect(&self.modules, &self.host)
     }
 
     pub fn gc_safepoint(&self) -> Result<(), RuntimeError> {

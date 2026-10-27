@@ -531,8 +531,10 @@ callbacks but grants no mutation authority.
 lexical signature compatibility and the actual current argument. Its frame root
 protects the value throughout the short loan. This is not raw-Value admission or a
 collection-specific bypass. Existing-edge republication retains its unsafe
-continuous-tracing obligation; synchronous checks do not yet supply incremental
-barriers.
+continuous-tracing obligation. Publication and republication now shade through the
+phase/epoch marker using admission-reserved work capacity; existing-edge recovery
+requires no fresh execution admission. Production still drains collection synchronously,
+so these barriers do not by themselves establish interleaved-GC acceptance.
 
 `StorageAccess::retain(contract, value)` validates the closed storage type and
 runtime/generation/lifetime, then returns a rooted `ScriptValue` before the loan
