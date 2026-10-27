@@ -780,6 +780,14 @@ runtime validity/dispatch decision belongs to the existing plan; it is not an
 automatically activated phase. Full CI remains pending and prior BO04/BO08/IP12
 failures remain independent.
 
+The user authorized [BO17-BO19 scalar dispatch work](bytecode-optimization-plan.md#scalar-dispatch-follow-up-bo17-bo19).
+BO17-BO18 establish shared scalar-bank bounds with safe slice access and preserve
+inline known-domain comparison handlers. Numeric, frame, observation and slice
+checks pass. A common-tail rearrangement was rejected after register-pressure
+costs; two failed timing images remain recorded. The final image's assembly keeps
+checked comparisons inline and reduces scalar code size. BO19 paired acceptance
+is pending; runtime validation, polling and canonical instruction counts remain.
+
 ## Module-owned standard-library registration
 
 Module-owned standard-library registration is implemented across core/alloc/std.

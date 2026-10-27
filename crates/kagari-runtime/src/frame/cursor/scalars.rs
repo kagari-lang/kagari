@@ -132,6 +132,12 @@ macro_rules! scalar_loop {
                 let mut next = *self.ip;
                 let mut executing = *self.executing;
                 let automatic_collection = self.runtime.gc().automatic_collection_enabled();
+                // Window admission takes both banks from the same range. Make
+                // their shared bound visible across this non-inlined boundary.
+                // All indexed accesses and initialization checks remain checked.
+                if self.values.payloads.len() != self.values.initialized.len() {
+                    return Err(ScalarFailure::Invariant("inconsistent scalar bank lengths"));
+                }
                 let result = 'segment: loop {
                     macro_rules! attempt {
                         ($result:expr) => {

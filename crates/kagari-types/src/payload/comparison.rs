@@ -1,4 +1,6 @@
 //! Comparison conditions independent of scalar representation and operand shape.
+//! Known-domain entrypoints expand into prepared handlers, keeping their checked
+//! result out of a separate call ABI. Dynamic domain routing stays out of line.
 use crate::payload::decode_integer;
 
 /// Ordered conditions preserve unordered floating behavior without inversion.
@@ -13,7 +15,7 @@ pub enum Comparison {
 }
 
 impl Comparison {
-    #[inline]
+    #[inline(always)]
     fn test<T: PartialOrd>(self, lhs: T, rhs: T) -> u64 {
         u64::from(match self {
             Self::Eq => lhs == rhs,
@@ -55,7 +57,7 @@ impl ComparisonDomain {
 }
 
 /// Compare complete I32 carriers with the selected condition.
-#[inline]
+#[inline(always)]
 pub fn i32_compare(lhs: u64, rhs: u64, condition: Comparison) -> Result<u64, &'static str> {
     let lhs = decode_integer::<32, true>(lhs)?;
     let rhs = decode_integer::<32, true>(rhs)?;
@@ -63,7 +65,7 @@ pub fn i32_compare(lhs: u64, rhs: u64, condition: Comparison) -> Result<u64, &'s
 }
 
 /// Compare complete I64 carriers with the selected condition.
-#[inline]
+#[inline(always)]
 pub fn i64_compare(lhs: u64, rhs: u64, condition: Comparison) -> Result<u64, &'static str> {
     let lhs = decode_integer::<64, true>(lhs)?;
     let rhs = decode_integer::<64, true>(rhs)?;
@@ -71,7 +73,7 @@ pub fn i64_compare(lhs: u64, rhs: u64, condition: Comparison) -> Result<u64, &'s
 }
 
 /// Compare complete U64 carriers with the selected condition.
-#[inline]
+#[inline(always)]
 pub fn u64_compare(lhs: u64, rhs: u64, condition: Comparison) -> Result<u64, &'static str> {
     let lhs = decode_integer::<64, false>(lhs)?;
     let rhs = decode_integer::<64, false>(rhs)?;
@@ -79,7 +81,7 @@ pub fn u64_compare(lhs: u64, rhs: u64, condition: Comparison) -> Result<u64, &'s
 }
 
 /// Compare complete F32 carriers with the selected condition.
-#[inline]
+#[inline(always)]
 pub fn f32_compare(lhs: u64, rhs: u64, condition: Comparison) -> Result<u64, &'static str> {
     let lhs = f32::from_bits(lhs as u32);
     let rhs = f32::from_bits(rhs as u32);
@@ -87,7 +89,7 @@ pub fn f32_compare(lhs: u64, rhs: u64, condition: Comparison) -> Result<u64, &'s
 }
 
 /// Compare complete F64 carriers with the selected condition.
-#[inline]
+#[inline(always)]
 pub fn f64_compare(lhs: u64, rhs: u64, condition: Comparison) -> Result<u64, &'static str> {
     let lhs = f64::from_bits(lhs);
     let rhs = f64::from_bits(rhs);
@@ -95,7 +97,7 @@ pub fn f64_compare(lhs: u64, rhs: u64, condition: Comparison) -> Result<u64, &'s
 }
 
 /// Compare complete Char carriers with the selected condition.
-#[inline]
+#[inline(always)]
 pub fn char_compare(lhs: u64, rhs: u64, condition: Comparison) -> Result<u64, &'static str> {
     for value in [lhs, rhs] {
         if u32::try_from(value).ok().and_then(char::from_u32).is_none() {
@@ -106,7 +108,7 @@ pub fn char_compare(lhs: u64, rhs: u64, condition: Comparison) -> Result<u64, &'
 }
 
 /// Compare complete Scalar carriers with the selected condition.
-#[inline]
+#[inline(always)]
 pub fn scalar_compare(lhs: u64, rhs: u64, condition: Comparison) -> Result<u64, &'static str> {
     Ok(condition.test(lhs, rhs))
 }

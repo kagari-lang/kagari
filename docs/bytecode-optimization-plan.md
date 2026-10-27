@@ -42,6 +42,63 @@ the only bytecode-optimization ledger. The user's subsequent instruction activat
 BO01-BO04 and authorizes one coherent commit per completed phase, with the phase
 trailer below. No additional phase activates automatically after BO04.
 
+## Scalar dispatch follow-up (BO17-BO19)
+
+Status: authorized on 2026-10-27 after BO16 attribution; implementation active.
+Task: reduce repeated scalar interpreter boundary/bank work without weakening
+checked values, initialization, public side entry or logical polling semantics.
+Context: `frame/cursor/scalars.rs` owns the closed borrowed execution loop;
+`frame/values/operands.rs` admits same-range payload/initialization slices. Their
+length equality is currently lost at the scalar function boundary. The loop also
+rechecks its first-instruction mode on ordinary arithmetic and branch backedges.
+BO16's same-image assembly/sample evidence motivates this finite scope.
+
+The selected final model retains the existing instruction loop, adds only the
+equal-length segment precondition and preserves inline known-domain comparisons.
+The common-tail variant below was rejected after measured register pressure;
+no first-instruction/continue policy change remains in production.
+
+Start with safe checked Rust: expose equal bank lengths once at segment entry so
+LLVM can share the existing bounds checks, and move first-entry boundary selection
+outside a common instruction loop/backedge. Keep `.get`/`.get_mut`, initialization
+and full payload-domain validation. No mutable value-validity cache, new opcode,
+unsafe indexing, division specialization or frame-layout migration is required.
+The segment cannot resize its borrowed banks or admit callbacks. All exits release
+borrows; ordinary calls, managed handoffs, reentry, observation and resume keep their
+owners. Slice exhaustion precedes clearing the executing PC; polling follows that
+clear and still happens before every subsequent instruction. Failed arithmetic
+must publish its original PC and never commit a destination.
+
+Mechanism review: [Rust 1.99.1 Zip](https://doc.rust-lang.org/src/core/iter/adapters/zip.rs.html)
+uses a shared bounded index for two collections after establishing a joint length.
+Kagari uses random physical slots and retains checked slice access; it does not copy
+Zip's trusted/unchecked iterator contract. [Lua 5.4.9 vmfetch](https://www.lua.org/source/5.4/lvm.c.html)
+keeps PC/base local and processes hooks at fetch boundaries, with separate call/GC
+handoffs. Its integer overflow and cancellation rules differ, so only locality and
+explicit boundary ownership apply. No computed-goto or unchecked arithmetic is
+introduced. If safe length propagation does not survive code generation, diagnose
+that boundary before introducing a different storage/proof model.
+
+- [x] BO17: Freeze original/forms at `817147a7`, record source/assembly diagnosis
+  and the selected boundary contract before production edits.
+- [x] BO18: Implement the finite common boundary/shape change; inspect optimized
+  assembly and run affected frame, numeric, observation, cancellation and slice
+  contracts. Retain one execution event per canonical instruction and shared
+  checked arithmetic semantics. Run required structure/fmt/workspace Clippy/diff.
+- [ ] BO19: Seven alternating pairs of unchanged original/forms, three warmups and
+  eleven samples per process. Arithmetic target <=0.95, every other row <=1.05;
+  these are criteria, not predicted gains. No overlap with builds/tests/profiling.
+  Retain failures; a miss requires diagnosis before any further local adjustment.
+  Record setup, image/storage size and independent instruction/GC counts. Update
+  lasting architecture and performance owners, then commit coherent checkpoints.
+
+Local selection uses runtime `frame::execution_frames::slots`, scalar window
+initialization/admission tests, cursor publication tests, and VM numeric,
+breakpoint, owned-drive and observer/cancellation contracts. Add coverage only for
+an uncovered distinct boundary. Full workspace/backend/feature/platform tests
+remain CI-only. Earlier failed gates are independent. No lifecycle repair or
+additional optimization phase is automatically activated by this scope.
+
 ## Authorized general follow-up, 2026-10-27
 
 The user authorized implementation of the reviewed general direct target and a
@@ -2540,3 +2597,96 @@ checkpoint changes documentation only and checks content/links/diff. Full worksp
 backend, feature and platform correctness remains CI-only and unrun. The plan stays
 open for its earlier unresolved gates and this explicit CI limit; no parallel queue
 or new implementation phase is introduced.
+
+### BO17-BO18 dispatch experiment, 2026-10-27
+
+Frozen original/forms at `817147a7`, starting 14:30:31 / 14:31:19 UTC, with the
+unchanged BO16 executable d7c2457b345ba1ead750d3d51b72da2618032efaca5a982a552facefdb180697.
+Both checksum sets pass; cached build walls are 0.430 / 0.354 seconds. Environment
+and workload contracts match BO16. The arithmetic freeze is 504.0 us against Lua
+363.8 us; acceptance uses paired runs, not these single-process values.
+
+The first candidate uses a common post-instruction boundary (including branches)
+and an explicit equality check for the admitted payload/initialization bank lengths.
+No unsafe operation, cache, layout or instruction model is added. Seven runtime
+frame/window/cursor tests and sixteen selected VM numeric/owned-drive/debugger/
+observer-cancellation/reentry tests pass. Structure (1,737 files, no violations or
+exceptions), fmt, workspace all-target Clippy and diff checks pass. Existing
+contract coverage is reused without duplicate smoke tests.
+
+Independent same-image observation at 14:34:44 UTC confirms unchanged 200,007
+Kagari / 250,007 Lua instructions, four logical/physical scalar slots, no script
+heap allocation or GC. COFF/PE matching verifies 25,350 of the unbounded function's
+25,746 bytes (RVA 0x010e8280), attributing 3,982 of 4,221 samples. The bounded
+function shrinks 28,025 -> 24,545 bytes. Assembly proves shared bounds: remainder
+at +0x426f performs one bank bound plus initialization/domain/divisor checks;
+writeback at +0x6244 has one bound before both stores. However, the new common
+tail also spills/restores several live registers per handler. Timing must decide
+whether removing checks outweighs this register-allocation cost. The profile's
+call count is not throughput acceptance. Seven original process pairs begin
+14:35:33 UTC; keep failed evidence and diagnose before any adjustment.
+
+The first original gate run fails arithmetic: 0.95635 (0.94583..1.01843) versus
+the predeclared 0.95 target. Other ratios: branches 1.04945, arrays 1.01105,
+calls 1.00947, entry 1.01265, fibonacci 1.00635, maps 1.02073; their 1.05 gates
+pass, but branches consistently slows (1.02145..1.08587). Candidate image is
+17d7172d091c72c3b9a966e906306388f6a761913eb6ed5b3671f2de77520550. All seven pairs
+are retained; this image is not measured again or accepted by changing thresholds.
+
+Renewed diagnosis: the source-level common tail changes the large match's live
+register ranges. The i32 remainder now spills four registers at +0x425b..0x426f,
+and writeback reloads three at +0x625a..0x6269; the old handler has no corresponding
+stack-save prefix. Removing a first-mode test is not a sufficient model of the
+generated dispatch cost. Reject the common-tail rearrangement and keep the existing
+loop/boundary ownership. The bounded repair retains only the equal-bank-length
+entry check, which independently removes duplicate bounds without that CFG change.
+No new runtime model or unchecked contract is introduced. Revalidate the affected
+contracts and inspect code generation before the final original/forms comparison.
+
+The equal-length-only image 177a538fcf67e92a5d5866d54496456b84f99d6687aced4906eef2ee896a49bd
+also misses acceptance in the seven pairs starting 14:41:51 UTC: arithmetic 0.97106
+(0.95906..1.50138), arrays 1.05377 (0.99492..1.59363); other rows pass. The outliers
+are retained. Seven runtime and sixteen VM contracts plus all local quality checks
+pass for this image. Its 31.11-second release build and separate 14:40:37 profile
+confirm unchanged counts/slots/zero script allocation and GC. Scalar code shrinks
+to 18,510 bytes unbounded / 20,126 bounded, but size alone is not timing acceptance.
+
+Assembly diagnoses another composition issue with the existing BO09-BO12 design:
+LLVM now outlines the statically selected i32 comparison. At scalar offset +0x3148
+it calls `kagari_types::payload::comparison::i32_compare` (COFF relocation +0x3149),
+passing a stack-returned Result and restoring loop registers afterward. The original
+BO16 handler inlined those same checked semantics. Equal lengths still eliminate
+duplicate bounds, but the altered inlining heuristic adds work at every condition;
+arrays also traverses these conditions. This explains a concrete added cost, not a
+claim that it alone accounts for the noisy collection regression.
+
+The bounded repair makes the seven known-domain comparison entrypoints and their
+shared condition test `inline(always)`, retaining `ComparisonDomain::evaluate` as
+the out-of-line dynamic dispatcher. This restores the intended typed-handler
+boundary without duplicating numeric semantics or removing any validation. No other
+payload operation, generic loop policy or collection mechanism is changed. The
+[Rust codegen reference](https://doc.rust-lang.org/reference/attributes/codegen.html#the-inline-attribute)
+describes these attributes as hints; require fresh assembly evidence rather than
+assuming an annotation guarantees inlining or speed. This is an implementation
+repair within BO18, not a new opcode or execution-validity model.
+
+The comparison annotation repair passes all five tests selected by the types
+`payload` filter (three payload owners and two matching domain cases), and three
+VM numeric filters covering every integer width/concrete generics, NaN/control
+predicates and mixed constant sides. The previous seven runtime and sixteen VM
+passes remain evidence for the unchanged bank/loop code. All four local quality
+checks pass again. No public API, unsafe code, dependency, opcode, layout or
+semantic implementation changes; no LOC or reexport exception is required.
+
+Final BO18 assembly/observation checkpoint: a 53.05-second release rebuild produces
+image 735352aeda2e1b85259a0590cc80a20ab0b086d78a51e13a2fb20308310fa834. The separate
+14:47:46 UTC profile confirms the same 200,007 instructions/four slots and zero
+script allocations/collections. Same-image COFF matching locates 4,169 of 4,224
+samples in the unbounded loop at RVA 0x010a7830, matching 19,809 of 20,101 bytes.
+Its static known-domain comparison call relocations are now absent; the checked
+predicate body is inline again. Both input access and result writeback retain one
+shared bound plus initialization/domain checks, without the rejected common-tail
+register-save prefix. Unbounded/bounded scalar code is 20,101 / 21,150 bytes versus
+baseline 25,615 / 28,025. PE SizeOfCode falls 26,204,672 -> 26,194,944 bytes; physical
+bank and bytecode/prepared instruction layouts are unchanged. BO19 still requires
+fresh paired timing against dispatch-before; sampling throughput is not acceptance.

@@ -1944,6 +1944,13 @@ the operation that needs them. No persistent frame field, code clone or extra mo
 lease is needed: all views end with the original frame/window borrow.
 Internal operand access reuses these borrows without repeated session or window lookup;
 the region releases them before returning to GC, observation, calls or reentry.
+Scalar execution explicitly checks equal payload/initialization bank lengths at its
+non-inlined segment entry. Admission already projects the same range for both;
+the check exposes that invariant to code generation so indexed access can share
+one bound. Safe slice indexing, initialization and payload-domain checks remain.
+Known-domain comparison entrypoints request inlining into the prepared handler;
+dynamic domain dispatch remains out of line. Both use the same checked comparison
+owner, and machine-code inspection is required to verify the intended call boundary.
 Checked external frame access and region entry still enforce sticky termination and
 quarantine. Internal writes retain heap-value validation, bounds and slot representation
 checks through the same bank access implementation as external frame access.
