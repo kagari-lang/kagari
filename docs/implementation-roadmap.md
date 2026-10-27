@@ -766,6 +766,17 @@ records pair ranges, code/storage tradeoffs and remaining polling/bank/dispatch
 costs. Full CI is pending; earlier BO04/BO08/IP12 failures remain unchanged. Public
 frame initialization checks and logical polling frequency stay in the contract.
 
+The user-requested [BO13-BO16 scalar-loop execution plan](bytecode-optimization-plan.md#general-scalar-loop-follow-up-bo13-bo16)
+is written and implementation is unstarted. It freezes fresh evidence, repairs
+copy/rotation composition, finishes only necessary scalar placement changes, then
+validates generality and measures unchanged workloads. Arithmetic targets four
+scalar slots and four instructions per iteration (200,007 per 50,000-iteration
+entry), with preserved traps, debug states and source-free correspondence. Pass
+scheduling is evaluated before adding cross-block proof machinery. New opcodes,
+runtime check removal and collection/call-boundary tuning remain outside this
+scope; prior BO04/BO08/IP12 failures remain independent. No new timing result or
+full CI acceptance is claimed by this planning checkpoint.
+
 ## Module-owned standard-library registration
 
 Module-owned standard-library registration is implemented across core/alloc/std.

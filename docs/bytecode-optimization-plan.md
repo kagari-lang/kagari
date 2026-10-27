@@ -14,8 +14,11 @@ see [the execution plan](#prepared-scalar-execution-follow-up-bo09-bo12). Runtim
 implementation resumed after the user approved the checked-semantics revision;
 BO09-BO12 implementation and selected local evidence are complete; full CI remains
 unrun. Earlier BO04/BO08/IP12 failures are unchanged.
+BO13-BO16 are the planned general scalar-loop follow-up requested on 2026-10-27;
+see [the execution sequence](#general-scalar-loop-follow-up-bo13-bo16). This
+checkpoint prepares the plan; implementation and new measurements have not started.
 The user explicitly requested a separate plan that can proceed before the previous
-interpreter performance work finishes. This document owns BO01-BO04: general typed
+interpreter performance work finishes. The original BO01-BO04 scope covers general typed
 slots, direct destinations, predicate branches and constant operands. It replaces
 the proposed instruction-model extension in the older plan, not its retained work.
 
@@ -70,6 +73,208 @@ workspace and backend/feature/platform test matrices remain CI-only. Required
 structure/fmt/workspace all-target Clippy/diff checks run at implementation
 checkpoints. Record actual commands/failures below; no repeated full-suite local
 runs or benchmark timing overlapping builds/tests/profiling.
+
+## General scalar-loop follow-up (BO13-BO16)
+
+**Status: planned, implementation unstarted.** The user requested an execution
+plan after reviewing the arithmetic instruction target and its generality. This
+section owns the finite work breakdown and progress; earlier failed timing gates
+remain independent. It supersedes the inspection-only disposition for planning,
+without treating this documentation checkpoint as an implementation result.
+
+### Task, target and scope
+
+Task: make ordinary scalar loops compose correctly with snapshot propagation,
+guarded rotation and bytecode placement, using existing checked instructions.
+Context: MIR owns values/CFG transformations; compiler placement owns physical
+bytecode destinations and origin mapping; runtime preparation consumes final
+verified code. The [instruction contract](#arithmetic-target-instruction-contract-2026-10-27)
+defines the unchanged arithmetic target: eight static run instructions, four
+logical/physical scalar slots, four instructions per iteration and 200,007 total
+instructions for the successful 50,000-iteration entry. Preserve the main/run
+boundary; equivalent slot numbering and layout are acceptable.
+
+Expected behavior: unchanged values, once-only evaluation, checked traps and
+successful commits, zero-trip loops, debug states, source-free validation,
+cancellation and slicing. Improve general CFG/dataflow handling, without matching
+function names, constants, iteration counts or a recurrence formula. Original
+`branches`, `calls` and all three `arrays` loops also contain loop-head copies and
+separate backedges in fresh disassembly; these are candidate beneficiaries, not
+measured speedups or permission to remove call/managed snapshots indiscriminately.
+
+Scope includes deterministic pass scheduling, necessary bounded scalar-home
+proofs, existing guarded rotation, metadata reconstruction and directly affected
+tests. Exclude new opcodes/superinstructions, inlining, tail calls, algebraic loop
+replacement, per-constant code generation, GC/collection/call-admission changes,
+new scalar banks, removed runtime checks/polls, JIT expansion and async rotation.
+Retain artifact/ABI identifiers and independent verification. Development artifacts
+may need regeneration at the final coherent checkpoint; no compatibility bridge.
+
+### Architecture and implementation decisions
+
+The current pipeline runs constants, copies, rotation, verification and dead
+cleanup. Copies can share the header's local read with the body, while rotation
+requires closed conditions and placement only removes same-block local reads.
+Inspect intermediate MIR before changing those rules: final bytecode establishes
+the missed opportunity but does not select the safest repair by itself.
+
+Prefer correcting composition first: evaluate bounded rotation before cross-block
+snapshot sharing, followed by the existing copy/dead cleanup and fresh verification.
+This may retain the existing closed-condition algorithm with fresh temporaries,
+instead of introducing escaping-value repair. Confirm how constants and cleanup
+affect eligibility and that the later passes do not recreate the original overhead.
+Do not turn the optimizer into an unbounded repeat-until-stable loop. If scheduling
+is insufficient, record the exact remaining CFG and choose a bounded remedy here
+before implementation; a global SSA conversion or mutable temporary aliasing model
+is outside this task.
+
+If concrete cases still require cross-block home forwarding, extend the compiler's
+placement owner rather than adding another execution/verification analysis:
+
+- A replacement must have the same complete semantic type, a reaching definition
+  on every path, initialized storage, and compatible debug/binding state.
+- For every substituted use, prove that the home has not changed since the read.
+  Meet facts across all reachable predecessors; unknown edges and backedges cannot
+  inherit an optimistic fact. Writes kill the relevant fact. Calls, capture cells,
+  managed access, suspension and uncertain observation boundaries remain barriers
+  unless existing checked evidence already proves the exact interval safe.
+- Keep MIR temporaries as value snapshots. Do not globally equate a mutable local
+  with an immutable value, replace a saved pre-write value with a later read, or
+  extend scalar equivalence to shared heap contents. Read inputs before committing
+  a destination that shares storage with an input.
+- Scope scratch facts to one function/transformation and invalidate them when its
+  CFG or writes change. Reuse existing checked CFG/point facts where available;
+  account for visits, edges, storage and cancellation before expensive work. Retain
+  the owners' existing budget failure/decline behavior without raising limits or
+  admitting partial unchecked transformations.
+
+Keep scalar-home proofs in placement and condition cloning/control-flow policy in
+MIR rotation. Runtime remains one-to-one with final verified instructions, including
+manual entry, debug observation and slice boundaries. Rebuild origins, selected
+operation origins, spans/scopes, binding ranges, roots and jump targets through
+their existing owners. The same deterministic lowering must reproduce full
+canonical bytecode from portable MIR; runtime/verifier must not recreate the
+optimization independently. Retain sound BO05-BO07 mechanisms; merge overlapping
+logic and remove superseded paths in the same checkpoint.
+
+References and applicability:
+
+| Source/version | Mechanism to reuse | Kagari constraint |
+| --- | --- | --- |
+| [Rust 1.90.0 CopyProp](https://github.com/rust-lang/rust/blob/1.90.0/compiler/rustc_mir_transform/src/copy_prop.rs) | Replacement follows proved copy-equivalence facts; facts are computed for one MIR body. | Rust's single-assignment/borrow/move assumptions do not establish equality for Kagari mutable homes or shared objects. Prove the exact no-write interval. |
+| [LLVM rotated loops](https://llvm.org/docs/LoopTerminology.html#rotated-loops), rolling documentation reviewed 2026-10-27 | Retain an entry guard and move the repeated test to the latch with valid dataflow. | LLVM PHIs and undefined-overflow assumptions cannot replace Kagari snapshots, checked arithmetic, condition effects or debug states. |
+| [PUC Lua 5.4.9 VM](https://www.lua.org/source/5.4/lvm.c.html) | Direct destinations and immediate operands; count executed fast-path instructions separately from encoded fallback words. | Lua integer wrapping and hook/GC rules are not Kagari semantics; Lua timings remain comparison evidence, not proof of equivalent runtime contracts. |
+
+### Phase order and checkpoints
+
+- [ ] **BO13 — Freeze evidence and settle pass composition.** Preserve a fresh
+  ordinary release baseline before production edits, recording revision, executable
+  hash, toolchain/machine/features, cache/build settings and original/forms reports.
+  Capture arithmetic MIR before/after copies and rotation, canonical disassembly,
+  prepared slot counts and independent instruction counts. Inspect branches/calls/
+  arrays plus the existing non-benchmark recurrence and snapshot fixtures. Record
+  why scheduling is sufficient or the minimal additional proof needed. Acceptance:
+  reproducible baseline, fixed eligibility/ownership decisions and frozen test and
+  timing selection. Do not claim the earlier dev-profile counts as release timings.
+- [ ] **BO14 — Repair copy/rotation composition.** Implement the BO13 decision at
+  `crates/kagari-mir/src/passes.rs`, `passes/copies.rs` and `passes/rotation.rs`, only
+  where needed. Retain entry guards, dominated latch requirements, fresh identities,
+  16-instruction condition / 256-instruction duplication limits and shared work
+  budget. Preserve effectful-condition and suspension declines. Reverify edited
+  MIR and exercise positive/negative snapshot, nested-loop and break/continue
+  contracts. Acceptance: general eligible loops rotate safely, checked facts and
+  origins remain coherent, and previously optimized recurrences stay optimized.
+- [ ] **BO15 — Finish placement and prove generality.** Inspect BO14 output before
+  modifying `crates/kagari-compiler/src/bytecode/placement.rs` and its ordinary child
+  modules. Implement only the remaining proved scalar transport/destination changes;
+  retain the existing compaction and metadata owners. If BO14 already meets every
+  target, this phase validates/consolidates coverage without inventing a new analysis.
+  Acceptance: arithmetic meets the four-slot/four-operation target; a non-benchmark
+  recurrence and at least two distinct CFG contexts (branch body, loop containing a
+  call, collection-loop control, or a non-loop join) demonstrate general rules.
+  Unsafe snapshots remain intact, and direct plus portable-MIR/source-free paths
+  agree. Record declines with their actual safety reason rather than promising every
+  collection/call case improves. No forced runtime allocator change to meet counts.
+- [ ] **BO16 — Measure, diagnose and hand off.** Complete focused local validation
+  and required quality checks, then measure unchanged original/forms workloads once
+  using the frozen image and predeclared protocol below. Record instruction/slot
+  changes alongside timing, including regressions and retained declines. If gates
+  fail, diagnose the changed architecture before proposing another adjustment;
+  do not add runtime/lifecycle optimizations or retry until green. Update lasting
+  ownership in architecture/bytecode docs and results in the performance report.
+  Record remaining issues in this ledger/roadmap and distinguish local completion
+  from pending exhaustive CI. Earlier BO04/BO08/IP12 failures are not closed here.
+
+Each implementation checkpoint must build in its affected scope and pass its
+selected checks; no intentional broken-build migration is needed. Record real
+failures, reproduction and the owning phase immediately. Use coherent Conventional
+Commits with `Plan-Phase: BO13` through `BO16`; a phase may be a documented no-code
+acceptance checkpoint when no extra implementation is justified.
+
+### Focused correctness and structural acceptance
+
+Use existing owners first, selecting the affected subset at each phase:
+
+| Owner | Required evidence |
+| --- | --- |
+| Compiler `tests::passes` | Join/snapshot facts, call invalidation, full types, budget/cancellation, no partial publication. |
+| Compiler `tests::bytecode::placement` and `tests::program_points` | General recurrence/transport shape, actual operation origins and binding ranges; portable MIR canonical correspondence is already exercised by the placement owner. |
+| VM `tests::numeric` | `rotated_loops_preserve_entry_control_flow_and_condition_effects`, `local_reads_are_snapshots_across_later_writes_and_captured_calls`, `direct_local_overflow_keeps_the_old_destination_and_prior_commit`; add a case only for a missing semantic boundary. |
+| VM execution debugger and existing execution/owned-drive tests | Reached-path breakpoints, named before/after values, representative synchronous loop cancellation and sliced resume without repeating effects. BO13 records exact available test filters before changes. |
+| Existing bytecode validation and source-free artifact owners | Independent rejection of malformed slot/control metadata, rebuilt verified facts, deterministic executable correspondence without frontend dependencies. |
+
+Cover zero/negative, one and many iterations; both join arms, intervening writes,
+captured mutation, break/continue/nesting and non-loop use. Reuse parameterized
+owners rather than adding one smoke test for each spelling. Shape assertions belong
+to the existing lowering contract and should inspect dataflow/edges rather than
+hard-code incidental PCs or slot numbers. Instruction counts are diagnostic/target
+evidence, never replacements for semantic assertions. Source-free/GC cleanup and
+host boundary guarantees remain mandatory even though those owners are not rewritten.
+
+At implementation checkpoints run `uv run --locked scripts/check_structure.py`,
+`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`
+and `git diff --check`. Review imports, visibility/re-exports, effective LOC and
+ownership manually; no blanket exceptions or forwarding layers. Reuse passing
+evidence for unaffected code. Full workspace tests and the exhaustive backend/
+feature/platform matrix remain CI-only. This planning-only change requires content,
+link and diff checks, not Rust builds/tests or a benchmark run.
+
+### Measurement contract and acceptance
+
+Freeze and compare on the same machine/toolchain with workspace release defaults,
+default Cargo target/parallelism, source/native plus vendored Lua, interpreter-only
+execution and unchanged workload/checksum/GC policy. Earlier i7-10700F measurements
+cannot serve as the current i9-12900K baseline. Use seven alternating process pairs,
+three warmups and eleven samples per process; the median of within-pair VM ratios
+is the existing estimator. Preserve raw samples, process medians and all pair ranges.
+No concurrent builds, tests, observation or profiling during throughput measurement.
+Record compilation, preparation/linking and code/storage size separately.
+
+Predeclared performance gates: original arithmetic candidate/baseline **<= 0.90**;
+every other original/forms execution row **<= 1.05**. The 10% arithmetic target is
+an acceptance criterion, not a predicted gain. Lua absolute times and VM/Lua ratios
+must be recorded for all rows, with unmatched native/numeric semantics identified.
+General applicability requires the BO15 instruction evidence, not that every row
+must become faster. Setup/build changes are diagnostics to explain, not evidence
+of execution speed. Existing runtime-only lifecycle gates are not rerun or repaired
+by this compiler-scoped work unless a newly discovered change actually affects them.
+
+```text
+uv run python scripts/benchmark_lua.py --interpreter-only --freeze-baseline target/lua-comparison/loop-before
+uv run python scripts/benchmark_lua.py --interpreter-only --source-forms --freeze-baseline target/lua-comparison/loop-before
+uv run python scripts/benchmark_lua.py --interpreter-only --baseline-executable target/lua-comparison/loop-before
+uv run python scripts/check_benchmark.py <original-results.json> --target arithmetic=0.90
+uv run python scripts/benchmark_lua.py --interpreter-only --source-forms --baseline-executable target/lua-comparison/loop-before
+uv run python scripts/check_benchmark.py <forms-results.json>
+```
+
+Run instruction/GC observation separately on baseline and candidate; report the
+expected 300,008 -> 200,007 arithmetic count and 5 -> 4 physical slots only when
+observed. Fewer dispatches are not a proportional elapsed-time claim. A missed
+gate or remaining gap requires source/CFG and, if necessary, same-image runtime
+attribution with clear uncertainty. Preserve the failed evidence and record a
+bounded diagnosis before any further experiment; do not change the workload,
+threshold, affinity or semantic checks to obtain acceptance.
 
 ## Prepared scalar execution follow-up (BO09-BO12)
 
@@ -2199,3 +2404,14 @@ with a frozen before image and the existing paired driver. Reuse small directly
 affected regression selections; the exhaustive matrix remains CI-owned. The target
 reduces dispatch count by about one third, not a promised one-third elapsed-time
 improvement; residual runtime costs require fresh attribution after measurement.
+
+### BO13-BO16 planning checkpoint, 2026-10-27
+
+Execution plan written after source/implementation/test-owner review. All four
+phases remain unstarted; no new release baseline, speedup or CI acceptance is
+claimed. The main unresolved design choice belongs to BO13: whether earlier
+rotation followed by existing cleanup suffices, or concrete cases need additional
+bounded home-validity proof. There are no new carried build failures. Historical
+BO04/BO08/IP12 results retain their existing owners and disposition. Planning
+validation checks document links, content consistency and `git diff --check`;
+no Rust tests/builds or new timing runs are needed for this documentation change.
