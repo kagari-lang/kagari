@@ -23,9 +23,9 @@ pub fn integer(
     lhs: u64,
     rhs: u64,
 ) -> Result<u64, &'static str> {
-    let lhs = decode_integer(lhs, domain)?;
-    let rhs = decode_integer(rhs, domain)?;
     let (bits, signed) = domain.layout();
+    let lhs = decode_integer_domain(lhs, bits, signed)?;
+    let rhs = decode_integer_domain(rhs, bits, signed)?;
     integer::integer_operation(op, lhs, rhs, bits, signed).map(|value| value as u64)
 }
 
@@ -38,9 +38,9 @@ pub fn shift(
     rhs: u64,
 ) -> Result<u64, &'static str> {
     let (domain, op) = kind.parts();
-    let lhs = decode_integer(lhs, domain)?;
-    let rhs = decode_integer(rhs, count_domain)?;
     let (bits, signed) = domain.layout();
+    let lhs = decode_integer_domain(lhs, bits, signed)?;
+    let rhs = decode_integer(rhs, count_domain)?;
     integer::integer_operation(op, lhs, rhs, bits, signed).map(|value| value as u64)
 }
 

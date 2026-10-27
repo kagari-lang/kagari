@@ -756,11 +756,15 @@ It specifies typed internal handlers, shared numeric semantics, segment-local PC
 publication, migration/removal checkpoints and validation. Implementation and
 per-phase commits are authorized; BO09 froze the baseline and BO10 implements
 238 compact prepared variants with checked semantics and 24-byte instructions.
-Three-pair BO10 direct diagnostics improve 38.4%; BO11 localizes scalar progress
-with passing boundary tests and release assembly. BO12 integrated evidence remains
-pending. Earlier acceptance
-results remain unchanged. Public frame initialization checks and logical polling frequency stay
-in the contract.
+BO11 localizes scalar progress with passing boundary tests and release assembly.
+BO12 selected local evidence is complete: seven-pair direct improves 40.2%
+(180.2 -> 108.0 us, Lua 119.4 us), and the bounded native adapter repair resolves
+the first integrated image's host_callback/native regressions. Final affected
+original/forms/numeric gates pass; unchanged controls retain their earlier BO11
+evidence. The [report](performance-baseline.md#compact-prepared-scalar-execution-windows-2026-10-27)
+records pair ranges, code/storage tradeoffs and remaining polling/bank/dispatch
+costs. Full CI is pending; earlier BO04/BO08/IP12 failures remain unchanged. Public
+frame initialization checks and logical polling frequency stay in the contract.
 
 ## Module-owned standard-library registration
 

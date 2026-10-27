@@ -2143,11 +2143,13 @@ runtime catalog specializes source widths and RR/RK arithmetic. Comparison
 conditions, shift-count domains and conversion domains remain instruction data;
 KR/KK shapes use shared parameterized arithmetic without Value transport or
 numeric function pointers. `kagari-types::payload` owns direct and shared payload
-adaptation over the existing arithmetic/numeric semantics; dynamic Value adapters
-select the same operations through `ScalarOperation`. All supported integer
-widths, floats, comparisons, unary operations, mixed-domain shifts and casts remain
-covered. Checked source-width arithmetic and existing conversion/IEEE bit policies
-are preserved. Prepared variants are runtime data, never serialized artifact operands.
+adaptation over the existing arithmetic/numeric semantics. Ordinary Value arithmetic
+admits matching full-width carriers once and calls the same typed checked primitives;
+narrow-domain and conversion adapters select `ScalarOperation`. This avoids rebuilding
+prepared operation metadata at a native boundary that already knows its carrier.
+All supported integer widths, floats, comparisons, unary operations, mixed-domain
+shifts and casts remain covered. Checked source-width arithmetic and existing
+conversion/IEEE bit policies are preserved. Prepared variants are runtime data, never serialized artifact operands.
 Native public argument/result adapters remain
 Value interfaces; concrete script transfers remain raw through the caller bank.
 Ordinary and constant scalar operands/contracts are inline. `BinaryOperands` and

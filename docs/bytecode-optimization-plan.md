@@ -12,7 +12,8 @@ unrestricted collection timing failures plus unrun full CI.
 BO09-BO12 are the authorized prepared-scalar execution follow-up on 2026-10-27;
 see [the execution plan](#prepared-scalar-execution-follow-up-bo09-bo12). Runtime
 implementation resumed after the user approved the checked-semantics revision;
-BO09 has frozen the baseline and BO10 replacement has passed its local checkpoint.
+BO09-BO12 implementation and selected local evidence are complete; full CI remains
+unrun. Earlier BO04/BO08/IP12 failures are unchanged.
 The user explicitly requested a separate plan that can proceed before the previous
 interpreter performance work finishes. This document owns BO01-BO04: general typed
 slots, direct destinations, predicate branches and constant operands. It replaces
@@ -72,7 +73,7 @@ runs or benchmark timing overlapping builds/tests/profiling.
 
 ## Prepared scalar execution follow-up (BO09-BO12)
 
-**Status: BO09-BO11 complete; BO12 integrated evidence is in progress.**
+**Status: BO09-BO12 implementation and selected local evidence complete; full CI pending.**
 Implementation and per-phase commits were authorized on 2026-10-27. The
 [checked-semantics revision](#checked-semantics-catalog-revision-2026-10-27) supersedes
 the full Cartesian catalog below; the user authorized execution of this revision. This section supersedes the earlier ideal-model sketches as
@@ -323,7 +324,7 @@ needed for local progress or preparation-time constants.
   same-PC trap/reuse, cancellation and cleanup contracts pass; release direct assembly
   removes ordinary per-operation frame-PC publication without adding equivalent
   out-of-line helper traffic. Revisit the model if register allocation defeats it.
-- [ ] **BO12 — Integrated evidence and ownership documentation.** Run the selected
+- [x] **BO12 — Integrated evidence and ownership documentation (local scope; CI pending).** Run the selected
   local contracts and quality checks, final paired execution and controls, fresh
   same-image profile and storage accounting. Rewrite architecture/spec owners to
   describe the implemented model, and record unresolved proof opportunities here.
@@ -1959,3 +1960,91 @@ per-instruction progress helper or function pointer was introduced. The private
 macro only propagates errors to this common exit and does not implement numeric
 semantics. BO12 now owns final timing, same-image sampling and remaining-cost
 attribution; no speed claim is inferred from this assembly check.
+
+
+### BO12 first integrated measurement and bounded repair, 2026-10-27
+
+Candidate 95e252b1 / SHA-256 f88ec00086c0e49e816503226c4e602136bd200c2a9085ee5c104decd58930f0
+passes all checksums in seven alternating pairs per suite. Original seven execution
+rows pass (arithmetic 0.64311, branches 0.66507; worst arrays 1.02534). All ten numeric
+rows pass, ratios 0.76606..0.83683. All 24 owned-control rows pass, worst
+admit/roots_1_tail_cancel exactly 1.05. These do not close earlier BO04/BO08/IP12 gates.
+Source forms direct is 108.4 us vs Lua 119.5 us, ratio to the paired Kagari baseline
+0.5959 (range 0.3985..0.6048), but host_callback 1.0725 (1.0596..1.0968) and native
+1.0886 (1.0655..1.0936) FAIL the 1.05 limit. Other ten forms pass. Preserve the full
+ranges, including noisy outliers; no failed run is discarded. Reports: 11:39:15 UTC
+forms, 11:40:49 original, 11:45:35 numeric, 11:46:34 controls. BO12 is not accepted.
+
+Architectural diagnosis: both failed forms call the same host_step, which performs
+three public numeric::binary operations per iteration. The Value adapter already
+knows the exact full-width carrier but constructs ScalarOperation through two
+selection helpers, then evaluates through shared integer/domain decoding. Same-image
+native sampling at 11:47:25 UTC contains 3,898 samples; relocation-masked exact
+COFF-to-PE matching finds 49 in shared decode_integer, 41 in shared integer, 44 in
+numeric::binary, and 38 in operation selection/evaluation. These establish surviving
+work, not causal percentages explaining the entire regression. The rest includes
+unmapped code and existing native admission/stack costs. Preserve the failure image.
+
+One bounded general repair: ordinary Value arithmetic matches the carrier once,
+then calls the existing typed checked arithmetic or floating payload primitive.
+Type-error-before-op-error precedence remains; typed i32/i64/u64 Values themselves
+establish full-width domains. Narrow NumericOperation adapters retain explicit
+semantic-domain validation. Shared KR/KK integer evaluation computes its domain
+layout once and validates both operands through the same inline domain primitive;
+shift evaluation retains independent count decoding. No new opcode, unchecked
+access, alternate arithmetic implementation or special benchmark path is added.
+The existing native numeric boundary owner gains coverage for ordinary Value
+arithmetic/IEEE/error precedence; existing payload and VM numeric contracts remain.
+Rebuild/check and repeat the affected original/forms/numeric suites once; unchanged
+owned-control evidence remains applicable because it does not execute these paths.
+No retry-until-green or lifecycle repair is authorized by this diagnostic.
+
+
+### BO12 final local checkpoint, 2026-10-27
+
+The one bounded repair passes six runtime numeric boundary tests, three payload
+contracts and eleven VM numeric tests. The selection covers the Value admission
+change, shared domain validation, checked source-width results and source-free
+routes. BO10/BO11 passing frame/public-entry, progress, cancellation, observation
+and reentry evidence remains applicable. Structure checks scan 1,737 Rust files
+with zero violations/exceptions; formatting, diff and workspace all-target Clippy
+pass. The restored fixed_integer Rustdoc is documentation-only. No full workspace
+or exhaustive feature/backend/platform tests ran locally; CI remains pending.
+
+Final ordinary image SHA-256:
+207901bd948eb8fdf350f809d2e72bfa9a67efcc917a4418cc4c5abe4d73059b.
+Seven-pair final source forms (11:53:17 UTC), original (11:56:34) and numeric
+(12:01:36) all pass checksums and the predeclared median-ratio gates. Direct is
+180.2 -> 108.0 us, Lua 119.4 us; paired ratio 0.59821 (0.56963..0.61734).
+Host_callback/native recover to 0.99232/0.99323. Original arithmetic/branches are
+0.64988/0.67414; calls is 1.04618 with range 0.93758..1.72638, close to the threshold
+and noisy. Numeric ratios are 0.73657..0.83518; preserve the f64 outlier 1.32126.
+No failed pair or previous failed image was discarded, and no extra timing retries
+were performed. Unchanged 24-row controls retain their earlier BO11 evidence as
+explicitly described above; do not represent these as final-image reruns.
+
+The [lasting report](performance-baseline.md#compact-prepared-scalar-execution-windows-2026-10-27)
+records all original/forms pair ranges, numeric results, setup/build separation,
+image identities, toolchain/machine/features/cache/parallelism and remaining costs.
+Final same-image direct profiling at 12:02:37 UTC maps 3,719/3,866 samples to the
+unbounded loop using relocation-masked COFF/PE byte matching. No scalar kernel
+function-pointer or site interpretation remains. Main sampled locations are logical
+polling 24.44%, fetch/dispatch 18.16%, checked writeback/backedge 13.68% and the i32
+remainder handler 14.92%; these are locations, not predicted removable time.
+The observed stream remains 30,005 instructions and zero GC/script heap allocation.
+
+Storage accounting keeps all unchanged canonical/layout/origin/debug/bank arrays:
+direct selected payload 6,606 -> 6,318 bytes, including prepared instructions/sites
+552 -> 264. The instruction remains 24 bytes and the catalog remains 238 variants.
+PE code grows 37,376 bytes (36.5 KiB, 0.143%); unbounded handler code is 25,615 bytes
+versus 2,169 before. The final cache-reusing release build takes 106.9 seconds;
+no clean compilation comparison is claimed. Exact figures and exclusions live in
+the report. Architecture now documents typed preparation, numeric ownership,
+Value admission and segment-exit progress publication.
+
+Unresolved opportunities stay finite: private bank/domain validity across all
+writers and manual/debug/resume entry, condition selection, dispatch and dynamic
+polling costs. Existing checks cannot simply be removed. These are findings for a
+future user-directed decision, not newly activated implementation checkpoints.
+BO12 local scope is complete; full CI is unrun. BO04's four lifecycle gates, BO08's
+two collection gates and IP12's independent historical gate remain unresolved.
