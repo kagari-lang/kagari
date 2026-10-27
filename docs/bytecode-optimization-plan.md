@@ -30,6 +30,38 @@ the only bytecode-optimization ledger. The user's subsequent instruction activat
 BO01-BO04 and authorizes one coherent commit per completed phase, with the phase
 trailer below. No additional phase activates automatically after BO04.
 
+## Authorized general follow-up, 2026-10-27
+
+The user authorized implementation of the reviewed general direct target and a
+fresh attribution of remaining costs afterward. BO05-BO08 below are active; the
+historical BO04/IP12 gates remain separate and unresolved. This explicitly extends
+the earlier block-local scope to bounded guarded MIR loop rotation and a review
+of scalar read/write location reuse. No encoding/kernel/GC/call-boundary rewrite
+is authorized by this follow-up. Implement finite shared rules, not benchmark
+recognition, and retain all existing source-free, debug and execution validation.
+
+- [ ] BO05: General scalar destinations, constant/home/return transport and fallthrough cleanup.
+- [ ] BO06: Bounded guarded MIR loop rotation, reverified facts and canonical correspondence.
+- [ ] BO07: Eligible scalar read-before-write reuse with public frame lifetime checks.
+- [ ] BO08: Focused correctness, local quality checks, matched execution/lifecycle comparison and remaining-cost attribution.
+
+Freeze ordinary original/forms/controls at production `03246d94` (documentation
+HEAD `22854ff9`) before runtime/compiler edits. The saved general-before image
+uses SHA-256 883ea385c40e3d262b5019889ddc7ad697209ac9a585734ded4426f69ee07f9a;
+three checked freeze runs completed at 07:16:25 / 07:16:50 / 07:16:58 UTC. Use
+seven alternating pairs per suite, unchanged inputs/estimators and 1.05 regression
+limits; require forms_direct <=0.90. These are this follow-up's new matched gates,
+not a replacement for prior failed gates. Default scheduler remains unchanged;
+any uncertainty diagnosis must be declared separately and preserve failed evidence.
+
+Local tests select compiler bytecode placement and passes/numeric boundaries,
+source-free artifact/native-input/debug correspondence, runtime reused-frame
+inspection and representative VM cancellation/trap/slice/loop cases. Complete
+workspace and backend/feature/platform test matrices remain CI-only. Required
+structure/fmt/workspace all-target Clippy/diff checks run at implementation
+checkpoints. Record actual commands/failures below; no repeated full-suite local
+runs or benchmark timing overlapping builds/tests/profiling.
+
 ## Objective and scope
 
 Remove mandatory local transport and control-only Boolean materialization through
@@ -418,7 +450,8 @@ architecture/spec owners and measurements to the performance document. Update th
 roadmap/review rather than leaving an implemented proposal queued. Retire this plan
 when its own required work is handed off; outstanding IP12 acceptance does not keep
 it open. Authorized implementation commits use
-`Plan-Phase: BO01` through `Plan-Phase: BO04` trailers for their respective checkpoints.
+`Plan-Phase: BO01` through `Plan-Phase: BO08` trailers for their respective checkpoints;
+BO05-BO08 require the explicit follow-up authorization above.
 
 ## Focused correctness selection
 
@@ -1017,3 +1050,88 @@ and the selected dependent lifecycle controls without changing old gate outcomes
 Required implementation structure/fmt/workspace Clippy/diff checks and CI-only full
 matrix policy remain unchanged. This review has no implementation tests or new
 measurements to report.
+
+### BO05-BO06 implementation ledger, 2026-10-27
+
+BO05 adds a bounded transfers owner after local-read forwarding. It selects
+multi-use scalar homes only with same-block full-type/debug and no-clobber facts,
+initializes scalar homes directly, forwards scalar tail returns, and removes final
+fallthrough jumps after constant/predicate selection. Tail return removal must
+extend still-visible binding ranges through the retained return's observation;
+initial testing exposed lost outer/c bindings, and the existing assertions now
+pass without weakening them. The loop-lowering test now checks behavior instead of counting
+redundant jump instructions: break/false successors and continue's
+infinite backedge. A new non-benchmark recurrence (different coefficients, runtime
+bound) confirms no scalar transport and no fallthrough jumps after optimized MIR.
+
+Initial selected lowering run: 21/24 passed; debug local-tail availability and
+metadata binding inventory failures were caused by return observation remapping,
+not removed language coverage. Those two now pass. The remaining loop check needed
+to follow retained Jump edges rather than assume one exact layout; the final
+selected lowering run passes all 24 tests.
+The focused recurrence placement test passes after moving fallthrough cleanup
+behind constant/predicate selection. No required quality/performance acceptance
+was claimed during BO06 integration; final quality checks are recorded below.
+
+BO06's bounded MIR rotation retains the original guard and clones closed scalar
+conditions into dominated Jump backedges, with fresh temporary IDs and original
+span/scope columns. Header-defined snapshots consumed outside the condition are
+declined rather than rewritten or conflated. It excludes suspending functions,
+limits a condition to 16 instructions and duplication to 256 instructions/function,
+and shares the existing optimizer work/cancellation budget. Fresh verification
+rebuilds facts and source-free canonical lowering remains unchanged in authority.
+The first compile found TempId lacks Ord; internal maps now key checked indices,
+without broadening ID APIs. The final recurrence test passes complete portable
+MIR-to-bytecode canonical comparison and checks a selected conditional backedge.
+
+
+### BO06 prerequisite correction and focused verification, 2026-10-27
+
+The first optimized loop behavior run passed seven selected VM cases but failed
+`rotated_loops_preserve_entry_control_flow_and_condition_effects`: its effectful
+condition eventually overflowed. A temporary MIR/KBC dump established an earlier
+frontend defect: `while { checks += 1; steps < n } { steps += 1; }` lowered the
+condition block as both condition and body. The dump's body incremented checks
+and never steps, before bytecode placement or rotation. `WhileStmt::body` selected
+the first direct BlockExpr rather than the ordinary condition's second direct
+expression. This finite prerequisite correction selects the body expression by
+position and retains binding-condition handling. Parser coverage now distinguishes
+path, block and binding conditions. The VM loop case passes with optimization off
+and on, direct and source-free routes, including zero/one/many iterations,
+break/continue, nesting and repeated condition effects. Temporary dump code was
+removed; its first relative output path was corrected before diagnosis.
+
+Focused local evidence for the composed candidate:
+
+- `cargo test -p kagari-syntax --lib tests::parser::control_flow --no-fail-fast`: 2 passed.
+- Compiler `tests::bytecode::lowering`: 24 passed. `tests::passes` plus recurrence
+  placement: 14 passed, covering pass limits/cancellation, checked traps, snapshots,
+  CFG joins, constants and provenance. The final selection of placement, native
+  canonical mismatch, invalid/missing/reordered origins, constant domains and
+  predicate target/initialization validation: 5 passed.
+- Runtime `frame::execution_frames`: 23 passed, including both reused-slot owners,
+  stripped source-free trap origins, cancellation/depth admission and cleanup.
+  Allocation and layout selections: 4 + 4 passed. The old allocation test's four
+  colors and nonalias assertion described closed same-PC endpoints; the new three
+  colors intentionally reuse a consumed scalar input. Its loop-carried-vs-temporary
+  assertions remain intact, with the new success/trap ownership test proving the
+  endpoint contract. Physical instruction/storage budget: 1 passed.
+- Selected VM snapshot, NaN/control, checked failed commit and mixed constant-domain
+  cases, two owned-slice/iterator cases and post-host-effect cancellation: 7 passed.
+  The corrected loop case separately passes both optimization settings and artifact
+  routes. No full workspace test or backend/platform matrix was run locally.
+- `uv run --locked scripts/check_structure.py`: 1,732 files, zero violations or
+  exceptions; `cargo fmt --all -- --check`,
+  `cargo clippy --workspace --all-targets -- -D warnings`, and `git diff --check` pass.
+
+BO07 admits same-PC reuse only for closed scalar Move/Unary/Binary/constant-operand
+numeric/Convert handlers that read inputs before computing and commit after success.
+Named homes and parameter homes retain closed endpoints; managed/call/field/native
+paths are excluded. Allocation prefers wholly dead colors and marks only a consumed
+color actually selected for the output. Immutable layout guards use existing
+pending/executing/completed frame state: pending output writes cannot overwrite its
+input, success expires the input, traps retain it, and reexecution requires intact
+inputs. Redirection preserves current observation publication until resume. No new
+per-scalar hot-loop marker, GC root path or second bank was introduced.
+
+Seven-pair timing/storage attribution remains BO08 work, separate from these checks.

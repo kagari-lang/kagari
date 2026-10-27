@@ -422,8 +422,18 @@ impl WhileStmt {
     }
 
     /// Returns `{ work(); }` in `while ready { work(); }`, including for binding conditions.
+    /// Selects the second direct expression for ordinary conditions, including
+    /// `while { ready() } { work(); }`, or the first for a binding condition.
+    /// Returns `None` when recovery leaves no expression in the body position.
     pub fn body(&self) -> Option<BlockExpr> {
-        self.syntax().children().filter_map(BlockExpr::cast).next()
+        self.syntax()
+            .children()
+            .filter_map(Expr::cast)
+            .nth(usize::from(self.binding_condition().is_none()))
+            .and_then(|expr| match expr {
+                Expr::BlockExpr(block) => Some(block),
+                _ => None,
+            })
     }
 }
 
