@@ -57,6 +57,15 @@ pub(crate) struct ReusedSlot {
     pub logical: usize,
     pub range: Option<(usize, usize)>,
     pub starts_with_definition: bool,
+    pub ends_at_write: bool,
+    pub starts_after_read: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AccessPhase {
+    Pending,
+    Executing,
+    Complete,
 }
 
 #[derive(Debug)]
@@ -149,6 +158,22 @@ impl FrameLayout {
                     logical,
                     range,
                     starts_with_definition,
+                    ends_at_write: slot_layout
+                        .ends_at_write
+                        .get(logical)
+                        .copied()
+                        .unwrap_or(false),
+                    starts_after_read: range.is_some_and(|(start, _)| {
+                        starts_with_definition
+                            && function.instructions[start]
+                                .slot_inputs()
+                                .iter()
+                                .any(|input| {
+                                    slot_layout.ends_at_write.get(input.index()) == Some(&true)
+                                        && locations[input.index()].operand.index()
+                                            == locations[logical].operand.index()
+                                })
+                    }),
                 }
             })
             .collect();
@@ -187,6 +212,7 @@ impl FrameLayout {
         pc: usize,
         reading: bool,
         parameter: bool,
+        phase: AccessPhase,
     ) -> bool {
         match self
             .reused_slots
@@ -195,13 +221,27 @@ impl FrameLayout {
             Ok(index) => self.reused_slots[index].range.is_some_and(|(start, end)| {
                 start <= pc
                     && pc <= end
+                    && !(phase == AccessPhase::Complete
+                        && pc == end
+                        && self.reused_slots[index].ends_at_write)
+                    && !(phase == AccessPhase::Pending
+                        && pc == start
+                        && !reading
+                        && self.reused_slots[index].starts_after_read)
                     && (!reading
+                        || phase == AccessPhase::Complete
                         || start < pc
                         || parameter
                         || !self.reused_slots[index].starts_with_definition)
             }),
             Err(_) => true,
         }
+    }
+
+    pub(crate) fn admits_reexecution(&self, pc: usize) -> bool {
+        self.reused_slots
+            .iter()
+            .all(|slot| !slot.ends_at_write || slot.range.is_none_or(|(_, end)| end != pc))
     }
 }
 
@@ -486,7 +526,13 @@ mod tests {
                         assert!(location.admits(&cell));
                         assert!(!location.admits(&Value::Char('🙂')));
                     } else if initial_work == 0 {
-                        assert!(!layout.admits_logical_access(logical, 0, true, false));
+                        assert!(!layout.admits_logical_access(
+                            logical,
+                            0,
+                            true,
+                            false,
+                            AccessPhase::Pending
+                        ));
                     }
                 }
             }
@@ -561,11 +607,11 @@ mod tests {
         };
         let layout = FrameLayout::prepare(&function, &mut 0);
         assert_eq!(layout.scalar_count, 1, "retain physical slot reuse");
-        assert!(!layout.admits_logical_access(0, 0, true, false));
-        assert!(layout.admits_logical_access(0, 0, false, false));
-        assert!(layout.admits_logical_access(1, 2, true, false));
-        assert!(!layout.admits_logical_access(1, 1, true, false));
-        assert!(!layout.admits_logical_access(0, 2, true, false));
+        assert!(!layout.admits_logical_access(0, 0, true, false, AccessPhase::Pending));
+        assert!(layout.admits_logical_access(0, 0, false, false, AccessPhase::Pending));
+        assert!(layout.admits_logical_access(1, 2, true, false, AccessPhase::Pending));
+        assert!(!layout.admits_logical_access(1, 1, true, false, AccessPhase::Pending));
+        assert!(!layout.admits_logical_access(0, 2, true, false, AccessPhase::Pending));
         assert!(!layout.admits_side_entry(1, 2, &[]));
     }
 }

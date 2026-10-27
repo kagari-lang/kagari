@@ -42,7 +42,7 @@ recognition, and retain all existing source-free, debug and execution validation
 
 - [x] BO05: General scalar destinations, constant/home/return transport and fallthrough cleanup.
 - [x] BO06: Bounded guarded MIR loop rotation, reverified facts and canonical correspondence.
-- [ ] BO07: Eligible scalar read-before-write reuse with public frame lifetime checks.
+- [x] BO07: Eligible scalar read-before-write reuse with public frame lifetime checks.
 - [ ] BO08: Focused correctness, local quality checks, matched execution/lifecycle comparison and remaining-cost attribution.
 
 Freeze ordinary original/forms/controls at production `03246d94` (documentation
@@ -1146,3 +1146,10 @@ and full canonical native-input correspondence; selected loop behavior passes wi
 optimization disabled/enabled and both artifact routes. The real forms direct dump
 is 11 static instructions and 5 logical slots; timing and physical attribution
 remain BO08.
+
+BO07 checkpoint: scalar consumption/result reuse and immutable public-frame
+guards are implemented and locally verified. The real direct frame uses 4 scalar
+locations rather than 5. A temporary storage probe loaded old/new complete artifacts
+and compared original/current allocation; it was removed after measuring all
+affected instruction/site/layout/origin/debug arrays. No diagnostic module or old
+allocator remains in production or tracked tests. BO08 records results and limits.

@@ -11,7 +11,7 @@ use crate::{
         ExecutableModule,
         execution::{
             calls::PreparedCall,
-            layout::{FrameLayout, Location},
+            layout::{AccessPhase, FrameLayout, Location},
         },
         linked_execution::LinkedFunction,
         state::initialization::StaticInitialization,
@@ -579,7 +579,7 @@ impl ExecutionFrame {
     }
 
     /// Select a final executable PC without manufacturing a reused logical value.
-    /// Ordinary CFG edges and reexecution of the current instruction are admitted;
+    /// Ordinary CFG edges and reexecution with intact inputs are admitted;
     /// other side entries cannot require a reused nonparameter value.
     pub fn jump_to(&mut self, runtime: &Runtime, offset: usize) -> Result<(), RuntimeError> {
         self.validate_runtime(runtime)?;
@@ -617,13 +617,19 @@ impl ExecutionFrame {
                         &function.metadata.parameter_slots,
                     )
                 });
-        if !admitted && self.completed != Some(offset) && !side_entry {
+        let reexecution = self.completed == Some(offset)
+            && self
+                .slot_layout
+                .as_ref()
+                .is_none_or(|layout| layout.admits_reexecution(offset));
+        if !admitted && !reexecution && !side_entry {
             return Err(RuntimeError::module_validation(
                 "frame jump would enter an uninitialized reused slot lifetime",
             ));
         }
         self.ip = offset;
-        self.completed = None;
+        // Keep publication attached to the observed instruction until resume;
+        // redirection cannot resurrect a consumed alias at that instruction.
         Ok(())
     }
 
@@ -635,8 +641,15 @@ impl ExecutionFrame {
             !layout.admits_logical_access(
                 slot.index(),
                 self.instruction_offset(),
-                reading && self.completed != Some(self.instruction_offset()),
+                reading,
                 parameter,
+                if self.completed == Some(self.instruction_offset()) {
+                    AccessPhase::Complete
+                } else if self.executing.is_some() {
+                    AccessPhase::Executing
+                } else {
+                    AccessPhase::Pending
+                },
             )
         }) {
             return Err(RuntimeError::module_validation(format!(

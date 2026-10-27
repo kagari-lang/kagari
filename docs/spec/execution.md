@@ -501,8 +501,17 @@ reads require successful completion only when that instruction defines the slot
 without reading its incoming value. A join may precede its defining predecessors
 in instruction order; its live-in inputs are already initialized by verified CFG
 execution. Explicit parameter homes retain admitted entry values.
+Closed scalar operations may reuse an unnamed dying input's location for their
+result at the same PC. They read all inputs before computation and publish the
+result only after success. Before execution, the pending result cannot be written
+through public frame access; manual drivers first fetch the operation. After a
+successful write, the consumed input is unavailable at that PC. A trap preserves
+the input and leaves the result unavailable. Named homes and parameters keep
+closed interval endpoints; managed locations do not participate in this reuse.
+
 Writes cannot overwrite another logical lifetime. `jump_to` admits declared
-CFG arms and completed-current reexecution, but other side entries must not require
+CFG arms and completed-current reexecution only with intact inputs. Reexecution
+cannot recover an input overwritten by same-PC result reuse. Other side entries must not require
 a reused nonparameter lifetime; entry-initialized parameters may be preserved only
 while still in their lifetime. Defensive runtime reads remain necessary.
 
