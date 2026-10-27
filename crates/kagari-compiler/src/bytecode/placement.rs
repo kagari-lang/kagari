@@ -1,5 +1,6 @@
 //! Conservative interpreter placement changes storage, not semantic MIR.
 mod selection;
+mod transfers;
 
 use crate::bytecode::collect_control_flow_targets;
 use kagari_abi::representation::ValueType;
@@ -9,7 +10,7 @@ use kagari_bytecode::{
 };
 use kagari_contract::{contracts, operations::BinaryOp};
 use kagari_mir::{
-    analysis::FunctionAnalysis,
+    analysis::{FunctionAnalysis, PointAnalysis},
     function::MirFunction,
     ids::BlockId,
     instruction::{Instruction, MirValue},
@@ -130,7 +131,6 @@ pub(super) fn select(
     for (id, block) in mir.emission_order() {
         let facts = analysis.block(BlockId::new(id)).expect("sealed block");
         let start = facts.start_offset();
-        let end = start + block.instructions.len() + 1;
         for (index, instruction) in block.instructions.iter().enumerate() {
             let pc = start + index;
             work = work.saturating_add(1);
@@ -179,52 +179,21 @@ pub(super) fn select(
             }
             retained[pc] = false;
         }
-        for pc in start..end - 1 {
-            if !retained[pc] || !retained[pc + 1] {
-                continue;
-            }
-            let Some(result) = function.instructions[pc].slot_output() else {
-                continue;
-            };
-            let I::Move { dst, src } = function.instructions[pc + 1] else {
-                continue;
-            };
-            if src != result
-                || dst.index() >= mir.locals.len()
-                || result.index() < mir.locals.len()
-                || definitions[result.index()] != 1
-                || uses[result.index()] != [pc + 1]
-                || !scalar(function.metadata.slots[dst.index()])
-                || function.instructions[pc]
-                    .slot_inputs()
-                    .iter()
-                    .any(|input| !scalar(function.metadata.slots[input.index()]))
-                || !function
-                    .metadata
-                    .semantic
-                    .slots
-                    .contains_key(&result.index())
-                || function.metadata.semantic.slots.get(&result.index())
-                    != function.metadata.semantic.slots.get(&dst.index())
-                || points[pc].debug_available() != points[pc + 1].debug_available()
-                || function.metadata.origins[pc].span != function.metadata.origins[pc + 1].span
-                || !matches!(
-                    function.instructions[pc],
-                    I::LoadConst { .. }
-                        | I::Move { .. }
-                        | I::Unary { .. }
-                        | I::Binary { .. }
-                        | I::Numeric { .. }
-                        | I::Convert { .. }
-                )
-            {
-                continue;
-            }
-            function.instructions[pc].rewrite_slots(|slot| if slot == result { dst } else { slot });
-            retained[pc + 1] = false;
-            targets[pc + 1] = pc;
-        }
     }
+    transfers::select(
+        function,
+        &PlacementFacts {
+            homes: mir.locals.len(),
+            blocks: &block_of,
+            points: &points,
+            barriers: &barriers,
+        },
+        &mut TransferSelection {
+            retained: &mut retained,
+            targets: &mut targets,
+            work: &mut work,
+        },
+    );
     selection::select(
         function,
         constants,
@@ -233,6 +202,14 @@ pub(super) fn select(
         &mut retained,
         &mut targets,
         |from, to| points[from].debug_available() == points[to].debug_available(),
+    );
+    transfers::remove_fallthroughs(
+        function,
+        &mut TransferSelection {
+            retained: &mut retained,
+            targets: &mut targets,
+            work: &mut work,
+        },
     );
     let mut pcs = vec![0; retained.len() + 1];
     let mut next = 0;
@@ -327,6 +304,19 @@ pub(super) fn select(
     function.metadata.control_flow_targets = collect_control_flow_targets(&function.instructions);
     function.metadata.debug.frame_layout.slots = function.metadata.slots.clone();
     function.slot_count = u32::try_from(function.metadata.slots.len()).expect("bounded MIR slots");
+}
+
+struct PlacementFacts<'a> {
+    homes: usize,
+    blocks: &'a [usize],
+    points: &'a [&'a PointAnalysis],
+    barriers: &'a [bool],
+}
+
+struct TransferSelection<'a> {
+    retained: &'a mut [bool],
+    targets: &'a mut [usize],
+    work: &'a mut usize,
 }
 
 fn scalar(ty: ValueType) -> bool {

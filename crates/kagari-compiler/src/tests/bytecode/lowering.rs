@@ -455,19 +455,39 @@ fn main() -> () {
     );
     let function = &bytecode.modules[bytecode.root.index()].functions[0];
 
-    let jump_count = function
+    let backedge = function
         .instructions
         .iter()
-        .filter(|instruction| matches!(instruction, BytecodeInstruction::Jump { .. }))
-        .count();
-    assert!(jump_count >= 3);
-
-    assert!(
-        function
-            .instructions
-            .iter()
-            .any(|instruction| matches!(instruction, BytecodeInstruction::Branch { .. }))
-    );
+        .enumerate()
+        .find_map(|(pc, instruction)| {
+            matches!(instruction, BytecodeInstruction::Jump { target } if target.index() == pc)
+                .then_some(pc)
+        })
+        .expect("continue retains the infinite loop's backedge");
+    let targets = function
+        .instructions
+        .iter()
+        .find_map(|instruction| match instruction {
+            BytecodeInstruction::Branch {
+                then_target,
+                else_target,
+                ..
+            } => Some([then_target.index(), else_target.index()]),
+            _ => None,
+        })
+        .expect("while condition retains its two control-flow arms");
+    for mut target in targets {
+        for _ in 0..function.instructions.len() {
+            if target == backedge {
+                break;
+            }
+            let BytecodeInstruction::Jump { target: next } = function.instructions[target] else {
+                panic!("break and a false condition must reach the next loop");
+            };
+            target = next.index();
+        }
+        assert_eq!(target, backedge);
+    }
 }
 
 #[test]
