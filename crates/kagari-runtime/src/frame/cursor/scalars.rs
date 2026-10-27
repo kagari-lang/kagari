@@ -87,31 +87,18 @@ impl<'code> ExecutionCursor<'code> {
         Some(())
     }
 
-    fn prepare_instruction(&mut self, collection_due: bool) -> bool {
-        *self.executing = None;
+    fn poll_requested(&self, collection_due: bool, automatic_collection: bool) -> bool {
         self.session.options.cancellation.check().is_err()
             || self.session.observer_attached.get()
             || collection_due
-            || (self.runtime.gc().automatic_collection_enabled()
-                && self.runtime.modules.abandonment_pending())
+            || (automatic_collection && self.runtime.modules.abandonment_pending())
     }
 
-    fn next_instruction(&mut self) -> Option<&'code ExecutionInstruction> {
-        // The admitted code slice is immutable for this region. Borrow the
-        // instruction so only the selected handler reads its payload; copying
-        // the whole enum before dispatch also decodes unrelated managed fields.
-        let instruction = self.function.instructions.get(*self.ip)?;
-        *self.executing = Some(*self.ip);
-        *self.ip += 1;
-        Some(instruction)
-    }
-
-    fn jump(&mut self, target: usize) -> Result<(), ScalarFailure> {
+    fn jump(&self, target: usize) -> Result<usize, ScalarFailure> {
         if target >= self.function.instructions.len() {
             return Err(ScalarFailure::Invariant("invalid frame jump target"));
         }
-        *self.ip = target;
-        Ok(())
+        Ok(target)
     }
 
     #[cold]
@@ -140,124 +127,143 @@ macro_rules! scalar_loop {
                 collection_due: bool,
                 mut first: bool,
             ) -> Result<ScalarExit, ScalarFailure> {
-                loop {
-                    if !first && slice.exhausted() {
-                        return Ok(ScalarExit::Slice);
+                // No callback or external frame access can observe these locals.
+                // The common exit publishes both fields on success and failure.
+                let mut next = *self.ip;
+                let mut executing = *self.executing;
+                let automatic_collection = self.runtime.gc().automatic_collection_enabled();
+                let result = 'segment: loop {
+                    macro_rules! attempt {
+                        ($result:expr) => {
+                            match $result {
+                                Ok(value) => value,
+                                Err(failure) => break 'segment Err(failure),
+                            }
+                        };
                     }
-                    if !first && self.prepare_instruction(collection_due) {
-                        return Ok(ScalarExit::Safepoint);
+
+                    if !first && slice.exhausted() {
+                        break 'segment Ok(ScalarExit::Slice);
+                    }
+                    if !first {
+                        executing = None;
+                        if self.poll_requested(collection_due, automatic_collection) {
+                            break 'segment Ok(ScalarExit::Safepoint);
+                        }
                     }
                     first = false;
                     slice.advance();
-                    let instruction = self.next_instruction()
-                        .ok_or(ScalarFailure::Invariant("verified function fell through"))?;
+                    let instruction = attempt!(self.function.instructions.get(next)
+                        .ok_or(ScalarFailure::Invariant("verified function fell through")));
+                    executing = Some(next);
+                    next += 1;
                     let (dst, value) = match *instruction {
                         ExecutionInstruction::Constant { dst, value } => (dst, value),
-                        ExecutionInstruction::Move { dst, src } => (dst, self.payload(src).ok_or(ScalarFailure::Invariant("invalid execution operand slot"))?),
+                        ExecutionInstruction::Move { dst, src } => (dst, attempt!(self.payload(src).ok_or(ScalarFailure::Invariant("invalid execution operand slot")))),
                         $(ExecutionInstruction::$brr { dst, lhs, rhs } => {
-                            let lhs = self.payload(lhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot"))?;
-                            let rhs = self.payload(rhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot"))?;
-                            (dst, $be(lhs, rhs).map_err(ScalarFailure::Trap)?)
+                            let lhs = attempt!(self.payload(lhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot")));
+                            let rhs = attempt!(self.payload(rhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot")));
+                            (dst, attempt!($be(lhs, rhs).map_err(ScalarFailure::Trap)))
                         },)*
                         $(ExecutionInstruction::$brk { dst, lhs, rhs } => {
-                            let lhs = self.payload(lhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot"))?;
+                            let lhs = attempt!(self.payload(lhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot")));
                             let rhs = rhs as i64 as u64;
-                            (dst, $be(lhs, rhs).map_err(ScalarFailure::Trap)?)
+                            (dst, attempt!($be(lhs, rhs).map_err(ScalarFailure::Trap)))
                         },)*
                         $(ExecutionInstruction::$srr { dst, lhs, rhs, count_domain } => {
-                            let lhs = self.payload(lhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot"))?;
-                            let rhs = self.payload(rhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot"))?;
-                            (dst, $se(lhs, rhs, count_domain).map_err(ScalarFailure::Trap)?)
+                            let lhs = attempt!(self.payload(lhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot")));
+                            let rhs = attempt!(self.payload(rhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot")));
+                            (dst, attempt!($se(lhs, rhs, count_domain).map_err(ScalarFailure::Trap)))
                         },)*
                         $(ExecutionInstruction::$srk { dst, lhs, rhs, count_domain } => {
-                            let lhs = self.payload(lhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot"))?;
+                            let lhs = attempt!(self.payload(lhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot")));
                             let rhs = rhs as i64 as u64;
-                            (dst, $se(lhs, rhs, count_domain).map_err(ScalarFailure::Trap)?)
+                            (dst, attempt!($se(lhs, rhs, count_domain).map_err(ScalarFailure::Trap)))
                         },)*
                         $(ExecutionInstruction::$crr { dst, lhs, rhs, condition } => {
-                            let lhs = self.payload(lhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot"))?;
-                            let rhs = self.payload(rhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot"))?;
-                            (dst, $ce(lhs, rhs, condition).map_err(ScalarFailure::Trap)?)
+                            let lhs = attempt!(self.payload(lhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot")));
+                            let rhs = attempt!(self.payload(rhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot")));
+                            (dst, attempt!($ce(lhs, rhs, condition).map_err(ScalarFailure::Trap)))
                         },)*
                         $(ExecutionInstruction::$crk { dst, lhs, rhs, condition } => {
-                            let lhs = self.payload(lhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot"))?;
+                            let lhs = attempt!(self.payload(lhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot")));
                             let rhs = rhs as i64 as u64;
-                            (dst, $ce(lhs, rhs, condition).map_err(ScalarFailure::Trap)?)
+                            (dst, attempt!($ce(lhs, rhs, condition).map_err(ScalarFailure::Trap)))
                         },)*
                         $(ExecutionInstruction::$qrr { dst, lhs, rhs, condition } => {
-                            let lhs = self.payload(lhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot"))?;
-                            let rhs = self.payload(rhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot"))?;
-                            (dst, $qe(lhs, rhs, condition).map_err(ScalarFailure::Trap)?)
+                            let lhs = attempt!(self.payload(lhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot")));
+                            let rhs = attempt!(self.payload(rhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot")));
+                            (dst, attempt!($qe(lhs, rhs, condition).map_err(ScalarFailure::Trap)))
                         },)*
                         $(ExecutionInstruction::$jrr { lhs, rhs, condition, then_target, else_target } => {
-                            let lhs = self.payload(lhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot"))?;
-                            let rhs = self.payload(rhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot"))?;
-                            let value = $ce(lhs, rhs, condition).map_err(ScalarFailure::Trap)?;
-                            self.jump(if value == 1 { then_target.index() } else { else_target.index() })?;
+                            let lhs = attempt!(self.payload(lhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot")));
+                            let rhs = attempt!(self.payload(rhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot")));
+                            let value = attempt!($ce(lhs, rhs, condition).map_err(ScalarFailure::Trap));
+                            next = attempt!(self.jump(if value == 1 { then_target.index() } else { else_target.index() }));
                             continue;
                         },)*
                         $(ExecutionInstruction::$jrk { lhs, rhs, condition, then_target, else_target } => {
-                            let lhs = self.payload(lhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot"))?;
+                            let lhs = attempt!(self.payload(lhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot")));
                             let rhs = rhs as i64 as u64;
-                            let value = $ce(lhs, rhs, condition).map_err(ScalarFailure::Trap)?;
-                            self.jump(if value == 1 { then_target.index() } else { else_target.index() })?;
+                            let value = attempt!($ce(lhs, rhs, condition).map_err(ScalarFailure::Trap));
+                            next = attempt!(self.jump(if value == 1 { then_target.index() } else { else_target.index() }));
                             continue;
                         },)*
                         $(ExecutionInstruction::$qjrr { lhs, rhs, condition, then_target, else_target } => {
-                            let lhs = self.payload(lhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot"))?;
-                            let rhs = self.payload(rhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot"))?;
-                            let value = $qe(lhs, rhs, condition).map_err(ScalarFailure::Trap)?;
-                            self.jump(if value == 1 { then_target.index() } else { else_target.index() })?;
+                            let lhs = attempt!(self.payload(lhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot")));
+                            let rhs = attempt!(self.payload(rhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot")));
+                            let value = attempt!($qe(lhs, rhs, condition).map_err(ScalarFailure::Trap));
+                            next = attempt!(self.jump(if value == 1 { then_target.index() } else { else_target.index() }));
                             continue;
                         },)*
                         $(ExecutionInstruction::$ur { dst, src } => {
-                            let value = self.payload(src).ok_or(ScalarFailure::Invariant("invalid execution operand slot"))?;
-                            (dst, $ue(value, value).map_err(ScalarFailure::Trap)?)
+                            let value = attempt!(self.payload(src).ok_or(ScalarFailure::Invariant("invalid execution operand slot")));
+                            (dst, attempt!($ue(value, value).map_err(ScalarFailure::Trap)))
                         },)*
                         $(ExecutionInstruction::$cv { dst, src, source, target } => {
-                            let value = self.payload(src).ok_or(ScalarFailure::Invariant("invalid execution operand slot"))?;
-                            (dst, payload::convert(value, source.builtin_type(), target.builtin_type()).map_err(ScalarFailure::Trap)?)
+                            let value = attempt!(self.payload(src).ok_or(ScalarFailure::Invariant("invalid execution operand slot")));
+                            (dst, attempt!(payload::convert(value, source.builtin_type(), target.builtin_type()).map_err(ScalarFailure::Trap)))
                         },)*
                         ExecutionInstruction::BoolToInteger { dst, src, target } => {
-                            let value = self.payload(src).ok_or(ScalarFailure::Invariant("invalid execution operand slot"))?;
-                            (dst, payload::convert(value, BuiltinType::Bool, target.builtin_type()).map_err(ScalarFailure::Trap)?)
+                            let value = attempt!(self.payload(src).ok_or(ScalarFailure::Invariant("invalid execution operand slot")));
+                            (dst, attempt!(payload::convert(value, BuiltinType::Bool, target.builtin_type()).map_err(ScalarFailure::Trap)))
                         }
                         ExecutionInstruction::IntegerBinaryKR { dst, lhs, rhs, op, domain } => {
-                            let rhs = self.payload(rhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot"))?;
-                            (dst, shared::integer(op, domain, lhs, rhs).map_err(ScalarFailure::Trap)?)
+                            let rhs = attempt!(self.payload(rhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot")));
+                            (dst, attempt!(shared::integer(op, domain, lhs, rhs).map_err(ScalarFailure::Trap)))
                         }
                         ExecutionInstruction::IntegerBinaryKK { dst, lhs, rhs, op, domain } => {
-                            (dst, shared::integer(op, domain, lhs, rhs).map_err(ScalarFailure::Trap)?)
+                            (dst, attempt!(shared::integer(op, domain, lhs, rhs).map_err(ScalarFailure::Trap)))
                         }
                         ExecutionInstruction::FloatBinaryKR { dst, lhs, rhs, op, domain } => {
-                            let rhs = self.payload(rhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot"))?;
-                            (dst, shared::float(op, domain, lhs, rhs).map_err(ScalarFailure::Trap)?)
+                            let rhs = attempt!(self.payload(rhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot")));
+                            (dst, attempt!(shared::float(op, domain, lhs, rhs).map_err(ScalarFailure::Trap)))
                         }
                         ExecutionInstruction::FloatBinaryKK { dst, lhs, rhs, op, domain } => {
-                            (dst, shared::float(op, domain, lhs, rhs).map_err(ScalarFailure::Trap)?)
+                            (dst, attempt!(shared::float(op, domain, lhs, rhs).map_err(ScalarFailure::Trap)))
                         }
                         ExecutionInstruction::ShiftKR { dst, lhs, rhs, kind, count_domain } => {
-                            let rhs = self.payload(rhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot"))?;
-                            (dst, shared::shift(kind, count_domain, lhs, rhs).map_err(ScalarFailure::Trap)?)
+                            let rhs = attempt!(self.payload(rhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot")));
+                            (dst, attempt!(shared::shift(kind, count_domain, lhs, rhs).map_err(ScalarFailure::Trap)))
                         }
                         ExecutionInstruction::ShiftKK { dst, lhs, rhs, kind, count_domain } => {
-                            (dst, shared::shift(kind, count_domain, lhs, rhs).map_err(ScalarFailure::Trap)?)
+                            (dst, attempt!(shared::shift(kind, count_domain, lhs, rhs).map_err(ScalarFailure::Trap)))
                         }
                         ExecutionInstruction::CompareStoreKR { dst, lhs, rhs, domain, condition } => {
-                            let rhs = self.payload(rhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot"))?;
-                            (dst, domain.evaluate(condition, lhs, rhs).map_err(ScalarFailure::Trap)?)
+                            let rhs = attempt!(self.payload(rhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot")));
+                            (dst, attempt!(domain.evaluate(condition, lhs, rhs).map_err(ScalarFailure::Trap)))
                         }
                         ExecutionInstruction::CompareStoreKK { dst, lhs, rhs, domain, condition } => {
-                            (dst, domain.evaluate(condition, lhs, rhs).map_err(ScalarFailure::Trap)?)
+                            (dst, attempt!(domain.evaluate(condition, lhs, rhs).map_err(ScalarFailure::Trap)))
                         }
                         ExecutionInstruction::CompareBranchKR { lhs, rhs, domain, condition, then_target, else_target } => {
-                            let rhs = self.payload(rhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot"))?;
-                            let value = domain.evaluate(condition, lhs, rhs).map_err(ScalarFailure::Trap)?;
-                            self.jump(if value == 1 { then_target.index() } else { else_target.index() })?;
+                            let rhs = attempt!(self.payload(rhs).ok_or(ScalarFailure::Invariant("invalid execution operand slot")));
+                            let value = attempt!(domain.evaluate(condition, lhs, rhs).map_err(ScalarFailure::Trap));
+                            next = attempt!(self.jump(if value == 1 { then_target.index() } else { else_target.index() }));
                             continue;
                         }
                         ExecutionInstruction::Jump(target) => {
-                            self.jump(target.index())?;
+                            next = attempt!(self.jump(target.index()));
                             continue;
                         }
                         ExecutionInstruction::Branch {
@@ -265,14 +271,14 @@ macro_rules! scalar_loop {
                             then_target,
                             else_target,
                         } => {
-                            let target = match self.payload(cond).ok_or(ScalarFailure::Invariant("invalid execution operand slot"))? {
+                            let target = match attempt!(self.payload(cond).ok_or(ScalarFailure::Invariant("invalid execution operand slot"))) {
                                 1 => then_target,
                                 0 => else_target,
                                 _ => {
-                                    return Err(ScalarFailure::Invariant("verified branch condition is not bool"));
+                                    break 'segment Err(ScalarFailure::Invariant("verified branch condition is not bool"));
                                 }
                             };
-                            self.jump(target.index())?;
+                            next = attempt!(self.jump(target.index()));
                             continue;
                         }
                         ExecutionInstruction::Return {
@@ -280,19 +286,22 @@ macro_rules! scalar_loop {
                             representation,
                         } => {
                             let value = match value {
-                                Some(slot) => ReturnValue::scalar(representation, self.payload(slot).ok_or(ScalarFailure::Invariant("invalid execution operand slot"))?),
+                                Some(slot) => ReturnValue::scalar(representation, attempt!(self.payload(slot).ok_or(ScalarFailure::Invariant("invalid execution operand slot")))),
                                 None => ReturnValue::scalar(representation, 0),
                             };
-                            return Ok(ScalarExit::Return(value));
+                            break 'segment Ok(ScalarExit::Return(value));
                         }
                         ExecutionInstruction::Managed(operation) => {
-                            return Ok(ScalarExit::Managed(operation));
+                            break 'segment Ok(ScalarExit::Managed(operation));
                         }
-                        ExecutionInstruction::Boundary => return Ok(ScalarExit::Boundary),
+                        ExecutionInstruction::Boundary => break 'segment Ok(ScalarExit::Boundary),
                     };
-                    self.write_payload(dst, value)
-                        .ok_or(ScalarFailure::Invariant("invalid execution operand slot"))?;
-                }
+                    attempt!(self.write_payload(dst, value)
+                        .ok_or(ScalarFailure::Invariant("invalid execution operand slot")));
+                };
+                *self.ip = next;
+                *self.executing = executing;
+                result
             }
 
         }

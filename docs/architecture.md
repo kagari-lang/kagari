@@ -2254,8 +2254,13 @@ callbacks, readonly access, bounds and current element contracts remain checked.
 The fixed setter copies an already rooted Value without a Rust conversion or heap
 growth. SDK conversions still retain their own roots, limits and safepoints because
 they may allocate or reenter; committing afterward rechecks the actual storage.
-Each scalar segment reuses the region's immutable function and disjoint mutable
-logical-PC fields and bounded scalar/initialization slices. Fetch borrows one
+Each scalar segment reuses the region's immutable function and bounded
+scalar/initialization slices. Next/executing PCs stay local until the segment exits;
+the wrapper publishes both on success and failure before diagnostics or managed
+handoffs. Slice exhaustion preserves the last executing point; safepoint preparation
+clears it as before. No external frame access or callback can observe intermediate
+local progress. Automatic-collection policy is captured at segment entry; dynamic
+cancellation, observer and abandonment requests retain per-instruction polling. Fetch borrows one
 immutable instruction; dispatch reads only its selected payload rather than copying
 the complete nested enum before classifying it. Instructions still check operand
 bounds and initialization without recovering the function or bank range. Closed

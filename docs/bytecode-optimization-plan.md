@@ -72,7 +72,7 @@ runs or benchmark timing overlapping builds/tests/profiling.
 
 ## Prepared scalar execution follow-up (BO09-BO12)
 
-**Status: BO09-BO10 complete; BO11 segment progress is next.**
+**Status: BO09-BO11 complete; BO12 integrated evidence is in progress.**
 Implementation and per-phase commits were authorized on 2026-10-27. The
 [checked-semantics revision](#checked-semantics-catalog-revision-2026-10-27) supersedes
 the full Cartesian catalog below; the user authorized execution of this revision. This section supersedes the earlier ideal-model sketches as
@@ -316,7 +316,7 @@ needed for local progress or preparation-time constants.
   Acceptance: selected numeric/source-free/frame tests pass, exhaustive supported
   preparation, <=24-byte operation, and direct assembly has no numeric function-pointer
   calls or generic site interpretation. Record a bounded diagnostic timing comparison.
-- [ ] **BO11 — Localize scalar progress and invariant polling inputs.** Implement
+- [x] **BO11 — Localize scalar progress and invariant polling inputs.** Implement
   the wrapper/writeback protocol and exit table. Reuse existing completed-state
   publication and exact origins. Keep bank initialization/bounds checks and all
   genuinely dynamic polls. Acceptance: selected slice, observation, manual entry,
@@ -1907,3 +1907,55 @@ rises from 26,165,760 to 26,191,360 bytes (+25 KiB overall). This is the cost of
 static direct handlers, not evidence that 238 variants are universally optimal.
 BO11 now owns local PC/executing publication and stable polling inputs; preserve
 this checkpoint's measured image and do not mix its changes into BO10 attribution.
+
+
+### BO11 segment-local progress implementation, 2026-10-27
+
+`frame/cursor/scalars.rs` now keeps next/executing PCs in locals for one closed
+scalar segment and publishes both after an inner closure returns, including every
+error path. The closure is only a control-flow boundary: it does not allocate or
+introduce a callback. Its small state remains beside the loop instead of creating
+an otherwise empty progress module. Managed operations, returns, slow boundaries,
+slices and safepoints all flush before their existing owners run. Automatic-GC
+policy is captured at segment entry; cancellation, observer attachment and pending
+abandonment remain checked at each existing logical boundary. First-instruction
+admission and bounded/unbounded counters are unchanged. Checks and diagnostics
+remain authoritative; failures publish their original instruction before quarantine
+or error allocation. No numeric changes are part of this checkpoint.
+
+Selected verification: runtime frame/cursor contracts; VM owned-drive slicing,
+native/cancellation/effect/reentry contracts plus numeric trap/loop/NaN observation
+cases. The full matrix remains CI-only. Local quality checks and same-build release
+assembly are required before the BO11 commit; BO12 owns the final seven-pair suites.
+
+
+BO11 first implementation passes 26 runtime and nine selected VM tests plus all
+local quality checks. Release assembly found the immediate closure outlined into
+a function capturing PC locals by reference, preserving unwanted local memory
+traffic and adding a segment call. This fails the intended code shape despite
+correct behavior. Replace that closure with a labeled loop and a local result
+propagation macro: every successful/error exit breaks to one writeback block,
+without captured references or an extra execution helper. Keep the same checks,
+error values and publication ordering. Reverify affected boundary tests and inspect
+the rebuilt release loop before accepting BO11; no inlining override or poll-policy
+change is used to conceal the ownership problem.
+
+
+### BO11 accepted checkpoint, 2026-10-27
+
+The labeled-loop implementation passes the same 26 runtime frame/cursor and nine
+selected VM contracts, structure (zero exceptions), formatting, diff and workspace
+all-target Clippy checks. These reruns are justified by the changed exit protocol;
+unchanged numeric/other BO10 tests retain their evidence. Full CI remains unrun.
+Release rebuilding the final loop takes 52 seconds with the existing cache.
+
+Same-build MSVC dumpbin assembly now contains exactly the bounded/unbounded loop
+functions, with no outlined closure. The unbounded normal fetch at 0xc4..0xf5 keeps
+current/next PCs in rdi/r12; the ordinary result backedge does not publish frame
+PCs. The shared exit at 0x625b..0x626d stores next/executing fields before returning.
+Automatic-GC policy is loaded at entry; cancellation/observer/abandonment loads stay
+in the loop. Shared numeric calls remain limited to their admitted families; no
+per-instruction progress helper or function pointer was introduced. The private
+macro only propagates errors to this common exit and does not implement numeric
+semantics. BO12 now owns final timing, same-image sampling and remaining-cost
+attribution; no speed claim is inferred from this assembly check.

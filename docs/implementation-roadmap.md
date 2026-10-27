@@ -756,7 +756,9 @@ It specifies typed internal handlers, shared numeric semantics, segment-local PC
 publication, migration/removal checkpoints and validation. Implementation and
 per-phase commits are authorized; BO09 froze the baseline and BO10 implements
 238 compact prepared variants with checked semantics and 24-byte instructions.
-Three-pair direct diagnostics improve 38.4%; BO11-BO12 remain pending. Earlier acceptance
+Three-pair BO10 direct diagnostics improve 38.4%; BO11 localizes scalar progress
+with passing boundary tests and release assembly. BO12 integrated evidence remains
+pending. Earlier acceptance
 results remain unchanged. Public frame initialization checks and logical polling frequency stay
 in the contract.
 
