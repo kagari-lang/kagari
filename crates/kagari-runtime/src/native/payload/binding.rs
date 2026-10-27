@@ -5,8 +5,8 @@ use crate::{
     module::{ExecutableModule, Module},
     native::{
         binding::{LinkedNativeFunction, NativeResult},
-        payload::{NativeType, TypeRecord, managed::AppliedSchema},
-        rust_type::RustType,
+        payload::{DataRecord, NativeType, managed::AppliedSchema},
+        rust_type::{RustType, check_mapping},
         storage::NativePayload,
         types::TypeRef,
     },
@@ -18,7 +18,7 @@ use kagari_types::{
     declaration::{TypeDefKind, native::NativeStorageLayout},
     ty::{NominalTy, Ty},
 };
-use std::{marker::PhantomData, slice, sync::Arc};
+use std::{slice, sync::Arc};
 
 impl Runtime {
     pub fn bind_native_type<T: NativePayload>(
@@ -45,6 +45,19 @@ impl Runtime {
         self.gc().ensure_no_native_borrow()?;
         let snapshot = self.capture_module(owner)?;
         let owner = &snapshot.root;
+        let argument = self.apply_native_type(owner, declaration, definitions, arguments)?;
+        self.prepare_native_type(owner, argument)
+    }
+
+    pub(crate) fn apply_native_type(
+        &self,
+        owner: &ExecutableModule,
+        declaration: DefinitionId,
+        definitions: &DefinitionTable,
+        arguments: &[TypeArgument],
+    ) -> NativeResult<TypeArgument> {
+        self.gc().ensure_no_native_borrow()?;
+        self.validate_executable_module(owner)?;
         let id = self
             .definition_context()
             .import(definitions, [declaration])
@@ -82,7 +95,7 @@ impl Runtime {
             .type_arguments(owner, Some(environment), &[expression])?
             .pop()
             .ok_or_else(invalid)?;
-        self.prepare_native_type(owner, argument)
+        Ok(argument)
     }
 
     pub(crate) fn prepare_native_type<T: Send + 'static>(
@@ -195,12 +208,12 @@ impl Runtime {
     /// A validated object's heap admission is distinct from host occurrence discovery.
     /// This cannot admit a bare TypeArgument: its value, scope, generation and payload
     /// representation must all agree before the descriptor can escape.
-    pub(super) fn prepare_native_type_from_object<T: Send + 'static>(
+    pub(super) fn native_data_from_object<T: Send + 'static>(
         &self,
         owner: &ExecutableModule,
         argument: TypeArgument,
         value: &Value,
-    ) -> NativeResult<NativeType<T>> {
+    ) -> NativeResult<Arc<DataRecord>> {
         self.gc().ensure_no_native_borrow()?;
         self.resources().ensure_execution_allowed()?;
         self.validate_executable_module(owner)?;
@@ -212,7 +225,7 @@ impl Runtime {
             return Err(invalid());
         }
         self.gc().check_native_payload::<T>(*id, false)?;
-        self.prepare_admitted_native_type(owner, argument)
+        self.prepare_native_data::<T>(owner, argument)
     }
 
     fn prepare_admitted_native_type<T: Send + 'static>(
@@ -220,6 +233,27 @@ impl Runtime {
         owner: &ExecutableModule,
         argument: TypeArgument,
     ) -> NativeResult<NativeType<T>> {
+        let data = self.prepare_native_data::<T>(owner, argument)?;
+        self.prepare_native_data_type(data)
+    }
+
+    pub(super) fn prepare_native_data_type<T: Send + 'static>(
+        &self,
+        data: Arc<DataRecord>,
+    ) -> NativeResult<NativeType<T>> {
+        let rust_type = RustType::prepare(self, &data.owner, data.argument.clone())?;
+        Ok(NativeType {
+            record: data,
+            rust_type,
+        })
+    }
+
+    fn prepare_native_data<T: Send + 'static>(
+        &self,
+        owner: &ExecutableModule,
+        argument: TypeArgument,
+    ) -> NativeResult<Arc<DataRecord>> {
+        check_mapping::<T>(self, owner, &argument)?;
         let Ty::NativeObject(nominal) = argument.ty() else {
             return Err(invalid());
         };
@@ -231,21 +265,18 @@ impl Runtime {
         if storage.layout() != NativeStorageLayout::Opaque || !storage.accepts_payload::<T>() {
             return Err(invalid());
         }
-        let rust_type = RustType::prepare(self, owner, argument.clone())?;
         let managed = storage
             .managed_schema()
             .map(|schema| {
                 AppliedSchema::prepare(self, owner, &argument, schema.clone()).map(Arc::new)
             })
             .transpose()?;
-        Ok(NativeType {
-            record: Arc::new(TypeRecord {
-                rust_type,
-                storage: storage.clone(),
-                managed,
-            }),
-            mapping: PhantomData,
-        })
+        Ok(Arc::new(DataRecord {
+            argument,
+            owner: owner.clone(),
+            storage: storage.clone(),
+            managed,
+        }))
     }
 
     /// Host admission uses sealed occurrences, never a runtime trait search. An

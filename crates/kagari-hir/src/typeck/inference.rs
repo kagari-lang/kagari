@@ -12,9 +12,6 @@ use kagari_common::{
     identity::table::DefinitionTable,
 };
 
-#[cfg(test)]
-use kagari_types::collection::CollectionAccess;
-
 /// Available implementation evidence at the inference site. Header matching
 /// passes None: finding a substitution does not authorize receiver conversion.
 #[derive(Clone, Copy)]
@@ -48,12 +45,7 @@ pub(crate) fn infer(
     if let (Some(context), TypeId::Trait(target)) = (context, actual)
         && matches!(
             expected,
-            TypeId::Struct(_)
-                | TypeId::NativeObject(_)
-                | TypeId::Enum(_)
-                | TypeId::Array(_)
-                | TypeId::Map { .. }
-                | TypeId::Set(_, _)
+            TypeId::Struct(_) | TypeId::NativeObject(_) | TypeId::Enum(_) | TypeId::Array(_)
         )
     {
         return context.infer_result(expected, target, parameters, substitution, cancel);
@@ -105,21 +97,10 @@ pub(crate) fn infer(
                 pending.push((expected, actual));
             }
             (TypeId::Iter(expected), TypeId::Iter(actual))
-            | (TypeId::Array(expected), TypeId::Array(actual))
-            | (TypeId::Set(expected, _), TypeId::Set(actual, _)) => {
+            | (TypeId::Array(expected), TypeId::Array(actual)) => {
                 pending.push((expected, actual));
             }
-            (
-                TypeId::Map {
-                    key: ek, value: ev, ..
-                },
-                TypeId::Map {
-                    key: ak, value: av, ..
-                },
-            ) => {
-                pending.push((ev, av));
-                pending.push((ek, ak));
-            }
+
             (
                 TypeId::Function {
                     params: ep,
@@ -265,7 +246,10 @@ impl Context<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{tests::test_analysis, types::NominalType};
+    use crate::{
+        tests::{native_type, test_analysis},
+        types::NominalType,
+    };
     use kagari_common::identity::{
         DefinitionKind, ModuleIdentity,
         map::DefinitionContext,
@@ -331,7 +315,7 @@ mod tests {
         let mut writable = foundation_interface(definitions, "MutableSet");
         writable.arguments = vec![integer.clone()];
         for actual in [
-            TypeId::Set(Box::new(integer.clone()), CollectionAccess::Mutable),
+            native_type(definitions, "HashSet", vec![integer.clone()]),
             TypeId::Trait(writable),
         ] {
             let mut substitution = TypeSubstitution::default();
@@ -496,33 +480,36 @@ fn make<T: Eq>() -> Cell<T> { loop {} }
 
     #[test]
     fn recovery_keeps_independent_facts_without_crossing_shape_boundaries() {
-        let mut value: TypeId = TypeId::Map {
-            key: Box::new(TypeId::Builtin(BuiltinType::I32)),
-            value: Box::new(TypeId::Tuple(vec![
-                TypeId::Error,
-                TypeId::Builtin(BuiltinType::Bool),
-            ])),
-            access: CollectionAccess::Mutable,
+        let context = DefinitionContext::new().unwrap();
+        let owner = definition(&context, "map.kgr", DefinitionKind::AssociatedType, "Map");
+        let application = |arguments| {
+            TypeId::NativeObject(NominalType {
+                declaration: owner,
+                arguments,
+                associated_types: Default::default(),
+            })
         };
-        let other = TypeId::Map {
-            key: Box::new(TypeId::Builtin(BuiltinType::Bool)),
-            value: Box::new(TypeId::Tuple(vec![
+        let mut value = application(vec![
+            TypeId::Builtin(BuiltinType::I32),
+            TypeId::Tuple(vec![TypeId::Error, TypeId::Builtin(BuiltinType::Bool)]),
+        ]);
+        let other = application(vec![
+            TypeId::Builtin(BuiltinType::Bool),
+            TypeId::Tuple(vec![
                 TypeId::Builtin(BuiltinType::I32),
                 TypeId::Builtin(BuiltinType::I32),
-            ])),
-            access: CollectionAccess::Mutable,
-        };
+            ]),
+        ]);
         value.recover_from(&other);
         assert_eq!(
             value,
-            TypeId::Map {
-                key: Box::new(TypeId::Builtin(BuiltinType::I32)),
-                value: Box::new(TypeId::Tuple(vec![
+            application(vec![
+                TypeId::Builtin(BuiltinType::I32),
+                TypeId::Tuple(vec![
                     TypeId::Builtin(BuiltinType::I32),
                     TypeId::Builtin(BuiltinType::Bool)
-                ])),
-                access: CollectionAccess::Mutable
-            }
+                ])
+            ])
         );
         assert!(value.conflicts_with(&other));
         let mut different_arity: TypeId = TypeId::Tuple(vec![TypeId::Error]);

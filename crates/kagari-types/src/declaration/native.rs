@@ -12,16 +12,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NativeStorageLayout {
     Opaque,
-    Sequence {
-        element: usize,
-    },
-    Map {
-        key: usize,
-        value: usize,
-    },
-    Set {
-        element: usize,
-    },
     Iterator {
         item: usize,
     },
@@ -39,9 +29,7 @@ impl NativeStorageLayout {
             Self::Opaque => true,
             Self::Future | Self::Task => arity == 1,
             Self::TaskScope => arity == 0,
-            Self::Sequence { element } | Self::Set { element } => element < arity,
             Self::Iterator { item } => item < arity,
-            Self::Map { key, value } => key < arity && value < arity && key != value,
         }
     }
 }
@@ -49,8 +37,6 @@ impl NativeStorageLayout {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum NativeTypeConstructor {
     String,
-    Map,
-    Set,
     Iter,
     Range(RangeKind),
     Reference(ReferenceAccess),
@@ -60,8 +46,8 @@ impl NativeTypeConstructor {
     pub fn arity(self) -> usize {
         match self {
             Self::String | Self::Range(RangeKind::Full) => 0,
-            Self::Map => 2,
-            Self::Set | Self::Iter | Self::Range(_) | Self::Reference(_) => 1,
+
+            Self::Iter | Self::Range(_) | Self::Reference(_) => 1,
         }
     }
 

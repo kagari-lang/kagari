@@ -3,7 +3,7 @@ use crate::identity::{
     DefinitionKind, DefinitionPath, ModuleIdentity,
     table::{
         DefinitionId, DefinitionRemap, DefinitionTable, DefinitionTableBuilder,
-        DefinitionTableError, module::ModuleHandle,
+        DefinitionTableError, DefinitionTableId, module::ModuleHandle,
     },
 };
 use crate::{
@@ -21,19 +21,40 @@ use std::{
 /// Clones share one append-only writer. Unlike cloning a builder, this cannot
 /// assign the same scoped index to different declarations on independent branches.
 #[derive(Debug, Clone)]
-pub struct DefinitionContext(Arc<Mutex<DefinitionTableBuilder>>);
+pub struct DefinitionContext(Arc<ContextState>);
+
+#[derive(Debug)]
+struct ContextState {
+    id: DefinitionTableId,
+    writer: Mutex<DefinitionTableBuilder>,
+}
 
 impl DefinitionContext {
     pub fn new() -> Result<Self, DefinitionTableError> {
-        Ok(Self(Arc::new(Mutex::new(DefinitionTableBuilder::new()?))))
+        let builder = DefinitionTableBuilder::new()?;
+        Ok(Self(Arc::new(ContextState {
+            id: builder.freeze().id(),
+            writer: Mutex::new(builder),
+        })))
+    }
+
+    /// Identify the shared append-only writer without creating a table snapshot.
+    /// Clones and all snapshots retain this identity as declarations are appended.
+    pub fn id(&self) -> DefinitionTableId {
+        self.0.id
     }
 
     pub fn snapshot(&self) -> DefinitionTable {
-        self.0.lock().expect("definition context poisoned").freeze()
+        self.0
+            .writer
+            .lock()
+            .expect("definition context poisoned")
+            .freeze()
     }
 
     pub fn intern(&self, path: &DefinitionPath) -> Result<DefinitionId, DefinitionTableError> {
         self.0
+            .writer
             .lock()
             .expect("definition context poisoned")
             .intern_path(path)
@@ -46,6 +67,7 @@ impl DefinitionContext {
         module: &ModuleIdentity,
     ) -> Result<DefinitionId, DefinitionTableError> {
         self.0
+            .writer
             .lock()
             .expect("definition context poisoned")
             .intern_root(module)
@@ -57,6 +79,7 @@ impl DefinitionContext {
         module: &ModuleIdentity,
     ) -> Result<ModuleHandle, DefinitionTableError> {
         self.0
+            .writer
             .lock()
             .expect("definition context poisoned")
             .intern_module(module)
@@ -75,6 +98,7 @@ impl DefinitionContext {
         occurrence: u32,
     ) -> Result<DefinitionId, DefinitionTableError> {
         self.0
+            .writer
             .lock()
             .expect("definition context poisoned")
             .intern_child(parent, kind, name, occurrence)
@@ -90,6 +114,7 @@ impl DefinitionContext {
         ids: impl IntoIterator<Item = DefinitionId>,
     ) -> Result<DefinitionRemap, DefinitionTableError> {
         self.0
+            .writer
             .lock()
             .expect("definition context poisoned")
             .import(source, ids)
@@ -418,6 +443,9 @@ mod tests {
             .unwrap();
         branch.insert_id(next, 20).unwrap();
         first.insert(path("different"), 30).unwrap();
+        assert_eq!(first.context().id(), snapshot.id());
+        assert_eq!(branch.context().id(), snapshot.id());
+        assert_ne!(DefinitionContext::new().unwrap().id(), snapshot.id());
         assert_eq!(first.context.lookup(&path("run")), Some(run));
         assert_eq!(branch.context.lookup(&path("next")), Some(next));
         assert_eq!(

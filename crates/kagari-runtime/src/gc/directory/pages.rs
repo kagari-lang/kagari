@@ -1,5 +1,6 @@
 //! One nonmoving allocator and disposal protocol with small-slab and large controls.
 mod backing;
+pub(super) mod retirement;
 #[cfg(test)]
 mod tests;
 
@@ -17,6 +18,7 @@ use std::{
     cell::Cell,
     iter,
     marker::PhantomData,
+    mem,
     panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
     ptr::NonNull,
     sync::Arc,
@@ -245,9 +247,12 @@ impl Retired {
             return false;
         }
         *initialized = false;
+        let Some(destroy) = descriptor.destroy else {
+            return false;
+        };
         catch_unwind(AssertUnwindSafe(|| {
             // SAFETY: initialization consumed before dispatch, even on panic.
-            unsafe { (descriptor.destroy)(backing.pointer.add(*offset)) };
+            unsafe { destroy(backing.pointer.add(*offset)) };
         }))
         .is_err()
     }
@@ -344,6 +349,10 @@ impl Pages {
     }
 
     fn release_allocation(&mut self, index: u32) {
+        drop(self.take_allocation(index));
+    }
+
+    fn take_allocation(&mut self, index: u32) -> Allocation {
         let allocation = &self.allocations[index as usize];
         let links = *allocation.active().unwrap();
         let bytes = allocation.bytes();
@@ -355,9 +364,13 @@ impl Pages {
         if let Some(next) = links.next {
             self.allocations[next as usize].active_mut().previous = links.previous;
         }
-        self.allocations[index as usize] = Allocation::Vacant(self.free);
+        let allocation = mem::replace(
+            &mut self.allocations[index as usize],
+            Allocation::Vacant(self.free),
+        );
         self.free = Some(index);
         self.backing_bytes -= bytes;
+        allocation
     }
 
     /// All fallible ownership transfers precede initialized publication. Typed
@@ -468,7 +481,7 @@ impl Pages {
         (descriptor.kind == location.kind).then_some((pointer, descriptor))
     }
 
-    pub(super) fn occupied(&self) -> impl Iterator<Item = (u32, PayloadLocation)> + '_ {
+    fn occupied_slots(&self) -> impl Iterator<Item = (u32, u32, u16, DescriptorId)> + '_ {
         iter::successors(self.first_active, |&index| {
             self.allocations[index as usize].active().unwrap().next
         })
@@ -489,19 +502,29 @@ impl Pages {
                     }
                     _ => return None,
                 };
-                let descriptor = self
-                    .descriptors
-                    .get(id)
-                    .expect("admitted occupied descriptor");
-                Some((
-                    directory,
-                    PayloadLocation {
-                        kind: descriptor.kind,
-                        page: index,
-                        slot: slot as u16,
-                    },
-                ))
+                Some((directory, index, slot as u16, id))
             })
+        })
+    }
+
+    pub(super) fn occupied_directories(&self) -> impl Iterator<Item = u32> + '_ {
+        self.occupied_slots().map(|(directory, _, _, _)| directory)
+    }
+
+    pub(super) fn occupied(&self) -> impl Iterator<Item = (u32, PayloadLocation)> + '_ {
+        self.occupied_slots().map(|(directory, page, slot, id)| {
+            let descriptor = self
+                .descriptors
+                .get(id)
+                .expect("admitted occupied descriptor");
+            (
+                directory,
+                PayloadLocation {
+                    kind: descriptor.kind,
+                    page,
+                    slot,
+                },
+            )
         })
     }
 

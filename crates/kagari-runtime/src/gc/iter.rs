@@ -13,7 +13,7 @@ use crate::{
         storage_type::StorageType,
     },
     resource::HeapCharge,
-    value::{MapKey, Value},
+    value::Value,
     value_check::matches_type,
 };
 
@@ -50,8 +50,6 @@ pub(super) struct NativeIter {
     pub(super) item_contract: StorageType,
     pub(super) position: u128,
     pub(super) string: Option<StringTraversal>,
-    /// Unordered tables retain keys once; next performs a direct checked lookup.
-    pub(super) keys: Vec<MapKey>,
     pub(super) revision: u64,
 }
 
@@ -60,7 +58,7 @@ unsafe impl NativePayload for NativeIter {
     const SCAN_KIND: NativeScanKind = NativeScanKind::Resumable;
 
     fn begin_scan(&self) -> Self::ScanState {
-        (0, self.keys.len() + 2)
+        (0, 2)
     }
 
     fn scan<'payload>(
@@ -80,11 +78,7 @@ unsafe impl NativePayload for NativeIter {
                         string.trace(visit);
                     }
                 }
-                index => {
-                    if let Some(key) = self.keys.get(index - 2) {
-                        visit(key.value());
-                    }
-                }
+                _ => unreachable!("bounded builtin cursor scan"),
             }
             state.0 += 1;
         }
@@ -92,13 +86,7 @@ unsafe impl NativePayload for NativeIter {
     }
 
     fn charge(&self) -> HeapCharge {
-        HeapCharge::new(
-            1 + self.keys.len(),
-            self.keys
-                .capacity()
-                .checked_mul(size_of::<MapKey>())
-                .expect("allocated iterator keys"),
-        )
+        HeapCharge::new(1, 0)
     }
 }
 
@@ -110,14 +98,15 @@ fn invalid() -> RuntimeError {
 }
 
 impl GcHeap {
-    /// Structural revision used by native cursors and callback-driven traversals.
+    /// Structural revision for the builtin Array, String, and Range cursor.
     /// Element replacement does not change this revision. Invalid handles and
-    /// sequence storage temporarily detached for editing have no readable revision.
-    pub fn collection_revision(&self, source: &Value) -> Option<u64> {
+    /// objects under exclusive native operations have no readable revision.
+    fn source_revision(&self, source: &Value) -> Option<u64> {
         self.ensure_execution_allowed().ok()?;
         match source {
             Value::Str(_) | Value::Range(_) => Some(0),
-            Value::Array(id) | Value::GcHandle(id) | Value::Map(id) | Value::Set(id) => {
+
+            Value::Array(id) => {
                 self.check_native_operation(*id, None, false).ok()?;
                 let objects = self.objects.borrow();
                 let HeapObject::Native(object) = self.readable_object(&objects, *id)? else {
@@ -133,20 +122,6 @@ impl GcHeap {
     pub(crate) fn matches_iter_type(&self, id: HeapObjectId, element: TypeView<'_>) -> bool {
         let objects = self.objects.borrow();
         matches!(self.readable_object(&objects, id), Some(HeapObject::Native(object)) if matches!(object.ty, Ty::Iter(_)) && object.payload::<NativeIter>().is_ok_and(|iter| iter.item_contract.matches_view(element)))
-    }
-
-    /// Reject a stale traversal before reading another element. Writes already
-    /// performed by callbacks remain committed; no collection borrow is retained.
-    pub fn check_collection_revision(
-        &self,
-        source: &Value,
-        revision: u64,
-    ) -> Result<(), RuntimeError> {
-        self.ensure_execution_allowed()?;
-        if self.collection_revision(source) != Some(revision) {
-            return Err(invalid());
-        }
-        Ok(())
     }
 
     pub(crate) fn new_iter(
@@ -174,9 +149,7 @@ impl GcHeap {
         self.ensure_execution_allowed()?;
         let valid = match (source, ty) {
             (Value::Array(id), Ty::Array(_)) => self.object_kind(*id) == Some(GcObjectKind::Array),
-            (Value::GcHandle(id), Ty::NativeObject(_)) => self.ensure_sequence(*id).is_ok(),
-            (Value::Set(id), Ty::Set(_, _)) => self.object_kind(*id) == Some(GcObjectKind::Set),
-            (Value::Map(id), Ty::Map { .. }) => self.object_kind(*id) == Some(GcObjectKind::Map),
+
             (Value::Range(range), Ty::Range(_, kind)) => {
                 kind.has_start() && self.range(*range).is_some_and(|range| range.matches(ty))
             }
@@ -192,14 +165,7 @@ impl GcHeap {
             return Err(invalid());
         }
         let item_type = match ty {
-            Ty::Range(item, _) | Ty::Array(item) | Ty::Set(item, _) => (**item).clone(),
-            Ty::NativeObject(_) => {
-                let Value::GcHandle(id) = source else {
-                    return Err(invalid());
-                };
-                self.sequence_contract(*id).ok_or_else(invalid)?.ty.clone()
-            }
-            Ty::Map { key, value, .. } => Ty::Tuple(vec![(**key).clone(), (**value).clone()]),
+            Ty::Range(item, _) | Ty::Array(item) => (**item).clone(),
             Ty::Builtin(BuiltinType::String) => ty.clone(),
             _ => return Err(invalid()),
         };
@@ -208,29 +174,11 @@ impl GcHeap {
             None => (item_type, None),
         };
         let item_contract = match scope {
-            Some(scope) if scope.item.ty == item_type => scope.item,
+            Some(scope) if *scope.item.ty() == item_type => scope.item,
             Some(_) => return Err(invalid()),
             None => StorageType::prepare(item_type.clone(), owner)?,
         };
-        let revision = self.collection_revision(source).ok_or_else(invalid)?;
-        let count = match source {
-            Value::Map(id) => self.map_len(*id),
-            Value::Set(id) => self.set_len(*id),
-            _ => Some(0),
-        }
-        .ok_or_else(invalid)?;
-        let mut keys = Vec::new();
-        keys.try_reserve_exact(count)
-            .map_err(|_| self.resource_limit("iterator keys"))?;
-        match source {
-            Value::Map(id) => self
-                .with_map(*id, |entries| keys.extend(entries.keys().cloned()))
-                .ok_or_else(invalid)?,
-            Value::Set(id) => self
-                .with_set(*id, |entries| keys.extend(entries.iter().cloned()))
-                .ok_or_else(invalid)?,
-            _ => {}
-        }
+        let revision = self.source_revision(source).ok_or_else(invalid)?;
         let cursor_type = Ty::Iter(Box::new(item_type.clone()));
         let payload = NativeIter {
             source: *source,
@@ -238,7 +186,6 @@ impl GcHeap {
             item_contract,
             position: 0,
             string,
-            keys,
             revision,
         };
         let object = self
@@ -301,8 +248,7 @@ impl GcHeap {
                 return Err(invalid());
             };
             let iter = object.payload::<NativeIter>()?;
-            if iter.item_type != **item
-                || self.collection_revision(&iter.source) != Some(iter.revision)
+            if iter.item_type != **item || self.source_revision(&iter.source) != Some(iter.revision)
             {
                 return Err(invalid());
             }
@@ -324,35 +270,11 @@ impl GcHeap {
                             .map(PendingItem::Value),
                         1,
                     ),
-                    Value::Array(id) | Value::GcHandle(id) => (
+                    Value::Array(id) => (
                         self.buffer_get(*id, iter.position).map(PendingItem::Value),
                         1,
                     ),
-                    Value::Set(id) => (
-                        self.with_set(*id, |values| {
-                            usize::try_from(iter.position)
-                                .ok()
-                                .and_then(|position| iter.keys.get(position))
-                                .and_then(|key| values.get(key))
-                                .map(|key| PendingItem::Value(key.to_value()))
-                        })
-                        .ok_or_else(invalid)?,
-                        1,
-                    ),
-                    Value::Map(id) => (
-                        self.with_map(*id, |entries| {
-                            usize::try_from(iter.position)
-                                .ok()
-                                .and_then(|position| iter.keys.get(position))
-                                .and_then(|key| {
-                                    entries
-                                        .get(key)
-                                        .map(|value| PendingItem::Pair(key.to_value(), *value))
-                                })
-                        })
-                        .ok_or_else(invalid)?,
-                        1,
-                    ),
+
                     Value::Str(text) => {
                         let text = self.string(*text).ok_or_else(invalid)?;
                         let character = usize::try_from(iter.position)

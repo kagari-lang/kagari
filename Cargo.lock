@@ -704,6 +704,7 @@ dependencies = [
  "kagari-codegen-cranelift",
  "kagari-runtime",
  "kagari-source",
+ "kagari-stdlib",
  "kagari-vm",
  "mlua",
 ]
@@ -778,11 +779,13 @@ dependencies = [
  "kagari-common",
  "kagari-compiler",
  "kagari-contract",
+ "kagari-derive",
  "kagari-hir",
  "kagari-runtime",
  "kagari-source",
  "kagari-types",
  "rstest",
+ "serde",
 ]
 
 [[package]]

@@ -261,14 +261,14 @@ mod tests {
     #[test]
     fn installation_nominals_reject_cached_fallback_and_nested_lexical_admission() {
         let mut runtime = Runtime::default();
-        let native_owner = layout_fixtures::sequence_owner(&mut runtime);
+        let native_owner = layout_fixtures::opaque_owner(&mut runtime);
         let native_root = native_owner
             .definitions()
             .lookup_root(&native_owner.bytecode.identity)
             .unwrap();
         let native_declaration = native_owner
             .definitions()
-            .lookup_child(native_root, DefinitionKind::AssociatedType, "Vec", 0)
+            .lookup_child(native_root, DefinitionKind::AssociatedType, "Store", 0)
             .unwrap();
         let code = installation_layouts();
         let left_program = runtime.load_program("same", code.clone()).unwrap();

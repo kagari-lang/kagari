@@ -23,10 +23,7 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionKind, table::DefinitionTable},
 };
-use kagari_types::{
-    collection::CollectionAccess, declaration::names::NameNamespace, language::Protocol,
-    scalar::BuiltinType,
-};
+use kagari_types::{declaration::names::NameNamespace, language::Protocol, scalar::BuiltinType};
 use std::iter;
 
 /// Borrowed declaration environment for resolving one written type.
@@ -509,19 +506,7 @@ fn resolve_type_bounded(
             }
         }),
     };
-    let resolved = if context.declarations.native_readonly_type(ty) {
-        match resolved {
-            TypeId::Map { key, value, .. } => TypeId::Map {
-                key,
-                value,
-                access: CollectionAccess::ReadOnly,
-            },
-            TypeId::Set(item, _) => TypeId::Set(item, CollectionAccess::ReadOnly),
-            _ => TypeId::Error,
-        }
-    } else {
-        resolved
-    };
+
     let resolved = if let Some(size) = budget.check(&resolved, &Default::default(), cancel) {
         budget.remaining -= size;
         resolved

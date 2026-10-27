@@ -2,29 +2,30 @@ use super::compile_program;
 use crate::vm::Vm;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
-    error::RuntimeError,
-    gc::roots::RootedValue,
     module::{ExecutableModule, entry::ProgramEntry},
     native::{
-        binding::NativeResult, builder::ModuleBuilder, context::CallContext,
-        declarations::FunctionDecl, views::ValueHandle,
+        binding::NativeResult, builder::ModuleBuilder, declarations::FunctionDecl,
+        typed::NativeContext, value_handle::ScriptValue,
     },
     resource::RuntimeLimits,
     value::Value,
 };
-use kagari_stdlib::declarations::StandardDeclarations;
+use kagari_stdlib::{
+    collections::{map::ScriptMap, set::ScriptSet, vector::ScriptVec},
+    declarations::StandardDeclarations,
+};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::sync::{Arc, Mutex};
 
 struct MutationFixture {
     vm: Vm,
     loaded: ExecutableModule,
-    retained: Arc<Mutex<Option<RootedValue>>>,
+    retained: Arc<Mutex<Option<ScriptValue>>>,
 }
 
 impl MutationFixture {
     fn new(source: &str, policy: RuntimeLimits) -> Self {
-        let retained: Arc<Mutex<Option<RootedValue>>> = Arc::default();
+        let retained: Arc<Mutex<Option<ScriptValue>>> = Arc::default();
         let keep = retained.clone();
         let mut module = ModuleBuilder::new(
             "test::roots",
@@ -44,12 +45,8 @@ impl MutationFixture {
         module
             .bind(
                 function,
-                move |cx: &mut CallContext<'_>, value: ValueHandle<'_>| -> NativeResult<()> {
-                    *keep.lock().unwrap() = Some(
-                        cx.heap()
-                            .root_value(value.value())
-                            .ok_or_else(|| RuntimeError::module_validation("fixture root"))?,
-                    );
+                move |_: &mut NativeContext<'_>, (value,): (ScriptValue,)| -> NativeResult<()> {
+                    *keep.lock().unwrap() = Some(value);
                     Ok(())
                 },
             )
@@ -77,25 +74,22 @@ impl MutationFixture {
         }
     }
 
-    fn value(&self) -> Value {
-        self.retained
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .value(self.vm.runtime().gc())
-            .unwrap()
-    }
-
     fn is_empty(&self) -> bool {
-        let heap = self.vm.runtime().gc();
-        let length = match self.value() {
-            Value::GcHandle(id) => heap.sequence_len(id),
-            Value::Map(id) => heap.map_len(id),
-            Value::Set(id) => heap.set_len(id),
-            _ => panic!("retained collection"),
-        };
-        length.unwrap() == 0
+        let retained = self.retained.lock().unwrap();
+        let value = retained.as_ref().unwrap();
+        let mut cx = self.vm.context(&self.loaded).unwrap();
+        if let Ok(vector) = value.decode::<ScriptVec<ScriptValue>>(&mut cx) {
+            return vector.len(&cx).unwrap() == 0;
+        }
+        if let Ok(map) = value.decode::<ScriptMap<ScriptValue, ScriptValue>>(&mut cx) {
+            return map.len(&cx).unwrap() == 0;
+        }
+        value
+            .decode::<ScriptSet<ScriptValue>>(&mut cx)
+            .unwrap()
+            .len(&cx)
+            .unwrap()
+            == 0
     }
 }
 
@@ -151,30 +145,13 @@ fn duplicate_native_insertions_preserve_final_container_contents() {
             ..Default::default()
         },
     );
-    let Value::Tuple(values) = fixture
+    let (map, set): (ScriptMap<i32, i32>, ScriptSet<i32>) = fixture
         .vm
-        .execute(&fixture.loaded, ProgramEntry::Main)
-        .unwrap()
-        .return_value
-        .value(fixture.vm.runtime().gc())
-        .expect("retained execution result")
-    else {
-        panic!("containers")
-    };
-    let values = fixture.vm.runtime().gc().tuple(values).unwrap().to_vec();
-    let [Value::Map(map), Value::Set(set)] = values.as_slice() else {
-        panic!("handles")
-    };
-    let runtime = fixture.vm.runtime();
-
-    assert_eq!(
-        runtime.gc().map_get(*map, &Value::I32(1)),
-        Some(Value::I32(3))
-    );
-    assert_eq!(
-        runtime.gc().set_snapshot(*set).unwrap(),
-        vec![Value::I32(1)]
-    );
+        .execute_typed(&fixture.loaded, ProgramEntry::Main, ())
+        .unwrap();
+    let mut cx = fixture.vm.context(&fixture.loaded).unwrap();
+    assert_eq!(map.get(&mut cx, 1).unwrap(), Some(3));
+    assert_eq!(set.to_vec(&mut cx).unwrap(), vec![1]);
 }
 
 #[test]

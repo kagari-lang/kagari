@@ -291,13 +291,12 @@ pub fn enum_owner(runtime: &mut Runtime, payloads: Vec<Ty>) -> ExecutableModule 
     runtime.select_program(&program).unwrap()
 }
 
-/// Load registered sequence contracts for tests of growth and detached leases.
 #[allow(dead_code)]
-pub fn sequence_owner(runtime: &mut Runtime) -> ExecutableModule {
-    let mut builder = ModuleBuilder::new("kagari-alloc::vec", &Default::default()).unwrap();
-    let mut vector = builder.define_type("Vec").unwrap();
+pub fn opaque_owner(runtime: &mut Runtime) -> ExecutableModule {
+    let mut builder = ModuleBuilder::new("test::opaque", &Default::default()).unwrap();
+    let mut vector = builder.define_type("Store").unwrap();
     vector.type_parameter("T").unwrap();
-    vector.native_storage(NativeStorage::sequence(0)).unwrap();
+    vector.native_storage(NativeStorage::data::<u32>()).unwrap();
     vector.finish().unwrap();
     let module = builder.finish().unwrap();
     let context = DefinitionContext::new().unwrap();
@@ -309,7 +308,7 @@ pub fn sequence_owner(runtime: &mut Runtime) -> ExecutableModule {
     module.install(runtime).unwrap();
     let program = runtime
         .load_program(
-            "sequence-fixture",
+            "opaque-fixture",
             ProgramFixture {
                 exports: Default::default(),
                 root: ModuleRef::new(0),

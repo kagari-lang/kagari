@@ -21,7 +21,7 @@ operators, comparisons, hashing, Index, Fn, iteration, collection interfaces,
 formatting and error conversion. It also declares Option/Result/Ordering/Bound,
 range forms, cold Future values and the default Vec/HashMap/HashSet types. The SDK installs their basic native operations by default. Array literals
 construct builtin fixed-length arrays independently of installed declarations.
-Vec is registered nominal sequence storage; Vec::from and HashSet::from are
+Vec is an ordinary nominal opaque payload; Vec::from and HashSet::from are
 ordinary associated constructors taking `[T]`. Explicit registrations declare the core traits; validated language
 roles select their semantic duties. Installation remains independent of syntax/HIR.
 Each declaration has one canonical core/alloc/std owner; checked `std` re-exports
@@ -37,7 +37,8 @@ The [namespace and prelude inventory](builtins.md#namespaces-and-prelude) define
 public paths and default name visibility.
 
 Map/Set interfaces do not prescribe storage or traversal order. Default HashMap
-and HashSet use Rust `std::collections` hash tables and require Eq + Hash keys.
+and HashSet use library-owned dense entries and a prehashed scalar index backed by
+Rust HashMap, and require Eq + Hash keys.
 They promise neither insertion nor sorted order. LinkedHashMap/LinkedHashSet and
 other additional containers belong to optional modules; none are installed by
 the current bounded library proof.
@@ -362,22 +363,21 @@ retains a callback uses `StoredCallable` and traces it. Returned script heap val
 must be rooted before further allocation or reentry; callback argument packs do
 not create a script tuple merely to carry Rust arguments.
 
-Scoped sequence views borrow rooted existing storage. Primitive layouts use
-contiguous typed buffers, including empty sequences whose layout is determined by
-the declared element type. Heap-reference elements use traced Values. Bulk slice
-access does not copy the entire sequence or allocate a per-call scratch buffer.
-Mutable access respects native borrow/callback guards and storage revisions. These
-sequence codecs and edit leases accept registered nominal sequence storage, never
-builtin arrays. Fixed arrays share internal buffer kernels only after separate
-family and element-contract validation.
+Stdlib Vec, HashMap and HashSet are ordinary nominal opaque declarations, not
+special type/value tags or native layout families. Their library payloads and
+cursors use the same public provider protocol as external collections. Vec uses
+contiguous typed scalar buffers or traced Values selected from its exact element
+contract, including when empty. Checked scalar slice access does not copy storage
+and cannot escape or reenter. Builtin Array remains a distinct engine representation.
 
-`SequenceEdit` leases the actual sequence buffer for synchronous mutation. The
-lease excludes receiver-slot access through other aliases and restores storage on
-success, failure or unwind. Primitive edits do not clone the buffer. Traced values
-keep explicit roots while sorting may move elements into Rust scratch space.
-Sort, reverse, retain and dedup preserve completed effects; no rollback guarantee
-or atomic bulk replacement is required. Receiver identity, generation, callback
-protection and storage revisions remain checked.
+Vec algorithm main/scratch/progress remain in the rooted payload. Operation guards
+protect receiver slots across callbacks; short loans end before collecting calls,
+and sealed recovery preserves elements on errors/unwind without allocation or a
+whole-input root prepass. Only checked selected scalar comparison and pointer-free
+storage qualify for the bounded noncollecting leaf; arbitrary comparators use the
+general collecting algorithm. Sort, reverse, retain and dedup preserve completed
+effects, not transaction rollback. There is no SequenceEdit compatibility API or
+Vec engine primitive.
 
 Unsafe `NativePayload` supplies one `begin_scan`/`scan` protocol, infallible
 installed `HeapCharge` and ordinary Rust destruction. Every retained script Value,
@@ -386,8 +386,8 @@ associates the representation and mapping once through `registration_storage`;
 `NativeStorage` remains the lower-level layout/factory descriptor. New opaque types
 use the generic Opaque handle, not new compiler, ABI, verifier or VM type variants.
 General loans and retained extraction follow the
-[provider protocol](host-interop.md#general-native-payload-protocol). The specialized
-sequence/hash paths described here remain until PG03's collection migration.
+[provider protocol](host-interop.md#general-native-payload-protocol). Standard
+collections use that same boundary; no specialized sequence/hash runtime path remains.
 
 ## Sorting and lazy iteration
 

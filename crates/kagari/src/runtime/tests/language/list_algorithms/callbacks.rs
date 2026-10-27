@@ -4,12 +4,15 @@ use kagari_runtime::{
     module::entry::ProgramEntry,
     native::{
         binding::NativeResult, builder::ModuleBuilder, context::CallContext,
-        declarations::FunctionDecl, views::ValueHandle,
+        conversion::context::ConversionContext, declarations::FunctionDecl, typed::NativeContext,
+        views::ValueHandle,
     },
-    value::Value,
 };
 use kagari_source::source::SourceFile;
-use kagari_stdlib::declarations::StandardDeclarations;
+use kagari_stdlib::{
+    collections::vector::{ScriptVec, VecValues},
+    declarations::StandardDeclarations,
+};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
@@ -99,38 +102,30 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
             "KG_RUNTIME_CANCELLED"
         );
         assert_eq!(calls.load(Ordering::SeqCst), 3);
-        let Value::GcHandle(array) = retained
-            .lock()
+        let selected = runtime.runtime().select_program(&loaded).unwrap();
+        let root = retained.lock().unwrap().as_ref().unwrap().clone();
+        let mut actual = ConversionContext::new(runtime.runtime(), &selected)
             .unwrap()
-            .as_ref()
+            .decode::<VecValues<i32>>(&root)
             .unwrap()
-            .value(runtime.runtime().gc())
-            .unwrap()
-        else {
-            panic!("Vec")
-        };
-        let mut actual = runtime
-            .runtime()
-            .gc()
-            .sequence_snapshot(array)
-            .unwrap()
-            .into_iter()
-            .map(|value| {
-                let Value::I32(value) = value else {
-                    panic!("element")
-                };
-                value
-            })
-            .collect::<Vec<_>>();
+            .0;
         if !preserve_order {
             actual.sort();
         }
         assert_eq!(actual, retained_values);
-        runtime
-            .runtime()
-            .gc()
-            .sequence_push(array, Value::I32(99))
-            .unwrap();
+        {
+            let values = ConversionContext::new(runtime.runtime(), &selected)
+                .unwrap()
+                .decode::<ScriptVec<i32>>(&root)
+                .unwrap();
+            values
+                .push(
+                    &mut NativeContext::new(runtime.runtime(), &selected).unwrap(),
+                    99,
+                )
+                .unwrap();
+        }
+        drop(root);
         retained.lock().unwrap().take();
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
         assert_eq!(runtime.runtime().collect_garbage().unwrap().live_objects, 0);

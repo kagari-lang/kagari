@@ -2,7 +2,6 @@ use super::*;
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, map::DefinitionContext, table::DefinitionId,
 };
-use kagari_types::collection::CollectionAccess;
 
 fn definition(context: &DefinitionContext, module: &str, kind: DefinitionKind) -> DefinitionId {
     let root = context
@@ -12,55 +11,58 @@ fn definition(context: &DefinitionContext, module: &str, kind: DefinitionKind) -
 }
 
 #[test]
-fn collection_access_is_invariant_in_nested_types_and_survives_substitution() {
+fn native_collection_arguments_remain_invariant_through_substitution() {
     let context = DefinitionContext::new().unwrap();
-    use kagari_types::collection::CollectionAccess::{Mutable, ReadOnly};
+    let owner = definition(&context, "collection.kgr", DefinitionKind::AssociatedType);
     let parameter = GenericParameterType {
-        owner: definition(&context, "collection.kgr", DefinitionKind::Function),
+        owner,
         position: 0,
         name: "T".into(),
     };
-    let item = TypeId::Generic(parameter.clone());
-    for writable in [
-        TypeId::Set(Box::new(item.clone()), Mutable),
-        TypeId::Map {
-            key: Box::new(TypeId::Builtin(BuiltinType::String)),
-            value: Box::new(item.clone()),
-            access: Mutable,
-        },
+    let application = |arguments| {
+        TypeId::NativeObject(NominalType {
+            declaration: owner,
+            arguments,
+            associated_types: Default::default(),
+        })
+    };
+    for arguments in [
+        vec![TypeId::Generic(parameter.clone())],
+        vec![
+            TypeId::Builtin(BuiltinType::String),
+            TypeId::Generic(parameter.clone()),
+        ],
     ] {
-        let readable = writable.read_only_view().unwrap();
-        assert_eq!(readable.collection_access(), Some(ReadOnly));
-        assert!(writable.can_weaken_to(&readable));
-        assert!(!readable.can_weaken_to(&writable));
-        assert!(writable.conflicts_with(&readable));
-        assert!(readable.conflicts_with(&writable));
+        let template = application(arguments);
+        let integer = template.instantiate(
+            &[(parameter.clone(), TypeId::Builtin(BuiltinType::I32))]
+                .into_iter()
+                .collect(),
+        );
+        let boolean = template.instantiate(
+            &[(parameter.clone(), TypeId::Builtin(BuiltinType::Bool))]
+                .into_iter()
+                .collect(),
+        );
+        assert!(integer.conflicts_with(&boolean));
+        assert!(boolean.conflicts_with(&integer));
+        assert!(!integer.can_weaken_to(&boolean));
         assert_eq!(
-            [writable.clone(), readable.clone()]
+            [integer.clone(), boolean.clone()]
                 .into_iter()
                 .collect::<std::collections::HashSet<_>>()
                 .len(),
             2
         );
-        let nested_writable = TypeId::Set(Box::new(writable.clone()), Mutable);
-        let nested_readable = TypeId::Set(Box::new(readable.clone()), Mutable);
-        assert!(!nested_writable.can_weaken_to(&nested_readable));
-        assert!(!nested_writable.can_weaken_to(&nested_readable.read_only_view().unwrap()));
-        assert!(nested_writable.conflicts_with(&nested_readable));
         assert!(
-            TypeId::Tuple(vec![writable]).conflicts_with(&TypeId::Tuple(vec![readable.clone()]))
+            application(vec![integer.clone()]).conflicts_with(&application(vec![boolean.clone()]))
         );
-
-        let substitution = [(parameter.clone(), TypeId::Builtin(BuiltinType::I32))]
-            .into_iter()
-            .collect();
-        let instantiated = readable.instantiate(&substitution);
-        assert_eq!(instantiated.collection_access(), Some(ReadOnly));
-        assert!(instantiated.is_concrete());
-        assert_eq!(instantiated.map_children(Clone::clone), instantiated);
+        assert!(TypeId::Tuple(vec![integer.clone()]).conflicts_with(&TypeId::Tuple(vec![boolean])));
+        assert!(integer.is_concrete());
+        assert_eq!(integer.map_children(Clone::clone), integer);
         assert_eq!(
-            instantiated.argument_context(&TypeSubstitution::default(), &[]),
-            instantiated
+            integer.argument_context(&TypeSubstitution::default(), &[]),
+            integer
         );
     }
 }
@@ -241,16 +243,24 @@ fn self_substitution_copies_deep_replacements_once_and_preserves_foreign_owners(
     let mut template = TypeId::SelfType(owner);
     let mut replacement = TypeId::SelfType(owner);
     for _ in 0..10_000 {
-        template = TypeId::Set(Box::new(template), CollectionAccess::Mutable);
-        replacement = TypeId::Set(Box::new(replacement), CollectionAccess::Mutable);
+        template = TypeId::NativeObject(NominalType {
+            declaration: owner,
+            arguments: vec![template],
+            associated_types: Default::default(),
+        });
+        replacement = TypeId::NativeObject(NominalType {
+            declaration: owner,
+            arguments: vec![replacement],
+            associated_types: Default::default(),
+        });
     }
     let result = template.with_self(&owner, &replacement);
     fn consume(mut ty: TypeId, depth: usize, owner: &DefinitionId) {
         for _ in 0..depth {
-            let TypeId::Set(inner, _) = ty else {
-                panic!("missing set layer")
+            let TypeId::NativeObject(mut inner) = ty else {
+                panic!("missing nominal layer")
             };
-            ty = *inner;
+            ty = inner.arguments.pop().unwrap();
         }
         assert_eq!(ty, TypeId::SelfType(*owner));
     }

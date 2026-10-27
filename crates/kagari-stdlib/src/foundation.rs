@@ -114,6 +114,9 @@ pub(crate) fn public_types() -> Vec<(ModuleIdentity, DefinitionKind, String)> {
         [
             "HashMap",
             "HashSet",
+            "HashMapCursor",
+            "HashSetCursor",
+            "VecCursor",
             "Ref",
             "RefMut",
             "Future",

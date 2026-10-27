@@ -2509,6 +2509,10 @@ objects and five GCs. These are per-invocation allocation traffic, not RSS or re
 memory. Independent ordinary ten-second windows also observe one script object and two
 GCs per array invocation, and 2,001 objects and five GCs per map invocation.
 
+The following Vec/Map attribution describes the historical implementation at this
+measurement checkpoint. PG03 replaces the concrete runtime paths with library
+payloads; these counts and costs are not measurements of that migration.
+
 **Vec:** this fixture already uses compact `Vec<i32>` backing storage, not one heap
 object per element. Index/set use the installed in-region primitive, not a general
 native callback for every access. Push remains an allocating callback transition.
@@ -2524,11 +2528,12 @@ execution-poll call sites across primitive entry/exit, setter and preflight, in
 addition to surrounding interpreter polling. This is a candidate for one checked
 transaction owner, not authorization to delete dynamic validation or polls.
 
-**Map insertion:**
-[`GcHeap::map_insert`](../crates/kagari-runtime/src/gc/maps_sets.rs) calls contains_key
-for growth/accounting, then
-[`HashMapStorage::insert`](../crates/kagari-runtime/src/native/hash_storage.rs)
-calls contains_key again before HashMap::insert. Each successful insertion or
+**Map insertion (historical 2026-10-17 implementation):**
+`GcHeap::map_insert` in the former `gc/maps_sets.rs` called contains_key for
+growth/accounting, then `HashMapStorage::insert` in the former
+`native/hash_storage.rs` called contains_key again before HashMap::insert.
+PG03 removes both concrete runtime owners; current storage lives in the
+[stdlib hash kernel](../crates/kagari-stdlib/src/collections/hash.rs). Each successful insertion or
 replacement therefore makes three explicit table-search API calls, not one. The
 fixture's 2,000 inserts issue 6,000 such calls, plus 2,000 gets; rehash work is extra.
 This is verified duplicate membership work across accounting/storage ownership,
@@ -2780,8 +2785,11 @@ depends on compilation policy. Both differ from Kagari's checked numeric contrac
 These sources, read on 2026-10-17, support design comparison, not copying host
 operators or an unmeasured speedup.
 
-Existing StringByteLength, VecIndex and VecSet/VecSetFluent bodies remain installed
-by exact identity/signature and share their native/SDK semantic owners. No duplicate
+At this historical 2026-10-17 checkpoint, StringByteLength, VecIndex and
+VecSet/VecSetFluent bodies were installed by exact identity/signature and shared
+their native/SDK semantic owners. PG03 subsequently removes the Vec primitives in
+favor of ordinary library entries; the following attribution describes that earlier
+implementation, not the current collection model. No duplicate
 stdlib body remains. Vec push is deferred because heap growth invalidates the
 closed cursor's entry collection snapshot. Map lookup is deferred because selected
 hash/equality may call script and the ordinary Option result allocates. The existing

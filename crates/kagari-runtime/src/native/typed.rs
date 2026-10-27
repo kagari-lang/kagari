@@ -5,11 +5,12 @@ mod receiver;
 use crate::{
     Runtime,
     error::RuntimeError,
+    frame::types::arguments::TypeArgument,
     gc::GcCollection,
     module::ExecutableModule,
     native::{
         binding::{Codec, LinkedNativeFunction, NativeBinding, NativeResult},
-        context::{CallContext, ScriptInvoker},
+        context::{CallContext, LinkedCallable, LinkedOperation, ScriptInvoker},
         conversion::{
             FromKagari, IntoKagari, arguments::FromKagariArguments, context::ConversionContext,
         },
@@ -54,6 +55,33 @@ impl<'call> NativeContext<'call> {
 
     pub fn runtime(&self) -> &'call Runtime {
         self.conversion.runtime()
+    }
+
+    /// The exact publication supplying this synchronous conversion scope.
+    pub fn owner(&self) -> &ExecutableModule {
+        self.conversion.owner()
+    }
+
+    /// Checked conversions share the invocation's retained owner and temporary roots.
+    pub fn conversion(&mut self) -> &mut ConversionContext<'call> {
+        &mut self.conversion
+    }
+
+    /// Retain this native invocation's complete result contract.
+    pub fn result_type_argument(&self) -> NativeResult<TypeArgument> {
+        self.function
+            .ok_or_else(|| RuntimeError::module_validation("native result outside invocation"))?
+            .type_signature()
+            .map(|signature| signature.result.clone())
+    }
+
+    /// Inspect immutable callable evidence supplied by this checked invocation.
+    /// This lends signature/intrinsic facts; it grants no unrooted call authority.
+    pub fn selected_at(&self, slot: usize) -> NativeResult<&LinkedCallable> {
+        self.function
+            .and_then(|function| function.selected.get(slot))
+            .and_then(LinkedOperation::ready)
+            .ok_or_else(|| RuntimeError::module_validation("native selected callable slot"))
     }
 
     pub fn poll(&self) -> NativeResult<()> {

@@ -49,9 +49,7 @@ impl<'runtime> ExecutionStack<'runtime> {
             for frame in frames.iter() {
                 #[cfg(test)]
                 retention_probe::record(runtime.gc(), Event::Frame);
-                if !frame.mutations.is_empty()
-                    || matches!(frame.native_entry, NativeEntryState::Running)
-                {
+                if matches!(frame.native_entry, NativeEntryState::Running) {
                     return Ok(false);
                 }
                 let ranges = values.ranges(frame.slots).ok_or_else(|| {

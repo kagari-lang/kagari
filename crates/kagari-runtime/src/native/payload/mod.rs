@@ -1,5 +1,6 @@
 //! Retained access to registered, exclusively runtime-owned Rust payloads.
 mod binding;
+pub mod borrowed;
 mod conversion;
 pub mod data;
 pub mod managed;
@@ -7,6 +8,7 @@ mod methods;
 pub mod take;
 
 use crate::{
+    Runtime,
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
     gc::{GcHeap, roots::RootedValue},
@@ -29,9 +31,11 @@ use crate::{
 };
 use std::{marker::PhantomData, sync::Arc};
 
+/// Checked data identity and representation, without an executable program lease.
 #[derive(Debug)]
-struct TypeRecord<T> {
-    rust_type: RustType<T>,
+struct DataRecord {
+    argument: TypeArgument,
+    owner: ExecutableModule,
     storage: NativeStorage,
     managed: Option<Arc<AppliedSchema>>,
 }
@@ -39,15 +43,15 @@ struct TypeRecord<T> {
 /// A prepared native storage application. Clones reuse its checked descriptor.
 #[derive(Debug)]
 pub struct NativeType<T> {
-    record: Arc<TypeRecord<T>>,
-    mapping: PhantomData<fn() -> T>,
+    record: Arc<DataRecord>,
+    rust_type: RustType<T>,
 }
 
 impl<T> Clone for NativeType<T> {
     fn clone(&self) -> Self {
         Self {
             record: self.record.clone(),
-            mapping: PhantomData,
+            rust_type: self.rust_type.clone(),
         }
     }
 }
@@ -57,14 +61,16 @@ impl<T> Clone for NativeType<T> {
 #[derive(Debug)]
 pub struct Opaque<T> {
     root: RootedValue,
-    native_type: NativeType<T>,
+    data: Arc<DataRecord>,
+    mapping: PhantomData<fn() -> T>,
 }
 
 impl<T> Clone for Opaque<T> {
     fn clone(&self) -> Self {
         Self {
             root: self.root.clone(),
-            native_type: self.native_type.clone(),
+            data: self.data.clone(),
+            mapping: PhantomData,
         }
     }
 }
@@ -72,15 +78,15 @@ impl<T> Clone for Opaque<T> {
 impl<T> NativeType<T> {
     /// The same checked target descriptor used when lending external Rust storage.
     pub fn rust_type(&self) -> &RustType<T> {
-        &self.record.rust_type
+        &self.rust_type
     }
 
     pub fn type_argument(&self) -> &TypeArgument {
-        self.record.rust_type.type_argument()
+        self.rust_type.type_argument()
     }
 
     pub fn owner(&self) -> &ExecutableModule {
-        self.record.rust_type.owner()
+        self.rust_type.owner()
     }
 }
 
@@ -118,14 +124,33 @@ impl<T: NativePayload> NativeType<T> {
         )?;
         Ok(Opaque {
             root,
-            native_type: self.clone(),
+            data: self.record.clone(),
+            mapping: PhantomData,
         })
     }
 }
 
 impl<T: Send + 'static> Opaque<T> {
-    pub fn native_type(&self) -> &NativeType<T> {
-        &self.native_type
+    /// Exact data type, retaining lexical metadata without pinning executable code.
+    pub fn type_argument(&self) -> &TypeArgument {
+        &self.data.argument
+    }
+
+    /// Lexical owner for data compatibility checks; it need not remain executable.
+    pub fn owner(&self) -> &ExecutableModule {
+        &self.data.owner
+    }
+
+    /// Prepare executable access using the caller's admitted execution scope.
+    /// The returned descriptor retains its program independently of this data root.
+    pub fn prepare_native_type(&self, cx: &NativeContext<'_>) -> NativeResult<NativeType<T>> {
+        let value = self.value(cx.runtime().gc())?;
+        let data = cx.runtime().native_data_from_object::<T>(
+            cx.owner(),
+            self.type_argument().clone(),
+            &value,
+        )?;
+        cx.runtime().prepare_native_data_type(data)
     }
 
     /// Retain a typed relationship from this object's selected metadata. Each
@@ -232,41 +257,13 @@ impl<T: NativePayload> Opaque<T> {
         kind: NativeOperationKind,
         recovery: Option<fn(&mut T, &mut StorageAccess<'_>)>,
     ) -> NativeResult<Option<NativeOperationGuard<'runtime>>> {
-        let runtime = cx.runtime();
-        let heap = runtime.gc();
-        let Value::GcHandle(id) = self.value(heap)? else {
-            unreachable!("opaque root")
-        };
-        heap.check_native_payload::<T>(id, false)?;
-        if kind == NativeOperationKind::ReadOnlyCallbacks && recovery.is_some() {
-            return Err(RuntimeError::module_validation(
-                "read-only operation cannot register mutable recovery",
-            ));
-        }
-        if kind == NativeOperationKind::ExclusiveSlots {
-            heap.prepare_native_recovery(id)?;
-        }
-        let Some(lease) = heap.try_enter_native_operation(id, kind)? else {
-            return Ok(None);
-        };
-        let recovery = recovery.map(|recover| -> Box<Recovery> {
-            Box::new(move |payload, access| {
-                recover(
-                    payload
-                        .downcast_mut::<T>()
-                        .expect("checked recovery payload"),
-                    access,
-                )
-            })
-        });
-        Ok(Some(NativeOperationGuard {
-            heap,
-            id,
-            runtime: Some(runtime),
+        operation_guard(
+            cx.runtime(),
+            self.value(cx.runtime().gc())?,
+            Some(self.root.clone()),
+            kind,
             recovery,
-            _root: self.root.clone(),
-            _lease: lease,
-        }))
+        )
     }
 }
 
@@ -325,7 +322,7 @@ impl NativeContext<'_> {
     }
 }
 
-impl<T> Opaque<T> {
+impl<T: Send + 'static> Opaque<T> {
     fn value(&self, heap: &GcHeap) -> NativeResult<Value> {
         self.root
             .value(heap)
@@ -339,9 +336,8 @@ impl<T> Opaque<T> {
         expected: &TypeArgument,
     ) -> NativeResult<Value> {
         if !self
-            .native_type
             .type_argument()
-            .view(self.native_type.owner())
+            .view(self.owner())
             .compatible(expected.view(cx.owner()))
         {
             return Err(RuntimeError::module_validation(
@@ -350,4 +346,48 @@ impl<T> Opaque<T> {
         }
         self.value(cx.runtime().gc())
     }
+}
+
+/// Shared operation admission for owning and call-scoped provider receivers.
+fn operation_guard<'runtime, T: NativePayload>(
+    runtime: &'runtime Runtime,
+    value: Value,
+    root: Option<RootedValue>,
+    kind: NativeOperationKind,
+    recovery: Option<fn(&mut T, &mut StorageAccess<'_>)>,
+) -> NativeResult<Option<NativeOperationGuard<'runtime>>> {
+    let heap = runtime.gc();
+    let Value::GcHandle(id) = value else {
+        unreachable!("opaque root")
+    };
+    heap.check_native_payload::<T>(id, false)?;
+    if kind == NativeOperationKind::ReadOnlyCallbacks && recovery.is_some() {
+        return Err(RuntimeError::module_validation(
+            "read-only operation cannot register mutable recovery",
+        ));
+    }
+    if kind == NativeOperationKind::ExclusiveSlots {
+        heap.prepare_native_recovery(id)?;
+    }
+    let Some(lease) = heap.try_enter_native_operation(id, kind)? else {
+        return Ok(None);
+    };
+    let recovery = recovery.map(|recover| -> Box<Recovery> {
+        Box::new(move |payload, access| {
+            recover(
+                payload
+                    .downcast_mut::<T>()
+                    .expect("checked recovery payload"),
+                access,
+            )
+        })
+    });
+    Ok(Some(NativeOperationGuard {
+        heap,
+        id,
+        runtime: Some(runtime),
+        recovery,
+        _root: root,
+        _lease: lease,
+    }))
 }

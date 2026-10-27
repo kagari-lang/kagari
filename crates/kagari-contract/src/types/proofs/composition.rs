@@ -79,12 +79,8 @@ impl ProofCatalog<'_> {
             }
             match ty {
                 Ty::Trait(_) => return Ok(true),
-                Ty::Array(_)
-                | Ty::NativeObject(_)
-                | Ty::Struct(_)
-                | Ty::Enum(_)
-                | Ty::Map { .. }
-                | Ty::Set(_, _) => {
+
+                Ty::Array(_) | Ty::NativeObject(_) | Ty::Struct(_) | Ty::Enum(_) => {
                     if self.explicit(
                         &intrinsic::applied(Protocol::PartialEq, vec![], &self.definitions)?,
                         ty,

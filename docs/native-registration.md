@@ -27,6 +27,21 @@ providers are installed in the destination engine: installation checks the actua
 closed batch again. Supply the engine builder's `declarations()` as the provider
 catalog when composing application libraries with that engine.
 
+Standard Vec/HashMap/HashSet now use this same ordinary nominal opaque boundary;
+there are no special native collection constructors or engine Vec primitives.
+Import retained adapters from `kagari_stdlib::collections::{vector::ScriptVec,
+map::ScriptMap, set::ScriptSet}` and owned Vec conversion from
+`kagari_stdlib::collections::vector::VecValues`. Optional Serde adapters live in
+`kagari_stdlib::serde`. Script Vec and shared-object semantics are unchanged.
+
+Provider bodies can borrow an existing argument with `CallContext::payload`, or an
+Opaque root with `Opaque::borrow`, instead of manufacturing an owning adapter.
+`BorrowedPayload::edit_prepared` fuses preparation/preflight and a short edit;
+`StorageAccess::publish_argument` validates the current rooted call argument.
+These generic APIs preserve unsafe loan obligations and cannot span callbacks.
+See the [provider protocol](spec/host-interop.md#general-native-payload-protocol)
+and [explicit executable preparation](spec/host-interop.md#retained-native-data-and-executable-preparation).
+
 ## Collection, sealing and preparation
 
 1. `ModuleSetBuilder::new(&providers)` imports the external provider catalog once

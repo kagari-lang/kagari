@@ -14,7 +14,6 @@ use kagari_runtime::{
 use kagari_source::source::SourceFile;
 use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::{
-    collection::CollectionAccess,
     declaration::host::{HostCallPolicy, HostFunctionEffects, HostPassingStyle},
     scalar::BuiltinType,
     ty::Ty,
@@ -113,30 +112,33 @@ fn host_results_preserve_collection_families_through_artifacts_and_binding_check
 fn readonly_host_hash_storage_has_exact_read_and_content_protocols() {
     let catalog = StandardDeclarations::default().catalog().unwrap();
     let mut builder = ModuleBuilder::new("demo", &catalog).unwrap();
-    let map = |access| Type::map(Type::i32(), Type::i32(), access).unwrap();
-    let set = |access| Type::set(Type::i32(), access).unwrap();
-    for (name, input, output) in [
-        (
-            "read_map",
-            map(CollectionAccess::Mutable),
-            map(CollectionAccess::ReadOnly),
-        ),
-        (
-            "read_set",
-            set(CollectionAccess::Mutable),
-            set(CollectionAccess::ReadOnly),
-        ),
-    ] {
+    let standard = StandardDeclarations::default();
+    let map = standard.hash_map(Type::i32(), Type::i32()).unwrap();
+    let set = standard.hash_set(Type::i32()).unwrap();
+    let map_view = catalog
+        .trait_reference(&kagari_stdlib::identity::trait_id("Map"))
+        .unwrap()
+        .apply([Type::i32(), Type::i32()])
+        .unwrap();
+    let set_view = catalog
+        .trait_reference(&kagari_stdlib::identity::trait_id("Set"))
+        .unwrap()
+        .apply([Type::i32()])
+        .unwrap();
+    for (name, input, output) in [("read_map", map, map_view), ("read_set", set, set_view)] {
         let function = builder
             .define_function(
                 FunctionDecl::new(name)
-                    .parameter("value", input)
-                    .returns(output)
+                    .parameter("value", input.clone())
+                    .returns(output.ty())
                     .host_policy(HostCallPolicy {
                         passing: vec![HostPassingStyle::Owned],
                         effects: Default::default(),
                     }),
             )
+            .unwrap();
+        builder
+            .function(&function, |function| function.produces(input))
             .unwrap();
         builder
             .bind(function, |_: &HostCallContext<'_>, args: &[Value]| {
@@ -175,16 +177,17 @@ fn main() -> i32 {
     val a: HashMap<i32, i32> = HashMap::new(); a.insert(1, 40);
     val b: HashMap<i32, i32> = HashMap::new(); b.insert(1, 40);
     val x = demo::read_map(a); val y = demo::read_map(b);
-    if !(equal(x, y) && x.hash() == y.hash() && x.get(1) == Some(40)) { return 1; }
+    if !(equal(a, b) && a.hash() == b.hash() && x.get(1) == Some(40)) { return 1; }
     val mx: Map<i32, i32> = x; val my: Map<i32, i32> = y;
-    if !(x === a && map_content_equal(mx, my)) { return 2; }
+    if !map_content_equal(mx, my) { return 2; }
     val sa = HashSet::from([1, 2]); val sb = HashSet::from([2, 1]);
     val sx = demo::read_set(sa); val sy = demo::read_set(sb);
-    if !(equal(sx, sy) && sx.hash() == sy.hash() && sx.contains(2)) { return 3; }
+    if !(equal(sa, sb) && sa.hash() == sb.hash() && sx.contains(2)) { return 3; }
     val ix: Set<i32> = sx; val iy: Set<i32> = sy;
-    if !(sx === sa && set_content_equal(ix, iy)) { return 4; }
+    if !set_content_equal(ix, iy) { return 4; }
     a.insert(2, 2); sa.insert(3);
-    if !(mx.get(2) == Some(2) && ix.contains(3)) { return 5; }
+    if !(x.get(2) == Some(2) && mx.get(2) == Some(2) && y.get(2) == None
+        && sx.contains(3) && ix.contains(3) && !sy.contains(3)) { return 5; }
     42
 }
 "#;

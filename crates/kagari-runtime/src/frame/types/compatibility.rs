@@ -69,13 +69,14 @@ impl<'a> TypeView<'a> {
     /// Carry the closed result already checked by a type argument or storage
     /// contract. Keep the source expression and its lexical provenance for layout
     /// comparison; a closed spelling alone does not identify a nominal generation.
+    /// TypeArgument, StorageType, and InterfaceDescription constructors validate
+    /// concreteness before publishing their immutable closed operand.
     pub(crate) fn prepared(
         expression: &'a Ty,
         closed: &'a Ty,
         owner: &'a ExecutableModule,
         environment: Option<&'a TypeBindings>,
     ) -> Self {
-        debug_assert!(closed.is_concrete());
         Self {
             prepared: Some(closed),
             ..Self::new(expression, owner, environment)
@@ -228,10 +229,14 @@ impl<'a> TypeView<'a> {
     }
 
     pub(crate) fn compatible(self, other: Self) -> bool {
-        self.compare(other, &mut HashSet::new())
+        self.compare(other, &mut None)
     }
 
-    fn compare(self, other: Self, visited: &mut HashSet<(TypeIdentity, TypeIdentity)>) -> bool {
+    fn compare(
+        self,
+        other: Self,
+        visited: &mut Option<HashSet<(TypeIdentity, TypeIdentity)>>,
+    ) -> bool {
         let (Some(left), Some(right)) = (self.normalized(), other.normalized()) else {
             return false;
         };
@@ -267,7 +272,10 @@ impl<'a> TypeView<'a> {
             let (Some(a_key), Some(b_key)) = (left.identity(), right.identity()) else {
                 return false;
             };
-            if !visited.insert((a_key, b_key)) {
+            if !visited
+                .get_or_insert_with(HashSet::new)
+                .insert((a_key, b_key))
+            {
                 return true;
             }
             if !left.compare_fields(right, &a, visited) {
@@ -291,7 +299,7 @@ impl<'a> TypeView<'a> {
         self,
         other: Self,
         closed: &Ty,
-        visited: &mut HashSet<(TypeIdentity, TypeIdentity)>,
+        visited: &mut Option<HashSet<(TypeIdentity, TypeIdentity)>>,
     ) -> bool {
         let (Some(left), Some(right)) = (self.application(), other.application()) else {
             return false;
@@ -457,17 +465,9 @@ fn children_match<'a>(
         (Ty::Tuple(a), Ty::Tuple(b)) => a.iter().zip(b).all(|(a, b)| test(a, b)),
         (Ty::Array(a), Ty::Array(b))
         | (Ty::Reference { target: a, .. }, Ty::Reference { target: b, .. })
-        | (Ty::Set(a, _), Ty::Set(b, _))
         | (Ty::Iter(a), Ty::Iter(b))
         | (Ty::Range(a, _), Ty::Range(b, _)) => test(a, b),
-        (
-            Ty::Map {
-                key: a, value: av, ..
-            },
-            Ty::Map {
-                key: b, value: bv, ..
-            },
-        ) => test(a, b) && test(av, bv),
+
         (
             Ty::Function {
                 params: a,

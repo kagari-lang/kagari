@@ -27,7 +27,7 @@ arguments and returns. They do not implement List/MutableList or expose growth,
 removal, capacity or detached sequence edits. Their core registrations supply
 len/is_empty, Index and Iterable independently of Vec's declarations.
 
-`Vec<T>` is distinct nominal native sequence storage. It implements List and
+`Vec<T>` is a distinct ordinary nominal native payload owned by the standard library. It implements List and
 MutableList through ordinary checked registrations. Use `Vec::from(array)` or
 `HashSet::from(array)` for explicit construction; there is no implicit conversion
 between Array and either Vec or List. A new collection has independent storage
@@ -221,10 +221,13 @@ leave partial progress. Completed callback effects remain visible. New-result
 methods copy the collection structure without cloning referenced elements.
 Comparator consistency is the caller's obligation; comparison counts are unspecified.
 
-Native direct sequence edits hold an exclusive lease on receiver slots. Callback
-access to those slots is rejected until the lease ends; unrelated values and
-referenced element objects remain usable. Storage is restored on every exit path,
-including errors and unwinds, with completed edits preserved.
+Library Vec algorithms hold operation protection across callbacks, but not a Rust
+payload loan. Callback access to protected receiver slots rejects; unrelated values
+and referenced elements remain usable, and callbacks may collect. Main/scratch
+storage remains traced in the payload; recovery on errors/unwind preserves elements
+and completed effects without a whole-input retention prepass. A checked selected
+scalar comparator on actual pointer-free storage may use a bounded noncollecting
+leaf; this does not exempt arbitrary callbacks from the general collecting path.
 
 The former sort/sort_by free functions are replaced by these trait methods.
 Vec operates on its actual compact buffer. Custom defaults traverse the
@@ -269,11 +272,11 @@ source items' shared identity and checks source revisions before subsequent read
 
 ## Compiler, artifacts and host boundaries
 
-The compiler-owned language catalog owns foundational interface signatures,
-documentation and parent/associated contracts. Tooling projects those declarations
-and maps them to generated navigation spans. It also declares the three default
-container types. Runtime owns their basic implementations and storage bindings;
-optional native modules own additional types, impls and algorithm declarations.
+Standard-library native declarations own foundational collection interfaces and the
+three nominal default containers. Tooling projects these declarations into generated
+navigation spans. Stdlib owns their payloads, cursors, algorithms and Rust adapters;
+runtime supplies generic checked native storage/calls, not container-specific type,
+value, layout, codec or primitive families. Optional libraries use the same boundary.
 HIR owns coercions and checked implementation selection. Completion exposes only
 the members of the visible type. Native entries are checked against concrete
 signatures; interface contracts and parent tables are verified/linked before

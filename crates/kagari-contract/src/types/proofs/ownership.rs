@@ -156,10 +156,8 @@ fn overlapping(left: &Ty, right: &Ty) -> bool {
             left.len() == right.len()
         }
         (Ty::Range(_, left), Ty::Range(_, right)) => left == right,
-        (Ty::Iter(_), Ty::Iter(_))
-        | (Ty::Array(_), Ty::Array(_))
-        | (Ty::Set(_, _), Ty::Set(_, _))
-        | (Ty::Map { .. }, Ty::Map { .. }) => true,
+
+        (Ty::Iter(_), Ty::Iter(_)) | (Ty::Array(_), Ty::Array(_)) => true,
         _ => false,
     }
 }
@@ -173,10 +171,8 @@ fn occurs_in_constructor(parameter: &Ty, ty: &Ty) -> bool {
         match ty {
             Ty::Struct(n) | Ty::NativeObject(n) | Ty::Enum(n) => pending.extend(&n.arguments),
             Ty::Tuple(items) => pending.extend(items),
-            Ty::Array(item) | Ty::Set(item, _) | Ty::Iter(item) | Ty::Range(item, _) => {
-                pending.push(item)
-            }
-            Ty::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+            Ty::Array(item) | Ty::Iter(item) | Ty::Range(item, _) => pending.push(item),
+
             Ty::Function { params, result } => {
                 pending.extend(params);
                 pending.push(result);

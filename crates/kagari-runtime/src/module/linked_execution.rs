@@ -20,7 +20,7 @@ use crate::{
             layouts::{AppliedLayouts, FunctionLayouts},
         },
     },
-    native::{binding::LinkedNativeFunction, primitive::NativePrimitive},
+    native::binding::LinkedNativeFunction,
 };
 use kagari_contract::ids::FunctionRef;
 use std::sync::Arc;
@@ -43,19 +43,11 @@ pub(crate) struct LinkedNativeCall {
 #[derive(Debug)]
 pub(crate) enum LinkedNativeBody {
     StringByteLength(Location),
-    Vector(LinkedVectorPrimitive),
     Callback(LinkedNativeCallback),
 }
 
 #[derive(Debug)]
 pub(crate) struct LinkedNativeCallback {
-    pub(crate) arguments: Box<[Location]>,
-    pub(crate) function: Arc<LinkedNativeFunction>,
-}
-
-#[derive(Debug)]
-pub(crate) struct LinkedVectorPrimitive {
-    pub(crate) operation: NativePrimitive,
     pub(crate) arguments: Box<[Location]>,
     pub(crate) function: Arc<LinkedNativeFunction>,
 }

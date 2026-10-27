@@ -1,7 +1,6 @@
 //! Bounded flat encoding keeps untrusted ABI type decoding off the Rust call stack.
 
 use crate::{
-    collection::CollectionAccess,
     range::RangeKind,
     reference::ReferenceAccess,
     scalar::BuiltinType,
@@ -39,8 +38,6 @@ enum Node<I> {
     Iter,
     Range(RangeKind),
     Array,
-    Map(CollectionAccess),
-    Set(CollectionAccess),
     Struct(I, u32),
     NativeObject(I, u32),
     Enum(I, u32),
@@ -173,15 +170,7 @@ impl Ty {
                     pending.push((element, depth + 1));
                     Node::Array
                 }
-                Self::Map { key, value, access } => {
-                    pending.push((value, depth + 1));
-                    pending.push((key, depth + 1));
-                    Node::Map(*access)
-                }
-                Self::Set(element, access) => {
-                    pending.push((element, depth + 1));
-                    Node::Set(*access)
-                }
+
                 Self::Struct(nominal) | Self::NativeObject(nominal) => {
                     pending.extend(nominal.arguments.iter().rev().map(|ty| (ty, depth + 1)));
                     if matches!(ty, Self::NativeObject(_)) {
@@ -272,12 +261,7 @@ fn build(
         Node::Range(kind) => Ty::Range(Box::new(build(nodes, depth + 1, convert, cancel)?), kind),
         Node::Iter => Ty::Iter(Box::new(build(nodes, depth + 1, convert, cancel)?)),
         Node::Array => Ty::Array(Box::new(build(nodes, depth + 1, convert, cancel)?)),
-        Node::Map(access) => Ty::Map {
-            key: Box::new(build(nodes, depth + 1, convert, cancel)?),
-            value: Box::new(build(nodes, depth + 1, convert, cancel)?),
-            access,
-        },
-        Node::Set(access) => Ty::Set(Box::new(build(nodes, depth + 1, convert, cancel)?), access),
+
         Node::Struct(id, count) => Ty::Struct(NominalTy {
             associated_types: Default::default(),
             declaration: convert(id)?,

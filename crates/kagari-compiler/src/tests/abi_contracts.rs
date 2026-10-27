@@ -8,7 +8,7 @@ use kagari_common::identity::{
 use kagari_contract::types::PublicItem;
 use kagari_hir::types::semantic::{lower_type, raise_type};
 use kagari_types::{
-    collection::CollectionAccess::{Mutable, ReadOnly},
+    reference::ReferenceAccess::{Mutable, Shared},
     scalar::BuiltinType,
     ty::{GenericParam, NominalTy, Ty, identity::PortableTypes},
 };
@@ -273,21 +273,22 @@ fn public_signatures_reject_foreign_parameters_invalid_arity_and_escaped_self() 
 }
 
 #[test]
-fn collection_access_survives_checked_and_wire_conversions() {
+fn reference_access_survives_checked_and_wire_conversions() {
     let context = DefinitionContext::new().unwrap();
 
     let integer = Ty::Builtin(BuiltinType::I32);
-    for access in [ReadOnly, Mutable] {
+    for access in [Shared, Mutable] {
         for ty in [
-            Ty::Set(Box::new(integer.clone()), access),
-            Ty::Map {
-                key: Box::new(integer.clone()),
-                value: Box::new(Ty::Array(Box::new(integer.clone()))),
+            Ty::Reference {
+                target: Box::new(integer.clone()),
+                access,
+            },
+            Ty::Reference {
+                target: Box::new(Ty::Array(Box::new(integer.clone()))),
                 access,
             },
         ] {
             let checked = raise_type(&ty);
-            assert_eq!(checked.collection_access(), Some(access));
             assert_eq!(lower_type(&checked), ty);
             let portable = PortableTypes::encode(
                 &context.snapshot(),
@@ -305,7 +306,6 @@ fn collection_access_survives_checked_and_wire_conversions() {
         }
     }
     let array = Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32)));
-    assert_eq!(raise_type(&array).collection_access(), None);
     assert_eq!(lower_type(&raise_type(&array)), array);
     assert_eq!(
         codec()
@@ -327,8 +327,14 @@ fn collection_access_survives_checked_and_wire_conversions() {
             .types,
         [array]
     );
-    let readonly = Ty::Set(Box::new(integer.clone()), ReadOnly);
-    let mutable = Ty::Set(Box::new(integer), Mutable);
+    let readonly = Ty::Reference {
+        target: Box::new(integer.clone()),
+        access: Shared,
+    };
+    let mutable = Ty::Reference {
+        target: Box::new(integer),
+        access: Mutable,
+    };
     assert_ne!(
         codec()
             .serialize(

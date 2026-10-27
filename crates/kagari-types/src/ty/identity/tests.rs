@@ -1,6 +1,5 @@
 use super::*;
 use crate::{
-    collection::CollectionAccess,
     scalar::BuiltinType,
     ty::{GenericParam, substitution::TypeSubstitution},
 };
@@ -64,14 +63,18 @@ fn fixture(builder: &mut DefinitionTableBuilder) -> Vec<Ty> {
         Ty::NativeObject(plain),
         Ty::Tuple(vec![
             Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
-            Ty::Map {
-                key: Box::new(Ty::Builtin(BuiltinType::String)),
-                value: Box::new(Ty::Set(
-                    Box::new(Ty::Builtin(BuiltinType::I64)),
-                    CollectionAccess::Mutable,
-                )),
-                access: CollectionAccess::Mutable,
-            },
+            Ty::NativeObject(NominalTy {
+                declaration: owner,
+                arguments: vec![
+                    Ty::Builtin(BuiltinType::String),
+                    Ty::NativeObject(NominalTy {
+                        declaration: host,
+                        arguments: vec![Ty::Builtin(BuiltinType::I64)],
+                        associated_types: Default::default(),
+                    }),
+                ],
+                associated_types: Default::default(),
+            }),
         ]),
         Ty::Function {
             params: vec![Ty::Parameter {

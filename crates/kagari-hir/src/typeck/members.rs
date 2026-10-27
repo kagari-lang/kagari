@@ -103,8 +103,6 @@ fn add_iterator_view(
             TypeId::Range(_, _)
                 | TypeId::Iter(_)
                 | TypeId::Array(_)
-                | TypeId::Map { .. }
-                | TypeId::Set(_, _)
                 | TypeId::Builtin(BuiltinType::String)
         ) && let Some(outputs) = traits::iteration_outputs(
             definitions,

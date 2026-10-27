@@ -1,4 +1,6 @@
 //! Heap-owned roots. Leases retain entries without owning their values or storage.
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
 use crate::{
     Runtime, error::RuntimeError, execution_metadata::MetadataRoot, gc::GcHeap,
     native::binding::NativeResult, value::Value,
@@ -16,6 +18,8 @@ struct RootLease {
 
 impl Drop for RootLease {
     fn drop(&mut self) {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::RootRelease);
         let mut released = lock_releases(&self.released);
         if released.connected {
             // Each registration reserves one credit until its final drop is processed.
@@ -269,6 +273,8 @@ impl RootTable {
             values,
             metadata: Vec::new(),
         });
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::RootRegistration);
         Some(RootSet { id, lease })
     }
 

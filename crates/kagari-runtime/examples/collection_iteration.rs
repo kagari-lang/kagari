@@ -41,8 +41,6 @@ fn main() {
     let id = runtime
         .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(1)])
         .unwrap();
-    let value = Value::Array(id);
-    let revision = gc.collection_revision(&value).unwrap();
     // Fixed arrays permit element replacement without invalidating traversal.
     gc.array_set(id, 0, Value::I32(42)).unwrap();
     assert_eq!(
@@ -50,13 +48,8 @@ fn main() {
         RuntimeErrorKind::IndexOutOfBounds,
     );
     assert_eq!(gc.array_get(id, 0), Some(Value::I32(42)));
-    assert!(gc.sequence_push(id, Value::I32(2)).is_err());
     assert_eq!(gc.array_len(id), Some(1));
-    assert!(gc.sequence_pop(id).is_err());
-    gc.check_collection_revision(&value, revision).unwrap();
     // Fixed length is an array invariant, independent of any iterator.
-    assert!(gc.sequence_push(id, Value::I32(2)).is_err());
-    assert!(gc.sequence_clear(id).is_err());
     gc.array_set(id, 0, Value::I32(7)).unwrap();
     assert_eq!(gc.array_snapshot(id), Some(vec![Value::I32(7)]));
 }

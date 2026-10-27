@@ -9,6 +9,7 @@ mod retained_reload;
 #[cfg(not(feature = "diagnostics"))]
 mod revisions;
 mod slab_model;
+mod sort;
 
 use kagari::{
     context::ExecutionContext,
@@ -109,7 +110,11 @@ fn main() {
         [mode] if mode == "--families" => return families::run(),
         [mode] if mode == "--slab-model" => return slab_model::run(),
         [mode] if mode == "--script-keys" => return families::script_keys_only(),
-        _ => panic!("usage: runtime_storage [--families | --script-keys | --slab-model]"),
+        [mode] if mode == "--sort" => return sort::run(false),
+        [mode, check] if mode == "--sort" && check == "--check" => return sort::run(true),
+        _ => panic!(
+            "usage: runtime_storage [--families | --script-keys | --slab-model | --sort [--check]]"
+        ),
     }
     // Explicit collections separate live storage, reserved capacity and release.
     let mut config = EngineConfig::default();

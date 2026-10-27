@@ -2,7 +2,7 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    gc::{HeapObjectId, mutations::PreparedCollectionCommit},
+    gc::HeapObjectId,
     native::{
         conversion::context::ConversionContext,
         storage::{
@@ -14,7 +14,7 @@ use crate::{
         views::{NativeOperationGuard, NativeOperationKind},
     },
     resource::HeapCharge,
-    test_support::layouts::{allocation_owner, sequence_owner},
+    test_support::layouts::allocation_owner,
     value::Value,
 };
 use kagari_types::{scalar::BuiltinType, ty::Ty};
@@ -73,77 +73,70 @@ fn allocate(
 }
 
 #[test]
-fn operation_policy_covers_sequence_facades_without_hiding_type_metadata() {
+fn operation_policy_covers_array_access_without_hiding_type_metadata() {
     let mut runtime = Runtime::default();
-    let owner = sequence_owner(&mut runtime);
-    let mut conversion = ConversionContext::new(&runtime, &owner).unwrap();
-    let root = conversion.encode(vec![10_i32, 20]).unwrap();
-    let target = conversion.encode(vec![30_i32, 40]).unwrap();
+    let owner = allocation_owner(&mut runtime);
+    let id = runtime
+        .alloc_array(
+            &owner,
+            Ty::Builtin(BuiltinType::I32),
+            vec![Value::I32(10), Value::I32(20)],
+        )
+        .unwrap();
     let heap = runtime.gc();
-    let Value::GcHandle(id) = root.value(heap).unwrap() else {
-        panic!("sequence")
-    };
+    let _root = runtime.root_value(Value::Array(id)).unwrap();
     for kind in [
         NativeOperationKind::ExclusiveSlots,
         NativeOperationKind::ReadOnlyCallbacks,
     ] {
         let guard = heap.try_enter_native_operation(id, kind).unwrap().unwrap();
-        assert!(heap.sequence_contract(id).is_some());
-        assert!(heap.validate_value(&Value::GcHandle(id)));
-        assert!(heap.sequence_set(id, 0, Value::I32(99)).is_err());
+        assert!(heap.array_contract(id).is_some());
+        assert!(heap.validate_value(&Value::Array(id)));
+        assert!(heap.array_set(id, 0, Value::I32(99)).is_err());
         assert!(heap.with_buffer_mut(id, 0, |_| ()).is_err());
         if kind == NativeOperationKind::ExclusiveSlots {
-            assert_eq!(heap.sequence_len(id), None);
-            assert_eq!(heap.sequence_get(id, 0), None);
-            assert_eq!(heap.sequence_snapshot(id), None);
-            assert!(heap.sequence_element(id, 0).is_err());
-            assert!(conversion.decode::<Vec<i32>>(&root).is_err());
-            assert!(
-                heap.commit_prepared_collection(
-                    PreparedCollectionCommit::ReplaceSequence,
-                    &[target.value(heap).unwrap(), root.value(heap).unwrap()],
-                )
-                .is_err()
-            );
+            assert_eq!(heap.array_len(id), None);
+            assert_eq!(heap.array_get(id, 0), None);
+            assert_eq!(heap.array_snapshot(id), None);
+            assert!(heap.array_element(id, 0).is_err());
         } else {
-            assert_eq!(heap.sequence_len(id), Some(2));
-            assert_eq!(heap.sequence_get(id, 0), Some(Value::I32(10)));
+            assert_eq!(heap.array_len(id), Some(2));
+            assert_eq!(heap.array_get(id, 0), Some(Value::I32(10)));
             assert_eq!(
-                heap.sequence_snapshot(id),
+                heap.array_snapshot(id),
                 Some(vec![Value::I32(10), Value::I32(20)])
-            );
-            assert_eq!(conversion.decode::<Vec<i32>>(&root).unwrap(), vec![10, 20]);
-            heap.commit_prepared_collection(
-                PreparedCollectionCommit::ReplaceSequence,
-                &[target.value(heap).unwrap(), root.value(heap).unwrap()],
-            )
-            .unwrap();
-            assert_eq!(
-                conversion.decode::<Vec<i32>>(&target).unwrap(),
-                vec![10, 20]
             );
         }
         drop(guard);
-        assert_eq!(conversion.decode::<Vec<i32>>(&root).unwrap(), vec![10, 20]);
+        assert_eq!(
+            heap.array_snapshot(id),
+            Some(vec![Value::I32(10), Value::I32(20)])
+        );
     }
 }
 
 #[test]
 fn operation_policy_blocks_iterator_receiver_before_preview_or_finish() {
     let mut runtime = Runtime::default();
-    let owner = sequence_owner(&mut runtime);
-    let mut conversion = ConversionContext::new(&runtime, &owner).unwrap();
-    let source = conversion.encode(vec![10_i32, 20]).unwrap();
-    let source_type = conversion.type_for::<Vec<i32>>().unwrap();
+    let owner = allocation_owner(&mut runtime);
+    let conversion = ConversionContext::new(&runtime, &owner).unwrap();
+    let source = Value::Array(
+        runtime
+            .alloc_array(
+                &owner,
+                Ty::Builtin(BuiltinType::I32),
+                vec![Value::I32(10), Value::I32(20)],
+            )
+            .unwrap(),
+    );
+    let _source_root = runtime.root_value(source).unwrap();
     let item_type = conversion.type_for::<i32>().unwrap();
+    let source_type = item_type
+        .derive(&runtime, &owner, |ty| Some(Ty::Array(Box::new(ty.clone()))))
+        .unwrap();
     let heap = runtime.gc();
     let cursor = heap
-        .new_iter(
-            &source.value(heap).unwrap(),
-            &source_type,
-            item_type,
-            &owner,
-        )
+        .new_iter(&source, &source_type, item_type, &owner)
         .unwrap();
     let _root = runtime.root_value(cursor).unwrap();
     let Value::GcHandle(id) = cursor else {
@@ -242,6 +235,64 @@ fn general_edits_reconcile_completed_changes_on_error_and_unwind() {
 }
 
 #[test]
+fn structural_revisions_survive_sweep_and_reject_exhaustion_before_edit() {
+    let mut runtime = Runtime::default();
+    let owner = allocation_owner(&mut runtime);
+    let _garbage = allocate(&runtime, &owner, vec![Value::Unit]);
+    let id = allocate(&runtime, &owner, vec![Value::Unit]);
+    let _root = runtime.root_value(Value::GcHandle(id)).unwrap();
+    let heap = runtime.gc();
+    heap.edit_native::<Slots, ()>(
+        &runtime,
+        id,
+        None,
+        EditPlan {
+            max_logical_units: 2,
+            structural: true,
+        },
+        |payload, access| {
+            payload.0.reserve(1);
+            access.commit_structure();
+            payload.0.push(Value::Unit);
+            Ok(())
+        },
+    )
+    .unwrap();
+    runtime.collect_garbage().unwrap();
+    {
+        let mut objects = heap.objects.borrow_mut();
+        let object = heap.native_mut(&mut objects, id).unwrap();
+        assert_eq!(object.revision, 1);
+        object.revision = u64::MAX;
+    }
+    let before = heap.stats();
+    let mut entered = false;
+    assert!(
+        heap.edit_native::<Slots, ()>(
+            &runtime,
+            id,
+            None,
+            EditPlan {
+                max_logical_units: 3,
+                structural: true
+            },
+            |_, _| {
+                entered = true;
+                Ok(())
+            }
+        )
+        .is_err()
+    );
+    assert!(!entered);
+    assert_eq!(heap.stats(), before);
+    heap.with_native::<Slots, _>(id, |payload| {
+        assert_eq!(payload.0.len(), 2);
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
 fn retained_extraction_survives_replacement_and_checks_publication_type_and_owner() {
     let mut runtime = Runtime::default();
     let owner = allocation_owner(&mut runtime);
@@ -306,18 +357,22 @@ fn retained_extraction_survives_replacement_and_checks_publication_type_and_owne
     assert!(!runtime.gc().validate_value(&value));
 }
 
-#[test]
-fn operation_guard_blocks_aliases_and_recovers_after_execution_is_closed() {
+#[rstest::rstest]
+#[case::termination(false)]
+#[case::quarantine(true)]
+fn operation_guard_blocks_aliases_and_recovers_after_execution_is_closed(#[case] quarantine: bool) {
     let mut runtime = Runtime::default();
     let owner = allocation_owner(&mut runtime);
     let id = allocate(&runtime, &owner, vec![Value::Unit, Value::Unit]);
+    let _session = runtime.begin_execution(&owner, Default::default()).unwrap();
     let heap = runtime.gc();
+    let retained_bytes = heap.stats().current_retained_bytes;
     let readonly = NativeOperationGuard {
         heap,
         id,
         runtime: Some(&runtime),
         recovery: None,
-        _root: runtime.root_value(Value::GcHandle(id)).unwrap(),
+        _root: Some(runtime.root_value(Value::GcHandle(id)).unwrap()),
         _lease: heap
             .try_enter_native_operation(id, NativeOperationKind::ReadOnlyCallbacks)
             .unwrap()
@@ -357,7 +412,7 @@ fn operation_guard_blocks_aliases_and_recovers_after_execution_is_closed() {
             }
             access.commit_structure();
         })),
-        _root: runtime.root_value(Value::GcHandle(id)).unwrap(),
+        _root: Some(runtime.root_value(Value::GcHandle(id)).unwrap()),
         _lease: heap
             .try_enter_native_operation(id, NativeOperationKind::ExclusiveSlots)
             .unwrap()
@@ -377,9 +432,14 @@ fn operation_guard_blocks_aliases_and_recovers_after_execution_is_closed() {
             .unwrap()
             .is_none()
     );
-    runtime
-        .resources()
-        .quarantine("test closes ordinary execution before cleanup");
+    if quarantine {
+        runtime
+            .resources()
+            .quarantine("test closes ordinary execution before cleanup");
+    } else {
+        heap.resource_limit("test closes ordinary execution before cleanup");
+    }
+    assert!(heap.ensure_execution_allowed().is_err());
     drop(guard);
     let objects = heap.objects.borrow();
     let object = heap.native_ref(&objects, id).unwrap();
@@ -388,4 +448,5 @@ fn operation_guard_blocks_aliases_and_recovers_after_execution_is_closed() {
     assert_eq!(object.revision, 1);
     assert!(!heap.native_operations.is_active(id));
     assert_eq!(heap.stats().current_heap_units, 2);
+    assert_eq!(heap.stats().current_retained_bytes, retained_bytes);
 }

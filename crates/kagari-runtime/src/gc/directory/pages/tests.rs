@@ -198,3 +198,80 @@ fn detached_token_retains_exact_layout_and_descriptor_after_page_owner_drops() {
         assert!(weak.upgrade().is_none());
     }
 }
+
+#[test]
+fn full_page_retirement_owns_all_slots_and_contains_each_destructor_panic() {
+    use crate::resource::ResourceState;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    thread_local! {
+        static RESOURCES: ResourceState = ResourceState::new(Default::default());
+    }
+    static DROPS: AtomicUsize = AtomicUsize::new(0);
+    static QUARANTINED_DROPS: AtomicUsize = AtomicUsize::new(0);
+    unsafe fn destroy(_: NonNull<u8>) {
+        let count = DROPS.fetch_add(1, Ordering::SeqCst);
+        if count == 3 {
+            panic!("page destructor probe");
+        }
+        if RESOURCES.with(ResourceState::is_quarantined) {
+            QUARANTINED_DROPS.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+    let mut pages = Pages::default();
+    let descriptor = Arc::new(Descriptor::new(
+        PayloadKind::String,
+        Layout::from_size_align(16, 8).unwrap(),
+        false,
+        destroy,
+    ));
+    let weak = Arc::downgrade(&descriptor);
+    let mut locations = Vec::new();
+    for index in 0..64 {
+        locations.push(insert(&mut pages, index, descriptor.clone()));
+    }
+    drop(descriptor);
+    let mut retired = pages.detach_full_page(locations[0], 64).unwrap();
+    assert_eq!(pages.backing_bytes, 0);
+    assert_eq!(pages.occupied().count(), 0);
+    assert!(
+        locations
+            .into_iter()
+            .all(|location| pages.get(location).is_none())
+    );
+    assert!(retired.dispose(|| {
+        RESOURCES.with(|resources| {
+            resources.quarantine("page destructor probe");
+        });
+    }));
+    assert_eq!(DROPS.load(Ordering::SeqCst), 64);
+    assert_eq!(QUARANTINED_DROPS.load(Ordering::SeqCst), 60);
+    assert!(!retired.dispose(|| panic!("already disposed")));
+    let replacement = insert(&mut pages, 99, bytes(32, 8, false));
+    let released = pages.finish_page(&retired);
+    assert_eq!(released, SLAB_BYTES);
+    assert!(!retired.release());
+    assert!(weak.upgrade().is_none());
+    assert_eq!(pages.backing_bytes, SLAB_BYTES);
+    assert!(pages.get(replacement).is_some());
+    release(&mut pages, replacement);
+    assert_eq!(pages.backing_bytes, 0);
+}
+
+#[test]
+fn whole_page_retirement_rejects_partial_mixed_and_detached_slots() {
+    let mut pages = Pages::default();
+    let descriptor = bytes(256, 8, false);
+    let first = insert(&mut pages, 0, descriptor.clone());
+    assert!(pages.detach_full_page(first, 1).is_none());
+    for index in 1..4 {
+        insert(&mut pages, index, descriptor.clone());
+    }
+    let mut pending = pages.detach(first).unwrap();
+    assert!(pages.detach_full_page(first, 4).is_none());
+    pending.dispose();
+    let (_, pending) = pages.finish(pending);
+    pending.release();
+    let replacement = insert(&mut pages, 4, bytes(256, 8, false));
+    assert!(pages.detach_full_page(replacement, 4).is_none());
+    assert_eq!(pages.occupied().count(), 4);
+}

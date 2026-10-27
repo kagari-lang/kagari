@@ -6,12 +6,16 @@ use crate::{
     test_support::cancellation as support,
 };
 use kagari_common::cancellation::CancellationToken;
-use kagari_contract::operations::IterOp;
 use kagari_runtime::{
-    native::conversion::context::ConversionContext, session::ExecutionOptions, value::Value,
+    native::{
+        conversion::{IntoKagari, context::ConversionContext},
+        typed::NativeContext,
+        value_handle::ScriptValue,
+    },
+    session::ExecutionOptions,
 };
 use kagari_source::source::SourceFile;
-use kagari_types::{scalar::BuiltinType, ty::Ty};
+use kagari_stdlib::collections::vector::{ScriptVec, VecValues};
 
 #[test]
 fn native_iterators_validate_revisions_and_survive_gc_and_failure() {
@@ -23,6 +27,8 @@ fn native_iterators_validate_revisions_and_survive_gc_and_failure() {
             SourceFile::new(
                 "iterator-resources.kgr",
                 r#"
+pub fn cursor(a:Vec<i32>)->Iterator<Item = i32>{a.iter()}
+pub fn next(c:Iterator<Item = i32>)->Option<i32>{c.next()}
 pub fn fail()->i32{val a=Vec::from([20]);for x in a {a.push(1);}0}
 pub fn nested()->i32{val a=Vec::from([20]);for x in a {for y in a {break;}a.push(1);}0}
 pub fn manual()->i32{val a=Vec::from([20]);val c=a.iter();c.next();a.push(1);c.next();0}
@@ -67,104 +73,75 @@ pub fn exhaust()->i32{val a=Vec::from([20]);for x in a {while true {}}0}
     let rt = runtime.runtime();
     let root = ConversionContext::new(rt, &_selected_loaded)
         .unwrap()
-        .encode(vec![20i32, 22])
+        .encode(VecValues(vec![20i32, 22]))
         .unwrap();
-    let Value::GcHandle(array) = root.value(rt.gc()).unwrap() else {
-        panic!("Vec")
-    };
-    let vector_type = ConversionContext::new(rt, &_selected_loaded)
+    let values: ScriptVec<i32> = ConversionContext::new(rt, &_selected_loaded)
         .unwrap()
-        .type_for::<Vec<i32>>()
+        .decode(&root)
         .unwrap();
-    let item = Ty::Builtin(BuiltinType::I32);
-    let ty = Ty::Iter(Box::new(item.clone()));
     let cancellation = CancellationToken::default();
     let options = ExecutionOptions {
         cancellation: cancellation.clone(),
         ..Default::default()
     };
     let session = rt.begin_execution(&_selected_loaded, options).unwrap();
-    let value = rt
-        .iter_operation(
-            &_selected_loaded,
-            &root.value(rt.gc()).unwrap(),
-            vector_type.ty(),
-            IterOp::New,
+    let iter: ScriptValue = runtime
+        .execute_typed(&loaded, "cursor", (values.clone(),), &context)
+        .unwrap();
+    let cursor_type = iter.type_argument().clone();
+    let value = iter
+        .clone()
+        .into_kagari(
+            &mut ConversionContext::new(rt, &_selected_loaded).unwrap(),
+            &cursor_type,
         )
         .unwrap();
-    let iter = rt.root_value(value).unwrap();
-    rt.gc().sequence_set(array, 0, Value::I32(20)).unwrap();
+    values
+        .set(
+            &mut NativeContext::new(rt, &_selected_loaded).unwrap(),
+            0,
+            20,
+        )
+        .unwrap();
     cancellation.cancel();
     assert!(rt.gc_safepoint().is_err());
     drop(session);
     rt.collect_garbage().unwrap();
     for expected in [20, 22] {
-        let session = rt
-            .begin_execution(&_selected_loaded, Default::default())
-            .unwrap();
-        let Value::Enum(id) = rt
-            .iter_operation(
-                &_selected_loaded,
-                &iter.value(rt.gc()).unwrap(),
-                &ty,
-                IterOp::Next,
-            )
-            .unwrap()
-        else {
-            panic!("Option")
-        };
         assert_eq!(
-            rt.gc().enum_snapshot(id).unwrap().fields,
-            vec![Value::I32(expected)]
+            runtime
+                .execute_typed::<_, Option<i32>>(&loaded, "next", (iter.clone(),), &context)
+                .unwrap(),
+            Some(expected)
         );
-        drop(session);
     }
-    // Structural edits commit between calls; the old cursor rejects its next read.
-    rt.gc().sequence_push(array, Value::I32(1)).unwrap();
-    let session = rt
-        .begin_execution(&_selected_loaded, Default::default())
+    // Structural edits commit between calls; the old cursor rejects exhaustion.
+    values
+        .push(&mut NativeContext::new(rt, &_selected_loaded).unwrap(), 1)
         .unwrap();
     assert!(
-        rt.iter_operation(
-            &_selected_loaded,
-            &iter.value(rt.gc()).unwrap(),
-            &ty,
-            IterOp::Next
-        )
-        .is_err()
+        runtime
+            .execute_typed::<_, Option<i32>>(&loaded, "next", (iter.clone(),), &context)
+            .is_err()
     );
-    drop(session);
-    let mut other = engine.runtime(context);
-    let other_loaded_program =
+    let mut other = engine.runtime(context.clone());
+    let other_program =
         PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let other_loaded = other
-        .load_program(&other_loaded_program, Default::default())
-        .unwrap();
-    let _selected_other_loaded = other.runtime().select_program(&other_loaded).unwrap();
-    let session = other
-        .runtime()
-        .begin_execution(&_selected_other_loaded, Default::default())
+        .load_program(&other_program, Default::default())
         .unwrap();
     assert!(
         other
-            .runtime()
-            .iter_operation(
-                &_selected_other_loaded,
-                &iter.value(rt.gc()).unwrap(),
-                &ty,
-                IterOp::Next
-            )
+            .execute_typed::<_, Option<i32>>(&other_loaded, "next", (iter.clone(),), &context)
             .is_err()
     );
-    drop(session);
     drop(iter);
     rt.collect_garbage().unwrap();
-    let session = rt
-        .begin_execution(&_selected_loaded, Default::default())
-        .unwrap();
+    // An expired raw identity cannot be converted back into an owning iterator.
     assert!(
-        rt.iter_operation(&_selected_loaded, &value, &ty, IterOp::Next)
+        ConversionContext::new(rt, &_selected_loaded)
+            .unwrap()
+            .decode_value::<ScriptValue>(&cursor_type, &value)
             .is_err()
     );
-    drop(session);
 }

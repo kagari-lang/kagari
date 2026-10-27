@@ -65,8 +65,7 @@ pub fn type_of(gc: &GcHeap, value: &Value) -> Result<Value, ReflectionError> {
         Value::Str(_) => "String",
         Value::Tuple(_) => "tuple",
         Value::Array(_) => "array",
-        Value::Map(_) => "map",
-        Value::Set(_) => "set",
+
         Value::Enum(handle) => {
             // Copy only the name and release the heap view before allocating.
             let name = gc

@@ -327,8 +327,6 @@ impl AggregateCatalog {
                     | TypeId::NativeObject(_)
                     | TypeId::Struct(_)
                     | TypeId::Enum(_)
-                    | TypeId::Map { .. }
-                    | TypeId::Set(_, _)
             ) {
                 for implementation in self.implementations.values() {
                     if let Some(interface) = &interface
@@ -979,11 +977,8 @@ fn occurs_in_constructor(parameter: &TypeId, ty: &TypeId) -> bool {
                 pending.extend(&n.arguments)
             }
             TypeId::Tuple(items) => pending.extend(items),
-            TypeId::Array(item)
-            | TypeId::Set(item, _)
-            | TypeId::Iter(item)
-            | TypeId::Range(item, _) => pending.push(item),
-            TypeId::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+            TypeId::Array(item) | TypeId::Iter(item) | TypeId::Range(item, _) => pending.push(item),
+
             TypeId::Function { params, result } => {
                 pending.extend(params);
                 pending.push(result);

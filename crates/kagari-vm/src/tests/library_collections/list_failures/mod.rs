@@ -22,28 +22,22 @@ fn failed_array(source: &str, expected: &[i32], calls: usize) {
     let vm = Vm::new(runtime);
     assert!(vm.execute(&loaded, ProgramEntry::Main).is_err());
     assert_eq!(probe.calls.load(Ordering::SeqCst), calls);
-    let Value::GcHandle(array) = probe
-        .retained
-        .lock()
-        .unwrap()
-        .as_ref()
-        .unwrap()
-        .value(vm.runtime().gc())
-        .unwrap()
-    else {
-        panic!("array")
-    };
+    let retained = probe.retained.lock().unwrap().as_ref().unwrap().clone();
     assert_eq!(
-        vm.runtime().gc().sequence_snapshot(array).unwrap(),
+        ConversionContext::new(vm.runtime(), &loaded)
+            .unwrap()
+            .decode::<VecValues<i32>>(&retained)
+            .unwrap()
+            .0,
         expected
-            .iter()
-            .map(|value| Value::I32(*value))
-            .collect::<Vec<_>>()
     );
-    vm.runtime()
-        .gc()
-        .sequence_push(array, Value::I32(99))
+    let vector: ScriptVec<i32> = ConversionContext::new(vm.runtime(), &loaded)
+        .unwrap()
+        .decode(&retained)
         .unwrap();
+    vector.push(&mut vm.context(&loaded).unwrap(), 99).unwrap();
+    drop(vector);
+    drop(retained);
     probe.retained.lock().unwrap().take();
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     assert_eq!(vm.runtime().gc().active_roots(), 0);
@@ -69,7 +63,7 @@ fn main() {
 }
 
 const CONTAINER: &str = r#"use std::collections::{List, MutableList};
-use std::iter::{CollectionCursor};
+use alloc::vec::VecCursor;
 use std::ops::{Index};
 
 use test::probe::{keep, tick};
@@ -80,8 +74,8 @@ impl Index<u64> for Sequence {
 }
 impl Iterable for Sequence {
     type Item = i32;
-    type Iter = CollectionCursor<i32>;
-    fn iter(self) -> CollectionCursor<i32> { self.items.iter() }
+    type Iter = VecCursor<i32>;
+    fn iter(self) -> VecCursor<i32> { self.items.iter() }
 }
 impl List<i32> for Sequence {
     fn len(self) -> u64 { self.items.len() }

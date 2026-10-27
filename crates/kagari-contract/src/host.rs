@@ -85,10 +85,8 @@ pub fn type_references<'ty>(
                 pending.extend(params);
                 pending.push(result);
             }
-            Ty::Array(ty) | Ty::Set(ty, _) | Ty::Iter(ty) | Ty::Reference { target: ty, .. } => {
-                pending.push(ty)
-            }
-            Ty::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+            Ty::Array(ty) | Ty::Iter(ty) | Ty::Reference { target: ty, .. } => pending.push(ty),
+
             Ty::NativeObject(ty) | Ty::Struct(ty) | Ty::Enum(ty) | Ty::Trait(ty) => {
                 pending.extend(&ty.arguments);
                 pending.extend(ty.associated_types.values());

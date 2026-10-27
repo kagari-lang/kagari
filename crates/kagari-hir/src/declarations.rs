@@ -34,7 +34,7 @@ use kagari_common::{
 };
 use kagari_source::{identity::FileSpan, source::SourceFile};
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashMap},
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -127,7 +127,6 @@ pub struct Declarations {
     /// Local implementation slots to semantic definition identities.
     impl_identities: HashMap<ImplId, DefinitionId>,
     native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
-    native_readonly_types: HashSet<TypeRefId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -171,7 +170,6 @@ impl Declarations {
             site_ranges: HashMap::new(),
             impl_identities: HashMap::new(),
             native_types: lowered.native_types.clone(),
-            native_readonly_types: lowered.native_readonly_types.clone(),
         }
     }
 
@@ -698,10 +696,6 @@ impl Declarations {
         self.native_types
             .values()
             .chain(self.imported_types.native_types())
-    }
-
-    pub(crate) fn native_readonly_type(&self, id: TypeRefId) -> bool {
-        self.native_readonly_types.contains(&id)
     }
 
     /// Clones the installed representation for a local opaque type, if registered.

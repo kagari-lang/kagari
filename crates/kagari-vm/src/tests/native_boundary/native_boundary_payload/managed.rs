@@ -116,7 +116,9 @@ fn registration() -> Registration {
             move |cx: &mut NativeContext<'_>,
                   (holder, callback): (Holder, Callback)|
                   -> NativeResult<()> {
-                let field = holder.native_type().bind_field(cx.runtime(), &token)?;
+                let field = holder
+                    .prepare_native_type(cx)?
+                    .bind_field(cx.runtime(), &token)?;
                 holder.set(cx, &field, callback)
             },
         )
@@ -133,7 +135,9 @@ fn registration() -> Registration {
         .bind(
             invoke,
             move |cx: &mut NativeContext<'_>, (holder,): (Holder,)| -> NativeResult<i32> {
-                let field = holder.native_type().bind_field(cx.runtime(), &token)?;
+                let field = holder
+                    .prepare_native_type(cx)?
+                    .bind_field(cx.runtime(), &token)?;
                 holder.get(cx, &field)?.call(cx, ())
             },
         )
@@ -310,7 +314,8 @@ fn stored_callback_keeps_old_code_and_releases_the_old_program_with_its_cycle() 
     let old = vm.runtime().select_program(&_old_program).unwrap();
     let object: Holder = vm.execute_typed(&old, "cycle", (41,)).unwrap();
     let field = object
-        .native_type()
+        .prepare_native_type(&vm.context(&old).unwrap())
+        .unwrap()
         .bind_field(vm.runtime(), &callback)
         .unwrap();
     vm.reload_program(
@@ -570,7 +575,9 @@ fn generic_managed_fields_keep_their_argument_scope_across_native_calls_and_bind
         .bind(
             read,
             move |cx: &mut NativeContext<'_>, (value,): (Boxed,)| -> NativeResult<ScriptValue> {
-                let field = value.native_type().bind_field(cx.runtime(), &token)?;
+                let field = value
+                    .prepare_native_type(cx)?
+                    .bind_field(cx.runtime(), &token)?;
                 cx.collect_garbage()?;
                 value.get(cx, &field)
             },
@@ -609,11 +616,13 @@ fn generic_managed_fields_keep_their_argument_scope_across_native_calls_and_bind
         42
     );
     let old_field = old_value
-        .native_type()
+        .prepare_native_type(&vm.context(&old).unwrap())
+        .unwrap()
         .bind_field(vm.runtime(), &value_token)
         .unwrap();
     let new_field = new_value
-        .native_type()
+        .prepare_native_type(&vm.context(&new).unwrap())
+        .unwrap()
         .bind_field(vm.runtime(), &value_token)
         .unwrap();
     let mut cx = vm.context(&new).unwrap();

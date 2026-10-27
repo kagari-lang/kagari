@@ -13,8 +13,8 @@ pub mod substitution;
 pub mod wire;
 
 use crate::{
-    collection::CollectionAccess, range::RangeKind, reference::ReferenceAccess,
-    scalar::BuiltinType, ty::substitution::TypeSubstitution,
+    range::RangeKind, reference::ReferenceAccess, scalar::BuiltinType,
+    ty::substitution::TypeSubstitution,
 };
 use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
 use std::collections::BTreeMap;
@@ -65,12 +65,6 @@ pub enum Ty {
     Iter(Box<Ty>),
     Range(Box<Ty>, RangeKind),
     Array(Box<Ty>),
-    Map {
-        key: Box<Ty>,
-        value: Box<Ty>,
-        access: CollectionAccess,
-    },
-    Set(Box<Ty>, CollectionAccess),
     Struct(NominalTy),
     /// A nominal script-heap object backed by a registered traced Rust payload.
     NativeObject(NominalTy),
@@ -95,11 +89,8 @@ impl Ty {
                 }
                 Self::Reference { target, .. } => pending.push(target),
                 Self::Tuple(items) => pending.extend(items),
-                Self::Array(item)
-                | Self::Set(item, _)
-                | Self::Iter(item)
-                | Self::Range(item, _) => pending.push(item),
-                Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Array(item) | Self::Iter(item) | Self::Range(item, _) => pending.push(item),
+
                 Self::Function { params, result } => {
                     pending.extend(params);
                     pending.push(result);
@@ -123,10 +114,8 @@ impl Ty {
                     pending.extend(params);
                     pending.push(result);
                 }
-                Self::Array(ty) | Self::Set(ty, _) | Self::Iter(ty) | Self::Range(ty, _) => {
-                    pending.push(ty)
-                }
-                Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Array(ty) | Self::Iter(ty) | Self::Range(ty, _) => pending.push(ty),
+
                 Self::Struct(ty) | Self::NativeObject(ty) | Self::Enum(ty) | Self::Trait(ty) => {
                     pending.extend(&ty.arguments);
                     pending.extend(ty.associated_types.values());

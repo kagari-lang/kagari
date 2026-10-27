@@ -74,8 +74,7 @@ impl RemapDefinitions for NativeTypeKind {
             },
             Self::String => NativeTypeKind::String,
             Self::Reference(access) => NativeTypeKind::Reference(*access),
-            Self::HashMap => NativeTypeKind::HashMap,
-            Self::HashSet => NativeTypeKind::HashSet,
+
             Self::Iter => NativeTypeKind::Iter,
             Self::Range(field0) => NativeTypeKind::Range(*(field0)),
         })
@@ -115,8 +114,7 @@ impl DefinitionReferences for NativeTypeKind {
             }
             Self::String => {}
             Self::Reference(_) => {}
-            Self::HashMap => {}
-            Self::HashSet => {}
+
             Self::Iter => {}
             Self::Range(_) => {}
         }

@@ -6,7 +6,7 @@ use crate::native::{
     returns::NativeOutput,
     scalar::NativeScalar,
     types::Type,
-    views::{SequenceHandle, SequenceMutHandle, ValueHandle},
+    views::ValueHandle,
 };
 
 pub trait NativeFunction<Arguments, Result> {
@@ -48,14 +48,6 @@ macro_rules! function {
 function!(A:a:0);
 function!(A:a:0, B:b:1);
 function!(A:a:0, B:b:1, C:c:2);
-
-/// Inference marker for a call-scoped sequence parameter, never a runtime value.
-#[doc(hidden)]
-pub struct SequenceArgument;
-
-/// Inference marker for a mutable call-scoped sequence parameter.
-#[doc(hidden)]
-pub struct SequenceMutArgument;
 
 macro_rules! view_type {
     ($call:lifetime; view $view:ident) => { $view<$call> };
@@ -109,9 +101,6 @@ macro_rules! single_view_functions {
     };
 }
 
-single_view_functions!(SequenceArgument, SequenceHandle, Sequence);
-single_view_functions!(SequenceMutArgument, SequenceMutHandle, MutableSequence);
-
 /// Inference marker for a function-typed argument.
 #[doc(hidden)]
 pub struct CallableArgument;
@@ -123,6 +112,4 @@ single_view_functions!(CallableArgument, CallableHandle, Callable);
 pub struct ValueArgument;
 
 single_view_functions!(ValueArgument, ValueHandle, Value);
-view_function!([]; SequenceArgument => view SequenceHandle, Sequence, values:0; CallableArgument => view CallableHandle, Callable, callback:1);
-view_function!([]; SequenceMutArgument => view SequenceMutHandle, MutableSequence, values:0; CallableArgument => view CallableHandle, Callable, callback:1);
 view_function!([]; ValueArgument => view ValueHandle, Value, value:0; CallableArgument => view CallableHandle, Callable, callback:1);

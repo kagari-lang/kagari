@@ -2,13 +2,13 @@ use super::{Counter, SOURCE, module};
 use crate::tests::native_boundary::native_boundary_functions::fixture;
 use kagari_runtime::{
     native::{
-        collections::vector::ScriptVec,
         conversion::{FromKagari, IntoKagari, context::ConversionContext},
         payload::Opaque,
         value_handle::ScriptValue,
     },
     value::Value,
 };
+use kagari_stdlib::collections::vector::ScriptVec;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},

@@ -1,9 +1,10 @@
 use super::{Probe, program, run};
 use crate::vm::Vm;
 use kagari_hir::{analysis::AnalysisDatabase, native::render::declaration_source};
-use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::{Runtime, RuntimeConfig, value::Value};
+use kagari_runtime::{module::entry::ProgramEntry, native::conversion::context::ConversionContext};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_stdlib::collections::vector::ScriptVec;
 use kagari_types::{declaration::module::ModuleDecl, language::Protocol};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -82,22 +83,15 @@ fn wrapped_sources_commit_edits_then_fail_before_the_next_read() {
     let vm = Vm::new(runtime);
     let error = vm.execute(&loaded, ProgramEntry::Main).unwrap_err();
     assert!(format!("{error:?}").contains("invalid or structurally modified iterator"));
-    let Value::GcHandle(array) = probe
-        .retained
-        .lock()
+    let retained = probe.retained.lock().unwrap().as_ref().unwrap().clone();
+    let vector: ScriptVec<i32> = ConversionContext::new(vm.runtime(), &loaded)
         .unwrap()
-        .as_ref()
-        .unwrap()
-        .value(vm.runtime().gc())
-        .unwrap()
-    else {
-        panic!("array");
-    };
-    assert_eq!(vm.runtime().gc().sequence_len(array), Some(3));
-    vm.runtime()
-        .gc()
-        .sequence_push(array, Value::I32(3))
+        .decode(&retained)
         .unwrap();
+    assert_eq!(vector.len(&vm.context(&loaded).unwrap()).unwrap(), 3);
+    vector.push(&mut vm.context(&loaded).unwrap(), 3).unwrap();
+    drop(vector);
+    drop(retained);
     probe.retained.lock().unwrap().take();
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
 }

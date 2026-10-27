@@ -12,18 +12,22 @@ use kagari_runtime::{
     },
     module::ExecutableModule,
     native::{
-        binding::NativeResult,
+        binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
         context::{CallContext, ScriptCall},
+        conversion::context::ConversionContext,
         declarations::FunctionDecl,
         module::NativeModule,
         types::Type,
-        views::SequenceHandle,
     },
     value::Value,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_stdlib::{catalog as foundation_catalog, declarations::StandardDeclarations};
+use kagari_stdlib::{
+    catalog as foundation_catalog,
+    collections::vector::{VecValues, scalar::with_argument_slice},
+    declarations::StandardDeclarations,
+};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::{hint::black_box, sync::Arc, time::Duration};
 
@@ -68,13 +72,15 @@ fn module() -> NativeModule {
     module
         .bind(
             sum,
-            |cx: &mut CallContext<'_>, values: SequenceHandle<'_>| -> NativeResult<i32> {
+            NativeBinding::new([Codec::Value], Codec::Exact(Type::i32()), |cx| {
                 assert_eq!(
                     cx.argument_type_parameter(0, 0)?.ty(),
                     &Ty::Builtin(BuiltinType::I32)
                 );
-                values.with_slice::<i32, _>(|values| Ok(values.iter().copied().sum()))
-            },
+                with_argument_slice::<i32, _>(cx, 0, |values| {
+                    Ok(Value::I32(values.iter().copied().sum()))
+                })
+            }),
         )
         .unwrap();
     module.finish().unwrap()
@@ -259,21 +265,13 @@ fn warmed_scalar_and_contiguous_i32_boundaries_add_no_allocations() {
     assert_eq!(runtime.gc().active_roots(), 0);
     let bulk = CallSite::find(&loaded, "bulk");
     for length in [0, 16, 16_384] {
-        let array = runtime
-            .alloc_array(
-                &loaded,
-                Ty::Builtin(BuiltinType::I32),
-                vec![Value::I32(1); length],
-            )
+        let root = ConversionContext::new(&runtime, &loaded)
+            .unwrap()
+            .encode(VecValues(vec![1i32; length]))
             .unwrap();
-        let (counts, elapsed) = sample(
-            &runtime,
-            &loaded,
-            &bulk,
-            &[Value::Array(array)],
-            1_000,
-            length as i32,
-        );
+        let value = root.value(runtime.gc()).unwrap();
+        drop(root);
+        let (counts, elapsed) = sample(&runtime, &loaded, &bulk, &[value], 1_000, length as i32);
         println!(
             "bulk_i32,elements={length},calls=1000,{counts:?},elapsed_ns={}",
             elapsed.as_nanos()

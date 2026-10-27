@@ -34,7 +34,7 @@ fn main() {
         .set(source.name(), source.text().into(), SourceLayer::Base)
         .unwrap();
     // This compiler-only consumer receives an application storage declaration.
-    // Nominal sequence storage remains distinct from the builtin array field.
+    // Nominal native storage remains distinct from the builtin array field.
     let mut storage = ModuleDecl::new(ModuleIdentity {
         package: PackageId("demo".into()),
         path: vec!["storage".into()],
@@ -46,7 +46,7 @@ fn main() {
         .unwrap();
     storage.types.push(TypeDef {
         name: "Samples".into(),
-        kind: TypeDefKind::NativeStorage(NativeStorageLayout::Sequence { element: 0 }),
+        kind: TypeDefKind::NativeStorage(NativeStorageLayout::Opaque),
         generic_params: vec![GenericParam {
             owner: samples,
             position: 0,

@@ -1132,30 +1132,63 @@ One runtime-local aligned scanner workspace is reserved on payload admission and
 reused for traversal. The current driver drains it synchronously; idle growth is
 allowed because no continuation survives a traversal. PG04 owns persistent active
 continuations and reservation across interleaved mutation, not a second scanner.
-Legacy collection codecs and special storage below remain until PG03.
-Advanced CallContext and borrowed views remain for storage operations; StoredCallable
-is a traced heap edge, while host-retained callbacks use `Function`.
-New payloads require no concrete Value/HeapObject variants. Scalar sequences use
-typed compact buffers; GC-bearing sequences use traced Values. Hash callbacks run
-outside table borrows with checked hashes and stable key tokens.
+[Stdlib collections](../crates/kagari-stdlib/src/collections.rs) own Vec, HashMap,
+HashSet, their cursors and Rust adapters. All three are ordinary nominal opaque
+applications, without collection-specific type/value tags, constructors, codecs,
+heap descriptor cells or execution primitives. Builtin fixed Array remains an
+engine representation. `VecValues<T>` is the library-owned Rust conversion adapter;
+it does not rename script Vec. Serde adapters likewise belong to
+[kagari_stdlib::serde](../crates/kagari-stdlib/src/serde/mod.rs), not a runtime facade.
 
-Each heap lazily constructs its sequence, map, set and iterator storage codec on
-first use. These bounded per-heap cells contain immutable storage operations and
-layout contracts, without script values, executable roots or applied-type results.
-Unused codecs allocate nothing. This changes construction cost, not object layout,
-installed binding authority, payload tracing or scoped-borrow validation.
+`CallContext::payload` and `Opaque::borrow` produce `BorrowedPayload` from an
+existing root without allocating another root or executable descriptor.
+`edit_prepared` combines read-only preparation and resource/revision preflight with
+one mutable loan; `StorageAccess::publish_argument` consumes the actual call's
+root/signature evidence and validates its value. These are generic provider
+services, not collection-specific exemptions. See the
+[provider contract](spec/host-interop.md#general-native-payload-protocol).
 
-Vec stable sorting edits its actual buffer through a scoped lease. Roots
-protect reference elements during callback reentry. Cleanup restores valid storage
-on every exit; failure may change ordering but preserves the original elements.
-Completed payload mutations remain. No universal collection rollback is promised.
+Vec owns typed scalar or traced Value buffers, scratch and progress in one payload.
+Collecting sort retains only its active argument pair, releases each short loan
+before invoking a prepared comparator, and recovers from same-payload traced
+scratch. There is no whole-input retention prepass or callback-wide GC exclusion.
+Checked selected ValueCmp evidence and an actual pointer-free representation permit
+a noncollecting scalar path with bounded Rust stable-sort leaves; arbitrary
+callbacks remain on the general algorithm. Abort targets use the fallible general
+path. Failure may change order but preserves all original elements; completed
+callback effects are not rolled back. Retain/dedup similarly use protected
+same-payload compaction and allocation-free recovery.
+
+HashMap/HashSet share a dense entry table and prehashed scalar index with entry-owned
+collision links, not per-bucket Vecs. Checked selected Hash/Eq evidence permits
+scalar fusion; other callbacks run outside payload loans under operation protection.
+Both use the same storage, commit, relocation-publication and revision owners.
 Lazy native adapters trace source/callback edges and retain checked selections;
 ordinary callback invocation follows current routes, while created closures retain
 exact bodies.
 Collection cursors check structural revisions on each read; writes commit without
 iteration leases, including while a cursor is parked. Generic execution does not name MapIterator.
 
+`Opaque<P>` retains a root and a shared data record: exact TypeArgument, lexical
+owner metadata, storage descriptor and optional managed schema. It does not
+implicitly retain an executable RustType. `owner()` need not remain executable;
+`prepare_native_type(cx)` explicitly revalidates the object in the caller's live
+context before preparing executable access. NativeType factories, bound managed
+fields, methods and prepared calls retain their required execution owners.
+Collection conversions use the live caller context and retained data contracts.
+This does not erase real graph edges: current Map/Set stored Hash/Eq selections
+still trace their selected Program, even for intrinsic keys. Vec data without such
+edges can remain usable after obsolete executable state is reclaimed.
+
 ### Prepared native type facts
+
+DefinitionContext's immutable identity lives beside its mutex in the same shared
+allocation. Comparing `id()` does not lock/freeze its append-only table; foreign
+contexts still snapshot and resolve IDs. This is construction-time owner evidence,
+not a validity cache. Enum construction in an authenticated CallContext reuses that
+context's executable-owner proof while retaining dynamic execution and complete
+member/type/layout/value checks. Standalone runtime enum construction still performs
+full executable admission; there is no public bypass entrypoint.
 
 Runtime-local linked native bindings own one scoped-signature preparation cell:
 closed bindings populate it after staging establishes exact program provenance and before
@@ -1812,9 +1845,17 @@ store numeric tokens rather than per-slot Arc owners; disposal retains dispatch
 and backing until destruction completes. Canonical struct layouts remain with
 one semantic interning owner, not a duplicate physical semantic-key map.
 
-The collector still completes synchronous graph validation and builds a dead list.
-It retires identities before disposal outside storage borrows; destructor panics
-quarantine execution while cleanup continues. Interface identities directly locate
+The collector still completes synchronous graph validation and builds an index-only
+dead list, accumulating checked committed-charge totals during enumeration. Before
+retiring identities it exactly reserves separate payload/page retirement queues.
+Wholly dead full homogeneous pages may transfer backing and one descriptor owner;
+partial/mixed/already-retiring pages retain per-object disposal. All destructors run
+outside storage borrows, consuming initialization before dispatch. Each panic
+quarantines execution before the next destructor; cleanup continues exactly once.
+Descriptor evidence skips destruction only when Rust needs_drop is false or encoded
+struct bytes own no Rust resources; native payloads retain their actual destructor.
+Edge-freedom is not destructor-freedom. Descriptor and backing owners release outside
+borrows after disposal. Interface identities directly locate
 snapshots and use a narrow occupied-directory index, with no slab wrapper payload.
 The synchronous dead list and interface batch filtering remain PG05 removal work;
 epoch marking/continuations remain PG04 work. Nonmoving storage alone is not an
@@ -1834,8 +1875,8 @@ to a native payload. The byte ledger is deliberately partial, not RSS or a quota
 [GC accounting](spec/runtime.md#gc-heap) defines its coverage and exclusions.
 
 A reserve can increase byte pressure without increasing logical occupancy. Clear
-or truncate can reduce occupancy while retaining capacity; detached editing still
-charges its buffer. If a later preparation step fails, successfully reserved backing
+or truncate can reduce occupancy while retaining capacity; library algorithm
+main/scratch buffers remain installed and charged through recovery. If a later preparation step fails, successfully reserved backing
 remains charged even though no element was published. Release and sealed cleanup
 accounting remain available after termination/quarantine, without allowing new
 execution. Either logical/metadata occupancy or retained-byte pressure can schedule
@@ -1895,10 +1936,10 @@ that checked ID, rather than widening every transient object view with a count.
 Receiver/description storage is neither cloned nor rooted by the transient view.
 Shared metadata views and mutable heap storage retain their separate borrow owners.
 
-The storage and scalar-transfer kernels use safe Rust. Any future bounded unsafe
-kernel must expose a safe owner-controlled API with enforced bounds, initialization,
-alignment, aliasing and lifetime invariants, and focused validation including Miri
-or applicable sanitizers. Check elision additionally needs measured benefit over
+Scalar field transfer uses safe byte copies. The nonmoving physical storage kernel
+uses narrowly scoped unsafe allocation/placement/destruction behind owner-controlled
+APIs, with bounds, initialization, alignment, aliasing and lifetime invariants and
+focused validation including the PG02 Miri evidence. Check elision additionally needs measured benefit over
 the safe baseline; it cannot replace host, owner/generation, source-free or reload
 validation with assertions about trusted callers. Full handles remain in struct
 storage: owner elision saved only a projected 0.49% on the frozen node workload and
@@ -2245,37 +2286,18 @@ operands, copies immutable membership and publishes the new tuple before the nex
 safepoint. No callback, collection or observation intervenes between cursor exit and
 operand acquisition. There is no extra logical PC or instruction-slice charge.
 NativeBinding distinguishes callback bodies from runtime-owned NativePrimitive
-implementations. Selecting a primitive installs its fixed kernel and exact codecs;
-a callback cannot assert a purity flag. StringByteLength reads immutable UTF-8
-storage; VecIndex and VecSet/VecSetFluent read or replace checked array elements.
-Both scoped native invocation and the prepared cursor use these fixed kernels.
-Registration checks the exact parameter/result relationships, including the Vec
-element type and mutable access for replacement. Linking requires the actual
-installed body, an already prepared exact signature and absence of selected
-operations/result adapters. Shared verified instructions contain only native-call
-ordinals; runtime links hold operation-specific facts. String length needs only
-its physical source; Vec operations also retain argument locations and the
-supplying record's immutable native signature. Its closed type provenance belongs
-to the already pinned program; no new heap value or type environment is retained.
-Arbitrary callbacks and adapters keep the native boundary. Both native cancellation
-polls, current heap identity checks and physical result admission are preserved.
-No method-name recognition, source analysis or per-call descriptor allocation is
-involved. Fixed kernels return a compact Value-or-boxed-error result; detailed
-diagnostics occupy storage only on failure, and the cursor transfers that error
-box into RegionError. The ordinary native callback API keeps its existing error
-type. Private kernel instantiations retain each operation's result facts through
-publication while sharing cancellation, error propagation and destination checks;
-String's scalar result is not merged with Vec's general result before writing it.
-Native execution reports only completion or a native boundary; the region owns
-general exit construction. A fixed kernel cannot request unrelated preparation
-transitions or script returns through its continuation type.
-The stdlib's separate string length/index bodies and owning Vec setter
-adapters are removed. SDK and native adapters share checked array reads and setter
-preflight/commit kernels. Detached storage remains unavailable, not an empty array;
-callbacks, readonly access, bounds and current element contracts remain checked.
-The fixed setter copies an already rooted Value without a Rust conversion or heap
-growth. SDK conversions still retain their own roots, limits and safepoints because
-they may allocate or reenter; committing afterward rechecks the actual storage.
+implementations. StringByteLength reads immutable UTF-8 storage through a fixed
+checked kernel; a callback cannot assert a purity flag. Linking requires the actual
+installed body, prepared exact signature and absence of selected operations/result
+adapters. Verified instructions carry native-call ordinals, not method-name
+recognition. Cancellation, heap identity, destination checks and error propagation
+remain at the native/region boundary.
+Vec indexing and mutation are ordinary stdlib native entries. VecIndex,
+VecSet/VecSetFluent and linked Vector dispatch are removed, without compatibility
+kernels. Library borrowed-payload operations retain bounds, readonly capability,
+element contracts, resource preflight and mutation commits. Builtin Array retains
+its independent checked engine kernels. Conversions that may allocate or reenter
+retain their own roots, limits and safepoints.
 Each scalar segment reuses the region's immutable function and disjoint mutable
 logical-PC fields and bounded scalar/initialization slices. Fetch borrows one
 immutable instruction; dispatch reads only its selected payload rather than copying
@@ -2835,12 +2857,13 @@ retains only independent Array context and installed List indexing roles. Nomina
 Vec and List indexing use checked Index/MutableList contracts. Place lowering
 preserves once-only root/index/RHS evaluation and completed effects.
 
-Runtime-owned Array objects and registered nominal sequences may share compact
-SequenceStorage kernels after family admission. Growth, capacity and detached
-edit leases require nominal sequence storage; builtin array replacement retains
-bounds, owner/generation and callback guards. No public sequence codec or Rust Vec
-conversion accepts an Array handle. String interpolation uses fixed [String]
-temporary storage owned by its compiler/runtime primitive contract.
+Runtime-owned Array objects retain their own compact buffer and checked fixed-length
+operations. Stdlib Vec owns its nominal payload and buffers through the general
+native protocol; it has no privileged Sequence layout/admission category.
+`VecValues<T>` and ScriptVec reject Array handles, including empty arrays; explicit
+Vec::from(Array) copies structure while preserving referenced identities. String
+interpolation uses fixed [String] temporary storage owned by its compiler/runtime
+primitive contract.
 
 String literal typing/representation may remain intrinsic while its methods are
 ordinary native-authored implementations. Adding trim or split needs no compiler

@@ -12,6 +12,7 @@ use crate::{
     },
 };
 
+use kagari_contract::standard::RuntimePrimitive;
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -21,6 +22,13 @@ pub(crate) struct StoredSelection {
 }
 
 impl StoredSelection {
+    pub(crate) fn primitive(&self) -> Option<RuntimePrimitive> {
+        // This evidence comes from a verified builtin protocol adapter. Generated
+        // adapters use Script targets, but their dispatch routes are body-owned;
+        // ordinary reloadable script implementations never receive this evidence.
+        self.callable.primitive
+    }
+
     pub(crate) fn slots(
         owner: &ExecutableModule,
         selected: &[LinkedOperation],

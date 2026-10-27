@@ -452,10 +452,8 @@ fn children<'a>(ty: &'a Ty, pending: &mut Vec<&'a Ty>) {
             pending.extend(params);
             pending.push(result);
         }
-        Ty::Array(item) | Ty::Set(item, _) | Ty::Iter(item) | Ty::Range(item, _) => {
-            pending.push(item)
-        }
-        Ty::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+        Ty::Array(item) | Ty::Iter(item) | Ty::Range(item, _) => pending.push(item),
+
         Ty::Projection {
             receiver,
             interface,

@@ -135,7 +135,7 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
                 .facts(),
         );
         let native: Vec<_> = abi.public_items.into_iter().filter(|item| {
-            matches!(item, PublicItem::Type(ty) if matches!(ty.kind, TypeDefKind::Native(_) | TypeDefKind::Enum | TypeDefKind::NativeStorage(NativeStorageLayout::Sequence { .. })))
+            matches!(item, PublicItem::Type(ty) if matches!(ty.kind, TypeDefKind::Native(_) | TypeDefKind::Enum | TypeDefKind::NativeStorage(NativeStorageLayout::Opaque)))
         }).collect();
         verify::validate(
             &native,
@@ -159,13 +159,12 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
                     assert_eq!(owner.path, ["host"]);
                     assert!(seen_references.insert(ty.name.clone(), access).is_none());
                 }
-                TypeDefKind::NativeStorage(NativeStorageLayout::Sequence { element }) => {
+                TypeDefKind::NativeStorage(NativeStorageLayout::Opaque) if ty.name == "Vec" => {
                     assert_eq!(ty.name, "Vec");
                     assert_eq!(ty.generic_params.len(), 1);
-                    assert_eq!(element, 0);
                     seen_vec = true;
                 }
-                TypeDefKind::Native(NativeTypeConstructor::Map) => {
+                TypeDefKind::NativeStorage(NativeStorageLayout::Opaque) if ty.name == "HashMap" => {
                     assert_eq!(ty.name, "HashMap");
                     assert_eq!(ty.generic_params.len(), 2);
                     seen_map = true;
@@ -218,7 +217,7 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
             ("RefMut".into(), ReferenceAccess::Mutable),
         ])
     );
-    assert_eq!(count, 23);
+    assert_eq!(count, 34);
     assert!(seen_vec && seen_map && seen_result && seen_spawn_error && seen_char_error);
 }
 

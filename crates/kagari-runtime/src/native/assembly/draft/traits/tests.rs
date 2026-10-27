@@ -145,7 +145,7 @@ fn contracts(fault: Fault) -> ModuleDefinition {
 }
 
 fn project_binding() -> NativeBinding {
-    NativeBinding::new(vec![Codec::Sequence, Codec::Value], Codec::Sequence, |_| {
+    NativeBinding::new(vec![Codec::Value, Codec::Value], Codec::Value, |_| {
         panic!("declaration/preparation must not execute a body")
     })
 }
@@ -159,11 +159,11 @@ fn assembly(
         let refs = Contracts::reference(module)?;
         let vector = module.define_type(
             "Vector",
-            TypeDefKind::NativeStorage(NativeStorageLayout::Sequence { element: 0 }),
+            TypeDefKind::NativeStorage(NativeStorageLayout::Opaque),
             1,
             |_, _| Ok(()),
         )?;
-        module.bind_storage(&vector, NativeStorage::sequence(0))?;
+        module.bind_storage(&vector, NativeStorage::data::<u32>())?;
         module.trait_implementation_with(1, |arguments| {
             Ok(TraitImplementation {
                 receiver: vector.apply(arguments.to_vec())?,
@@ -247,7 +247,7 @@ fn assembly(
                         Ok(())
                     })
                     .implementation(NativeBinding::new(
-                        vec![Codec::Sequence, Codec::Value],
+                        vec![Codec::Value, Codec::Value],
                         Codec::Exact(Type::u64()),
                         |_| panic!("not executed"),
                     )),

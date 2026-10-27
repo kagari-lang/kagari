@@ -1,23 +1,38 @@
-//! Builtin Map/Set constructors and capabilities retain their existing storage model.
+//! Ordinary opaque hash collections own their declaration and implementation.
+mod access;
 pub(super) mod operations;
 use crate::{
     catalog::documentation,
+    collections::{
+        hash::{
+            HashPayload,
+            cursor::{self, HashCursor},
+        },
+        map::MapStorage,
+        set::SetStorage,
+    },
     foundation::{
         arrays::array, conflict, enumerations::value as enums, hash::operations as hash, interface,
-        iteration::operations as iteration, override_entry, raw,
+        override_entry,
     },
 };
 use kagari_runtime::native::{
     assembly::{
+        authoring::PendingBinding,
         draft::{ModuleDraft, TraitImplementation},
         references::{DraftCallableRequirement, DraftMember, DraftReference},
     },
     binding::{Codec, NativeBinding, NativeResult},
+    context::CallContext,
+    conversion::{IntoKagari, arguments::FromKagariArguments},
     declarations::MethodDecl,
+    storage::NativeStorage,
+    typed::NativeContext,
     types::Type,
 };
+use kagari_runtime::value::Value;
 use kagari_types::{
-    declaration::{TypeDefKind, native::NativeTypeConstructor},
+    declaration::{TypeDefKind, native::NativeStorageLayout},
     ty::{GenericBound, Ty},
 };
 
@@ -76,31 +91,66 @@ impl Keys {
 
 pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     let keys = Keys::new(module)?;
-    for (map, name, constructor, arity) in [
-        (true, "HashMap", NativeTypeConstructor::Map, 2),
-        (false, "HashSet", NativeTypeConstructor::Set, 1),
-    ] {
-        let reference = module.define_type(
-            name,
-            TypeDefKind::Native(constructor),
-            arity,
-            |record, definitions| {
-                record.bounds = keys.bounds(&Type::from_semantic(
-                    record.generic_params[0].as_type(),
-                    definitions,
-                )?)?;
-                Ok(())
-            },
-        )?;
-        module.document(
-            reference.id(),
-            documentation::markdown(if map { MAP_DOCS } else { SET_DOCS }),
-        )?;
-        inherent(module, &keys, &reference, map)?;
-        capabilities(module, &keys, &reference, map, arity)?;
-        from_iterator(module, &keys, &reference, map, arity)?;
-    }
-    Ok(())
+    declare_collection::<MapStorage>(module, &keys, true, "HashMap", "HashMapCursor", 2)?;
+    declare_collection::<SetStorage>(module, &keys, false, "HashSet", "HashSetCursor", 1)
+}
+
+fn declare_collection<P: HashPayload>(
+    module: &mut ModuleDraft<'_>,
+    keys: &Keys,
+    map: bool,
+    name: &str,
+    cursor_name: &str,
+    arity: usize,
+) -> NativeResult<()> {
+    let reference = module.define_type(
+        name,
+        TypeDefKind::NativeStorage(NativeStorageLayout::Opaque),
+        arity,
+        |record, definitions| {
+            record.bounds = keys.bounds(&Type::from_semantic(
+                record.generic_params[0].as_type(),
+                definitions,
+            )?)?;
+            Ok(())
+        },
+    )?;
+    module.bind_storage(&reference, NativeStorage::payload::<P>())?;
+    let cursor = module.define_type(
+        cursor_name,
+        TypeDefKind::NativeStorage(NativeStorageLayout::Opaque),
+        arity,
+        |_, _| Ok(()),
+    )?;
+    module.bind_storage(&cursor, NativeStorage::payload::<HashCursor<P>>())?;
+    module.document(
+        reference.id(),
+        documentation::markdown(if map { MAP_DOCS } else { SET_DOCS }),
+    )?;
+    inherent(module, keys, &reference, map)?;
+    capabilities::<P>(module, keys, &reference, &cursor, map, arity)?;
+    from_iterator(module, keys, &reference, map, arity)
+}
+
+fn typed<A: FromKagariArguments, R: IntoKagari>(
+    entry: impl for<'a> Fn(&mut NativeContext<'a>, A) -> NativeResult<R> + Send + Sync + Clone + 'static,
+) -> PendingBinding {
+    PendingBinding::implementation_with_send(move |view| {
+        Ok(NativeBinding::declared(view.declaration(), entry.clone()))
+    })
+}
+
+fn raw(count: usize, entry: fn(&mut CallContext<'_>) -> NativeResult<Value>) -> NativeBinding {
+    NativeBinding::new(vec![Codec::Value; count], Codec::Value, entry)
+}
+
+fn flat(entry: fn(&mut CallContext<'_>) -> NativeResult<Value>) -> PendingBinding {
+    PendingBinding::implementation_with_send(move |view| {
+        Ok(raw(
+            view.declaration().records().function.params.len(),
+            entry,
+        ))
+    })
 }
 
 fn inherent(
@@ -125,11 +175,13 @@ fn inherent(
                     }
                     Ok(())
                 })
-                .implementation_send(NativeBinding::new(
-                    vec![],
-                    Codec::Value,
-                    if map { hash::map_new } else { hash::set_new },
-                )),
+                .implementation_with_send(move |view| {
+                    Ok(if map {
+                        NativeBinding::declared(view.declaration(), hash::map_new)
+                    } else {
+                        NativeBinding::declared(view.declaration(), hash::set_new)
+                    })
+                }),
         )?;
         if !map {
             let calls = keys.calls(items[0].clone())?;
@@ -144,11 +196,12 @@ fn inherent(
                         }
                         Ok(())
                     })
-                    .implementation_send(NativeBinding::new(
-                        vec![Codec::Value],
-                        Codec::Value,
-                        hash::from_array,
-                    )),
+                    .implementation_with_send(|view| {
+                        Ok(NativeBinding::declared(
+                            view.declaration(),
+                            hash::from_array,
+                        ))
+                    }),
             )?;
         }
         let mut insert = MethodDecl::instance("insert")
@@ -158,47 +211,46 @@ fn inherent(
         if map {
             insert = insert.parameter("arg2", items[1].clone());
         }
-        let calls = keys.calls(items[0].clone())?;
-        methods.define(
-            insert
-                .configure(move |function| {
-                    for call in calls {
-                        function.requires_draft(call)?;
-                    }
-                    Ok(())
-                })
-                .implementation_send(NativeBinding::new(
-                    vec![Codec::Value; if map { 3 } else { 2 }],
-                    Codec::Value,
-                    if map {
-                        hash::map_insert_fluent
-                    } else {
-                        hash::set_insert_fluent
-                    },
-                )),
-        )?;
+        methods.define(insert.implementation_with_send(move |view| {
+            Ok(if map {
+                raw(
+                    view.declaration().records().function.params.len(),
+                    access::map_insert_fluent,
+                )
+            } else {
+                raw(
+                    view.declaration().records().function.params.len(),
+                    access::set_insert_fluent,
+                )
+            })
+        }))?;
         methods.define(
             MethodDecl::instance("clear")
-                .returns(receiver.clone())
+                .returns(receiver)
                 .documentation(inherent_docs(map, "clear"))
-                .implementation_send(NativeBinding::new(
-                    vec![Codec::Value],
-                    Codec::Value,
-                    if map {
-                        hash::map_clear_fluent
+                .implementation_with_send(move |view| {
+                    Ok(if map {
+                        raw(
+                            view.declaration().records().function.params.len(),
+                            access::clear_fluent::<MapStorage>,
+                        )
                     } else {
-                        hash::set_clear_fluent
-                    },
-                )),
+                        raw(
+                            view.declaration().records().function.params.len(),
+                            access::clear_fluent::<SetStorage>,
+                        )
+                    })
+                }),
         )?;
         Ok(())
     })
 }
 
-fn capabilities(
+fn capabilities<P: HashPayload>(
     module: &mut ModuleDraft<'_>,
     keys: &Keys,
     reference: &DraftReference,
+    cursor_type: &DraftReference,
     map: bool,
     arity: usize,
 ) -> NativeResult<()> {
@@ -207,90 +259,97 @@ fn capabilities(
     let iterable = interface(module, "Iterable", 0)?;
     let item = module.reference_associated_type(&iterable, "Item", 0)?;
     let cursor = module.reference_associated_type(&iterable, "Iter", 0)?;
-    for readonly in [false, true] {
-        let methods = if map {
-            vec![
-                ("len", raw(1, hash::map_len), false),
-                ("is_empty", raw(1, hash::map_is_empty), false),
-                ("contains_key", raw(2, hash::map_contains), true),
-                (
-                    "get",
-                    enums::pending(2, &[enums::OPTION], hash::map_get),
-                    true,
-                ),
-            ]
-        } else {
-            vec![
-                ("len", raw(1, hash::set_len), false),
-                ("is_empty", raw(1, hash::set_is_empty), false),
-                ("contains", raw(2, hash::set_contains), true),
-            ]
-        };
-        let mut entries = vec![];
-        for (name, binding, keyed) in methods {
-            let mut entry = override_entry(module, &read, name, 0, binding)?;
-            if keyed {
-                for call in keys.calls(read.parameter(0)?)? {
-                    entry = entry.requires(call);
-                }
-            }
-            entries.push(entry);
-        }
-        module.trait_implementation_with(arity, |items| {
-            Ok(TraitImplementation {
-                receiver: receiver(reference.apply(items.to_vec())?, readonly)?,
-                interface: read.apply(items.to_vec())?,
-                bounds: keys.bounds(&items[0])?,
-                bindings: vec![],
-            }
-            .with_overrides(entries))
-        })?;
-        let entry = override_entry(module, &iterable, "iter", 0, raw(1, iteration::iter))?;
-        module.trait_implementation_with(arity, |items| {
-            let element = if map {
-                Type::tuple(items.to_vec())?
-            } else {
-                items[0].clone()
-            };
-            Ok(TraitImplementation {
-                receiver: receiver(reference.apply(items.to_vec())?, readonly)?,
-                interface: cursor.bind(
-                    item.bind(iterable.apply([])?, element.clone())?,
-                    Type::iterator(element)?,
-                )?,
-                bounds: keys.bounds(&items[0])?,
-                bindings: vec![],
-            }
-            .with_overrides([entry]))
-        })?;
+    let mut entries = vec![
+        override_entry(module, &read, "len", 0, flat(access::len::<P>))?,
+        override_entry(module, &read, "is_empty", 0, flat(access::is_empty::<P>))?,
+        override_entry(
+            module,
+            &read,
+            if map { "contains_key" } else { "contains" },
+            0,
+            flat(access::contains::<P>),
+        )?,
+    ];
+    if map {
+        entries.push(override_entry(
+            module,
+            &read,
+            "get",
+            0,
+            enums::pending(2, &[enums::OPTION], access::map_get),
+        )?);
     }
+    module.trait_implementation_with(arity, |items| {
+        Ok(TraitImplementation {
+            receiver: reference.apply(items.to_vec())?,
+            interface: read.apply(items.to_vec())?,
+            bounds: keys.bounds(&items[0])?,
+            bindings: vec![],
+        }
+        .with_overrides(entries))
+    })?;
+    let entry = override_entry(module, &iterable, "iter", 0, typed(cursor::iter::<P>))?;
+    module.trait_implementation_with(arity, |items| {
+        let element = if map {
+            Type::tuple(items.to_vec())?
+        } else {
+            items[0].clone()
+        };
+        Ok(TraitImplementation {
+            receiver: reference.apply(items.to_vec())?,
+            interface: cursor.bind(
+                item.bind(iterable.apply([])?, element)?,
+                cursor_type.apply(items.to_vec())?,
+            )?,
+            bounds: keys.bounds(&items[0])?,
+            bindings: vec![],
+        }
+        .with_overrides([entry]))
+    })?;
+    let iterator = interface(module, "Iterator", 0)?;
+    let output = module.reference_associated_type(&iterator, "Item", 0)?;
+    let entry = override_entry(
+        module,
+        &iterator,
+        "next",
+        0,
+        if map {
+            typed(cursor::map_next)
+        } else {
+            typed(cursor::set_next)
+        },
+    )?;
+    module.trait_implementation_with(arity, |items| {
+        let element = if map {
+            Type::tuple(items.to_vec())?
+        } else {
+            items[0].clone()
+        };
+        Ok(TraitImplementation {
+            receiver: cursor_type.apply(items.to_vec())?,
+            interface: output.bind(iterator.apply([])?, element)?,
+            bounds: vec![],
+            bindings: vec![],
+        }
+        .with_overrides([entry]))
+    })?;
     let methods = if map {
         vec![
-            ("insert", raw(3, hash::map_insert), true),
-            (
-                "remove",
-                enums::pending(2, &[enums::OPTION], hash::map_remove),
-                true,
-            ),
-            ("clear", raw(1, hash::map_clear), false),
+            ("insert", flat(access::map_insert)),
+            ("remove", flat(access::map_remove)),
+            ("clear", flat(access::clear::<MapStorage>)),
         ]
     } else {
         vec![
-            ("insert", raw(2, hash::set_insert), true),
-            ("remove", raw(2, hash::set_remove), true),
-            ("clear", raw(1, hash::set_clear), false),
+            ("insert", flat(access::set_insert)),
+            ("remove", flat(access::set_remove)),
+            ("clear", flat(access::clear::<SetStorage>)),
         ]
     };
-    let mut entries = vec![];
-    for (name, binding, keyed) in methods {
-        let mut entry = override_entry(module, &write, name, 0, binding)?;
-        if keyed {
-            for call in keys.calls(write.parameter(0)?)? {
-                entry = entry.requires(call);
-            }
-        }
-        entries.push(entry);
-    }
+    let entries = methods
+        .into_iter()
+        .map(|(name, binding)| override_entry(module, &write, name, 0, binding))
+        .collect::<NativeResult<Vec<_>>>()?;
     module.trait_implementation_with(arity, |items| {
         Ok(TraitImplementation {
             receiver: reference.apply(items.to_vec())?,
@@ -300,16 +359,6 @@ fn capabilities(
         }
         .with_overrides(entries))
     })
-}
-
-fn receiver(receiver: Type, readonly: bool) -> NativeResult<Type> {
-    if !readonly {
-        return Ok(receiver);
-    }
-    Type::from_semantic(
-        receiver.abi().read_only_view().expect("builtin map/set"),
-        receiver.definitions().expect("generic scope"),
-    )
 }
 
 fn from_iterator(
@@ -336,7 +385,11 @@ fn from_iterator(
         &from,
         "from_iter",
         1,
-        enums::pending(1, &[enums::OPTION], hash::from_iter),
+        if map {
+            typed(hash::map_from_iter)
+        } else {
+            typed(hash::set_from_iter)
+        },
     )?;
     module.trait_implementation_with(arity, |items| {
         let receiver = reference.apply(items.to_vec())?;

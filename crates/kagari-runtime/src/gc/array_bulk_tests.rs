@@ -98,7 +98,7 @@ fn repeat_allocation_rejects_length_and_byte_capacity_without_publication() {
 }
 
 #[test]
-fn fixed_arrays_reject_sequence_growth_capacity_and_detached_edits() {
+fn fixed_arrays_reject_invalid_replacements_without_changing_charge() {
     let mut runtime = Runtime::default();
     let owner = allocation_owner(&mut runtime);
     let id = runtime
@@ -106,16 +106,8 @@ fn fixed_arrays_reject_sequence_growth_capacity_and_detached_edits() {
         .unwrap();
     let heap = runtime.gc();
     let before = heap.stats();
-    assert!(heap.sequence_push(id, Value::I32(2)).is_err());
-    assert!(heap.sequence_pop(id).is_err());
-    assert!(heap.sequence_insert(id, 0, Value::I32(2)).is_err());
-    assert!(heap.sequence_remove(id, 0).is_err());
-    assert!(heap.sequence_clear(id).is_err());
-    assert!(heap.sequence_truncate(id, 0).is_err());
-    assert!(heap.reserve_collection(&Value::Array(id), 1).is_err());
-    assert!(heap.reserve_collection(&Value::GcHandle(id), 1).is_err());
-    assert!(heap.with_sequence_mut::<i32, _>(id, |_| Ok(())).is_err());
-    assert!(heap.edit_sequence(id, |_| Ok(())).is_err());
+    assert!(heap.array_set(id, 1, Value::I32(2)).is_err());
+    assert!(heap.array_set(id, 0, Value::Bool(true)).is_err());
     assert_eq!(heap.array_snapshot(id), Some(vec![Value::I32(1)]));
     assert_eq!(heap.stats(), before);
     heap.array_set(id, 0, Value::I32(42)).unwrap();

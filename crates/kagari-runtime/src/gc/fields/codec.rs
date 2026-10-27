@@ -58,8 +58,6 @@ pub(super) fn read_managed(bytes: &[u8], offset: usize) -> Option<Value> {
         2 => Value::Tuple(id),
         3 => Value::Range(id),
         4 => Value::Array(id),
-        5 => Value::Map(id),
-        6 => Value::Set(id),
         7 => Value::Enum(id),
         8 => Value::Struct(id),
         9 => Value::GcHandle(id),
@@ -76,8 +74,7 @@ pub(super) fn write_managed(bytes: &mut [u8], offset: usize, value: Value) -> Op
         Value::Tuple(id) => (2, id),
         Value::Range(id) => (3, id),
         Value::Array(id) => (4, id),
-        Value::Map(id) => (5, id),
-        Value::Set(id) => (6, id),
+
         Value::Enum(id) => (7, id),
         Value::Struct(id) => (8, id),
         Value::GcHandle(id) => (9, id),

@@ -117,8 +117,8 @@ new entry, but keeps and charges the successfully reserved capacity. For example
 a hash insertion can retain extra table capacity without inserting its key.
 
 Removal, clear and truncate reduce logical occupancy without necessarily releasing
-backing capacity. Detached sequence edits keep the buffer charged through callback
-failure and restoration. Sweep and native take release the runtime-recorded charge,
+backing capacity. Library Vec main/scratch storage stays installed and charged
+through callback failure and same-payload recovery. Sweep and native take release the runtime-recorded charge,
 never call a provider's size hook again; take leaves the inert identity's logical
 unit until its remaining aliases are no longer traced. Charge release does not
 poll execution and still works after termination or quarantine. Sealed Task failure

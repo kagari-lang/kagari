@@ -12,11 +12,12 @@ use kagari_runtime::{
         builder::ModuleBuilder,
         declarations::{FunctionDecl, MethodDecl},
         types::Type,
+        value_handle::ScriptValue,
     },
     value::Value,
 };
 use kagari_source::source::SourceFile;
-use kagari_stdlib::declarations::StandardDeclarations;
+use kagari_stdlib::{collections::vector::VecValues, declarations::StandardDeclarations};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use rstest::rstest;
 
@@ -42,8 +43,14 @@ fn engine() -> KagariEngine {
     module
         .bind(
             singleton,
-            NativeBinding::new([Codec::Value], Codec::MutableSequence, |call| {
-                call.allocate_vec(call.result_type_parameter(0)?, vec![call.argument(0)?])
+            NativeBinding::new([Codec::Value], Codec::Value, |call| {
+                let input = call.argument(0)?;
+                let input_type = call.argument_type_argument(0)?;
+                let output = call.result_type_argument()?;
+                let mut cx = call.native_context()?;
+                let value: ScriptValue = cx.conversion().decode_value(&input_type, &input)?;
+                cx.conversion()
+                    .encode_value(&output, VecValues(vec![value]))
             }),
         )
         .unwrap();
@@ -78,11 +85,15 @@ fn engine() -> KagariEngine {
     factory
         .bind(
             one,
-            NativeBinding::new(
-                [Codec::Value, Codec::Value],
-                Codec::MutableSequence,
-                |call| call.allocate_vec(call.result_type_parameter(0)?, vec![call.argument(1)?]),
-            ),
+            NativeBinding::new([Codec::Value, Codec::Value], Codec::Value, |call| {
+                let input = call.argument(1)?;
+                let input_type = call.argument_type_argument(1)?;
+                let output = call.result_type_argument()?;
+                let mut cx = call.native_context()?;
+                let value: ScriptValue = cx.conversion().decode_value(&input_type, &input)?;
+                cx.conversion()
+                    .encode_value(&output, VecValues(vec![value]))
+            }),
         )
         .unwrap();
     factory.finish().unwrap();

@@ -1,93 +1,40 @@
-//! Prepare public collection constructors using installed executable applications.
+//! Prepare public native constructors using installed executable applications.
 use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::{arguments::TypeArgument, compatibility::TypeView},
-    module::{ExecutableModule, Module},
+    module::ExecutableModule,
     native::{
         binding::NativeResult,
-        collections::{map::ScriptMap, set::ScriptSet},
         conversion::KagariType,
         function_handle::{Function, evidence::EntryEvidence},
     },
 };
 use kagari_common::identity::DefinitionKind;
 use kagari_contract::types::{PublicItem, inherent::InherentTable};
-use kagari_types::{
-    collection::CollectionAccess,
-    ty::{Ty, matching::match_receiver},
-};
-use std::slice;
+use kagari_types::ty::{Ty, matching::match_receiver};
 
 impl Runtime {
-    /// Prepare the installed public `new` application, including its selected
-    /// Hash/Eq operations. The returned callable can be cached and reused.
-    pub fn bind_map_constructor<K: KagariType + 'static, V: KagariType + 'static>(
-        &self,
-        owner: &Module,
-        key: &TypeArgument,
-        value: &TypeArgument,
-    ) -> NativeResult<Function<(), ScriptMap<K, V>>> {
-        self.gc().ensure_no_native_borrow()?;
-        let snapshot = self.capture_module(owner)?;
-        self.bind_map_constructor_exact(&snapshot.root, key, value)
-    }
-
-    /// Preserve the conversion context's selected publication and Hash/Eq evidence.
-    pub(in crate::native) fn bind_map_constructor_exact<
-        K: KagariType + 'static,
-        V: KagariType + 'static,
-    >(
+    /// Bind the checked public zero-argument `new` application for an exact nominal type.
+    /// The returned route retains argument scopes and selects current bodies on calls.
+    pub fn bind_constructor<R: KagariType + 'static>(
         &self,
         owner: &ExecutableModule,
-        key: &TypeArgument,
-        value: &TypeArgument,
-    ) -> NativeResult<Function<(), ScriptMap<K, V>>> {
-        self.bind_hash_constructor(
-            owner,
-            Ty::Map {
-                key: Box::new(key.ty().clone()),
-                value: Box::new(value.ty().clone()),
-                access: CollectionAccess::Mutable,
-            },
-            &[key.clone(), value.clone()],
-        )
-    }
-
-    /// Prepare the installed public `new` application for an exact element scope.
-    pub fn bind_set_constructor<T: KagariType + 'static>(
-        &self,
-        owner: &Module,
-        element: &TypeArgument,
-    ) -> NativeResult<Function<(), ScriptSet<T>>> {
-        self.gc().ensure_no_native_borrow()?;
-        let snapshot = self.capture_module(owner)?;
-        self.bind_set_constructor_exact(&snapshot.root, element)
-    }
-
-    /// Preserve the conversion context's selected publication and element scope.
-    pub(in crate::native) fn bind_set_constructor_exact<T: KagariType + 'static>(
-        &self,
-        owner: &ExecutableModule,
-        element: &TypeArgument,
-    ) -> NativeResult<Function<(), ScriptSet<T>>> {
-        self.bind_hash_constructor(
-            owner,
-            Ty::Set(Box::new(element.ty().clone()), CollectionAccess::Mutable),
-            slice::from_ref(element),
-        )
-    }
-
-    fn bind_hash_constructor<R: KagariType + 'static>(
-        &self,
-        owner: &ExecutableModule,
-        receiver: Ty,
-        arguments: &[TypeArgument],
+        receiver: &TypeArgument,
     ) -> NativeResult<Function<(), R>> {
+        self.validate_executable_module(owner)?;
+        receiver.validate(self)?;
+        let Ty::NativeObject(nominal) = receiver.ty() else {
+            return Err(invalid());
+        };
+        let arguments = (0..nominal.arguments.len())
+            .map(|index| receiver.parameter(self, owner, index))
+            .collect::<NativeResult<Vec<_>>>()?;
+        let receiver = receiver.ty().clone();
         self.gc().ensure_no_native_borrow()?;
         self.resources().ensure_execution_allowed()?;
         self.validate_executable_module(owner)?;
-        for argument in arguments {
+        for argument in &arguments {
             argument.validate(self)?;
         }
         let mut found = None;
@@ -120,10 +67,10 @@ impl Runtime {
                 }
                 if found.is_some() {
                     return Err(RuntimeError::module_validation(
-                        "ambiguous collection constructor",
+                        "ambiguous native constructor",
                     ));
                 }
-                let applied = constructor_arguments(table, arguments, &member, owner)?;
+                let applied = constructor_arguments(table, &arguments, &member, owner)?;
                 let declaration = member
                     .definitions()
                     .lookup_child(table.declaration, DefinitionKind::Method, &method.name, 0)
@@ -160,11 +107,10 @@ fn constructor_arguments(
     declaration_owner: &ExecutableModule,
     caller: &ExecutableModule,
 ) -> NativeResult<Vec<TypeArgument>> {
-    let parameters = match &table.for_type {
-        Ty::Map { key, value, .. } => vec![key.as_ref(), value.as_ref()],
-        Ty::Set(element, _) => vec![element.as_ref()],
-        _ => return Err(invalid()),
+    let Ty::NativeObject(nominal) = &table.for_type else {
+        return Err(invalid());
     };
+    let parameters = nominal.arguments.iter();
     let mut bindings: Vec<Option<TypeArgument>> = vec![None; table.generic_params.len()];
     for (template, actual) in parameters.into_iter().zip(arguments) {
         if let Ty::Parameter { owner, position } = template {
@@ -192,7 +138,5 @@ fn constructor_arguments(
 }
 
 fn invalid() -> RuntimeError {
-    RuntimeError::module_validation(
-        "collection constructor requires a checked public new application",
-    )
+    RuntimeError::module_validation("native constructor requires a checked public new application")
 }

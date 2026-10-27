@@ -267,10 +267,8 @@ impl References {
                     types.extend(params);
                     types.push(result);
                 }
-                Ty::Iter(item) | Ty::Range(item, _) | Ty::Array(item) | Ty::Set(item, _) => {
-                    types.push(item)
-                }
-                Ty::Map { key, value, .. } => types.extend([key.as_ref(), value.as_ref()]),
+                Ty::Iter(item) | Ty::Range(item, _) | Ty::Array(item) => types.push(item),
+
                 Ty::Reference { target, .. } => types.push(target),
                 Ty::Host(_) | Ty::SelfType(_) | Ty::Parameter { .. } | Ty::Builtin(_) => {}
             }

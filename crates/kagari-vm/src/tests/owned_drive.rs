@@ -17,14 +17,14 @@ use kagari_runtime::{
     frame::ExecutionStack,
     module::entry::ProgramEntry,
     native::{
-        binding::NativeResult, builder::ModuleBuilder, declarations::FunctionDecl,
-        typed::NativeContext,
+        binding::NativeResult, builder::ModuleBuilder, conversion::context::ConversionContext,
+        declarations::FunctionDecl, typed::NativeContext,
     },
     resource::RuntimeLimits,
     session::ExecutionOptions,
     value::Value,
 };
-use kagari_stdlib::declarations::StandardDeclarations;
+use kagari_stdlib::{collections::vector::ScriptVec, declarations::StandardDeclarations};
 use std::{
     num::NonZeroUsize,
     sync::{
@@ -381,9 +381,10 @@ fn async_owned_drive_contract_iterator_invalidation() {
         *seen.lock().unwrap() = 0;
         let source = vm.execute(&loaded, "make").unwrap().return_value;
         let value = source.value(vm.runtime().gc()).unwrap();
-        let Value::GcHandle(id) = value else {
-            panic!("source Vec")
-        };
+        let vector: ScriptVec<i32> = ConversionContext::new(vm.runtime(), &loaded)
+            .unwrap()
+            .decode(&source)
+            .unwrap();
         let owner = vm
             .start(&loaded, "sum", &[value], ExecutionOptions::default())
             .unwrap();
@@ -406,11 +407,10 @@ fn async_owned_drive_contract_iterator_invalidation() {
             Some(Value::I32(42))
         );
         if exit != 0 {
-            vm.runtime().gc().sequence_push(id, Value::I32(9)).unwrap();
+            vector.push(&mut vm.context(&loaded).unwrap(), 9).unwrap();
         }
-        vm.runtime()
-            .gc()
-            .sequence_set(id, 1, Value::I32(20))
+        vector
+            .set(&mut vm.context(&loaded).unwrap(), 1, 20)
             .unwrap();
         match exit {
             0 => {
@@ -453,14 +453,14 @@ fn async_owned_drive_contract_iterator_invalidation() {
                     1,
                     "no second item after invalidation"
                 );
-                assert_eq!(vm.runtime().gc().sequence_len(id), Some(4));
+                assert_eq!(vector.len(&vm.context(&loaded).unwrap()).unwrap(), 4);
             }
             _ => {
                 drop(owner);
                 assert_eq!(vm.runtime().drain_retired_executions().unwrap(), 1);
             }
         }
-        vm.runtime().gc().sequence_push(id, Value::I32(9)).unwrap();
+        vector.push(&mut vm.context(&loaded).unwrap(), 9).unwrap();
         assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
         assert_eq!(
             vm.runtime()

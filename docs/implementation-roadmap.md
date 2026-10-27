@@ -570,15 +570,22 @@ was activated at `50ab194b` on 2026-10-26. PG00/NC01 contract closure and baseli
 are locally complete at `47be3cb7`. PG01/NC02 general provider capabilities and the
 external OrderedMap fixture are locally complete after focused tests, source-free
 fixture regeneration/artifact tests, repaired review blockers and final local checks.
-PG01 is committed at `fc651b92`. PG02 implements nonmoving inline native/struct
-storage in the worktree, with the measured 4 KiB-to-independent-1 KiB slab correction;
-focused GC/Miri checks and diagnostic memory evidence are recorded in the
-[PG02 ledger](paged-incremental-gc-design.md#pg02-physical-model-correction-and-checkpoint-evidence).
-Final focused dependent/source-free tests, workspace Clippy and independent storage
-review passed; PG02 is locally complete. PG03/NC03-NC04 is next.
-[NC03-NC06](native-collections-plan.md) collection migration and integration remain
-outstanding; legacy standard collection paths are not removed. Full CI, timing
-and final paired performance/peak/pause acceptance remain unrun; PG00 gates are unchanged.
+PG01 is committed at `fc651b92`; PG02 at `4d8aa0c1` implements nonmoving inline
+native/struct storage with the measured 4 KiB-to-independent-1 KiB slab correction.
+Focused GC/Miri, dependent/source-free checks and independent storage review passed;
+[PG02 evidence](paged-incremental-gc-design.md#pg02-physical-model-correction-and-checkpoint-evidence)
+is locally complete. PG03/NC03-NC04 is also locally complete in the worktree: stdlib owns
+ordinary nominal collections/cursors, VecValues Rust conversion and Serde; legacy
+runtime collection families/primitives/facades are removed. The finite NC inventory
+is closed. Final independent review approved the current tree and independently
+passed stdlib collections 5, ownership/page-quarantine 7 and retention 15 variants;
+parent structure (1766 files, zero violations), fmt, workspace Clippy and diff passed.
+The [PG03 handoff](paged-incremental-gc-design.md#pg03-collection-migration-evidence-and-handoff)
+records latest seven-pair gates (Map 1.030554, Vec 0.897900), all 55 memory gates,
+21 zero-net teardowns and selected focused/local checks. It also records reconstructed
+sort-baseline provenance and the current Map/Set selected-call Program retention
+limit accepted in the scoped final review. PG00 gates are unchanged. PG04 is next; NC05/NC06,
+incremental pause/interleaving proof and full CI remain outstanding.
 Their [runtime storage predecessor](#runtime-storage-redesign) is locally complete;
 reuse the resulting heap/descriptor contracts and NC01's audited API/code inventory
 against the current scoped identity APIs.
@@ -592,8 +599,9 @@ The opaque API adjustment and general payload protocol ship with the
 [GC execution plan PG00-PG06](paged-incremental-gc-design.md#execution-plan), including
 affected collection integration. The plan records NC handoffs and staged activation
 of incremental collection. PG00 freezes the selected page/provider/publication
-contracts and measured throughput/backing/peak/pause gates; the production runtime
-remains unchanged. NC is the detailed collection work breakdown, not a later API
+contracts and measured throughput/backing/peak/full-cycle gates; subsequent phases
+change production owners under those frozen bounds. Incremental pause acceptance
+remains future measured work. NC is the detailed collection work breakdown, not a later API
 redesign. Joint acceptance removes container-specific collector/storage paths and
 uses the same public opaque protocol for standard and application collections.
 The plan covers Vec/HashMap/HashSet, their base cursors, host adapters and source-free

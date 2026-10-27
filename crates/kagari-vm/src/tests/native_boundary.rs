@@ -8,29 +8,39 @@ use kagari_runtime::native::storage::scan::{NativeScanKind, ScanBudget, ScanStat
 use kagari_runtime::{
     Runtime,
     error::RuntimeError,
-    gc::mutations::PreparedCollectionCommit,
     module::{Program, entry::ProgramEntry},
     native::{
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
         context::CallContext,
+        conversion::context::ConversionContext,
         declarations::FunctionDecl,
         module::NativeModule,
+        objects::Object,
+        payload::Opaque,
         storage::{NativePayload, NativeStorage},
+        storage_type::StorageType,
+        typed::NativeContext,
         types::Type,
-        views::{SequenceHandle, SequenceMutHandle},
+        value_handle::ScriptValue,
     },
     resource::HeapCharge,
     value::Value,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
+use std::sync::Arc;
 use std::sync::{
     Mutex,
     atomic::{AtomicUsize, Ordering},
 };
-use std::{ops::Bound, sync::Arc};
-use {kagari_stdlib as foundation, kagari_stdlib::declarations::StandardDeclarations};
+use {
+    kagari_stdlib as foundation,
+    kagari_stdlib::{
+        collections::{map::ScriptMap, set::ScriptSet, vector::ScriptVec},
+        declarations::StandardDeclarations,
+    },
+};
 
 mod native_boundary_artifacts;
 mod native_boundary_callbacks;
@@ -349,6 +359,7 @@ fn selected_script_callbacks_return_directly_to_a_rust_loop() {
 #[derive(Debug)]
 struct TracedCounter {
     values: Value,
+    contract: Option<StorageType>,
     dropped: Arc<AtomicUsize>,
 }
 
@@ -402,6 +413,7 @@ fn registered_nominal_payload_traces_children_and_drops_with_the_heap() {
             )?;
             Ok(TracedCounter {
                 values,
+                contract: None,
                 dropped: factory_dropped.clone(),
             })
         }))
@@ -504,14 +516,14 @@ fn default_array_literals_repeats_and_empty_arrays_use_contiguous_scalar_storage
     builder
         .bind(
             probe,
-            NativeBinding::new(vec![Codec::Sequence], Codec::Exact(Type::i32()), |cx| {
-                assert!(cx.with_sequence::<u32, _>(0, |_| Ok(())).is_err());
-                cx.with_sequence_mut::<i32, _>(0, |values| {
+            |cx: &mut NativeContext<'_>, (values,): (ScriptVec<i32>,)| -> NativeResult<i32> {
+                assert!(values.with_slice::<u32, _>(cx, |_| Ok(())).is_err());
+                values.with_slice_mut::<i32, _>(cx, |values| {
                     values.reverse();
                     Ok(())
                 })?;
-                cx.with_sequence::<i32, _>(0, |values| Ok(Value::I32(values.iter().copied().sum())))
-            }),
+                values.with_slice::<i32, _>(cx, |values| Ok(values.iter().copied().sum()))
+            },
         )
         .unwrap();
     let module = builder.finish().unwrap();
@@ -542,13 +554,13 @@ fn default_array_literals_repeats_and_empty_arrays_use_contiguous_scalar_storage
 }
 
 fn rooted_sequence_len(
-    cx: &mut CallContext<'_>,
-    values: SequenceHandle<'_>,
+    cx: &mut NativeContext<'_>,
+    (values,): (ScriptVec<i32>,),
 ) -> NativeResult<usize> {
-    let length = values.len()?;
+    let length = values.len(cx)?;
     cx.collect_garbage()?;
-    assert_eq!(values.len()?, length);
-    values.with_slice::<i32, _>(|_| {
+    assert_eq!(values.len(cx)?, length);
+    values.with_slice::<i32, _>(cx, |_| {
         assert!(
             cx.collect_garbage()
                 .unwrap_err()
@@ -561,12 +573,10 @@ fn rooted_sequence_len(
 }
 
 fn transform_sequence(
-    _cx: &mut CallContext<'_>,
-    increment: i32,
-    mut values: SequenceMutHandle<'_>,
-    scale: i32,
+    cx: &mut NativeContext<'_>,
+    (increment, values, scale): (i32, ScriptVec<i32>, i32),
 ) -> NativeResult<i32> {
-    values.with_slice_mut::<i32, _>(|values| {
+    values.with_slice_mut::<i32, _>(cx, |values| {
         for value in values.iter_mut() {
             *value = (*value + increment) * scale;
         }
@@ -642,120 +652,87 @@ fn ordinary_sequence_parameters_borrow_roots_and_preserve_mutation_guards() {
 }
 
 #[test]
-fn typed_sequence_bulk_changes_validate_before_committing_and_trace_reference_elements() {
+fn typed_vector_edits_validate_before_committing_and_trace_reference_elements() {
     let (vm, loaded) = compile(
-        "struct Node { val value: i32 } pub fn values() -> Vec<i32> { Vec::from([1, 2, 3, 4]) } pub fn nodes() -> Vec<Node> { Vec::from([Node { value: 42 }]) }",
+        "pub struct Node { pub val value: i32 } pub fn values() -> Vec<i32> { Vec::from([1, 2, 3, 4]) } pub fn nodes() -> Vec<Node> { Vec::from([Node { value: 42 }]) }",
         None,
     );
-    let _loaded_program = loaded;
-    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    let value = vm
-        .execute(&loaded, "values")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
-        .expect("retained execution result");
-    let rooted = vm.runtime().root_value(value).unwrap();
-    let Value::GcHandle(id) = value else {
-        panic!("array result");
-    };
-    let heap = vm.runtime().gc();
-    assert!(heap.sequence_fill(id, Value::Bool(true)).is_err());
-    assert_eq!(
-        heap.sequence_snapshot(id).unwrap(),
-        vec![Value::I32(1), Value::I32(2), Value::I32(3), Value::I32(4)]
+    let program = loaded;
+    let loaded = vm.runtime().select_program(&program).unwrap();
+    let vector: ScriptVec<i32> = vm.execute_typed(&loaded, "values", ()).unwrap();
+    let mut cx = vm.context(&loaded).unwrap();
+    assert!(
+        vector
+            .with_slice_mut::<bool, _>(&mut cx, |_| Ok(()))
+            .is_err()
     );
-    heap.sequence_copy_within(id, Bound::Included(0), Bound::Excluded(3), 1)
+    assert_eq!(
+        vector
+            .with_slice::<i32, _>(&cx, |v| Ok(v.to_vec()))
+            .unwrap(),
+        [1, 2, 3, 4]
+    );
+    vector
+        .with_slice_mut::<i32, _>(&mut cx, |v| {
+            v.copy_within(0..3, 1);
+            Ok(())
+        })
         .unwrap();
     assert_eq!(
-        heap.sequence_snapshot(id).unwrap(),
-        vec![Value::I32(1), Value::I32(1), Value::I32(2), Value::I32(3)]
+        vector
+            .with_slice::<i32, _>(&cx, |v| Ok(v.to_vec()))
+            .unwrap(),
+        [1, 1, 2, 3]
     );
-    heap.sequence_set(id, 0, Value::I32(20)).unwrap();
-    heap.sequence_reverse(id).unwrap();
-    heap.sequence_truncate(id, 2).unwrap();
-    heap.sequence_push(id, Value::I32(7)).unwrap();
+    vector.set(&mut cx, 0, 20).unwrap();
+    vector.reverse(&mut cx).unwrap();
+    vector.truncate(&mut cx, 2).unwrap();
+    vector.push(&mut cx, 7).unwrap();
     assert_eq!(
-        heap.sequence_snapshot(id).unwrap(),
-        vec![Value::I32(3), Value::I32(2), Value::I32(7)]
+        vector
+            .with_slice::<i32, _>(&cx, |v| Ok(v.to_vec()))
+            .unwrap(),
+        [3, 2, 7]
     );
-    let wrong_root =
-        kagari_runtime::native::conversion::context::ConversionContext::new(vm.runtime(), &loaded)
-            .unwrap()
-            .encode(vec![true; 3])
-            .unwrap();
-    let Value::GcHandle(wrong) = wrong_root.value(heap).unwrap() else {
-        panic!("Vec<bool>")
-    };
-    assert!(heap.sequence_copy_from(id, wrong).is_err());
+    vector
+        .with_slice_mut::<i32, _>(&mut cx, |v| {
+            v.fill(7);
+            Ok(())
+        })
+        .unwrap();
+    vector.set(&mut cx, 0, 2).unwrap();
+    let mut index = 0;
+    vector
+        .retain(&mut cx, |_, _| {
+            index += 1;
+            Ok(index != 2)
+        })
+        .unwrap();
     assert_eq!(
-        heap.sequence_snapshot(id).unwrap(),
-        vec![Value::I32(3), Value::I32(2), Value::I32(7)]
+        vector
+            .with_slice::<i32, _>(&cx, |v| Ok(v.to_vec()))
+            .unwrap(),
+        [2, 7]
     );
-    heap.sequence_fill(id, Value::I32(7)).unwrap();
-    heap.sequence_set(id, 0, Value::I32(2)).unwrap();
-    let mask_root =
-        kagari_runtime::native::conversion::context::ConversionContext::new(vm.runtime(), &loaded)
-            .unwrap()
-            .encode(vec![true, false, true])
-            .unwrap();
-    let Value::GcHandle(mask) = mask_root.value(heap).unwrap() else {
-        panic!("Vec<bool>")
-    };
-    heap.commit_prepared_collection(
-        PreparedCollectionCommit::Retain,
-        &[value, Value::GcHandle(mask)],
-    )
-    .unwrap();
-    assert_eq!(
-        heap.sequence_snapshot(id).unwrap(),
-        vec![Value::I32(2), Value::I32(7)]
-    );
-    let Value::Tuple(parts) = heap
-        .prepare_sequence_removal(id, Bound::Included(0), Bound::Excluded(1))
-        .unwrap()
-    else {
-        panic!("prepared removal");
-    };
-    let parts = vm.runtime().gc().tuple(parts).unwrap().to_vec();
-    let [Value::GcHandle(remaining), Value::GcHandle(removed)] = parts.as_slice() else {
-        panic!("prepared range arrays");
-    };
-    assert_eq!(
-        heap.sequence_snapshot(*remaining).unwrap(),
-        vec![Value::I32(7)]
-    );
-    assert_eq!(
-        heap.sequence_snapshot(*removed).unwrap(),
-        vec![Value::I32(2)]
-    );
-    assert_eq!(
-        heap.sequence_snapshot(id).unwrap(),
-        vec![Value::I32(2), Value::I32(7)]
-    );
-    heap.sequence_extend(id, id).unwrap();
-    assert_eq!(
-        heap.sequence_snapshot(id).unwrap(),
-        vec![Value::I32(2), Value::I32(7), Value::I32(2), Value::I32(7)]
-    );
-    drop(rooted);
-    let nodes = vm
-        .execute(&loaded, "nodes")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
-        .expect("retained execution result");
-    let root = vm.runtime().root_value(nodes).unwrap();
+    assert_eq!(vector.remove(&mut cx, 0).unwrap(), Some(2));
+    assert_eq!(vector.get(&mut cx, 0).unwrap(), Some(7));
+    drop(vector);
+    let nodes: ScriptVec<Object> = vm.execute_typed(&loaded, "nodes", ()).unwrap();
+    let node = vm
+        .runtime()
+        .bind_type(&program.root(), "Node", &[])
+        .unwrap();
+    let field = vm.runtime().bind_field::<i32>(&node, "value").unwrap();
     vm.runtime().collect_garbage().unwrap();
-    let Value::GcHandle(id) = nodes else {
-        panic!("string array result");
-    };
-    let Some(Value::Struct(child)) = vm.runtime().gc().sequence_get(id, 0) else {
-        panic!("traced node");
-    };
-    let (_, fields) = vm.runtime().gc().struct_snapshot(child).unwrap();
-    assert_eq!(fields[0].value, Value::I32(42));
-    drop(root);
+    assert_eq!(
+        nodes
+            .get(&mut cx, 0)
+            .unwrap()
+            .unwrap()
+            .get(&mut cx, &field)
+            .unwrap(),
+        42
+    );
 }
 
 #[test]
@@ -786,18 +763,16 @@ fn every_scalar_layout_is_selected_from_the_declared_array_element() {
             builder
                 .bind(
                     function,
-                    NativeBinding::new(
-                        vec![Codec::Sequence],
-                        Codec::Exact(Type::bool()),
-                        move |cx| {
-                            cx.with_sequence::<$rust, _>(0, |values| {
-                                assert!(values.len() <= 2);
-                                assert!(values.iter().all(|value| *value == $expected));
-                                count.fetch_add(1, Ordering::SeqCst);
-                                Ok(Value::Bool(true))
-                            })
-                        },
-                    ),
+                    move |cx: &mut NativeContext<'_>,
+                          (values,): (ScriptVec<$rust>,)|
+                          -> NativeResult<bool> {
+                        values.with_slice::<$rust, _>(cx, |values| {
+                            assert!(values.len() <= 2);
+                            assert!(values.iter().all(|value| *value == $expected));
+                            count.fetch_add(1, Ordering::SeqCst);
+                            Ok(true)
+                        })
+                    },
                 )
                 .unwrap();
             expressions.push(format!(
@@ -906,63 +881,39 @@ use std::hash::{Hash};
     );
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    let map = vm
-        .execute(&loaded, "empty_map")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
-        .expect("retained execution result");
-    let map_root = vm.runtime().root_value(map).unwrap();
-    let set = vm
-        .execute(&loaded, "empty_set")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
-        .expect("retained execution result");
-    let set_root = vm.runtime().root_value(set).unwrap();
-    let custom = vm
-        .execute(&loaded, "custom")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
-        .expect("retained execution result");
-    let custom_root = vm.runtime().root_value(custom).unwrap();
-    let key = vm
-        .execute(&loaded, "key")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
-        .expect("retained execution result");
-    let key_root = vm.runtime().root_value(key).unwrap();
-    let Value::Map(map_id) = map else {
-        panic!("map");
-    };
-    let Value::Set(set_id) = set else {
-        panic!("set");
-    };
-    let Value::Map(custom_id) = custom else {
-        panic!("custom map");
-    };
-    let heap = vm.runtime().gc();
-    assert!(
-        heap.map_insert(map_id, Value::Bool(true), Value::I32(1))
-            .is_err()
-    );
-    assert!(
-        heap.map_insert(map_id, Value::I32(1), Value::Bool(true))
-            .is_err()
-    );
-    assert!(heap.set_insert(set_id, Value::Bool(true)).is_err());
-    assert_eq!(heap.map_len(map_id), Some(0));
-    assert_eq!(heap.set_len(set_id), Some(0));
-    assert!(heap.ensure_key_mode(&custom, false).is_err());
-    assert!(heap.map_insert(custom_id, key, Value::I32(42)).is_err());
-    heap.custom_insert(&custom, 7, -1, key, Value::I32(42))
+    let map: ScriptMap<ScriptValue, ScriptValue> =
+        vm.execute_typed(&loaded, "empty_map", ()).unwrap();
+    let set: ScriptSet<ScriptValue> = vm.execute_typed(&loaded, "empty_set", ()).unwrap();
+    let custom: ScriptMap<Object, i32> = vm.execute_typed(&loaded, "custom", ()).unwrap();
+    let key: Object = vm.execute_typed(&loaded, "key", ()).unwrap();
+    let mut conversion = ConversionContext::new(vm.runtime(), &loaded).unwrap();
+    let wrong = conversion.encode(true).unwrap();
+    let wrong: ScriptValue = conversion
+        .decode_value(
+            &conversion.type_for::<bool>().unwrap(),
+            &wrong.value(vm.runtime().gc()).unwrap(),
+        )
         .unwrap();
-    heap.map_clear(custom_id).unwrap();
-    assert!(heap.ensure_key_mode(&custom, false).is_err());
-    assert_eq!(heap.map_len(custom_id), Some(0));
-    drop((map_root, set_root, custom_root, key_root));
+    let one = conversion.encode(1i32).unwrap();
+    let one: ScriptValue = conversion
+        .decode_value(
+            &conversion.type_for::<i32>().unwrap(),
+            &one.value(vm.runtime().gc()).unwrap(),
+        )
+        .unwrap();
+    let mut cx = vm.context(&loaded).unwrap();
+    assert!(map.insert(&mut cx, wrong.clone(), one.clone()).is_err());
+    assert!(map.insert(&mut cx, one, wrong.clone()).is_err());
+    assert!(set.insert(&mut cx, wrong).is_err());
+    assert_eq!(map.len(&cx).unwrap(), 0);
+    assert_eq!(set.len(&cx).unwrap(), 0);
+    custom.insert(&mut cx, key.clone(), 42).unwrap();
+    assert_eq!(custom.get(&mut cx, key.clone()).unwrap(), Some(42));
+    custom.clear(&mut cx).unwrap();
+    assert_eq!(custom.len(&cx).unwrap(), 0);
+    // Clearing must preserve the originally selected custom Hash/Eq protocol.
+    custom.insert(&mut cx, key.clone(), 43).unwrap();
+    assert_eq!(custom.get(&mut cx, key).unwrap(), Some(43));
 }
 
 #[test]
@@ -1069,10 +1020,14 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
     builder
         .bind(
             new,
-            NativeBinding::new(vec![Codec::Sequence], counter.codec(), move |cx| {
+            NativeBinding::new(vec![Codec::Value], counter.codec(), move |cx| {
                 cx.allocate_result_payload(
                     TracedCounter {
                         values: cx.argument(0)?,
+                        contract: Some(StorageType::prepare_scoped(
+                            cx.argument_type_argument(0)?,
+                            cx.owner(),
+                        )?),
                         dropped: capture.clone(),
                     },
                     &[],
@@ -1099,20 +1054,25 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
     builder
         .bind(
             read,
-            NativeBinding::new(
-                vec![counter.codec()],
-                Codec::Exact(Type::i32()),
-                |cx| unsafe {
-                    cx.with_payload::<TracedCounter, _>(0, |payload| {
-                        let Value::GcHandle(id) = payload.values else {
-                            return Err(RuntimeError::module_validation("counter child"));
-                        };
-                        cx.heap()
-                            .sequence_get(id, 0)
-                            .ok_or_else(|| RuntimeError::module_validation("counter element"))
-                    })
-                },
-            ),
+            NativeBinding::new(vec![counter.codec()], Codec::Exact(Type::i32()), |cx| {
+                let mut native = cx.native_context()?;
+                let object: Opaque<TracedCounter> = native
+                    .conversion()
+                    .decode_value(&cx.argument_type_argument(0)?, &cx.argument(0)?)?;
+                let values = unsafe {
+                    object.read(&native, None, |payload, access| {
+                        access.retain(
+                            payload.contract.as_ref().expect("provided child contract"),
+                            &payload.values,
+                        )
+                    })?
+                };
+                let values = values.decode::<ScriptVec<i32>>(&mut native)?;
+                values
+                    .get(&mut native, 0)?
+                    .map(Value::I32)
+                    .ok_or_else(|| RuntimeError::module_validation("counter element"))
+            }),
         )
         .unwrap();
     let module = builder.finish().unwrap();

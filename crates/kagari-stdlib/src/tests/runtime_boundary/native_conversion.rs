@@ -1,4 +1,7 @@
-use crate::tests::runtime_boundary::support::compile_program;
+use crate::{
+    collections::vector::{ScriptVec, VecValues},
+    tests::runtime_boundary::support::compile_program,
+};
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
 };
@@ -6,7 +9,7 @@ use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::{RuntimeError, RuntimeErrorKind},
     frame::types::arguments::TypeArgument,
-    gc::{GcHeapConfig, HeapObjectId, roots::RootedValue},
+    gc::{GcHeapConfig, roots::RootedValue},
     module::ExecutableModule,
     native::{
         binding::NativeResult,
@@ -18,13 +21,15 @@ use kagari_runtime::{
             context::{ConversionContext, ConversionLimits},
         },
         module::NativeModule,
+        typed::NativeContext,
         types::Type,
+        value_handle::ScriptValue,
     },
     value::Value,
 };
 use kagari_types::ty::Ty;
 use std::{
-    cell::Cell,
+    cell::{Cell, RefCell},
     fmt::Debug,
     panic::{AssertUnwindSafe, catch_unwind},
 };
@@ -56,13 +61,13 @@ fn fixture_with(extra: Option<NativeModule>, source: &str) -> (Runtime, Executab
 
 #[test]
 fn nested_owned_values_round_trip_under_collection_and_release_temporary_roots() {
-    type NestedValues = Vec<Option<Result<(String, Vec<i32>), String>>>;
+    type NestedValues = VecValues<Option<Result<(String, VecValues<i32>), String>>>;
     let (runtime, owner) = fixture();
-    let input = vec![
-        Some(Ok(("火🔥".to_owned(), vec![20, 22]))),
+    let input = VecValues(vec![
+        Some(Ok(("火🔥".to_owned(), VecValues(vec![20, 22])))),
         None,
         Some(Err("business error".to_owned())),
-    ];
+    ]);
     let root = {
         let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
         let root = cx.encode(input.clone()).unwrap();
@@ -103,11 +108,11 @@ fn scalar_widths_tuple_arity_and_foreign_roots_are_checked() {
         values
     );
     let unsigned = vec![1u64 << 32, u64::MAX];
-    let root = cx.encode(unsigned.clone()).unwrap();
-    assert_eq!(cx.decode::<Vec<u64>>(&root).unwrap(), unsigned);
+    let root = cx.encode(VecValues(unsigned.clone())).unwrap();
+    assert_eq!(cx.decode::<VecValues<u64>>(&root).unwrap().0, unsigned);
     let signed = vec![i64::MIN, i64::MAX];
-    let root = cx.encode(signed.clone()).unwrap();
-    assert_eq!(cx.decode::<Vec<i64>>(&root).unwrap(), signed);
+    let root = cx.encode(VecValues(signed.clone())).unwrap();
+    assert_eq!(cx.decode::<VecValues<i64>>(&root).unwrap().0, signed);
     let unit = cx.encode(()).unwrap();
     assert_eq!(unit.value(runtime.gc()), Some(Value::Unit));
     let tuple = cx.encode((true,)).unwrap();
@@ -123,11 +128,8 @@ fn scalar_widths_tuple_arity_and_foreign_roots_are_checked() {
             )
             .unwrap();
         let root = runtime.root_value(Value::Array(array)).unwrap();
-        assert!(cx.decode::<Vec<i32>>(&root).is_err());
-        assert!(
-            cx.decode::<kagari_runtime::native::collections::vector::ScriptVec<i32>>(&root)
-                .is_err()
-        );
+        assert!(cx.decode::<VecValues<i32>>(&root).is_err());
+        assert!(cx.decode::<ScriptVec<i32>>(&root).is_err());
     }
     let foreign = Runtime::default().root_value(Value::I32(1)).unwrap();
     assert!(cx.decode::<i32>(&foreign).is_err());
@@ -194,7 +196,11 @@ fn outer_argument_tuples_cover_zero_through_twelve_and_preserve_nested_tuple_val
     round_trip_arguments(&mut cx, (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12), 12);
     round_trip_arguments(
         &mut cx,
-        ("first".to_owned(), vec!["second".to_owned()], (3, true)),
+        (
+            "first".to_owned(),
+            VecValues(vec!["second".to_owned()]),
+            (3, true),
+        ),
         3,
     );
     let tuple = cx.type_for::<(i32, i32)>().unwrap();
@@ -319,8 +325,8 @@ fn missing_nominal_providers_and_bounded_conversion_fail_without_retention() {
     ] {
         let mut cx = ConversionContext::with_limits(&runtime, &owner, limits).unwrap();
         let error = match run {
-            0 => cx.encode(vec![vec![1]]).unwrap_err(),
-            1 => cx.encode(vec![1, 2]).unwrap_err(),
+            0 => cx.encode(VecValues(vec![VecValues(vec![1])])).unwrap_err(),
+            1 => cx.encode(VecValues(vec![1, 2])).unwrap_err(),
             _ => cx.encode("火".to_owned()).unwrap_err(),
         };
         assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
@@ -338,15 +344,17 @@ fn conversion_observes_root_cancellation_without_publishing_partial_values() {
     let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
     cancellation.cancel();
     assert_eq!(
-        cx.encode(vec![vec![1, 2]]).unwrap_err().kind(),
+        cx.encode(VecValues(vec![VecValues(vec![1, 2])]))
+            .unwrap_err()
+            .kind(),
         RuntimeErrorKind::Cancelled
     );
     assert_eq!(runtime.gc().active_roots(), 0);
     drop(cx);
     drop(session);
     let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
-    let root = cx.encode(vec![1, 2]).unwrap();
-    assert_eq!(cx.decode::<Vec<i32>>(&root).unwrap(), [1, 2]);
+    let root = cx.encode(VecValues(vec![1, 2])).unwrap();
+    assert_eq!(cx.decode::<VecValues<i32>>(&root).unwrap().0, [1, 2]);
 }
 
 struct Failing {
@@ -355,7 +363,7 @@ struct Failing {
 
 impl KagariType for Failing {
     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
-        Vec::<String>::kagari_type(catalog)
+        VecValues::<String>::kagari_type(catalog)
     }
 }
 
@@ -365,7 +373,10 @@ impl IntoKagari for Failing {
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
     ) -> NativeResult<Value> {
-        let value = cx.encode_value(expected, vec!["retained until failure".to_owned()])?;
+        let value = cx.encode_value(
+            expected,
+            VecValues(vec!["retained until failure".to_owned()]),
+        )?;
         cx.runtime().collect_garbage()?;
         assert!(cx.runtime().gc().validate_value(&value));
         assert!(!self.panic, "conversion unwind fixture");
@@ -382,17 +393,22 @@ fn conversion_errors_and_panics_release_scratch_roots_and_restore_scope_depth() 
     assert!(catch_unwind(AssertUnwindSafe(|| cx.encode(Failing { panic: true }))).is_err());
     assert_eq!(runtime.gc().active_roots(), 0);
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
-    let root = cx.encode(vec!["still usable".to_owned()]).unwrap();
-    assert_eq!(cx.decode::<Vec<String>>(&root).unwrap(), ["still usable"]);
+    let root = cx
+        .encode(VecValues(vec!["still usable".to_owned()]))
+        .unwrap();
+    assert_eq!(
+        cx.decode::<VecValues<String>>(&root).unwrap().0,
+        ["still usable"]
+    );
 }
 
-thread_local! { static DETACH: Cell<Option<HeapObjectId>> = const { Cell::new(None) }; }
+thread_local! { static DETACH: RefCell<Option<ScriptVec<VecValues<i32>>>> = const { RefCell::new(None) }; }
 #[derive(Debug, PartialEq)]
 struct Detached(Vec<i32>);
 
 impl KagariType for Detached {
     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
-        Vec::<i32>::kagari_type(catalog)
+        VecValues::<i32>::kagari_type(catalog)
     }
 }
 
@@ -403,10 +419,10 @@ impl FromKagari for Detached {
         value: &Value,
     ) -> NativeResult<Self> {
         if let Some(outer) = DETACH.take() {
-            cx.runtime().gc().sequence_clear(outer)?;
+            outer.clear(&mut NativeContext::new(cx.runtime(), cx.owner())?)?;
         }
         cx.runtime().collect_garbage()?;
-        Vec::<i32>::from_kagari(cx, expected, value).map(Self)
+        VecValues::<i32>::from_kagari(cx, expected, value).map(|values| Self(values.0))
     }
 }
 
@@ -414,22 +430,29 @@ impl FromKagari for Detached {
 fn owned_composites_survive_alias_mutation_and_collection_in_child_conversion() {
     let (runtime, owner) = fixture();
     let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
-    let root = cx.encode(vec![vec![1], vec![2]]).unwrap();
-    let Value::GcHandle(array) = root.value(runtime.gc()).unwrap() else {
+    let root = cx
+        .encode(VecValues(vec![VecValues(vec![1]), VecValues(vec![2])]))
+        .unwrap();
+    let Value::GcHandle(_) = root.value(runtime.gc()).unwrap() else {
         panic!("array");
     };
-    DETACH.set(Some(array));
+    DETACH.set(Some(cx.decode::<ScriptVec<VecValues<i32>>>(&root).unwrap()));
     assert_eq!(
-        cx.decode::<Vec<Detached>>(&root).unwrap(),
+        cx.decode::<VecValues<Detached>>(&root).unwrap().0,
         [Detached(vec![1]), Detached(vec![2])]
     );
-    assert_eq!(runtime.gc().sequence_len(array), Some(0));
+    assert_eq!(
+        cx.decode::<VecValues<VecValues<i32>>>(&root).unwrap().len(),
+        0
+    );
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);
     drop(root);
 
     for value in [Ok(vec![3]), Err(vec![4])] {
         let expected = Some(value.clone().map(Detached).map_err(Detached));
-        let root = cx.encode(Some(value)).unwrap();
+        let root = cx
+            .encode(Some(value.map(VecValues).map_err(VecValues)))
+            .unwrap();
         assert_eq!(
             cx.decode::<Option<Result<Detached, Detached>>>(&root)
                 .unwrap(),
@@ -480,8 +503,8 @@ impl FromKagari for NodeView {
         expected: &TypeArgument,
         value: &Value,
     ) -> NativeResult<Self> {
-        let (children,) = cx.decode_variant(expected, value, "Children")?;
-        Ok(Self(children))
+        let (children,): (VecValues<_>,) = cx.decode_variant(expected, value, "Children")?;
+        Ok(Self(children.0))
     }
 }
 
@@ -511,7 +534,7 @@ impl IntoKagari for Node {
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
     ) -> NativeResult<Value> {
-        cx.encode_variant(expected, "Children", (self.0,))
+        cx.encode_variant(expected, "Children", (VecValues(self.0),))
     }
 }
 
@@ -521,8 +544,8 @@ impl FromKagari for Node {
         expected: &TypeArgument,
         value: &Value,
     ) -> NativeResult<Self> {
-        let (children,) = cx.decode_variant(expected, value, "Children")?;
-        Ok(Self(children))
+        let (children,): (VecValues<_>,) = cx.decode_variant(expected, value, "Children")?;
+        Ok(Self(children.0))
     }
 }
 
@@ -547,35 +570,47 @@ fn owned_conversion_rejects_a_cycle_but_accepts_shared_noncyclic_children() {
     let Value::Enum(node) = root.value(runtime.gc()).unwrap() else {
         panic!("Node");
     };
-    let Value::GcHandle(children) = runtime.gc().enum_snapshot(node).unwrap().fields[0] else {
-        panic!("children");
-    };
-    let child = runtime.gc().sequence_get(children, 0).unwrap();
-    runtime.gc().sequence_push(children, child).unwrap();
+    let (children,): (ScriptVec<ScriptValue>,) = cx
+        .decode_variant(
+            &cx.type_for::<Node>().unwrap(),
+            &Value::Enum(node),
+            "Children",
+        )
+        .unwrap();
+    let mut native = NativeContext::new(&runtime, &owner).unwrap();
+    let child = children.get(&mut native, 0).unwrap().unwrap();
+    children.push(&mut native, child).unwrap();
     assert_eq!(
         cx.decode::<Node>(&root).unwrap(),
         Node(vec![Node(vec![]), Node(vec![])])
     );
-    runtime
-        .gc()
-        .sequence_push(children, Value::Enum(node))
-        .unwrap();
+    let node_ty = cx.type_for::<Node>().unwrap();
+    let node_value = ScriptValue::from_kagari(&mut cx, &node_ty, &Value::Enum(node)).unwrap();
+    children.push(&mut native, node_value).unwrap();
     let error = cx.decode::<Node>(&root).unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
     assert!(error.message().contains("cycle in owned value conversion"));
+    drop(children);
     assert_eq!(runtime.gc().active_roots(), 1);
+    let (children,): (ScriptVec<ScriptValue>,) = cx
+        .decode_variant(
+            &cx.type_for::<Node>().unwrap(),
+            &Value::Enum(node),
+            "Children",
+        )
+        .unwrap();
     let view = cx.decode::<NodeView>(&root).unwrap();
     assert_eq!(view.0[2].0.value(runtime.gc()), Some(Value::Enum(node)));
     drop(view);
-    runtime.gc().sequence_remove(children, 2).unwrap();
+    children.remove(&mut native, 2).unwrap();
     assert_eq!(
         cx.decode::<Node>(&root).unwrap(),
         Node(vec![Node(vec![]), Node(vec![])])
     );
-    runtime
-        .gc()
-        .sequence_push(children, Value::Enum(node))
-        .unwrap();
+    let node_ty = cx.type_for::<Node>().unwrap();
+    let node_value = ScriptValue::from_kagari(&mut cx, &node_ty, &Value::Enum(node)).unwrap();
+    children.push(&mut native, node_value).unwrap();
+    drop(children);
     drop(root);
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
 }

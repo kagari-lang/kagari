@@ -434,8 +434,6 @@ impl<'a> BodyChecker<'a> {
                             | TypeId::Struct(_)
                             | TypeId::NativeObject(_)
                             | TypeId::Array(_)
-                            | TypeId::Map { .. }
-                            | TypeId::Set(_, _)
                     )
                 }) {
                     self.emit_binary_operand_type_mismatch(

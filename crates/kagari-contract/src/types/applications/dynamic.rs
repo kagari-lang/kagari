@@ -65,10 +65,8 @@ pub(super) fn validate<'ty, 'declaration>(
                     pending.extend(params);
                     pending.push(result);
                 }
-                Ty::Array(item) | Ty::Set(item, _) | Ty::Iter(item) | Ty::Range(item, _) => {
-                    pending.push(item)
-                }
-                Ty::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+                Ty::Array(item) | Ty::Iter(item) | Ty::Range(item, _) => pending.push(item),
+
                 Ty::Builtin(_) | Ty::Host(_) | Ty::SelfType(_) => {}
             }
             if pending.len() > remaining {

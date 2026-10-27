@@ -14,7 +14,7 @@ impl<T: NativePayload> NativeType<T> {
         AppliedReceiver::new(
             self.owner().clone(),
             self.type_argument().clone(),
-            self.record.rust_type.program(),
+            self.rust_type.program(),
         )
     }
 
@@ -43,7 +43,7 @@ impl<T: NativePayload> Opaque<T> {
         cx.runtime().gc().ensure_no_native_borrow()?;
         method.call_on(
             cx,
-            self.native_type.method_receiver(),
+            self.prepare_native_type(cx)?.method_receiver(),
             self.root.clone(),
             arguments,
         )

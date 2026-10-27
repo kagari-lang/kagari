@@ -210,7 +210,6 @@ impl ExecutionStack<'_> {
                         ReturnDestination::Prepared(call.destination)
                     }),
                     invocation,
-                    mutations: Vec::new(),
                     initializer: match entry {
                         FrameEntry::StaticInitializer(attempt) => Some(attempt),
                         FrameEntry::Call | FrameEntry::Await => None,

@@ -822,9 +822,6 @@ fn frame_access_rejects_a_foreign_context_before_changing_slots_or_program_point
             .write_slot(&foreign, Slot::new(0), Value::Unit)
             .unwrap_err(),
         frame.jump_to(&foreign, 0).unwrap_err(),
-        frame
-            .begin_collection_mutation(&foreign, &original)
-            .unwrap_err(),
     ] {
         assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
     }

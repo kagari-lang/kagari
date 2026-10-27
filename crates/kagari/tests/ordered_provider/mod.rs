@@ -16,6 +16,7 @@ use kagari_runtime::{
     },
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_stdlib::collections::vector::ScriptVec;
 use kagari_vm::vm::Vm;
 use provider::{Cursor, Observations, OrderedMap};
 use std::{
@@ -435,4 +436,61 @@ fn traced_closure_cycle_and_retained_get_release_without_per_element_roots() {
         1,
         "an unreachable map/closure cycle must not contain hidden permanent roots"
     );
+}
+
+#[test]
+fn standard_vector_error_and_unwind_recovery_allocate_nothing() {
+    let (vm, program, _, _) = fixture();
+    let runtime = vm.runtime();
+    let owner = runtime.select_program(&program).unwrap();
+    let mut cx = vm.context(&owner).unwrap();
+    let original = ["delta", "beta", "alpha", "gamma"];
+    for unwind in [false, true] {
+        let vector = ScriptVec::create(&mut cx, original.map(str::to_owned).to_vec()).unwrap();
+        let mut error = Some(RuntimeError::module_validation("comparator failure"));
+        let mut comparisons = 0;
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            vector.sort_by(&mut cx, |cx, a, b| {
+                cx.collect_garbage()?;
+                comparisons += 1;
+                if comparisons != 2 {
+                    return Ok(a.cmp(&b));
+                }
+                if unwind {
+                    struct BeginOnUnwind;
+
+                    impl Drop for BeginOnUnwind {
+                        fn drop(&mut self) {
+                            allocation::begin_cleanup_probe();
+                        }
+                    }
+                    let _probe = BeginOnUnwind;
+                    panic!("standard comparator unwind");
+                }
+                allocation::begin_cleanup_probe();
+                Err(error.take().unwrap())
+            })
+        }));
+        allocation::end_cleanup_probe();
+        assert_eq!(comparisons, 2);
+        if unwind {
+            assert!(result.is_err());
+        } else {
+            assert!(result.unwrap().is_err());
+        }
+        runtime.collect_garbage().unwrap();
+        let mut actual = Vec::new();
+        vector
+            .for_each(&mut cx, |_, value| {
+                actual.push(value);
+                Ok(())
+            })
+            .unwrap();
+        actual.sort();
+        let mut expected = original.map(str::to_owned);
+        expected.sort();
+        assert_eq!(actual, expected);
+        drop(vector);
+        assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+    }
 }

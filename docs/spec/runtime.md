@@ -266,9 +266,10 @@ Native mutation revisions belong to runtime-owned native records, separately fro
 the common identity generation/locator. New identities begin with a fresh revision;
 ordinary collection leaves its address unchanged and payload replacement keeps
 the receiver's state.
-Structural edits, checked native writes and detached sequence restoration retain
+Structural edits, checked native writes and same-payload library recovery retain
 their operation-specific invalidation/commit order. Exhaustion rejects the operation
-without wrapping. A temporarily detached sequence has no readable traversal revision.
+without wrapping. An operation guard excludes conflicting slot access, not the
+scanner; payloads remain traced while callbacks may collect.
 
 An interface heap identity directly locates a runtime-owned snapshot. Heap aliases
 have independent checked identities even when they share one metadata snapshot.
@@ -389,9 +390,10 @@ The current attribution is deliberately bounded:
   traced slots). Managed field buffers, iterator key buffers and cold native Future
   capture/parameter buffers likewise use their known capacities. Task failure
   payloads include their owned error-message capacity.
-- Map/Set storage uses capacity-based entry and collision-table estimates plus
-  known collision-token vector capacities. Rust's standard hash collections do
-  not expose exact bucket/control allocation sizes; these are pressure estimates.
+- Library Map/Set payloads charge actual dense-entry capacity and a capacity-based
+  estimate for their prehashed scalar index. Collision links are fields of each
+  entry, not per-bucket Vec allocations. Rust's HashMap does not expose exact
+  bucket/control allocation sizes; this part remains a pressure estimate.
 - Referenced GC objects are charged separately. Shared type/code/layout metadata,
   external host resources and runtime directory/side-table/frame backing
   are excluded from this pressure attribution. Other non-native object backing is not
@@ -407,9 +409,9 @@ and checked storage mutations update it alongside committed storage. Sweep and t
 release recorded charges without provider calls. Scanner and loan obligations are
 specified by the [provider protocol](host-interop.md#general-native-payload-protocol).
 A prepared replacement has its own charge; unchanged logical length does not imply
-unchanged capacity. Detached sequence editing keeps the original buffer charged
-until restoration; removals reduce logical units but do not invent a capacity
-release. Claiming a cold Future transfers its capture backing out of the payload's
+unchanged capacity. Library Vec main/scratch/progress remain in the installed
+payload and charged through callback recovery; removals reduce logical units but
+do not invent a capacity release. Claiming a cold Future transfers its capture backing out of the payload's
 charge; its physical allocation remains charged until released. Native take releases payload units and bytes but
 keeps one logical identity unit until its inert aliases are no longer traced.
 See [provider obligations](host-interop.md#native-payload-accounting) and
@@ -430,6 +432,10 @@ Descriptor registry occupancy/capacity is reported without claiming exact hash
 bucket/control bytes. Roots, executable metadata, canonical layout children,
 registration metadata, other payload children and allocator overhead remain outside
 these partial counts. They are neither process totals nor a peak-memory measurement.
+Runtime diagnostics use generic payload charges rather than concrete collection
+downcasts; stdlib collection/work counters belong to its separate diagnostics module.
+The opt-in scoped allocator's requested-live-byte high-water measurement additionally
+observes temporary retirement queues, but is not RSS or allocator usable size.
 
 `GcHeapConfig.collection_threshold` enables automatic collection at execution
 safepoints, including the current scalar JIT helper. Collection never runs inside

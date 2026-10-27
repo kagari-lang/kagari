@@ -3,7 +3,6 @@ use crate::tests::native_boundary::publish_unused_version;
 use kagari_runtime::native::{
     binding::NativeResult,
     builder::ModuleBuilder,
-    collections::vector::ScriptVec,
     declarations::{CallableRequirement, FunctionDecl, MethodDecl},
     function_handle::Function,
     interfaces::Interface,
@@ -11,6 +10,7 @@ use kagari_runtime::native::{
     typed::NativeContext,
     value_handle::ScriptValue,
 };
+use kagari_stdlib::collections::vector::ScriptVec;
 use kagari_stdlib::declarations::StandardDeclarations;
 use std::slice;
 
@@ -121,6 +121,37 @@ fn generic_value_handles_forward_selected_results_without_erasing_type_access_or
         assert!(vm.call(&string_argument, (number.clone(),)).is_err());
         assert!(vm.call(&write, (readonly.clone(),)).is_err());
         assert_eq!(vm.call(&read, (readonly.clone(),)).unwrap(), 42);
+        let retained_string = string_argument.prepare_call(vm.runtime()).unwrap();
+        let options = vm.runtime().execution_options();
+        let returned = retained_string
+            .call_retained_with_options(&cx, &[&text], options.clone())
+            .unwrap();
+        vm.runtime().collect_garbage().unwrap();
+        assert_eq!(returned.decode::<String>(&mut cx).unwrap(), "retained");
+        assert!(
+            retained_string
+                .call_retained_with_options(&cx, &[&number], options.clone())
+                .is_err()
+        );
+        assert!(
+            retained_string
+                .call_retained_with_options(&cx, &[], options.clone())
+                .is_err()
+        );
+        assert!(
+            write
+                .prepare_call(vm.runtime())
+                .unwrap()
+                .call_retained_with_options(&cx, &[&readonly], options.clone())
+                .is_err()
+        );
+        let retained_read = read
+            .prepare_call(vm.runtime())
+            .unwrap()
+            .call_retained_with_options(&cx, &[&readonly], options.clone())
+            .unwrap();
+        assert_eq!(retained_read.decode::<i32>(&mut cx).unwrap(), 42);
+        drop((returned, retained_read));
         let items = vector.decode::<ScriptVec<ScriptValue>>(&mut cx).unwrap();
         let item = items
             .get(&mut cx, 0)
@@ -136,9 +167,18 @@ fn generic_value_handles_forward_selected_results_without_erasing_type_access_or
         let callback = closure.decode::<Function<(), Object>>(&mut cx).unwrap();
         drop((number, text, vector, closure, readonly, items, item));
         vm.runtime().collect_garbage().unwrap();
-        let result = callback.call(&mut cx, ()).unwrap();
+        let result = callback
+            .prepare_call(vm.runtime())
+            .unwrap()
+            .call_retained_with_options(&cx, &[], options.clone())
+            .unwrap();
+        vm.runtime().collect_garbage().unwrap();
+        let result = result.decode::<Object>(&mut cx).unwrap();
         assert_eq!(result.get(&mut cx, &field).unwrap(), 42);
-        let (foreign, foreign_owner) = fixture("pub fn number() -> i32 { 7 }", None);
+        let (foreign, foreign_owner) = fixture(
+            r#"pub fn number() -> i32 { 7 } pub fn text() -> String { "foreign" }"#,
+            None,
+        );
         let _foreign_owner_program = foreign_owner;
         let foreign_binding = foreign
             .runtime()
@@ -146,6 +186,17 @@ fn generic_value_handles_forward_selected_results_without_erasing_type_access_or
             .unwrap();
         let value = foreign.call(&foreign_binding, ()).unwrap();
         assert!(value.decode::<i32>(&mut cx).is_err());
+        let foreign_text = foreign
+            .runtime()
+            .bind_function::<(), ScriptValue>(&_foreign_owner_program.root(), "text")
+            .unwrap();
+        let foreign_text = foreign.call(&foreign_text, ()).unwrap();
+        assert!(
+            retained_string
+                .call_retained_with_options(&cx, &[&foreign_text], options.clone())
+                .is_err()
+        );
+        drop(retained_string);
         drop((callback, result, cx));
     }
     publish_unused_version(&vm, &_owner_program);

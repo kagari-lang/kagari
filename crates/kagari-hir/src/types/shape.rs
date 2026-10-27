@@ -25,14 +25,10 @@ pub(super) fn validate(
                 append(params.iter(), next, &mut pending)?;
                 pending.push((result, next));
             }
-            TypeId::Iter(item)
-            | TypeId::Range(item, _)
-            | TypeId::Array(item)
-            | TypeId::Set(item, _) => pending.push((item, next)),
-            TypeId::Map { key, value, .. } => {
-                pending.push((key, next));
-                pending.push((value, next));
+            TypeId::Iter(item) | TypeId::Range(item, _) | TypeId::Array(item) => {
+                pending.push((item, next))
             }
+
             TypeId::NativeObject(ty)
             | TypeId::Struct(ty)
             | TypeId::Enum(ty)

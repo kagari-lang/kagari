@@ -2,13 +2,15 @@
 pub(super) mod operations;
 use crate::{
     catalog::documentation,
+    collections::vector::{
+        VecStorage,
+        cursor::{self, VecCursor},
+    },
     foundation::{
         Entry,
         arrays::array,
         enumerations::value::{self as enums, EnumSymbols},
-        interface,
-        iteration::operations as iteration,
-        lists, override_entry, raw,
+        interface, lists, override_entry, raw,
         vector::operations as vectors,
     },
 };
@@ -19,7 +21,6 @@ use kagari_runtime::native::{
     },
     binding::{Codec, NativeBinding, NativeResult},
     declarations::MethodDecl,
-    primitive::NativePrimitive,
     storage::NativeStorage,
     types::Type,
 };
@@ -28,11 +29,11 @@ use kagari_types::declaration::{TypeDefKind, native::NativeStorageLayout};
 pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     let vector = module.define_type(
         "Vec",
-        TypeDefKind::NativeStorage(NativeStorageLayout::Sequence { element: 0 }),
+        TypeDefKind::NativeStorage(NativeStorageLayout::Opaque),
         1,
         |_, _| Ok(()),
     )?;
-    module.bind_storage(&vector, NativeStorage::sequence(0))?;
+    module.bind_storage(&vector, NativeStorage::payload::<VecStorage>())?;
     module.document(vector.id(), documentation::markdown(TYPE_DOCS))?;
     module.inherent_with(
         1,
@@ -62,7 +63,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                     .returns(receiver.clone())
                     .documentation(inherent_docs("push"))
                     .implementation_send(scoped(
-                        vec![Codec::MutableSequence, Codec::Value],
+                        vec![Codec::Value, Codec::Value],
                         vectors::push_fluent,
                     )),
             )?;
@@ -73,11 +74,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                     .returns(receiver.clone())
                     .documentation(inherent_docs("insert"))
                     .implementation_send(scoped(
-                        vec![
-                            Codec::MutableSequence,
-                            Codec::Exact(Type::u64()),
-                            Codec::Value,
-                        ],
+                        vec![Codec::Value, Codec::Exact(Type::u64()), Codec::Value],
                         vectors::insert_fluent,
                     )),
             )?;
@@ -93,7 +90,10 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                     .parameter("arg2", items[0].clone())
                     .returns(receiver.clone())
                     .documentation(inherent_docs("set"))
-                    .implementation_send(NativeBinding::primitive(NativePrimitive::VecSetFluent)),
+                    .implementation_send(scoped(
+                        vec![Codec::Value, Codec::Exact(Type::u64()), Codec::Value],
+                        vectors::set_fluent,
+                    )),
             )?;
             Ok(())
         },
@@ -101,8 +101,8 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     let list = interface(module, "List", 1)?;
     let mut entries = lists::overrides(module, &list, false)?;
     for (name, binding) in [
-        ("len", scoped(vec![Codec::Sequence], vectors::length)),
-        ("is_empty", scoped(vec![Codec::Sequence], vectors::is_empty)),
+        ("len", scoped(vec![Codec::Value], vectors::length)),
+        ("is_empty", scoped(vec![Codec::Value], vectors::is_empty)),
     ] {
         entries.push(override_entry(
             module,
@@ -120,7 +120,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         PendingBinding::implementation_with_send(|view| {
             let symbols = EnumSymbols::new(view.catalog(), &[enums::OPTION])?;
             Ok(NativeBinding::new(
-                vec![Codec::Sequence, Codec::Exact(Type::u64())],
+                vec![Codec::Value, Codec::Exact(Type::u64())],
                 Codec::Value,
                 move |cx| vectors::get(&symbols, cx),
             ))
@@ -141,7 +141,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         (
             "push",
             PendingBinding::implementation_send(scoped(
-                vec![Codec::MutableSequence, Codec::Value],
+                vec![Codec::Value, Codec::Value],
                 vectors::push,
             )),
         ),
@@ -149,11 +149,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         (
             "insert",
             PendingBinding::implementation_send(scoped(
-                vec![
-                    Codec::MutableSequence,
-                    Codec::Exact(Type::u64()),
-                    Codec::Value,
-                ],
+                vec![Codec::Value, Codec::Exact(Type::u64()), Codec::Value],
                 vectors::insert,
             )),
         ),
@@ -167,7 +163,10 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         ),
         (
             "set",
-            PendingBinding::implementation_send(NativeBinding::primitive(NativePrimitive::VecSet)),
+            PendingBinding::implementation_send(scoped(
+                vec![Codec::Value, Codec::Exact(Type::u64()), Codec::Value],
+                vectors::set,
+            )),
         ),
     ] {
         entries.push(override_entry(module, &mutable, name, 0, binding)?);
@@ -188,7 +187,10 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         &index,
         "index",
         0,
-        PendingBinding::implementation_send(NativeBinding::primitive(NativePrimitive::VecIndex)),
+        PendingBinding::implementation_send(scoped(
+            vec![Codec::Value, Codec::Exact(Type::u64())],
+            vectors::index,
+        )),
     )?;
     module.trait_implementation_with(1, |items| {
         Ok(TraitImplementation {
@@ -199,16 +201,51 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         }
         .with_overrides([entry]))
     })?;
+    let cursor_type = module.define_type(
+        "VecCursor",
+        TypeDefKind::NativeStorage(NativeStorageLayout::Opaque),
+        1,
+        |_, _| Ok(()),
+    )?;
+    module.bind_storage(&cursor_type, NativeStorage::payload::<VecCursor>())?;
+    let iterator = interface(module, "Iterator", 0)?;
+    let iterator_item = module.reference_associated_type(&iterator, "Item", 0)?;
+    let next_entry = override_entry(
+        module,
+        &iterator,
+        "next",
+        0,
+        PendingBinding::implementation_with_send(|view| {
+            Ok(NativeBinding::declared(view.declaration(), cursor::next))
+        }),
+    )?;
+    module.trait_implementation_with(1, |items| {
+        Ok(TraitImplementation {
+            receiver: cursor_type.apply(items.to_vec())?,
+            interface: iterator_item.bind(iterator.apply([])?, items[0].clone())?,
+            bounds: vec![],
+            bindings: vec![],
+        }
+        .with_overrides([next_entry]))
+    })?;
     let iterable = interface(module, "Iterable", 0)?;
     let item = module.reference_associated_type(&iterable, "Item", 0)?;
     let cursor = module.reference_associated_type(&iterable, "Iter", 0)?;
-    let entry = override_entry(module, &iterable, "iter", 0, raw(1, iteration::iter))?;
+    let entry = override_entry(
+        module,
+        &iterable,
+        "iter",
+        0,
+        PendingBinding::implementation_with_send(|view| {
+            Ok(NativeBinding::declared(view.declaration(), cursor::iter))
+        }),
+    )?;
     module.trait_implementation_with(1, |items| {
         Ok(TraitImplementation {
             receiver: vector.apply(items.to_vec())?,
             interface: cursor.bind(
                 item.bind(iterable.apply([])?, items[0].clone())?,
-                Type::iterator(items[0].clone())?,
+                cursor_type.apply(items.to_vec())?,
             )?,
             bounds: vec![],
             bindings: vec![],

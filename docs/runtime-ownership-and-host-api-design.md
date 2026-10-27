@@ -295,7 +295,7 @@ input/output capabilities allow return-only types.
 | Rust boundary form | Meaning |
 | --- | --- |
 | Scalars and owned String | Checked values; String conversion may copy |
-| Vec<T>, supported tuples, Option<T> and Result<T, E> | Owned data conversion using installed ordinary declarations |
+| VecValues<T>, supported tuples, Option<T> and Result<T, E> | Owned data conversion using installed ordinary declarations |
 | Object<S>, ScriptVec<T>, ScriptMap<K, V>, ScriptSet<T> | Retained reference to an existing script object, preserving aliases |
 | Function<A, R> and Interface<S> | Retained callable/interface with a verified signature |
 | Opaque<T> | Checked handle to a registered runtime-owned Rust payload |
@@ -511,11 +511,16 @@ object items return protected handles. Iteration and key lookup preserve existin
 structural-mutation restrictions, callback ordering and hash/equality contracts.
 Mutable-buffer leases are advanced operations with scoped access, not raw pointers.
 
-The public ScriptVec `retain` and `dedup_by` adapters use that same exclusive buffer
-lease with typed callbacks. They protect compared values during GC, reject alias
-access while storage is detached, and restore completed edits on errors and unwind.
-The standard Vec callbacks use these adapters. String methods use typed String
-receivers and owned returns; split collects Vec<String> through NativeContext.
+The stdlib ScriptVec `retain` and `dedup_by` adapters protect receiver slots across
+typed callbacks while releasing short payload loans before GC/reentry. Main buffer,
+scratch and compaction progress remain traced in the same payload; sealed recovery
+preserves completed edits on errors/unwind, without detached storage or a full-root
+prepass. Standard Vec callbacks use the same library owner. Owned Rust conversion
+uses `kagari_stdlib::collections::vector::VecValues<T>`; script Vec is unchanged.
+ScriptVec/ScriptMap/ScriptSet live in the stdlib vector/map/set modules, not runtime
+facades. Their Opaque handles retain data contracts, with explicit executable
+`prepare_native_type(cx)` only when needed; see
+[retention](spec/host-interop.md#retained-native-data-and-executable-preparation).
 
 SDK host access uses `runtime.with_context(&loaded, &execution, |cx| ...)` so object
 operations and nested calls inherit the chosen execution policy. The runtime-only

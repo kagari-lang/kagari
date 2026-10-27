@@ -56,11 +56,8 @@ pub(super) fn validate_type(
                 pending.extend(params);
                 pending.push(result);
             }
-            TypeId::Array(item)
-            | TypeId::Set(item, _)
-            | TypeId::Iter(item)
-            | TypeId::Range(item, _) => pending.push(item),
-            TypeId::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+            TypeId::Array(item) | TypeId::Iter(item) | TypeId::Range(item, _) => pending.push(item),
+
             _ => {}
         }
     }

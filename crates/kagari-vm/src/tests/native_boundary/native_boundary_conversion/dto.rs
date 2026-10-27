@@ -5,7 +5,6 @@ use kagari_runtime::{
         binding::NativeResult,
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
-        collections::vector::ScriptVec,
         conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
         declarations::FunctionDecl,
         schema::{TypeRegistration, ValueField},
@@ -14,6 +13,7 @@ use kagari_runtime::{
     },
     value::Value,
 };
+use kagari_stdlib::collections::vector::ScriptVec;
 use kagari_stdlib::declarations::StandardDeclarations;
 
 struct Packet {

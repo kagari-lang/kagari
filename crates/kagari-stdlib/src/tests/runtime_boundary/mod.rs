@@ -7,3 +7,4 @@ mod native_builder;
 mod native_conversion;
 mod offline_types;
 mod support;
+mod vector_conversion;

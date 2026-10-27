@@ -11,7 +11,6 @@ use crate::{
         module::NativeModule,
         storage::{NativePayload, NativeStorage},
         types::{TraitRef, Type},
-        views::{SequenceHandle, SequenceMutHandle},
     },
     resource::HeapCharge,
     value::Value,
@@ -20,10 +19,6 @@ use kagari_types::{declaration::module::ModuleDecl, scalar::BuiltinType};
 
 fn count(_cx: &mut CallContext<'_>) -> NativeResult<u64> {
     Ok(1)
-}
-
-fn sequence_len(_cx: &mut CallContext<'_>, values: SequenceHandle<'_>) -> NativeResult<usize> {
-    values.len()
 }
 
 #[derive(Debug)]
@@ -86,7 +81,7 @@ fn finalization_rejects_a_declaration_without_an_entry() {
 }
 
 #[test]
-fn sequence_conversion_rejects_opaque_storage_at_registration() {
+fn scalar_conversion_rejects_opaque_storage_at_registration() {
     let mut module = ModuleBuilder::new("example::opaque", &DeclarationCatalog::default()).unwrap();
     let opaque = module
         .define_opaque::<EmptyPayload>("Opaque")
@@ -102,7 +97,14 @@ fn sequence_conversion_rejects_opaque_storage_at_registration() {
         .unwrap();
     assert!(
         module
-            .bind(len.clone(), sequence_len)
+            .bind(
+                len.clone(),
+                NativeBinding::new(
+                    vec![Codec::Exact(Type::i32())],
+                    Codec::Exact(Type::u64()),
+                    |_| Ok(Value::U64(0))
+                )
+            )
             .unwrap_err()
             .message()
             .contains("codec")
@@ -119,11 +121,13 @@ fn sequence_conversion_rejects_opaque_storage_at_registration() {
 }
 
 #[test]
-fn sequence_receiver_groups_allow_read_and_write_member_views() {
+fn opaque_receiver_groups_allow_read_and_write_members() {
     let mut module = ModuleBuilder::new("example::views", &DeclarationCatalog::default()).unwrap();
     let mut declaration = module.define_type("Buffer").unwrap();
-    let item = declaration.type_parameter("T").unwrap();
-    declaration.sequence_storage(&item).unwrap();
+    declaration.type_parameter("T").unwrap();
+    declaration
+        .native_storage(NativeStorage::data::<u32>())
+        .unwrap();
     let buffer = declaration.finish().unwrap();
     let mut read = module.define_trait("Read").unwrap();
     read.define_method(MethodDecl::instance("len").returns(Type::u64()))
@@ -136,19 +140,21 @@ fn sequence_receiver_groups_allow_read_and_write_member_views() {
     let write = write.finish().unwrap();
     module
         .implement(buffer.apply([Type::i32()]).unwrap(), |group| {
-            group.receiver_codec(Codec::Sequence)?;
-            group.trait_impl(read.apply([])?, |methods| methods.bind("len", sequence_len))?;
+            group.receiver_codec(buffer.codec())?;
+            group.trait_impl(read.apply([])?, |methods| {
+                methods.bind(
+                    "len",
+                    NativeBinding::new(vec![buffer.codec()], Codec::Exact(Type::u64()), |_| {
+                        Ok(Value::U64(0))
+                    }),
+                )
+            })?;
             group.trait_impl(write.apply([])?, |methods| {
                 methods.bind(
                     "reverse",
-                    |_cx: &mut CallContext<'_>,
-                     mut values: SequenceMutHandle<'_>|
-                     -> NativeResult<()> {
-                        values.with_slice_mut::<i32, _>(|values| {
-                            values.reverse();
-                            Ok(())
-                        })
-                    },
+                    NativeBinding::new(vec![buffer.codec()], Codec::Exact(Type::unit()), |_| {
+                        Ok(Value::Unit)
+                    }),
                 )
             })
         })

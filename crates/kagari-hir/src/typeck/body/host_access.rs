@@ -26,7 +26,6 @@ use kagari_common::{
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{
-    collection::CollectionAccess,
     declaration::{FnDecl, host::PathAccess, logging, path::HostPathSegmentDeclaration},
     scalar::BuiltinType,
 };
@@ -145,17 +144,7 @@ impl<'a> BodyChecker<'a> {
                     return Some(TypeId::Unknown);
                 };
                 self.check_const_write(*base);
-                if base_ty
-                    .as_ref()
-                    .is_some_and(|ty| ty.collection_access() == Some(CollectionAccess::ReadOnly))
-                {
-                    self.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::InvalidAssignmentTarget {
-                            reason: "read-only collection requires writable access".into(),
-                        })
-                        .with_span(self.lowered.source_map.expr_span(*base)),
-                    );
-                }
+
                 let index_ty = self.infer_expr_type(*index, env);
                 let expected = base_ty.as_ref().and_then(|base_ty| {
                     self.checked_index_type(*index, base_ty, &index_ty, *index, env)

@@ -2,7 +2,6 @@
 
 use crate::disassembly::presentation::DisplayContext;
 use kagari_types::{
-    collection::CollectionAccess,
     scalar::BuiltinType,
     ty::{NominalTy, Ty},
 };
@@ -70,22 +69,7 @@ impl DisplayContext<'_> {
                 self.push_ty(output, item);
                 output.push(']');
             }
-            Ty::Map { key, value, access } => {
-                output.push_str("Map<");
-                self.push_ty(output, key);
-                output.push_str(", ");
-                self.push_ty(output, value);
-                output.push_str(", access=");
-                output.push_str(collection_access(*access));
-                output.push('>');
-            }
-            Ty::Set(item, access) => {
-                output.push_str("Set<");
-                self.push_ty(output, item);
-                output.push_str(", access=");
-                output.push_str(collection_access(*access));
-                output.push('>');
-            }
+
             Ty::Struct(nominal) => {
                 output.push_str("struct ");
                 self.push_nominal(output, nominal);
@@ -180,12 +164,5 @@ fn builtin(ty: BuiltinType) -> &'static str {
         BuiltinType::F64 => "f64",
         BuiltinType::String => "String",
         BuiltinType::Char => "char",
-    }
-}
-
-fn collection_access(access: CollectionAccess) -> &'static str {
-    match access {
-        CollectionAccess::ReadOnly => "readonly",
-        CollectionAccess::Mutable => "mutable",
     }
 }

@@ -4,10 +4,9 @@ use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, map::DefinitionContext, table::DefinitionId,
 };
 use kagari_types::{
-    collection::CollectionAccess,
     declaration::{
-        AssociatedTypeFamily, TypeDef, TypeDefKind, module::ImplDecl,
-        native::NativeTypeConstructor, ownership::ReceiverOwners,
+        AssociatedTypeFamily, TypeDef, TypeDefKind, module::ImplDecl, native::NativeStorageLayout,
+        ownership::ReceiverOwners,
     },
     language::{self, Protocol, binding},
     scalar::BuiltinType,
@@ -16,6 +15,13 @@ use kagari_types::{
 use std::iter;
 
 // These names support intrinsic queries but carry no trait or implementation proof.
+fn storage(context: &DefinitionContext, arguments: Vec<Ty>) -> Ty {
+    Ty::NativeObject(nominal(
+        id(context, DefinitionKind::AssociatedType, "HashSet"),
+        arguments,
+    ))
+}
+
 fn proof_context() -> DefinitionContext {
     let context = DefinitionContext::new().unwrap();
     for protocol in Protocol::ALL {
@@ -287,13 +293,13 @@ fn linked_proofs_discharge_generic_bounds_and_reject_ambiguity_and_cycles() {
 }
 
 #[test]
-fn registered_collection_equality_requires_explicit_prerequisites() {
+fn opaque_equality_requires_owned_explicit_prerequisites() {
     let context = proof_context();
     let cancel = CancellationToken::default();
     let module = ModuleIdentity::single_file("proof.kgr");
     let declaration = TypeDef {
         name: "HashSet".into(),
-        kind: TypeDefKind::Native(NativeTypeConstructor::Set),
+        kind: TypeDefKind::NativeStorage(NativeStorageLayout::Opaque),
         generic_params: vec![GenericParam {
             owner: id(&context, DefinitionKind::AssociatedType, "HashSet"),
             position: 0,
@@ -303,7 +309,7 @@ fn registered_collection_equality_requires_explicit_prerequisites() {
         variants: vec![],
     };
     let owners = ReceiverOwners::from_types([(&module, &declaration)]).unwrap();
-    let receiver = Ty::Set(Box::new(scalar()), CollectionAccess::Mutable);
+    let receiver = storage(&context, vec![scalar()]);
     let tables = [Protocol::PartialEq, Protocol::Eq, Protocol::Hash].map(|protocol| {
         table(
             &context,
@@ -332,11 +338,36 @@ fn registered_collection_equality_requires_explicit_prerequisites() {
         )
         .unwrap();
         assert_eq!(catalog.overrides_valid(&owners, &cancel).unwrap(), valid);
-        assert!(
-            !catalog
-                .overrides_valid(&Default::default(), &cancel)
-                .unwrap()
-        );
+        // Nominal storage carries its owner in its declaration identity. A foreign
+        // module cannot replace its equality/hash semantics, even with prerequisites.
+        let foreign_root = context
+            .intern_root(&ModuleIdentity::single_file("foreign.kgr"))
+            .unwrap();
+        let foreign: Vec<_> = indices
+            .iter()
+            .map(|index| {
+                let mut table = tables[*index].clone();
+                table.declaration = context
+                    .intern_child(
+                        foreign_root,
+                        DefinitionKind::Impl,
+                        &format!("impl{index}"),
+                        0,
+                    )
+                    .unwrap();
+                table
+            })
+            .collect();
+        let foreign_catalog = ProofCatalog::new(
+            foreign.iter().map(Into::into).collect(),
+            [],
+            [],
+            [],
+            &context.snapshot(),
+            &cancel,
+        )
+        .unwrap();
+        assert!(!foreign_catalog.overrides_valid(&owners, &cancel).unwrap());
     }
 }
 
@@ -536,11 +567,7 @@ fn member_defaults_are_limited_to_core_enums_and_proven_payloads() {
         (Ty::Enum(user.clone()), false, false),
         (object, false, false),
         (Ty::Array(Box::new(scalar())), false, false),
-        (
-            Ty::Set(Box::new(scalar()), CollectionAccess::Mutable),
-            false,
-            false,
-        ),
+        (storage(&context, vec![scalar()]), false, false),
     ] {
         let layout = wrapper_layout(&context, payload.clone());
         let wrapper = Ty::Enum(nominal(layout.declaration, vec![payload]));
@@ -688,7 +715,7 @@ fn carried_native_implementations_preserve_key_bounds_and_wrapper_lifting() {
         position: 0,
     };
     set.generic_params.push(item.clone());
-    set.for_type = Ty::Set(Box::new(item.as_type()), CollectionAccess::Mutable);
+    set.for_type = storage(&context, vec![item.as_type()]);
     set.trait_type = Ty::Trait(nominal(
         id(&context, DefinitionKind::Trait, "FromIterator"),
         vec![item.as_type()],
@@ -733,7 +760,7 @@ fn carried_native_implementations_preserve_key_bounds_and_wrapper_lifting() {
             vec![element.as_type()],
         ),
     ));
-    let storage = |ty| Ty::Set(Box::new(ty), CollectionAccess::Mutable);
+    let storage = |ty| storage(&context, vec![ty]);
     let requested = |ty| {
         nominal(
             id(&context, DefinitionKind::Trait, "FromIterator"),
@@ -922,12 +949,8 @@ fn equality_composition_uses_carried_payloads_and_explicit_storage_implementatio
     );
     let storages = [
         Ty::Array(Box::new(key.clone())),
-        Ty::Map {
-            key: Box::new(key.clone()),
-            value: Box::new(chain.clone()),
-            access: CollectionAccess::ReadOnly,
-        },
-        Ty::Set(Box::new(key), CollectionAccess::Mutable),
+        storage(&context, vec![key.clone(), chain.clone()]),
+        storage(&context, vec![key]),
     ];
     let wrappers = storages
         .iter()

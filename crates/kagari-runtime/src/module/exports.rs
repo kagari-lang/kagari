@@ -466,7 +466,7 @@ mod tests {
         .unwrap()
     }
 
-    fn assert_live_binding_authority(runtime: &Runtime, owner: &Module, argument: &TypeArgument) {
+    fn assert_live_binding_authority(runtime: &Runtime, owner: &Module, _argument: &TypeArgument) {
         let invalid = DefinitionPath {
             module: owner.namespace.clone(),
             path: vec![],
@@ -542,18 +542,6 @@ mod tests {
                 "Rust mapping",
                 runtime.bind_rust_type::<i32>(owner).map(|_| ()),
             ),
-            (
-                "map constructor",
-                runtime
-                    .bind_map_constructor::<i32, i32>(owner, argument, argument)
-                    .map(|_| ()),
-            ),
-            (
-                "set constructor",
-                runtime
-                    .bind_set_constructor::<i32>(owner, argument)
-                    .map(|_| ()),
-            ),
         ];
         for (name, result) in results {
             assert_eq!(
@@ -625,6 +613,13 @@ mod tests {
             RuntimeErrorKind::StaleHandle
         );
         assert!(runtime.validate_executable_module(&old).is_err());
+        assert_eq!(
+            runtime
+                .bind_constructor::<i32>(&old, &argument)
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::StaleHandle
+        );
     }
 
     #[rstest]

@@ -269,8 +269,7 @@ fn attach_types(
             TypeDefKind::Native(constructor) => match constructor {
                 NativeTypeConstructor::Reference(access) => NativeTypeKind::Reference(access),
                 NativeTypeConstructor::String => NativeTypeKind::String,
-                NativeTypeConstructor::Map => NativeTypeKind::HashMap,
-                NativeTypeConstructor::Set => NativeTypeKind::HashSet,
+
                 NativeTypeConstructor::Iter => NativeTypeKind::Iter,
                 NativeTypeConstructor::Range(kind) => NativeTypeKind::Range(kind),
             },

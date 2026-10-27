@@ -14,6 +14,7 @@ use crate::{
     value::Value,
 };
 use kagari_types::ty::Ty;
+use std::marker::PhantomData;
 
 impl<T: NativePayload> KagariType for Opaque<T> {
     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
@@ -75,13 +76,17 @@ impl<T: Send + 'static> Opaque<T> {
     ) -> NativeResult<Self> {
         check_mapping::<T>(cx.runtime(), cx.owner(), expected)?;
         cx.check_value(expected, value)?;
-        let native_type =
+        let data =
             cx.runtime()
-                .prepare_native_type_from_object(cx.owner(), expected.clone(), value)?;
+                .native_data_from_object::<T>(cx.owner(), expected.clone(), value)?;
         let root = cx
             .runtime()
             .root_value(*value)
             .ok_or_else(|| RuntimeError::module_validation("native object retention"))?;
-        Ok(Self { root, native_type })
+        Ok(Self {
+            root,
+            data,
+            mapping: PhantomData,
+        })
     }
 }

@@ -5,14 +5,13 @@ use crate::{error::VmError, vm::Vm};
 use kagari_common::identity::map::DefinitionContext;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
-    error::RuntimeErrorKind,
+    error::{RuntimeError, RuntimeErrorKind},
     gc::GcHeapConfig,
     module::VerifiedProgram,
     module::entry::ProgramEntry,
     native::{
-        binding::{Codec, NativeBinding},
+        binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
-        collections::vector::ScriptVec,
         declarations::FunctionDecl,
         module::NativeModule,
         primitive::NativePrimitive,
@@ -21,6 +20,7 @@ use kagari_runtime::{
     },
     value::Value,
 };
+use kagari_stdlib::collections::vector::ScriptVec;
 use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::sync::{
@@ -125,7 +125,7 @@ fn runtime_primitives_follow_installed_bodies_and_exact_signatures() {
 }
 
 #[test]
-fn vector_primitives_preserve_element_access_aliases_and_bounds() {
+fn vector_provider_preserves_element_access_aliases_and_bounds() {
     let catalog = StandardDeclarations::default().catalog().unwrap();
     let vector = || StandardDeclarations::default().vec(Type::i32()).unwrap();
     let definitions = DefinitionContext::new().unwrap().snapshot();
@@ -143,72 +143,88 @@ fn vector_primitives_preserve_element_access_aliases_and_bounds() {
             .unwrap()
             .ty()
     };
-    for (body, receiver, value, result) in [
-        (NativePrimitive::VecIndex, array(), None, Type::i32()),
-        (
-            NativePrimitive::VecSet,
-            array(),
-            Some(Type::i32()),
-            Type::unit(),
-        ),
-        (NativePrimitive::VecIndex, vector(), None, Type::bool()),
-        (
-            NativePrimitive::VecSet,
-            list(),
-            Some(Type::i32()),
-            Type::unit(),
-        ),
-        (
-            NativePrimitive::VecSet,
-            vector(),
-            Some(Type::bool()),
-            Type::unit(),
-        ),
-        (
-            NativePrimitive::VecSetFluent,
-            vector(),
-            Some(Type::i32()),
-            list(),
-        ),
-    ] {
+    for receiver in [array(), list()] {
         let mut builder = ModuleBuilder::new("example::vector", &catalog).unwrap();
-        let mut declaration = FunctionDecl::new("operation")
-            .parameter("values", receiver)
-            .parameter("index", Type::u64())
-            .returns(result);
-        if let Some(value) = value {
-            declaration = declaration.parameter("value", value);
-        }
-        let function = builder.define_function(declaration).unwrap();
+        let function = builder
+            .define_function(
+                FunctionDecl::new("operation")
+                    .parameter("values", receiver)
+                    .parameter("index", Type::u64())
+                    .returns(Type::i32()),
+            )
+            .unwrap();
         assert!(
             builder
-                .bind(function, NativeBinding::primitive(body))
+                .bind(
+                    function,
+                    |cx: &mut NativeContext<'_>,
+                     (values, index): (ScriptVec<i32>, u64)|
+                     -> NativeResult<i32> {
+                        values.get(cx, index as usize)?.ok_or_else(|| {
+                            RuntimeError::new(RuntimeErrorKind::IndexOutOfBounds, "vector index")
+                        })
+                    }
+                )
                 .is_err()
         );
     }
     let mut builder = ModuleBuilder::new("example::vector", &catalog).unwrap();
-    for (name, body, write, result) in [
-        ("read", NativePrimitive::VecIndex, false, Type::i32()),
-        ("replace", NativePrimitive::VecSet, true, Type::unit()),
-        (
-            "replace_fluent",
-            NativePrimitive::VecSetFluent,
-            true,
-            vector(),
-        ),
-    ] {
-        let mut declaration = FunctionDecl::new(name)
-            .parameter("values", vector())
-            .parameter("index", Type::u64())
-            .returns(result);
-        if write {
-            declaration = declaration.parameter("value", Type::i32());
-        }
-        let function = builder.define_function(declaration).unwrap();
-        builder
-            .bind(function, NativeBinding::primitive(body))
-            .unwrap();
-    }
+    let read = builder
+        .define_function(
+            FunctionDecl::new("read")
+                .parameter("values", vector())
+                .parameter("index", Type::u64())
+                .returns(Type::i32()),
+        )
+        .unwrap();
+    builder
+        .bind(
+            read,
+            |cx: &mut NativeContext<'_>,
+             (values, index): (ScriptVec<i32>, u64)|
+             -> NativeResult<i32> {
+                values.get(cx, index as usize)?.ok_or_else(|| {
+                    RuntimeError::new(RuntimeErrorKind::IndexOutOfBounds, "vector index")
+                })
+            },
+        )
+        .unwrap();
+    let replace = builder
+        .define_function(
+            FunctionDecl::new("replace")
+                .parameter("values", vector())
+                .parameter("index", Type::u64())
+                .parameter("value", Type::i32()),
+        )
+        .unwrap();
+    builder
+        .bind(
+            replace,
+            |cx: &mut NativeContext<'_>, (values, index, value): (ScriptVec<i32>, u64, i32)| {
+                values.set(cx, index as usize, value)
+            },
+        )
+        .unwrap();
+    let fluent = builder
+        .define_function(
+            FunctionDecl::new("replace_fluent")
+                .parameter("values", vector())
+                .parameter("index", Type::u64())
+                .parameter("value", Type::i32())
+                .returns(vector()),
+        )
+        .unwrap();
+    builder
+        .bind(
+            fluent,
+            |cx: &mut NativeContext<'_>,
+             (values, index, value): (ScriptVec<i32>, u64, i32)|
+             -> NativeResult<ScriptVec<i32>> {
+                values.set(cx, index as usize, value)?;
+                Ok(values)
+            },
+        )
+        .unwrap();
     let module = builder.finish().unwrap();
     let (vm, owner) = fixture(
         r#"

@@ -31,6 +31,16 @@ pub struct ExecutionCounts {
     pub bank_bytes_initialized: u64,
     pub bank_bytes_moved: u64,
     pub argument_transfers: u64,
+    pub native_reads: u64,
+    pub native_edits: u64,
+    pub storage_retentions: u64,
+    pub storage_publications: u64,
+    pub existing_edge_publications: u64,
+    pub root_registrations: u64,
+    pub root_releases: u64,
+    /// Net lease registrations within this measurement, excluding preexisting roots.
+    pub root_balance: i64,
+    pub root_balance_peak: i64,
 }
 
 pub(crate) enum Event {
@@ -56,6 +66,13 @@ pub(crate) enum Event {
     BankBytesInitialized,
     BankBytesMoved,
     ArgumentTransfer,
+    NativeRead,
+    NativeEdit,
+    StorageRetention,
+    StoragePublication,
+    ExistingEdgePublication,
+    RootRegistration,
+    RootRelease,
 }
 
 thread_local! {
@@ -71,6 +88,14 @@ pub(crate) fn record_amount(event: Event, amount: u64) {
         let Some(mut counts) = active.get() else {
             return;
         };
+        match event {
+            Event::RootRegistration => {
+                counts.root_balance += amount as i64;
+                counts.root_balance_peak = counts.root_balance_peak.max(counts.root_balance);
+            }
+            Event::RootRelease => counts.root_balance -= amount as i64,
+            _ => {}
+        }
         let counter = match event {
             Event::DriverAdmission => &mut counts.driver_admissions,
             Event::AwaitPoll => &mut counts.await_polls,
@@ -94,6 +119,13 @@ pub(crate) fn record_amount(event: Event, amount: u64) {
             Event::BankBytesInitialized => &mut counts.bank_bytes_initialized,
             Event::BankBytesMoved => &mut counts.bank_bytes_moved,
             Event::ArgumentTransfer => &mut counts.argument_transfers,
+            Event::NativeRead => &mut counts.native_reads,
+            Event::NativeEdit => &mut counts.native_edits,
+            Event::StorageRetention => &mut counts.storage_retentions,
+            Event::StoragePublication => &mut counts.storage_publications,
+            Event::ExistingEdgePublication => &mut counts.existing_edge_publications,
+            Event::RootRegistration => &mut counts.root_registrations,
+            Event::RootRelease => &mut counts.root_releases,
         };
         *counter += amount;
         active.set(Some(counts));

@@ -186,8 +186,6 @@ pub(super) fn append_value_edges(values: &mut Vec<Value>, pending: &mut Vec<Heap
             | Value::HostPathView(id)
             | Value::Ephemeral(id)
             | Value::Array(id)
-            | Value::Map(id)
-            | Value::Set(id)
             | Value::Enum(id)
             | Value::Struct(id)
             | Value::GcHandle(id)

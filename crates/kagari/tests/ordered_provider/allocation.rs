@@ -60,3 +60,12 @@ pub fn assert_no_allocations(action: impl FnOnce()) {
     drop(probe);
     assert_eq!(count, 0, "sealed operation cleanup allocated");
 }
+
+pub fn begin_cleanup_probe() {
+    assert_eq!(ALLOCATIONS.replace(Some(0)), None);
+}
+
+pub fn end_cleanup_probe() {
+    let count = ALLOCATIONS.replace(None).expect("active cleanup probe");
+    assert_eq!(count, 0, "standard collection recovery allocated");
+}

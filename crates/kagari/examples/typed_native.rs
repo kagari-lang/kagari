@@ -5,13 +5,14 @@ use kagari_runtime::native::{
     declarations::FunctionDecl, typed::NativeContext,
 };
 use kagari_source::source::SourceFile;
+use kagari_stdlib::collections::vector::VecValues;
 
 fn main() {
     let mut builder = KagariEngine::builder().unwrap();
     let mut text = ModuleBuilder::new("application::text", builder.declarations()).unwrap();
     text.documentation("# Text utilities\n\nApplication-owned Unicode text functions.");
     let string = String::kagari_type(text.declarations()).unwrap();
-    let strings = Vec::<String>::kagari_type(text.declarations()).unwrap();
+    let strings = VecValues::<String>::kagari_type(text.declarations()).unwrap();
     let split = text
         .define_function(
             FunctionDecl::new("split")
@@ -30,8 +31,9 @@ fn main() {
         split,
         |cx: &mut NativeContext<'_>,
          (text, separator): (String, String)|
-         -> NativeResult<Vec<String>> {
+         -> NativeResult<VecValues<String>> {
             cx.collect(text.split(&separator).map(str::to_owned))
+                .map(VecValues)
         },
     )
     .unwrap();
@@ -53,9 +55,9 @@ fn main() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
-    let fields: Vec<String> = runtime
+    let fields: VecValues<String> = runtime
         .execute_typed(&loaded, "split_text", ("hello,雪,".to_owned(),), &context)
         .unwrap();
-    assert_eq!(fields, ["hello", "雪", ""]);
+    assert_eq!(fields.0, ["hello", "雪", ""]);
     println!("{fields:?}");
 }

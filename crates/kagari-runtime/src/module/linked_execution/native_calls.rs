@@ -5,9 +5,7 @@ use crate::{
     module::{
         ExecutableModule,
         execution::ExecutionFunction,
-        linked_execution::{
-            LinkedNativeBody, LinkedNativeCall, LinkedNativeCallback, LinkedVectorPrimitive,
-        },
+        linked_execution::{LinkedNativeBody, LinkedNativeCall, LinkedNativeCallback},
     },
     native::primitive::NativePrimitive,
 };
@@ -60,19 +58,7 @@ impl Runtime {
                         Some(NativePrimitive::StringByteLength) => {
                             LinkedNativeBody::StringByteLength(location(args[0])?)
                         }
-                        Some(
-                            operation @ (NativePrimitive::VecIndex
-                            | NativePrimitive::VecSet
-                            | NativePrimitive::VecSetFluent),
-                        ) => LinkedNativeBody::Vector(LinkedVectorPrimitive {
-                            operation,
-                            arguments: args
-                                .iter()
-                                .copied()
-                                .map(location)
-                                .collect::<Result<_, _>>()?,
-                            function: binding,
-                        }),
+
                         None => LinkedNativeBody::Callback(LinkedNativeCallback {
                             arguments: args
                                 .iter()

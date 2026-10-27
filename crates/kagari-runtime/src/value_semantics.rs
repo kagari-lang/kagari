@@ -1,4 +1,5 @@
 //! Script equality is independent of Rust's structural Value comparisons.
+pub mod hash;
 use kagari_types::language::binding;
 
 use crate::{
@@ -19,8 +20,7 @@ pub fn identity_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, Run
     let object = |value: &Value| match value {
         Value::Struct(id) => Some((*id, GcObjectKind::Struct)),
         Value::Array(id) => Some((*id, GcObjectKind::Array)),
-        Value::Map(id) => Some((*id, GcObjectKind::Map)),
-        Value::Set(id) => Some((*id, GcObjectKind::Set)),
+
         Value::GcHandle(id) if gc.object_kind(*id) == Some(GcObjectKind::Native) => {
             Some((*id, GcObjectKind::Native))
         }
@@ -51,40 +51,27 @@ pub fn script_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, Runti
     if !gc.validate_value(lhs) || !gc.validate_value(rhs) {
         return Err(invalid());
     }
-    Ok(match (lhs, rhs) {
-        (
+    let unsupported = |value: &Value| {
+        matches!(
+            value,
             Value::Array(_)
-            | Value::Map(_)
-            | Value::Set(_)
-            | Value::Struct(_)
-            | Value::GcHandle(_)
-            | Value::Closure(_)
-            | Value::Interface(_)
-            | Value::HostRoot(_)
-            | Value::HostPathView(_)
-            | Value::Ephemeral(_)
-            | Value::RuntimeEphemeral(_),
-            _,
+                | Value::Struct(_)
+                | Value::GcHandle(_)
+                | Value::Closure(_)
+                | Value::Interface(_)
+                | Value::HostRoot(_)
+                | Value::HostPathView(_)
+                | Value::Ephemeral(_)
+                | Value::RuntimeEphemeral(_)
         )
-        | (
-            _,
-            Value::Array(_)
-            | Value::Map(_)
-            | Value::Set(_)
-            | Value::Struct(_)
-            | Value::GcHandle(_)
-            | Value::Closure(_)
-            | Value::Interface(_)
-            | Value::HostRoot(_)
-            | Value::HostPathView(_)
-            | Value::Ephemeral(_)
-            | Value::RuntimeEphemeral(_),
-        ) => {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "value category does not support general equality",
-            ));
-        }
+    };
+    if unsupported(lhs) || unsupported(rhs) {
+        return Err(RuntimeError::new(
+            RuntimeErrorKind::ScriptTrap,
+            "value category does not support general equality",
+        ));
+    }
+    Ok(match (lhs, rhs) {
         (Value::Unit, Value::Unit) => true,
         (Value::Bool(a), Value::Bool(b)) => a == b,
         (Value::Char(a), Value::Char(b)) => a == b,
@@ -208,12 +195,11 @@ pub fn format_value(gc: &GcHeap, value: &Value, debug: bool) -> Result<String, R
                     out.push(')');
                 }
             }
-            Value::Struct(id) | Value::Array(id) | Value::Map(id) | Value::Set(id) if debug => {
-                let name = match value {
-                    Value::Struct(_) => "Struct",
-                    Value::Array(_) => "Array",
-                    Value::Map(_) => "Map",
-                    _ => "Set",
+            Value::Struct(id) | Value::Array(id) if debug => {
+                let name = if matches!(value, Value::Struct(_)) {
+                    "Struct"
+                } else {
+                    "Array"
                 };
                 write!(out, "{name}@{}:{}", id.index(), id.generation()).ok()?;
             }

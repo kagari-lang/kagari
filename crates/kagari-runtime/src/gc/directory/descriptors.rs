@@ -9,6 +9,7 @@ use std::{
     alloc::Layout,
     any::TypeId,
     collections::HashMap,
+    mem::needs_drop,
     num::NonZeroU32,
     ptr::NonNull,
     sync::{Arc, OnceLock, Weak},
@@ -21,7 +22,7 @@ pub(in crate::gc) struct Descriptor {
     pub(super) layout: Layout,
     pub(super) edges: bool,
     pub(in crate::gc) structure: Option<Arc<StructStorageLayout>>,
-    pub(super) destroy: unsafe fn(NonNull<u8>),
+    pub(super) destroy: Option<unsafe fn(NonNull<u8>)>,
 }
 
 impl Descriptor {
@@ -37,7 +38,7 @@ impl Descriptor {
             layout,
             edges,
             structure: None,
-            destroy,
+            destroy: Some(destroy),
         }
     }
 
@@ -53,6 +54,9 @@ impl Descriptor {
             |_| {},
         );
         descriptor.structure = Some(Arc::new(description));
+        // Encoded fields contain only scalar bits and non-owning heap IDs. Their
+        // metadata owner lives in this descriptor, not in individual slot bytes.
+        descriptor.destroy = None;
         Ok(Arc::new(descriptor))
     }
 
@@ -118,7 +122,9 @@ impl Descriptors {
         edges: bool,
     ) -> NativeResult<Arc<Descriptor>> {
         self.intern(Key::Builtin(kind), || {
-            Descriptor::new(kind, Layout::new::<T>(), edges, destroy::<T>)
+            let mut descriptor = Descriptor::new(kind, Layout::new::<T>(), edges, destroy::<T>);
+            descriptor.destroy = needs_drop::<T>().then_some(destroy::<T>);
+            descriptor
         })
     }
 
@@ -204,6 +210,10 @@ impl Descriptors {
     }
 
     pub(super) fn release(&mut self, id: DescriptorId) {
+        self.release_count(id, 1);
+    }
+
+    pub(super) fn release_count(&mut self, id: DescriptorId, count: usize) {
         let entry = &mut self.entries[id.index()];
         let Entry::Admitted {
             descriptor,
@@ -212,7 +222,9 @@ impl Descriptors {
         else {
             unreachable!("admitted descriptor")
         };
-        *allocations -= 1;
+        *allocations = allocations
+            .checked_sub(count)
+            .expect("admitted descriptor count");
         if *allocations == 0 {
             *entry = Entry::Idle(Arc::downgrade(descriptor));
         }

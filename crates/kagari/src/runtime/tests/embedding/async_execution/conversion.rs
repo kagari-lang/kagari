@@ -18,6 +18,7 @@ use kagari_runtime::{
     },
     task::{CancellationCause, TaskId, control::TaskScopeOwner, drive::TaskDriveResult},
 };
+use kagari_stdlib::collections::vector::VecValues;
 use std::{
     num::NonZeroUsize,
     slice,
@@ -48,7 +49,7 @@ struct Reply {
 
 impl KagariType for Reply {
     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
-        Vec::<i32>::kagari_type(catalog)
+        VecValues::<i32>::kagari_type(catalog)
     }
 }
 
@@ -59,7 +60,7 @@ impl IntoKagari for Reply {
         expected: &TypeArgument,
     ) -> NativeResult<Value> {
         self.encoded.fetch_add(1, Ordering::SeqCst);
-        let value = cx.encode_value(expected, vec![7_i32])?;
+        let value = cx.encode_value(expected, VecValues(vec![7_i32]))?;
         cx.runtime().collect_garbage()?;
         match self.boundary {
             Boundary::DuringConversion => self.cancellation.cancel(),

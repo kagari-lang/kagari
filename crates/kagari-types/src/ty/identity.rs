@@ -160,10 +160,8 @@ impl Ty {
                 }
                 Self::Reference { target, .. } => pending.push(target),
                 Self::Tuple(types) => pending.extend(types),
-                Self::Array(ty) | Self::Set(ty, _) | Self::Range(ty, _) | Self::Iter(ty) => {
-                    pending.push(ty)
-                }
-                Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Array(ty) | Self::Range(ty, _) | Self::Iter(ty) => pending.push(ty),
+
                 Self::Function { params, result } => {
                     pending.extend(params);
                     pending.push(result);
@@ -211,12 +209,7 @@ impl<F> Mapper<'_, F> {
                 result: Box::new(self.ty(result, depth + 1)?),
             },
             Ty::Array(ty) => Ty::Array(Box::new(self.ty(ty, depth + 1)?)),
-            Ty::Set(ty, access) => Ty::Set(Box::new(self.ty(ty, depth + 1)?), *access),
-            Ty::Map { key, value, access } => Ty::Map {
-                key: Box::new(self.ty(key, depth + 1)?),
-                value: Box::new(self.ty(value, depth + 1)?),
-                access: *access,
-            },
+
             Ty::Iter(ty) => Ty::Iter(Box::new(self.ty(ty, depth + 1)?)),
             Ty::Range(ty, kind) => Ty::Range(Box::new(self.ty(ty, depth + 1)?), *kind),
             Ty::Struct(ty) => Ty::Struct(self.nominal(ty, depth)?),

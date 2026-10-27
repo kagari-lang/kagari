@@ -74,6 +74,11 @@ impl ObjectStorage {
                     .directory_binding(location.page)?,
             });
         }
+        if location.kind == PayloadKind::Struct {
+            return self
+                .structure(location)
+                .map(|storage| HeapObject::Struct { storage });
+        }
         let (pointer, _) = self.pages.get(location)?;
         // SAFETY: each private placement arm pairs its kind with precisely the type
         // below. Occupancy is checked and every returned reference is owner-borrowed.
@@ -96,9 +101,7 @@ impl ObjectStorage {
                     let value = pointer.cast::<EnumPayload>().as_ref();
                     HeapObject::Enum(&value.0, &value.1)
                 }
-                PayloadKind::Struct => HeapObject::Struct {
-                    storage: self.structure(location)?,
-                },
+                PayloadKind::Struct => unreachable!("structure handled above"),
                 PayloadKind::Interface | PayloadKind::Vacant => {
                     unreachable!("checked physical descriptor")
                 }
@@ -129,6 +132,11 @@ impl ObjectStorage {
                     .directory_binding(location.page)?,
             });
         }
+        if location.kind == PayloadKind::Struct {
+            return self
+                .structure_mut(location)
+                .map(|storage| HeapObject::Struct { storage });
+        }
         let (pointer, _) = self.pages.get(location)?;
         // SAFETY: same sealed mapping as get, with exclusive directory ownership.
         Some(unsafe {
@@ -150,9 +158,7 @@ impl ObjectStorage {
                     let value = pointer.cast::<EnumPayload>().as_mut();
                     HeapObject::Enum(&mut value.0, &mut value.1)
                 }
-                PayloadKind::Struct => HeapObject::Struct {
-                    storage: self.structure_mut(location)?,
-                },
+                PayloadKind::Struct => unreachable!("structure handled above"),
                 PayloadKind::Interface | PayloadKind::Vacant => {
                     unreachable!("checked physical descriptor")
                 }

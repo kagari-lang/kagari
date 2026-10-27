@@ -124,8 +124,7 @@ impl TraceValue {
             },
             Value::Tuple(_) => Self::Opaque("tuple depth limit".into()),
             Value::Array(id) => Self::Opaque(format!("array:{id:?}")),
-            Value::Map(id) => Self::Opaque(format!("map:{id:?}")),
-            Value::Set(id) => Self::Opaque(format!("set:{id:?}")),
+
             Value::Enum(id) => Self::Opaque(format!("enum:{id:?}")),
             Value::Struct(id) => Self::Opaque(format!("struct:{id:?}")),
             Value::GcHandle(id) => Self::Opaque(format!("gc:{id:?}")),

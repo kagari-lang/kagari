@@ -34,9 +34,7 @@ impl FunctionLowerer<'_, '_> {
                 TypeId::Array(_)
                 | TypeId::NativeObject(_)
                 | TypeId::Struct(_)
-                | TypeId::Enum(_)
-                | TypeId::Map { .. }
-                | TypeId::Set(_, _) => {
+                | TypeId::Enum(_) => {
                     // Primitive member composition needs no method import.
                     // A checked explicit implementation requires its callable.
                     if self

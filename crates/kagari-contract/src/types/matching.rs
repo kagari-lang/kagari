@@ -35,7 +35,6 @@ mod tests {
         DefinitionKind, ModuleIdentity, map::DefinitionContext, table::DefinitionId,
     };
     use kagari_types::{
-        collection::CollectionAccess,
         declaration::AssociatedTypeFamily,
         scalar::BuiltinType,
         ty::{GenericParam, matching::projection_output},
@@ -58,7 +57,7 @@ mod tests {
     }
 
     #[test]
-    fn implementation_receivers_preserve_exact_access_and_nested_invariance() {
+    fn implementation_receivers_preserve_nominal_identity_and_nested_invariance() {
         let context = DefinitionContext::new().unwrap();
         let integer = Ty::Builtin(BuiltinType::I32);
         let parameter = GenericParam {
@@ -66,6 +65,9 @@ mod tests {
             position: 0,
         };
         let custom = id(&context, DefinitionKind::Trait, "CustomSet");
+        let first = id(&context, DefinitionKind::AssociatedType, "First");
+        let second = id(&context, DefinitionKind::AssociatedType, "Second");
+        let receiver = |declaration, item| Ty::NativeObject(applied(declaration, vec![item]));
         let interface = applied(custom, vec![integer.clone()]);
         let mut table = InterfaceTable {
             declaration: parameter.owner,
@@ -74,33 +76,34 @@ mod tests {
             bounds: vec![],
             methods: vec![],
             associated_consts: vec![],
-            for_type: Ty::Set(Box::new(parameter.as_type()), CollectionAccess::Mutable),
+            for_type: receiver(first, parameter.as_type()),
             trait_type: Ty::Trait(applied(custom, vec![parameter.as_type()])),
             associated_type_families: vec![],
             bridge: None,
         };
         let cancel = CancellationToken::default();
-        for declared in [CollectionAccess::Mutable, CollectionAccess::ReadOnly] {
-            table.for_type = Ty::Set(Box::new(parameter.as_type()), declared);
-            for requested in [CollectionAccess::Mutable, CollectionAccess::ReadOnly] {
-                let receiver = Ty::Set(Box::new(integer.clone()), requested);
+        for declared in [first, second] {
+            table.for_type = receiver(declared, parameter.as_type());
+            for requested in [first, second] {
                 assert_eq!(
-                    match_implementation(&table, &interface, &receiver, &cancel)
-                        .unwrap()
-                        .is_some(),
+                    match_implementation(
+                        &table,
+                        &interface,
+                        &receiver(requested, integer.clone()),
+                        &cancel
+                    )
+                    .unwrap()
+                    .is_some(),
                     declared == requested
                 );
             }
         }
-
-        // Nested generic arguments must also keep their exact access descriptor.
-        let mutable = Ty::Set(Box::new(integer.clone()), CollectionAccess::Mutable);
-        let readonly = Ty::Set(Box::new(integer), CollectionAccess::ReadOnly);
-        let interface = applied(custom, vec![readonly.clone()]);
-        table.for_type = Ty::Set(Box::new(mutable), CollectionAccess::ReadOnly);
-        let nested = Ty::Set(Box::new(readonly), CollectionAccess::ReadOnly);
+        let left = receiver(first, integer.clone());
+        let right = receiver(second, integer);
+        let interface = applied(custom, vec![right.clone()]);
+        table.for_type = receiver(first, left);
         assert!(
-            match_implementation(&table, &interface, &nested, &cancel)
+            match_implementation(&table, &interface, &receiver(first, right), &cancel)
                 .unwrap()
                 .is_none()
         );

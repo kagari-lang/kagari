@@ -43,14 +43,14 @@ pub(super) fn expand(input: &DeriveInput) -> Result<TokenStream> {
                 )?;
                 short_name(&name, member)?;
                 let ty = &field.ty;
-                schemas.push(quote! { ::kagari_runtime::native::schema::ValueField::new(#name, registration.dependency::<::kagari_runtime::native::serde::Serde<#ty>>()?) });
+                schemas.push(quote! { ::kagari_runtime::native::schema::ValueField::new(#name, registration.dependency::<::kagari_stdlib::serde::Serde<#ty>>()?) });
             }
             let registration = if schemas.is_empty() {
                 quote! { _registration }
             } else {
                 quote! { registration }
             };
-            quote! { registration.structure::<::kagari_runtime::native::serde::Serde<Self>>(#name, |#registration| Ok(vec![#(#schemas),*])) }
+            quote! { registration.structure::<::kagari_stdlib::serde::Serde<Self>>(#name, |#registration| Ok(vec![#(#schemas),*])) }
         }
         Data::Enum(data) => {
             let mut schemas = vec![];
@@ -86,7 +86,7 @@ pub(super) fn expand(input: &DeriveInput) -> Result<TokenStream> {
                     }
                 }
                 payloads |= !types.is_empty();
-                schemas.push(quote! { ::kagari_runtime::native::schema::ValueVariant::new(#name, [#(registration.dependency::<::kagari_runtime::native::serde::Serde<#types>>()?),*]) });
+                schemas.push(quote! { ::kagari_runtime::native::schema::ValueVariant::new(#name, [#(registration.dependency::<::kagari_stdlib::serde::Serde<#types>>()?),*]) });
             }
             if schemas.is_empty() {
                 return Err(Error::new_spanned(
@@ -99,7 +99,7 @@ pub(super) fn expand(input: &DeriveInput) -> Result<TokenStream> {
             } else {
                 quote! { _registration }
             };
-            quote! { registration.enumeration::<::kagari_runtime::native::serde::Serde<Self>>(#name, |#registration| Ok(vec![#(#schemas),*])) }
+            quote! { registration.enumeration::<::kagari_stdlib::serde::Serde<Self>>(#name, |#registration| Ok(vec![#(#schemas),*])) }
         }
         Data::Union(_) => {
             return Err(Error::new_spanned(
@@ -109,9 +109,9 @@ pub(super) fn expand(input: &DeriveInput) -> Result<TokenStream> {
         }
     };
     Ok(quote! {
-        impl ::kagari_runtime::native::serde::KagariSchema for #ident {
+        impl ::kagari_stdlib::serde::KagariSchema for #ident {
             fn schema_type(catalog: &::kagari_runtime::native::catalog::DeclarationCatalog) -> ::kagari_runtime::native::binding::NativeResult<::kagari_runtime::native::types::Type> {
-                catalog.rust_type::<::kagari_runtime::native::serde::Serde<Self>>()
+                catalog.rust_type::<::kagari_stdlib::serde::Serde<Self>>()
             }
 
             fn register_schema(registration: &mut ::kagari_runtime::native::schema::TypeRegistration<'_>) -> ::kagari_runtime::native::binding::NativeResult<::kagari_runtime::native::types::Type> {

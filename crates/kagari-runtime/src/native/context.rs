@@ -19,8 +19,7 @@ use crate::{
         values::FrameSlots,
     },
     gc::{
-        GcCollection, GcHeap, HeapObjectId,
-        custom_keys::KeyLookupRoots,
+        GcCollection, GcHeap,
         roots::{RootSet, RootedValue},
     },
     module::{ExecutableModule, execution::layout::Location},
@@ -28,13 +27,14 @@ use crate::{
         arguments::CallArguments,
         binding::{LinkedNativeFunction, NativeResult},
         callable::{CallableHandle, PreparedClosure},
-        context::operations::NativeKeyLookupGuard,
         conversion::{IntoKagari, context::ConversionContext},
         declarations::SelectedCall,
         function_handle::PreparedFunction,
         scalar::NativeScalar,
-        sequence::{NativeElement, SequencePayload},
-        storage::{NativePayload, StorageContext},
+        storage::{
+            NativePayload, StorageContext,
+            access::{EditPlan, StorageAccess},
+        },
         storage_type::StorageType,
         stored_selection::StoredSelection,
         typed::NativeContext,
@@ -259,60 +259,6 @@ impl<'call> CallContext<'call> {
         CallableHandle::from_argument(self, index)
     }
 
-    /// Root a key and block structural mutation until its synchronous lookup ends.
-    pub fn begin_key_lookup(&self, index: usize) -> NativeResult<NativeKeyLookupGuard<'call>> {
-        let roots = self.arguments.frame.ok_or_else(|| {
-            RuntimeError::module_validation("key lookup requires rooted frame arguments")
-        })?;
-        Ok(NativeKeyLookupGuard {
-            _guard: self
-                .heap()
-                .begin_key_lookup(&self.argument(index)?, KeyLookupRoots::Frame(roots))?,
-        })
-    }
-
-    fn sequence_id(&self, index: usize) -> NativeResult<HeapObjectId> {
-        match self.argument(index)? {
-            Value::GcHandle(id) => {
-                self.heap().ensure_sequence(id)?;
-                Ok(id)
-            }
-            _ => Err(RuntimeError::module_validation("native sequence argument")),
-        }
-    }
-
-    pub fn sequence_push(&self, index: usize, value: Value) -> NativeResult<()> {
-        match self.argument(index)? {
-            Value::GcHandle(id) => {
-                self.heap()
-                    .push_sequence_value(id, self.argument_type_view(index)?, value)
-            }
-            _ => Err(RuntimeError::module_validation("native sequence argument")),
-        }
-    }
-
-    pub fn with_sequence<E: NativeElement, R>(
-        &self,
-        index: usize,
-        access: impl for<'slice> FnOnce(&'slice [E]) -> NativeResult<R>,
-    ) -> NativeResult<R> {
-        self.heap()
-            .with_native::<SequencePayload, R>(self.sequence_id(index)?, |sequence| {
-                let values = E::slice(&sequence.values)
-                    .ok_or_else(|| RuntimeError::module_validation("sequence scalar layout"))?;
-                access(values)
-            })
-    }
-
-    pub fn with_sequence_mut<E: NativeElement, R>(
-        &self,
-        index: usize,
-        access: impl for<'slice> FnOnce(&'slice mut [E]) -> NativeResult<R>,
-    ) -> NativeResult<R> {
-        self.heap()
-            .with_sequence_mut(self.sequence_id(index)?, access)
-    }
-
     pub fn allocate_result(&self) -> NativeResult<Value> {
         self.heap().ensure_no_native_borrow()?;
         let ty = self.result_type();
@@ -336,8 +282,7 @@ impl<'call> CallContext<'call> {
         let id = self.heap().alloc_native(object)?;
         Ok(match ty {
             Ty::Array(..) => Value::Array(id),
-            Ty::Map { .. } => Value::Map(id),
-            Ty::Set(..) => Value::Set(id),
+
             _ => Value::GcHandle(id),
         })
     }
@@ -394,7 +339,7 @@ impl<'call> CallContext<'call> {
         values: &[Value],
     ) -> NativeResult<RootedValue> {
         let id = match self.argument(argument)? {
-            Value::GcHandle(id) | Value::Map(id) | Value::Set(id) => id,
+            Value::GcHandle(id) => id,
             _ => return Err(RuntimeError::module_validation("stored callable receiver")),
         };
         let selections = self.heap().native_selections(id)?;
@@ -420,6 +365,45 @@ impl<'call> CallContext<'call> {
             return Err(RuntimeError::module_validation("native storage argument"));
         };
         self.heap().with_native(id, access)
+    }
+
+    /// Read provider storage while borrowing this call's existing argument root.
+    ///
+    /// # Safety
+    /// Retain extracted edges before returning them beyond the call or any mutation
+    /// that can remove their source slot. No payload reference may escape the loan.
+    pub unsafe fn read_payload<S: NativePayload, R>(
+        &self,
+        index: usize,
+        read: impl for<'payload> FnOnce(&'payload S, &mut StorageAccess<'payload>) -> NativeResult<R>,
+    ) -> NativeResult<R> {
+        self.poll()?;
+        let Value::GcHandle(id) = self.argument(index)? else {
+            return Err(RuntimeError::module_validation("native storage argument"));
+        };
+        self.heap().read_native(self.runtime, id, None, read)
+    }
+
+    /// Edit provider storage using the call's rooted receiver and the ordinary
+    /// preflight, revision, publication, and unwind-accounting protocol.
+    ///
+    /// # Safety
+    /// Publish every imported edge through StorageAccess, keep work state traced,
+    /// respect the plan's charge bound, and retain extracted edges before removal.
+    pub unsafe fn edit_payload<S: NativePayload, R>(
+        &self,
+        index: usize,
+        plan: EditPlan,
+        edit: impl for<'payload> FnOnce(
+            &'payload mut S,
+            &mut StorageAccess<'payload>,
+        ) -> NativeResult<R>,
+    ) -> NativeResult<R> {
+        self.poll()?;
+        let Value::GcHandle(id) = self.argument(index)? else {
+            return Err(RuntimeError::module_validation("native storage argument"));
+        };
+        self.heap().edit_native(self.runtime, id, None, plan, edit)
     }
 
     /// Collection sees this call's existing argument/frame roots. A payload borrow
@@ -512,14 +496,13 @@ impl<'call> CallContext<'call> {
             .map(Value::Array)
     }
 
-    /// Allocate the installed standard Vec with an explicit element contract.
-    pub fn allocate_vec(&self, element: TypeArgument, elements: Vec<Value>) -> NativeResult<Value> {
-        self.heap().ensure_no_native_borrow()?;
-        element.validate(self.runtime)?;
-        self.runtime.validate_heap_payloads(&elements)?;
-        let applied = self.runtime.vec_type(self.owner, &element)?;
-        self.runtime
-            .allocate_sequence(self.owner, &applied, elements)
+    /// Open typed conversion access with this call's selected functions and invoker.
+    pub fn native_context(&self) -> NativeResult<NativeContext<'_>> {
+        Ok(NativeContext {
+            conversion: ConversionContext::in_native_call(self)?,
+            invoke_script: Some(self.invoke_script),
+            function: Some(self.function),
+        })
     }
 
     pub fn owner(&self) -> &ExecutableModule {

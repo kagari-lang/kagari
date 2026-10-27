@@ -5,7 +5,10 @@ Status: joint PG00-PG06 migration activated by the user on 2026-10-26 at
 are locally complete (`47be3cb7`). PG01/NC02 is locally complete after coordinated
 review and focused/final local validation (commit `fc651b92`). PG02 nonmoving
 inline storage is locally complete; focused tests, Miri, memory probes and final
-local checks are recorded below. PG03/NC03-NC04 is next.
+local checks are recorded below (PG02 commit `4d8aa0c1`). PG03/NC03-NC04 is
+locally complete in the worktree after final independent review, selected focused
+contracts, paired gates and parent local checks. PG04 is next; incremental GC and
+full CI are not established by the synchronous PG03 measurements.
 Initial implementation parameters remain selected policy, not measured optima or
 acceptance of future performance gates. The execution breakdown
 was originally recorded against `bb836eff`, following the design at `8c2a4568`.
@@ -27,9 +30,9 @@ its removal of special container paths is part of joint acceptance, not a later
 redesign. PG phases reference NC handoffs, not duplicate NC completion records.
 Migration authorization does not waive phase dependencies or baseline acceptance.
 NC01's provider, collection representation and evidence decisions are selected;
-the general provider proof is locally accepted in PG01/NC02, while collection and
-incremental proofs remain with their subsequent owning phases. PG00 and PG01/NC02
-are closed locally; full-workspace/feature/backend/platform CI remains unrun.
+the general provider and collection proofs are locally accepted through PG03/NC04.
+Incremental proofs remain with PG04-PG06/NC05-NC06. PG00-PG03 and NC01-NC04 are
+closed locally; full-workspace/feature/backend/platform CI remains unrun.
 
 ## Goals and scope
 
@@ -74,11 +77,11 @@ dead-list lifecycle remain: simply yielding inside traversal would still allow
 mutations to hide reachable objects. PG04 owns epochs/publication and PG05 owns
 incremental sweep, including dead-list and interface-batch-filter removal.
 
-`sequence_storage`, `map_storage`, `set_storage` and `cursor_storage` are cached
-`NativeStorage` descriptors, not element buffers. Removing those fields alone
-would not reduce per-element storage or remove runtime-owned container policy.
-Their concrete policy belongs to NC; the GC replacement must expose a sufficient
-general payload protocol rather than grow more collection cases.
+At activation, `sequence_storage`, `map_storage`, `set_storage` and `cursor_storage`
+were cached NativeStorage descriptors, not element buffers. PG03 removes those
+concrete caches together with runtime-owned collection policy, not as an isolated
+field deletion. Stdlib owns ordinary nominal payloads, buffers, cursors, host
+adapters and Serde conversions through the general provider protocol.
 
 Preserve the useful foundations: compact scalar fields/buffers, identity checks,
 release-driven root leases, occupied-object discovery, committed native charges,
@@ -464,11 +467,10 @@ This builds on existing APIs, not a new registration facade:
   object handle, not a Rust reference into payload memory.
 - [Object::get/set and Field](../crates/kagari-runtime/src/native/objects/fields.rs)
   provide checked field operations with prepared type/member evidence.
-- [ScriptVec](../crates/kagari-runtime/src/native/collections/vector.rs) currently
-  provides retained collection handles and direct `get`, `set` and `push` operations.
-  This is evidence for flat access ergonomics, not a requirement to preserve its
-  runtime-owned sequence implementation or add a separate collection handle type.
-  The library must implement equivalent safe operations through general Native APIs.
+- [ScriptVec](../crates/kagari-stdlib/src/collections/vector.rs) provides retained
+  collection handles and direct `get`, `set` and `push` through general Native APIs.
+  PG03 moves this owner to stdlib without a runtime facade; Rust owned conversion
+  uses VecValues, while script Vec and flat checked access remain unchanged.
 
 The following callback-body sketch uses that existing access shape. `a` and `b`
 are compatible object handles; `hp` is an already bound mutable integer field.
@@ -544,7 +546,7 @@ additional protection when those edges
 leave the scanner-visible representation. The selected policy permits collection
 during Native callbacks.
 
-The inventory executed the current
+This historical activation inventory executed
 [`catalog::declarations`](../crates/kagari-stdlib/src/catalog/mod.rs), then followed
 entries into their implementations. Reproduce the count by enumerating public
 `ModuleDecl::functions` (resolve IDs and exclude `private_functions`), methods of
@@ -552,8 +554,10 @@ entries into their implementations. Reproduce the count by enumerating public
 trait methods; exclude concrete trait overrides, private templates, aliases,
 constants and enum variants. Numeric receiver variants count separately. This is
 an API-surface count, not independent algorithms, executed paths or call frequency.
-It describes existing code only and is not a denominator for the future standard
-library or evidence that collection suspension will be rare or inexpensive.
+It describes the activation code only and is not a denominator for the future
+standard library or evidence that collection suspension will be rare or inexpensive.
+PG03 replaces the detached sequence paths below with same-payload library algorithms;
+the historical counts are not a fresh post-migration API census.
 
 | Public declaration scope | Total | Bulk extraction paths | Extraction paths allowing script callbacks |
 | --- | ---: | ---: | ---: |
@@ -565,7 +569,7 @@ An API enters the numerator if at least one implementation path has that behavio
 not every element type or receiver needs extraction protection. The 259 concrete
 trait-method entries are excluded to avoid counting defaults and overrides twice.
 
-| Operations | Observed behavior |
+| Operations | Observed activation behavior (superseded where noted above) |
 | --- | --- |
 | `sort`, `sort_by`, `sort_by_key`, `sorted`, `sorted_by`, `sorted_by_key` (6) | Detach the target buffer; Rust sort may use private scratch storage. Comparisons/key selectors can execute script. |
 | `retain`, `dedup`, `distinct` (3) | Concrete sequence paths detach the buffer across predicates/equality. Completed removals survive failures. |
@@ -575,9 +579,10 @@ trait-method entries are excluded to avoid counting defaults and overrides twice
 | Iteration, construction and content comparison | Ordinary roots retain intermediate items/results. Zip retains the left item across right.next; fold retains its accumulator; unordered content comparison stores rooted ScriptValue handles in a Rust Vec. |
 | Task/Future composition | Existing traced state/root owners retain pending computations and outputs across suspension; a synchronous no-GC scope cannot replace those lifetimes. |
 
-Evidence: [list algorithms](../crates/kagari-stdlib/src/foundation/lists/algorithms.rs),
-[typed Vec edits](../crates/kagari-runtime/src/native/collections/vector/edits.rs),
-[buffer leases](../crates/kagari-runtime/src/gc/sequence_edit.rs),
+Current successor owners (Git history retains the old detached implementation):
+[list algorithms](../crates/kagari-stdlib/src/foundation/lists/algorithms.rs),
+[library Vec algorithms](../crates/kagari-stdlib/src/collections/vector/algorithms.rs),
+[generic borrowed payloads](../crates/kagari-runtime/src/native/payload/borrowed.rs),
 [Vec operations](../crates/kagari-stdlib/src/foundation/vector/operations.rs),
 [hash operations](../crates/kagari-stdlib/src/foundation/hash/operations.rs),
 [lazy cursors](../crates/kagari-stdlib/src/foundation/iteration/cursor.rs),
@@ -1014,9 +1019,9 @@ This is the finite category inventory, not evidence that barriers are implemente
 | --- | --- | --- |
 | New heap objects | `gc.rs::alloc_object`; struct/enum/tuple/closure/cell/interface/native constructors | Reserve identity, storage, descriptor/work credit and accounting; publish newborn state and outgoing scan obligations. Preserve candidate-initialization ownership. |
 | Struct fields and capture cells | `gc/fields.rs::struct_set_slot`, `gc.rs::cell_set`; reflection and native object setters | Shade managed targets before write. Keep declared access/type checks; scalar-only field kernels need no reference barrier. |
-| Builtin fixed Array | `gc/arrays.rs`, `gc/sequences.rs`, `gc/buffers.rs`, `gc/sequence_ops.rs` | Instrument element writes and bulk moves under the indexed scan contract; retain Array as an engine representation. |
+| Builtin fixed Array | `gc/arrays.rs`, `gc/array_access.rs`, `gc/array_storage.rs`, `gc/buffers.rs` | Instrument element writes and bulk moves under the indexed scan contract; retain Array as an engine representation. |
 | Managed and custom Native payloads | `gc/native/managed.rs::set_managed_field`, `replace_managed`; general provider access | Checked edges, replacement, charge and revision commits; unsafe provider obligations cover interior mutation, initialized ranges and unwind. |
-| Vec/Map/Set and base cursors | Existing sequence/hash/iterator paths, then library providers | Transfer to general publication/retention/operation services in PG03/NC03-NC04; no concrete collection barrier or scanner branch remains. |
+| Vec/Map/Set and base cursors | Stdlib collection providers through `StorageAccess` | PG03 uses general publication/retention/operation services; PG04 adds their incremental effects without a concrete collection barrier or scanner branch. |
 | Root values/metadata | `gc/roots.rs::root_execution_values`, `RootSet::set`, `RootSet::set_metadata`, `root_metadata` | Shade before insert/replace; preserve full root identity and exact Arc-lease checks. Removal may leave conservative current-cycle retention. |
 | Frame entry/arguments | `frame/values.rs::ExecutionValues::allocate`; admission/argument/transfer owners | Publish managed arguments and program/environment/invocation edges before exposing a window. No gap during direct window-to-window transfer. |
 | Frame writes/results | `FrameSlots::set/set_location`, ExecutionValues, `frame/values/operands.rs::OperandWindow::write_location`, cursor handlers, native completion/returns | Cover optimized direct operand-bank writes as well as checked public writes. Destination publication precedes source retirement or parking. |
@@ -1279,7 +1284,7 @@ storage alone while keeping those privileged routes is not completion.
 | ProgramGraph full-lifecycle borrow, DeadPrograms and global static referenced-set reconstruction in [module/collection.rs](../crates/kagari-runtime/src/module/collection.rs) | PG04 establishes program/static nodes and short-borrow access; PG05 removes whole dead inventories and detach loops, using stable record/static sweep cursors. Existing module publication, reload and candidate availability remain owners. |
 | Inert native-take identities in [gc/native/take.rs](../crates/kagari-runtime/src/gc/native/take.rs) | PG02 preserves take/identity retirement; PG04 adds independent moved-ledger mark/work state; PG05 sweeps its occupied slots. Never remove inert-alias behavior or conflate old and reused generations. |
 | Whole-object Native tracing and sequence-edit retention prepass | PG01/NC02 establishes one scanner for admission/full/incremental use. PG03/NC03 replaces detached sorting/root snapshots with same-payload scratch; NC04 installs indexed hash scans. Newly populated external payload validation remains required. Explicit indivisible providers are documented exceptions, not a second collector. |
-| Sequence edit snapshots, concrete hash guards/cursors, collection descriptor caches and accounting downcasts | PG03/NC03-NC04: library-owned algorithms/storage using the public general protocol; remove every row in the NC finite inventory, including type/value/wire families, Vec primitives, linked execution, host codecs/constructors and diagnostics. Retain builtin Array and generic helpers only. |
+| Sequence edit snapshots, concrete hash guards/cursors, collection descriptor caches and accounting downcasts | PG03/NC03-NC04 worktree inventory closed: stdlib algorithms/storage use the public general protocol; concrete type/value/wire families, Vec primitives, linked Vector execution, host codecs/constructors and diagnostic downcasts are removed. Builtin Array and generic helpers remain. Final independent review passed; this is PG03 local acceptance, not NC06 completion. |
 | Full-cycle scheduling and unbounded disposal/pruning in [gc/collection.rs](../crates/kagari-runtime/src/gc/collection.rs), Runtime and driver entrypoints | PG05: common incremental service, 1024-unit normal work, 32-item disposal cap, explicit finish-active-plus-fresh completion and separate pressure/work statistics. Bound or make release-driven weak registry/lease maintenance; HashMap::retain at cycle end is not bounded work. |
 | Temporary storage/sweep adapters | PG02 may adapt the synchronous sweeper within the same heap; PG04 may drain the replacement marker into the existing sweep adapter. PG05 removes remaining whole-dead-list/sweep bridges; PG06/NC06 confirms no compatibility routes or second collector remain. |
 
@@ -1290,9 +1295,9 @@ candidate-value checking and gc/future.rs AsyncValues graph admission: their gua
 visited sets enforce semantic contracts, not a second production collector. Reuse the
 same edge enumeration rules; removing collector live sets does not remove validation.
 
-Preserve the already general HeapObject::Native tracing dispatch. Current Map/Set
-storage does not require a distinct HeapObject variant; the remaining concrete
-privileges include Value/type tags and storage/operation paths. Builtin fixed-length
+Preserve the already general HeapObject::Native tracing dispatch. PG03 Map/Set
+storage uses ordinary nominal native payloads; concrete Value/type tags and
+storage/operation privileges are removed. Builtin fixed-length
 Array, script fields, closures/cells, host scopes and execution state remain engine
 responsibilities. Their references must join the new GC protocol, not be removed
 as library-container exceptions. NC01 retains MutableList::set as the checked
@@ -2128,7 +2133,8 @@ Documentation-only work needs content/link/diff checks, not Rust builds.
 - [x] PG00: Contract closure and baseline (with NC01).
 - [x] PG01: General Native protocol and external proof (with NC02), locally complete.
 - [x] PG02: Paged physical storage (locally complete).
-- [ ] PG03: Remove privileged collection paths (NC03/NC04 handoff).
+- [x] PG03: Remove privileged collection paths (locally complete with NC03/NC04;
+  final independent review, selected gates and parent local checks passed).
 - [ ] PG04: Incremental graph state and complete publication coverage.
 - [ ] PG05: Incremental sweep, disposal and execution driving (with NC05).
 - [ ] PG06: Joint integration and acceptance (with NC06).
@@ -2140,9 +2146,288 @@ changing production storage/collection. Initial allocator/work parameters are
 selected under authorization, not measured optima. No build/test failure was carried
 from PG00.
 
+### PG03 collection migration evidence and handoff
+
+**Status, 2026-10-27:** locally complete against PG02 `4d8aa0c1`. Final independent
+review approved the current tree; selected focused checks, all selected numerical
+gates and parent final local checks passed. PG03/NC03/NC04 are checked complete;
+PG04 is next. This documentation pass did not rerun builds, tests or timings. The
+[NC ledger](native-collections-plan.md#nc03nc04-implementation-handoff-2026-10-27-locally-complete)
+owns collection scope and the closed finite removal inventory. PG00's historical
+measurements and frozen gates above are unchanged.
+
+#### Architectural corrections and failed iterations
+
+- All three collections and base cursors are ordinary nominal stdlib payloads.
+  VecValues owns Rust Vec conversion; Serde schema/conversion also moves to stdlib.
+  Runtime collection tags/layouts/codecs/constructors/primitives/caches and facades
+  are removed; builtin Array and generic safety owners remain.
+- Hash storage uses a uniform prehashed scalar index and dense entries with
+  previous/next collision links, not a Vec per bucket. HashMap::Entry avoids a
+  failed lookup followed by another insertion search. Selected Hash/Eq semantics,
+  candidate order, capacity preflight and relocation publication remain shared.
+  Scalar hashing starts from its existing input and allocates traversal backing
+  only for compound children. Earlier migration handoffs described lazy Hasher allocation
+  and boxed optional algorithm state; those descriptions must not be mistaken for
+  final Vec layout: current VecStorage has inline `Option<Work>` and same-payload
+  main/scratch buffers, not another admitted work object.
+- Generic BorrowedPayload borrows an existing root; fused edit preparation and
+  publish_argument remove repeated preparation without weakening value/runtime/
+  scoped-type checks. Retained prepared calls consume already-rooted arguments;
+  collecting sort retains its active pair, not an O(n) root prepass. Array-to-Vec
+  construction uses the rooted input and ordinary result scanner admission.
+- The scalar leaf requires exact selected ValueCmp evidence and an actual
+  pointer-free representation, at most 512 elements of at most eight bytes. Rust
+  1.99.1's stable sort fits its 4096-byte stack workspace; larger scalar inputs use
+  bounded merges with same-payload recovery. Cancellation/unordered comparison
+  unwinds through permutation restoration, never fake ordering. This dispatch is
+  unwind-only; abort targets use the existing fallible general sort. Arbitrary
+  callbacks keep collecting general sort, with no Native-wide GC exclusion.
+- DefinitionContext stores immutable `id()` beside its mutex in the same shared
+  allocation instead of locking/freezing a table solely to compare identity.
+  Foreign contexts still snapshot and resolve IDs. Enum construction reuses owner
+  proof only from an authenticated CallContext; standalone runtime entry retains
+  full executable validation. Dynamic execution, type/member/layout and actual
+  value checks remain. These are owner corrections, not validity caches.
+- Dead enumeration accumulates checked committed-charge totals once and stores
+  indices only (24 to 8 bytes per entry on this target). Separate, exactly reserved
+  payload/page retirement queues represent real owners, rather than widening every
+  entry for unused page capacity. A full homogeneous dead page can transfer backing
+  and one descriptor owner; mixed/partial/already-retiring pages use per-object
+  retirement. Destruction consumes initialization before dispatch and quarantines
+  on each panic **before the next destructor**; metadata/backing release is outside
+  storage borrows. Descriptor-owned `needs_drop` evidence skips only proven no-op
+  destruction, never treating GC edge-freedom as that proof. Native payloads retain
+  their actual destructor. This remains synchronous dead-list collection, not PG05
+  bounded sweeping or its 32-item retirement cap.
+- Review reproduced an owning Vec retaining all 40 obsolete module keys through
+  Opaque -> NativeType -> RustType's executable lease, while raw roots/ScriptValue
+  passed. Opaque now shares only a data record (exact type, lexical owner, storage,
+  managed schema); explicit `prepare_native_type(cx)` revalidates executable access
+  in the live caller context. Vec retains its exact reclamation assertion while
+  alive. Map/Set selected Hash/Eq edges still trace Program even for intrinsic keys;
+  their tests establish reclamation after the final root drops, **not** access after
+  old-program reclamation. Broader selected-call ownership is outside this finite
+  fix. Final review accepted this scope distinction; it remains a coverage limit,
+    not evidence for Map/Set access after old-program reclamation.
+
+The initial corrected table still measured Map 1.441310, scalar sort 11.703616,
+cheap/allocating sort 2.360297/3.420517 and failed script-key GC gates. Later Map
+1.196611/scalar 1.892960 remained failures. A widened retirement-token experiment
+failed sparse-type post-setup peak at 168,792 B, then 166,736 B, above 163,033.2 B,
+and was reverted; its timing wins were not accepted. The corrected separate queues
+and destructor ownership supersede that experiment. Closure rounds still failed
+Map 1.06656998 and release-GC normalized 1.00154128, then Map 1.06163844, before
+immutable-context/scoped-enum preparation corrections. These were source corrections,
+not unchanged-source lucky repeats or relaxed thresholds. Final affected timings
+below were repeated after the data-record fix, superseding earlier closure numbers.
+
+The page failure test makes the fourth destructor panic: all remaining 60 observe
+quarantine, all 64 run exactly once, repeat disposal runs none, and page reuse and
+descriptor/backing lifetimes remain checked. Two gc_ownership tests also reproduced
+failures because their forged Array values now had the valid surviving Array tag;
+only the invalid expressions changed to Struct tags, retaining all rejection,
+accounting and stale/foreign-generation assertions. Missing generic arguments,
+invalid test-source bounds/private entrypoints and one needless borrow were repaired
+without disabling validation. An initial wasm check omitted the supported `web`
+feature; the corrected compile command below passed.
+
+#### Primary mechanisms and applicability
+
+Reviewed mechanisms are not speed evidence:
+
+- [.NET runtime v9.0.0 Dictionary](https://raw.githubusercontent.com/dotnet/runtime/v9.0.0/src/libraries/System.Private.CoreLib/src/System/Collections/Generic/Dictionary.cs):
+  scalar bucket positions and entry-owned collision links. Kagari adds back-links
+  for dense scanner relocation and preserves selected callback visitation; it does
+  not copy the CLR free-list or managed-runtime assumptions.
+- Rust **1.99.1** [stable sort](https://doc.rust-lang.org/src/core/slice/sort/stable/mod.rs.html),
+  [Entry](https://doc.rust-lang.org/std/collections/hash_map/enum.Entry.html),
+  [needs_drop](https://doc.rust-lang.org/std/mem/fn.needs_drop.html),
+  [Vec IntoIter](https://doc.rust-lang.org/src/alloc/vec/into_iter.rs.html),
+  [resume_unwind](https://doc.rust-lang.org/std/panic/fn.resume_unwind.html) and
+  [Arc](https://doc.rust-lang.org/std/sync/struct.Arc.html), reviewed 2026-10-27:
+  bounded noncollecting scalar scratch, one lookup/update, destructor evidence,
+  consume-before-drop ownership, abort limitations and immutable shared identity.
+  Kagari additionally owns checked selected evidence, tracing, scoped identities,
+  cancellation, per-destructor quarantine and cleanup. Rust internal scratch cannot
+  host collecting script callbacks. Existing Rust/V8 managed-scratch research stays
+  applicable to the general kernel, not evidence of equal adaptive behavior.
+- [OpenJDK jdk-25+36 GC boundary clocks](https://raw.githubusercontent.com/openjdk/jdk/jdk-25%2B36/src/hotspot/share/gc/shared/gcTraceTime.inline.hpp)
+  guided temporary owner-boundary attribution. Nested timings were inclusive and
+  strongly perturbed small operations; they were neither summed nor used as gate
+  evidence. Temporary clocks were removed. Retained data versus executable owners
+  also reuses the prior mlua 0.11.4 handle review, not its runtime lifetime model.
+
+#### Reproduction, baseline provenance and estimator
+
+Environment: Apple M1 Max, 10 logical CPUs, 32 GiB, macOS 26.6.2,
+aarch64-apple-darwin; rustc 1.99.1 (`58cf8f9c3`, 2026-10-13), LLVM 23.1.1;
+Cargo 1.99.1 (`5f94df478`). Machine/RAM use prior authenticated metadata; current
+sysctl and ps were sandbox-denied. Workspace release defaults, default target and
+Cargo parallelism; source/native, mlua lua54/vendored. Runtime and stdlib execution
+diagnostics are enabled only in the separate diagnostic build. Timings ran
+sequentially with no agent build/test overlap; other system processes were not
+inventoried. Each fresh process has three warmups and eleven samples. Compilation,
+artifact preparation and linking are separate from execution; this is a warmed
+execution comparison, not cold-start or cross-platform evidence.
+
+Map/Vec and script-key baselines reuse saved PG00 binaries from `50ab194b`.
+**Sort is a reconstructed baseline**, not an original PG00 --sort measurement:
+`git archive 50ab194b30b0218e9befe3176d6b5711ecf17a28` supplied isolated old source;
+the same tracked runtime_storage `sort.rs`/`sort.kgr` probe and --sort dispatcher were
+added, with no old production semantic fix. Its ordinary binary was saved before
+separate observational root/prepass instrumentation. The baseline release build used
+`cargo build --release -p kagari-lua-benchmark --example runtime_storage --manifest-path target/pg03-gates/baseline/Cargo.toml --target-dir /Users/mikai/CLionProjects/kagari/target`.
+Shared-target path-package fingerprint reuse initially mixed source generations;
+invalidated release fingerprints forced correct builds. Those failed builds and
+missing-dispatch output are excluded. Closure and final retention runs reused the
+correct saved binaries; they did not rebuild the sort baseline. Baseline internal
+sort moves and scratch-only allocator peaks are unavailable, not zero.
+
+The reproducible candidate harness remains tracked under
+[benchmarks/lua-comparison](../benchmarks/lua-comparison/examples/runtime_storage/main.rs).
+The final measurement scope used these build/entry commands (save ordinary binaries
+before a diagnostic rebuild overwrites outputs):
+
+```text
+cargo build --release -p kagari-lua-benchmark --bin kagari-lua-benchmark --example runtime_storage
+target/release/kagari-lua-benchmark --interpreter-only --workload=maps
+target/release/kagari-lua-benchmark --interpreter-only --workload=arrays
+target/release/examples/runtime_storage --sort
+target/release/examples/runtime_storage --script-keys
+cargo build --release -p kagari-lua-benchmark --features diagnostics --example runtime_storage
+target/release/examples/runtime_storage --families
+target/release/examples/runtime_storage --sort --check
+```
+
+For each ordinary workload run seven baseline/candidate pairs, baseline first on
+pairs 1/3/5/7 and candidate first on 2/4/6. For each phase, take each process's median
+of eleven samples, then **median of the seven paired C/B ratios**, not the ratio of
+aggregate medians. The reported execution/sort/construction rows use 1.05; full GC
+uses `median(C / max(1.20*B, B+10000ns)) <= 1`. Apply the unchanged PG00 memory gates
+to the maximum of three diagnostic lifecycles. This method and the commands above,
+not an ignored orchestration script, define reproduction. Final source/binary hash
+checks reported zero mismatches. No individual correction's speedup is isolated.
+
+#### Latest measured results (post-retention correction)
+
+Nanoseconds below are medians of process medians for scale; ratios use the paired
+estimator. All eleven selected rows pass their stated gates.
+
+| Workload / phase | Baseline ns | Candidate ns | Paired ratio | Normalized GC bound |
+| --- | ---: | ---: | ---: | ---: |
+| maps execute | 5,491,542 | 5,682,750 | 1.030554 | — |
+| arrays/Vec execute | 7,580,000 | 6,862,167 | 0.897900 | — |
+| scalar sort construct | 502,792 | 487,084 | 0.968826 | — |
+| scalar sort | 9,250 | 9,708 | 1.036603 | — |
+| cheap-script construct | 715,458 | 701,292 | 0.978220 | — |
+| cheap-script sort | 17,359,917 | 15,229,500 | 0.876533 | — |
+| allocating-script construct | 721,292 | 707,958 | 0.986851 | — |
+| allocating-script sort | 36,945,708 | 33,712,708 | 0.912421 | — |
+| script-key construct | 74,357,250 | 65,494,834 | 0.880698 | — |
+| script-key live GC | 118,917 | 122,833 | 1.032931 | 0.860775443 |
+| script-key release GC | 44,584 | 50,459 | 1.128553 | 0.919882403 |
+
+All **55 memory gates** and **21 zero-net teardown observations** pass. Sparse-cycle
+live requested delta is **325,384 B <= 351,802 B**. High-water observations are scoped
+requested-live allocator bytes, not RSS, usable allocation size or collector pause.
+Post-setup peaks reset at the post-setup/GC checkpoint and include construction,
+collections, mutation/reload and release until teardown; absolute setup/lifecycle
+peaks remain separately checked. Temporary dead lists and both retirement queues
+are included, so reducing an endpoint cannot hide their peak cost.
+
+| Family | Baseline post-setup peak B | Candidate peak B | Frozen ceiling B |
+| --- | ---: | ---: | ---: |
+| sparse nominal types | 148,212 | 156,504 | 163,033.2 |
+| mixed native layouts | 616,320 | 651,984 | 677,952 |
+| scalar buffer | 270,896 | 271,268 | 297,985.6 |
+| reference buffer | 1,834,764 | 1,717,104 | 2,018,240.4 |
+| sparse cycles | 4,246,836 | 3,703,640 | 4,671,519.6 |
+| retained reload | 55,223,957 | 53,656,504 | 60,746,352.7 |
+| script-key map | 256,096 | 191,800 | 281,705.6 |
+
+Sort uses 512 duplicate-heavy values/32 keys, with scalar, cheap script and allocating
+script comparators. Diagnostic recovery deliberately fails/unwinds at callback 17,
+collects during callbacks and checks the complete multiset, accounting and release;
+the caught panic hook is expected, and the process passes. Zero same-payload scalar
+copies excludes Rust's internal moves and its 4096-byte stack workspace. Ordered,
+reversed/random workload matrices, baseline internal moves and isolated recovery
+latency remain unmeasured. These synchronous full-cycle timings do not establish
+incremental pauses: the selected 1024-unit budget and future
+`max(50us, F/4)` step gate, with explicit indivisible exemptions/work reporting,
+remain PG04/PG05 measurement obligations, not a hard deadline or passed gate.
+
+#### Reported focused validation and remaining acceptance
+
+Latest affected commands/results (no sum across overlapping/repeated filters):
+
+| Command | Result |
+| --- | --- |
+| `cargo test -p kagari-vm --lib rooted_data_keeps_type_metadata_without_retaining_obsolete_module_state` | 1 parameterized test / 15 variants pass, with the Map/Set retention limit above |
+| `cargo test -p kagari-vm --lib native_boundary_payload` | 25 pass |
+| `cargo test -p kagari-vm --lib native_boundary_hash_handles` | 11 pass |
+| `cargo test -p kagari --test native_storage_provider ordered_provider` | 7 pass |
+| `cargo test -p kagari-vm --lib native_boundary_payload::managed` | 5 pass; subset of the 25 |
+| `cargo test -p kagari-vm --lib recursive_element_contracts_reject_foreign_nested_layouts_after_reload` | 1 pass |
+| `cargo test -p kagari-runtime --lib gc::tests::gc_ownership -- --nocapture` | reproduced 2 failures / 4 passes before invalid-tag test repair |
+| `cargo test -p kagari-runtime --lib gc::tests::gc_ownership` | 6 pass after repair |
+
+Earlier closure selections remain evidence for unaffected owners; provider/hash
+filters above overlap these runs and must not be double-counted:
+
+| Command | Result |
+| --- | --- |
+| `cargo test -p kagari-runtime --lib native::composition::tests` | 1 pass |
+| `cargo test -p kagari-common --lib identity::map::tests` | 2 pass |
+| `cargo test -p kagari-runtime --lib frame::types::arguments` | 4 pass |
+| `cargo test -p kagari-runtime --lib native::context::tests` | 1 pass |
+| `cargo test -p kagari-runtime --lib gc::directory` | 9 pass |
+| `cargo test -p kagari-runtime --lib gc::native` | 13 pass |
+| `cargo test -p kagari-stdlib --lib collections::` | 5 pass |
+| `cargo test -p kagari-vm --lib native_boundary_resources` | 3 pass |
+| `cargo test -p kagari-vm --lib collecting_sort` | 1 pass |
+| `cargo test -p kagari-vm --lib list_failures` | 4 pass |
+
+The earlier migration also ran
+`cargo test -p kagari --no-default-features --features source --test native_storage_provider standard_vector_error_and_unwind_recovery_allocate_nothing`:
+one pass, directly checking zero allocator calls during standard Vec sealed recovery.
+This is separate from the seven ordered_provider tests and not a new final rerun.
+
+Source-free integration used `cargo run -p kagari --example regenerate_feature_artifact`
+(disposable `target/fixtures/feature_artifact.kbc` only), followed by:
+
+```text
+cargo test -p kagari --no-default-features --test artifact_features source_free_algorithms_and_application_payload_share_the_native_boundary -- --exact
+cargo test -p kagari --no-default-features --test artifact_features source_free_native_enums_retain_nested_payloads -- --exact
+```
+
+Each passed one test; the first also passed after the retention correction.
+`cargo check -p kagari-stdlib --target wasm32-unknown-unknown --features kagari-runtime/web`
+passed compilation, **not wasm execution**. Reported final source checks passed:
+`cargo fmt --all -- --check`,
+`UV_CACHE_DIR=target/uv-cache uv run --locked scripts/check_structure.py` (1766 files,
+zero violations/exceptions), `cargo clippy --workspace --all-targets -- -D warnings`
+and `git diff --check`. Miri was not rerun: unavailable on the active stable aarch64
+component set. Full workspace tests and the complete backend/feature/platform matrix
+remain CI-only and unrun.
+
+**Final independent review and local acceptance (parent/reviewer-reported):** the
+reviewer approved the data/executable retention split, indexed hash back-links and
+prepared edits, scalar typed-panic unwind/abort routing, immutable DefinitionContext
+identity/scoped enum evidence, and full-page disposal. Independent selected runs
+passed: stdlib collections **5 tests**, ownership plus page-quarantine **7 tests**,
+and retention **15 variants**. These repeat existing contract evidence and are not
+added to earlier totals. The parent confirms final structure **1766 files, zero
+violations**, formatting, workspace all-target Clippy and diff checks passed.
+PG03/NC03/NC04 are therefore locally complete. PG04 is next; NC05/NC06, incremental
+pause/interleaving acceptance and the full CI matrix remain outstanding.
+
 ### PG01 implementation handoff (2026-10-27; locally complete)
 
-The worktree integrates the general protocol under existing native/heap/root owners:
+**Historical PG01 checkpoint (`fc651b92`):** the following records that phase's
+implementation and validation, not the current PG03 physical/collection model.
+PG02 subsequently replaced its boxed short-loan path; PG03 completed standard
+collection migration. PG01 integrated the protocol under existing native/heap/root owners:
 
 - Unsafe NativePayload replaces whole-trace/fallible-charge with one scanner and
   infallible constant-time installed charge. Admission and completed general edits
@@ -2154,9 +2439,9 @@ The worktree integrates the general protocol under existing native/heap/root own
   recovery. Safe NativeData read_data/edit_data and typed/paired loans exclude
   arbitrary raw payload exposure; NativeTake alone supplies no shared-loan proof.
   `call_stored_values` now preserves RootedValue rather than dropping its result root.
-- The temporary boxed short loan releases the directory borrow and blocks escaping
+- The temporary boxed short loan released the directory borrow and blocked escaping
   public string/tuple/enum/closure views until restoration. Internal scoped validation
-  still performs real aggregate/type/owner checks. PG02 replaces the physical Box
+  still performed real aggregate/type/owner checks. PG02 replaced the physical Box
   path while preserving these checks and error/unwind cleanup.
 - Root registration reserves final-release notification and free-slot capacity.
   Final-clone Drop enqueues only the full ID without allocation; in-place draining
@@ -2178,7 +2463,8 @@ storage because no continuation is live. PG04 must preserve an active continuati
 through admission/growth, supply graph credits/barriers and measure queue/workspace
 backing against PG00's gates. Synchronous scanner tests do not prove that reservation
 invariant or production pause bounds. PG05 still owns legal driver interleaving.
-No new post-change performance acceptance is claimed here.
+This historical PG01 evidence did not establish post-change performance acceptance;
+the subsequent PG03 paired/backing results are recorded in its handoff above.
 
 **Reported focused validation:** implementation-agent results supplied for this
 handoff (not rerun by the documentation pass) are: roots 20; provider protocol 5;
@@ -2222,14 +2508,15 @@ NativeData diagnostic test covers this path and benchmark callers compile agains
 the fallible API. Earlier reviewer blockers are repaired/covered; no known selected
 local failure remains.
 
-**Status and next handoff at PG01 close:** PG01/NC02 is locally complete at
-`fc651b92`. PG02's replacement of the temporary boxed-loan physical path is now
-implemented as recorded below, with final checkpoint validation pending. PG03/NC03-NC04 still owns removal of legacy Vec/Map/Set paths and host
-adapters; PG04 owns persistent scanner state, graph reservations and complete
-publication coverage; PG05 owns actual interleaving. The external fixture does not
-remove those legacy paths. Full-workspace and complete feature/backend/platform
-CI remain unrun, as do future post-change performance/peak/pause gate measurements.
-Local protocol acceptance does not pass those future gates.
+**Historical handoff and subsequent closure:** PG01/NC02 completed at `fc651b92`.
+Its temporary boxed-loan adaptation was replaced and locally accepted in PG02
+(`4d8aa0c1`); legacy Vec/Map/Set paths and host adapters were then removed and
+locally accepted in PG03/NC03-NC04. The early external fixture alone did not prove
+those later migrations. Current implementation/paired/backing acceptance belongs
+to the PG03 handoff above, not these historical PG01 results. PG04 owns persistent
+scanner state, graph reservations and complete publication coverage; PG05 owns
+actual interleaving. Incremental pause gates and full-workspace/feature/backend/
+platform CI remain unrun.
 
 ### PG02 physical-model correction and checkpoint evidence
 
@@ -2333,7 +2620,8 @@ the six public provider tests, two safe NativeData loan-view tests, collecting H
 and retained-zip reload sentinels (one each), and the source-disabled
 source_free_algorithms_and_application_payload_share_the_native_boundary artifact
 test. Independent review found no remaining storage safety blocker. No failing
-command is carried. PG03 still removes legacy collection paths.
+command was carried from PG02. Its legacy collection-path handoff was subsequently
+closed by PG03; the PG03 section above records current local acceptance.
 PG04 owns epoch marking and active scanner/work reservations; PG05 removes the
 synchronous dead list and interface batch filtering and supplies incremental
 sweep/disposal. Descriptor pruning and other synchronous maintenance must also obey
@@ -2342,7 +2630,8 @@ those later bounded-work contracts; no implicit incremental acceptance is claime
 Subsequent checkpoints record actual implementation, structural debt, failures and
 bridge removal under their owning phase here; NC-specific results stay in its ledger
 with a handoff link, not a copied checklist. Full feature/backend/platform acceptance
-remains CI scope. Numerical gates are frozen, not passed by a future implementation;
-no memory saving, hard pause bound or production migration acceptance is claimed. After joint acceptance, move
+remains CI scope. PG03's selected numerical gates passed as recorded above; future
+incremental implementations must meet the frozen gates on their own evidence.
+No hard pause bound or joint PG06/NC06 acceptance is claimed. After joint acceptance, move
 lasting contracts to architecture/specification owners and retire completed plan
 material without erasing unresolved NC work.

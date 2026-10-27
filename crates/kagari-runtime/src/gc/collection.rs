@@ -181,9 +181,11 @@ impl GcHeap {
             }
         }
         // Read committed runtime charges before detaching. No provider size hooks.
-        let dead = {
+        let (dead, dead_units, mut reclaimed_retained_bytes) = {
             let objects = self.objects.try_borrow().ok()?;
             let mut dead = Vec::new();
+            let mut units = 0usize;
+            let mut bytes = 0u128;
             for index in objects.occupied_directories() {
                 let slot = objects.slots.get(index)?;
                 let location = slot.location()?;
@@ -192,10 +194,12 @@ impl GcHeap {
                     let charge = objects
                         .get(location, &self.interfaces)?
                         .charge(&self.interfaces)?;
-                    dead.push((index, charge));
+                    units = units.checked_add(charge.logical_units)?;
+                    bytes = bytes.checked_add(charge.retained_bytes as u128)?;
+                    dead.push(index);
                 }
             }
-            dead
+            (dead, units, bytes)
         };
         if self.resources.is_quarantined() {
             return None;
@@ -208,28 +212,20 @@ impl GcHeap {
         let mut moved = self.moved.try_borrow_mut().ok()?;
         let retired_identities = moved.len() - live_moved.len();
         let reclaimed_objects = dead.len();
-        let reclaimed_units = dead
-            .iter()
-            .try_fold(retired_identities, |sum, (_, charge)| {
-                sum.checked_add(charge.logical_units)
-            })?;
-        let mut reclaimed_retained_bytes = dead.iter().try_fold(0u128, |sum, (_, charge)| {
-            sum.checked_add(charge.retained_bytes as u128)
-        })?;
+        let reclaimed_units = dead_units.checked_add(retired_identities)?;
 
         // Temporary synchronous dead-list adapter; PG05 replaces this driver with
         // bounded sweep. Reserve all orchestration before detaching any identity.
-        let mut retired = Vec::new();
-        retired.try_reserve_exact(dead.len()).ok()?;
-        if !dead.is_empty() {
-            let mut objects = self.objects.try_borrow_mut().ok()?;
-
-            for (index, charge) in dead {
-                let id = HeapObjectId::new(self.owner, index, objects.slots[index].generation);
-                retired.push(objects.detach(id)?);
-                self.resources.release_heap_charge(charge);
-            }
-        }
+        let retired = self
+            .objects
+            .try_borrow_mut()
+            .ok()?
+            .detach_many(self.owner, &dead)?;
+        self.resources.release_heap_totals(
+            reclaimed_units - retired_identities,
+            reclaimed_retained_bytes,
+        );
+        drop(dead);
         self.objects.borrow_mut().retire_wrappers();
         moved.retain(|id| live_moved.contains(id));
         self.resources
@@ -254,8 +250,22 @@ impl GcHeap {
         self.roots.borrow_mut().drain_released();
         // Destructors run with no storage-table borrow. Finish disposal even when
         // one panics; the execution gate keeps the affected runtime quarantined.
-        for retired in retired {
-            reclaimed_retained_bytes += self.dispose_payload(retired) as u128;
+        for payload in retired.payloads {
+            reclaimed_retained_bytes += self.dispose_payload(payload) as u128;
+        }
+        for mut page in retired.pages {
+            page.dispose(|| {
+                self.resources
+                    .quarantine("native payload destruction panicked");
+            });
+            let released = self.objects.borrow_mut().finish_page(&page);
+            if page.release() {
+                self.resources
+                    .quarantine("representation owner destruction panicked");
+            }
+            self.resources
+                .release_heap_charge(HeapCharge::new(0, released));
+            reclaimed_retained_bytes += released as u128;
         }
         self.objects.borrow_mut().prune(live.len());
         for group in retired_groups {
@@ -290,8 +300,6 @@ impl GcHeap {
         }
         self.interfaces.borrow_mut().prune_descriptions();
         self.struct_layouts.borrow_mut().prune();
-        self.mutations.prune();
-        self.key_lookups.prune();
         self.native_operations.prune();
         let pause = started.elapsed();
         let mut stats = self.stats.borrow_mut();

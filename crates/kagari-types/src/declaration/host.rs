@@ -156,10 +156,8 @@ pub(crate) fn function_policy_valid(function: &FnDecl, table: &DefinitionTable) 
                 pending.push(result);
             }
             Ty::Reference { target, .. } => pending.push(target),
-            Ty::Array(item) | Ty::Set(item, _) | Ty::Iter(item) | Ty::Range(item, _) => {
-                pending.push(item)
-            }
-            Ty::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+            Ty::Array(item) | Ty::Iter(item) | Ty::Range(item, _) => pending.push(item),
+
             Ty::Struct(nominal)
             | Ty::Enum(nominal)
             | Ty::NativeObject(nominal)

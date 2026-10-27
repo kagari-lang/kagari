@@ -11,17 +11,23 @@ use kagari_types::ty::Ty;
 
 #[derive(Debug)]
 pub struct StorageType {
-    pub(crate) ty: Ty,
     pub(crate) owner: ExecutableModule,
-    scope: Option<TypeArgument>,
+    evidence: Evidence,
+}
+
+// Scoped contracts reuse the already shared TypeArgument rather than embedding
+// a second, large Ty in every payload. Unscoped internal contracts own their type.
+#[derive(Debug)]
+enum Evidence {
+    Scoped(TypeArgument),
+    Unscoped(Box<Ty>),
 }
 
 impl StorageType {
     pub(crate) fn prepare(ty: Ty, owner: &ExecutableModule) -> Result<Self, RuntimeError> {
         Self::checked(Self {
-            ty,
             owner: owner.clone(),
-            scope: None,
+            evidence: Evidence::Unscoped(Box::new(ty)),
         })
     }
 
@@ -30,17 +36,21 @@ impl StorageType {
         owner: &ExecutableModule,
     ) -> Result<Self, RuntimeError> {
         Self::checked(Self {
-            ty: argument.ty().clone(),
             owner: owner.clone(),
-            scope: Some(argument),
+            evidence: Evidence::Scoped(argument),
         })
     }
 
     fn checked(contract: Self) -> Result<Self, RuntimeError> {
         // Establish storage evidence before exposing the prepared view.
-        let view = match &contract.scope {
-            Some(scope) => scope.view(&contract.owner),
-            None => TypeView::new(&contract.ty, &contract.owner, None),
+        if !contract.ty().is_concrete() {
+            return Err(RuntimeError::module_validation(
+                "storage element requires a closed type",
+            ));
+        }
+        let view = match &contract.evidence {
+            Evidence::Scoped(scope) => scope.view(&contract.owner),
+            Evidence::Unscoped(ty) => TypeView::new(ty, &contract.owner, None),
         };
         if !view.is_heap_type() {
             return Err(RuntimeError::module_validation(
@@ -50,16 +60,26 @@ impl StorageType {
         Ok(contract)
     }
 
+    pub(crate) fn ty(&self) -> &Ty {
+        match &self.evidence {
+            Evidence::Scoped(scope) => scope.ty(),
+            Evidence::Unscoped(ty) => ty,
+        }
+    }
+
     pub(crate) fn argument(&self) -> Result<&TypeArgument, RuntimeError> {
-        self.scope.as_ref().ok_or_else(|| {
-            RuntimeError::module_validation("retention requires a scoped storage contract")
-        })
+        match &self.evidence {
+            Evidence::Scoped(scope) => Ok(scope),
+            Evidence::Unscoped(_) => Err(RuntimeError::module_validation(
+                "retention requires a scoped storage contract",
+            )),
+        }
     }
 
     fn view(&self) -> TypeView<'_> {
-        match &self.scope {
-            Some(scope) => scope.view(&self.owner),
-            None => TypeView::prepared(&self.ty, &self.ty, &self.owner, None),
+        match &self.evidence {
+            Evidence::Scoped(scope) => scope.view(&self.owner),
+            Evidence::Unscoped(ty) => TypeView::prepared(ty, ty, &self.owner, None),
         }
     }
 
@@ -72,9 +92,9 @@ impl StorageType {
     }
 
     pub(crate) fn accepts_value(&self, heap: &GcHeap, value: &Value) -> bool {
-        match &self.scope {
-            Some(scope) => scope.matches_heap(heap, value, &self.owner),
-            None => matches_view(heap, value, self.view()),
+        match &self.evidence {
+            Evidence::Scoped(scope) => scope.matches_heap(heap, value, &self.owner),
+            Evidence::Unscoped(_) => matches_view(heap, value, self.view()),
         }
     }
 }

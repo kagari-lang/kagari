@@ -1,67 +1,31 @@
-//! Shared compact-storage kernels after fixed-array or nominal-sequence admission.
+//! Compact-storage kernels for fixed builtin arrays.
 //! Indices accept host positions or wide script integers; narrowing failure follows
 //! each operation's absence/bounds policy, after its receiver and mutation checks.
+use crate::gc::array_storage::{ArrayPayload, ArrayStorage};
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
-    gc::{GcHeap, HeapObjectId, storage::HeapObject},
-    native::{
-        sequence::{SequencePayload, SequenceStorage},
-        storage_type::StorageType,
-    },
+    gc::{GcHeap, HeapObjectId},
+    native::storage_type::StorageType,
     resource::HeapCharge,
     value::Value,
 };
-use kagari_types::{declaration::native::NativeStorageLayout, ty::Ty};
-use std::{mem, ops::Bound, sync::Arc};
+use kagari_types::ty::Ty;
+use std::{ops::Bound, sync::Arc};
 
 fn invalid() -> RuntimeError {
     RuntimeError::new(
         RuntimeErrorKind::ScriptTrap,
-        "invalid sequence buffer or payload",
+        "invalid array buffer or payload",
     )
 }
 
 impl GcHeap {
-    pub(super) fn alloc_buffer_from(
-        &self,
-        source: HeapObjectId,
-        values: SequenceStorage,
-    ) -> Result<HeapObjectId, RuntimeError> {
-        self.ensure_execution_allowed()?;
-        let contract = self.buffer_contract(source).ok_or_else(invalid)?;
-        if mem::discriminant(&values) != mem::discriminant(&SequenceStorage::empty(&contract.ty)) {
-            return Err(invalid());
-        }
-        let object = {
-            let objects = self.objects.borrow();
-            let HeapObject::Native(object) =
-                self.readable_object(&objects, source).ok_or_else(invalid)?
-            else {
-                return Err(invalid());
-            };
-            object.replaced_payload(SequencePayload {
-                detached: false,
-                element: contract.ty.clone(),
-                contract,
-                values,
-            })?
-        };
-        self.alloc_native(object)
-    }
-
-    pub(crate) fn clone_buffer(&self, source: HeapObjectId) -> Result<HeapObjectId, RuntimeError> {
-        let values = self
-            .with_buffer(source, |values| values.copy_range(0, values.len()))
-            .ok_or_else(invalid)??;
-        self.alloc_buffer_from(source, values)
-    }
-
     pub(crate) fn buffer_len(&self, id: HeapObjectId) -> Option<usize> {
-        self.with_buffer(id, SequenceStorage::len)
+        self.with_buffer(id, ArrayStorage::len)
     }
 
     pub(crate) fn buffer_snapshot(&self, id: HeapObjectId) -> Option<Vec<Value>> {
-        self.with_buffer(id, SequenceStorage::snapshot)
+        self.with_buffer(id, ArrayStorage::snapshot)
     }
 
     pub(crate) fn buffer_get(&self, id: HeapObjectId, index: impl TryInto<usize>) -> Option<Value> {
@@ -80,39 +44,13 @@ impl GcHeap {
             .ok_or_else(|| RuntimeError::module_validation("array handle length"))
     }
 
-    /// Shared SDK/native setter preflight. A later conversion may reenter, so
-    /// buffer_set must still validate the actual assignment afterward.
-    pub(crate) fn check_buffer_replacement(
-        &self,
-        id: HeapObjectId,
-        index: impl TryInto<usize>,
-    ) -> Result<(), RuntimeError> {
-        self.ensure_callback_mutable(id)?;
-        self.resources.poll_execution()?;
-        let length = self
-            .buffer_len(id)
-            .ok_or_else(|| RuntimeError::module_validation("array handle length"))?;
-        if index.try_into().ok().is_none_or(|index| index >= length) {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::IndexOutOfBounds,
-                "sequence set index is out of bounds",
-            ));
-        }
-        Ok(())
-    }
-
     pub(crate) fn buffer_contract(&self, id: HeapObjectId) -> Option<Arc<StorageType>> {
         let objects = self.objects.borrow();
         let object = self.native_ref(&objects, id)?;
-        if !matches!(object.ty, Ty::Array(..) | Ty::NativeObject(_))
-            || !matches!(
-                object.storage.layout(),
-                NativeStorageLayout::Sequence { .. }
-            )
-        {
+        if !matches!(object.ty, Ty::Array(..)) {
             return None;
         }
-        Some(object.payload::<SequencePayload>().ok()?.contract.clone())
+        Some(object.payload::<ArrayPayload>().ok()?.contract.clone())
     }
 
     pub(super) fn validate_buffer_value(
@@ -132,8 +70,8 @@ impl GcHeap {
         &self,
         contract: &StorageType,
         elements: Vec<Value>,
-    ) -> Result<SequenceStorage, RuntimeError> {
-        let mut values = SequenceStorage::empty(&contract.ty);
+    ) -> Result<ArrayStorage, RuntimeError> {
+        let mut values = ArrayStorage::empty(contract.ty());
         values
             .try_reserve(elements.len())
             .map_err(|_| self.resource_limit("allocation capacity"))?;
@@ -148,13 +86,12 @@ impl GcHeap {
 
     pub(crate) fn buffer_fill(&self, id: HeapObjectId, value: Value) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
-        self.ensure_callback_mutable(id)?;
         self.validate_buffer_value(id, &value)?;
         let length = self.buffer_len(id).ok_or_else(invalid)?;
         self.resources.poll_execution()?;
         let _temporary = self.resources.reserve_temporary_heap(length)?;
         let contract = self.buffer_contract(id).ok_or_else(invalid)?;
-        let mut prepared = SequenceStorage::empty(&contract.ty);
+        let mut prepared = ArrayStorage::empty(contract.ty());
         prepared
             .try_reserve(length)
             .map_err(|_| self.resource_limit("array fill capacity"))?;
@@ -172,7 +109,6 @@ impl GcHeap {
         source: HeapObjectId,
     ) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
-        self.ensure_callback_mutable(target)?;
         let length = self.buffer_len(target).ok_or_else(invalid)?;
         if self.buffer_len(source) != Some(length) {
             return Err(RuntimeError::new(
@@ -202,7 +138,6 @@ impl GcHeap {
         destination: usize,
     ) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
-        self.ensure_callback_mutable(target)?;
         let bounds = || {
             RuntimeError::new(
                 RuntimeErrorKind::IndexOutOfBounds,
@@ -241,13 +176,12 @@ impl GcHeap {
     ) -> Result<(), RuntimeError> {
         let index = index.try_into().ok();
         self.ensure_execution_allowed()?;
-        self.ensure_callback_mutable(id)?;
         self.validate_buffer_value(id, &value)?;
         self.with_buffer_mut(id, 0, |values| {
             let index = index.ok_or_else(|| {
                 RuntimeError::new(
                     RuntimeErrorKind::IndexOutOfBounds,
-                    "sequence index is out of bounds",
+                    "array index is out of bounds",
                 )
             })?;
             values.set(index, value)
@@ -257,57 +191,41 @@ impl GcHeap {
     pub(crate) fn with_buffer<R>(
         &self,
         id: HeapObjectId,
-        f: impl FnOnce(&SequenceStorage) -> R,
+        f: impl FnOnce(&ArrayStorage) -> R,
     ) -> Option<R> {
         self.check_native_operation(id, None, false).ok()?;
         let objects = self.objects.borrow();
         let object = self.native_ref(&objects, id)?;
-        if !matches!(object.ty, Ty::Array(..) | Ty::NativeObject(_))
-            || !matches!(
-                object.storage.layout(),
-                NativeStorageLayout::Sequence { .. }
-            )
-        {
+        if !matches!(object.ty, Ty::Array(..)) {
             return None;
         }
-        let sequence = object.payload::<SequencePayload>().ok()?;
-        if sequence.detached {
-            return None;
-        }
-        Some(f(&sequence.values))
+        let array = object.payload::<ArrayPayload>().ok()?;
+        Some(f(&array.values))
     }
 
     pub(super) fn with_buffer_mut<R>(
         &self,
         id: HeapObjectId,
         growth: usize,
-        f: impl FnOnce(&mut SequenceStorage) -> R,
+        f: impl FnOnce(&mut ArrayStorage) -> R,
     ) -> Result<R, RuntimeError> {
         self.check_native_operation(id, None, true)?;
         let mut objects = self.objects_mut()?;
         let object = self.native_mut(&mut objects, id).ok_or_else(invalid)?;
         let revision = object.revision.checked_add(1).ok_or_else(invalid)?;
-        if !matches!(object.ty, Ty::Array(..) | Ty::NativeObject(_))
-            || !matches!(
-                object.storage.layout(),
-                NativeStorageLayout::Sequence { .. }
-            )
-        {
+        if !matches!(object.ty, Ty::Array(..)) {
             return Err(invalid());
         }
         let max_units = object
             .charge
             .logical_units
             .checked_add(growth)
-            .ok_or_else(|| self.resource_limit("sequence length"))?;
+            .ok_or_else(|| self.resource_limit("array length"))?;
         let change = self
             .resources
             .prepare_heap_change(object.charge, max_units)?;
-        let sequence = object.payload_mut::<SequencePayload>()?;
-        if sequence.detached {
-            return Err(invalid());
-        }
-        let values = &mut sequence.values;
+        let array = object.payload_mut::<ArrayPayload>()?;
+        let values = &mut array.values;
         let old_len = values.len();
         let result = f(values);
         let changed = values.len() != old_len;

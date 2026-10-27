@@ -160,27 +160,34 @@ pub fn insert_with_completion(
     // SAFETY: Scalar preflight, checked publication, reserve before commit; integer
     // BTree ordering cannot reenter script or unwind through a comparator.
     unsafe {
-        let units = map.read(cx, None, |map, _| Ok(map.charge().logical_units))?;
-        map.edit(
-            cx,
-            None,
-            EditPlan {
-                max_logical_units: units + 2,
-                structural: true,
-            },
-            |map, access| {
-                let value = access.publish(&map.contract, &value)?;
-                if let Some(slot) = map.index.get(&key) {
-                    map.slots[*slot] = Some(value);
-                } else {
-                    map.slots.reserve(1);
-                    access.commit_structure();
-                    map.index.insert(key, map.slots.len());
-                    map.slots.push(Some(value));
-                }
-                completion()
-            },
-        )
+        let borrowed = map.borrow(cx)?;
+        borrowed
+            .edit_prepared(
+                cx,
+                |map, _| {
+                    Ok(Some((
+                        EditPlan {
+                            max_logical_units: map.charge().logical_units
+                                + if map.index.contains_key(&key) { 0 } else { 2 },
+                            structural: true,
+                        },
+                        (),
+                    )))
+                },
+                |map, access, ()| {
+                    let value = access.publish(&map.contract, &value)?;
+                    if let Some(slot) = map.index.get(&key) {
+                        map.slots[*slot] = Some(value);
+                    } else {
+                        map.slots.reserve(1);
+                        access.commit_structure();
+                        map.index.insert(key, map.slots.len());
+                        map.slots.push(Some(value));
+                    }
+                    completion()
+                },
+            )
+            .map(|result| result.expect("provider always prepares insertion"))
     }
 }
 
@@ -351,10 +358,10 @@ pub fn iter(
 ) -> NativeResult<Opaque<Cursor>> {
     let ty = cx.result_native_type::<Cursor>()?;
     let revision = revision(cx, &map)?;
-    let source_type = map.native_type().type_argument().clone();
-    let owner = map.native_type().owner().clone();
+    let source_type = map.type_argument().clone();
+    let owner = map.owner().clone();
     let contract = StorageType::prepare_scoped(source_type.clone(), &owner)?;
-    let mut conversion = ConversionContext::new(cx.runtime(), &owner)?;
+    let mut conversion = ConversionContext::new(cx.runtime(), cx.owner())?;
     let source = conversion.encode_value(&source_type, map)?;
     // The conversion's roots protect source through allocation and its safepoint.
     ty.create(

@@ -22,7 +22,7 @@ use kagari_hir::{
 use kagari_mir::instruction::{
     CallTarget, Constant, Instruction, MirValue, Terminator, ValueBuffer,
 };
-use kagari_types::{collection::CollectionAccess, language::Protocol, scalar::BuiltinType, ty::Ty};
+use kagari_types::{language::Protocol, scalar::BuiltinType, ty::Ty};
 use std::ops::ControlFlow;
 
 mod aggregates;
@@ -226,11 +226,7 @@ impl FunctionLowerer<'_, '_> {
                     .remove(0);
                 let abi = self.planner.encode_type(&ty);
                 // A distinct move records access weakening without changing an alias's contract.
-                if ty.collection_access() == Some(CollectionAccess::ReadOnly) {
-                    let dst = self.alloc_temp(value.ty);
-                    self.emit(Instruction::Move { dst, src: value });
-                    value = dst;
-                }
+
                 self.function
                     .semantic
                     .registers

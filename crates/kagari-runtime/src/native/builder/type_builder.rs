@@ -151,20 +151,6 @@ impl<'module> TypeBuilder<'module> {
         Ok(())
     }
 
-    pub fn sequence_storage(&mut self, element: &ParameterRef) -> NativeResult<()> {
-        let Ty::Parameter { owner, position } = element.ty.abi() else {
-            return Err(RuntimeError::metadata_conflict(
-                "sequence element must be a declared type parameter",
-            ));
-        };
-        if *owner != self.id || *position >= self.parameters.len() {
-            return Err(RuntimeError::metadata_conflict(
-                "sequence element belongs to another declaration",
-            ));
-        }
-        self.native_storage(NativeStorage::sequence(*position))
-    }
-
     pub fn native_storage(&mut self, storage: NativeStorage) -> NativeResult<()> {
         if self.storage.is_some() {
             return Err(RuntimeError::metadata_conflict(

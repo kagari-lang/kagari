@@ -57,11 +57,8 @@ impl TypeShape {
                 Ty::Iter(item)
                 | Ty::Range(item, _)
                 | Ty::Array(item)
-                | Ty::Set(item, _)
                 | Ty::Reference { target: item, .. } => pending.push((item, depth + 1)),
-                Ty::Map { key, value, .. } => {
-                    pending.extend([(key.as_ref(), depth + 1), (value.as_ref(), depth + 1)])
-                }
+
                 Ty::Struct(value)
                 | Ty::NativeObject(value)
                 | Ty::Enum(value)

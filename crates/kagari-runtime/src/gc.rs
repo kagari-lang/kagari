@@ -1,3 +1,4 @@
+pub(crate) mod array_storage;
 use crate::{
     closure::ClosureValueSnapshot,
     error::{RuntimeError, RuntimeErrorKind},
@@ -12,8 +13,8 @@ use crate::{
         directory::{ObjectStorage, PayloadKind, PayloadLocation},
         fields::{StructStorageLayouts, StructView, StructViewMut},
         interfaces::InterfaceValueSnapshot,
-        leases::{LeaseTable, OwnedLease},
-        roots::{RootTable, RootedValue},
+        leases::LeaseTable,
+        roots::RootTable,
         storage::{Exclusive, HeapObject, Shared},
     },
     module::{EnumVariantRef, ModuleKey, StructLayoutRef},
@@ -38,29 +39,23 @@ use std::{
 
 #[cfg(feature = "execution-diagnostics")]
 mod accounting;
+mod array_access;
 mod arrays;
 mod fields;
 mod future;
-mod maps_sets;
 mod native;
 #[cfg(test)]
 pub(crate) mod retention_probe;
-mod sequences;
 mod task;
 
 mod buffers;
-mod capacity;
 mod collection;
 mod collector;
-pub(crate) mod custom_keys;
 mod directory;
 pub(crate) mod interfaces;
 mod iter;
 pub(crate) mod leases;
-pub mod mutations;
 pub mod roots;
-mod sequence_edit;
-mod sequence_ops;
 mod storage;
 mod string_iter;
 mod values;
@@ -174,21 +169,11 @@ pub enum GcObjectKind {
     Native,
     Iter,
     Array,
-    Map,
-    Set,
     Enum,
     Struct,
     Interface,
     Closure,
     Cell,
-}
-
-/// Keeps a mutation target alive and rejects conflicting callback writes.
-#[must_use = "retain the guard until the mutation finishes"]
-#[derive(Debug)]
-pub(crate) struct CollectionMutation {
-    _lease: OwnedLease,
-    _root: RootedValue,
 }
 
 #[derive(Debug)]
@@ -208,17 +193,12 @@ pub struct GcHeap {
     resources: ResourceState,
     next_collection: Cell<usize>,
     next_byte_collection: Cell<u128>,
-    mutations: LeaseTable,
-    key_lookups: LeaseTable,
     native_operations: LeaseTable,
-    next_key_token: Cell<i64>,
     native_borrows: Cell<usize>,
     native_scan_workspace: RefCell<ScanWorkspace>,
     // Heap-local immutable codecs contain no object identity or loaded types.
     // Initialize only when used; descriptor construction cannot execute callbacks.
-    sequence_storage: OnceCell<NativeStorage>,
-    map_storage: OnceCell<NativeStorage>,
-    set_storage: OnceCell<NativeStorage>,
+    array_storage: OnceCell<NativeStorage>,
     cursor_storage: OnceCell<NativeStorage>,
 }
 
@@ -256,15 +236,10 @@ impl GcHeap {
         Self {
             owner,
             config,
-            mutations: Default::default(),
-            key_lookups: Default::default(),
             native_operations: Default::default(),
-            next_key_token: Cell::new(0),
             native_borrows: Cell::new(0),
             native_scan_workspace: RefCell::default(),
-            sequence_storage: OnceCell::new(),
-            map_storage: OnceCell::new(),
-            set_storage: OnceCell::new(),
+            array_storage: OnceCell::new(),
             cursor_storage: OnceCell::new(),
             objects: RefCell::new(ObjectStorage::default()),
             struct_layouts: RefCell::new(StructStorageLayouts::default()),
@@ -395,12 +370,11 @@ impl GcHeap {
 
     pub(crate) fn ensure_structure_mutable(&self, id: HeapObjectId) -> Result<(), RuntimeError> {
         self.check_native_operation(id, None, true)?;
-        self.ensure_key_mutable(id)?;
         Ok(())
     }
 
     pub(crate) fn enum_layout(&self, id: HeapObjectId) -> Option<EnumVariantRef> {
-        self.enum_view(id).map(|snapshot| {
+        self.with_enum(id, |snapshot| {
             let EnumTag::Declared(layout) = &snapshot.tag;
             layout.clone()
         })
@@ -425,8 +399,7 @@ impl GcHeap {
             PayloadKind::Ephemeral => GcObjectKind::Ephemeral,
             PayloadKind::Native => match objects.native(location)?.ty {
                 Ty::Array(..) => GcObjectKind::Array,
-                Ty::Map { .. } => GcObjectKind::Map,
-                Ty::Set(..) => GcObjectKind::Set,
+
                 Ty::Iter(..) => GcObjectKind::Iter,
                 _ => GcObjectKind::Native,
             },
@@ -623,8 +596,7 @@ impl GcHeap {
             Value::HostPathView(id) => (*id, Some(GcObjectKind::HostPath)),
             Value::Ephemeral(id) => (*id, Some(GcObjectKind::Ephemeral)),
             Value::Array(id) => (*id, Some(GcObjectKind::Array)),
-            Value::Map(id) => (*id, Some(GcObjectKind::Map)),
-            Value::Set(id) => (*id, Some(GcObjectKind::Set)),
+
             Value::Enum(id) => (*id, Some(GcObjectKind::Enum)),
             Value::Struct(id) => (*id, Some(GcObjectKind::Struct)),
             Value::Interface(id) => (id.0, Some(GcObjectKind::Interface)),

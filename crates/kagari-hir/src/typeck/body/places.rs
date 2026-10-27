@@ -22,7 +22,6 @@ use crate::{
 use kagari_common::identity::{DefinitionKind, ModuleIdentity, PackageId, table::DefinitionId};
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{
-    collection::CollectionAccess,
     declaration::names::NameNamespace,
     language::Protocol,
     reference::{ReferenceAccess, field_read_type},
@@ -357,9 +356,8 @@ impl<'a> BodyChecker<'a> {
                 let Some(base_ty) = self.type_table.place_type(*base) else {
                     return self.assignment_target_error_reason(*base, env);
                 };
-                if base_ty.collection_access() == Some(CollectionAccess::ReadOnly)
-                    || (self.type_table.place_index(place_id).is_some()
-                        && self.type_table.place_index_write(place_id).is_none())
+                if self.type_table.place_index(place_id).is_some()
+                    && self.type_table.place_index_write(place_id).is_none()
                 {
                     "indexed assignment requires an applicable write operation".to_string()
                 } else if self.resolve_index_type(*index, &base_ty).is_none() {

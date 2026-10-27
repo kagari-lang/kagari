@@ -230,7 +230,7 @@ fn native_storage_applications_require_the_actual_owner_and_layout_arity() {
         .unwrap();
     let record = TypeDef {
         name: "Buffer".into(),
-        kind: TypeDefKind::NativeStorage(NativeStorageLayout::Sequence { element: 0 }),
+        kind: TypeDefKind::NativeStorage(NativeStorageLayout::Opaque),
         generic_params: vec![GenericParam {
             owner: id,
             position: 0,

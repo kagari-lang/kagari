@@ -7,8 +7,6 @@ use crate::{
         binding::NativeResult,
         context::{ArgumentView, CallContext},
         scalar::NativeScalar,
-        sequence::{NativeElement, SequencePayload},
-        sequence_edit::SequenceEdit,
         storage::{NativePayload, access::StorageAccess},
     },
     value::Value,
@@ -41,7 +39,7 @@ pub struct NativeOperationGuard<'guard> {
     pub(crate) id: HeapObjectId,
     pub(crate) runtime: Option<&'guard Runtime>,
     pub(crate) recovery: Option<Box<Recovery>>,
-    pub(crate) _root: RootedValue,
+    pub(crate) _root: Option<RootedValue>,
     pub(crate) _lease: BorrowedLease<'guard>,
 }
 
@@ -78,7 +76,7 @@ impl<'call> ValueHandle<'call> {
             id,
             runtime: None,
             recovery: None,
-            _root: root,
+            _root: Some(root),
             _lease: lease,
         }))
     }
@@ -136,88 +134,5 @@ impl<'call> ValueHandle<'call> {
             return Err(RuntimeError::module_validation("native storage argument"));
         };
         self.heap.with_native_operation(id, operation, access)
-    }
-}
-
-/// A sequence argument remains rooted for the entire native call. This is a
-/// handle, not an outstanding payload borrow: collection and callbacks may run
-/// between accesses, but cannot run inside `with_slice`.
-pub struct SequenceHandle<'call> {
-    heap: &'call GcHeap,
-    id: HeapObjectId,
-    ty: &'call Ty,
-    _arguments: ArgumentView<'call>,
-}
-
-impl<'call> SequenceHandle<'call> {
-    pub(crate) fn from_argument(cx: &CallContext<'call>, index: usize) -> NativeResult<Self> {
-        let id = match cx.argument(index)? {
-            Value::Array(id) | Value::GcHandle(id) => id,
-            _ => return Err(RuntimeError::module_validation("native sequence argument")),
-        };
-        Ok(Self {
-            heap: cx.heap(),
-            id,
-            ty: cx.argument_type(index)?,
-            _arguments: cx.arguments(),
-        })
-    }
-
-    pub fn declared_type(&self) -> &'call Ty {
-        self.ty
-    }
-
-    pub fn len(&self) -> NativeResult<usize> {
-        self.heap
-            .with_native::<SequencePayload, _>(self.id, |sequence| Ok(sequence.values.len()))
-    }
-
-    pub fn is_empty(&self) -> NativeResult<bool> {
-        self.len().map(|length| length == 0)
-    }
-
-    /// Selects the exact scalar layout once, then exposes contiguous Rust values.
-    /// Neither references nor mutable payload borrows can escape the closure.
-    pub fn with_slice<E: NativeElement, R>(
-        &self,
-        access: impl for<'slice> FnOnce(&'slice [E]) -> NativeResult<R>,
-    ) -> NativeResult<R> {
-        self.heap
-            .with_native::<SequencePayload, _>(self.id, |sequence| {
-                let values = E::slice(&sequence.values)
-                    .ok_or_else(|| RuntimeError::module_validation("sequence scalar layout"))?;
-                access(values)
-            })
-    }
-}
-
-/// A binding accepts this view only for a mutable sequence declaration.
-/// Fixed-length scalar writes preserve the declared element layout and tracing.
-pub struct SequenceMutHandle<'call>(SequenceHandle<'call>);
-
-impl<'call> SequenceMutHandle<'call> {
-    pub(crate) fn from_argument(cx: &CallContext<'call>, index: usize) -> NativeResult<Self> {
-        SequenceHandle::from_argument(cx, index).map(Self)
-    }
-
-    /// Edit the actual storage under an exclusive slot lease. Callbacks may use
-    /// unrelated values, but cannot access this receiver's slots until the edit
-    /// ends. Completed edits survive errors; traced elements remain rooted.
-    pub fn edit<R>(
-        &mut self,
-        edit: impl for<'buffer> FnOnce(SequenceEdit<'buffer>) -> NativeResult<R>,
-    ) -> NativeResult<R> {
-        self.0.heap.edit_sequence(self.0.id, edit)
-    }
-
-    pub fn read(&self) -> &SequenceHandle<'call> {
-        &self.0
-    }
-
-    pub fn with_slice_mut<E: NativeElement, R>(
-        &mut self,
-        access: impl for<'slice> FnOnce(&'slice mut [E]) -> NativeResult<R>,
-    ) -> NativeResult<R> {
-        self.0.heap.with_sequence_mut(self.0.id, access)
     }
 }

@@ -227,7 +227,10 @@ fn bounded_native_host_construction_requires_closed_type_and_separate_callable_e
     );
     assert!(
         runtime
-            .bind_associated_function::<(), Opaque<BoundedState>>(indirect.native_type(), "new")
+            .bind_associated_function::<(), Opaque<BoundedState>>(
+                &indirect.prepare_native_type(&cx).unwrap(),
+                "new"
+            )
             .is_err()
     );
     assert!(

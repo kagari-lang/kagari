@@ -1,25 +1,25 @@
 //! Disjoint backing attribution belongs beside the physical storage owner.
 use crate::{
     diagnostics::storage::{BufferUsage, StorageUsage},
+    gc::array_storage::ArrayPayload,
     gc::directory::ObjectStorage,
-    native::sequence::SequencePayload,
 };
 
 impl ObjectStorage {
     pub(crate) fn storage_usage(&self, interface_snapshots: BufferUsage) -> StorageUsage {
         let mut native_payload_bytes = 0;
-        let mut sequence_element_bytes = 0;
-        let mut sequence_capacity_bytes = 0;
+        let mut array_element_bytes = 0;
+        let mut array_capacity_bytes = 0;
         let mut initialized_payload_bytes = 0;
         for (_, location) in self.pages.occupied() {
             let (_, descriptor) = self.pages.get(location).expect("occupied descriptor");
             initialized_payload_bytes += descriptor.layout.size();
             if let Some(object) = self.native(location) {
                 native_payload_bytes += object.payload_bytes();
-                if let Ok(sequence) = object.payload::<SequencePayload>() {
+                if let Ok(sequence) = object.payload::<ArrayPayload>() {
                     let (used, capacity) = sequence.values.backing_bytes();
-                    sequence_element_bytes += used;
-                    sequence_capacity_bytes += capacity;
+                    array_element_bytes += used;
+                    array_capacity_bytes += capacity;
                 }
             }
         }
@@ -56,8 +56,8 @@ impl ObjectStorage {
             initialization_owners: self.initialization_owners.len(),
             initialization_owner_capacity: self.initialization_owners.capacity(),
             native_payload_bytes,
-            sequence_element_bytes,
-            sequence_capacity_bytes,
+            array_element_bytes,
+            array_capacity_bytes,
         }
     }
 }

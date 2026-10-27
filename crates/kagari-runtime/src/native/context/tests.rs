@@ -12,15 +12,15 @@ use crate::{
             LinkedOperation, ScriptCall,
         },
         declarations::FunctionDecl,
-        storage::{NativeStorage, StorageContext},
+        storage::NativeStorage,
+        stored_selection::StoredSelection,
         types::Type,
     },
     test_support::native::program::free_function_program,
     value::Value,
 };
 use kagari_bytecode::{instruction::NativeImportId, module::CallableTarget};
-use kagari_types::{collection::CollectionAccess, scalar::BuiltinType, ty::Ty};
-use rstest::rstest;
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
@@ -71,16 +71,12 @@ fn call_scalar_equal(
     context.call(target, (7_i32, 7_i32))
 }
 
-#[rstest]
-#[case::map(true)]
-#[case::set(false)]
-fn stored_hash_selections_select_current_with_frame_roots_and_checked_calls(#[case] is_map: bool) {
+#[test]
+fn stored_selections_select_current_with_frame_roots_and_checked_calls() {
     let mut builder = ModuleBuilder::new("test::stored", &DeclarationCatalog::default()).unwrap();
-    let collection = if is_map {
-        Type::map(Type::i32(), Type::i32(), CollectionAccess::Mutable).unwrap()
-    } else {
-        Type::set(Type::i32(), CollectionAccess::Mutable).unwrap()
-    };
+    let mut data = builder.define_type("SelectionOwner").unwrap();
+    data.native_storage(NativeStorage::data::<u32>()).unwrap();
+    let collection = data.finish().unwrap().apply([]).unwrap();
     let probe = builder
         .define_function(
             FunctionDecl::new("probe")
@@ -93,7 +89,6 @@ fn stored_hash_selections_select_current_with_frame_roots_and_checked_calls(#[ca
             probe,
             NativeBinding::new(vec![Codec::Value], Codec::Value, |cx| {
                 let receiver = cx.argument(0)?;
-                assert!(!cx.heap().uses_builtin_keys(&receiver)?);
                 cx.collect_garbage()?;
                 assert!(cx.heap().validate_value(&receiver));
                 assert_eq!(
@@ -200,26 +195,12 @@ fn stored_hash_selections_select_current_with_frame_roots_and_checked_calls(#[ca
         })
     });
     let ty = old.bytecode.native_imports[probe.index()].signature.params[0].clone();
-    let storage = if is_map {
-        NativeStorage::map(0, 1)
-    } else {
-        NativeStorage::set(0)
-    };
-    let object = storage
-        .create(&StorageContext {
-            runtime: &runtime,
-            owner: &old,
-            ty: &ty,
-            scope: None,
-            selected: &selected,
-        })
+    let mut object = NativeStorage::data::<u32>()
+        .prepare_payload(runtime.gc(), &ty, 0u32, &old)
         .unwrap();
+    object.selected = StoredSelection::slots(&old, &selected, &[0, 1]).unwrap();
     let id = runtime.gc().alloc_native(object).unwrap();
-    let value = if is_map {
-        Value::Map(id)
-    } else {
-        Value::Set(id)
-    };
+    let value = Value::GcHandle(id);
     let root = runtime.root_value(value).unwrap();
     let staged = runtime
         .stage_reload_program(&old_program, None, code.clone())

@@ -282,12 +282,6 @@ impl<'a, 'b> Transform<'a, 'b> {
             Ty::Iter(ty) => Ty::Iter(Box::new(self.visit(ty, depth + 1, replace)?)),
             Ty::Range(ty, kind) => Ty::Range(Box::new(self.visit(ty, depth + 1, replace)?), *kind),
             Ty::Array(ty) => Ty::Array(Box::new(self.visit(ty, depth + 1, replace)?)),
-            Ty::Set(ty, access) => Ty::Set(Box::new(self.visit(ty, depth + 1, replace)?), *access),
-            Ty::Map { key, value, access } => Ty::Map {
-                key: Box::new(self.visit(key, depth + 1, replace)?),
-                value: Box::new(self.visit(value, depth + 1, replace)?),
-                access: *access,
-            },
 
             Ty::Struct(ty) => Ty::Struct(self.nominal(ty, depth, replace)?),
             Ty::NativeObject(ty) => Ty::NativeObject(self.nominal(ty, depth, replace)?),

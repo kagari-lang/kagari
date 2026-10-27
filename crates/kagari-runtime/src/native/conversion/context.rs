@@ -9,10 +9,13 @@ use crate::{
         binding::NativeResult,
         context::CallContext,
         conversion::{FromKagari, IntoKagari, KagariType},
-        types::Type,
+        payload::NativeType,
+        storage::NativePayload,
+        types::{Type, TypeRef},
     },
     value::Value,
 };
+use kagari_common::identity::DefinitionPath;
 use std::{
     collections::HashSet,
     ops::{Deref, DerefMut},
@@ -115,7 +118,10 @@ impl<'runtime> ConversionContext<'runtime> {
     pub(crate) fn in_native_call(call: &'runtime CallContext<'_>) -> NativeResult<Self> {
         call.heap().ensure_no_native_borrow()?;
         call.runtime.resources().ensure_execution_allowed()?;
-        call.runtime.validate_executable_module(call.owner)?;
+        // CallContext is constructed only from an authenticated execution frame
+        // or a checked selected-call lease. That owner remains pinned throughout
+        // this borrow; revalidating installation/liveness would repeat admission.
+        // Dynamic execution and storage exclusion checks above still apply.
         Ok(Self {
             runtime: call.runtime,
             owner: call.owner,
@@ -131,6 +137,37 @@ impl<'runtime> ConversionContext<'runtime> {
 
     pub fn runtime(&self) -> &'runtime Runtime {
         self.runtime
+    }
+
+    /// Resolve a declaration from this runtime's installed native catalog.
+    pub fn type_reference(&self, declaration: &DefinitionPath) -> NativeResult<TypeRef> {
+        self.runtime
+            .native_entries
+            .catalog
+            .type_reference(declaration)
+    }
+
+    /// Apply a registered opaque declaration while preserving each argument's scope.
+    pub fn apply_type(
+        &self,
+        declaration: &TypeRef,
+        arguments: &[TypeArgument],
+    ) -> NativeResult<TypeArgument> {
+        self.runtime.apply_native_type(
+            self.owner,
+            declaration.id(),
+            declaration.definitions(),
+            arguments,
+        )
+    }
+
+    /// Prepare checked provider admission for an exact opaque application.
+    pub fn native_type<T: NativePayload>(
+        &self,
+        argument: &TypeArgument,
+    ) -> NativeResult<NativeType<T>> {
+        self.runtime
+            .prepare_native_type(self.owner, argument.clone())
     }
 
     pub fn owner(&self) -> &'runtime ExecutableModule {
@@ -310,7 +347,10 @@ impl<'runtime> ConversionContext<'runtime> {
         Ok(())
     }
 
-    pub(crate) fn argument_scope<R>(
+    /// Run conversions with temporary roots released at the end of this scope.
+    /// Returned values must own independent roots or be scalar; raw GC values
+    /// cannot escape unless the caller has retained them separately.
+    pub fn argument_scope<R>(
         &mut self,
         convert: impl FnOnce(&mut Self) -> NativeResult<R>,
     ) -> NativeResult<R> {
@@ -319,8 +359,10 @@ impl<'runtime> ConversionContext<'runtime> {
         result.map_err(|error| frame.runtime.resources().admit_execution_error(error))
     }
 
+    /// Validate and root an input during recursive schema decoding, enforcing
+    /// conversion depth, cycle detection, cancellation, and temporary-root cleanup.
     #[cfg(feature = "serde")]
-    pub(crate) fn decode_scope<R>(
+    pub fn decode_scope<R>(
         &mut self,
         expected: &TypeArgument,
         value: &Value,
@@ -361,8 +403,6 @@ impl<'runtime> ConversionContext<'runtime> {
 fn identity(value: &Value) -> Option<HeapObjectId> {
     match value {
         Value::Array(id)
-        | Value::Map(id)
-        | Value::Set(id)
         | Value::Enum(id)
         | Value::Struct(id)
         | Value::GcHandle(id)

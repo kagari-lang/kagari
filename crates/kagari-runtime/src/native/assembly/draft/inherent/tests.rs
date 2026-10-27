@@ -8,7 +8,6 @@ use crate::native::{
     catalog::DeclarationCatalog,
     declarations::{CallableRequirement, MethodDecl},
     module::NativeModule,
-    primitive::NativePrimitive,
     storage::NativeStorage,
     types::{TraitRef, Type},
 };
@@ -47,8 +46,8 @@ fn identity() -> ModuleIdentity {
 
 fn project_binding() -> NativeBinding {
     NativeBinding::new(
-        vec![Codec::Sequence, Codec::Value, Codec::Value],
-        Codec::Sequence,
+        vec![Codec::Value, Codec::Value, Codec::Value],
+        Codec::Value,
         |_| panic!("registration must not execute a native callback"),
     )
 }
@@ -79,11 +78,11 @@ fn assembly(
         recipes.set(recipes.get() + 1);
         let vector = module.define_type(
             "Vector",
-            TypeDefKind::NativeStorage(NativeStorageLayout::Sequence { element: 0 }),
+            TypeDefKind::NativeStorage(NativeStorageLayout::Opaque),
             1,
             |_, _| Ok(()),
         )?;
-        module.bind_storage(&vector, NativeStorage::sequence(0))?;
+        module.bind_storage(&vector, NativeStorage::data::<u32>())?;
         if proofs.concrete_impl {
             module.trait_implementation_with(1, |parameters| {
                 Ok(TraitImplementation {
@@ -130,7 +129,11 @@ fn assembly(
                 MethodDecl::instance("at")
                     .parameter("index", Type::u64())
                     .returns(parameters[0].clone())
-                    .implementation(NativeBinding::primitive(NativePrimitive::VecIndex)),
+                    .implementation(NativeBinding::new(
+                        vec![Codec::Value, Codec::Exact(Type::u64())],
+                        Codec::Value,
+                        |_| panic!("registration only"),
+                    )),
             )?;
             Ok(())
         })
@@ -237,8 +240,8 @@ fn ordinary_builder_rebinds_reused_receiver_parameters_through_the_same_lowerer(
     let (provider, hash, view) = contracts();
     let mut module = ModuleBuilder::new("generic_inherent::ordinary", &provider.catalog()).unwrap();
     let mut vector = module.define_type("Vector").unwrap();
-    let element = vector.type_parameter("T").unwrap();
-    vector.sequence_storage(&element).unwrap();
+    vector.type_parameter("T").unwrap();
+    vector.native_storage(NativeStorage::data::<u32>()).unwrap();
     let vector = vector.finish().unwrap();
     module
         .implement(vector.clone(), |group| {
@@ -308,19 +311,21 @@ fn failed_groups_are_atomic_and_parameters_cannot_escape_to_another_group() {
         set.add(ModuleDefinition::new(identity(), move |module| {
             let vector = module.define_type(
                 "Vector",
-                TypeDefKind::NativeStorage(NativeStorageLayout::Sequence { element: 0 }),
+                TypeDefKind::NativeStorage(NativeStorageLayout::Opaque),
                 1,
                 |_, _| Ok(()),
             )?;
-            module.bind_storage(&vector, NativeStorage::sequence(0))?;
+            module.bind_storage(&vector, NativeStorage::data::<u32>())?;
             assert!(
                 module
                     .inherent_generic(&vector, |_, methods| {
-                        methods.define(
-                            MethodDecl::instance("discarded").implementation(
-                                NativeBinding::primitive(NativePrimitive::VecIndex),
+                        methods.define(MethodDecl::instance("discarded").implementation(
+                            NativeBinding::new(
+                                vec![Codec::Value, Codec::Exact(Type::u64())],
+                                Codec::Value,
+                                |_| panic!("registration only"),
                             ),
-                        )?;
+                        ))?;
                         Err::<(), _>(conflict("reject this group"))
                     })
                     .is_err()
@@ -330,7 +335,11 @@ fn failed_groups_are_atomic_and_parameters_cannot_escape_to_another_group() {
                     MethodDecl::instance("at")
                         .parameter("index", Type::u64())
                         .returns(parameters[0].clone())
-                        .implementation(NativeBinding::primitive(NativePrimitive::VecIndex)),
+                        .implementation(NativeBinding::new(
+                            vec![Codec::Value, Codec::Exact(Type::u64())],
+                            Codec::Value,
+                            |_| panic!("registration only"),
+                        )),
                 )?;
                 Ok(parameters[0].clone())
             })?;
@@ -343,7 +352,11 @@ fn failed_groups_are_atomic_and_parameters_cannot_escape_to_another_group() {
                         } else {
                             parameters[0].clone()
                         })
-                        .implementation(NativeBinding::primitive(NativePrimitive::VecIndex)),
+                        .implementation(NativeBinding::new(
+                            vec![Codec::Value, Codec::Exact(Type::u64())],
+                            Codec::Value,
+                            |_| panic!("registration only"),
+                        )),
                 )?;
                 Ok(())
             })

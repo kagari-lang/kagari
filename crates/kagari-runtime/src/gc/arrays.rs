@@ -1,11 +1,9 @@
+use crate::gc::array_storage::{ArrayPayload, ArrayStorage};
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     gc::{GcHeap, HeapObjectId},
     module::ExecutableModule,
-    native::{
-        sequence::{SequencePayload, SequenceStorage},
-        storage_type::StorageType,
-    },
+    native::storage_type::StorageType,
     resource::HeapCharge,
     value::Value,
 };
@@ -36,18 +34,13 @@ impl GcHeap {
     ) -> Result<HeapObjectId, RuntimeError> {
         self.ensure_execution_allowed()?;
         let owner = contract.owner.clone();
-        let element = contract.ty.clone();
+        let element = contract.ty().clone();
         let values = self.prepare_buffer_values(&contract, elements)?;
         let ty = Ty::Array(Box::new(element.clone()));
         let object = self.array_storage().prepare_payload(
             self,
             &ty,
-            SequencePayload {
-                detached: false,
-                element,
-                contract,
-                values,
-            },
+            ArrayPayload { contract, values },
             &owner,
         )?;
         self.alloc_native(object)
@@ -77,7 +70,7 @@ impl GcHeap {
         if !self.valid_payload(&value) || !contract.accepts_value(self, &value) {
             return Err(invalid());
         }
-        let element = contract.ty.clone();
+        let element = contract.ty().clone();
         let owner = contract.owner.clone();
         self.resources.poll_execution()?;
         let count = usize::try_from(count)
@@ -89,7 +82,7 @@ impl GcHeap {
             self.resources
                 .prepare_heap_change(HeapCharge::default(), units)?,
         );
-        let mut values = SequenceStorage::empty(&element);
+        let mut values = ArrayStorage::empty(&element);
         values
             .try_reserve(count)
             .map_err(|_| self.resource_limit("allocation capacity"))?;
@@ -101,12 +94,7 @@ impl GcHeap {
         let object = self.array_storage().prepare_payload(
             self,
             &ty,
-            SequencePayload {
-                detached: false,
-                element,
-                contract,
-                values,
-            },
+            ArrayPayload { contract, values },
             &owner,
         )?;
         self.alloc_native(object)

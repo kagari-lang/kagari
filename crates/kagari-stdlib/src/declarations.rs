@@ -6,9 +6,7 @@ use kagari_runtime::native::{
     catalog::DeclarationCatalog,
     types::{TraitRef, Type, TypeRef},
 };
-use kagari_types::{
-    collection::CollectionAccess, declaration::module::ModuleDecl, language, language::Protocol,
-};
+use kagari_types::{declaration::module::ModuleDecl, language, language::Protocol};
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -113,11 +111,21 @@ impl StandardDeclarations {
     }
 
     pub fn hash_map(&self, key: Type, value: Type) -> NativeResult<Type> {
-        Type::map(key, value, CollectionAccess::Mutable)
+        self.catalog()?
+            .type_reference(&identity::type_id(
+                "HashMap",
+                DefinitionKind::AssociatedType,
+            ))?
+            .apply([key, value])
     }
 
     pub fn hash_set(&self, item: Type) -> NativeResult<Type> {
-        Type::set(item, CollectionAccess::Mutable)
+        self.catalog()?
+            .type_reference(&identity::type_id(
+                "HashSet",
+                DefinitionKind::AssociatedType,
+            ))?
+            .apply([item])
     }
 
     /// Retrieve a library enum's ordinary authoring handle.

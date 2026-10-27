@@ -15,6 +15,18 @@ use crate::{
 use std::slice;
 
 impl ConversionContext<'_> {
+    /// Resolve an exact declared enum variant before converting its payload fields.
+    pub fn declared_variant(
+        &self,
+        expected: &TypeArgument,
+        member: &str,
+    ) -> NativeResult<EnumVariantRef> {
+        self.poll()?;
+        expected.validate(self.runtime())?;
+        self.runtime()
+            .declared_enum_variant(self.owner(), expected, member)
+    }
+
     /// Encode a declared unit/tuple variant without serializing bytes. Payload
     /// tuple elements are fields; a tuple-valued field uses an additional tuple.
     pub fn encode_variant<A: IntoKagariArguments>(
@@ -78,7 +90,8 @@ impl ConversionContext<'_> {
             .map_err(|error| error.at_conversion(format_args!("variant {member}")))
     }
 
-    pub(crate) fn variant_layout(
+    /// Check an enum value against its declared type and return its exact member layout.
+    pub fn variant_layout(
         &self,
         expected: &TypeArgument,
         value: &Value,
@@ -101,10 +114,8 @@ impl ConversionContext<'_> {
             .ok_or_else(|| RuntimeError::module_validation("enum conversion identity"))
     }
 
-    pub(crate) fn variant_fields(
-        &self,
-        layout: &EnumVariantRef,
-    ) -> NativeResult<Vec<TypeArgument>> {
+    /// Resolve member payload types in the layout's original lexical scope.
+    pub fn variant_fields(&self, layout: &EnumVariantRef) -> NativeResult<Vec<TypeArgument>> {
         self.check_elements(layout.variant().payload.len())?;
         let mut fields = Vec::new();
         fields

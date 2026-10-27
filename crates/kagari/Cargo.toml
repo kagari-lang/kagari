@@ -9,7 +9,7 @@ default = ["source", "native"]
 source = ["dep:kagari-source", "dep:kagari-package", "dep:kagari-compiler", "kagari-compiler/source", "dep:kagari-hir", "dep:kagari-syntax", "dep:kagari-mir", "dep:smallvec", "dep:blake3"]
 aot-load = ["dep:libloading", "dep:blake3"]
 aot-build = ["native", "aot-load"]
-serde = ["kagari-runtime/serde"]
+serde = ["kagari-stdlib/serde"]
 web = ["kagari-runtime/web"]
 native = ["dep:kagari-codegen", "dep:kagari-compiler", "dep:kagari-mir"]
 

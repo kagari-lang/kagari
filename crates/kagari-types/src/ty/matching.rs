@@ -180,21 +180,7 @@ fn match_pairs<'a>(
             (Ty::Range(left, a), Ty::Range(right, b)) if a == b => pending.push((left, right)),
             (Ty::Iter(left), Ty::Iter(right)) => pending.push((left, right)),
             (Ty::Array(left), Ty::Array(right)) => pending.push((left, right)),
-            (Ty::Set(left, a), Ty::Set(right, b)) if a == b => pending.push((left, right)),
-            (
-                Ty::Map {
-                    key: lk,
-                    value: lv,
-                    access: la,
-                },
-                Ty::Map {
-                    key: rk,
-                    value: rv,
-                    access: ra,
-                },
-            ) if la == ra => {
-                pending.extend([(lk.as_ref(), rk.as_ref()), (lv.as_ref(), rv.as_ref())])
-            }
+
             (left, right) if left == right => {}
             _ => return Ok(None),
         }

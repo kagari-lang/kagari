@@ -1,4 +1,5 @@
 //! Serde executes its own representation against static, source-free DTO facts.
+use kagari_stdlib::serde::Serde;
 mod formatting;
 mod snapshot;
 use super::program_for_source;
@@ -15,7 +16,6 @@ use kagari_runtime::{
             context::{ConversionContext, ConversionLimits},
         },
         module::NativeModule,
-        serde::Serde,
     },
 };
 use kagari_stdlib::declarations::StandardDeclarations;

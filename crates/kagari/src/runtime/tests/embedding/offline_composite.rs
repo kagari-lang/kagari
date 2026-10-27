@@ -8,11 +8,17 @@ use kagari_bytecode::artifact::KbcArtifact;
 use kagari_runtime::{
     host::{HostCallContext, HostError},
     module::entry::ProgramEntry,
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
+    native::{
+        builder::ModuleBuilder, conversion::context::ConversionContext, declarations::FunctionDecl,
+        typed::NativeContext, types::Type,
+    },
     value::Value,
 };
 use kagari_source::source::SourceFile;
-use kagari_stdlib::declarations::StandardDeclarations;
+use kagari_stdlib::{
+    collections::{map::ScriptMap, set::ScriptSet},
+    declarations::StandardDeclarations,
+};
 use kagari_types::{
     declaration::host::{HostCallPolicy, HostFunctionEffects, HostPassingStyle},
     scalar::BuiltinType,
@@ -159,8 +165,8 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
         let values = runtime.runtime().gc().tuple(values).unwrap().to_vec();
         let [
             Value::Array(array),
-            Value::Map(map),
-            Value::Set(set),
+            map @ Value::GcHandle(_),
+            set @ Value::GcHandle(_),
             Value::Enum(option),
             Value::Enum(result),
         ] = values.as_slice()
@@ -169,16 +175,15 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
         };
         let heap = runtime.runtime().gc();
         assert_eq!(heap.array_snapshot(*array).unwrap(), [Value::I32(7)]);
-        let entries = heap.map_snapshot(*map).unwrap();
-        let [(Value::Str(key), Value::Bool(true))] = entries.as_slice() else {
-            panic!("map contents")
-        };
-        assert_eq!(&*heap.string(*key).unwrap(), "yes");
-        let entries = heap.set_snapshot(*set).unwrap();
-        let [Value::Str(key)] = entries.as_slice() else {
-            panic!("set contents")
-        };
-        assert_eq!(&*heap.string(*key).unwrap(), "name");
+        let owner = runtime.runtime().select_program(&loaded).unwrap();
+        let mut conversion = ConversionContext::new(runtime.runtime(), &owner).unwrap();
+        let map_type = conversion.type_for::<ScriptMap<String, bool>>().unwrap();
+        let set_type = conversion.type_for::<ScriptSet<String>>().unwrap();
+        let map: ScriptMap<String, bool> = conversion.decode_value(&map_type, map).unwrap();
+        let set: ScriptSet<String> = conversion.decode_value(&set_type, set).unwrap();
+        let mut native = NativeContext::new(runtime.runtime(), &owner).unwrap();
+        assert_eq!(map.to_vec(&mut native).unwrap(), [("yes".to_owned(), true)]);
+        assert_eq!(set.to_vec(&mut native).unwrap(), ["name".to_owned()]);
         assert_eq!(heap.enum_snapshot(*option).unwrap().fields, [Value::I32(8)]);
         assert_eq!(heap.enum_snapshot(*result).unwrap().fields, [Value::I32(9)]);
         assert_eq!(*trace.lock().unwrap(), ["make", "echo"]);

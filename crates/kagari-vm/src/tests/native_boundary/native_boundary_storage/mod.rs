@@ -1,27 +1,114 @@
 use crate::tests::native_boundary::{compile, publish_unused_version};
+use crate::vm::Vm;
 use kagari_runtime::{
     error::RuntimeErrorKind,
-    gc::{GcHeap, GcObjectKind, HeapObjectId},
-    module::entry::ProgramEntry,
+    gc::{GcObjectKind, HeapObjectId},
+    module::{ExecutableModule, entry::ProgramEntry},
     native::{
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
-        context::CallContext,
+        conversion::{FromKagari, KagariType, context::ConversionContext},
         declarations::{FunctionDecl, MethodDecl},
+        payload::Opaque,
+        storage::{
+            NativePayload, NativeStorage,
+            access::EditPlan,
+            scan::{NativeScanKind, ScanBudget, ScanStatus},
+        },
+        typed::NativeContext,
         types::Type,
-        views::SequenceMutHandle,
+        value_handle::ScriptValue,
     },
     range::index_bound,
     reflection,
+    resource::HeapCharge,
     value::{Value, ValueCategory},
     value_semantics::identity_equal,
 };
-use kagari_stdlib::declarations::StandardDeclarations;
+use kagari_stdlib::{
+    collections::{
+        map::{MapStorage, ScriptMap},
+        set::{ScriptSet, SetStorage},
+        vector::{ScriptVec, VecStorage},
+    },
+    declarations::StandardDeclarations,
+};
 use kagari_types::language::Protocol;
 use std::ops::Bound;
 
+#[derive(Debug)]
+struct Buffer(Vec<i32>);
+
+// SAFETY: This payload contains only scalar integers and has no script edges.
+unsafe impl NativePayload for Buffer {
+    type ScanState = ();
+    const SCAN_KIND: NativeScanKind = NativeScanKind::EdgeFree;
+
+    fn begin_scan(&self) {}
+
+    fn scan<'a>(
+        &'a self,
+        _: &mut (),
+        budget: &mut ScanBudget,
+        _: &mut dyn FnMut(&'a Value),
+    ) -> ScanStatus {
+        budget.charge(1);
+        ScanStatus::Complete
+    }
+
+    fn charge(&self) -> HeapCharge {
+        HeapCharge::new(self.0.len(), self.0.capacity() * size_of::<i32>())
+    }
+}
+
+fn decode<T: FromKagari>(vm: &Vm, owner: &ExecutableModule, value: Value) -> T {
+    let root = vm.runtime().root_value(value).unwrap();
+    ConversionContext::new(vm.runtime(), owner)
+        .unwrap()
+        .decode(&root)
+        .unwrap()
+}
+
+fn decode_as<S: KagariType, T: FromKagari>(vm: &Vm, owner: &ExecutableModule, value: Value) -> T {
+    let mut cx = ConversionContext::new(vm.runtime(), owner).unwrap();
+    let ty = cx.type_for::<S>().unwrap();
+    cx.decode_value(&ty, &value).unwrap()
+}
+
+fn key(cx: &mut NativeContext<'_>, text: &str) -> ScriptValue {
+    let expected = cx.conversion().type_for::<String>().unwrap();
+    let root = cx.conversion().encode(text.to_owned()).unwrap();
+    let value = root.value(cx.runtime().gc()).unwrap();
+    cx.conversion().decode_value(&expected, &value).unwrap()
+}
+
+fn revision<S: KagariType, P: NativePayload>(
+    vm: &Vm,
+    owner: &ExecutableModule,
+    value: Value,
+) -> u64 {
+    let object: Opaque<P> = decode_as::<S, _>(vm, owner, value);
+    // SAFETY: Only the checked revision is read; payload references cannot escape.
+    unsafe {
+        object
+            .read(&vm.context(owner).unwrap(), None, |_, access| {
+                Ok(access.revision())
+            })
+            .unwrap()
+    }
+}
+
+fn vector_values(vm: &Vm, owner: &ExecutableModule, value: Value) -> Vec<i32> {
+    let vector: ScriptVec<i32> = decode(vm, owner, value);
+    vector
+        .with_slice(&vm.context(owner).unwrap(), |values: &[i32]| {
+            Ok(values.to_vec())
+        })
+        .unwrap()
+}
+
 #[test]
-fn declared_sequence_layout_selects_contiguous_i32_even_when_empty() {
+fn ordinary_provider_owns_contiguous_scalars_and_identity_keys() {
     let declarations = StandardDeclarations::default();
     let mut builder = ModuleBuilder::new(
         "example::buffers",
@@ -29,8 +116,10 @@ fn declared_sequence_layout_selects_contiguous_i32_even_when_empty() {
     )
     .unwrap();
     let mut declaration = builder.define_type("Buffer").unwrap();
-    let item = declaration.type_parameter("T").unwrap();
-    declaration.sequence_storage(&item).unwrap();
+    declaration.type_parameter("T").unwrap();
+    declaration
+        .native_storage(NativeStorage::new(|_| Ok(Buffer(Vec::new()))))
+        .unwrap();
     let buffer = declaration.finish().unwrap();
     let ty = buffer.apply([Type::i32()]).unwrap();
     builder
@@ -86,14 +175,28 @@ fn declared_sequence_layout_selects_contiguous_i32_even_when_empty() {
     builder
         .bind(
             push,
-            NativeBinding::new(
-                vec![buffer.codec(), Codec::Exact(Type::i32())],
-                Codec::Exact(Type::unit()),
-                |context| {
-                    context.sequence_push(0, context.argument(1)?)?;
-                    Ok(Value::Unit)
-                },
-            ),
+            |cx: &mut NativeContext<'_>,
+             (buffer, value): (Opaque<Buffer>, i32)|
+             -> NativeResult<()> {
+                // SAFETY: Only scalar integers are written; the edit reconciles charge.
+                let length = unsafe { buffer.read(cx, None, |payload, _| Ok(payload.0.len()))? };
+                unsafe {
+                    buffer.edit(
+                        cx,
+                        None,
+                        EditPlan {
+                            max_logical_units: length + 1,
+                            structural: true,
+                        },
+                        |payload, access| {
+                            payload.0.reserve(1);
+                            access.commit_structure();
+                            payload.0.push(value);
+                            Ok(())
+                        },
+                    )
+                }
+            },
         )
         .unwrap();
     let sum = builder
@@ -106,24 +209,23 @@ fn declared_sequence_layout_selects_contiguous_i32_even_when_empty() {
     builder
         .bind(
             sum,
-            |_context: &mut CallContext<'_>,
-             mut buffer: SequenceMutHandle<'_>|
-             -> NativeResult<i32> {
-                assert!(
-                    buffer
-                        .read()
-                        .with_slice::<u32, _>(|_| Ok(()))
-                        .unwrap_err()
-                        .message()
-                        .contains("scalar layout")
-                );
-                buffer.with_slice_mut::<i32, _>(|values| {
-                    values.reverse();
-                    Ok(())
-                })?;
-                buffer
-                    .read()
-                    .with_slice::<i32, _>(|values| Ok(values.iter().copied().sum()))
+            |cx: &mut NativeContext<'_>, (buffer,): (Opaque<Buffer>,)| -> NativeResult<i32> {
+                // SAFETY: Reversal preserves the scalar-only payload and its charge.
+                let length = unsafe { buffer.read(cx, None, |payload, _| Ok(payload.0.len()))? };
+                unsafe {
+                    buffer.edit(
+                        cx,
+                        None,
+                        EditPlan {
+                            max_logical_units: length,
+                            structural: false,
+                        },
+                        |payload, _| {
+                            payload.0.reverse();
+                            Ok(payload.0.iter().copied().sum())
+                        },
+                    )
+                }
             },
         )
         .unwrap();
@@ -228,8 +330,8 @@ fn assigns_stable_object_identity_and_kind() {
     let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
     let [
         Value::GcHandle(first),
-        Value::Map(second),
-        Value::Set(third),
+        Value::GcHandle(second),
+        Value::GcHandle(third),
         Value::Struct(fourth),
     ] = values.as_slice()
     else {
@@ -237,13 +339,16 @@ fn assigns_stable_object_identity_and_kind() {
     };
     let (first, second, third, fourth) = (*first, *second, *third, *fourth);
     let heap = vm.runtime().gc();
-    for (value, expected) in [(Value::Map(second), "map"), (Value::Set(third), "set")] {
+    for (value, expected) in [
+        (Value::GcHandle(second), "gc_handle"),
+        (Value::GcHandle(third), "gc_handle"),
+    ] {
         let Value::Str(id) = reflection::type_of(heap, &value).unwrap() else {
             panic!("type name")
         };
         assert_eq!(&*heap.string(id).unwrap(), expected);
     }
-    for value in [Value::Map(second), Value::Set(third)] {
+    for value in [Value::GcHandle(second), Value::GcHandle(third)] {
         assert_eq!(value.category(), ValueCategory::ScriptOwned);
         assert!(value.is_default_heap_payload(heap));
     }
@@ -255,8 +360,8 @@ fn assigns_stable_object_identity_and_kind() {
     assert_eq!(third.index(), 2);
     assert_eq!(fourth.index(), 3);
     assert_eq!(heap.object_kind(first), Some(GcObjectKind::Native));
-    assert_eq!(heap.object_kind(second), Some(GcObjectKind::Map));
-    assert_eq!(heap.object_kind(third), Some(GcObjectKind::Set));
+    assert_eq!(heap.object_kind(second), Some(GcObjectKind::Native));
+    assert_eq!(heap.object_kind(third), Some(GcObjectKind::Native));
     assert_eq!(heap.object_kind(fourth), Some(GcObjectKind::Struct));
 }
 
@@ -276,42 +381,49 @@ fn main() -> HashMap<String,i32> { val map: HashMap<String,i32> = HashMap::new()
         .value(vm.runtime().gc())
         .expect("retained execution result");
     let root = vm.runtime().root_value(value).unwrap();
-    let Value::Map(map) = value else {
+    let Value::GcHandle(map) = value else {
         panic!("container")
     };
     vm.runtime().collect_garbage().unwrap();
     let heap = vm.runtime().gc();
-    assert_eq!(heap.map_len(map), Some(2));
+    let map: ScriptMap<ScriptValue, i32> =
+        decode_as::<ScriptMap<String, i32>, _>(&vm, &loaded, Value::GcHandle(map));
+    let mut cx = vm.context(&loaded).unwrap();
+    assert_eq!(map.len(&cx).unwrap(), 2);
     assert_eq!(
-        sorted_map(heap, heap.map_snapshot(map).unwrap()),
+        sorted_map(map.to_vec(&mut cx).unwrap(), &mut cx),
         vec![("a".into(), Value::I32(1)), ("b".into(), Value::I32(3))]
     );
-    let a = heap.alloc_string("a".into()).unwrap();
-    let b = heap.alloc_string("b".into()).unwrap();
-    let c = heap.alloc_string("c".into()).unwrap();
+
+    let a = key(&mut cx, "a");
+    let b = key(&mut cx, "b");
+    let c = key(&mut cx, "c");
     let before = heap.stats().current_heap_units;
-    heap.map_insert(map, c, Value::I32(4)).unwrap();
+    map.insert(&mut cx, c.clone(), 4).unwrap();
     assert_eq!(heap.stats().current_heap_units, before + 1);
-    assert_eq!(heap.map_get(map, &c), Some(Value::I32(4)));
-    heap.map_insert(map, a, Value::I32(9)).unwrap();
+    assert_eq!(map.get(&mut cx, c.clone()).unwrap(), Some(4));
+    map.insert(&mut cx, a.clone(), 9).unwrap();
     assert_eq!(heap.stats().current_heap_units, before + 1);
     assert_eq!(
-        sorted_map(heap, heap.map_snapshot(map).unwrap()),
+        sorted_map(map.to_vec(&mut cx).unwrap(), &mut cx),
         vec![
             ("a".into(), Value::I32(9)),
             ("b".into(), Value::I32(3)),
             ("c".into(), Value::I32(4))
         ]
     );
-    assert_eq!(heap.map_remove(map, &b).unwrap(), Some(Value::I32(3)));
+    assert_eq!(map.remove(&mut cx, b.clone()).unwrap(), Some(3));
     assert_eq!(heap.stats().current_heap_units, before);
-    heap.map_clear(map).unwrap();
-    assert!(heap.map_snapshot(map).unwrap().is_empty());
+    map.clear(&mut cx).unwrap();
+    assert!(map.to_vec(&mut cx).unwrap().is_empty());
     assert_eq!(heap.stats().current_heap_units, before - 2);
     // Clearing removes the map's ownership of its strings; sweeping reclaims them.
+    drop((a, b, c));
     vm.runtime().collect_garbage().unwrap();
     // Empty container (1) plus two one-byte module constants (2 units each).
     assert_eq!(heap.stats().current_heap_units, 5);
+    drop(cx);
+    drop(map);
     drop(root);
     publish_unused_version(&vm, &_loaded_program);
     vm.runtime().collect_garbage().unwrap();
@@ -334,33 +446,40 @@ fn main() -> HashSet<String> { val set: HashSet<String> = HashSet::new(); set.in
         .value(vm.runtime().gc())
         .expect("retained execution result");
     let root = vm.runtime().root_value(value).unwrap();
-    let Value::Set(set) = value else {
+    let Value::GcHandle(set) = value else {
         panic!("container")
     };
     vm.runtime().collect_garbage().unwrap();
     let heap = vm.runtime().gc();
-    assert_eq!(heap.set_len(set), Some(2));
+    let set: ScriptSet<ScriptValue> =
+        decode_as::<ScriptSet<String>, _>(&vm, &loaded, Value::GcHandle(set));
+    let mut cx = vm.context(&loaded).unwrap();
+    assert_eq!(set.len(&cx).unwrap(), 2);
     assert_eq!(
-        sorted_set(heap, heap.set_snapshot(set).unwrap()),
+        sorted_set(set.to_vec(&mut cx).unwrap(), &mut cx),
         vec!["a", "b"]
     );
-    let a = heap.alloc_string("a".into()).unwrap();
-    let b = heap.alloc_string("b".into()).unwrap();
-    let c = heap.alloc_string("c".into()).unwrap();
+
+    let a = key(&mut cx, "a");
+    let b = key(&mut cx, "b");
+    let c = key(&mut cx, "c");
     let before = heap.stats().current_heap_units;
-    assert_eq!(heap.set_contains(set, &a), Some(true));
-    assert_eq!(heap.set_insert(set, c), Ok(true));
+    assert_eq!(set.contains(&mut cx, a.clone()), Ok(true));
+    assert_eq!(set.insert(&mut cx, c.clone()), Ok(true));
     assert_eq!(heap.stats().current_heap_units, before + 1);
-    assert_eq!(heap.set_insert(set, a), Ok(false));
+    assert_eq!(set.insert(&mut cx, a.clone()), Ok(false));
     assert_eq!(heap.stats().current_heap_units, before + 1);
-    assert_eq!(heap.set_remove(set, &b), Ok(true));
+    assert_eq!(set.remove(&mut cx, b.clone()), Ok(true));
     assert_eq!(heap.stats().current_heap_units, before);
-    heap.set_clear(set).unwrap();
-    assert!(heap.set_snapshot(set).unwrap().is_empty());
+    set.clear(&mut cx).unwrap();
+    assert!(set.to_vec(&mut cx).unwrap().is_empty());
     assert_eq!(heap.stats().current_heap_units, before - 2);
+    drop((a, b, c));
     vm.runtime().collect_garbage().unwrap();
     // Empty container (1) plus two one-byte module constants (2 units each).
     assert_eq!(heap.stats().current_heap_units, 5);
+    drop(cx);
+    drop(set);
     drop(root);
     publish_unused_version(&vm, &_loaded_program);
     vm.runtime().collect_garbage().unwrap();
@@ -373,10 +492,11 @@ fn root_scanning_traces_only_gc_managed_boundaries() {
         r#"use std::collections::{HashMap, HashSet};
 
         struct Record { val map: HashMap<String, Vec<i32>> }
-        fn main() -> (Record, HashSet<String>) {
-            val map: HashMap<String, Vec<i32>> = HashMap::new(); map.insert("leaf", Vec::from([1]));
-            val set: HashSet<String> = HashSet::new(); set.insert("seen");
-            (Record { map: map }, set)
+        fn main() -> (Record, HashSet<String>, Vec<i32>, String, String) {
+            val leaf = Vec::from([1]); val map_key = "leaf"; val set_key = "seen";
+            val map: HashMap<String, Vec<i32>> = HashMap::new(); map.insert(map_key, leaf);
+            val set: HashSet<String> = HashSet::new(); set.insert(set_key);
+            (Record { map: map }, set, leaf, map_key, set_key)
         }
     "#,
         None,
@@ -393,36 +513,35 @@ fn root_scanning_traces_only_gc_managed_boundaries() {
         panic!("tuple")
     };
     let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
-    let [Value::Struct(record), Value::Set(set)] = values.as_slice() else {
+    let [
+        Value::Struct(record),
+        Value::GcHandle(set),
+        Value::GcHandle(leaf),
+        Value::Str(map_key),
+        Value::Str(set_key),
+    ] = values.as_slice()
+    else {
         panic!("handles")
     };
-    let (record, set) = (*record, *set);
+    let (record, set, leaf, map_key, set_key) = (*record, *set, *leaf, *map_key, *set_key);
     let heap = vm.runtime().gc();
     let schema = heap.struct_layout(record).unwrap();
-    let Value::Map(map) = heap.struct_get_slot(record, &schema, 0).unwrap() else {
+    let Value::GcHandle(map) = heap.struct_get_slot(record, &schema, 0).unwrap() else {
         panic!("map")
-    };
-    let Value::GcHandle(leaf) = heap
-        .map_get(map, &heap.alloc_string("leaf".into()).unwrap())
-        .unwrap()
-    else {
-        panic!("leaf")
     };
     let root = heap
         .root_value(
-            heap.alloc_tuple(vec![Value::Struct(record), Value::Set(set), Value::Unit])
-                .unwrap(),
+            heap.alloc_tuple(vec![
+                Value::Struct(record),
+                Value::GcHandle(set),
+                Value::Unit,
+            ])
+            .unwrap(),
         )
         .unwrap();
 
     let Value::Tuple(tuple) = root.value(heap).unwrap() else {
         panic!("root tuple")
-    };
-    let Value::Str(map_key) = heap.map_snapshot(map).unwrap()[0].0 else {
-        panic!("map key")
-    };
-    let Value::Str(set_key) = heap.set_snapshot(set).unwrap()[0] else {
-        panic!("set key")
     };
     assert_eq!(
         heap.trace_roots().unwrap(),
@@ -442,13 +561,13 @@ fn root_scanning_handles_cycles_without_duplicate_identity() {
     let (vm, loaded) = compile(
         r#"
         struct Cycle { val array: Vec<Cycle> }
-        fn main() -> Vec<Cycle> { val array: Vec<Cycle> = Vec::new(); array.push(Cycle { array: array }); array }
+        fn main() -> (Vec<Cycle>, Cycle) { val array: Vec<Cycle> = Vec::new(); val record = Cycle { array: array }; array.push(record); (array, record) }
     "#,
         None,
     );
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    let Value::GcHandle(array) = vm
+    let Value::Tuple(values) = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
@@ -458,9 +577,11 @@ fn root_scanning_handles_cycles_without_duplicate_identity() {
         panic!("array")
     };
     let heap = vm.runtime().gc();
-    let Value::Struct(record) = heap.sequence_get(array, 0).unwrap() else {
-        panic!("record")
+    let values = heap.tuple(values).unwrap().to_vec();
+    let [Value::GcHandle(array), Value::Struct(record)] = values.as_slice() else {
+        panic!("cycle")
     };
+    let (array, record) = (*array, *record);
     let _root = heap.root_value(Value::GcHandle(array)).unwrap();
 
     assert_eq!(heap.trace_roots().unwrap(), vec![array, record]);
@@ -487,55 +608,74 @@ fn removal_results_distinguish_absence_from_stale_handle_errors() {
         panic!("tuple")
     };
     let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
-    let [Value::GcHandle(array), Value::Map(map), Value::Set(set)] = values.as_slice() else {
+    let [
+        Value::GcHandle(array),
+        Value::GcHandle(map),
+        Value::GcHandle(set),
+    ] = values.as_slice()
+    else {
         panic!("handles")
     };
     let (array, map, set) = (*array, *map, *set);
     let heap = vm.runtime().gc();
-    assert_eq!(heap.sequence_pop(array).unwrap(), None);
-    assert_eq!(heap.sequence_remove(array, 0).unwrap(), None);
-    assert_eq!(heap.map_remove(map, &Value::I32(1)).unwrap(), None);
-    assert!(!heap.set_remove(set, &Value::I32(1)).unwrap());
-    assert!(heap.map_remove(map, &Value::F64(1.0)).is_err());
-    assert!(heap.set_remove(set, &Value::F64(1.0)).is_err());
+    let vector: ScriptVec<i32> = decode(&vm, &loaded, Value::GcHandle(array));
+    let map: ScriptMap<i32, i32> = decode(&vm, &loaded, Value::GcHandle(map));
+    let set: ScriptSet<i32> = decode(&vm, &loaded, Value::GcHandle(set));
+    let mut cx = vm.context(&loaded).unwrap();
+    assert_eq!(vector.pop(&mut cx).unwrap(), None);
+    assert_eq!(vector.remove(&mut cx, 0).unwrap(), None);
+    assert_eq!(map.remove(&mut cx, 1).unwrap(), None);
+    assert!(!set.remove(&mut cx, 1).unwrap());
+    let mut conversion = ConversionContext::new(vm.runtime(), &loaded).unwrap();
+    let wrong_map = conversion.type_for::<ScriptMap<f64, i32>>().unwrap();
+    let wrong_set = conversion.type_for::<ScriptSet<f64>>().unwrap();
+    assert!(
+        conversion
+            .decode_value::<ScriptMap<f64, i32>>(&wrong_map, &values[1])
+            .is_err()
+    );
+    assert!(
+        conversion
+            .decode_value::<ScriptSet<f64>>(&wrong_set, &values[2])
+            .is_err()
+    );
     let before = heap.stats().current_heap_units;
-    heap.sequence_clear(array).unwrap();
-    heap.map_clear(map).unwrap();
-    heap.set_clear(set).unwrap();
+    vector.clear(&mut cx).unwrap();
+    map.clear(&mut cx).unwrap();
+    set.clear(&mut cx).unwrap();
     assert_eq!(heap.stats().current_heap_units, before);
     vm.runtime().collect_garbage().unwrap();
-    assert!(heap.sequence_pop(array).is_err());
-    assert!(heap.sequence_remove(array, 0).is_err());
-    assert!(heap.sequence_clear(array).is_err());
-    assert!(heap.map_remove(map, &Value::I32(1)).is_err());
-    assert!(heap.map_clear(map).is_err());
-    assert!(heap.set_remove(set, &Value::I32(1)).is_err());
-    assert!(heap.set_clear(set).is_err());
+    assert_eq!(
+        vector.pop(&mut cx).unwrap(),
+        None,
+        "owning handles preserve empty objects"
+    );
+    vm.runtime().close().unwrap();
+    assert!(vector.pop(&mut cx).is_err());
+    assert!(vector.remove(&mut cx, 0).is_err());
+    assert!(vector.clear(&mut cx).is_err());
+    assert!(map.remove(&mut cx, 1).is_err());
+    assert!(map.clear(&mut cx).is_err());
+    assert!(set.remove(&mut cx, 1).is_err());
+    assert!(set.clear(&mut cx).is_err());
 }
 
-fn sorted_map(heap: &GcHeap, entries: Vec<(Value, Value)>) -> Vec<(String, Value)> {
+fn sorted_map(
+    entries: Vec<(ScriptValue, i32)>,
+    cx: &mut NativeContext<'_>,
+) -> Vec<(String, Value)> {
     let mut entries: Vec<_> = entries
         .into_iter()
-        .map(|(key, value)| {
-            let Value::Str(id) = key else {
-                panic!("string key")
-            };
-            (heap.string(id).unwrap().to_owned(), value)
-        })
+        .map(|(key, value)| (key.decode::<String>(cx).unwrap(), Value::I32(value)))
         .collect();
-    entries.sort_by(|(a, _), (b, _)| a.cmp(b));
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
     entries
 }
 
-fn sorted_set(heap: &GcHeap, entries: Vec<Value>) -> Vec<String> {
+fn sorted_set(entries: Vec<ScriptValue>, cx: &mut NativeContext<'_>) -> Vec<String> {
     let mut entries: Vec<_> = entries
         .into_iter()
-        .map(|key| {
-            let Value::Str(id) = key else {
-                panic!("string key")
-            };
-            heap.string(id).unwrap().to_owned()
-        })
+        .map(|key| key.decode::<String>(cx).unwrap())
         .collect();
     entries.sort();
     entries
@@ -578,8 +718,8 @@ fn native_array_helpers_mutate_and_return_options() {
     let heap = vm.runtime().gc();
     assert_eq!(*length, 1);
     assert_eq!(
-        heap.sequence_snapshot(*array).unwrap(),
-        vec![Value::I32(1), Value::I32(3)]
+        vector_values(&vm, &loaded, Value::GcHandle(*array)),
+        vec![1, 3]
     );
     let removed = heap.enum_snapshot(*removed).unwrap();
     assert_eq!(removed.tag.variant_name(), "Some");
@@ -617,7 +757,7 @@ fn native_map_helpers_return_options_and_keep_declared_types() {
     };
     let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
     let [
-        Value::Map(map),
+        Value::GcHandle(map),
         Value::Enum(removed),
         Value::Enum(missing),
         Value::Bool(contains),
@@ -634,13 +774,21 @@ fn native_map_helpers_return_options_and_keep_declared_types() {
         heap.enum_snapshot(*missing).unwrap().tag.variant_name(),
         "None"
     );
+    let mut cx = vm.context(&loaded).unwrap();
+    let typed: ScriptMap<ScriptValue, i32> =
+        decode_as::<ScriptMap<String, i32>, _>(&vm, &loaded, Value::GcHandle(*map));
     assert_eq!(
-        sorted_map(heap, heap.map_snapshot(*map).unwrap()),
+        sorted_map(typed.to_vec(&mut cx).unwrap(), &mut cx),
         vec![("mp".into(), Value::I32(20))]
     );
-    let key = heap.alloc_string("mp".into()).unwrap();
+    let mut conversion = ConversionContext::new(vm.runtime(), &loaded).unwrap();
+    let wrong = conversion.type_for::<ScriptMap<String, i64>>().unwrap();
     let before = heap.stats();
-    assert!(heap.map_insert(*map, key, Value::I64(20)).is_err());
+    assert!(
+        conversion
+            .decode_value::<ScriptMap<String, i64>>(&wrong, &Value::GcHandle(*map))
+            .is_err()
+    );
     assert_eq!(heap.stats(), before);
 }
 
@@ -669,36 +817,48 @@ fn collection_revisions_distinguish_replacements_from_structural_writes() {
         panic!("tuple")
     };
     let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
-    let [Value::GcHandle(array), Value::Map(map), Value::Set(set)] = values.as_slice() else {
+    let [
+        Value::GcHandle(array),
+        Value::GcHandle(map),
+        Value::GcHandle(set),
+    ] = values.as_slice()
+    else {
         panic!("handles")
     };
     let (array, map, set) = (*array, *map, *set);
-    let heap = vm.runtime().gc();
-    let sources = [Value::GcHandle(array), Value::Map(map), Value::Set(set)];
-    let revisions = sources.map(|value| heap.collection_revision(&value).unwrap());
-    heap.sequence_set(array, 0, Value::I32(9)).unwrap();
-    heap.map_insert(map, Value::I32(1), Value::I32(9)).unwrap();
-    assert!(!heap.set_insert(set, Value::I32(1)).unwrap());
-    for (source, revision) in sources.iter().zip(revisions) {
-        heap.check_collection_revision(source, revision).unwrap();
-    }
-    heap.sequence_push(array, Value::I32(2)).unwrap();
-    heap.map_insert(map, Value::I32(2), Value::I32(3)).unwrap();
-    assert!(heap.set_insert(set, Value::I32(2)).unwrap());
-    for (source, revision) in sources.iter().zip(revisions) {
-        assert_eq!(
-            heap.check_collection_revision(source, revision)
-                .unwrap_err()
-                .message(),
-            "invalid or structurally modified iterator"
-        );
-    }
-    assert_eq!(
-        heap.sequence_snapshot(array).unwrap(),
-        vec![Value::I32(9), Value::I32(2)]
+    let sources = [
+        Value::GcHandle(array),
+        Value::GcHandle(map),
+        Value::GcHandle(set),
+    ];
+    let current = || {
+        [
+            revision::<ScriptVec<i32>, VecStorage>(&vm, &loaded, sources[0]),
+            revision::<ScriptMap<i32, i32>, MapStorage>(&vm, &loaded, sources[1]),
+            revision::<ScriptSet<i32>, SetStorage>(&vm, &loaded, sources[2]),
+        ]
+    };
+    let revisions = current();
+    let vector: ScriptVec<i32> = decode(&vm, &loaded, sources[0]);
+    let map: ScriptMap<i32, i32> = decode(&vm, &loaded, sources[1]);
+    let set: ScriptSet<i32> = decode(&vm, &loaded, sources[2]);
+    let mut cx = vm.context(&loaded).unwrap();
+    vector.set(&mut cx, 0, 9).unwrap();
+    map.insert(&mut cx, 1, 9).unwrap();
+    assert!(!set.insert(&mut cx, 1).unwrap());
+    assert_eq!(current(), revisions);
+    vector.push(&mut cx, 2).unwrap();
+    map.insert(&mut cx, 2, 3).unwrap();
+    assert!(set.insert(&mut cx, 2).unwrap());
+    assert!(
+        current()
+            .into_iter()
+            .zip(revisions)
+            .all(|(now, old)| now > old)
     );
-    assert_eq!(heap.map_len(map), Some(2));
-    assert_eq!(heap.set_len(set), Some(2));
+    assert_eq!(vector_values(&vm, &loaded, sources[0]), vec![9, 2]);
+    assert_eq!(map.len(&cx).unwrap(), 2);
+    assert_eq!(set.len(&cx).unwrap(), 2);
 }
 
 #[test]
@@ -727,12 +887,15 @@ fn native_map_and_set_allocations_update_resource_counters() {
         panic!("tuple")
     };
     let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
-    let [Value::Map(map), Value::Set(set)] = values.as_slice() else {
+    let [Value::GcHandle(map), Value::GcHandle(set)] = values.as_slice() else {
         panic!("handles")
     };
     let runtime = vm.runtime();
-    assert_eq!(runtime.gc().map_len(*map), Some(2));
-    assert_eq!(runtime.gc().set_len(*set), Some(2));
+    let cx = vm.context(&loaded).unwrap();
+    let map: ScriptMap<String, i32> = decode(&vm, &loaded, Value::GcHandle(*map));
+    let set: ScriptSet<String> = decode(&vm, &loaded, Value::GcHandle(*set));
+    assert_eq!(map.len(&cx).unwrap(), 2);
+    assert_eq!(set.len(&cx).unwrap(), 2);
     let counters = runtime.resources().counters();
 
     assert_eq!(counters.current_heap_units, 29);

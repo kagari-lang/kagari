@@ -169,12 +169,8 @@ pub(crate) fn expansion_size(
             TypeId::Array(item)
             | TypeId::Iter(item)
             | TypeId::Range(item, _)
-            | TypeId::Set(item, _)
             | TypeId::Reference { target: item, .. } => push(item),
-            TypeId::Map { key, value, .. } => {
-                push(key);
-                push(value);
-            }
+
             TypeId::Struct(nominal)
             | TypeId::Enum(nominal)
             | TypeId::Trait(nominal)

@@ -34,7 +34,7 @@ use kagari_runtime::{
     value_semantics::script_equal,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_stdlib::declarations::StandardDeclarations;
+use kagari_stdlib::{collections::vector::VecValues, declarations::StandardDeclarations};
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{FnDecl, host::HostCallPolicy, logging, module::ModuleDecl},
@@ -502,7 +502,7 @@ fn run(
     let selected = runtime.select_program(&loaded).unwrap();
     let retained = case.vector.map(|(initial, _)| {
         let mut conversion = ConversionContext::new(&runtime, &selected).unwrap();
-        let rooted = conversion.encode(initial.to_vec()).unwrap();
+        let rooted = conversion.encode(VecValues(initial.to_vec())).unwrap();
         *observed_vector.lock().unwrap() = Some(rooted.value(runtime.gc()).unwrap());
         rooted
     });
@@ -693,13 +693,13 @@ fn run(
             "only the explicit observer root remains"
         );
         vm.runtime().collect_garbage().unwrap();
-        let Value::GcHandle(array) = retained.as_ref().unwrap().value(vm.runtime().gc()).unwrap()
-        else {
-            unreachable!()
-        };
+        let mut conversion = ConversionContext::new(vm.runtime(), &selected).unwrap();
         assert_eq!(
-            vm.runtime().gc().sequence_snapshot(array),
-            Some(expected.iter().copied().map(Value::I32).collect()),
+            conversion
+                .decode::<VecValues<i32>>(retained.as_ref().unwrap())
+                .unwrap()
+                .0,
+            expected,
             "{} ({route:?}): post-execution heap state",
             case.name
         );

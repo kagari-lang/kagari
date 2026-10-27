@@ -94,13 +94,8 @@ impl References {
                     pending.extend(interface.associated_types.values());
                     pending.extend(arguments);
                 }
-                Ty::Array(item) | Ty::Set(item, _) | Ty::Iter(item) | Ty::Range(item, _) => {
-                    pending.push(item)
-                }
-                Ty::Map { key, value, .. } => {
-                    pending.push(key);
-                    pending.push(value);
-                }
+                Ty::Array(item) | Ty::Iter(item) | Ty::Range(item, _) => pending.push(item),
+
                 Ty::Tuple(items) => pending.extend(items),
                 Ty::Function { params, result } => {
                     pending.extend(params);

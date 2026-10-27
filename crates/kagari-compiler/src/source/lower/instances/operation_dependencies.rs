@@ -21,12 +21,7 @@ impl InstancePlanner<'_> {
     ) -> Result<Option<(DefinitionId, Vec<TypeId>)>, MirLoweringError> {
         if !matches!(
             receiver,
-            Ty::Struct(_)
-                | Ty::NativeObject(_)
-                | Ty::Enum(_)
-                | Ty::Array(_)
-                | Ty::Map { .. }
-                | Ty::Set(_, _)
+            Ty::Struct(_) | Ty::NativeObject(_) | Ty::Enum(_) | Ty::Array(_)
         ) {
             return Ok(None);
         }

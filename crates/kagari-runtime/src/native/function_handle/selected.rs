@@ -12,7 +12,9 @@ use crate::{
         conversion::{KagariType, arguments::KagariArguments, context::ConversionContext},
         function_handle::{Function, FunctionBinding, PreparedFunction, Target},
         typed::NativeContext,
+        value_handle::ScriptValue,
     },
+    session::ExecutionOptions,
     value::Value,
 };
 use std::{marker::PhantomData, slice, sync::Arc};
@@ -130,6 +132,38 @@ impl PreparedFunction {
         })
     }
 
+    /// Invoke this pinned selection using already retained, exactly typed values.
+    /// Arguments keep their existing roots across reentry; the returned value owns
+    /// an independent root and the selected result's lexical type. Foreign runtimes,
+    /// incompatible access views, wrong arity and invalid results are rejected.
+    /// Nested calls inherit cancellation, depth and phase through the ordinary
+    /// execution session. No Rust conversion callbacks run on this route.
+    pub fn call_retained_with_options(
+        &self,
+        cx: &NativeContext<'_>,
+        arguments: &[&ScriptValue],
+        options: ExecutionOptions,
+    ) -> NativeResult<ScriptValue> {
+        let runtime = cx.runtime();
+        self.validate(runtime)?;
+        if arguments.len() != self.signature.params.len() {
+            return Err(RuntimeError::module_validation(
+                "retained call argument count",
+            ));
+        }
+        let values = arguments
+            .iter()
+            .zip(&self.signature.params)
+            .map(|(value, expected)| value.call_argument(runtime, expected, &self.owner))
+            .collect::<NativeResult<Vec<_>>>()?;
+        let root = self.invoke_rooted_values(cx, &values, options)?;
+        Ok(ScriptValue::from_root(
+            root,
+            self.signature.result.clone(),
+            self.owner.clone(),
+        ))
+    }
+
     pub(crate) fn call_values(
         &self,
         cx: &NativeContext<'_>,
@@ -137,31 +171,41 @@ impl PreparedFunction {
     ) -> NativeResult<RootedValue> {
         let runtime = cx.runtime();
         self.validate(runtime)?;
-        let Target::Entry(target) = &self.target else {
-            return Err(RuntimeError::module_validation("selected entry expected"));
-        };
-        if values.len() != self.signature.params.len()
-            || values
-                .iter()
-                .enumerate()
-                .any(|(index, value)| !target.matches_argument(runtime, &self.owner, index, value))
-        {
-            return Err(RuntimeError::module_validation("selected call arguments"));
-        }
         let _arguments = runtime
             .gc()
             .root_execution_values(values.to_vec())
             .ok_or_else(|| RuntimeError::module_validation("selected argument retention"))?;
-        let _session = runtime.begin_pinned_execution(self)?;
-        let value = match target.primitive {
-            Some(primitive) => runtime
-                .invoke_standard_builtin(&self.owner, primitive, values)
+        self.invoke_rooted_values(cx, values, runtime.execution_options())
+    }
+
+    // Both callers retain every argument through execution. Keep invocation,
+    // session admission and result validation in this single owner.
+    fn invoke_rooted_values(
+        &self,
+        cx: &NativeContext<'_>,
+        values: &[Value],
+        options: ExecutionOptions,
+    ) -> NativeResult<RootedValue> {
+        let runtime = cx.runtime();
+        if values.len() != self.signature.params.len()
+            || !values
+                .iter()
+                .zip(&self.signature.params)
+                .all(|(value, expected)| expected.matches(runtime, value, &self.owner))
+        {
+            return Err(RuntimeError::module_validation("selected call arguments"));
+        }
+        let _session = runtime.begin_pinned_execution_with_options(self, options)?;
+        let value = match &self.target {
+            Target::Entry(target) if target.primitive.is_some() => runtime
+                .invoke_standard_builtin(&self.owner, target.primitive.unwrap(), values)
                 .map_err(|error| error.into_runtime_error())?,
-            None => cx.invoke_script.ok_or_else(|| {
+            _ => cx.invoke_script.ok_or_else(|| {
                 RuntimeError::module_validation("call context has no execution backend")
             })?(runtime, &self.owner, ScriptCall::Pinned(self), values)?,
         };
-        if !target.matches_result(runtime, &self.owner, &value) {
+        self.signature.result.validate(runtime)?;
+        if !self.signature.result.matches(runtime, &value, &self.owner) {
             return Err(RuntimeError::module_validation("selected call result"));
         }
         runtime

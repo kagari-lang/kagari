@@ -2,10 +2,10 @@
 use kagari::{context::ExecutionContext, engine::KagariEngine};
 use kagari_derive::KagariSchema;
 use kagari_runtime::native::{
-    binding::NativeResult, builder::ModuleBuilder, declarations::FunctionDecl, serde::Serde,
-    typed::NativeContext,
+    binding::NativeResult, builder::ModuleBuilder, declarations::FunctionDecl, typed::NativeContext,
 };
 use kagari_source::source::SourceFile;
+use kagari_stdlib::serde::Serde;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, KagariSchema)]

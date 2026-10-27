@@ -1,6 +1,5 @@
 //! Portable manual paths consume the original shared schema and semantic types.
 use crate::{
-    collection::CollectionAccess,
     declaration::{
         TypeDeclaration, TypeDef, TypeDefKind, fingerprint,
         host::{HostTypeOwnership, PathAccess},
@@ -392,10 +391,8 @@ fn contains_host(ty: &Ty, declaration: DefinitionId) -> bool {
         match ty {
             Ty::Host(id) if *id == declaration => return true,
             Ty::Tuple(items) => pending.extend(items),
-            Ty::Array(item) | Ty::Set(item, _) | Ty::Iter(item) | Ty::Range(item, _) => {
-                pending.push(item)
-            }
-            Ty::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+            Ty::Array(item) | Ty::Iter(item) | Ty::Range(item, _) => pending.push(item),
+
             Ty::Struct(nominal)
             | Ty::NativeObject(nominal)
             | Ty::Enum(nominal)
@@ -453,15 +450,7 @@ impl Fingerprint {
 }
 
 fn read_only_collection(ty: &Ty) -> bool {
-    matches!(
-        ty,
-        Ty::Trait(_)
-            | Ty::Set(_, CollectionAccess::ReadOnly)
-            | Ty::Map {
-                access: CollectionAccess::ReadOnly,
-                ..
-            }
-    )
+    matches!(ty, Ty::Trait(_))
 }
 
 mod mapping;

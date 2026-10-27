@@ -336,14 +336,10 @@ impl Layouts {
                     pending.push_back((*result, span));
                 }
                 TypeId::Array(ty)
-                | TypeId::Set(ty, _)
                 | TypeId::Iter(ty)
                 | TypeId::Range(ty, _)
                 | TypeId::Reference { target: ty, .. } => pending.push_back((*ty, span)),
-                TypeId::Map { key, value, .. } => {
-                    pending.push_back((*key, span));
-                    pending.push_back((*value, span));
-                }
+
                 TypeId::NativeObject(nominal) | TypeId::Trait(nominal) => {
                     pending.extend(nominal.arguments.into_iter().map(|ty| (ty, span)));
                     let mut associated: Vec<_> = nominal.associated_types.into_iter().collect();

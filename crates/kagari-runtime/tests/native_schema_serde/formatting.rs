@@ -12,10 +12,10 @@ use kagari_runtime::{
         },
         module::NativeModule,
         schema::TypeRegistration,
-        serde::{KagariSchema, Serde},
         types::Type,
     },
 };
+use kagari_stdlib::serde::{KagariSchema, Serde};
 use serde::{Serialize, Serializer, ser::SerializeStruct};
 use std::{
     cell::Cell,

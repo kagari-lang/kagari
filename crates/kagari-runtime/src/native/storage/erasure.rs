@@ -3,14 +3,13 @@ use crate::{
     error::RuntimeError,
     native::{binding::NativeResult, storage::NativeObject},
 };
-use std::{alloc::Layout, any::Any, mem, ptr::NonNull};
+use std::{alloc::Layout, any::Any, ptr::NonNull};
 
 pub(super) struct Erasure {
     pub(super) layout: Layout,
     pub(super) place: unsafe fn(Box<dyn Any + Send>, NonNull<u8>),
     pub(super) view: unsafe fn(NonNull<u8>) -> NonNull<dyn Any + Send>,
     pub(super) destroy: unsafe fn(NonNull<u8>),
-    pub(super) swap: unsafe fn(NonNull<u8>, &mut (dyn Any + Send)),
 }
 
 impl Erasure {
@@ -30,13 +29,6 @@ impl Erasure {
             destroy: |pointer| {
                 // SAFETY: the owner clears initialized state before exactly one dispatch.
                 unsafe { pointer.cast::<T>().as_ptr().drop_in_place() };
-            },
-            swap: |pointer, value| {
-                let value = value
-                    .downcast_mut::<T>()
-                    .expect("sealed replacement TypeId");
-                // SAFETY: exclusive access, matching TypeId and live aligned T.
-                unsafe { mem::swap(pointer.cast::<T>().as_mut(), value) };
             },
         }
     }

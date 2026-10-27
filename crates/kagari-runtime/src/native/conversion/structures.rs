@@ -104,8 +104,10 @@ impl<'runtime> ConversionContext<'runtime> {
 }
 
 impl StructEncoder<'_, '_> {
+    /// Encode a declared public field using its checked scoped type. The builder
+    /// validates the produced value and rejects duplicate or inaccessible members.
     #[cfg(feature = "serde")]
-    pub(crate) fn field_with(
+    pub fn field_with(
         &mut self,
         name: &str,
         encode: impl FnOnce(&mut ConversionContext<'_>, &TypeArgument) -> NativeResult<Value>,
@@ -137,13 +139,16 @@ impl StructEncoder<'_, '_> {
 }
 
 impl StructDecoder<'_, '_> {
+    /// Return the declared public field names available in this snapshot.
     #[cfg(feature = "serde")]
-    pub(crate) fn names(&self) -> Vec<String> {
+    pub fn names(&self) -> Vec<String> {
         self.object_type.field_names()
     }
 
+    /// Decode a declared public field while its snapshot remains rooted. The
+    /// callback receives the original field scope and cannot bypass member access.
     #[cfg(feature = "serde")]
-    pub(crate) fn field_with<R>(
+    pub fn field_with<R>(
         &mut self,
         name: &str,
         decode: impl FnOnce(&mut ConversionContext<'_>, &TypeArgument, &Value) -> NativeResult<R>,

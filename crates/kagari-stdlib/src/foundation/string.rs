@@ -1,5 +1,6 @@
 //! String owns its constructor, complete method definitions and scoped UTF-8 bodies.
 use crate::{
+    collections::vector::VecValues,
     foundation::{
         Entry, arrays::operations::index_argument, default_impl, enumeration, interface, type_docs,
     },
@@ -46,7 +47,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     let vector = module
         .reference_type(
             identity::type_id("Vec", DefinitionKind::AssociatedType),
-            TypeDefKind::NativeStorage(NativeStorageLayout::Sequence { element: 0 }),
+            TypeDefKind::NativeStorage(NativeStorageLayout::Opaque),
             1,
         )?
         .apply([string.clone()])?;
@@ -180,7 +181,7 @@ fn split(cx: &mut CallContext<'_>) -> NativeResult<Value> {
         cx.poll()?;
         parts
     };
-    cx.encode_result(parts)
+    cx.encode_result(VecValues(parts))
 }
 
 pub(super) const MODULE_DOCS: (&str, &str) = (

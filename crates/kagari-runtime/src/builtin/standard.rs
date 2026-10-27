@@ -4,10 +4,10 @@ use crate::{
     builtin::BuiltinError,
     error::RuntimeError,
     gc::GcHeap,
+    gc::array_storage::ArrayStorage,
     module::{ExecutableModule, linked_execution::builtin_results::BuiltinResult},
-    native::sequence::SequenceStorage,
-    value::{MapKey, Value},
-    value_semantics,
+    value::Value,
+    value_semantics::{self, hash::script_hash},
 };
 use kagari_contract::standard::RuntimePrimitive;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
@@ -75,11 +75,9 @@ pub fn invoke(
             let [value] = args else {
                 return Err(BuiltinError::new("hash expects one operand"));
             };
-            MapKey::from_value(gc, value)
-                .map(|key| Value::I64(key.script_hash()))
-                .ok_or_else(|| {
-                    BuiltinError::new("value has no hash semantics or exceeds key size limit")
-                })
+            script_hash(gc, value).map(Value::I64).ok_or_else(|| {
+                BuiltinError::new("value has no hash semantics or exceeds key size limit")
+            })
         }
         RuntimePrimitive::ValueDebug | RuntimePrimitive::ValueDisplay => {
             let [value] = args else {
@@ -102,7 +100,7 @@ fn array_join(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     };
     if !gc
         .array_contract(*handle)
-        .is_some_and(|contract| contract.ty == Ty::Builtin(BuiltinType::String))
+        .is_some_and(|contract| *contract.ty() == Ty::Builtin(BuiltinType::String))
     {
         return Err(BuiltinError::new(
             "string interpolation requires [String] storage",
@@ -110,7 +108,7 @@ fn array_join(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     }
     let output = gc
         .with_buffer(*handle, |values| {
-            let SequenceStorage::Traced(values) = values else {
+            let ArrayStorage::Traced(values) = values else {
                 return Err(BuiltinError::new("array.join expects string elements"));
             };
             let overflow =

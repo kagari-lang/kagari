@@ -1,6 +1,7 @@
 use super::compile_program;
 use crate::vm::Vm;
-use kagari_runtime::{Runtime, value::Value};
+use kagari_runtime::{Runtime, native::typed::NativeContext};
+use kagari_stdlib::collections::{map::ScriptMap, set::ScriptSet, vector::ScriptVec};
 
 #[test]
 fn candidate_heap_mutations_cannot_modify_preexisting_containers() {
@@ -18,86 +19,47 @@ fn candidate_heap_mutations_cannot_modify_preexisting_containers() {
     let _baseline_program = baseline;
     let baseline = runtime.select_program(&_baseline_program).unwrap();
     let mut vm = Vm::new(runtime);
-    let Value::Tuple(values) = vm
-        .execute(&baseline, "containers")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
-        .expect("retained execution result")
-    else {
-        panic!("container tuple")
-    };
-    let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
-    let [Value::GcHandle(array), Value::Map(map), Value::Set(set)] = values.as_slice() else {
-        panic!("container handles")
-    };
-    let (array, map, set) = (*array, *map, *set);
+    let (array, map, set): (ScriptVec<i32>, ScriptMap<i32, i32>, ScriptSet<i32>) =
+        vm.execute_typed(&baseline, "containers", ()).unwrap();
     let runtime = vm.runtime_mut();
     let candidate = runtime
         .stage_reload_program(&_baseline_program, Some("main".into()), program)
         .unwrap();
-    let retained = runtime
-        .root_value(
-            runtime
-                .gc()
-                .alloc_tuple(vec![
-                    Value::GcHandle(array),
-                    Value::Map(map),
-                    Value::Set(set),
-                ])
-                .unwrap(),
-        )
-        .unwrap();
     let session = runtime.begin_candidate_initialization(&candidate).unwrap();
     let before = runtime.resources().counters();
-    let heap = runtime.gc();
-    assert!(heap.sequence_push(array, Value::I32(9)).is_err());
-    assert!(heap.sequence_insert(array, 0, Value::I32(9)).is_err());
-    assert!(heap.sequence_set(array, 0, Value::I32(9)).is_err());
-    assert!(heap.sequence_pop(array).is_err());
-    assert!(heap.sequence_remove(array, 0).is_err());
-    assert!(heap.sequence_clear(array).is_err());
-    assert!(heap.map_insert(map, Value::I32(1), Value::I32(9)).is_err());
-    assert!(heap.map_remove(map, &Value::I32(1)).is_err());
-    assert!(heap.map_clear(map).is_err());
-    assert!(heap.set_insert(set, Value::I32(9)).is_err());
-    assert!(heap.set_remove(set, &Value::I32(7)).is_err());
-    assert!(heap.set_clear(set).is_err());
-    assert!(heap.sequence_snapshot(array).is_none());
-    assert!(heap.sequence_len(array).is_none());
-    assert!(heap.sequence_get(array, 0).is_none());
-    assert!(heap.map_snapshot(map).is_none());
-    assert!(heap.map_len(map).is_none());
-    assert!(heap.set_snapshot(set).is_none());
-    assert!(heap.set_len(set).is_none());
+    let mut cx = NativeContext::new(runtime, candidate.module()).unwrap();
+    assert!(array.push(&mut cx, 9).is_err());
+    assert!(array.insert(&mut cx, 0, 9).is_err());
+    assert!(array.set(&mut cx, 0, 9).is_err());
+    assert!(array.pop(&mut cx).is_err());
+    assert!(array.remove(&mut cx, 0).is_err());
+    assert!(array.clear(&mut cx).is_err());
+    assert!(map.insert(&mut cx, 1, 9).is_err());
+    assert!(map.remove(&mut cx, 1).is_err());
+    assert!(map.clear(&mut cx).is_err());
+    assert!(set.insert(&mut cx, 9).is_err());
+    assert!(set.remove(&mut cx, 7).is_err());
+    assert!(set.clear(&mut cx).is_err());
+    assert!(array.len(&cx).is_err());
+    assert!(array.get(&mut cx, 0).is_err());
+    assert!(map.to_vec(&mut cx).is_err());
+    assert!(map.len(&cx).is_err());
+    assert!(set.to_vec(&mut cx).is_err());
+    assert!(set.len(&cx).is_err());
     assert_eq!(runtime.resources().counters(), before);
-    let local_root = kagari_runtime::native::conversion::context::ConversionContext::new(
-        runtime,
-        candidate.module(),
-    )
-    .unwrap()
-    .encode(vec![1i32])
-    .unwrap();
-    let Value::GcHandle(local) = local_root.value(heap).unwrap() else {
-        panic!("Vec")
-    };
-    heap.sequence_push(local, Value::I32(2)).unwrap();
-    assert_eq!(heap.sequence_len(local), Some(2));
+    let local = ScriptVec::create(&mut cx, vec![1i32]).unwrap();
+    local.push(&mut cx, 2).unwrap();
+    assert_eq!(local.len(&cx).unwrap(), 2);
     runtime.collect_garbage().unwrap();
-    assert!(
-        runtime
-            .gc()
-            .validate_value(&retained.value(runtime.gc()).unwrap())
-    );
+    drop(cx);
     drop(session);
-    assert_eq!(heap.sequence_snapshot(array).unwrap(), vec![Value::I32(7)]);
-    assert_eq!(
-        heap.map_snapshot(map).unwrap(),
-        vec![(Value::I32(1), Value::I32(7))]
-    );
-    assert_eq!(heap.set_snapshot(set).unwrap(), vec![Value::I32(7)]);
+    let mut cx = NativeContext::new(runtime, &baseline).unwrap();
+    assert_eq!(array.len(&cx).unwrap(), 1);
+    assert_eq!(array.get(&mut cx, 0).unwrap(), Some(7));
+    assert_eq!(map.to_vec(&mut cx).unwrap(), vec![(1, 7)]);
+    assert_eq!(set.to_vec(&mut cx).unwrap(), vec![7]);
     drop(candidate);
-    runtime.gc().sequence_push(array, Value::I32(9)).unwrap();
-    assert_eq!(runtime.gc().sequence_len(array), Some(2));
+    array.push(&mut cx, 9).unwrap();
+    assert_eq!(array.len(&cx).unwrap(), 2);
     assert!(!runtime.is_quarantined());
 }

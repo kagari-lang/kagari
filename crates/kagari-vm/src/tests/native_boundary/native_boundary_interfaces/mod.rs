@@ -13,11 +13,13 @@ use kagari_runtime::{
         context::CallContext,
         declarations::{CallableRequirement, FunctionDecl, MethodDecl},
         module::NativeModule,
+        typed::NativeContext,
         types::Type,
+        value_handle::ScriptValue,
     },
     value::Value,
 };
-use kagari_stdlib::declarations::StandardDeclarations;
+use kagari_stdlib::{collections::vector::VecValues, declarations::StandardDeclarations};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -590,16 +592,9 @@ pub(super) fn generic_identity_module() -> NativeModule {
     module
         .bind(
             singleton,
-            NativeBinding::new(vec![Codec::Value], Codec::Value, |cx| {
-                let result = cx.allocate_result()?;
-                let root = cx.heap().root_value(result).unwrap();
-                let Value::GcHandle(id) = result else {
-                    panic!("declared array result");
-                };
-                cx.heap().sequence_push(id, cx.argument(0)?)?;
-                drop(root);
-                Ok(result)
-            }),
+            |_: &mut NativeContext<'_>,
+             (value,): (ScriptValue,)|
+             -> NativeResult<VecValues<ScriptValue>> { Ok(VecValues(vec![value])) },
         )
         .unwrap();
     module.finish().unwrap()

@@ -1177,12 +1177,6 @@ fn instantiate(
             target: Box::new(child(target)?),
             access: *access,
         },
-        TypeId::Set(element, access) => TypeId::Set(Box::new(child(element)?), *access),
-        TypeId::Map { key, value, access } => TypeId::Map {
-            key: Box::new(child(key)?),
-            value: Box::new(child(value)?),
-            access: *access,
-        },
 
         TypeId::NativeObject(nominal)
         | TypeId::Struct(nominal)

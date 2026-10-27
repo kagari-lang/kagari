@@ -2,18 +2,11 @@ pub(crate) mod scalar;
 
 use crate::{
     gc::{GcHeap, HeapObjectId},
-    host::{FrameHostBorrowToken, HostRegistryId, scoped::ScopedHostView},
+    host::{FrameHostBorrowToken, scoped::ScopedHostView},
     module::EnumVariantRef,
 };
 use kagari_abi::representation::ValueType;
-use kagari_common::identity::table::DefinitionId;
 use kagari_contract::representation::semantic_representation;
-use kagari_types::ty::Ty;
-use std::{
-    collections::hash_map::DefaultHasher,
-    hash::{Hash, Hasher},
-    slice,
-};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructValueField {
@@ -89,154 +82,6 @@ pub enum EphemeralValue {
     HostView(ScopedHostView),
 }
 
-/// Prepared, immutable key. The original value is retained and traced by the heap.
-#[derive(Debug, Clone)]
-pub struct MapKey {
-    parts: KeyParts,
-    value: Value,
-    custom: Option<(i64, i64)>,
-}
-
-#[derive(Debug, Clone)]
-enum KeyParts {
-    Empty,
-    Single(KeyPart),
-    Aggregate(Box<[KeyPart]>),
-}
-
-impl KeyParts {
-    fn as_slice(&self) -> &[KeyPart] {
-        match self {
-            Self::Empty => &[],
-            Self::Single(part) => slice::from_ref(part),
-            Self::Aggregate(parts) => parts,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-enum KeyPart {
-    Unit,
-    Bool(bool),
-    Char(char),
-    I32(i32),
-    I64(i64),
-    U64(u64),
-    Str(String),
-    Tuple(usize),
-    DeclaredEnum(HostRegistryId, DefinitionId, Vec<Ty>, DefinitionId),
-}
-
-impl PartialEq for MapKey {
-    fn eq(&self, other: &Self) -> bool {
-        self.custom == other.custom && self.parts.as_slice() == other.parts.as_slice()
-    }
-}
-
-impl Eq for MapKey {}
-
-impl Hash for MapKey {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        if let Some((hash, _)) = self.custom {
-            Hash::hash(&hash, state);
-        } else {
-            Hash::hash(self.parts.as_slice(), state);
-        }
-    }
-}
-
-impl MapKey {
-    pub(crate) fn custom(hash: i64, token: i64, value: Value) -> Self {
-        Self {
-            parts: KeyParts::Empty,
-            value,
-            custom: Some((hash, token)),
-        }
-    }
-
-    pub(crate) fn custom_parts(&self) -> Option<(i64, i64)> {
-        self.custom
-    }
-
-    pub fn from_value(gc: &GcHeap, value: &Value) -> Option<Self> {
-        if !gc.validate_value(value) {
-            return None;
-        }
-        let single = match value {
-            Value::Unit => Some(KeyPart::Unit),
-            Value::Bool(value) => Some(KeyPart::Bool(*value)),
-            Value::Char(value) => Some(KeyPart::Char(*value)),
-            Value::I32(value) => Some(KeyPart::I32(*value)),
-            Value::I64(value) => Some(KeyPart::I64(*value)),
-            Value::U64(value) => Some(KeyPart::U64(*value)),
-            Value::Str(value) => Some(KeyPart::Str(gc.string(*value)?.to_owned())),
-            _ => None,
-        };
-        if let Some(part) = single {
-            return Some(Self {
-                parts: KeyParts::Single(part),
-                custom: None,
-                value: *value,
-            });
-        }
-        let mut pending = vec![*value];
-        let mut parts = Vec::new();
-        while let Some(value) = pending.pop() {
-            if parts.len() >= 65536 || !gc.validate_value(&value) {
-                return None;
-            }
-            match value {
-                Value::Interface(_) => return None,
-                Value::Unit => parts.push(KeyPart::Unit),
-                Value::Bool(v) => parts.push(KeyPart::Bool(v)),
-                Value::Char(v) => parts.push(KeyPart::Char(v)),
-                Value::I32(v) => parts.push(KeyPart::I32(v)),
-                Value::I64(v) => parts.push(KeyPart::I64(v)),
-                Value::U64(v) => parts.push(KeyPart::U64(v)),
-                Value::Str(v) => parts.push(KeyPart::Str(gc.string(v)?.to_owned())),
-                Value::Tuple(id) => {
-                    let values = gc.tuple(id)?;
-                    parts.push(KeyPart::Tuple(values.len()));
-                    pending.extend(values.iter().rev().copied());
-                }
-                Value::Enum(id) => {
-                    let snapshot = gc.enum_view(id)?;
-                    parts.push(match &snapshot.tag {
-                        EnumTag::Declared(r) => KeyPart::DeclaredEnum(
-                            r.registry_owner(),
-                            r.layout().declaration,
-                            r.layout().arguments.clone(),
-                            r.variant().declaration,
-                        ),
-                    });
-                    parts.push(KeyPart::Tuple(snapshot.fields.len()));
-                    pending.extend(snapshot.fields.iter().rev().copied());
-                }
-                _ => return None,
-            }
-        }
-        Some(Self {
-            parts: KeyParts::Aggregate(parts.into_boxed_slice()),
-            custom: None,
-            value: *value,
-        })
-    }
-
-    pub fn to_value(&self) -> Value {
-        self.value
-    }
-
-    pub(crate) fn value(&self) -> &Value {
-        &self.value
-    }
-
-    pub fn script_hash(&self) -> i64 {
-        let mut hasher = DefaultHasher::new();
-        self.hash(&mut hasher);
-        hasher.finish() as i64
-    }
-}
-
 /// Compact unrooted transport. Heap-backed payloads are accessed only through
 /// their owning heap; copying a value never copies text or establishes a root.
 /// Rust equality compares transport tags and IDs. Use `value_semantics::script_equal`
@@ -255,8 +100,6 @@ pub enum Value {
     Tuple(HeapObjectId),
     Range(HeapObjectId),
     Array(HeapObjectId),
-    Map(HeapObjectId),
-    Set(HeapObjectId),
     Enum(HeapObjectId),
     Struct(HeapObjectId),
     GcHandle(HeapObjectId),
@@ -286,8 +129,6 @@ impl Value {
             | Self::Tuple(id)
             | Self::Range(id)
             | Self::Array(id)
-            | Self::Map(id)
-            | Self::Set(id)
             | Self::Enum(id)
             | Self::Struct(id)
             | Self::GcHandle(id)
@@ -322,8 +163,6 @@ impl Value {
                     Self::Range(_)
                         | Self::Tuple(_)
                         | Self::Array(_)
-                        | Self::Map(_)
-                        | Self::Set(_)
                         | Self::Enum(_)
                         | Self::Struct(_)
                         | Self::GcHandle(_)
@@ -349,8 +188,6 @@ impl Value {
             Self::Range(_)
             | Self::Tuple(_)
             | Self::Array(_)
-            | Self::Map(_)
-            | Self::Set(_)
             | Self::Enum(_)
             | Self::Struct(_)
             | Self::GcHandle(_) => ValueCategory::ScriptOwned,
@@ -495,40 +332,6 @@ mod tests {
                 .alloc_tuple(vec![unique_borrow_value(heap, 1)])
                 .unwrap()
                 .is_default_heap_payload(heap)
-        );
-    }
-
-    #[test]
-    fn keys_share_value_equality_and_preserve_original_values() {
-        let gc = crate::gc::GcHeap::new(Default::default(), Default::default());
-        for value in [
-            Value::Unit,
-            Value::Bool(true),
-            Value::Char('\0'),
-            Value::Char('🙂'),
-            gc.alloc_tuple(vec![Value::Char('é')]).unwrap(),
-            Value::I32(7),
-            Value::I64(9),
-            gc.alloc_string("hp".into()).unwrap(),
-            gc.alloc_tuple(vec![Value::I32(1)]).unwrap(),
-        ] {
-            let a = MapKey::from_value(&gc, &value).unwrap();
-            let b = MapKey::from_value(&gc, &value).unwrap();
-            assert_eq!(a, b);
-            assert_eq!(a.script_hash(), b.script_hash());
-            assert_eq!(a.to_value(), value);
-        }
-        let first = gc.alloc_string("é🙂".into()).unwrap();
-        let second = gc.alloc_string("é🙂".into()).unwrap();
-        assert_ne!(first, second);
-        let first_key = MapKey::from_value(&gc, &first).unwrap();
-        let second_key = MapKey::from_value(&gc, &second).unwrap();
-        assert_eq!(first_key, second_key);
-        assert_eq!(first_key.script_hash(), second_key.script_hash());
-        assert!(MapKey::from_value(&gc, &Value::F64(1.0)).is_none());
-        assert_ne!(
-            MapKey::from_value(&gc, &Value::Char('a')),
-            MapKey::from_value(&gc, &Value::I64(97))
         );
     }
 }

@@ -19,7 +19,6 @@ use kagari_common::identity::{
 };
 use kagari_types::{
     callable::{CallableImplementation, MethodPolicy},
-    collection::CollectionAccess,
     declaration::{
         FnDecl, Param, TypeDef, TypeDefKind,
         host::{
@@ -484,10 +483,7 @@ fn immutable_configuration_contracts_are_portable_and_reject_shared_objects() {
     records.collect_definitions(&context).unwrap();
     for result in [
         Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
-        Ty::Tuple(vec![Ty::Set(
-            Box::new(Ty::Builtin(BuiltinType::I32)),
-            CollectionAccess::Mutable,
-        )]),
+        Ty::Tuple(vec![Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32)))]),
         option_of(Ty::Host(object)),
     ] {
         let mut invalid = records.clone();

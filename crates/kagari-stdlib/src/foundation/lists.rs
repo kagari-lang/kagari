@@ -11,7 +11,6 @@ use crate::{
     },
     identity,
 };
-use kagari_common::identity::DefinitionKind;
 use kagari_runtime::native::{
     assembly::{
         authoring::PendingBinding,
@@ -308,8 +307,8 @@ fn comparison(compare: Compare) -> Option<(&'static str, &'static str, &'static 
 
 pub(super) fn vector(module: &mut ModuleDraft<'_>) -> NativeResult<DraftReference> {
     module.reference_type(
-        identity::type_id("Vec", DefinitionKind::AssociatedType),
-        TypeDefKind::NativeStorage(NativeStorageLayout::Sequence { element: 0 }),
+        identity::vector_id().clone(),
+        TypeDefKind::NativeStorage(NativeStorageLayout::Opaque),
         1,
     )
 }

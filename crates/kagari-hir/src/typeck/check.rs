@@ -14,7 +14,6 @@ use crate::{
         },
         writeability::Writeability,
     },
-    language::semantics::intrinsic_holds,
     lower::LoweredModule,
     native::NativeBinding,
     resolver::resolved::{ResolvedName, ResolvedNames},
@@ -43,7 +42,7 @@ use kagari_common::{
     span::Span,
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind, Severity, TypePosition};
-use kagari_types::{language::Protocol, scalar::BuiltinType};
+use kagari_types::scalar::BuiltinType;
 use smallvec::SmallVec;
 use std::collections::{HashMap, HashSet};
 
@@ -978,8 +977,7 @@ pub(crate) fn possibly_overlapping_impls(left: &TypeId, right: &TypeId) -> bool 
             left.len() == right.len()
         }
         (TypeId::Range(_, left), TypeId::Range(_, right)) => left == right,
-        (TypeId::Set(_, left), TypeId::Set(_, right))
-        | (TypeId::Map { access: left, .. }, TypeId::Map { access: right, .. }) => left == right,
+
         (TypeId::Iter(_), TypeId::Iter(_)) | (TypeId::Array(_), TypeId::Array(_)) => true,
         _ => false,
     }
@@ -998,31 +996,6 @@ pub(super) fn validate_reference_position(
             .with_span(span),
         );
     }
-}
-
-/// Validate collection admission through the ordinary Eq and Hash trait contracts.
-pub(super) fn validate_hash_key_type(
-    definitions: &DefinitionTable,
-    ty: &TypeId,
-    generic_bounds: &super::GenericBounds,
-    span: Span,
-    diagnostics: &mut SmallVec<[Diagnostic; 4]>,
-    catalog: &AggregateCatalog,
-) {
-    if [Protocol::Eq, Protocol::Hash]
-        .into_iter()
-        .all(|protocol| intrinsic_holds(definitions, protocol, ty, Some(catalog), generic_bounds))
-    {
-        return;
-    }
-    diagnostics.push(
-        Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
-            type_name: display_type_id(definitions, ty),
-            constraint: "Eq + Hash".into(),
-            reason: "key type must implement std::cmp::Eq + std::hash::Hash".into(),
-        })
-        .with_span(span),
-    );
 }
 
 /// Shared read-only signature contract for comparing source and catalog methods.

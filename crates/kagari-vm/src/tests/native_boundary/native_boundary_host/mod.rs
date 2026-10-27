@@ -9,13 +9,16 @@ use kagari_runtime::{
     metadata::TypeId,
     module::{ExecutableModule, entry::ProgramEntry},
     native::{
-        builder::ModuleBuilder, declarations::FunctionDecl, module::NativeModule, types::Type,
+        builder::ModuleBuilder, conversion::context::ConversionContext, declarations::FunctionDecl,
+        module::NativeModule, typed::NativeContext, types::Type,
     },
     value::Value,
 };
-use kagari_stdlib::{identity, namespaces};
+use kagari_stdlib::{
+    collections::{map::ScriptMap, set::ScriptSet},
+    identity, namespaces,
+};
 use kagari_types::{
-    collection::CollectionAccess,
     declaration::{
         host::{
             HostCallPolicy, HostFunctionEffects, HostPassingStyle, HostReflectionPolicy,
@@ -223,19 +226,33 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
             *vector,
         ),
         (
-            Ty::Map {
-                access: CollectionAccess::Mutable,
-                key: Box::new(Ty::Builtin(BuiltinType::String)),
-                value: Box::new(Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32)))),
-            },
+            Ty::NativeObject(NominalTy {
+                declaration: definitions
+                    .lookup(&identity::type_id(
+                        "HashMap",
+                        DefinitionKind::AssociatedType,
+                    ))
+                    .unwrap(),
+                arguments: vec![
+                    Ty::Builtin(BuiltinType::String),
+                    Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
+                ],
+                associated_types: Default::default(),
+            }),
             *map,
             *wrong_map,
         ),
         (
-            Ty::Set(
-                Box::new(Ty::Builtin(BuiltinType::String)),
-                CollectionAccess::Mutable,
-            ),
+            Ty::NativeObject(NominalTy {
+                declaration: definitions
+                    .lookup(&identity::type_id(
+                        "HashSet",
+                        DefinitionKind::AssociatedType,
+                    ))
+                    .unwrap(),
+                arguments: vec![Ty::Builtin(BuiltinType::String)],
+                associated_types: Default::default(),
+            }),
             *set,
             *wrong_set,
         ),
@@ -523,7 +540,7 @@ fn owned_composites_cannot_hide_frame_scoped_host_borrows() {
 fn native_hash_payloads_reject_host_roots_and_frame_borrows_before_mutation() {
     let mut runtime = runtime();
     let program = compile_program(
-        "use std::collections::{HashMap, HashSet, List};\nfn main() -> (HashMap<i32,i32>, HashSet<i32>) { (HashMap::new(), HashSet::new()) }",
+        "use std::collections::{HashMap, HashSet, List};\nfn main() -> (HashMap<i32,i32>, HashSet<i32>) { val map: HashMap<i32,i32> = HashMap::new(); map.insert(1,1); map.clear(); val set: HashSet<i32> = HashSet::new(); set.insert(1); set.clear(); (map, set) }",
         None,
     );
     let loaded = runtime.load_program("host-storage", program).unwrap();
@@ -540,9 +557,23 @@ fn native_hash_payloads_reject_host_roots_and_frame_borrows_before_mutation() {
         panic!("containers")
     };
     let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
-    let [Value::Map(map), Value::Set(set)] = values.as_slice() else {
+    let [map @ Value::GcHandle(_), set @ Value::GcHandle(_)] = values.as_slice() else {
         panic!("handles")
     };
+    let map = *map;
+    let set = *set;
+    let map_slot = loaded
+        .bytecode
+        .native_imports
+        .iter()
+        .position(|import| import.signature.params.len() == 3)
+        .unwrap();
+    let set_slot = loaded
+        .bytecode
+        .native_imports
+        .iter()
+        .position(|import| import.signature.params.len() == 2)
+        .unwrap();
     let runtime = vm.runtime_mut();
     let catalog = kagari_stdlib::declarations::StandardDeclarations::default()
         .catalog()
@@ -575,11 +606,25 @@ fn native_hash_payloads_reject_host_roots_and_frame_borrows_before_mutation() {
     let invalid_values = [heap.alloc_host_root(host).unwrap(), borrowed];
     let before = heap.stats();
     for invalid in invalid_values {
-        assert!(heap.map_insert(*map, Value::I32(1), invalid).is_err());
-        assert!(heap.map_insert(*map, invalid, Value::I32(1)).is_err());
-        assert!(heap.set_insert(*set, invalid).is_err());
+        assert!(
+            native_invocation::invoke(runtime, &loaded, map_slot, &[map, Value::I32(1), invalid])
+                .is_err()
+        );
+        assert!(
+            native_invocation::invoke(runtime, &loaded, map_slot, &[map, invalid, Value::I32(1)])
+                .is_err()
+        );
+        assert!(native_invocation::invoke(runtime, &loaded, set_slot, &[set, invalid]).is_err());
         assert_eq!(heap.stats(), before);
-        assert_eq!(heap.map_len(*map), Some(0));
-        assert_eq!(heap.set_len(*set), Some(0));
+        let mut conversion = ConversionContext::new(runtime, &loaded).unwrap();
+        let map = conversion
+            .decode::<ScriptMap<i32, i32>>(&runtime.root_value(map).unwrap())
+            .unwrap();
+        let set = conversion
+            .decode::<ScriptSet<i32>>(&runtime.root_value(set).unwrap())
+            .unwrap();
+        let cx = NativeContext::new(runtime, &loaded).unwrap();
+        assert_eq!(map.len(&cx).unwrap(), 0);
+        assert_eq!(set.len(&cx).unwrap(), 0);
     }
 }

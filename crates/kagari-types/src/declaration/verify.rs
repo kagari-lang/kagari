@@ -688,8 +688,7 @@ pub fn type_valid(
                     }
                 }
             }
-            Ty::Array(ty) | Ty::Set(ty, _) | Ty::Iter(ty) => pending.push(ty),
-            Ty::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+            Ty::Array(ty) | Ty::Iter(ty) => pending.push(ty),
 
             Ty::Struct(nominal)
             | Ty::NativeObject(nominal)

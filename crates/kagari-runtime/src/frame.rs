@@ -1,12 +1,11 @@
 use crate::{
     RootedInterfaceMethod, Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::RuntimeError,
     frame::{
         arguments::FrameArguments,
         types::TypeEnvironment,
         values::{ExecutionValues, FrameSlots},
     },
-    gc::CollectionMutation,
     module::{
         ExecutableModule,
         execution::{
@@ -367,7 +366,6 @@ pub struct ExecutionFrame {
     slot_layout: Option<Arc<FrameLayout>>,
     return_to: ReturnDestination,
     invocation: Option<MethodInvocation>,
-    mutations: Vec<(Value, CollectionMutation)>,
     initializer: Option<StaticInitialization>,
 }
 
@@ -461,35 +459,6 @@ impl ExecutionFrame {
                 "missing generic call environment",
             )),
         }
-    }
-
-    pub fn begin_collection_mutation(
-        &mut self,
-        runtime: &Runtime,
-        value: &Value,
-    ) -> Result<(), RuntimeError> {
-        self.validate_runtime(runtime)?;
-        self.mutations.try_reserve(1).map_err(|_| {
-            RuntimeError::new(RuntimeErrorKind::ScriptTrap, "mutation guard allocation")
-        })?;
-        self.mutations
-            .push((*value, runtime.gc.begin_collection_mutation(value)?));
-        Ok(())
-    }
-
-    pub fn end_collection_mutation(&mut self, value: &Value) -> Result<(), RuntimeError> {
-        if !self
-            .mutations
-            .last()
-            .is_some_and(|(target, _)| target == value)
-        {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "mutation guard mismatch",
-            ));
-        }
-        self.mutations.pop();
-        Ok(())
     }
 
     /// Fetch and advance without executing the instruction.

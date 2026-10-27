@@ -27,7 +27,6 @@ use crate::{
     value::Value,
 };
 use kagari_common::identity::table::DefinitionId;
-use kagari_contract::standard::RuntimePrimitive;
 use kagari_types::{declaration::native::NativeStorageLayout, ty::Ty};
 use std::{
     alloc::Layout,
@@ -319,21 +318,6 @@ impl NativeStorage {
         let payload = factory(context)?;
         let mut object = self.object(context.heap(), context.ty, payload, context.owner)?;
         object.scope = context.scope.cloned();
-        if matches!(
-            self.layout(),
-            NativeStorageLayout::Map { .. } | NativeStorageLayout::Set { .. }
-        ) {
-            let hash = context.selected(0)?;
-            let equal = context.selected(1)?;
-            if hash.primitive != Some(RuntimePrimitive::ValueHash)
-                || equal.primitive != Some(RuntimePrimitive::ValueEq)
-            {
-                object.selected = Arc::from([
-                    StoredSelection::new(context.owner, hash)?,
-                    StoredSelection::new(context.owner, equal)?,
-                ]);
-            }
-        }
         Ok(object)
     }
 
@@ -496,6 +480,28 @@ impl NativeObject {
         self._owner.definition_name(id)
     }
 
+    pub(crate) fn matches_argument(
+        &self,
+        expected: &TypeArgument,
+        owner: &ExecutableModule,
+    ) -> bool {
+        // These immutable identities include every nested script nominal's exact
+        // runtime, installation and publication. Reuse the existing type-argument
+        // owner rather than reconstructing a layout graph on every native call.
+        // Unequal identities may still describe reload-compatible layouts, so
+        // they retain the complete existing compatibility check below.
+        if let Some(actual) = &self.scope
+            && let (Some(actual), Some(expected)) = (
+                actual.borrowed_identity(&self._owner),
+                expected.borrowed_identity(owner),
+            )
+            && actual == expected
+        {
+            return true;
+        }
+        self.matches(expected.view(owner))
+    }
+
     pub(crate) fn matches(&self, expected: TypeView<'_>) -> bool {
         let actual = match &self.scope {
             Some(scope) => scope.view(&self._owner),
@@ -521,51 +527,6 @@ impl NativeObject {
 
     pub(crate) fn restore_payload(&mut self) {
         self.payload.end_loan();
-    }
-
-    /// Swap a prepared same-type value into its existing inline allocation. The
-    /// returned staged object owns the old value for disposal outside storage borrows.
-    pub(crate) fn replace_payload(&mut self, mut prepared: Self) -> NativeResult<Self> {
-        if self.payload_type() != prepared.payload_type() {
-            return Err(RuntimeError::module_validation("native replacement TypeId"));
-        }
-        let Payload::Inline {
-            pointer,
-            loaned: false,
-        } = self.payload
-        else {
-            return Err(RuntimeError::module_validation(
-                "native replacement during loan",
-            ));
-        };
-        let Payload::Staged(value) = &mut prepared.payload else {
-            return Err(RuntimeError::module_validation(
-                "replacement is not unpublished",
-            ));
-        };
-        // SAFETY: matching descriptor TypeId and exclusive access to both values.
-        unsafe { (self.storage.entries.erasure.swap)(pointer, value.as_mut()) };
-        mem::swap(&mut self.charge, &mut prepared.charge);
-        Ok(prepared)
-    }
-
-    pub(crate) fn replaced_payload<S: NativePayload>(&self, payload: S) -> NativeResult<Self> {
-        if self.storage.entries.rust_type != TypeId::of::<S>() {
-            return Err(RuntimeError::module_validation(
-                "native replacement payload type mismatch",
-            ));
-        }
-        let charge = payload.charge();
-        Ok(Self {
-            charge,
-            storage: self.storage.clone(),
-            payload: Payload::Staged(Box::new(payload)),
-            ty: self.ty.clone(),
-            _owner: self._owner.clone(),
-            scope: self.scope.clone(),
-            selected: self.selected.clone(),
-            revision: self.revision,
-        })
     }
 
     pub(crate) fn payload<S: 'static>(&self) -> NativeResult<&S> {

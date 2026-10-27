@@ -44,8 +44,6 @@ fn declaration(
 fn native_type_templates_validate_arity_owner_and_physical_shape() {
     let constructors = [
         NativeTypeConstructor::String,
-        NativeTypeConstructor::Map,
-        NativeTypeConstructor::Set,
         NativeTypeConstructor::Iter,
         NativeTypeConstructor::Range(RangeKind::Exclusive),
         NativeTypeConstructor::Range(RangeKind::Inclusive),

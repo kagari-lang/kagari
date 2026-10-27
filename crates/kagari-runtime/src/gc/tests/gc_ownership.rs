@@ -76,7 +76,7 @@ fn foreign_handles_and_wrong_value_tags_are_rejected_before_mutation_or_accounti
             .is_err()
     );
     assert!(first.root_value(Value::Array(foreign)).is_none());
-    assert!(first.root_value(Value::Map(own)).is_none());
+    assert!(first.root_value(Value::Struct(own)).is_none());
 
     assert_eq!(
         first
@@ -250,7 +250,7 @@ fn identity_comparison_rejects_foreign_stale_and_disguised_handles() {
         .unwrap();
     assert!(identity_equal(first.gc(), &Value::Array(a), &Value::Array(a)).unwrap());
     assert!(identity_equal(first.gc(), &Value::Array(a), &Value::Array(b)).is_err());
-    assert!(identity_equal(first.gc(), &Value::Map(a), &Value::Map(a)).is_err());
+    assert!(identity_equal(first.gc(), &Value::Array(a), &Value::Struct(a)).is_err());
     assert!(identity_equal(first.gc(), &Value::I32(1), &Value::I32(1)).is_err());
     first.collect_garbage().unwrap();
     assert!(identity_equal(first.gc(), &Value::Array(a), &Value::Array(a)).is_err());

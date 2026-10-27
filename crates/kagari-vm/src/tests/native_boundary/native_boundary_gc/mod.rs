@@ -4,19 +4,24 @@ use super::{compile, compile_program};
 use crate::vm::owned::DriveResult;
 use kagari_runtime::{
     error::RuntimeError,
+    frame::types::arguments::TypeArgument,
     gc::roots::RootedValue,
     module::entry::ProgramEntry,
     native::{
         binding::{Codec, NativeBinding},
         builder::ModuleBuilder,
+        conversion::{IntoKagari, context::ConversionContext},
         declarations::FunctionDecl,
         types::Type,
+        value_handle::ScriptValue,
     },
     value::Value,
     value_semantics::format_value,
 };
-use kagari_stdlib::declarations::StandardDeclarations;
-use kagari_types::{scalar::BuiltinType, ty::Ty};
+use kagari_stdlib::{
+    collections::{map::ScriptMap, set::ScriptSet, vector::ScriptVec},
+    declarations::StandardDeclarations,
+};
 use std::{
     collections::HashSet,
     num::NonZeroUsize,
@@ -108,17 +113,22 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
     );
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    let Value::Tuple(values) = vm
-        .execute(&loaded, ProgramEntry::Main)
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
-        .expect("retained execution result")
-    else {
+    let result: ScriptValue = vm.execute_typed(&loaded, ProgramEntry::Main, ()).unwrap();
+    let mut conversion = ConversionContext::new(vm.runtime(), &loaded).unwrap();
+    let map_type = conversion.parameter(result.type_argument(), 0).unwrap();
+    let set_type = conversion.parameter(result.type_argument(), 1).unwrap();
+    let result_type = result.type_argument().clone();
+    let Value::Tuple(values) = result.into_kagari(&mut conversion, &result_type).unwrap() else {
         panic!("containers")
     };
+    drop(conversion);
     let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
-    let [Value::Map(map), Value::Set(set), Value::Bool(found)] = values.as_slice() else {
+    let [
+        Value::GcHandle(map),
+        Value::GcHandle(set),
+        Value::Bool(found),
+    ] = values.as_slice()
+    else {
         panic!("container handles")
     };
     assert!(
@@ -131,7 +141,7 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
         .root_value(
             runtime
                 .gc()
-                .alloc_tuple(vec![Value::Map(map), Value::Set(set)])
+                .alloc_tuple(vec![Value::GcHandle(map), Value::GcHandle(set)])
                 .unwrap(),
         )
         .unwrap();
@@ -152,7 +162,41 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
             }
         }
     };
-    let key = runtime.gc().map_snapshot(map).unwrap()[0].0;
+    let map_handle = || -> ScriptMap<ScriptValue, i32> {
+        ConversionContext::new(runtime, &loaded)
+            .unwrap()
+            .decode_value(&map_type, &Value::GcHandle(map))
+            .unwrap()
+    };
+    let set_handle = || -> ScriptSet<ScriptValue> {
+        ConversionContext::new(runtime, &loaded)
+            .unwrap()
+            .decode_value(&set_type, &Value::GcHandle(set))
+            .unwrap()
+    };
+    let map_entries = || {
+        let mut result = Vec::new();
+        map_handle()
+            .for_each(&mut vm.context(&loaded).unwrap(), |cx, key, value| {
+                let ty = key.type_argument().clone();
+                result.push((key.into_kagari(cx.conversion(), &ty)?, Value::I32(value)));
+                Ok(())
+            })
+            .unwrap();
+        result
+    };
+    let set_entries = || {
+        let mut result = Vec::new();
+        set_handle()
+            .for_each(&mut vm.context(&loaded).unwrap(), |cx, key| {
+                let ty = key.type_argument().clone();
+                result.push(key.into_kagari(cx.conversion(), &ty)?);
+                Ok(())
+            })
+            .unwrap();
+        result
+    };
+    let key = map_entries()[0].0;
     let Value::Enum(value) = key else {
         panic!("enum key")
     };
@@ -186,7 +230,10 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
     );
     assert_eq!(hash, call("key_hash", &[key]));
     assert_eq!(
-        call("contains", &[Value::Map(map), Value::Set(set), key]),
+        call(
+            "contains",
+            &[Value::GcHandle(map), Value::GcHandle(set), key]
+        ),
         Value::Bool(true)
     );
     let equal = runtime
@@ -212,7 +259,11 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
     assert_eq!(
         call(
             "contains",
-            &[Value::Map(map), Value::Set(set), Value::Enum(equal)]
+            &[
+                Value::GcHandle(map),
+                Value::GcHandle(set),
+                Value::Enum(equal)
+            ]
         ),
         Value::Bool(true)
     );
@@ -224,30 +275,36 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
     assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 3);
 
     // Only the set now retains the composite key and its mutable object.
-    runtime.gc().map_clear(map).unwrap();
+    map_handle()
+        .clear(&mut vm.context(&loaded).unwrap())
+        .unwrap();
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 8);
-    assert_eq!(runtime.gc().map_snapshot(map), Some(vec![]));
-    assert_eq!(runtime.gc().set_snapshot(set), Some(vec![key]));
+    assert_eq!(map_entries(), vec![]);
+    assert_eq!(set_entries(), vec![key]);
     assert_eq!(
         runtime.gc().struct_get_slot(object, &layout, 0),
         Some(Value::I32(101))
     );
 
     // Restore the same key before checking the symmetric map-only retention path.
-    assert_eq!(call("restore_map", &[Value::Map(map), key]), Value::Unit);
-    runtime.gc().set_clear(set).unwrap();
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 8);
     assert_eq!(
-        runtime.gc().map_snapshot(map),
-        Some(vec![(key, Value::I32(20))])
+        call("restore_map", &[Value::GcHandle(map), key]),
+        Value::Unit
     );
-    assert_eq!(runtime.gc().set_snapshot(set), Some(vec![]));
+    set_handle()
+        .clear(&mut vm.context(&loaded).unwrap())
+        .unwrap();
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 8);
+    assert_eq!(map_entries(), vec![(key, Value::I32(20))]);
+    assert_eq!(set_entries(), vec![]);
     assert_eq!(
         runtime.gc().struct_get_slot(object, &layout, 0),
         Some(Value::I32(101))
     );
 
-    runtime.gc().map_clear(map).unwrap();
+    map_handle()
+        .clear(&mut vm.context(&loaded).unwrap())
+        .unwrap();
     // Only the original enum, tuple and identity object die; both cached strings remain.
     assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 3);
     assert!(!runtime.gc().validate_value(&key));
@@ -276,51 +333,34 @@ fn invalid_identity_keys_are_rejected_without_container_modification() {
     );
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    let Value::Tuple(values) = vm
-        .execute(&loaded, ProgramEntry::Main)
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
-        .expect("retained execution result")
-    else {
-        panic!("containers")
-    };
-    let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
-    let [Value::Map(map), Value::Set(set)] = values.as_slice() else {
-        panic!("container handles")
-    };
-    let (map, set) = (*map, *set);
-    let (foreign_vm, foreign_owner) = compile("fn main() {}", None);
-    let _foreign_owner_program = foreign_owner;
+    let (map, set): (ScriptMap<ScriptValue, i32>, ScriptSet<ScriptValue>) =
+        vm.execute_typed(&loaded, ProgramEntry::Main, ()).unwrap();
+    let (foreign_vm, foreign_program) = compile("fn main() -> Vec<i32> { Vec::from([]) }", None);
     let foreign_owner = foreign_vm
         .runtime()
-        .select_program(&_foreign_owner_program)
+        .select_program(&foreign_program)
         .unwrap();
-    let object = foreign_vm
-        .runtime()
-        .alloc_array(&foreign_owner, Ty::Builtin(BuiltinType::I32), vec![])
+    let foreign: ScriptValue = foreign_vm
+        .execute_typed(&foreign_owner, ProgramEntry::Main, ())
         .unwrap();
-    let runtime = vm.runtime();
-
-    assert!(
-        runtime
-            .gc()
-            .map_insert(map, Value::Array(object), Value::I32(0))
-            .is_err()
-    );
-    assert!(runtime.gc().set_insert(set, Value::Array(object)).is_err());
-    assert!(
-        runtime
-            .gc()
-            .map_insert(map, Value::F64(1.0), Value::I32(0))
-            .is_err()
-    );
-
-    assert_eq!(
-        runtime.gc().map_snapshot(map),
-        Some(vec![(Value::I32(1), Value::I32(42))])
-    );
-    assert_eq!(runtime.gc().set_snapshot(set), Some(vec![Value::I32(1)]));
+    let mut cx = vm.context(&loaded).unwrap();
+    assert!(map.insert(&mut cx, foreign.clone(), 0).is_err());
+    assert!(set.insert(&mut cx, foreign).is_err());
+    let f64_type = cx.conversion().type_for::<f64>().unwrap();
+    let wrong: ScriptValue = cx
+        .conversion()
+        .decode_value(&f64_type, &Value::F64(1.0))
+        .unwrap();
+    assert!(map.insert(&mut cx, wrong, 0).is_err());
+    let i32_type = cx.conversion().type_for::<i32>().unwrap();
+    let key: ScriptValue = cx
+        .conversion()
+        .decode_value(&i32_type, &Value::I32(1))
+        .unwrap();
+    assert_eq!(map.len(&cx).unwrap(), 1);
+    assert_eq!(map.get(&mut cx, key.clone()).unwrap(), Some(42));
+    assert_eq!(set.len(&cx).unwrap(), 1);
+    assert!(set.contains(&mut cx, key).unwrap());
 }
 
 #[test]
@@ -338,17 +378,13 @@ fn intrinsic_formatting_is_bounded_and_does_not_read_mutable_graphs() {
     );
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    let Value::GcHandle(object) = vm
-        .execute(&loaded, ProgramEntry::Main)
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
-        .expect("retained execution result")
-    else {
-        panic!("array")
-    };
+    let result: ScriptValue = vm.execute_typed(&loaded, ProgramEntry::Main, ()).unwrap();
+    let mut cx = vm.context(&loaded).unwrap();
+    let vector: ScriptVec<ScriptValue> = result.decode(&mut cx).unwrap();
+    let ty = result.type_argument().clone();
+    let value = result.into_kagari(cx.conversion(), &ty).unwrap();
     let runtime = vm.runtime();
-    let preview = format_value(runtime.gc(), &Value::GcHandle(object), true).unwrap();
+    let preview = format_value(runtime.gc(), &value, true).unwrap();
     assert!(preview.starts_with("Vec@"));
     assert_eq!(
         format_value(
@@ -375,12 +411,61 @@ fn intrinsic_formatting_is_bounded_and_does_not_read_mutable_graphs() {
         value = vm.runtime().gc().alloc_tuple(vec![value]).unwrap();
     }
     assert!(format_value(runtime.gc(), &value, true).is_err());
-    assert_eq!(runtime.gc().sequence_len(object), Some(1));
+    assert_eq!(vector.len(&cx).unwrap(), 1);
+}
+
+#[derive(Clone, Copy, Debug)]
+enum DataCollection {
+    Vector,
+    ScalarMap,
+    ReferenceMap,
+    ScalarSet,
+    ReferenceSet,
+}
+
+#[derive(Clone)]
+enum DataAdapter {
+    Vector(ScriptVec<ScriptValue>),
+    Map(ScriptMap<i32, ScriptValue>),
+    Set(ScriptSet<ScriptValue>),
+}
+
+impl DataAdapter {
+    fn decode(
+        kind: DataCollection,
+        cx: &mut ConversionContext<'_>,
+        ty: &TypeArgument,
+        value: &Value,
+    ) -> Self {
+        match kind {
+            DataCollection::Vector => Self::Vector(cx.decode_value(ty, value).unwrap()),
+            DataCollection::ScalarMap | DataCollection::ReferenceMap => {
+                Self::Map(cx.decode_value(ty, value).unwrap())
+            }
+            DataCollection::ScalarSet | DataCollection::ReferenceSet => {
+                Self::Set(cx.decode_value(ty, value).unwrap())
+            }
+        }
+    }
 }
 
 #[test]
 fn rooted_data_keeps_type_metadata_without_retaining_obsolete_module_state() {
-    let captured = Arc::new(Mutex::new(None::<RootedValue>));
+    for kind in [
+        DataCollection::Vector,
+        DataCollection::ScalarMap,
+        DataCollection::ReferenceMap,
+        DataCollection::ScalarSet,
+        DataCollection::ReferenceSet,
+    ] {
+        for retention in 0..3 {
+            check_data_metadata_retention(kind, retention);
+        }
+    }
+}
+
+fn check_data_metadata_retention(kind: DataCollection, retention: u8) {
+    let captured = Arc::new(Mutex::new(None::<(RootedValue, TypeArgument)>));
     let mut builder = ModuleBuilder::new(
         "fixture::capture",
         &StandardDeclarations::default().catalog().unwrap(),
@@ -406,49 +491,65 @@ fn rooted_data_keeps_type_metadata_without_retaining_obsolete_module_state() {
                     .ok_or_else(|| RuntimeError::module_validation("captured data root"))?;
                 let mut slot = capture_slot.lock().unwrap();
                 assert!(slot.is_none());
-                *slot = Some(root);
+                *slot = Some((root, cx.argument_type_argument(0)?));
                 Ok(Value::Unit)
             }),
         )
         .unwrap();
     let module = builder.finish().unwrap();
-    let (vm, old) = compile(
-        r#"use fixture::capture::capture;
-        struct Item { val value: i32 }
-        fn main() -> i32 {
-            capture(Vec::from([Item { value: 42 }]));
-            42
-        }"#,
-        Some(&module),
-    );
-    let _old_program = old;
-    let old = vm.runtime().select_program(&_old_program).unwrap();
-    assert_eq!(
-        vm.execute(&old, ProgramEntry::Main)
-            .unwrap()
-            .return_value
-            .value(vm.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(42)
-    );
-    // Transfer the sole data lease out of the native capture; retain no callable metadata.
-    let root = captured.lock().unwrap().take().unwrap();
-    assert!(captured.lock().unwrap().is_none());
-    assert_eq!(vm.runtime().gc().active_roots(), 1);
-    let Value::GcHandle(array) = root.value(vm.runtime().gc()).unwrap() else {
-        panic!("typed array")
+    let recipe = match kind {
+        DataCollection::Vector => "capture(Vec::from([Item { value: 42 }]));",
+        DataCollection::ScalarMap => {
+            "val map: HashMap<i32, i32> = HashMap::new(); map.insert(1, 42); capture(map);"
+        }
+        DataCollection::ReferenceMap => {
+            "val map: HashMap<i32, Item> = HashMap::new(); map.insert(1, Item { value: 42 }); capture(map);"
+        }
+        DataCollection::ScalarSet => {
+            "val set: HashSet<i32> = HashSet::new(); set.insert(42); capture(set);"
+        }
+        DataCollection::ReferenceSet => {
+            r#"val set: HashSet<String> = HashSet::new(); set.insert("42"); capture(set);"#
+        }
     };
+    let source = format!(
+        "use fixture::capture::capture; use std::collections::{{HashMap, HashSet}}; struct Item {{ val value: i32 }} pub fn retained_recipe() {{ {recipe} }} pub fn main() -> i32 {{ retained_recipe(); 42 }}"
+    );
+    let (vm, program) = compile(&source, Some(&module));
+    let old = vm.runtime().select_program(&program).unwrap();
+    assert_eq!(vm.execute_typed::<(), i32>(&old, "main", ()).unwrap(), 42);
+    let (root, collection_type) = captured.lock().unwrap().take().unwrap();
+    let mut root = Some(root);
+    let raw = root.as_ref().unwrap().value(vm.runtime().gc()).unwrap();
+    let script_value: Option<ScriptValue> = (retention == 1).then(|| {
+        let value = ConversionContext::new(vm.runtime(), &old)
+            .unwrap()
+            .decode_value(&collection_type, &raw)
+            .unwrap();
+        drop(root.take());
+        value
+    });
+    let adapter = (retention == 2).then(|| {
+        let value = DataAdapter::decode(
+            kind,
+            &mut ConversionContext::new(vm.runtime(), &old).unwrap(),
+            &collection_type,
+            &raw,
+        );
+        drop(root.take());
+        value
+    });
+    assert_eq!(vm.runtime().gc().active_roots(), 1);
     vm.reload_program(
-        &_old_program,
+        &program,
         Some("boundary".into()),
         compile_program(
-            "use fixture::capture::capture; struct Item { val value: i32 } pub fn retained_recipe() { capture(Vec::from([Item { value: 42 }])); } fn main() -> i32 { 99 }",
+            &source.replace("retained_recipe(); 42", "99"),
             Some(&module),
         ),
     )
     .unwrap();
-    let _replacement_program = _old_program.clone();
-    let replacement = vm.runtime().select_program(&_replacement_program).unwrap();
+    let replacement = vm.runtime().select_program(&program).unwrap();
     let expected: HashSet<_> = old.members().map(|member| member.key()).collect();
     let reclaimed: HashSet<_> = vm
         .runtime()
@@ -457,29 +558,109 @@ fn rooted_data_keeps_type_metadata_without_retaining_obsolete_module_state() {
         .reclaimed_modules
         .into_iter()
         .collect();
-    assert_eq!(reclaimed, expected);
-    assert!(vm.runtime().validate_executable_module(&old).is_err());
-    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 2);
-    let item = vm.runtime().gc().sequence_get(array, 0).unwrap();
-    vm.runtime().gc().sequence_push(array, item).unwrap();
-    assert!(
-        vm.runtime()
-            .gc()
-            .sequence_push(array, Value::I32(7))
-            .is_err()
-    );
-    assert_eq!(vm.runtime().gc().sequence_len(array), Some(2));
+    // Hash containers have actual selected Hash/Eq graph edges, including scalar
+    // native selections. The raw-root variant establishes that independent owner;
+    // Vec has no executable edge and must reclaim the entire obsolete program.
+    if matches!(kind, DataCollection::Vector) {
+        assert_eq!(reclaimed, expected, "{kind:?}, retention={retention}");
+        assert!(vm.runtime().validate_executable_module(&old).is_err());
+    } else {
+        assert!(reclaimed.is_empty(), "{kind:?}, retention={retention}");
+        vm.runtime().validate_executable_module(&old).unwrap();
+    }
+    let objects = match kind {
+        DataCollection::ScalarMap | DataCollection::ScalarSet => 1,
+        _ => 2,
+    };
     assert_eq!(
-        vm.execute(&replacement, ProgramEntry::Main)
-            .unwrap()
-            .return_value
-            .value(vm.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(99)
+        vm.runtime().collect_garbage().unwrap().live_objects,
+        objects
     );
-    drop(root);
+    {
+        let mut cx = vm.context(&replacement).unwrap();
+        let adapter = adapter.clone().unwrap_or_else(|| {
+            let value = script_value.as_ref().map_or_else(
+                || root.as_ref().unwrap().value(vm.runtime().gc()).unwrap(),
+                |value| value.value(vm.runtime()).unwrap(),
+            );
+            DataAdapter::decode(kind, cx.conversion(), &collection_type, &value)
+        });
+        let bool_type = cx.conversion().type_for::<bool>().unwrap();
+        let wrong: ScriptValue = cx
+            .conversion()
+            .decode_value(&bool_type, &Value::Bool(true))
+            .unwrap();
+        let element_index = usize::from(matches!(
+            kind,
+            DataCollection::ScalarMap | DataCollection::ReferenceMap
+        ));
+        let element = cx
+            .conversion()
+            .parameter(&collection_type, element_index)
+            .unwrap();
+        let item = match &adapter {
+            DataAdapter::Vector(vector) => vector.get(&mut cx, 0).unwrap().unwrap(),
+            DataAdapter::Map(map) => map.get(&mut cx, 1).unwrap().unwrap(),
+            DataAdapter::Set(set) => {
+                let mut item = None;
+                set.for_each(&mut cx, |_, value| {
+                    item = Some(value);
+                    Ok(())
+                })
+                .unwrap();
+                item.unwrap()
+            }
+        };
+        assert_eq!(item.type_argument().ty(), element.ty());
+        let raw_item = item.value(vm.runtime()).unwrap();
+        if let Value::Struct(id) = raw_item {
+            let (_, fields) = vm.runtime().gc().struct_snapshot(id).unwrap();
+            assert_eq!(fields[0].value, Value::I32(42));
+        } else if matches!(kind, DataCollection::ReferenceSet) {
+            assert_eq!(
+                format_value(vm.runtime().gc(), &raw_item, false).unwrap(),
+                "42"
+            );
+        } else {
+            assert_eq!(raw_item, Value::I32(42));
+        }
+        match adapter {
+            DataAdapter::Vector(vector) => {
+                vector.push(&mut cx, item).unwrap();
+                assert!(vector.push(&mut cx, wrong).is_err());
+                assert_eq!(vector.len(&cx).unwrap(), 2);
+            }
+            DataAdapter::Map(map) => {
+                map.insert(&mut cx, 2, item).unwrap();
+                assert!(map.insert(&mut cx, 3, wrong).is_err());
+                assert_eq!(map.len(&cx).unwrap(), 2);
+            }
+            DataAdapter::Set(set) => {
+                assert!(set.contains(&mut cx, item.clone()).unwrap());
+                assert!(!set.insert(&mut cx, item).unwrap());
+                assert!(set.insert(&mut cx, wrong).is_err());
+                assert_eq!(set.len(&cx).unwrap(), 1);
+            }
+        }
+    }
+    assert_eq!(
+        vm.execute_typed::<(), i32>(&replacement, "main", ())
+            .unwrap(),
+        99
+    );
+    drop((root, script_value, adapter));
     assert_eq!(vm.runtime().gc().active_roots(), 0);
-    assert_eq!(vm.runtime().collect_garbage().unwrap().reclaimed_objects, 2);
+    let collected = vm.runtime().collect_garbage().unwrap();
+    assert_eq!(collected.reclaimed_objects, objects);
+    if !matches!(kind, DataCollection::Vector) {
+        assert_eq!(
+            collected
+                .reclaimed_modules
+                .into_iter()
+                .collect::<HashSet<_>>(),
+            expected
+        );
+    }
 }
 
 #[test]
@@ -496,12 +677,14 @@ fn recursive_element_contracts_reject_foreign_nested_layouts_after_reload() {
     let (mut vm, old) = compile(source, None);
     let _old_program = old;
     let old = vm.runtime().select_program(&_old_program).unwrap();
-    let old_value = vm
-        .execute(&old, ProgramEntry::Main)
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
-        .expect("retained execution result");
+    let result: ScriptValue = vm.execute_typed(&old, ProgramEntry::Main, ()).unwrap();
+    let old_type = result.type_argument().clone();
+    let old_value = result
+        .into_kagari(
+            &mut ConversionContext::new(vm.runtime(), &old).unwrap(),
+            &old_type,
+        )
+        .unwrap();
     let old_root = vm.runtime().root_value(old_value).unwrap();
     let replacement = source
         .replace("val value: i32", "val value: i32, val extra: bool")
@@ -521,45 +704,43 @@ fn recursive_element_contracts_reject_foreign_nested_layouts_after_reload() {
         .load_program("foreign-nested-layout", compile_program(&replacement, None))
         .unwrap();
     let current = vm.runtime().select_program(&independent).unwrap();
-    let new_value = vm
-        .execute(&current, ProgramEntry::Main)
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
-        .expect("retained execution result");
+    let result: ScriptValue = vm.execute_typed(&current, ProgramEntry::Main, ()).unwrap();
+    let new_type = result.type_argument().clone();
+    let new_value = result
+        .into_kagari(
+            &mut ConversionContext::new(vm.runtime(), &current).unwrap(),
+            &new_type,
+        )
+        .unwrap();
     let new_root = vm.runtime().root_value(new_value).unwrap();
-    let (Value::GcHandle(old_array), Value::GcHandle(new_array)) = (old_value, new_value) else {
-        panic!("typed arrays");
-    };
     let reclaimed = vm.runtime().collect_garbage().unwrap().reclaimed_modules;
     assert!(
         old.members()
             .all(|member| reclaimed.contains(&member.key()))
     );
-    let old_node = vm.runtime().gc().sequence_get(old_array, 0).unwrap();
-    let new_node = vm.runtime().gc().sequence_get(new_array, 0).unwrap();
-    assert!(
-        vm.runtime()
-            .gc()
-            .sequence_push(old_array, new_node)
-            .is_err()
-    );
-    assert!(
-        vm.runtime()
-            .gc()
-            .sequence_push(new_array, old_node)
-            .is_err()
-    );
-    assert_eq!(vm.runtime().gc().sequence_len(old_array), Some(1));
-    assert_eq!(vm.runtime().gc().sequence_len(new_array), Some(1));
-    vm.runtime()
-        .gc()
-        .sequence_push(old_array, old_node)
-        .unwrap();
-    vm.runtime()
-        .gc()
-        .sequence_push(new_array, new_node)
-        .unwrap();
+    {
+        let replacement = vm.runtime().select_program(&_old_program).unwrap();
+        let mut old_cx = vm.context(&replacement).unwrap();
+        let mut new_cx = vm.context(&current).unwrap();
+        let old_vector: ScriptVec<ScriptValue> = old_cx
+            .conversion()
+            .decode_value(&old_type, &old_value)
+            .unwrap();
+        let new_vector: ScriptVec<ScriptValue> = new_cx
+            .conversion()
+            .decode_value(&new_type, &new_value)
+            .unwrap();
+        let old_node = old_vector.get(&mut old_cx, 0).unwrap().unwrap();
+        let new_node = new_vector.get(&mut new_cx, 0).unwrap().unwrap();
+        assert!(old_vector.push(&mut old_cx, new_node.clone()).is_err());
+        assert!(new_vector.push(&mut new_cx, old_node.clone()).is_err());
+        assert_eq!(old_vector.len(&old_cx).unwrap(), 1);
+        assert_eq!(new_vector.len(&new_cx).unwrap(), 1);
+        old_vector.push(&mut old_cx, old_node).unwrap();
+        new_vector.push(&mut new_cx, new_node).unwrap();
+        assert_eq!(old_vector.len(&old_cx).unwrap(), 2);
+        assert_eq!(new_vector.len(&new_cx).unwrap(), 2);
+    }
     drop((old_root, new_root));
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
 }

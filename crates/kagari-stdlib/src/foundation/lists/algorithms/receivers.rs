@@ -1,81 +1,109 @@
-//! Prepare custom receiver operations once and traverse through its iterator.
-use std::slice;
-use {
-    crate::foundation::{
-        enumerations::value::{self as enums, EnumSymbols},
-        lists::algorithms::invalid,
-    },
-    kagari_runtime::{
-        gc::HeapObjectId,
-        native::{
-            binding::NativeResult,
-            context::{CallContext, LinkedCallable},
-        },
-        value::Value,
+//! Custom lists retain their declared iteration and per-write failure behavior.
+use crate::collections::vector::ScriptVec;
+use kagari_runtime::{
+    frame::types::arguments::TypeArgument,
+    native::{
+        binding::NativeResult, context::CallContext, function_handle::PreparedFunction,
+        typed::NativeContext, value_handle::ScriptValue,
     },
 };
+use std::sync::Arc;
 
-pub(super) struct ReceiverCalls<'call> {
-    iter: &'call LinkedCallable,
-    next: &'call LinkedCallable,
-    write: Option<&'call LinkedCallable>,
+pub(super) struct ReceiverCalls {
+    iter: Arc<PreparedFunction>,
+    next: Arc<PreparedFunction>,
+    write: Option<Arc<PreparedFunction>>,
+    item: TypeArgument,
+    source: ScriptValue,
 }
 
-impl<'call> ReceiverCalls<'call> {
+impl ReceiverCalls {
     pub(super) fn prepare(
-        cx: &CallContext<'call>,
+        call: &CallContext<'_>,
+        cx: &mut NativeContext<'_>,
         start: usize,
         mutable: bool,
     ) -> NativeResult<Self> {
+        let source = cx
+            .conversion()
+            .decode_value(&call.argument_type_argument(0)?, &call.argument(0)?)?;
         Ok(Self {
-            iter: cx.selected_at(start)?,
-            next: cx.selected_at(start + 1)?,
-            write: mutable.then(|| cx.selected_at(start + 2)).transpose()?,
+            iter: cx
+                .selected_function::<(ScriptValue,), ScriptValue>(start)?
+                .prepare_call(cx.runtime())?,
+            next: cx
+                .selected_function::<(ScriptValue,), Option<ScriptValue>>(start + 1)?
+                .prepare_call(cx.runtime())?,
+            write: if mutable {
+                // Mutating defaults declare either remove(receiver, index) or set(receiver, index, item).
+                let selected = call.selected_at(start + 2)?;
+                Some(if selected.parameters().len() == 2 {
+                    cx.selected_function::<(ScriptValue, u64), ScriptValue>(start + 2)?
+                        .prepare_call(cx.runtime())?
+                } else {
+                    cx.selected_function::<(ScriptValue, u64, ScriptValue), ScriptValue>(start + 2)?
+                        .prepare_call(cx.runtime())?
+                })
+            } else {
+                None
+            },
+            item: call.selected_result_parameter(call.selected_at(start + 1)?, 0)?,
+            source,
         })
     }
 
     pub(super) fn snapshot(
         &self,
-        symbols: &EnumSymbols,
-        cx: &mut CallContext<'_>,
-    ) -> NativeResult<HeapObjectId> {
-        let item = cx.selected_result_parameter(self.next, 0)?;
-        let result = cx.allocate_vec(item, vec![])?;
-        let _result = cx.heap().root_value(result).ok_or_else(invalid)?;
-        let Value::GcHandle(id) = result else {
-            return Err(invalid());
-        };
-        let cursor = cx.call_values(self.iter, &[cx.argument(0)?])?;
-        let _cursor = cx.heap().root_value(cursor).ok_or_else(invalid)?;
+        cx: &mut NativeContext<'_>,
+    ) -> NativeResult<ScriptVec<ScriptValue>> {
+        let result = ScriptVec::create_with_type(cx, self.item.clone(), vec![])?;
+        let cursor: ScriptValue = self.iter.call_with_options(
+            cx,
+            (self.source.clone(),),
+            cx.runtime().execution_options(),
+        )?;
         loop {
             cx.poll()?;
-            let value = cx.call_values(self.next, slice::from_ref(&cursor))?;
-            let Some(value) = enums::read_option(symbols, cx, &value)? else {
-                return Ok(id);
+            let value: Option<ScriptValue> = self.next.call_with_options(
+                cx,
+                (cursor.clone(),),
+                cx.runtime().execution_options(),
+            )?;
+            let Some(value) = value else {
+                return Ok(result);
             };
-            let _item = cx.heap().root_value(value).ok_or_else(invalid)?;
-            cx.heap().sequence_push(id, value)?;
+            result.push(cx, value)?;
         }
     }
 
     pub(super) fn set(
         &self,
-        cx: &mut CallContext<'_>,
+        cx: &mut NativeContext<'_>,
         index: usize,
-        value: Value,
+        value: ScriptValue,
     ) -> NativeResult<()> {
-        cx.call_values(
-            self.write.ok_or_else(invalid)?,
-            &[cx.argument(0)?, Value::U64(index as u64), value],
-        )?;
+        let _: ScriptValue = self
+            .write
+            .as_ref()
+            .expect("mutable default")
+            .call_with_options(
+                cx,
+                (self.source.clone(), index as u64, value),
+                cx.runtime().execution_options(),
+            )?;
         Ok(())
     }
 
-    pub(super) fn remove(&self, cx: &mut CallContext<'_>, index: usize) -> NativeResult<()> {
-        cx.call_values(
-            self.write.ok_or_else(invalid)?,
-            &[cx.argument(0)?, Value::U64(index as u64)],
-        )?;
+    pub(super) fn remove(&self, cx: &mut NativeContext<'_>, index: usize) -> NativeResult<()> {
+        let _: ScriptValue = self
+            .write
+            .as_ref()
+            .expect("mutable default")
+            .call_with_options(
+                cx,
+                (self.source.clone(), index as u64),
+                cx.runtime().execution_options(),
+            )?;
         Ok(())
     }
 }

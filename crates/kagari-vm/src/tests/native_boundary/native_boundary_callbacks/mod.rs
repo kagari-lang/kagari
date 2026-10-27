@@ -14,11 +14,11 @@ use kagari_runtime::{
         storage::NativeStorage,
         typed::NativeContext,
         types::Type,
-        views::{SequenceHandle, ValueHandle},
+        views::ValueHandle,
     },
     value::Value,
 };
-use kagari_stdlib::declarations::StandardDeclarations;
+use kagari_stdlib::{collections::vector::ScriptVec, declarations::StandardDeclarations};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
@@ -465,15 +465,14 @@ fn sequence_and_callable_arguments_share_an_ordinary_rust_binding() {
     builder
         .bind(
             fold,
-            |cx: &mut CallContext<'_>,
-             values: SequenceHandle<'_>,
-             map: CallableHandle<'_>|
+            |cx: &mut NativeContext<'_>,
+             (values, map): (ScriptVec<i32>, Function<(i32,), i32>)|
              -> NativeResult<i32> {
-                let length = values.len()?;
+                let length = values.len(cx)?;
                 let mut sum = 0;
                 for index in 0..length {
-                    let value = values.with_slice::<i32, _>(|values| Ok(values[index]))?;
-                    sum += map.call::<i32, _>(cx, (value,))?;
+                    let value = values.with_slice::<i32, _>(cx, |values| Ok(values[index]))?;
+                    sum += map.call(cx, (value,))?;
                 }
                 Ok(sum)
             },

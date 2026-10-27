@@ -4,6 +4,7 @@ mod access;
 mod accounting;
 pub(super) mod descriptors;
 mod pages;
+mod retirement;
 #[cfg(test)]
 mod tests;
 
@@ -238,8 +239,7 @@ impl ObjectStorage {
     /// occupancy is independent of the separately owned interface metadata.
     pub(super) fn occupied_directories(&self) -> impl Iterator<Item = usize> + '_ {
         self.pages
-            .occupied()
-            .map(|(index, _)| index)
+            .occupied_directories()
             .chain(self.interface_directories.iter().copied())
             .map(|index| {
                 #[cfg(test)]

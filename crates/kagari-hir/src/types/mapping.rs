@@ -229,15 +229,7 @@ impl RemapDefinitions for TypeId {
             Self::Array(field0) => {
                 TypeId::Array(Box::new(((field0).as_ref()).remap_definitions(mapper)?))
             }
-            Self::Map { key, value, access } => TypeId::Map {
-                key: Box::new(((key).as_ref()).remap_definitions(mapper)?),
-                value: Box::new(((value).as_ref()).remap_definitions(mapper)?),
-                access: *(access),
-            },
-            Self::Set(field0, field1) => TypeId::Set(
-                Box::new(((field0).as_ref()).remap_definitions(mapper)?),
-                *(field1),
-            ),
+
             Self::NativeObject(field0) => TypeId::NativeObject((field0).remap_definitions(mapper)?),
             Self::Struct(field0) => TypeId::Struct((field0).remap_definitions(mapper)?),
             Self::Enum(field0) => TypeId::Enum((field0).remap_definitions(mapper)?),
@@ -294,17 +286,7 @@ impl DefinitionReferences for TypeId {
             Self::Array(field0) => {
                 ((field0).as_ref()).visit_definition_ids(visit, cancel)?;
             }
-            Self::Map {
-                key,
-                value,
-                access: _,
-            } => {
-                ((key).as_ref()).visit_definition_ids(visit, cancel)?;
-                ((value).as_ref()).visit_definition_ids(visit, cancel)?;
-            }
-            Self::Set(field0, _) => {
-                ((field0).as_ref()).visit_definition_ids(visit, cancel)?;
-            }
+
             Self::NativeObject(field0) => {
                 (field0).visit_definition_ids(visit, cancel)?;
             }

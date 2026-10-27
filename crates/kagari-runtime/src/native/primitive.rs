@@ -1,14 +1,12 @@
 //! Runtime-owned native bodies with closed, nonallocating script-heap effects.
 use crate::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::RuntimeError,
     frame::types::arguments::ScopedSignature,
     gc::GcHeap,
     module::ExecutableModule,
     native::{
         binding::{BindingEntry, Codec, LinkedNativeFunction, NativeBinding, NativeResult},
-        context::operations::check_sequence_argument,
-        scalar::NativeScalar,
         types::Type,
     },
     value::Value,
@@ -24,12 +22,6 @@ pub(crate) type PrimitiveResult = Result<Value, Box<RuntimeError>>;
 pub enum NativePrimitive {
     /// Read immutable UTF-8 storage and return its byte count as Kagari u64.
     StringByteLength,
-    /// Read an element from a checked Vec; an absent index traps.
-    VecIndex,
-    /// Replace an element through a mutable Vec view and return Unit.
-    VecSet,
-    /// Replace an element and return the same mutable Vec view.
-    VecSetFluent,
 }
 
 impl NativeBinding {
@@ -38,21 +30,6 @@ impl NativeBinding {
             NativePrimitive::StringByteLength => (
                 vec![Codec::Exact(Type::scalar(BuiltinType::String))],
                 Codec::Exact(Type::scalar(BuiltinType::U64)),
-            ),
-            NativePrimitive::VecIndex => (
-                vec![
-                    Codec::Sequence,
-                    Codec::Exact(Type::scalar(BuiltinType::U64)),
-                ],
-                Codec::Value,
-            ),
-            NativePrimitive::VecSet | NativePrimitive::VecSetFluent => (
-                vec![
-                    Codec::MutableSequence,
-                    Codec::Exact(Type::scalar(BuiltinType::U64)),
-                    Codec::Value,
-                ],
-                Codec::Value,
             ),
         };
         Self {
@@ -85,92 +62,23 @@ impl LinkedNativeFunction {
 }
 
 impl NativePrimitive {
-    /// The relationship between element, value and result types is part of the
-    /// body contract, including in generic declarations before specialization.
     pub(crate) fn accepts_signature(self, signature: &Signature) -> bool {
-        let params = &signature.params;
-        match self {
-            Self::StringByteLength => {
-                params == &[Ty::Builtin(BuiltinType::String)]
-                    && signature.result == Ty::Builtin(BuiltinType::U64)
-            }
-            Self::VecIndex => {
-                matches!(params.as_slice(), [Ty::NativeObject(nominal), Ty::Builtin(BuiltinType::U64)]
-                if nominal.arguments.as_slice() == [signature.result.clone()])
-            }
-            Self::VecSet | Self::VecSetFluent => {
-                let [
-                    Ty::NativeObject(nominal),
-                    Ty::Builtin(BuiltinType::U64),
-                    value,
-                ] = params.as_slice()
-                else {
-                    return false;
-                };
-                nominal.arguments.as_slice() == [value.clone()]
-                    && match self {
-                        Self::VecSet => signature.result == Ty::Builtin(BuiltinType::Unit),
-                        _ => signature.result == params[0],
-                    }
-            }
-        }
+        signature.params == [Ty::Builtin(BuiltinType::String)]
+            && signature.result == Ty::Builtin(BuiltinType::U64)
     }
 
-    /// Shared by scoped native calls and prepared interpreter operations. The
-    /// caller owns roots and cancellation polls before/after this bounded operation.
+    /// The caller owns roots and cancellation polls around this bounded operation.
     pub(crate) fn execute(
         self,
         runtime: &Runtime,
-        owner: &ExecutableModule,
-        signature: &ScopedSignature,
+        _owner: &ExecutableModule,
+        _signature: &ScopedSignature,
         argument: impl Fn(usize) -> NativeResult<Value>,
     ) -> PrimitiveResult {
-        let heap = runtime.gc();
-        match self {
-            Self::StringByteLength => string_byte_length(heap, argument(0)?),
-            Self::VecIndex => {
-                let base = argument(0)?;
-                let id =
-                    check_sequence_argument(runtime, owner, &signature.params[0], || Ok(base))?;
-                let index = u64::decode(argument(1)?)?;
-                heap.sequence_element(id, index)?.ok_or_else(|| {
-                    Box::new(RuntimeError::new(
-                        RuntimeErrorKind::IndexOutOfBounds,
-                        "list index is out of bounds",
-                    ))
-                })
-            }
-            Self::VecSet | Self::VecSetFluent => {
-                let base = argument(0)?;
-                let id =
-                    check_sequence_argument(runtime, owner, &signature.params[0], || Ok(base))?;
-                let index = u64::decode(argument(1)?)?;
-                let value = argument(2)?;
-                if !signature.params[2].matches(runtime, &value, owner) {
-                    return Err(RuntimeError::module_validation(
-                        "native argument differs from its declared type",
-                    )
-                    .into());
-                }
-                // Match the SDK setter: argument conversion precedes callback
-                // exclusion and bounds; no assignment occurs until all pass.
-                // Operands already live in the caller's roots. Copying an admitted
-                // Value needs neither an owning SDK handle nor a conversion GC
-                // safepoint: this body cannot grow the heap or call foreign code.
-                runtime.resources().poll_execution()?;
-                heap.check_sequence_replacement(id, index)?;
-                runtime.resources().poll_execution()?;
-                heap.sequence_set(id, index, value)?;
-                Ok(match self {
-                    Self::VecSet => Value::Unit,
-                    _ => base,
-                })
-            }
-        }
+        string_byte_length(runtime.gc(), argument(0)?)
     }
 }
 
-/// This closed scalar result needs no element-type signature or argument table.
 #[inline(always)]
 pub(crate) fn string_byte_length(heap: &GcHeap, value: Value) -> PrimitiveResult {
     let Value::Str(id) = value else {

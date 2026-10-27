@@ -1,28 +1,16 @@
 //! Heap-owned exclusion records. Guards never own storage or execution state.
 use crate::{error::RuntimeError, gc::HeapObjectId, native::views::NativeOperationKind};
-use std::{
-    cell::RefCell,
-    collections::HashMap,
-    sync::{Arc, Weak},
-};
-
-#[derive(Debug)]
-pub(crate) struct OwnedLease(Arc<()>);
+use std::{cell::RefCell, collections::HashMap};
 
 #[derive(Debug, Default)]
 struct Entry {
     borrowed: usize,
     operation: Option<NativeOperationKind>,
-    owned: Vec<Weak<()>>,
 }
 
 impl Entry {
-    fn prune(&mut self) {
-        self.owned.retain(|lease| lease.strong_count() != 0);
-    }
-
     fn is_active(&self) -> bool {
-        self.borrowed != 0 || self.owned.iter().any(|lease| lease.strong_count() != 0)
+        self.borrowed != 0
     }
 }
 
@@ -41,8 +29,7 @@ impl Drop for BorrowedLease<'_> {
         let mut entries = self.table.entries.borrow_mut();
         let entry = entries.get_mut(&self.id).expect("registered storage lease");
         entry.borrowed -= 1;
-        entry.prune();
-        if entry.borrowed == 0 && entry.owned.is_empty() {
+        if entry.borrowed == 0 {
             entries.remove(&self.id);
         }
     }
@@ -74,22 +61,6 @@ impl LeaseTable {
         self.entries.borrow().get(&id).is_some_and(Entry::is_active)
     }
 
-    pub(crate) fn acquire(&self, id: HeapObjectId) -> Result<OwnedLease, RuntimeError> {
-        let mut entries = self.entries.borrow_mut();
-        entries
-            .try_reserve(1)
-            .map_err(|_| RuntimeError::resource_limit("storage lease registry"))?;
-        let entry = entries.entry(id).or_default();
-        entry.prune();
-        entry
-            .owned
-            .try_reserve(1)
-            .map_err(|_| RuntimeError::resource_limit("storage lease capacity"))?;
-        let lease = OwnedLease(Arc::new(()));
-        entry.owned.push(Arc::downgrade(&lease.0));
-        Ok(lease)
-    }
-
     /// No per-call allocation after the keyed table is warm.
     pub(crate) fn borrow(&self, id: HeapObjectId) -> Result<BorrowedLease<'_>, RuntimeError> {
         let mut entries = self.entries.borrow_mut();
@@ -105,9 +76,8 @@ impl LeaseTable {
     }
 
     pub(crate) fn prune(&self) {
-        self.entries.borrow_mut().retain(|_, entry| {
-            entry.prune();
-            entry.borrowed != 0 || !entry.owned.is_empty()
-        });
+        self.entries
+            .borrow_mut()
+            .retain(|_, entry| entry.borrowed != 0);
     }
 }

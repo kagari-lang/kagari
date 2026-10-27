@@ -694,7 +694,7 @@ uses the SDK facade for the same explicitly registered Opaque/external method bo
 `ModuleBuilder::define_function` authors a `FunctionDecl` with explicit parameter
 names, semantic types, return type and Markdown documentation. `bind` attaches a
 raw/primitive binding, a flat call-context entry or an owned typed callback such as
-`|cx: &mut NativeContext<'_>, (text,): (String,)| -> NativeResult<Vec<String>>`.
+`|cx: &mut NativeContext<'_>, (text,): (String,)| -> NativeResult<VecValues<String>>`.
 Instance callbacks may pass an owning receiver separately from the argument tuple.
 Rust and Kagari traits remain independent; callback types do not register impls.
 All adapters retain the authored signature and use checked installation and
@@ -708,20 +708,36 @@ first await. The callback's tuple and completion types must be annotated. Borrow
 host loans cannot be retained in a producer.
 
 The common KagariType/IntoKagari/FromKagari adapters support scalars, owned String,
-Vec, ordinary installed Option/Result and tuples of arity 0-12. The outer tuple is
+the stdlib `VecValues<T>` owned adapter, ordinary installed Option/Result and tuples
+of arity 0-12. The outer tuple is
 the argument list: `()` means no arguments and `((a, b),)` means one tuple argument.
 Owned conversion copies data, bounds recursion/work and rejects unrepresentable
 cycles; identity-preserving adapters retain the original object instead. Input
 and output capabilities are independent, and no borrowed input reference escapes.
 NativeResult is the runtime-failure channel; a nested business Result remains data.
 Conversion does not implicitly install nominal providers or ignore type origins.
-Rust Vec<T> and ScriptVec<T> refer to the installed nominal Vec declaration and
+Rust `VecValues<T>` and `ScriptVec<T>` refer to the installed nominal Vec declaration and
 reject builtin arrays, including empty ones. Portable `Ty::Array` carries only its
 element schema; nominal collection types carry their explicit declaration identity
 and type arguments. Runtime matching preserves these families and checks
 empty-container element contracts as well as each stored value. CallContext exposes
-allocate_array and allocate_vec explicitly; native storage factories allocate
-fixed arrays with allocate_array.
+`allocate_array` for fixed arrays; Vec construction uses the library's ordinary
+nominal payload registration, not an engine `allocate_vec` path.
+
+Import library-owned adapters from their owners:
+
+```rust
+use kagari_stdlib::collections::{
+    map::ScriptMap,
+    set::ScriptSet,
+    vector::{ScriptVec, VecValues},
+};
+```
+
+`VecValues(vec![1, 2])` wraps an owned Rust Vec for conversion; decoding snapshots
+immediate children before invoking child conversions. Script `Vec<T>` spelling,
+shared-object semantics and ScriptVec identity-preserving access are unchanged.
+There is no runtime collection compatibility facade.
 
 `ModuleBuilder::register_type::<T>()` stages a finite schema graph transactionally.
 `kagari_derive::KagariValue` supplies ordinary named structs and unit/tuple enums,
@@ -731,8 +747,10 @@ variants require an explicitly authored adapter. Registering a data schema adds
 no Rust methods or Kagari trait impls. Opaque fields retain object identity instead
 of copying their Rust payload; see the [DTO/Opaque consumer](../../crates/kagari/examples/value_interop.rs).
 
-The optional runtime/SDK `serde` feature exposes `native::serde::Serde<T>` and
-`KagariSchema`. Use `kagari_derive::KagariSchema` for a static serialization schema,
+The optional stdlib `serde` feature exposes `kagari_stdlib::serde::{Serde,
+KagariSchema}`; the SDK `serde` feature forwards to it. Runtime retains only its
+RuntimeError integration with Serde errors, not the schema/conversion facade.
+Use `kagari_derive::KagariSchema` for a static serialization schema,
 then register `Serde<T>` explicitly. The wrapper is absent from script signatures;
 outbound requires `Serialize`, inbound requires `DeserializeOwned`, independently.
 The adapter invokes Serde directly against checked declarations, with normal
@@ -756,7 +774,8 @@ An explicitly declared interface result can differ from the callback's concrete
 Rust result. Compilation selects its existing result adapter before execution;
 invocation validates the concrete value and applies that adapter without trait
 lookup. NativeContext::collect polls cancellation around each iterator step and
-checks Vec capacity growth. Individual blocking iterator steps are not preempted.
+checks Rust Vec capacity growth; wrap that owned result in VecValues for script
+conversion. Individual blocking iterator steps are not preempted.
 See the [typed_native example](../../crates/kagari/examples/typed_native.rs)
 for registration and a host entry with owned arguments and results.
 
@@ -775,6 +794,11 @@ and the [scope contract](host-interop.md).
 preserve identity and share retention; dropping the last handle permits collection.
 `ScriptValue` forwards an exact declared generic value without erasing its type.
 Ordinary field/collection reads and callback results need no manual root operation.
+Opaque and collection handles retain data metadata without implicitly preparing an
+executable NativeType. Use `opaque.prepare_native_type(cx)` when executable access
+is actually needed; its lexical `owner()` need not remain executable. See
+[data versus executable retention](host-interop.md#retained-native-data-and-executable-preparation)
+for the current stored-selection retention distinction.
 
 Backend VM execution (`execute`, `execute_typed`, `start`, `execute_prepared`),
 SDK `execute`/`execute_prepared` and SDK `prepare_native` accept `ProgramEntry` from

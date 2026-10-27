@@ -1,117 +1,134 @@
-//! Comparators and key selectors run synchronously, with no key-cache prepass.
+//! Comparator selections remain pinned throughout one collection algorithm.
 use crate::foundation::{
     enumerations::value::{self as enums, EnumSymbols},
     lists::algorithms::{Algorithm, invalid},
 };
-use kagari_contract::standard::RuntimePrimitive;
-use kagari_runtime::{
-    native::{
-        binding::NativeResult,
-        callable::CallableHandle,
-        context::{CallContext, LinkedCallable},
-        scalar::NativeScalar,
-        sequence_edit::SequenceEdit,
-    },
-    value::Value,
-    value_semantics,
+use kagari_runtime::native::{
+    binding::NativeResult,
+    context::CallContext,
+    function_handle::{Function, PreparedFunction},
+    typed::NativeContext,
+    value_handle::ScriptValue,
 };
-use kagari_types::{scalar::BuiltinType, ty::Ty};
-use std::cmp::Ordering;
+use std::{cmp::Ordering, sync::Arc};
 
 pub(super) struct Comparison<'call, 'symbols> {
     symbols: &'symbols EnumSymbols,
-    operation: Option<&'call LinkedCallable>,
-    callback: Option<CallableHandle<'call>>,
+    call: &'call CallContext<'call>,
+    operation: Option<Arc<PreparedFunction>>,
+    callback: Option<Arc<PreparedFunction>>,
     algorithm: Algorithm,
 }
 
 impl<'call, 'symbols> Comparison<'call, 'symbols> {
     pub(super) fn prepare(
-        cx: &CallContext<'call>,
+        call: &'call CallContext<'call>,
+        cx: &mut NativeContext<'_>,
         algorithm: Algorithm,
         symbols: &'symbols EnumSymbols,
     ) -> NativeResult<Self> {
+        let operation = if algorithm.comparison() {
+            Some(
+                cx.selected_function::<(ScriptValue, ScriptValue), ScriptValue>(0)?
+                    .prepare_call(cx.runtime())?,
+            )
+        } else {
+            None
+        };
+        let callback = if matches!(
+            algorithm,
+            Algorithm::SortBy | Algorithm::SortByKey | Algorithm::Retain
+        ) {
+            let ty = call.argument_type_argument(1)?;
+            let value = call.argument(1)?;
+            if matches!(algorithm, Algorithm::SortBy) {
+                Some(
+                    cx.conversion()
+                        .decode_value::<Function<(ScriptValue, ScriptValue), ScriptValue>>(
+                            &ty, &value,
+                        )?
+                        .prepare_call(cx.runtime())?,
+                )
+            } else {
+                Some(
+                    cx.conversion()
+                        .decode_value::<Function<(ScriptValue,), ScriptValue>>(&ty, &value)?
+                        .prepare_call(cx.runtime())?,
+                )
+            }
+        } else {
+            None
+        };
         Ok(Self {
             symbols,
-            operation: algorithm
-                .comparison()
-                .then(|| cx.selected_at(0))
-                .transpose()?,
-            callback: matches!(
-                algorithm,
-                Algorithm::SortBy | Algorithm::SortByKey | Algorithm::Retain
-            )
-            .then(|| cx.callable(1))
-            .transpose()?,
+            call,
+            operation,
+            callback,
             algorithm,
         })
     }
 
-    pub(super) fn keep(&self, cx: &mut CallContext<'_>, value: Value) -> NativeResult<bool> {
-        bool::decode(
-            self.callback
-                .as_ref()
-                .ok_or_else(invalid)?
-                .call_values(cx, &[value])?,
-        )
+    pub(super) fn keep(
+        &self,
+        cx: &mut NativeContext<'_>,
+        value: ScriptValue,
+    ) -> NativeResult<bool> {
+        self.callback
+            .as_ref()
+            .ok_or_else(invalid)?
+            .call_with_options(cx, (value,), cx.runtime().execution_options())
     }
 
-    pub(super) fn equal(&self, cx: &mut CallContext<'_>, a: Value, b: Value) -> NativeResult<bool> {
+    pub(super) fn equal(
+        &self,
+        cx: &mut NativeContext<'_>,
+        a: ScriptValue,
+        b: ScriptValue,
+    ) -> NativeResult<bool> {
         cx.poll()?;
-        let operation = self.operation.ok_or_else(invalid)?;
-        if operation.primitive() == Some(RuntimePrimitive::ValueEq)
-            && !matches!((a, b), (Value::Interface(_), _) | (_, Value::Interface(_)))
-        {
-            return value_semantics::script_equal(cx.heap(), &a, &b);
-        }
-        bool::decode(cx.call_values(operation, &[a, b])?)
+        self.operation
+            .as_ref()
+            .ok_or_else(invalid)?
+            .call_with_options(cx, (a, b), cx.runtime().execution_options())
     }
 
     pub(super) fn order(
         &self,
-        cx: &mut CallContext<'_>,
-        a: Value,
-        b: Value,
+        cx: &mut NativeContext<'_>,
+        a: ScriptValue,
+        b: ScriptValue,
     ) -> NativeResult<Ordering> {
         cx.poll()?;
-        if matches!(self.algorithm, Algorithm::SortBy) {
-            let result = self
-                .callback
+        let result: ScriptValue = if matches!(self.algorithm, Algorithm::SortBy) {
+            self.callback
                 .as_ref()
                 .ok_or_else(invalid)?
-                .call_values(cx, &[a, b])?;
-            return enums::ordering(self.symbols, cx, &result);
-        }
-        let (a, b, _root) = if matches!(self.algorithm, Algorithm::SortByKey) {
-            let selector = self.callback.as_ref().ok_or_else(invalid)?;
-            let a = selector.call_values(cx, &[a])?;
-            let root = cx.heap().root_value(a).ok_or_else(invalid)?;
-            let b = selector.call_values(cx, &[b])?;
-            (a, b, Some(root))
+                .call_retained_with_options(cx, &[&a, &b], cx.runtime().execution_options())?
         } else {
-            (a, b, None)
+            let (a, b) = if matches!(self.algorithm, Algorithm::SortByKey) {
+                let selector = self.callback.as_ref().ok_or_else(invalid)?;
+                let a: ScriptValue = selector.call_retained_with_options(
+                    cx,
+                    &[&a],
+                    cx.runtime().execution_options(),
+                )?;
+                let b: ScriptValue = selector.call_retained_with_options(
+                    cx,
+                    &[&b],
+                    cx.runtime().execution_options(),
+                )?;
+                (a, b)
+            } else {
+                (a, b)
+            };
+            self.operation
+                .as_ref()
+                .ok_or_else(invalid)?
+                .call_retained_with_options(cx, &[&a, &b], cx.runtime().execution_options())?
         };
-        let operation = self.operation.ok_or_else(invalid)?;
-        if operation.primitive() == Some(RuntimePrimitive::ValueCmp) {
-            return value_semantics::builtin_order(cx.heap(), &a, &b)?.ok_or_else(invalid);
-        }
-        let result = cx.call_values(operation, &[a, b])?;
-        enums::ordering(self.symbols, cx, &result)
-    }
-
-    pub(super) fn sort_scalars(&self, values: &mut SequenceEdit<'_>) -> NativeResult<bool> {
-        let operation = self.operation.ok_or_else(invalid)?;
-        if operation.primitive() != Some(RuntimePrimitive::ValueCmp) {
-            return Ok(false);
-        }
-        macro_rules! scalars {
-            ($($kind:ident:$ty:ty),+) => { match operation.parameters()[0] {
-                $(Ty::Builtin(BuiltinType::$kind) => values.with_slice_mut::<$ty, _>(|items| { items.sort(); Ok(()) })?,)+
-                _ => return Ok(false),
-            } };
-        }
-
-        scalars!(Unit:(), Bool:bool, I8:i8, I16:i16, I32:i32, I64:i64, U8:u8, U16:u16, U32:u32, U64:u64);
-        Ok(true)
+        // The checked result already owns its root. Re-encoding into the outer
+        // conversion context would retain every comparator result until sort exit.
+        let value = result.value(cx.runtime())?;
+        enums::ordering(self.symbols, self.call, &value)
     }
 }

@@ -94,8 +94,7 @@ impl ReceiverOwners {
                     path: vec!["array".into()],
                 });
             }
-            Ty::Map { .. } => NativeTypeConstructor::Map,
-            Ty::Set(..) => NativeTypeConstructor::Set,
+
             Ty::Iter(_) => NativeTypeConstructor::Iter,
             Ty::Range(_, kind) => NativeTypeConstructor::Range(*kind),
 
@@ -109,7 +108,6 @@ impl ReceiverOwners {
 mod tests {
     use super::*;
     use crate::{
-        collection::CollectionAccess,
         declaration::module::ModuleDecl,
         ty::{GenericParam, NominalTy},
     };
@@ -119,7 +117,7 @@ mod tests {
         let root = context.intern_root(&module.identity).unwrap();
         TypeDef {
             name: "Sequence".into(),
-            kind: TypeDefKind::Native(NativeTypeConstructor::Set),
+            kind: TypeDefKind::Native(NativeTypeConstructor::Iter),
             generic_params: vec![GenericParam {
                 owner: context
                     .intern_child(root, DefinitionKind::AssociatedType, "Sequence", 0)
@@ -138,10 +136,7 @@ mod tests {
         let right = ModuleDecl::new(ModuleIdentity::single_file("right.kgr"));
         let context = DefinitionContext::new().unwrap();
         let definitions = context.snapshot();
-        let receiver = Ty::Set(
-            Box::new(Ty::Builtin(BuiltinType::I32)),
-            CollectionAccess::Mutable,
-        );
+        let receiver = Ty::Iter(Box::new(Ty::Builtin(BuiltinType::I32)));
         assert_eq!(
             ReceiverOwners::default().owner(&receiver, &definitions),
             None

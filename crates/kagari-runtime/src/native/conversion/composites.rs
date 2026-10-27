@@ -1,11 +1,9 @@
 use crate::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
-    gc::roots::RootSet,
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
-        collections::vector::storage::declaration,
         conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
         schema::TypeRegistration,
         types::Type,
@@ -14,74 +12,6 @@ use crate::{
 };
 use kagari_common::identity::DefinitionPath;
 use kagari_types::{language::binding, ty::Ty};
-
-impl<T: KagariType> KagariType for Vec<T> {
-    fn register_type(registration: &mut TypeRegistration<'_>) -> NativeResult<Type>
-    where
-        Self: 'static,
-    {
-        registration.dependency::<T>()?;
-        Self::kagari_type(registration.catalog())
-    }
-
-    fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
-        catalog
-            .type_reference(&declaration())?
-            .apply([T::kagari_type(catalog)?])
-    }
-
-    fn check_type(cx: &ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<()> {
-        if !matches!(expected.ty(), Ty::NativeObject(nominal)
-            if binding::matches(&nominal.declaration, &declaration(), expected.definitions()) && nominal.arguments.len() == 1)
-        {
-            return Err(RuntimeError::module_validation(
-                "Vec conversion requires a registered Vec type",
-            ));
-        }
-        cx.check_type::<T>(&cx.parameter(expected, 0)?)
-    }
-}
-
-impl<T: IntoKagari> IntoKagari for Vec<T> {
-    fn into_kagari(
-        self,
-        cx: &mut ConversionContext<'_>,
-        expected: &TypeArgument,
-    ) -> NativeResult<Value> {
-        cx.check_elements(self.len())?;
-        let element = cx.parameter(expected, 0)?;
-        let mut values = Vec::new();
-        values
-            .try_reserve_exact(self.len())
-            .map_err(|_| cx.runtime().resources().limit("Vec conversion capacity"))?;
-        for item in self {
-            values.push(cx.encode_value(&element, item)?);
-        }
-        cx.runtime().allocate_sequence(cx.owner(), expected, values)
-    }
-}
-
-impl<T: FromKagari> FromKagari for Vec<T> {
-    fn from_kagari(
-        cx: &mut ConversionContext<'_>,
-        expected: &TypeArgument,
-        value: &Value,
-    ) -> NativeResult<Self> {
-        let (roots, count) = cx.snapshot_sequence(value)?;
-        let element = cx.parameter(expected, 0)?;
-        let mut result = Vec::new();
-        result
-            .try_reserve_exact(count)
-            .map_err(|_| cx.runtime().resources().limit("Vec conversion output"))?;
-        for index in 0..count {
-            let value = roots
-                .get(cx.runtime().gc(), index)
-                .ok_or_else(|| RuntimeError::module_validation("Vec conversion snapshot value"))?;
-            result.push(cx.decode_value(&element, &value)?);
-        }
-        Ok(result)
-    }
-}
 
 impl<T: KagariType> KagariType for Option<T> {
     fn register_type(registration: &mut TypeRegistration<'_>) -> NativeResult<Type>
@@ -270,41 +200,4 @@ fn enum_payload(
     Err(RuntimeError::module_validation(
         "enum conversion variant identity",
     ))
-}
-
-impl ConversionContext<'_> {
-    pub(crate) fn snapshot_sequence(&self, value: &Value) -> NativeResult<(RootSet, usize)> {
-        let Value::GcHandle(array) = value else {
-            return Err(RuntimeError::module_validation(
-                "Vec conversion requires a nominal sequence",
-            ));
-        };
-        let count =
-            self.runtime().gc().sequence_len(*array).ok_or_else(|| {
-                RuntimeError::module_validation("Vec conversion sequence identity")
-            })?;
-        self.check_elements(count)?;
-        // Snapshot before user-defined child conversion can reenter or mutate an alias.
-        let mut snapshot = Vec::new();
-        snapshot
-            .try_reserve_exact(count)
-            .map_err(|_| self.runtime().resources().limit("Vec conversion snapshot"))?;
-        for index in 0..count {
-            self.poll()?;
-            snapshot.push(
-                self.runtime()
-                    .gc()
-                    .sequence_get(*array, index)
-                    .ok_or_else(|| {
-                        RuntimeError::module_validation("Vec conversion sequence element")
-                    })?,
-            );
-        }
-        let roots = self
-            .runtime()
-            .gc()
-            .root_execution_values(snapshot)
-            .ok_or_else(|| RuntimeError::module_validation("Vec conversion snapshot roots"))?;
-        Ok((roots, count))
-    }
 }

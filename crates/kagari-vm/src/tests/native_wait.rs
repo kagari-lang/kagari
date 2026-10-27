@@ -43,6 +43,7 @@ use kagari_runtime::{
     session::ExecutionOptions,
     value::Value,
 };
+use kagari_stdlib::collections::vector::{ScriptVec, VecStorage, VecValues};
 use kagari_types::{callable::Signature, scalar::BuiltinType, ty::Ty, visibility::Visibility};
 use std::{
     num::NonZeroUsize,
@@ -131,9 +132,8 @@ impl Fixture {
         let cancels = Arc::new(AtomicUsize::new(0));
         let mut vector =
             ModuleBuilder::new("kagari-alloc::vec", &DeclarationCatalog::default()).unwrap();
-        let mut ty = vector.define_type("Vec").unwrap();
+        let mut ty = vector.define_opaque::<VecStorage>("Vec").unwrap();
         ty.type_parameter("T").unwrap();
-        ty.native_storage(NativeStorage::sequence(0)).unwrap();
         ty.finish().unwrap();
         let vector = vector.finish().unwrap();
         let vector_declaration = vector
@@ -162,7 +162,7 @@ impl Fixture {
                     FunctionDecl::new("request")
                         .parameter(
                             "values",
-                            <Vec<i32>>::kagari_type(builder.declarations()).unwrap(),
+                            <VecValues<i32>>::kagari_type(builder.declarations()).unwrap(),
                         )
                         .returns(
                             builder
@@ -174,9 +174,9 @@ impl Fixture {
                         ),
                 )
                 .unwrap();
-            builder.bind::<Async<(Vec<i32>,)>, i32>(
+            builder.bind::<Async<(VecValues<i32>,)>, i32>(
                 registered_function,
-                move |(values,): (Vec<i32>,), completion: Completion<i32>| {
+                move |(values,): (VecValues<i32>,), completion: Completion<i32>| {
                     started.fetch_add(1, Ordering::Relaxed);
                     let input = values.iter().sum();
                     if input == 0 {
@@ -207,7 +207,7 @@ impl Fixture {
                     FunctionDecl::new("read")
                         .parameter(
                             "values",
-                            <Vec<i32>>::kagari_type(builder.declarations()).unwrap(),
+                            <VecValues<i32>>::kagari_type(builder.declarations()).unwrap(),
                         )
                         .parameter("index", Type::i32())
                         .returns(Type::i32()),
@@ -217,7 +217,7 @@ impl Fixture {
                 .bind(
                     registered_function.clone(),
                     |_: &mut NativeContext<'_>,
-                     (values, index): (Vec<i32>, i32)|
+                     (values, index): (VecValues<i32>, i32)|
                      -> NativeResult<i32> {
                         values.get(index as usize).copied().ok_or_else(|| {
                             RuntimeError::new(RuntimeErrorKind::IndexOutOfBounds, "fixture index")
@@ -373,7 +373,7 @@ impl Fixture {
     fn cold(&self, input: i32) -> RootedValue {
         let array = ConversionContext::new(self.vm.runtime(), &self.module)
             .unwrap()
-            .encode(vec![input])
+            .encode(VecValues(vec![input]))
             .unwrap();
         let execution = self
             .vm
@@ -481,7 +481,7 @@ fn async_wait_live_storage_contract() {
         let allocate = |value| {
             ConversionContext::new(f.vm.runtime(), &f.module)
                 .unwrap()
-                .encode(vec![value])
+                .encode(VecValues(vec![value]))
                 .unwrap()
         };
         let live_root = allocate(41i32);
@@ -514,16 +514,18 @@ fn async_wait_live_storage_contract() {
             f.vm.runtime().gc().object_kind(dead).is_none(),
             "dead slots must not keep objects alive"
         );
+        let vector: ScriptVec<i32> = ConversionContext::new(f.vm.runtime(), &f.module)
+            .unwrap()
+            .decode(&live_root)
+            .unwrap();
         assert!(
-            f.vm.runtime()
-                .gc()
-                .sequence_push(live, Value::I32(3))
+            vector
+                .push(&mut f.vm.context(&f.module).unwrap(), 3)
                 .is_ok(),
             "parked values do not block structural writes"
         );
-        f.vm.runtime()
-            .gc()
-            .sequence_set(live, 0, Value::I32(42))
+        vector
+            .set(&mut f.vm.context(&f.module).unwrap(), 0, 42)
             .unwrap();
         let (_, completion) = f.sent.lock().unwrap().pop().unwrap();
         match exit {
@@ -551,9 +553,8 @@ fn async_wait_live_storage_contract() {
             }
         }
         assert_eq!(completion.complete(Ok(9)), CompletionStatus::Stale);
-        f.vm.runtime()
-            .gc()
-            .sequence_push(live, Value::I32(3))
+        vector
+            .push(&mut f.vm.context(&f.module).unwrap(), 3)
             .unwrap();
         assert_eq!(
             live_root.value(f.vm.runtime().gc()),

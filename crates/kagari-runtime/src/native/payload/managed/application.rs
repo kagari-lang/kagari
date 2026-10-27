@@ -118,7 +118,11 @@ impl<T: NativeData> NativeType<Managed<T>> {
 
 impl<T: NativeData, V> BoundField<T, V> {
     pub(crate) fn check(&self, native_type: &NativeType<Managed<T>>) -> NativeResult<()> {
-        if self.native_type.schema()?.matches(native_type.schema()?) {
+        self.check_schema(native_type.schema()?)
+    }
+
+    pub(crate) fn check_schema(&self, schema: &AppliedSchema) -> NativeResult<()> {
+        if self.native_type.schema()?.matches(schema) {
             Ok(())
         } else {
             Err(invalid())

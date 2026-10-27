@@ -1,4 +1,5 @@
 //! Numeric reductions retain the callback-free Vec path and checked arithmetic.
+use crate::collections::vector::scalar::with_argument_slice;
 use crate::foundation::{
     enumerations::value::EnumSymbols,
     iteration::traversal::{for_each, vec_argument},
@@ -86,7 +87,7 @@ fn scalar_vec_aggregate(
     macro_rules! integers {
         ($($kind:ident:$rust:ty),+) => {
             match kind {
-                $(BuiltinType::$kind => cx.with_sequence::<$rust, _>(0, |items| {
+                $(BuiltinType::$kind => with_argument_slice::<$rust, _>(cx, 0, |items| {
                     let mut result: $rust = if product {1} else {0};
                     for chunk in items.chunks(256) {
                         cx.poll()?;
@@ -97,12 +98,12 @@ fn scalar_vec_aggregate(
                     }
                     Ok(result.encode())
                 }),)+
-                BuiltinType::F32 => cx.with_sequence::<f32, _>(0, |items| {
+                BuiltinType::F32 => with_argument_slice::<f32, _>(cx, 0, |items| {
                     let mut result = if product {1.0} else {0.0};
                     for chunk in items.chunks(256) { cx.poll()?; for item in chunk { result = if product {result * item} else {result + item}; } }
                     Ok(Value::F32(result))
                 }),
-                BuiltinType::F64 => cx.with_sequence::<f64, _>(0, |items| {
+                BuiltinType::F64 => with_argument_slice::<f64, _>(cx, 0, |items| {
                     let mut result = if product {1.0} else {0.0};
                     for chunk in items.chunks(256) { cx.poll()?; for item in chunk { result = if product {result * item} else {result + item}; } }
                     Ok(Value::F64(result))

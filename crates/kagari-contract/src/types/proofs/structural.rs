@@ -53,7 +53,8 @@ impl ProofCatalog<'_> {
             _ if kind == Protocol::Display => return Ok(false),
             Ty::Host(_) => return Ok(kind == Protocol::Debug),
             Ty::Enum(_) if kind == Protocol::Debug => return Ok(true),
-            Ty::Struct(_) | Ty::NativeObject(_) | Ty::Map { .. } | Ty::Set(_, _) => {
+
+            Ty::Struct(_) | Ty::NativeObject(_) => {
                 return Ok(kind == Protocol::Debug);
             }
             Ty::Array(_) => return Ok(kind == Protocol::Debug),

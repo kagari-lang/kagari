@@ -6,9 +6,10 @@ license.workspace = true
 publish = false
 
 [features]
-diagnostics = ["kagari-runtime/execution-diagnostics"]
+diagnostics = ["kagari-runtime/execution-diagnostics", "kagari-stdlib/execution-diagnostics"]
 
 [dependencies]
+kagari-stdlib.workspace = true
 kagari-source.workspace = true
 kagari-bytecode.workspace = true
 kagari = { workspace = true, features = ["source", "native"] }

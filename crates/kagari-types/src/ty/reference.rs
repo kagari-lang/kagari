@@ -40,11 +40,8 @@ impl Ty {
                         pending.push(result);
                     }
                 }
-                Self::Array(item)
-                | Self::Set(item, _)
-                | Self::Iter(item)
-                | Self::Range(item, _) => pending.push(item),
-                Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Array(item) | Self::Iter(item) | Self::Range(item, _) => pending.push(item),
+
                 Self::Builtin(_) | Self::Host(_) | Self::Parameter { .. } | Self::SelfType(_) => {}
             }
         }
@@ -68,12 +65,10 @@ impl Ty {
             Self::Tuple(items) => items
                 .iter()
                 .all(|ty| !ty.contains_stored_reference() && ty.reference_position_valid_inner()),
-            Self::Array(item) | Self::Set(item, _) | Self::Iter(item) | Self::Range(item, _) => {
+            Self::Array(item) | Self::Iter(item) | Self::Range(item, _) => {
                 !item.contains_stored_reference() && item.reference_position_valid_inner()
             }
-            Self::Map { key, value, .. } => [key, value]
-                .iter()
-                .all(|ty| !ty.contains_stored_reference() && ty.reference_position_valid_inner()),
+
             Self::Struct(n) | Self::NativeObject(n) | Self::Enum(n) | Self::Trait(n) => n
                 .arguments
                 .iter()

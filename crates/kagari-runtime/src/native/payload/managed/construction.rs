@@ -102,7 +102,7 @@ impl<T: NativeData> ManagedBuilder<T> {
         if !self
             .native_type
             .schema()?
-            .matches(target.native_type.schema()?)
+            .matches(target.data.managed.as_ref().ok_or_else(invalid)?)
         {
             return Err(invalid());
         }

@@ -7,11 +7,19 @@ use kagari_hir::{
 };
 use kagari_runtime::{
     Runtime, RuntimeConfig,
+    frame::types::arguments::TypeArgument,
     gc::roots::RootedValue,
     module::entry::ProgramEntry,
     native::{
-        binding::NativeResult, builder::ModuleBuilder, context::CallContext,
-        declarations::FunctionDecl, module::NativeModule, types::Type, views::ValueHandle,
+        binding::NativeResult,
+        builder::ModuleBuilder,
+        context::CallContext,
+        conversion::{IntoKagari, context::ConversionContext},
+        declarations::FunctionDecl,
+        module::NativeModule,
+        objects::Object,
+        types::Type,
+        views::ValueHandle,
     },
     value::Value,
 };
@@ -23,7 +31,11 @@ use std::sync::{
 };
 use {
     kagari_stdlib as foundation,
-    kagari_stdlib::{catalog as foundation_catalog, declarations::StandardDeclarations},
+    kagari_stdlib::{
+        catalog as foundation_catalog,
+        collections::vector::{ScriptVec, VecValues},
+        declarations::StandardDeclarations,
+    },
 };
 
 mod library_mapping;
@@ -113,6 +125,7 @@ fn script_ord_is_selected_and_equal_elements_remain_stable() {
 struct Probe {
     module: NativeModule,
     retained: Arc<Mutex<Option<RootedValue>>>,
+    retained_type: Arc<Mutex<Option<TypeArgument>>>,
     calls: Arc<AtomicUsize>,
 }
 
@@ -126,6 +139,7 @@ impl Probe {
         )
         .unwrap();
         let retained = Arc::new(Mutex::new(None));
+        let retained_type = Arc::new(Mutex::new(None));
         let calls = Arc::new(AtomicUsize::new(0));
         let keep = module.define_function(FunctionDecl::new("keep")).unwrap();
         module
@@ -136,11 +150,13 @@ impl Probe {
             })
             .unwrap();
         let capture = retained.clone();
+        let capture_type = retained_type.clone();
         module
             .bind(
                 keep,
-                move |_cx: &mut CallContext<'_>, value: ValueHandle<'_>| -> NativeResult<()> {
+                move |cx: &mut CallContext<'_>, value: ValueHandle<'_>| -> NativeResult<()> {
                     *capture.lock().unwrap() = Some(value.root()?);
+                    *capture_type.lock().unwrap() = Some(cx.argument_type_argument(0)?);
                     Ok(())
                 },
             )
@@ -162,6 +178,7 @@ impl Probe {
         Self {
             module: module.finish().unwrap(),
             retained,
+            retained_type,
             calls,
         }
     }
@@ -198,25 +215,35 @@ fn comparator_failure_stops_callbacks_and_preserves_original_elements() {
     let vm = Vm::new(runtime);
     assert!(vm.execute(&loaded, ProgramEntry::Main).is_err());
     assert_eq!(probe.calls.load(Ordering::SeqCst), 3);
-    let Value::GcHandle(array) = probe
-        .retained
+    let retained = probe.retained.lock().unwrap().as_ref().unwrap().clone();
+    let retained_type = probe
+        .retained_type
         .lock()
         .unwrap()
         .as_ref()
         .unwrap()
-        .value(vm.runtime().gc())
+        .clone();
+    let vector: ScriptVec<Object> = ConversionContext::new(vm.runtime(), &loaded)
         .unwrap()
-    else {
-        panic!("array");
-    };
-    let values = vm.runtime().gc().sequence_snapshot(array).unwrap();
+        .decode_value(&retained_type, &retained.value(vm.runtime().gc()).unwrap())
+        .unwrap();
+    let values: VecValues<Object> = ConversionContext::new(vm.runtime(), &loaded)
+        .unwrap()
+        .decode_value(&retained_type, &retained.value(vm.runtime().gc()).unwrap())
+        .unwrap();
+    let mut conversion = ConversionContext::new(vm.runtime(), &loaded).unwrap();
     let mut keys = Vec::new();
     let mut visits = 0;
     for value in &values {
+        let argument = value.object_type().type_argument().clone();
+        let value = value
+            .clone()
+            .into_kagari(&mut conversion, &argument)
+            .unwrap();
         let Value::Struct(id) = value else {
             panic!("item");
         };
-        let (_, fields) = vm.runtime().gc().struct_snapshot(*id).unwrap();
+        let (_, fields) = vm.runtime().gc().struct_snapshot(id).unwrap();
         for field in fields {
             if field.name == "key" {
                 keys.push(field.value);
@@ -241,7 +268,13 @@ fn comparator_failure_stops_callbacks_and_preserves_original_elements() {
         visits, 3,
         "completed effects on referenced payloads survive failure"
     );
-    vm.runtime().gc().sequence_push(array, values[0]).unwrap();
+    vector
+        .push(&mut vm.context(&loaded).unwrap(), values[0].clone())
+        .unwrap();
+    drop(conversion);
+    drop(values);
+    drop(vector);
+    drop(retained);
     probe.retained.lock().unwrap().take();
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     assert_eq!(vm.runtime().gc().active_roots(), 0);
@@ -279,28 +312,23 @@ fn callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots() 
         let vm = Vm::new(runtime);
         let error = vm.execute(&loaded, ProgramEntry::Main).unwrap_err();
         assert!(
-            format!("{error:?}").contains("guarded callback"),
+            format!("{error:?}").contains("native operation protects receiver slots"),
             "{error:?}"
         );
-        let Value::GcHandle(array) = probe
-            .retained
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .value(vm.runtime().gc())
-            .unwrap()
-        else {
-            panic!("array");
-        };
+        let retained = probe.retained.lock().unwrap().as_ref().unwrap().clone();
         assert_eq!(
-            vm.runtime().gc().sequence_snapshot(array),
-            Some(vec![Value::I32(3), Value::I32(1), Value::I32(2)])
+            ConversionContext::new(vm.runtime(), &loaded)
+                .unwrap()
+                .decode::<VecValues<i32>>(&retained)
+                .unwrap()
+                .0,
+            vec![3, 1, 2]
         );
-        vm.runtime()
-            .gc()
-            .sequence_push(array, Value::I32(9))
+        let vector: ScriptVec<i32> = ConversionContext::new(vm.runtime(), &loaded)
+            .unwrap()
+            .decode(&retained)
             .unwrap();
+        vector.push(&mut vm.context(&loaded).unwrap(), 9).unwrap();
     }
 }
 

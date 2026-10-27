@@ -1,0 +1,75 @@
+// Fixed duplicate-heavy permutation; each of 32 keys occurs exactly n / 32 times.
+struct Item { val key: i32, val ordinal: i32 }
+struct State { val values: Vec<Item>, var calls: i32 }
+
+pub fn scalar_input(n: i32) -> Vec<i32> {
+    val values: Vec<i32> = Vec::new();
+    var i = 0;
+    while i < n { values.push((i * 73 + 19) % 32); i += 1; }
+    values
+}
+
+pub fn script_input(n: i32) -> State {
+    val values: Vec<Item> = Vec::new();
+    var i = 0;
+    while i < n {
+        values.push(Item { key: (i * 73 + 19) % 32, ordinal: i });
+        i += 1;
+    }
+    State { values, calls: 0 }
+}
+
+pub fn scalar_sort(values: Vec<i32>) -> i32 {
+    values.sort();
+    0
+}
+
+pub fn cheap_sort(state: State) -> i32 {
+    state.values.sort_by(|a, b| {
+        state.calls += 1;
+        a.key.cmp(b.key)
+    });
+    state.calls
+}
+
+pub fn allocating_sort(state: State) -> i32 {
+    state.values.sort_by(|a, b| {
+        state.calls += 1;
+        // A fresh script Vec and its input array on every comparison.
+        val pair = Vec::from([a.key, b.key]);
+        pair[0].cmp(pair[1])
+    });
+    state.calls
+}
+
+pub fn check_scalar(values: Vec<i32>, n: i32, calls: i32) -> i32 {
+    if values.len() != n as u64 || calls != 0 { return -1; }
+    var i = 0;
+    while i < n {
+        if values[i as u64] != i / (n / 32) { return -1; }
+        i += 1;
+    }
+    n
+}
+
+pub fn check_script(state: State, n: i32, calls: i32) -> i32 {
+    if state.values.len() != n as u64 || state.calls != calls || calls <= 0 {
+        return -1;
+    }
+    // Check the complete expected sequence, including original order within ties.
+    var position = 0u64;
+    var key = 0;
+    while key < 32 {
+        var ordinal = 0;
+        while ordinal < n {
+            if (ordinal * 73 + 19) % 32 == key {
+                val item = state.values[position];
+                if item.key != key || item.ordinal != ordinal { return -1; }
+                position += 1u64;
+            }
+            ordinal += 1;
+        }
+        key += 1;
+    }
+    position as i32
+}

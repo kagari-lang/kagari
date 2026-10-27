@@ -76,10 +76,17 @@ impl TypeArgument {
     pub(crate) fn identity(&self, fallback: &ExecutableModule) -> Option<Arc<TypeIdentity>> {
         // Arguments without origins contain no nominal layouts, so their identity
         // is independent of the fallback. Nominal arguments retain their own scope.
+        self.borrowed_identity(fallback).cloned()
+    }
+
+    pub(crate) fn borrowed_identity(
+        &self,
+        fallback: &ExecutableModule,
+    ) -> Option<&Arc<TypeIdentity>> {
         self.data
             .identity
             .get_or_init(|| self.view(fallback).identity().map(Arc::new))
-            .clone()
+            .as_ref()
     }
 
     pub(crate) fn matches_heap(
@@ -180,7 +187,6 @@ impl TypeArgument {
     }
 
     pub(crate) fn validate(&self, runtime: &Runtime) -> Result<(), RuntimeError> {
-        let table = runtime.definition_context().snapshot();
         if let Some(origin) = &self.data.origin
             && !origin.scope.owner.belongs_to(runtime.host.owner())
         {
@@ -188,9 +194,17 @@ impl TypeArgument {
                 "foreign type argument scope",
             ));
         }
+        // Builtin types contain no definition IDs. Their checked type facts are
+        // independent of an append-only definition table; provenance above still
+        // rejects a foreign supplying runtime before reusing that evidence.
+        if matches!(self.ty(), Ty::Builtin(_)) {
+            return Ok(());
+        }
         // Construction validates immutable type facts. The append-only runtime
-        // scope can reuse that evidence; foreign scopes still check every ID.
-        if table.id() != self.data.definitions.id() {
+        // scope can reuse that evidence without freezing another snapshot merely
+        // to read its stable identity; foreign scopes still check every ID.
+        if runtime.definition_context().id() != self.data.definitions.id() {
+            let table = runtime.definition_context().snapshot();
             self.data
                 .ty
                 .visit_definition_ids(
@@ -226,6 +240,12 @@ impl TypeArgument {
         value: &Value,
         owner: &ExecutableModule,
     ) -> Option<bool> {
+        if matches!(self.ty(), Ty::NativeObject(_)) {
+            return Some(match value {
+                Value::GcHandle(id) => heap.matches_native_argument(*id, self, owner),
+                _ => false,
+            });
+        }
         let admission = self.data.admission.get()?;
         Some(match value {
             Value::Struct(id) => heap
@@ -259,7 +279,6 @@ pub(crate) fn type_parameter(ty: &Ty, index: usize) -> Option<&Ty> {
         | Ty::Trait(nominal) => nominal.arguments.get(index),
         Ty::Tuple(items) => items.get(index),
         Ty::Array(item)
-        | Ty::Set(item, _)
         | Ty::Iter(item)
         | Ty::Range(item, _)
         | Ty::Reference { target: item, .. }
@@ -267,11 +286,7 @@ pub(crate) fn type_parameter(ty: &Ty, index: usize) -> Option<&Ty> {
         {
             Some(item)
         }
-        Ty::Map { key, value, .. } => match index {
-            0 => Some(key),
-            1 => Some(value),
-            _ => None,
-        },
+
         _ => None,
     }
 }
@@ -293,9 +308,9 @@ fn contains_scoped_nominal(ty: &Ty) -> bool {
                 pending.extend(&ty.arguments);
                 pending.extend(ty.associated_types.values());
             }
-            Ty::Array(ty) | Ty::Iter(ty) | Ty::Range(ty, _) | Ty::Set(ty, _) => pending.push(ty),
+            Ty::Array(ty) | Ty::Iter(ty) | Ty::Range(ty, _) => pending.push(ty),
             Ty::Reference { target, .. } => pending.push(target),
-            Ty::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+
             _ => {}
         }
     }

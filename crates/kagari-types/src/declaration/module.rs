@@ -543,10 +543,8 @@ fn supported_type(ty: &Ty, definitions: &DefinitionTable) -> Result<(), Declarat
     while let Some(ty) = pending.pop() {
         match ty {
             Ty::Builtin(_) | Ty::Parameter { .. } | Ty::SelfType(_) | Ty::Host(_) => {}
-            Ty::Array(item) | Ty::Set(item, _) | Ty::Range(item, _) | Ty::Iter(item) => {
-                pending.push(item)
-            }
-            Ty::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+            Ty::Array(item) | Ty::Range(item, _) | Ty::Iter(item) => pending.push(item),
+
             Ty::Tuple(items) => {
                 pending.extend(items);
             }

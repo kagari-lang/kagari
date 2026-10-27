@@ -8,49 +8,44 @@ use std::sync::{
 };
 use {
     kagari_runtime::{
-        error::RuntimeError,
         native::{
             binding::NativeResult,
             builder::ModuleBuilder,
             callable::{CallableHandle, StoredCallable},
             context::CallContext,
             declarations::{FunctionDecl, MethodDecl},
+            function_handle::Function,
             module::NativeModule,
             storage::{NativePayload, NativeStorage},
+            typed::NativeContext,
             types::Type,
+            value_handle::ScriptValue,
             views::ValueHandle,
         },
         resource::HeapCharge,
         value::Value,
     },
-    kagari_stdlib::declarations::StandardDeclarations,
+    kagari_stdlib::{
+        collections::vector::{ScriptVec, VecStorage},
+        declarations::StandardDeclarations,
+    },
 };
 
 fn fill(
-    cx: &mut CallContext<'_>,
-    count: usize,
-    callback: CallableHandle<'_>,
-) -> NativeResult<Value> {
-    let value = cx.allocate_result()?;
-    let output = cx
-        .heap()
-        .root_value(value)
-        .ok_or_else(|| RuntimeError::module_validation("output root"))?;
-    let Value::GcHandle(array) = output.value(cx.heap()).unwrap() else {
-        return Err(RuntimeError::module_validation("Vec output"));
-    };
+    cx: &mut NativeContext<'_>,
+    (count, callback): (usize, Function<(usize,), ScriptValue>),
+) -> NativeResult<ScriptVec<ScriptValue>> {
+    let ty = cx.result_native_type::<VecStorage>()?;
+    let item = cx.conversion().parameter(ty.type_argument(), 0)?;
+    let output = ScriptVec::create_with_type(cx, item, vec![])?;
+    let callback = callback.prepare_call(cx.runtime())?;
     for index in 0..count {
-        let value = callback.call_values(cx, &[Value::U64(index as u64)])?;
-        // Protect a heap result before any allocation or further script reentry.
-        let value = cx
-            .heap()
-            .root_value(value)
-            .ok_or_else(|| RuntimeError::module_validation("callback result root"))?;
+        let value: ScriptValue =
+            callback.call_with_options(cx, (index,), cx.runtime().execution_options())?;
         cx.collect_garbage()?;
-        cx.heap()
-            .sequence_push(array, value.value(cx.heap()).unwrap())?;
+        output.push(cx, value)?;
     }
-    Ok(output.value(cx.heap()).unwrap())
+    Ok(output)
 }
 
 pub fn module(drops: Arc<AtomicUsize>) -> NativeModule {

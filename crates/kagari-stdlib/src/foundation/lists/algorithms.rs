@@ -1,17 +1,23 @@
 //! Native list defaults share algorithms; Vec operates on its actual buffer.
 mod comparison;
 mod receivers;
-use {
-    crate::foundation::{
+#[cfg(panic = "unwind")]
+use crate::collections::vector::sort_scalar::try_sort_scalar;
+use crate::{
+    collections::vector::ScriptVec,
+    foundation::{
         enumerations::value::EnumSymbols,
+        iteration::traversal,
         lists::algorithms::{comparison::Comparison, receivers::ReceiverCalls},
     },
-    kagari_runtime::{
-        error::RuntimeError,
-        gc::HeapObjectId,
-        native::{binding::NativeResult, context::CallContext},
-        value::Value,
+};
+use kagari_runtime::{
+    error::RuntimeError,
+    native::{
+        binding::NativeResult, context::CallContext, typed::NativeContext,
+        value_handle::ScriptValue,
     },
+    value::Value,
 };
 
 #[derive(Clone, Copy)]
@@ -56,64 +62,75 @@ entries!(
 
 fn run(
     symbols: &EnumSymbols,
-    cx: &mut CallContext<'_>,
+    call: &mut CallContext<'_>,
     algorithm: Algorithm,
     copy: bool,
 ) -> NativeResult<Value> {
-    cx.poll()?;
-    let source = cx.argument(0)?;
-    let mut comparison = Comparison::prepare(cx, algorithm, symbols)?;
-    let concrete = matches!(source, Value::GcHandle(_));
+    call.poll()?;
+    let concrete = traversal::vec_argument(call)?.is_some();
+    // The scalar leaf uses unwind recovery for unordered floats. Abort targets
+    // must use the same ordinary fallible algorithm as collecting comparisons.
+    #[cfg(panic = "unwind")]
+    if concrete && !copy && matches!(algorithm, Algorithm::Sort) && try_sort_scalar(call)? {
+        return Ok(Value::Unit);
+    }
+    let mut cx = call.native_context()?;
+    let comparison = Comparison::prepare(call, &mut cx, algorithm, symbols)?;
     let operations = if concrete {
         None
     } else {
         Some(ReceiverCalls::prepare(
-            cx,
+            call,
+            &mut cx,
             usize::from(algorithm.comparison()),
             !copy,
         )?)
     };
-    let target = match source {
-        Value::GcHandle(id) if copy => cx.clone_sequence(id)?,
-        Value::GcHandle(id) => id,
-        _ => operations
-            .as_ref()
-            .ok_or_else(invalid)?
-            .snapshot(symbols, cx)?,
-    };
-    let _root = cx
-        .heap()
-        .root_value(Value::GcHandle(target))
-        .ok_or_else(invalid)?;
-    if !copy && let Some(operations) = &operations {
-        return edit_custom(cx, target, operations, algorithm, &mut comparison);
-    }
-    edit(cx, target, algorithm, &mut comparison)?;
-    Ok(if copy {
-        Value::GcHandle(target)
+    let target: ScriptVec<ScriptValue> = if concrete {
+        let source: ScriptVec<ScriptValue> = cx
+            .conversion()
+            .decode_value(&call.argument_type_argument(0)?, &call.argument(0)?)?;
+        if copy {
+            let item = cx
+                .conversion()
+                .parameter(&call.argument_type_argument(0)?, 0)?;
+            let target = ScriptVec::create_with_type(&mut cx, item, vec![])?;
+            source.for_each(&mut cx, |cx, value| target.push(cx, value))?;
+            target
+        } else {
+            source
+        }
     } else {
-        Value::Unit
-    })
+        operations.as_ref().ok_or_else(invalid)?.snapshot(&mut cx)?
+    };
+    if !copy && let Some(operations) = &operations {
+        edit_custom(&mut cx, &target, operations, algorithm, &comparison)?;
+    } else {
+        edit(&mut cx, &target, algorithm, &comparison)?;
+    }
+    if copy {
+        cx.conversion()
+            .encode_value(&call.result_type_argument()?, target)
+    } else {
+        Ok(Value::Unit)
+    }
 }
 
 fn edit(
-    cx: &mut CallContext<'_>,
-    target: HeapObjectId,
+    cx: &mut NativeContext<'_>,
+    target: &ScriptVec<ScriptValue>,
     algorithm: Algorithm,
-    comparison: &mut Comparison<'_, '_>,
+    comparison: &Comparison<'_, '_>,
 ) -> NativeResult<()> {
-    cx.edit_sequence(target, |cx, mut values| match algorithm {
-        Algorithm::Reverse => {
-            values.reverse();
-            Ok(())
-        }
-        Algorithm::Retain => values.retain(|value| comparison.keep(cx, value)),
-        Algorithm::Dedup => values.dedup_by(|a, b| comparison.equal(cx, a, b)),
+    match algorithm {
+        Algorithm::Reverse => target.reverse(cx),
+        Algorithm::Retain => target.retain(cx, |cx, value| comparison.keep(cx, value)),
+        Algorithm::Dedup => target.dedup_by(cx, |cx, a, b| comparison.equal(cx, a, b)),
         Algorithm::Distinct => {
-            let mut seen: Vec<Value> = Vec::new();
-            values.retain(|value| {
+            let mut seen: Vec<ScriptValue> = Vec::new();
+            target.retain(cx, |cx, value| {
                 for previous in &seen {
-                    if comparison.equal(cx, value, *previous)? {
+                    if comparison.equal(cx, value.clone(), previous.clone())? {
                         return Ok(false);
                     }
                 }
@@ -123,31 +140,30 @@ fn edit(
                 Ok(true)
             })
         }
-        Algorithm::Sort if comparison.sort_scalars(&mut values)? => Ok(()),
         Algorithm::Sort | Algorithm::SortBy | Algorithm::SortByKey => {
-            values.sort_by(|a, b| comparison.order(cx, a, b))
+            target.sort_retained(cx, |cx, a, b| comparison.order(cx, a, b))
         }
-    })
+    }
 }
 
 fn edit_custom(
-    cx: &mut CallContext<'_>,
-    target: HeapObjectId,
-    operations: &ReceiverCalls<'_>,
+    cx: &mut NativeContext<'_>,
+    target: &ScriptVec<ScriptValue>,
+    operations: &ReceiverCalls,
     algorithm: Algorithm,
-    comparison: &mut Comparison<'_, '_>,
-) -> NativeResult<Value> {
-    let length = cx.heap().sequence_len(target).ok_or_else(invalid)?;
+    comparison: &Comparison<'_, '_>,
+) -> NativeResult<()> {
+    let length = target.len(cx)?;
     if matches!(algorithm, Algorithm::Retain | Algorithm::Dedup) {
-        let mut previous: Option<Value> = None;
+        let mut previous: Option<ScriptValue> = None;
         let mut kept = 0;
         for index in 0..length {
             cx.poll()?;
-            let value = cx.heap().sequence_get(target, index).ok_or_else(invalid)?;
+            let value = target.get(cx, index)?.ok_or_else(invalid)?;
             let keep = if matches!(algorithm, Algorithm::Retain) {
-                comparison.keep(cx, value)?
+                comparison.keep(cx, value.clone())?
             } else if let Some(previous) = &previous {
-                !comparison.equal(cx, *previous, value)?
+                !comparison.equal(cx, previous.clone(), value.clone())?
             } else {
                 true
             };
@@ -162,14 +178,11 @@ fn edit_custom(
         edit(cx, target, algorithm, comparison)?;
         for index in 0..length {
             cx.poll()?;
-            operations.set(
-                cx,
-                index,
-                cx.heap().sequence_get(target, index).ok_or_else(invalid)?,
-            )?;
+            let value = target.get(cx, index)?.ok_or_else(invalid)?;
+            operations.set(cx, index, value)?;
         }
     }
-    Ok(Value::Unit)
+    Ok(())
 }
 
 fn invalid() -> RuntimeError {

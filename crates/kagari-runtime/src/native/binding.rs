@@ -47,17 +47,12 @@ pub enum Codec {
         declaration: DefinitionId,
         definitions: DefinitionTable,
     },
-    Sequence,
-    MutableSequence,
-    Map,
-    Set,
     Iterator,
     Callable,
 }
 
 impl Codec {
-    /// Both sequence codecs require a nominal storage declaration. Interface
-    /// values and builtin arrays cannot acquire a concrete sequence converter.
+    /// Receiver codecs must agree on their representation and nominal declaration.
     pub(crate) fn receiver_shape_matches(&self, method: &Self) -> bool {
         match (self, method) {
             (Self::Exact(left), Self::Exact(right)) => left.same_type(right),
@@ -71,10 +66,7 @@ impl Codec {
                     definitions: right_scope,
                 },
             ) => same_definition(*left, left_scope, *right, right_scope),
-            (Self::Sequence | Self::MutableSequence, Self::Sequence | Self::MutableSequence)
-            | (Self::Value, Self::Value)
-            | (Self::Map, Self::Map)
-            | (Self::Set, Self::Set)
+            (Self::Value, Self::Value)
             | (Self::Iterator, Self::Iterator)
             | (Self::Callable, Self::Callable) => true,
             _ => false,
@@ -109,18 +101,7 @@ impl Codec {
             } => {
                 matches!(ty, Ty::NativeObject(nominal) if same_definition(*declaration, source, nominal.declaration, definitions))
             }
-            Self::Sequence | Self::MutableSequence => {
-                matches!(ty, Ty::NativeObject(_))
-                    && matches!(layout, Some(NativeStorageLayout::Sequence { .. }))
-            }
-            Self::Map => {
-                matches!(ty, Ty::Map { .. })
-                    || matches!(layout, Some(NativeStorageLayout::Map { .. }))
-            }
-            Self::Set => {
-                matches!(ty, Ty::Set(_, _))
-                    || matches!(layout, Some(NativeStorageLayout::Set { .. }))
-            }
+
             Self::Callable => matches!(ty, Ty::Function { .. }),
             Self::Iterator => {
                 matches!(ty, Ty::Iter(_))

@@ -268,25 +268,17 @@ impl Builder<'_> {
                 self.inner.by_id[id.index()].fields = fields;
                 Ok(id)
             }
-            Ty::Array(element)
-            | Ty::Set(element, _)
-            | Ty::Iter(element)
-            | Ty::Range(element, _) => {
+            Ty::Array(element) | Ty::Iter(element) | Ty::Range(element, _) => {
                 let kind = match ty {
                     Ty::Array(_) => TypeKind::Array,
-                    Ty::Set(..) => TypeKind::Set,
+
                     _ => TypeKind::Struct,
                 };
                 let id = self.composite(ty, kind, fingerprint);
                 self.intern(element, depth + 1)?;
                 Ok(id)
             }
-            Ty::Map { key, value, .. } => {
-                let id = self.composite(ty, TypeKind::Map, fingerprint);
-                self.intern(key, depth + 1)?;
-                self.intern(value, depth + 1)?;
-                Ok(id)
-            }
+
             Ty::Function { params, result } => {
                 let id = self.composite(ty, TypeKind::Function, fingerprint);
                 for param in params {

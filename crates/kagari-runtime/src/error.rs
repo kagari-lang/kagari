@@ -149,7 +149,7 @@ impl RuntimeError {
         )
     }
 
-    pub(crate) fn at_conversion(mut self, location: impl fmt::Display) -> Self {
+    pub fn at_conversion(mut self, location: impl fmt::Display) -> Self {
         self.message = format!("{location}: {}", self.message);
         self
     }

@@ -21,7 +21,6 @@ impl Runtime {
         applied: &'a TypeArgument,
         member: &str,
     ) -> NativeResult<&'a PreparedEnumMember> {
-        self.validate_executable_module(fallback)?;
         applied.validate(self)?;
         applied
             .prepared_variants(|| self.prepare_enum_variants(fallback, applied))?
@@ -36,6 +35,7 @@ impl Runtime {
         applied: &TypeArgument,
         member: &str,
     ) -> NativeResult<EnumVariantRef> {
+        self.validate_executable_module(fallback)?;
         self.declared_enum_member(fallback, applied, member)
             .map(|prepared| prepared.layout().clone())
     }
@@ -74,6 +74,18 @@ impl Runtime {
         applied: &TypeArgument,
         variant: &VariantRef,
     ) -> NativeResult<EnumVariantRef> {
+        self.validate_executable_module(owner)?;
+        self.enum_variant_in_scope(owner, applied, variant)
+    }
+
+    // The caller authenticates and retains owner before entering this shared
+    // member/type validation. CallContext carries that proof from call admission.
+    fn enum_variant_in_scope(
+        &self,
+        owner: &ExecutableModule,
+        applied: &TypeArgument,
+        variant: &VariantRef,
+    ) -> NativeResult<EnumVariantRef> {
         let identity = variant
             .definitions()
             .resolve(variant.id())
@@ -97,8 +109,12 @@ impl CallContext<'_> {
         applied: &TypeArgument,
         variant: &VariantRef,
     ) -> NativeResult<EnumVariantRef> {
+        // Every production context borrows an authenticated frame or selected
+        // call owner. Reentry cannot retire that active owner. Dynamic execution
+        // state still needs checking, as do applied types and member identities.
+        self.runtime.resources().ensure_execution_allowed()?;
         self.runtime
-            .checked_enum_variant(self.owner, applied, variant)
+            .enum_variant_in_scope(self.owner, applied, variant)
     }
 
     /// Allocate an ordinary registered enum in its checked, pinned type scope.

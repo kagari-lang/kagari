@@ -1,4 +1,5 @@
 //! Native stdlib contracts keep wide script indices until the storage boundary.
+use crate::collections::vector::VecValues;
 use crate::tests::runtime_boundary::support::{compile_program, native::invoke::invoke};
 use kagari_runtime::{
     Runtime,
@@ -55,7 +56,7 @@ fn slice(value: String, start: u64, end: u64) -> String { value.slice(start, end
 fn wide_collection_indices_preserve_absence_traps_and_mutation() {
     let (runtime, owner, slots) = fixture();
     let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
-    let values = cx.encode(vec![1u64 << 32]).unwrap();
+    let values = cx.encode(VecValues(vec![1u64 << 32])).unwrap();
     let value = values.value(runtime.gc()).unwrap();
     let array = runtime
         .alloc_array(
@@ -97,7 +98,10 @@ fn wide_collection_indices_preserve_absence_traps_and_mutation() {
             .unwrap_err();
             assert_eq!(error.kind(), RuntimeErrorKind::IndexOutOfBounds);
             assert!(error.to_string().contains(&index.to_string()));
-            assert_eq!(cx.decode::<Vec<u64>>(&values).unwrap(), [1u64 << 32]);
+            assert_eq!(
+                cx.decode::<VecValues<u64>>(&values).unwrap().0,
+                [1u64 << 32]
+            );
         }
     }
     let result = invoke(
@@ -117,13 +121,13 @@ fn wide_collection_indices_preserve_absence_traps_and_mutation() {
     .unwrap();
     assert_eq!(result, value);
     assert_eq!(
-        cx.decode::<Vec<u64>>(&values).unwrap(),
+        cx.decode::<VecValues<u64>>(&values).unwrap().0,
         [1u64 << 32, 42, 43]
     );
     let result = invoke(&runtime, &owner, slots["remove"], &[value, Value::U64(0)]).unwrap();
     let result = runtime.root_value(result).unwrap();
     assert_eq!(cx.decode::<Option<u64>>(&result).unwrap(), Some(1u64 << 32));
-    assert_eq!(cx.decode::<Vec<u64>>(&values).unwrap(), [42, 43]);
+    assert_eq!(cx.decode::<VecValues<u64>>(&values).unwrap().0, [42, 43]);
 }
 
 #[test]

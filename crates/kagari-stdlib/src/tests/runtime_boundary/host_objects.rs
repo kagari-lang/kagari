@@ -1,3 +1,4 @@
+use crate::collections::vector::{ScriptVec, VecValues};
 use kagari_bytecode::{artifact::KbcArtifact, program::BytecodeProgram};
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
@@ -11,7 +12,6 @@ use kagari_runtime::{
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
-        collections::vector::ScriptVec,
         conversion::{IntoKagari, KagariType, context::ConversionContext},
         module::NativeModule,
         objects::{Object, ObjectType},
@@ -352,7 +352,7 @@ fn nested_dynamic_handles_store_heap_edges_and_cycles_are_collectible() {
         .bind_type(&_owner_program.root(), "Bag", &[])
         .unwrap();
     let items = runtime
-        .bind_field::<Vec<Option<Object>>>(&bag_type, "items")
+        .bind_field::<VecValues<Option<Object>>>(&bag_type, "items")
         .unwrap();
     let pair = runtime
         .bind_field::<(Object, i32)>(&bag_type, "pair")
@@ -374,7 +374,7 @@ fn nested_dynamic_handles_store_heap_edges_and_cycles_are_collectible() {
     node.set(&mut cx, &next, Some(node.clone())).unwrap();
     let mut builder = bag_type.builder().unwrap();
     builder
-        .set(&mut cx, &items, vec![Some(node.clone()), None])
+        .set(&mut cx, &items, VecValues(vec![Some(node.clone()), None]))
         .unwrap();
     builder.set(&mut cx, &pair, (node.clone(), 42)).unwrap();
     let bag = builder.build(&mut cx).unwrap();
@@ -405,7 +405,7 @@ fn collection_handles_preserve_identity_access_and_traversal_invalidation() {
     let _owner_program = owner;
     let owner = runtime.select_program(&_owner_program).unwrap();
     let mut cx = NativeContext::new(&runtime, &owner).unwrap();
-    let values = cx.create_vec(vec![1i32, 2, 3]).unwrap();
+    let values = ScriptVec::create(&mut cx, vec![1i32, 2, 3]).unwrap();
     let alias = values.clone();
     let readonly = values.read_only();
     values.set(&mut cx, 0, 10).unwrap();
@@ -416,7 +416,7 @@ fn collection_handles_preserve_identity_access_and_traversal_invalidation() {
     assert_eq!(readonly.get(&mut cx, 0).unwrap(), Some(10));
     assert!(readonly.push(&mut cx, 5).is_err());
     assert!(readonly.set(&mut cx, 0, 5).is_err());
-    assert!(readonly.clear(&cx).is_err());
+    assert!(readonly.clear(&mut cx).is_err());
     assert_eq!(values.get(&mut cx, 99).unwrap(), None);
     let mut seen = Vec::new();
     values
@@ -446,7 +446,7 @@ fn collection_handles_preserve_identity_access_and_traversal_invalidation() {
     assert_eq!(values.get(&mut cx, 3).unwrap(), Some(99));
     // Callback failure and invalidation do not roll back completed edits.
     alias.push(&mut cx, 4).unwrap();
-    values.truncate(&cx, 1).unwrap();
+    values.truncate(&mut cx, 1).unwrap();
     assert_eq!(alias.len(&cx).unwrap(), 1);
     drop(alias);
     drop(values);
@@ -471,9 +471,9 @@ fn collection_removals_return_retained_objects_and_reject_readonly_widening() {
     let mut builder = node_type.builder().unwrap();
     builder.set(&mut cx, &next, None).unwrap();
     let node = builder.build(&mut cx).unwrap();
-    let values = cx
-        .create_vec_with_type(node_type.type_argument().clone(), vec![node])
-        .unwrap();
+    let values =
+        ScriptVec::create_with_type(&mut cx, node_type.type_argument().clone(), vec![node])
+            .unwrap();
     let read = values.pop(&mut cx).unwrap().unwrap();
     runtime.collect_garbage().unwrap();
     assert!(read.get(&mut cx, &next).unwrap().is_none());
@@ -487,11 +487,11 @@ fn collection_removals_return_retained_objects_and_reject_readonly_widening() {
         .bind_field::<(Object, i32)>(&bag_type, "pair")
         .unwrap();
     let option_node = runtime
-        .bind_field::<Vec<Option<Object>>>(&bag_type, "items")
+        .bind_field::<VecValues<Option<Object>>>(&bag_type, "items")
         .unwrap();
     let mut builder = bag_type.builder().unwrap();
     builder
-        .set(&mut cx, &option_node, vec![Some(read.clone())])
+        .set(&mut cx, &option_node, VecValues(vec![Some(read.clone())]))
         .unwrap();
     builder.set(&mut cx, &pair, (read.clone(), 1)).unwrap();
     let bag = builder.build(&mut cx).unwrap();
@@ -527,7 +527,7 @@ fn typed_handles_and_bindings_move_with_exclusive_runtime_ownership() {
         let mut cx = NativeContext::new(&runtime, &owner).unwrap();
         (
             player(&mut cx, &ty, 42),
-            cx.create_vec(vec![1i32, 2]).unwrap(),
+            ScriptVec::create(&mut cx, vec![1i32, 2]).unwrap(),
         )
     };
     thread::spawn(move || {

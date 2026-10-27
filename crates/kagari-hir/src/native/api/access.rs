@@ -12,7 +12,6 @@ use crate::{
 };
 use kagari_common::identity::table::DefinitionTable;
 use kagari_types::{
-    collection::CollectionAccess,
     declaration::module::{DeclarationError, ModuleDecl},
     ty::{GenericBound, NominalTy, Ty},
 };
@@ -163,27 +162,13 @@ fn attach_occurrences(
 ) -> Result<(), DeclarationError> {
     let invalid = || DeclarationError("registered concrete access correspondence".into());
     while let Some((id, ty)) = pending.pop() {
-        if matches!(
-            ty,
-            Ty::Map {
-                access: CollectionAccess::ReadOnly,
-                ..
-            } | Ty::Set(_, CollectionAccess::ReadOnly)
-        ) {
-            lowered.native_readonly_types.insert(id);
-        }
         let syntax = &lowered.module.type_ref(id).kind;
         let mut children: Vec<(TypeRefId, Ty)> = Vec::new();
         match (syntax, ty) {
-            (TypeKind::Generic { args, .. }, Ty::Map { key, value, .. }) => {
-                children.extend(args.iter().copied().zip([*key, *value]));
-            }
-            (
-                TypeKind::Generic { args, .. },
-                Ty::Set(item, _) | Ty::Iter(item) | Ty::Range(item, _),
-            ) => {
+            (TypeKind::Generic { args, .. }, Ty::Iter(item) | Ty::Range(item, _)) => {
                 children.extend(args.iter().copied().zip([*item]));
             }
+
             (
                 TypeKind::Generic { args, bindings, .. },
                 Ty::NativeObject(nominal) | Ty::Trait(nominal) | Ty::Enum(nominal),

@@ -4,18 +4,11 @@ use crate::ty::{
     substitution::{MAX_TYPE_NODES, TypeSubstitution},
 };
 
-use crate::{collection::CollectionAccess, reference::ReferenceAccess};
+use crate::reference::ReferenceAccess;
 use kagari_common::cancellation::CancellationToken;
 use std::collections::HashSet;
 
 impl Ty {
-    pub fn collection_access(&self) -> Option<CollectionAccess> {
-        match self {
-            Self::Set(_, access) | Self::Map { access, .. } => Some(*access),
-            _ => None,
-        }
-    }
-
     /// Weaken only the outer host/storage descriptor; element types remain invariant.
     /// Ordinary trait relationships are independent of this concrete-family rule.
     pub fn read_only_view(&self) -> Option<Self> {
@@ -24,12 +17,7 @@ impl Ty {
                 target: target.clone(),
                 access: ReferenceAccess::Shared,
             },
-            Self::Set(item, _) => Self::Set(item.clone(), CollectionAccess::ReadOnly),
-            Self::Map { key, value, .. } => Self::Map {
-                key: key.clone(),
-                value: value.clone(),
-                access: CollectionAccess::ReadOnly,
-            },
+
             _ => return None,
         })
     }
@@ -48,23 +36,7 @@ impl Ty {
         {
             return source == target;
         }
-        if self.collection_access() != Some(CollectionAccess::Mutable)
-            || target.collection_access() != Some(CollectionAccess::ReadOnly)
-        {
-            return false;
-        }
-        match (self, target) {
-            (Self::Set(a, _), Self::Set(b, _)) => a == b,
-            (
-                Self::Map {
-                    key: ak, value: av, ..
-                },
-                Self::Map {
-                    key: bk, value: bv, ..
-                },
-            ) => ak == bk && av == bv,
-            _ => false,
-        }
+        false
     }
 }
 
@@ -124,7 +96,10 @@ mod tests {
     #[test]
     fn weakening_is_outer_only_and_does_not_change_storage_families() {
         let item: Ty = Ty::Builtin(BuiltinType::I32);
-        let mutable = Ty::Set(Box::new(item.clone()), CollectionAccess::Mutable);
+        let mutable = Ty::Reference {
+            target: Box::new(item.clone()),
+            access: ReferenceAccess::Mutable,
+        };
         let readonly = mutable.read_only_view().unwrap();
         assert!(mutable.can_weaken_to(&readonly));
         assert!(!readonly.can_weaken_to(&mutable));

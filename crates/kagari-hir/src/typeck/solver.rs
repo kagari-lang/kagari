@@ -208,8 +208,6 @@ impl Solver {
                         ) => a.len() == b.len(),
                         (TypeId::Range(_, a), TypeId::Range(_, b)) => a == b,
                         (TypeId::Array(..), TypeId::Array(..))
-                        | (TypeId::Set(..), TypeId::Set(..))
-                        | (TypeId::Map { .. }, TypeId::Map { .. })
                         | (TypeId::Iter(_), TypeId::Iter(_)) => true,
                         // Projections are not injective. Only the ordinary
                         // associated-type normalizer may reduce them.

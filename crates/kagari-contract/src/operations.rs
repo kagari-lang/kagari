@@ -61,7 +61,8 @@ impl IterOp {
             }
             Self::New => match ty {
                 Ty::Range(_, kind) if kind.has_start() => ValueType::HeapObject,
-                Ty::Array(_) | Ty::Map { .. } | Ty::Set(_, _) => ValueType::HeapObject,
+
+                Ty::Array(_) => ValueType::HeapObject,
                 Ty::Builtin(BuiltinType::String) => ValueType::Str,
                 _ => return None,
             },
@@ -150,10 +151,7 @@ impl StringIterKind {
 /// Whether the static script type exposes object identity. Generic arguments
 /// do not change a known object's category; interfaces hide that category.
 pub fn object_identity_type(ty: &Ty) -> bool {
-    matches!(
-        ty,
-        Ty::Struct(_) | Ty::NativeObject(_) | Ty::Array(_) | Ty::Map { .. } | Ty::Set(_, _)
-    )
+    matches!(ty, Ty::Struct(_) | Ty::NativeObject(_) | Ty::Array(_))
 }
 
 #[cfg(test)]

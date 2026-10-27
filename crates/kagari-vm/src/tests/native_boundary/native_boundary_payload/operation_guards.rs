@@ -1,14 +1,25 @@
 //! Safe native facades must not bypass a receiver's central operation protection.
 use crate::tests::native_boundary::native_boundary_functions::fixture;
-use kagari_contract::operations::IterOp;
+use kagari_common::identity::DefinitionKind;
 use kagari_runtime::{
     native::{
-        binding::NativeResult, builder::ModuleBuilder, context::CallContext,
-        declarations::FunctionDecl, types::Type, views::ValueHandle,
+        binding::NativeResult,
+        builder::ModuleBuilder,
+        context::CallContext,
+        declarations::FunctionDecl,
+        function_handle::Function,
+        payload::Opaque,
+        typed::NativeContext,
+        types::Type,
+        views::{NativeOperationKind, ValueHandle},
     },
     value::Value,
 };
-use kagari_stdlib::declarations::StandardDeclarations;
+use kagari_stdlib::{
+    collections::vector::{ScriptVec, cursor::VecCursor},
+    declarations::StandardDeclarations,
+    identity,
+};
 
 #[test]
 fn safe_sequence_and_iterator_facades_respect_exclusive_operations() {
@@ -24,19 +35,19 @@ fn safe_sequence_and_iterator_facades_respect_exclusive_operations() {
         .bind(
             sequence,
             |cx: &mut CallContext<'_>, values: ValueHandle<'_>| -> NativeResult<Value> {
-                let Value::GcHandle(id) = values.value() else {
-                    panic!("sequence")
-                };
+                let mut native = cx.native_context()?;
+                let vector: ScriptVec<i32> = native
+                    .conversion()
+                    .decode_value(&cx.argument_type_argument(0)?, &values.value())?;
                 let guard = values.try_enter_operation()?.unwrap();
                 assert!(cx.heap().validate_value(&values.value()));
-                assert_eq!(cx.heap().sequence_len(id), None);
-                assert_eq!(cx.heap().sequence_get(id, 0), None);
-                assert_eq!(cx.heap().sequence_snapshot(id), None);
-                assert!(cx.heap().sequence_set(id, 0, Value::I32(99)).is_err());
+                assert!(vector.len(&native).is_err());
+                assert!(vector.get(&mut native, 0).is_err());
+                assert!(vector.set(&mut native, 0, 99).is_err());
                 drop(guard);
                 assert_eq!(
-                    cx.heap().sequence_snapshot(id),
-                    Some(vec![Value::I32(10), Value::I32(20)])
+                    vector.with_slice::<i32, _>(&native, |values| Ok(values.to_vec()))?,
+                    [10, 20]
                 );
                 Ok(Value::Unit)
             },
@@ -45,22 +56,40 @@ fn safe_sequence_and_iterator_facades_respect_exclusive_operations() {
     let iterator = module
         .define_function(
             FunctionDecl::new("iterator")
-                .parameter("cursor", language.collection_cursor(Type::i32()).unwrap())
+                .parameter(
+                    "cursor",
+                    language
+                        .catalog()
+                        .unwrap()
+                        .type_reference(&identity::type_id(
+                            "VecCursor",
+                            DefinitionKind::AssociatedType,
+                        ))
+                        .unwrap()
+                        .apply([Type::i32()])
+                        .unwrap(),
+                )
+                .parameter(
+                    "next",
+                    Type::function([], language.option(Type::i32()).unwrap()).unwrap(),
+                )
                 .returns(language.option(Type::i32()).unwrap()),
         )
         .unwrap();
-    let option = StandardDeclarations::enumeration("Option").unwrap();
-    let some = option.variant("Some").unwrap();
-    let none = option.variant("None").unwrap();
     module
         .bind(
             iterator,
-            move |cx: &mut CallContext<'_>, cursor: ValueHandle<'_>| -> NativeResult<Value> {
-                let guard = cursor.try_enter_operation()?.unwrap();
-                assert!(cx.iter_operation(0, IterOp::Next).is_err());
-                assert!(cx.iterator_next_result(0, &some, &none).is_err());
+            |cx: &mut NativeContext<'_>,
+             (cursor, next): (Opaque<VecCursor>, Function<(), Option<i32>>)|
+             -> NativeResult<Option<i32>> {
+                // SAFETY: This test makes no payload edit and needs no recovery state.
+                let guard = unsafe {
+                    cursor.try_enter_operation(cx, NativeOperationKind::ExclusiveSlots, None)?
+                }
+                .unwrap();
+                assert!(next.call(cx, ()).is_err());
                 drop(guard);
-                cx.iterator_next_result(0, &some, &none)
+                next.call(cx, ())
             },
         )
         .unwrap();
@@ -71,7 +100,7 @@ fn safe_sequence_and_iterator_facades_respect_exclusive_operations() {
             val values = Vec::from([10, 20]);
             sequence(values);
             val cursor = values.iter();
-            (iterator(cursor), cursor.next())
+            (iterator(cursor, || cursor.next()), cursor.next())
         }
     "#,
         Some(&module.finish().unwrap()),

@@ -5,11 +5,14 @@ activated at `50ab194b30b0218e9befe3176d6b5711ecf17a28`, 2026-10-26. The user au
 the joint PG00-PG06/NC migration with one commit per PG phase. PG00/NC01 is committed
 at `47be3cb7`; PG01/NC02's general protocol and external proof are locally complete
 after coordinated final validation (PG01 commit `fc651b92`). PG02 physical storage
-is locally complete; standard collection migration follows at PG03. The
+is locally complete at `4d8aa0c1`. PG03/NC03-NC04 is locally complete in the worktree
+after final independent review, focused contracts, selected paired gates and parent
+local checks. The finite removal inventory below is closed; PG04 is next, not a claim
+of NC05/NC06 or incremental acceptance. The
 [roadmap](implementation-roadmap.md#library-owned-native-collections) owns sequencing;
 this plan owns NC01-NC06, the selected Native contracts and the collection ledger.
-General provider APIs below are implemented; later collection algorithms and
-incremental mechanisms remain requirements, not completed capabilities. The [PG00 baseline](paged-incremental-gc-design.md#pg00-contract-closure-and-baseline)
+General provider APIs and standard collection algorithms below are implemented;
+incremental mechanisms and interleaved acceptance remain future work. The [PG00 baseline](paged-incremental-gc-design.md#pg00-contract-closure-and-baseline)
 owns shared measurements, frozen gates and actual local validation.
 
 Storage inventory refresh, 2026-10-18: the prioritized
@@ -116,27 +119,28 @@ Future, Task and TaskScope representations are not migration targets.
 Planning baseline: `9cd90557`, after the five Iterable commits following
 `35de1818`. Iterable APIs are implemented and locally accepted; the roadmap records
 the remaining CI gap, while current contracts live in the specifications.
-The activation audit rechecked implementation at `50ab194b`; NC01 is locally complete
-and NC02-NC06 implementation has not started. Reuse the completed Iterable work.
+The activation audit rechecked implementation at `50ab194b`; NC01/NC02 are locally
+complete. The table records the historical coupling that PG03 removes, not current
+runtime collection ownership. Reuse the completed Iterable work.
 
-| Current owner | Evidence and disposition |
+| Activation boundary / surviving owner | Historical evidence and disposition |
 | --- | --- |
-| [Vec declarations](../crates/kagari-stdlib/src/foundation/vector.rs), [hash declarations](../crates/kagari-stdlib/src/foundation/hash.rs) | Vec is nominal but declares Sequence storage; HashMap/HashSet still use special native constructors. Move all three to ordinary native declarations. |
-| [Shared native declarations](../crates/kagari-types/src/declaration/native.rs), [HIR application](../crates/kagari-hir/src/native.rs) | Collection constructor/layout variants leak implementation families into semantic modeling. Remove these dependencies coherently rather than rename them. |
+| [Vec declarations](../crates/kagari-stdlib/src/foundation/vector.rs), [hash declarations](../crates/kagari-stdlib/src/foundation/hash.rs) | Vec was nominal but declared Sequence storage; HashMap/HashSet used special native constructors. PG03 replaces all three with ordinary native declarations. |
+| [Shared native declarations](../crates/kagari-types/src/declaration/native.rs), [HIR application](../crates/kagari-hir/src/native.rs) | Collection constructor/layout variants leaked implementation families into semantic modeling. PG03 removes these dependencies rather than renaming them. |
 | [Heap directory](../crates/kagari-runtime/src/gc/directory.rs), [shared interfaces](../crates/kagari-runtime/src/gc/interfaces.rs) | The directory owns generation/locator; native records own mutation revisions. Interfaces locate metadata snapshots directly, preserving distinct checked heap/metadata identities and roots; shared descriptions do not own receivers. Packed script fields do not reinterpret Rust payload memory. No public raw arena/ownerless-token API was added. |
 | [Native storage](../crates/kagari-runtime/src/native/storage.rs), [type builder](../crates/kagari-runtime/src/native/builder/type_builder.rs) | Factories, payload bindings, tracing and scoped type arguments already exist. Native revision initialization/reset/replacement/exhaustion has one runtime owner; the selected NC01 contract extends checked public mutation access at NC02. Extend these owners only for proven gaps. |
 | [Managed fields](../crates/kagari-runtime/src/native/payload/managed/mod.rs), [fixed native data](../crates/kagari-runtime/src/native/payload/data.rs) | Safe edits separate fixed Rust data from checked script edges. Dynamic storage must preserve that boundary; arbitrary mutable payload access is not a solution. |
-| [Sequences](../crates/kagari-runtime/src/native/sequence.rs), [hash payloads](../crates/kagari-runtime/src/native/hashed.rs), [tables](../crates/kagari-runtime/src/native/hash_storage.rs) | Runtime owns concrete storage and optimizations. Relocate collection policy while preserving useful storage foundations and checks. |
-| [Hash operations](../crates/kagari-stdlib/src/foundation/hash/operations.rs), [codecs](../crates/kagari-runtime/src/native/binding.rs) | Methods depend on special value tags, heap operations and layout admission. Replace these with checked nominal access. |
+| Former runtime sequence/hashed/hash_storage modules; now [stdlib collections](../crates/kagari-stdlib/src/collections.rs) | Runtime owned concrete storage and optimizations. PG03 relocates policy while preserving generic checks. |
+| [Hash operations](../crates/kagari-stdlib/src/foundation/hash/operations.rs), [codecs](../crates/kagari-runtime/src/native/binding.rs) | Methods depended on special value tags, heap operations and layout admission. PG03 replaces these with checked nominal access. |
 | [Iterable declarations/defaults](../crates/kagari-stdlib/src/foundation/iteration.rs), [shared default lowerer](../crates/kagari-runtime/src/native/builder/default_lowering.rs), [operations](../crates/kagari-stdlib/src/foundation/iteration/operations.rs), [lazy cursors](../crates/kagari-stdlib/src/foundation/iteration/cursor.rs) | Uniform defaults, Iterator identity adaptation and nominal lazy adapters are implemented. Reuse these algorithms and checked iter/next calls; the old Vec-only free map and NativeCursor SDK were removed. |
-| [Call context](../crates/kagari-runtime/src/native/context.rs), [stored selections](../crates/kagari-runtime/src/native/stored_selection.rs) | Payload allocation retains selected calls as metadata edges and later invokes them through the rooted receiver. Reuse this mechanism for collection key calls; public constructor/factory ergonomics still need NC01 review. |
-| [Vec construction/requirements](../crates/kagari-stdlib/src/foundation/vector.rs), [hash construction/requirements](../crates/kagari-stdlib/src/foundation/hash.rs), [Vec operations](../crates/kagari-stdlib/src/foundation/vector/operations.rs), [shared construction traversal](../crates/kagari-stdlib/src/foundation/iteration/traversal.rs) | Vec/HashMap/HashSet FromIterator and collect delegation already work. Hash construction selects insert, but still declares Ty::Map/Set and branches on Value::Map; migrate representation without replacing consumption semantics. |
-| [Base cursors](../crates/kagari-runtime/src/gc/iter.rs) | Cursors check structural revisions on reads; wrappers retain ordinary traced edges, without iteration leases or consumer-scope traversal. Revision ownership for general library storage remains a native storage boundary. |
+| [Call context](../crates/kagari-runtime/src/native/context.rs), [stored selections](../crates/kagari-runtime/src/native/stored_selection.rs) | Payload allocation retains selected calls as metadata edges and later invokes them through the rooted receiver. PG03 reuses this mechanism for collection key calls through the reviewed generic creation boundary. |
+| [Vec construction/requirements](../crates/kagari-stdlib/src/foundation/vector.rs), [hash construction/requirements](../crates/kagari-stdlib/src/foundation/hash.rs), [Vec operations](../crates/kagari-stdlib/src/foundation/vector/operations.rs), [shared construction traversal](../crates/kagari-stdlib/src/foundation/iteration/traversal.rs) | Vec/HashMap/HashSet FromIterator and collect delegation already work. Hash construction selected insert but declared Ty::Map/Set and branched on Value::Map; PG03 removes these representations without replacing consumption semantics. |
+| [Library vector cursor](../crates/kagari-stdlib/src/collections/vector/cursor.rs) and hash cursors | PG03 replaces concrete runtime cursors with nominal traced payloads. Reads check structural revisions without iteration leases or consumer-scope traversal. |
 
-Today map insertion passes through Value::Map and GcHeap map operations into a
-runtime-owned table. That path also enforces key/value typing, allocation
+At activation, map insertion passed through Value::Map and GcHeap map operations
+into a runtime-owned table. That path also enforced key/value typing, allocation
 admission, custom Hash/Eq calls, lookup guards and mutation commits. Vec similarly
-uses runtime sequence operations despite its nominal identity. These are real
+used runtime sequence operations despite its nominal identity. These are real
 responsibilities, not removable overhead.
 
 The defect is coupling those responsibilities to concrete container families.
@@ -146,25 +150,21 @@ current code. This migration makes no unmeasured performance claim.
 
 ### Finite removal inventory
 
-This inventory identifies concrete policy to move/remove, not whole files to delete.
-NC01 checks its consumers against the activation baseline; NC03/NC04 migrate them
-and NC06 closes every row, preserving the generic validation each currently owns.
+All rows are closed and locally accepted after final independent review of the
+PG03 worktree based on `4d8aa0c1`. This is not NC06/CI completion.
 
-| Existing source boundary | Required disposition |
+| Removed privilege | Current owner / preserved boundary |
 | --- | --- |
-| [sequence payload](../crates/kagari-runtime/src/native/sequence.rs), [allocation](../crates/kagari-runtime/src/native/sequence/allocation.rs), [heap operations](../crates/kagari-runtime/src/gc/sequence_ops.rs), [sequence admission](../crates/kagari-runtime/src/gc/sequences.rs) | Move Vec representation, scalar selection and operations into the library; remove Sequence as privileged Vec admission. |
-| [edit API](../crates/kagari-runtime/src/native/sequence_edit.rs), [edit lease/snapshot](../crates/kagari-runtime/src/gc/sequence_edit.rs) | Replace concrete detached-buffer policy and the full reference-root snapshot with generic protection/publication services and library-owned algorithms; do not preserve the snapshot as sort admission. |
-| [hashed payloads](../crates/kagari-runtime/src/native/hashed.rs), [hash_storage](../crates/kagari-runtime/src/native/hash_storage.rs), [custom_keys](../crates/kagari-runtime/src/gc/custom_keys.rs) | Move table layout, collision traversal, key policy and concrete operations into the library; reuse checked selected calls and general operation protection. |
-| [concrete cursors](../crates/kagari-runtime/src/gc/iter.rs) | Replace Vec/Map/Set cursor variants and concrete heap traversal with nominal library cursors; retain unrelated builtin cursor support. |
-| [Ty](../crates/kagari-types/src/ty.rs), [Value](../crates/kagari-runtime/src/value.rs), [constructors/layouts](../crates/kagari-types/src/declaration/native.rs), [HIR mapping](../crates/kagari-hir/src/native/api.rs), [compiler mapping](../crates/kagari-compiler/src/source/types.rs) | Remove concrete Map/Set families and collection constructor/layout authority, including substitution, checking and formatting consumers. |
-| [type wire](../crates/kagari-types/src/ty/wire.rs), [native wire](../crates/kagari-types/src/declaration/wire/native.rs), [binding codecs](../crates/kagari-runtime/src/native/binding.rs) | Remove collection-family codec/admission branches; keep ordinary nominal/source-free validation, not compatibility readers. |
-| [Vec native primitives](../crates/kagari-runtime/src/native/primitive.rs), [linked execution](../crates/kagari-runtime/src/module/linked_execution.rs), [linker](../crates/kagari-runtime/src/module/linked_execution/native_calls.rs), [execution fast path](../crates/kagari-runtime/src/frame/cursor/primitives.rs) | Remove VecIndex/VecSet/VecSetFluent and linked Vector dispatch as engine protocols; retain valid optimizations inside ordinary library entries. |
-| [host adapters](../crates/kagari-runtime/src/native/collections/mod.rs), [host conversions](../crates/kagari-runtime/src/native/conversion/composites.rs), [constructor binding](../crates/kagari-runtime/src/native/function_handle/constructors.rs), [hardcoded Vec identity](../crates/kagari-runtime/src/native/collections/vector/storage.rs) | Move collection-specific conversions/construction to the library through public generic evidence. Replace special constructor matching and diagnostics/cache preparation; retain generic function-cache ownership and supplying generations. |
-
-The [heap descriptor caches](../crates/kagari-runtime/src/gc.rs) and
-[backing diagnostics](../crates/kagari-runtime/src/gc/directory/accounting.rs) must
-also lose concrete collection ownership/downcasts. Preserve generic descriptor
-sharing and accounting rather than treating removal of cache fields as migration.
+| Runtime sequence payload, allocation/admission and heap sequence operations | [Stdlib Vec](../crates/kagari-stdlib/src/collections/vector.rs) owns compact buffers and ordinary opaque representation; builtin Array remains independent. |
+| SequenceEdit/detached buffer and sorting reference-root snapshot | [Library algorithms](../crates/kagari-stdlib/src/collections/vector/algorithms.rs) keep main/scratch/progress in one payload using generic guards/recovery; no sort-admission prepass. |
+| Runtime hashed/hash_storage/custom_keys policy | [Library hash kernel](../crates/kagari-stdlib/src/collections/hash.rs) owns dense entries, prehashed scalar index and collision links; checked selected calls stay generic. |
+| Runtime Vec/Map/Set cursor variants | Nominal library cursors scan source edges and validate native revisions through the public provider boundary. |
+| Concrete Map/Set Ty/Value families and collection constructors/layouts | [Ty](../crates/kagari-types/src/ty.rs), [Value](../crates/kagari-runtime/src/value.rs), native declarations, HIR/compiler and wire consumers use ordinary nominal applications, with no compatibility readers. |
+| Collection binding codecs and special host constructor matching | Generic opaque admission, verified native-application witnesses and selected-slot creation remain authoritative. |
+| VecIndex/VecSet/VecSetFluent and linked Vector execution | Ordinary library entries use checked borrowed payloads; builtin Array and unrelated fixed primitives remain engine-owned. |
+| Runtime collection adapters/conversions and hardcoded Vec identity | `kagari_stdlib::collections::{map::ScriptMap, set::ScriptSet, vector::{ScriptVec, VecValues}}`; owned conversion preserves snapshots before child conversion. No runtime facade. |
+| Runtime Serde collection conversion owner | [Stdlib Serde](../crates/kagari-stdlib/src/serde/mod.rs) owns schema/serializer/deserializer; runtime retains only RuntimeError's Serde error integration. |
+| Per-heap collection descriptors and diagnostic downcasts | Generic descriptor sharing/accounting plus library diagnostic counters; no collection-specific heap cache or downcast. |
 
 Builtin fixed Array storage/operations and justified shared buffer helpers remain;
 so do language/execution state, frames, roots, scopes and generic call machinery.
@@ -209,7 +209,7 @@ They do not by themselves provide checked resizing, public revision/commit acces
 factory-level key-call registration. PG01/NC02 now preserves `RootedValue` from
 `call_stored_values`; typed creation uses `NativeType::create(cx, payload, slots)`.
 The general protocol below is locally accepted in PG01/NC02; the standard
-collection special paths still await PG03.
+collection special paths are removed in the PG03 worktree.
 
 ## Ownership and representation
 
@@ -615,7 +615,14 @@ initialize it only when a merge needs that run. Select a library-owned fixed-spl
 stable mergesort with shorter-run scratch and index-based gap restoration, adapting
 the reviewed Rust tiny/merge mechanisms below. Do not call Rust slice::sort_by with
 collecting callbacks: its private scratch/long slice loan lack publication hooks.
-This is one implementation kernel, not a public SortWork/SortSession abstraction.
+This is the general collecting kernel, not a public SortWork/SortSession abstraction.
+PG03 additionally selects a noncollecting path only from checked ValueCmp evidence
+and actual pointer-free storage: at most 512 scalar elements per Rust 1.99.1 stable
+sort leaf, each at most eight bytes, within its 4096-byte stack workspace. Larger
+inputs use bounded merges and same-payload scratch/recovery. This path is compiled
+only with panic=unwind; abort targets use the existing Result-returning general
+algorithm. Arbitrary callbacks always use the collecting kernel. Reported zero
+same-payload copies excludes Rust-internal moves and stack scratch.
 
 The source and scratch together cover every live element. Before every callback:
 
@@ -844,7 +851,7 @@ before allocation. Move allocate_result_payload's selection-copying logic into t
 common creation implementation; any low-level call adapter delegates without a
 second admission implementation. The object stores StoredSelection metadata edges,
 not external program/root leases inside P. PG01 removes `cx.create_opaque`;
-special Map/Set constructor resolution remains a PG03 removal. Host convenience
+PG03 removes special Map/Set constructor resolution. Host convenience
 factories invoke the checked
 associated function; they cannot invent constructor selections from a bare type.
 
@@ -872,9 +879,11 @@ subsequent user result conversion fails.
 
 Move HashMap/HashSet policy into the library, replacing reference-bearing std hash
 entries with dense indexable entry slots. A map entry owns key/value/cached script
-hash; a set entry owns key/hash. A Rust HashMap from cached hash to slot-index buckets
-contains only scalar indices. Keep per-entry bucket position so removal can update
-the index without rescanning all entries. HashSet shares this key/index kernel, not
+hash; a set entry owns key/hash. A prehashed Rust HashMap maps each complete cached
+script hash to one head index. Entry-owned previous/next indices form collision
+chains; there is no per-bucket Vec. One `HashMap::Entry` lookup updates the bucket.
+Back-links permit dense swap relocation without rescanning all entries, while
+preserving callback candidate order. HashSet shares this key/index kernel, not
 a second runtime Set storage category. This is a deliberate layout adjustment from
 HashMap<MapKey,Value>/HashSet<MapKey>, not a claim that relocation alone enables
 resumable scans or that Rust's opaque bucket capacity is exactly measurable.
@@ -885,8 +894,8 @@ Removal swaps the last dense entry into the hole, repairs that entry's bucket in
 and republishes its edges even if the destination is behind the scan cursor. While
 marking, count each inspected entry/edge against work; no retained std iterator or
 iter().skip reconstruction is used. Capacity growth does not change logical indices.
-Keep capacity/collision-bucket accounting incrementally, with actual retained Vec
-capacity and documented std hash-table estimates. No per-element external roots.
+Keep capacity accounting incrementally, with actual dense-entry Vec capacity and
+documented std hash-table estimates. No per-element external roots.
 
 Lookup uses cached hashes to choose candidates, retains each candidate before
 ending a short loan and calls selected Eq outside it under ReadOnlyCallbacks.
@@ -916,22 +925,20 @@ owners. Later collection and incremental acceptance is not implied by that resul
 - Operation protection: participating general access checks now enforce
   ReadOnlyCallbacks/ExclusiveSlots, and operation guards own preflighted sealed
   recovery outside payload loans. The external fixture exercises callback alias
-  rejection and same-payload scratch recovery; standard sorting remains PG03.
+  rejection and same-payload scratch recovery; standard sorting now uses this owner.
 - Scan/admission: one `begin_scan`/`scan` protocol supports EdgeFree, Bounded,
   Resumable and Indivisible providers, with an admission-reserved aligned workspace.
   The current driver drains synchronously. PG04 must preserve active continuations
-  across growth/mutation; PG03 removes [sequence editing](../crates/kagari-runtime/src/gc/sequence_edit.rs)
-  reference snapshots. New external payload admission still validates every edge;
+  across growth/mutation; PG03 removes the old sequence-edit reference snapshots. New external payload admission still validates every edge;
   merely moving a filled buffer into Opaque is not traversal-free admission.
 - Type/selected-call construction: `StorageContext::element_contract` is public,
   [NativeType::create](../crates/kagari-runtime/src/native/payload/mod.rs) accepts
   selected slots, and `call_stored_values` retains its result root. Bounded
   [native binding](../crates/kagari-runtime/src/native/payload/binding.rs) consumes
   verified occurrences rather than rejecting all bounds or searching traits at
-  runtime. Legacy [Map/Set constructor binding](../crates/kagari-runtime/src/native/function_handle/constructors.rs)
-  and runtime-owned collection conversions remain PG03 responsibilities. Rust
-  coherence still requires library-owned conversion adapters, not moving impls
-  of runtime traits for std containers directly into stdlib.
+  runtime. PG03 removes special Map/Set constructor binding and runtime-owned
+  collection conversions. Rust coherence is satisfied by library-owned
+  `VecValues<T>`, not impls of runtime traits for std containers in stdlib.
 - Raw access safety: NativePayload and general raw payload access are now unsafe;
   safe shared/mutable typed loans require NativeData, including paired receivers.
   NativeTake alone is not shared-loan evidence. PG02 short loans pin the actual
@@ -1012,8 +1019,9 @@ new speed target or the Lua parity workstream; do not repeatedly run full benchm
 
 The [Iterable APIs](spec/builtins.md#iteration-protocols) and
 [retained native cursors](spec/standard-declarations.md#sorting-and-lazy-iteration)
-are implemented at this baseline; NC01/NC02 are locally complete. PG02 is implemented
-pending final validation, followed by NC03/NC04 at PG03; NC03-NC06 remain outstanding.
+are implemented at this baseline; NC01/NC02 and PG02 are locally complete. PG03
+and NC03/NC04 are locally complete after final independent review and focused/paired evidence;
+NC05/NC06 and interleaved incremental acceptance remain outstanding.
 Use the current [scoped identity APIs](architecture.md#definition-identity-ownership).
 NC01 audited those APIs; reuse that inventory rather than rebuilding path/ID variants
 or treating historical baseline signatures as a compatibility requirement.
@@ -1032,7 +1040,7 @@ NC02 may prove the public protocol with the synchronous collector and isolated
 scanner tests, but cannot claim interleaved GC acceptance. Record collection
 results only in this ledger; link PG results rather than copy their checklist.
 The user authorized this phase sequence at the activation revision. PG00/NC01 and
-PG01/NC02 and PG02 have passed local acceptance; PG03/NC03-NC04 is next.
+PG01/NC02, PG02 and PG03/NC03-NC04 have passed local acceptance. PG04 is next.
 Cancellation policy and cx.poll redesign remain outside the migration.
 
 | Phase | Scope and exit condition |
@@ -1165,8 +1173,8 @@ CI acceptance. Planning-only edits need content/link/diff checks, not builds.
   Vec scratch and library indexed hash entries. Sources and limitations are below.
 - [x] NC01: Inventory and API contract.
 - [x] NC02: General storage capabilities, locally complete with PG01.
-- [ ] NC03: Vec migration.
-- [ ] NC04: HashMap/HashSet migration.
+- [x] NC03: Vec migration (locally complete with PG03).
+- [x] NC04: HashMap/HashSet migration (locally complete with PG03).
 - [ ] NC05: External extensibility and cursors.
 - [ ] NC06: Final integration.
 
@@ -1174,11 +1182,53 @@ NC01 is locally complete with PG00. The GC plan owns physical/pressure choices,
 reproducible measurements, frozen gates and actual local validation; NC reuses its
 Vec, primitive/script-key Map, reference-storage and callback baselines. PG00/NC01
 was committed at `47be3cb7`; its baseline does not establish future speedup or CI
-acceptance. PG01/NC02 implementation status follows.
+acceptance. The current PG03/NC03-NC04 handoff and historical PG01/NC02 evidence follow.
+
+### NC03/NC04 implementation handoff (2026-10-27; locally complete)
+
+The finite inventory above is closed in the worktree: collections, cursors, host
+adapters and Serde conversion policy live in stdlib; no concrete runtime type/value,
+layout/constructor/codec, Vec primitive or compatibility facade remains. Script Vec
+is unchanged; Rust owned conversion uses VecValues. The public OrderedMap fixture
+uses the same generic protocol and passes seven selected tests, including recovery.
+This does not complete its NC05 incremental schedule proof.
+
+BorrowedPayload, fused edit preparation and call-argument publication keep checks
+with the generic loan/root/type owners. General stable sort and linear compaction
+keep traced main/scratch/progress in the payload and retain only active callback
+arguments. The checked pointer-free scalar path uses bounded Rust stable-sort leaves
+on unwind targets; callbacks never gain a noncollecting exemption. Hash storage uses
+one prehashed scalar index with entry-owned collision chains for all key kinds,
+checked Hash/Eq evidence, relocation publication and ordinary nominal cursors.
+
+Opaque now retains data metadata separately from executable NativeType preparation.
+The existing retention test passes 15 variants (five collections × raw root,
+ScriptValue and owning adapter). Vec keeps all 40 old-module reclamation assertions
+while the adapter lives, then reads/edits through a live context. Map/Set still trace
+their selected Hash/Eq Program, even for intrinsic keys: zero old modules reclaim
+while rooted, all reclaim after the last root drops. Do not infer Map/Set access
+after old-program reclamation. The stored-key case distinguishes current ordinary
+calls from an explicitly prepared old body. Final independent review approved this
+scope distinction; no broader selected-call ownership redesign or stronger Map/Set
+reclamation coverage is claimed.
+
+The [PG03 handoff](paged-incremental-gc-design.md#pg03-collection-migration-evidence-and-handoff)
+records exact commands, failed iterations, primary mechanisms, latest seven-pair
+measurements and all 55 memory/21 teardown checks. Those selected gates pass.
+Final independent review approved the current collection/provider, retention, scalar
+sorting, scoped-evidence and disposal boundaries. Independent reruns passed stdlib
+collections 5, ownership/page-quarantine 7 and retention 15 variants; parent structure
+(1766 files, zero violations), formatting, workspace Clippy and diff checks passed.
+These are repeated contract checks, not additional distinct-test totals.
+NC03/NC04 are locally complete with PG03. PG04 is next; PG04/PG05 own actual
+incremental barriers, continuations and legal driver interleaving. Full CI remains
+unrun. No new recurring inventory or compatibility phase is introduced.
 
 ### NC02 implementation handoff (2026-10-27; locally complete)
 
-The worktree implements the unsafe provider/scanner/charge protocol,
+**Historical NC02 checkpoint with PG01 (`fc651b92`):** this section records the
+early protocol/fixture proof, not current collection-migration status. It implemented
+the unsafe provider/scanner/charge protocol,
 `define_opaque` association, selected-slot creation, unsafe general loans, safe
 NativeData access, checked retained extraction/publication, operation recovery and
 verified bounded-application admission. Current semantic contracts now live in
@@ -1209,15 +1259,16 @@ operation-guard bypass, HIR/compiler bounds and diagnostic-panic history are own
 by the [PG01 handoff](paged-incremental-gc-design.md#pg01-implementation-handoff-2026-10-27-locally-complete),
 not inferred from the earlier verifier results.
 
-PG02 now replaces the temporary boxed-loan storage path in the worktree; its
+PG02 subsequently replaced the temporary boxed-loan storage path; its
 [physical-model correction and evidence](paged-incremental-gc-design.md#pg02-physical-model-correction-and-checkpoint-evidence)
-passed final local acceptance. PG03/NC03-NC04
-owns removal of legacy collection codecs, special type/value/wire paths, snapshots,
-constructor resolution and runtime-owned host adapters. PG04 owns active scanner
-continuation/publication reservations beyond current synchronous idle workspace
-growth; PG05/NC05 owns actual driver interleaving. PG02 diagnostic memory results
-are not final paired acceptance. Full CI, timing and future performance/peak/pause
-gate acceptance remain unrun; no new performance pass is claimed.
+passed final local acceptance. PG03/NC03-NC04 then removed legacy collection codecs,
+special type/value/wire paths, snapshots, constructor resolution and runtime-owned
+host adapters, with selected paired/backing acceptance recorded in the PG03 handoff.
+Current VecStorage keeps inline `Option<Work>` and same-payload main/scratch buffers.
+PG04 owns active scanner continuation/publication reservations beyond synchronous
+idle workspace growth; PG05/NC05 owns actual driver interleaving. Full CI and future
+incremental performance/peak/pause acceptance remain unrun; historical NC02/PG02
+results alone do not establish those gates.
 
 Remaining real gates, not alternative API drafts:
 
@@ -1230,12 +1281,11 @@ Remaining real gates, not alternative API drafts:
   operation. Reserved root-release transport replaces allocating mpsc but is not
   the marker queue. Prove active-workspace growth and graph-admission failure paths;
   recovery must not allocate, reacquire ordinary execution admission or lose an element.
-- PG03/NC03-NC04: prove same-payload mergesort/linear compaction and indexed hash
-  relocation against partial scans, reentry and failure semantics. The selected
-  representations do not establish measured performance or implementation soundness.
-- PG04-PG06/NC05-NC06: instrument every object/root/frame/metadata publication site
-  before production interleaving and close the removal inventory. Isolated scanner
-  tests and the synchronous external fixture do not establish integrated GC safety.
+- PG04-PG06/NC05-NC06: extend PG03's locally accepted same-payload sorting/compaction
+  and indexed hash relocation to actual interleaved partial scans. Instrument every
+  object/root/frame/metadata publication site before production interleaving and
+  preserve the closed collection removal inventory. Isolated scanner tests and
+  synchronous callback/recovery evidence do not establish integrated incremental GC safety.
 
 Keep these gates in the existing PG/NC ledgers; do not add parallel progress docs.
 

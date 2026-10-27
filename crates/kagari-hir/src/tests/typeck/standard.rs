@@ -1,4 +1,5 @@
 use super::*;
+use crate::tests::native_type;
 use crate::{
     analyze_source,
     declarations::DeclarationId,
@@ -23,7 +24,6 @@ use kagari_source::{
 use kagari_stdlib::{catalog as foundation_catalog, catalog, identity as library};
 use kagari_types::{
     callable::CallableImplementation,
-    collection::CollectionAccess,
     declaration::{
         module::ModuleDecl,
         names::{ExportName, NameNamespace},
@@ -332,17 +332,21 @@ fn constructed() -> Pick<i32> { Pick(7) }
     );
     assert_eq!(
         typed.functions[2].return_type,
-        TypeId::Map {
-            key: Box::new(TypeId::Builtin(BuiltinType::String)),
-            value: Box::new(TypeId::Builtin(BuiltinType::I32)),
-            access: CollectionAccess::Mutable
-        }
+        native_type(
+            analyzed.declarations.definitions(),
+            "HashMap",
+            vec![
+                TypeId::Builtin(BuiltinType::String),
+                TypeId::Builtin(BuiltinType::I32)
+            ]
+        )
     );
     assert_eq!(
         typed.functions[3].return_type,
-        TypeId::Set(
-            Box::new(TypeId::Builtin(BuiltinType::String)),
-            CollectionAccess::Mutable
+        native_type(
+            analyzed.declarations.definitions(),
+            "HashSet",
+            vec![TypeId::Builtin(BuiltinType::String)]
         )
     );
     assert_eq!(

@@ -202,14 +202,6 @@ fn validate_inner(
                 .with_span(span),
             );
         }
-        let key = match ty {
-            TypeId::Map { key, .. } => Some(key.as_ref()),
-            TypeId::Set(key, _) => Some(key.as_ref()),
-            _ => None,
-        };
-        if let Some(key) = key {
-            check::validate_hash_key_type(definitions, key, bounds, span, diagnostics, catalog);
-        }
         match ty {
             TypeId::Reference { target, .. } => {
                 if let TypeId::NativeObject(nominal) = target.as_ref()
@@ -415,13 +407,8 @@ fn validate_inner(
                 pending.extend(params.iter().map(|ty| (ty, None)));
                 pending.push((result, None));
             }
-            TypeId::Array(ty) | TypeId::Set(ty, _) | TypeId::Iter(ty) | TypeId::Range(ty, _) => {
-                pending.push((ty, None))
-            }
-            TypeId::Map { key, value, .. } => {
-                pending.push((key, None));
-                pending.push((value, None));
-            }
+            TypeId::Array(ty) | TypeId::Iter(ty) | TypeId::Range(ty, _) => pending.push((ty, None)),
+
             _ => {}
         }
     }
@@ -711,28 +698,42 @@ pub(crate) fn validate_signatures(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext};
-    use kagari_types::{collection::CollectionAccess, scalar::BuiltinType};
+    use crate::tests::{native_type, test_analysis};
+    use kagari_common::cancellation::CancellationToken;
+    use kagari_source::source_database::{SourceDatabase, SourceLayer};
+    use kagari_types::scalar::BuiltinType;
 
     #[test]
     fn deep_container_validation_uses_explicit_stack_and_honors_cancellation() {
-        let definitions = DefinitionContext::new().unwrap().snapshot();
-        let mut ty = TypeId::Map {
-            key: Box::new(TypeId::Builtin(BuiltinType::F32)),
-            value: Box::new(TypeId::Error),
-            access: CollectionAccess::Mutable,
-        };
+        let mut sources = SourceDatabase::default();
+        let root = sources
+            .set("deep-native.kgr", "fn main() {}".into(), SourceLayer::Base)
+            .unwrap();
+        let snapshot = test_analysis()
+            .snapshot(sources.snapshot(), &Default::default())
+            .unwrap();
+        let facts = snapshot
+            .file(root)
+            .unwrap()
+            .to_unverified(&Default::default())
+            .unwrap();
+        let definitions = facts.definitions();
+        let catalog = &facts.records().facts().aggregates;
+        let mut ty = native_type(
+            definitions,
+            "HashMap",
+            vec![TypeId::Builtin(BuiltinType::F32), TypeId::Error],
+        );
         for _ in 0..10_000 {
             ty = TypeId::Array(Box::new(ty));
         }
         let mut diagnostics = DiagnosticBuffer::new();
-        let catalog = AggregateCatalog::default();
         let cancelled = CancellationToken::default();
         cancelled.cancel();
         validate(
             ApplicationContext {
-                definitions: &definitions,
-                catalog: &catalog,
+                definitions,
+                catalog,
                 receiver: None,
             },
             &ty,
@@ -744,8 +745,8 @@ mod tests {
         let cancelled_count = diagnostics.len();
         validate(
             ApplicationContext {
-                definitions: &definitions,
-                catalog: &catalog,
+                definitions,
+                catalog,
                 receiver: None,
             },
             &ty,
@@ -760,9 +761,9 @@ mod tests {
             ty = *inner;
         }
         assert_eq!(cancelled_count, 0);
-        assert_eq!(diagnostics.len(), 1);
-        assert!(matches!(&diagnostics[0].kind,
-            DiagnosticKind::StandardConstraintNotSatisfied { type_name, .. } if type_name == "f32"
-        ));
+        assert_eq!(diagnostics.len(), 2);
+        assert!(diagnostics.iter().all(|diagnostic| matches!(&diagnostic.kind,
+            DiagnosticKind::GenericBoundNotSatisfied { type_name, trait_name } if type_name == "f32" && matches!(trait_name.as_str(), "Eq" | "Hash")
+        )));
     }
 }

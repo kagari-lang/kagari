@@ -1,8 +1,15 @@
 //! Loan-scoped validation, retention, and structural publication services.
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
+use std::ptr;
+
 use crate::{
     Runtime,
     error::RuntimeError,
-    native::{binding::NativeResult, storage_type::StorageType, value_handle::ScriptValue},
+    native::{
+        binding::NativeResult, context::CallContext, storage_type::StorageType,
+        value_handle::ScriptValue,
+    },
     value::Value,
 };
 
@@ -14,9 +21,10 @@ pub struct EditPlan {
     pub structural: bool,
 }
 
-/// Services for one non-reentrant native payload loan. No payload reference or
-/// unrooted extracted edge may survive that loan. Recovery permits only revision
-/// publication and republication of already admitted edges.
+/// Services for one non-reentrant native payload loan. No payload reference may
+/// escape. Extracted edges remain valid while their source stays rooted and traced;
+/// retain them before source mutation, expiry, or transfer beyond that protection.
+/// Recovery permits only revision publication and republication of admitted edges.
 pub struct StorageAccess<'loan> {
     runtime: &'loan Runtime,
     revision: &'loan mut u64,
@@ -45,7 +53,7 @@ impl<'loan> StorageAccess<'loan> {
                 "native recovery cannot retain or publish new values",
             ));
         }
-        self.runtime.validate_executable_module(&contract.owner)?;
+        self.runtime.resources().ensure_execution_allowed()?;
         contract.argument()?.validate(self.runtime)?;
         let heap = self.runtime.gc();
         if !value.is_default_heap_payload(heap)
@@ -61,6 +69,8 @@ impl<'loan> StorageAccess<'loan> {
 
     /// Retain a checked edge before it leaves this payload loan.
     pub fn retain(&mut self, contract: &StorageType, value: &Value) -> NativeResult<ScriptValue> {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::StorageRetention);
         self.validate(contract, value)?;
         ScriptValue::retain_storage(self.runtime, contract, *value)
     }
@@ -68,6 +78,8 @@ impl<'loan> StorageAccess<'loan> {
     /// Check exact type, runtime, generation, and heap lifetime before storing an edge.
     /// Synchronous collection cannot run until this loan ends.
     pub fn publish(&mut self, contract: &StorageType, input: &ScriptValue) -> NativeResult<Value> {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::StoragePublication);
         if self.recovery {
             return Err(RuntimeError::module_validation(
                 "native recovery cannot publish new values",
@@ -78,12 +90,44 @@ impl<'loan> StorageAccess<'loan> {
         Ok(value)
     }
 
+    /// Publish a live caller argument without allocating an owning adapter. The
+    /// argument's exact declared lexical type, runtime, and current value are all
+    /// checked; its existing frame root protects it throughout this short loan.
+    pub fn publish_argument(
+        &mut self,
+        contract: &StorageType,
+        call: &CallContext<'_>,
+        index: usize,
+    ) -> NativeResult<Value> {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::StoragePublication);
+        if !ptr::eq(self.runtime, call.runtime) {
+            return Err(RuntimeError::module_validation("foreign native argument"));
+        }
+        let argument = call
+            .function
+            .type_signature()?
+            .params
+            .get(index)
+            .ok_or_else(|| RuntimeError::module_validation("native argument type scope"))?;
+        if !contract.matches_view(argument.view(call.owner())) {
+            return Err(RuntimeError::module_validation(
+                "native argument differs from storage type",
+            ));
+        }
+        let value = call.argument(index)?;
+        self.validate(contract, &value)?;
+        Ok(value)
+    }
+
     /// Republish an edge already admitted to this same protected payload.
     ///
     /// # Safety
     /// The edge must remain traced in the same payload throughout the operation;
     /// this cannot import an external or expired value. No new edge is admitted.
     pub unsafe fn republish_existing(&mut self, value: &Value) {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::ExistingEdgePublication);
         // Identity validation is allocation-free and requires no execution admission.
         // Full synchronous scans see the final slot arrangement after the loan.
         if !value.is_default_heap_payload(self.runtime.gc())

@@ -1,7 +1,7 @@
 //! Diagnostic spelling borrows names from the semantic snapshot that owns the IDs.
 use crate::types::TypeId;
 use kagari_common::identity::table::{DefinitionId, DefinitionTable};
-use kagari_types::{collection::CollectionAccess, range::RangeKind, surface as standard_surface};
+use kagari_types::{range::RangeKind, surface as standard_surface};
 
 fn name(definitions: &DefinitionTable, id: DefinitionId) -> &str {
     definitions
@@ -79,26 +79,7 @@ impl TypeId {
                         pending.push(Part::Type(item));
                         pending.push(Part::Text("["));
                     }
-                    Self::Map { key, value, access } => {
-                        pending.push(Part::Text(">"));
-                        pending.push(Part::Type(value));
-                        pending.push(Part::Text(", "));
-                        pending.push(Part::Type(key));
-                        pending.push(Part::Text(if *access == CollectionAccess::Mutable {
-                            "HashMap<"
-                        } else {
-                            "Map<"
-                        }));
-                    }
-                    Self::Set(item, access) => {
-                        pending.push(Part::Text(">"));
-                        pending.push(Part::Type(item));
-                        pending.push(Part::Text(if *access == CollectionAccess::Mutable {
-                            "HashSet<"
-                        } else {
-                            "Set<"
-                        }));
-                    }
+
                     Self::NativeObject(nominal)
                     | Self::Struct(nominal)
                     | Self::Enum(nominal)

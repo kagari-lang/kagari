@@ -6,8 +6,8 @@ use kagari_bytecode::{
     program::{BytecodeProgram, verify_program},
 };
 use kagari_common::identity::{
-    ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
-    table::DefinitionId,
+    DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext,
+    metadata::DefinitionMetadata, table::DefinitionId,
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::callable::witness::OperationWitness;
@@ -309,8 +309,9 @@ pub fn answer() -> i32 {
                 .native_imports
                 .iter()
                 .position(|import| {
-                    matches!(&import.signature.result, Ty::Set(item, _)
-                        if **item == Ty::Builtin(BuiltinType::I32))
+                    matches!(&import.signature.result, Ty::NativeObject(nominal)
+                        if Some(nominal.declaration) == definitions.lookup(&kagari_stdlib::identity::type_id("HashSet", DefinitionKind::AssociatedType))
+                        && nominal.arguments == vec![Ty::Builtin(BuiltinType::I32)])
                         && !import.callables.is_empty()
                 })
                 .map(|import| (index, import))

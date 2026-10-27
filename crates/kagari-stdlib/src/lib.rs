@@ -3,9 +3,12 @@ mod assembly;
 mod foundation;
 
 pub mod catalog;
+pub mod collections;
 pub mod declarations;
 pub mod identity;
 pub mod namespaces;
+#[cfg(feature = "serde")]
+pub mod serde;
 use kagari_runtime::native::{binding::NativeResult, module::NativeModule};
 
 /// Complete standard modules, ready for ordinary batch registration.

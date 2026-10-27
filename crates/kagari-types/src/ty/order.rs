@@ -142,24 +142,7 @@ impl TypeOrder<'_> {
                 (Ty::Range(left, lk), Ty::Range(right, rk)) => {
                     self.ty(left, right).then_with(|| lk.cmp(rk))
                 }
-                (
-                    Ty::Map {
-                        key: lk,
-                        value: lv,
-                        access: la,
-                    },
-                    Ty::Map {
-                        key: rk,
-                        value: rv,
-                        access: ra,
-                    },
-                ) => self
-                    .ty(lk, rk)
-                    .then_with(|| self.ty(lv, rv))
-                    .then_with(|| la.cmp(ra)),
-                (Ty::Set(left, la), Ty::Set(right, ra)) => {
-                    self.ty(left, right).then_with(|| la.cmp(ra))
-                }
+
                 (Ty::Struct(left), Ty::Struct(right))
                 | (Ty::NativeObject(left), Ty::NativeObject(right))
                 | (Ty::Enum(left), Ty::Enum(right))
@@ -183,8 +166,7 @@ fn rank(ty: &Ty) -> u8 {
         Ty::Iter(_) => 7,
         Ty::Range(..) => 8,
         Ty::Array(_) => 9,
-        Ty::Map { .. } => 10,
-        Ty::Set(..) => 11,
+
         Ty::Struct(_) => 12,
         Ty::NativeObject(_) => 13,
         Ty::Enum(_) => 14,

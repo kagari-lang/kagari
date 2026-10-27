@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     hir::{expr::ExprKind, ty::TypeKind},
-    tests::test_analysis,
+    tests::{native_type, test_analysis},
 };
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
@@ -193,12 +193,17 @@ fn native_collection_constructors_infer_items_through_source_aliases() {
         call_type("Sequence::new"),
         Some(TypeId::NativeObject(nominal)) if nominal.arguments == [TypeId::Builtin(BuiltinType::I32)]
     ));
-    assert!(matches!(
+    assert_eq!(
         call_type("Dictionary::new"),
-        Some(TypeId::Map { key, value, .. })
-            if *key == TypeId::Builtin(BuiltinType::I32)
-                && *value == TypeId::Builtin(BuiltinType::Bool)
-    ));
+        Some(native_type(
+            facts.declarations.definitions(),
+            "HashMap",
+            vec![
+                TypeId::Builtin(BuiltinType::I32),
+                TypeId::Builtin(BuiltinType::Bool)
+            ],
+        ))
+    );
 }
 
 #[test]

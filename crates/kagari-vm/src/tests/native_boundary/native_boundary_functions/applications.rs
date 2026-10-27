@@ -8,7 +8,6 @@ use kagari_runtime::{
     native::{
         binding::{Codec, NativeBinding},
         builder::ModuleBuilder,
-        collections::vector::ScriptVec,
         conversion::context::ConversionContext,
         declarations::{CallableRequirement, FunctionDecl, MethodDecl},
         function_handle::Function,
@@ -17,6 +16,7 @@ use kagari_runtime::{
     },
     value::Value,
 };
+use kagari_stdlib::collections::vector::ScriptVec;
 use kagari_stdlib::declarations::StandardDeclarations;
 use std::{
     slice,

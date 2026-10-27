@@ -29,7 +29,6 @@ use kagari_contract::{
     },
 };
 use kagari_types::{
-    collection::CollectionAccess as Access,
     language::binding,
     reference::{ReferenceAccess, field_read_type},
     scalar::BuiltinType as B,
@@ -39,7 +38,6 @@ use kagari_types::{
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Fact {
     ty: Option<Arc<Ty>>,
-    access: Option<Access>,
     conflict: bool,
     nodes: usize,
     fresh: bool,
@@ -54,7 +52,6 @@ impl Fact {
 
     fn typed(ty: Ty) -> Self {
         Self {
-            access: ty.collection_access(),
             ty: Some(Arc::new(ty)),
             fresh: true,
             ..Self::default()
@@ -123,11 +120,7 @@ fn flows(source: &Fact, target: &Ty) -> bool {
     if source.conflict {
         return false;
     }
-    if source.access == Some(Access::ReadOnly)
-        && target.collection_access() == Some(Access::Mutable)
-    {
-        return false;
-    }
+
     match source.ty.as_deref() {
         Some(source) => source == target || source.can_weaken_to(target),
         None => !target.contains_stored_reference(),
@@ -157,14 +150,6 @@ fn join(left: Option<&Fact>, right: Option<&Fact>, declared: Option<&Fact>) -> O
     if left == right {
         return Some(left.clone());
     }
-    let access = if left.access == Some(Access::ReadOnly) || right.access == Some(Access::ReadOnly)
-    {
-        Some(Access::ReadOnly)
-    } else if left.access == right.access {
-        left.access
-    } else {
-        None
-    };
     let compatible = declared.filter(|fact| {
         fact.ty
             .as_deref()
@@ -184,7 +169,6 @@ fn join(left: Option<&Fact>, right: Option<&Fact>, declared: Option<&Fact>) -> O
         })
         .cloned()
         .unwrap_or_default();
-    fact.access = access;
     fact.conflict = left.conflict || right.conflict || incompatible;
     Some(fact)
 }
@@ -661,16 +645,12 @@ pub(super) fn verify(
                             }
                         }
                         I::WriteAggregateIndex { base, value, .. } => {
-                            if let Some(base) = get(*base) {
-                                if base.access == Some(Access::ReadOnly) {
-                                    return Err(invalid());
-                                }
-                                if let (Some(Ty::Array(item)), Some(value)) =
+                            if let Some(base) = get(*base)
+                                && let (Some(Ty::Array(item)), Some(value)) =
                                     (base.ty.as_deref(), get(*value))
-                                    && !flows(&value, item)
-                                {
-                                    return Err(invalid());
-                                }
+                                && !flows(&value, item)
+                            {
+                                return Err(invalid());
                             }
                         }
 
@@ -695,13 +675,10 @@ pub(super) fn verify(
                                 IterOp::String(kind) => Some(kind.item_type()),
                                 IterOp::New | IterOp::Next => match ty {
                                     Ty::Builtin(B::String) => Some(Ty::Builtin(B::String)),
-                                    Ty::Range(item, _)
-                                    | Ty::Array(item)
-                                    | Ty::Set(item, _)
-                                    | Ty::Iter(item) => Some((**item).clone()),
-                                    Ty::Map { key, value, .. } => {
-                                        Some(Ty::Tuple(vec![(**key).clone(), (**value).clone()]))
+                                    Ty::Range(item, _) | Ty::Array(item) | Ty::Iter(item) => {
+                                        Some((**item).clone())
                                     }
+
                                     _ => None,
                                 },
                             };
@@ -1016,9 +993,7 @@ pub(super) fn verify(
                                             if !flows(value, ty) {
                                                 return Err(invalid());
                                             }
-                                        } else if value.access == Some(Access::ReadOnly)
-                                            || value.holds_reference()
-                                        {
+                                        } else if value.holds_reference() {
                                             return Err(invalid());
                                         }
                                     }
@@ -1121,9 +1096,6 @@ pub(super) fn verify(
                                     }
                                 }
                                 CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetIndex) => {
-                                    if facts[0].access == Some(Access::ReadOnly) {
-                                        return Err(invalid());
-                                    }
                                     if let Some(Ty::Array(item)) = facts[0].ty.as_deref()
                                         && !flows(&facts[2], item)
                                     {

@@ -502,7 +502,7 @@ fn payload_factories_trace_children_and_reject_foreign_edges_before_publication(
     // native handle API itself never exposes a mutable traced field.
     let root = ConversionContext::new(vm.runtime(), &owner)
         .unwrap()
-        .encode_value(child.native_type().type_argument(), child.clone())
+        .encode_value(child.type_argument(), child.clone())
         .unwrap();
     let parent = native.create(&mut cx, Edge(root), &[]).unwrap();
     drop(child);
@@ -516,7 +516,7 @@ fn payload_factories_trace_children_and_reject_foreign_edges_before_publication(
     let child: Opaque<Counter> = foreign.execute_typed(&foreign_owner, "make", (0,)).unwrap();
     let foreign_value = ConversionContext::new(foreign.runtime(), &foreign_owner)
         .unwrap()
-        .encode_value(child.native_type().type_argument(), child.clone())
+        .encode_value(child.type_argument(), child.clone())
         .unwrap();
     assert!(native.create(&mut cx, Edge(foreign_value), &[]).is_err());
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 2);

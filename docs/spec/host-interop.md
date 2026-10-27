@@ -517,6 +517,23 @@ escape, and all loans end before callbacks, collection or reentry. Safe
 no graph edges, interior mutation or dynamic allocation charge. `NativeTake` alone
 is not that proof. Managed fields retain their checked safe accessors.
 
+`CallContext::payload::<P>(index)` and `Opaque<P>::borrow(cx)` return a
+`BorrowedPayload` backed by the existing argument/handle root, without a new root
+or executable descriptor. It cannot outlive that source and rechecks runtime and
+source identity on access. Its unsafe read/edit methods use the same loan owner.
+Unsafe `edit_prepared(cx, prepare, edit)` runs read-only preparation under one loan;
+`None` chooses another path, while `Some((EditPlan, state))` preflights resources and
+revision before exposing mutable storage. Neither closure may collect/reenter or
+return payload references. `check_writable` rejects protected access before user
+callbacks but grants no mutation authority.
+
+`StorageAccess::publish_argument(contract, call, index)` validates runtime, exact
+lexical signature compatibility and the actual current argument. Its frame root
+protects the value throughout the short loan. This is not raw-Value admission or a
+collection-specific bypass. Existing-edge republication retains its unsafe
+continuous-tracing obligation; synchronous checks do not yet supply incremental
+barriers.
+
 `StorageAccess::retain(contract, value)` validates the closed storage type and
 runtime/generation/lifetime, then returns a rooted `ScriptValue` before the loan
 ends. `publish(contract, retained)` validates a retained input before it becomes a
@@ -548,6 +565,26 @@ views are blocked until finalization clears the loan flag and reconciles charge
 and revision. Internal scoped validation still checks actual aggregates and
 ownership; stable physical placement does not waive collection/reentry exclusion.
 
+## Retained native data and executable preparation
+
+`Opaque<P>` owns its root and shared data metadata (exact TypeArgument, lexical
+ExecutableModule owner, NativeStorage and optional applied managed schema), not
+an executable RustType lease. `type_argument()` exposes its checked contract;
+`owner()` supplies lexical metadata and need not still be executable. There is no
+implicit `native_type()` accessor. `prepare_native_type(&NativeContext)` explicitly
+revalidates runtime, actual value/type compatibility, opaque layout and Rust
+representation in the live caller context before creating executable preparation.
+NativeType factories, explicit RustType, bound fields/methods and prepared calls
+continue to retain the execution owners they require.
+
+For example, a retained Vec of ordinary data can be read/edited through a current
+context after its original executable program is reclaimed. That does not authorize
+executing the old owner or remove callable edges from data: Map/Set stored Hash/Eq
+selections currently trace their selected Program even for intrinsic operations.
+They therefore do not establish the same old-program reclamation scenario.
+Ordinary stored calls still select current implementations; an explicitly prepared
+call retains its selected computation.
+
 ## Native application admission
 
 `ModuleBuilder::define_opaque::<P>(name)` associates the declaration, storage policy
@@ -559,6 +596,12 @@ nonempty slots must belong to the current checked invocation. Stored relationshi
 are metadata edges. `Opaque::stored_function` provides a typed handle and low-level
 `CallContext::call_stored_values` returns `RootedValue`, not an unprotected result.
 Ordinary calls select current bodies; prepared computations retain exact bodies.
+`PreparedFunction::call_retained_with_options(cx, arguments, options)` accepts
+borrowed, already-rooted ScriptValues and returns an independently rooted ScriptValue.
+It retains runtime, arity, exact scoped type/access, argument/result validation,
+cancellation and depth checks without invoking Rust conversion callbacks. Providers
+can retain just the active comparison pair across a collecting call instead of
+re-encoding it or retaining the complete input collection.
 
 Bounded host binding consumes closed native-application witnesses sealed by
 source-free verification, with carrier, occurrence, nominal application and binder

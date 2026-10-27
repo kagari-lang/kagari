@@ -53,6 +53,6 @@ pub struct StorageUsage {
     pub initialization_owners: usize,
     pub initialization_owner_capacity: usize,
     pub native_payload_bytes: usize,
-    pub sequence_element_bytes: usize,
-    pub sequence_capacity_bytes: usize,
+    pub array_element_bytes: usize,
+    pub array_capacity_bytes: usize,
 }

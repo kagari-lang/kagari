@@ -4,7 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+execution-diagnostics = ["kagari-runtime/execution-diagnostics"]
+serde = ["dep:serde", "kagari-runtime/serde"]
+
 [dependencies]
+serde = { workspace = true, optional = true }
 kagari-common.workspace = true
 kagari-types.workspace = true
 kagari-contract.workspace = true
@@ -12,6 +17,7 @@ kagari-runtime.workspace = true
 kagari-bytecode.workspace = true
 
 [dev-dependencies]
+kagari-derive.workspace = true
 rstest.workspace = true
 kagari-abi.workspace = true
 kagari-hir.workspace = true

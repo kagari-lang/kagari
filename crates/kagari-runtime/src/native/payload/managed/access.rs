@@ -42,7 +42,7 @@ impl<T: NativeData> Opaque<Managed<T>> {
         cx: &mut NativeContext<'_>,
         field: &BoundField<T, V>,
     ) -> NativeResult<V> {
-        field.check(&self.native_type)?;
+        field.check_schema(self.data.managed.as_ref().ok_or_else(invalid)?)?;
         cx.poll()?;
         // SAFETY: Retain the checked field before releasing the payload loan.
         let value = unsafe {
@@ -60,7 +60,7 @@ impl<T: NativeData> Opaque<Managed<T>> {
         field: &BoundField<T, V>,
         value: V,
     ) -> NativeResult<()> {
-        field.check(&self.native_type)?;
+        field.check_schema(self.data.managed.as_ref().ok_or_else(invalid)?)?;
         let mut conversion = ConversionContext::new(cx.runtime(), field.native_type.owner())?;
         let Value::GcHandle(id) = self.value(cx.runtime().gc())? else {
             return Err(invalid());
@@ -69,7 +69,7 @@ impl<T: NativeData> Opaque<Managed<T>> {
             let value = conversion.encode_prepared(field.type_argument(), value)?;
             cx.runtime().gc().set_managed_field::<T>(
                 id,
-                self.native_type.schema()?,
+                self.data.managed.as_ref().ok_or_else(invalid)?,
                 field.slot,
                 value,
             )

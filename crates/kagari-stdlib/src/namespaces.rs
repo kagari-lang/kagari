@@ -48,7 +48,7 @@ pub fn trait_owner(name: &str) -> ModuleIdentity {
 pub fn type_owner(name: &str) -> ModuleIdentity {
     match name {
         "String" => module("alloc", "string"),
-        "Vec" => module("alloc", "vec"),
+        "Vec" | "VecCursor" => module("alloc", "vec"),
         "Option" => module("core", "option"),
         "Result" => module("core", "result"),
         "Future" => module("core", "future"),
@@ -63,7 +63,7 @@ pub fn type_owner(name: &str) -> ModuleIdentity {
         "CollectionCursor" | "MapIterator" | "FilterIterator" | "TakeIterator"
         | "FilterMapIterator" | "SkipIterator" | "EnumerateIterator" | "ZipIterator"
         | "ChainIterator" => module("core", "iter"),
-        "HashMap" | "HashSet" => module("std", "collections"),
+        "HashMap" | "HashSet" | "HashMapCursor" | "HashSetCursor" => module("std", "collections"),
         _ => panic!("unknown bundled type {name}"),
     }
 }
@@ -82,7 +82,6 @@ pub fn receiver_owner(ty: &Ty, definitions: &DefinitionTable) -> Option<ModuleId
         Ty::Builtin(BuiltinType::Char) => module("core", "char"),
         Ty::Builtin(_) => module("core", "num"),
         Ty::Array(..) => module("core", "array"),
-        Ty::Map { .. } | Ty::Set(..) => module("std", "collections"),
         Ty::Iter(_) => module("core", "iter"),
         Ty::Range(..) => module("core", "ops"),
         _ => return None,

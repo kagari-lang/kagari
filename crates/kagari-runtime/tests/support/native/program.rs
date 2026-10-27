@@ -329,18 +329,17 @@ fn scalar(value: ValueType) -> Option<Ty> {
 }
 
 /// Carry every free-function contract, including unused entries, without source analysis.
-/// External schemas retain their nominal owners. Generic proofs, GC layouts and trait impls
+/// Host schemas and registered native payloads retain their nominal owners.
+/// Generic proofs, script GC layouts and trait impls
 /// remain at their dedicated fixtures.
 pub fn free_function_program(
     declarations: &DefinitionMetadata<ModuleDecl>,
 ) -> DefinitionMetadata<BytecodeProgram> {
     let module = declarations.records();
-    assert!(
-        module
-            .types
-            .iter()
-            .all(|ty| matches!(ty.kind, TypeDefKind::Host(_)))
-    );
+    assert!(module.types.iter().all(|ty| matches!(
+        ty.kind,
+        TypeDefKind::Host(_) | TypeDefKind::NativeStorage(_)
+    )));
     assert!(module.traits.is_empty());
     assert!(module.implementations.is_empty());
     assert!(module.paths.is_empty());
@@ -381,9 +380,14 @@ pub fn free_function_program(
     let external_types = module
         .types
         .iter()
+        .filter(|ty| matches!(ty.kind, TypeDefKind::Host(_)))
         .map(|ty| TypeDeclaration {
             declaration: module
-                .definition(DefinitionKind::Struct, &ty.name, declarations.definitions())
+                .definition(
+                    ty.kind.definition_kind(),
+                    &ty.name,
+                    declarations.definitions(),
+                )
                 .unwrap(),
             definition: ty.clone(),
         })

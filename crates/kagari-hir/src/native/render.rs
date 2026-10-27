@@ -500,18 +500,7 @@ impl<'a> DeclarationView<'a> {
                 format!("{name}<{}>", self.spell(target)?)
             }
             Ty::Array(item) => format!("[{}]", self.spell(item)?),
-            Ty::Map {
-                key,
-                value,
-                access: _,
-            } => {
-                let name = self.representation_name(NativeTypeConstructor::Map, "HashMap")?;
-                format!("{name}<{}, {}>", self.spell(key)?, self.spell(value)?)
-            }
-            Ty::Set(item, _) => {
-                let name = self.representation_name(NativeTypeConstructor::Set, "HashSet")?;
-                format!("{name}<{}>", self.spell(item)?)
-            }
+
             Ty::Tuple(items) => format!(
                 "({}{})",
                 join(items)?,

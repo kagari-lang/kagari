@@ -131,7 +131,6 @@ pub(crate) fn reuse_signatures(
     if previous.registered_native_api != current.registered_native_api
         || previous.native_functions != current.native_functions
         || previous.native_import_namespaces != current.native_import_namespaces
-        || previous.native_readonly_types != current.native_readonly_types
     {
         return None;
     }

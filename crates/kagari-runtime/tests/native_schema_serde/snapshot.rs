@@ -12,11 +12,14 @@ use kagari_runtime::{
         conversion::{KagariType, context::ConversionContext},
         module::NativeModule,
         schema::TypeRegistration,
-        serde::{KagariSchema as Schema, Serde},
+        typed::NativeContext,
         types::Type,
+        value_handle::ScriptValue,
     },
     value::Value,
 };
+use kagari_stdlib::collections::vector::ScriptVec;
+use kagari_stdlib::serde::{KagariSchema as Schema, Serde};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{
     cell::RefCell,
@@ -144,12 +147,15 @@ fn serde_owned_graph_rejects_cycles_through_nominal_sequences() {
     let Value::Struct(parent) = value else {
         panic!("Graph");
     };
-    let layout = runtime.gc().struct_layout(parent).unwrap();
-    let Value::GcHandle(children) = runtime.gc().struct_get_slot(parent, &layout, 1).unwrap()
-    else {
-        panic!("Vec");
-    };
-    runtime.gc().sequence_push(children, value).unwrap();
+    let ty = cx.type_for::<Serde<Graph>>().unwrap();
+    let child: ScriptValue = cx.decode_value(&ty, &value).unwrap();
+    let mut fields = cx.read_struct(&ty, &Value::Struct(parent)).unwrap();
+    let children: ScriptVec<ScriptValue> = fields.field("children").unwrap();
+    drop(fields);
+    children
+        .push(&mut NativeContext::new(&runtime, &owner).unwrap(), child)
+        .unwrap();
+    drop(children);
     let error = cx.decode::<Serde<Graph>>(&root).unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
     assert!(error.message().contains("cycle"));

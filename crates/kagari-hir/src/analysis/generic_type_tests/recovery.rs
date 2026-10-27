@@ -1,8 +1,8 @@
 use super::*;
+use crate::tests::native_type;
 use crate::{hir::expr::ExprKind, tests::test_analysis};
 use kagari_source::diagnostic::DiagnosticKind;
 use kagari_stdlib::catalog as foundation_catalog;
-use kagari_types::collection::CollectionAccess;
 
 #[test]
 fn branch_and_array_merges_recover_complementary_member_facts() {
@@ -643,11 +643,11 @@ fn failed_generic_inference_retains_known_members_inside_each_type_argument() {
             argument,
             TypeId::Tuple(vec![
                 TypeId::Builtin(BuiltinType::I32),
-                TypeId::Map {
-                    key: Box::new(TypeId::Error),
-                    value: Box::new(TypeId::Error),
-                    access: CollectionAccess::Mutable
-                },
+                native_type(
+                    facts.declarations.definitions(),
+                    "HashMap",
+                    vec![TypeId::Error, TypeId::Error]
+                ),
             ]),
             "{initializer}"
         );

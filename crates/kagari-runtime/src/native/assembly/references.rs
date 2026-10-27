@@ -8,7 +8,6 @@ use kagari_common::identity::{
     table::{DefinitionId, DefinitionTable},
 };
 use kagari_types::{
-    collection::CollectionAccess,
     declaration::{
         TypeDefKind, native::NativeTypeConstructor, requirement::NativeCallableRequirement,
     },
@@ -349,18 +348,7 @@ fn constructor_type(
     }
     Ok(match constructor {
         NativeTypeConstructor::String => Ty::Builtin(BuiltinType::String),
-        NativeTypeConstructor::Map => {
-            let value = Box::new(arguments.pop().expect("value argument"));
-            let key = Box::new(arguments.pop().expect("key argument"));
-            Ty::Map {
-                key,
-                value,
-                access: CollectionAccess::Mutable,
-            }
-        }
-        NativeTypeConstructor::Set => {
-            Ty::Set(Box::new(arguments.remove(0)), CollectionAccess::Mutable)
-        }
+
         NativeTypeConstructor::Iter => Ty::Iter(Box::new(arguments.remove(0))),
         NativeTypeConstructor::Range(RangeKind::Full) => {
             Ty::Range(Box::new(Ty::Builtin(BuiltinType::Unit)), RangeKind::Full)

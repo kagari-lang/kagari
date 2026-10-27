@@ -4,7 +4,7 @@ use crate::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
     gc::roots::RootedValue,
-    module::{ExecutableModule, ModuleEpochRetention, retention::ProgramLease},
+    module::ExecutableModule,
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
@@ -19,30 +19,61 @@ use crate::{
 /// Forward an arbitrary declared generic value without copying its object graph
 /// or exposing raw storage. This does not add an untyped Kagari value: each handle
 /// keeps its exact applied type and access view, checked on every conversion.
+/// The root retains data and callable dependencies; ordinary data keeps lexical
+/// metadata without keeping obsolete executable module state alive.
 #[derive(Debug, Clone)]
 pub struct ScriptValue {
     root: RootedValue,
     argument: TypeArgument,
     owner: ExecutableModule,
-    _program: ProgramLease,
 }
 
 impl ScriptValue {
+    pub(crate) fn from_root(
+        root: RootedValue,
+        argument: TypeArgument,
+        owner: ExecutableModule,
+    ) -> Self {
+        Self {
+            root,
+            argument,
+            owner,
+        }
+    }
+
+    pub(crate) fn call_argument(
+        &self,
+        runtime: &Runtime,
+        expected: &TypeArgument,
+        owner: &ExecutableModule,
+    ) -> NativeResult<Value> {
+        self.argument.validate(runtime)?;
+        expected.validate(runtime)?;
+        if !self
+            .argument
+            .view(&self.owner)
+            .compatible(expected.view(owner))
+        {
+            return Err(RuntimeError::module_validation(
+                "retained call argument type",
+            ));
+        }
+        self.root.value(runtime.gc()).ok_or_else(|| {
+            RuntimeError::module_validation("foreign or expired retained call argument")
+        })
+    }
+
     pub(crate) fn retain_storage(
         runtime: &Runtime,
         contract: &StorageType,
         value: Value,
     ) -> NativeResult<Self> {
         let argument = contract.argument()?.clone();
-        let program = runtime
-            .retain_program(&contract.owner, ModuleEpochRetention::RuntimeValue)
-            .ok_or_else(|| RuntimeError::module_validation("script value program retention"))?;
         let root = runtime.gc().root_native_value(value)?;
         Ok(Self {
             root,
             argument,
             owner: contract.owner.clone(),
-            _program: program,
         })
     }
 
@@ -61,12 +92,23 @@ impl ScriptValue {
             .ok_or_else(|| RuntimeError::module_validation("foreign or expired script value"))
     }
 
+    /// Read the checked value while this handle's root remains alive. The copy
+    /// must not outlive that protection unless the caller retains another root.
+    pub fn value(&self, runtime: &Runtime) -> NativeResult<Value> {
+        self.argument.validate(runtime)?;
+        self.root
+            .value(runtime.gc())
+            .ok_or_else(|| RuntimeError::module_validation("foreign or expired script value"))
+    }
+
     pub fn type_argument(&self) -> &TypeArgument {
         &self.argument
     }
 
     pub fn decode<T: FromKagari>(&self, cx: &mut NativeContext<'_>) -> NativeResult<T> {
-        let mut conversion = ConversionContext::new(cx.runtime(), &self.owner)?;
+        // The supplied argument preserves its original lexical metadata. The caller
+        // lends live execution services; data alone does not pin obsolete programs.
+        let mut conversion = ConversionContext::new(cx.runtime(), cx.owner())?;
         let value = self
             .root
             .value(cx.runtime().gc())
@@ -101,15 +143,10 @@ impl FromKagari for ScriptValue {
             .runtime()
             .root_value(*value)
             .ok_or_else(|| RuntimeError::module_validation("script value retention"))?;
-        let program = cx
-            .runtime()
-            .retain_program(cx.owner(), ModuleEpochRetention::RuntimeValue)
-            .ok_or_else(|| RuntimeError::module_validation("script value program retention"))?;
         Ok(Self {
             root,
             argument: expected.clone(),
             owner: cx.owner().clone(),
-            _program: program,
         })
     }
 }

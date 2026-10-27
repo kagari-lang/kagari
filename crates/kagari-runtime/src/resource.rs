@@ -374,18 +374,17 @@ impl ResourceState {
     }
 
     pub(crate) fn release_heap_charge(&self, charge: HeapCharge) {
+        self.release_heap_totals(charge.logical_units, charge.retained_bytes as u128);
+    }
+
+    /// Release one already validated synchronous retirement batch atomically.
+    pub(crate) fn release_heap_totals(&self, logical_units: usize, retained_bytes: u128) {
         let mut counters = self.counters.borrow_mut();
-        let Some(units) = counters
-            .current_heap_units
-            .checked_sub(charge.logical_units)
-        else {
+        let Some(units) = counters.current_heap_units.checked_sub(logical_units) else {
             self.quarantine("heap charge underflow during cleanup");
             return;
         };
-        let Some(bytes) = counters
-            .current_retained_bytes
-            .checked_sub(charge.retained_bytes as u128)
-        else {
+        let Some(bytes) = counters.current_retained_bytes.checked_sub(retained_bytes) else {
             self.quarantine("backing charge underflow during cleanup");
             return;
         };

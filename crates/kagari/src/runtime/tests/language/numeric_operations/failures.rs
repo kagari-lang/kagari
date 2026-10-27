@@ -9,7 +9,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::source::SourceFile;
-use kagari_stdlib::declarations::StandardDeclarations;
+use kagari_stdlib::{collections::vector::VecValues, declarations::StandardDeclarations};
 use kagari_types::declaration::host::HostCallPolicy;
 use std::sync::{Arc, Mutex};
 
@@ -91,7 +91,7 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
     let _selected_loaded = runtime.runtime().select_program(&loaded).unwrap();
     let root = ConversionContext::new(runtime.runtime(), &_selected_loaded)
         .unwrap()
-        .encode(vec![7i32])
+        .encode(VecValues(vec![7i32]))
         .unwrap();
     let Value::GcHandle(memory) = root.value(runtime.runtime().gc()).unwrap() else {
         panic!("Vec memory fixture")
@@ -105,8 +105,12 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
         "{error:?}"
     );
     assert_eq!(
-        runtime.runtime().gc().sequence_snapshot(memory).unwrap(),
-        vec![Value::I32(7), Value::I32(1), Value::I32(2)]
+        ConversionContext::new(runtime.runtime(), &_selected_loaded)
+            .unwrap()
+            .decode::<VecValues<i32>>(&root)
+            .unwrap()
+            .0,
+        vec![7, 1, 2]
     );
     drop(root);
     assert_eq!(runtime.runtime().gc().active_roots(), 0);

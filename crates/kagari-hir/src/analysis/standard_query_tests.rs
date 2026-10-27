@@ -3,12 +3,12 @@ use crate::{
     declarations::DeclarationId,
     language::semantics::ProtocolSemantics,
     native::render::declaration_source,
-    tests::test_analysis,
+    tests::{native_type, test_analysis},
     types::{NominalType, TypeId},
 };
 use kagari_common::identity::{DefinitionKind, table::DefinitionTable};
 use kagari_stdlib::{catalog as foundation_catalog, identity as library};
-use kagari_types::{collection::CollectionAccess, language::Protocol};
+use kagari_types::language::Protocol;
 
 fn foundation_vec(definitions: &DefinitionTable, item: TypeId) -> TypeId {
     TypeId::NativeObject(NominalType {
@@ -215,11 +215,11 @@ mod tests {
         let catalog = &authoring_catalog.records().facts().aggregates;
         let integer = TypeId::Builtin(kagari_types::scalar::BuiltinType::I32);
         let string = TypeId::Builtin(kagari_types::scalar::BuiltinType::String);
-        let target = TypeId::Map {
-            key: Box::new(integer.clone()),
-            value: Box::new(string.clone()),
-            access: CollectionAccess::Mutable,
-        };
+        let target = native_type(
+            definitions,
+            "HashMap",
+            vec![integer.clone(), string.clone()],
+        );
         for (kind, arguments) in [
             ("Map", vec![integer.clone(), string.clone()]),
             ("MutableMap", vec![integer.clone(), string.clone()]),
@@ -631,27 +631,29 @@ mod collection_access_tests {
         let catalog = &authoring_catalog.records().facts().aggregates;
         let integer = TypeId::Builtin(kagari_types::scalar::BuiltinType::I32);
         let receivers = [
-            foundation_vec(definitions, integer.clone()),
-            TypeId::Map {
-                key: Box::new(integer.clone()),
-                value: Box::new(integer.clone()),
-                access: CollectionAccess::Mutable,
-            },
-            TypeId::Set(Box::new(integer), CollectionAccess::Mutable),
+            (
+                foundation_vec(definitions, integer.clone()),
+                ["List", "MutableList"],
+            ),
+            (
+                native_type(
+                    definitions,
+                    "HashMap",
+                    vec![integer.clone(), integer.clone()],
+                ),
+                ["Map", "MutableMap"],
+            ),
+            (
+                native_type(definitions, "HashSet", vec![integer]),
+                ["Set", "MutableSet"],
+            ),
         ];
         let mut checked = 0;
-        for receiver in receivers {
-            let (kinds, arguments) = match &receiver {
-                TypeId::NativeObject(nominal) => {
-                    (["List", "MutableList"], nominal.arguments.clone())
-                }
-                TypeId::Map { key, value, .. } => (
-                    ["Map", "MutableMap"],
-                    vec![(**key).clone(), (**value).clone()],
-                ),
-                TypeId::Set(item, _) => (["Set", "MutableSet"], vec![(**item).clone()]),
-                _ => unreachable!(),
+        for (receiver, kinds) in receivers {
+            let TypeId::NativeObject(nominal) = &receiver else {
+                unreachable!()
             };
+            let arguments = nominal.arguments.clone();
             for kind in kinds {
                 let mut interface = foundation_interface(definitions, kind);
                 interface.arguments = arguments.clone();

@@ -1,3 +1,4 @@
+use kagari_stdlib::collections::vector::{ScriptVec, VecValues};
 mod dto;
 mod host_adapter;
 mod scoped_capabilities;
@@ -22,7 +23,6 @@ use kagari_runtime::{
         binding::NativeResult,
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
-        collections::vector::ScriptVec,
         conversion::{
             FromKagari, IntoKagari, KagariType,
             context::{ConversionContext, ConversionLimits},
@@ -326,11 +326,13 @@ fn owned_native_arguments_and_business_results_survive_gc_and_source_free_loadin
                 FunctionDecl::new("wrap")
                     .parameter(
                         "input",
-                        <Vec<String>>::kagari_type(module.declarations()).unwrap(),
+                        <VecValues<String>>::kagari_type(module.declarations()).unwrap(),
                     )
                     .returns(
-                        <Result<Option<Vec<String>>, String>>::kagari_type(module.declarations())
-                            .unwrap(),
+                        <Result<Option<VecValues<String>>, String>>::kagari_type(
+                            module.declarations(),
+                        )
+                        .unwrap(),
                     ),
             )
             .unwrap();
@@ -338,13 +340,13 @@ fn owned_native_arguments_and_business_results_survive_gc_and_source_free_loadin
             .bind(
                 registered_function.clone(),
                 |cx: &mut NativeContext<'_>,
-                 (input,): (Vec<String>,)|
-                 -> NativeResult<Result<Option<Vec<String>>, String>> {
+                 (input,): (VecValues<String>,)|
+                 -> NativeResult<Result<Option<VecValues<String>>, String>> {
                     cx.collect_garbage()?;
                     if input.is_empty() {
                         Ok(Err("empty input".into()))
                     } else {
-                        Ok(Ok(Some(cx.collect(input)?)))
+                        Ok(Ok(Some(VecValues(cx.collect(input)?))))
                     }
                 },
             )
@@ -357,8 +359,10 @@ fn owned_native_arguments_and_business_results_survive_gc_and_source_free_loadin
                 FunctionDecl::new("inspect")
                     .parameter(
                         "input",
-                        <Result<Option<Vec<String>>, String>>::kagari_type(module.declarations())
-                            .unwrap(),
+                        <Result<Option<VecValues<String>>, String>>::kagari_type(
+                            module.declarations(),
+                        )
+                        .unwrap(),
                     )
                     .returns(Type::i32()),
             )
@@ -367,11 +371,11 @@ fn owned_native_arguments_and_business_results_survive_gc_and_source_free_loadin
             .bind(
                 registered_function.clone(),
                 |cx: &mut NativeContext<'_>,
-                 (input,): (Result<Option<Vec<String>>, String>,)|
+                 (input,): (Result<Option<VecValues<String>>, String>,)|
                  -> NativeResult<i32> {
                     cx.collect_garbage()?;
                     Ok(match input {
-                        Ok(Some(items)) if items == ["雪", "🌱"] => 40,
+                        Ok(Some(items)) if items.0 == ["雪", "🌱"] => 40,
                         Err(message) if message == "empty input" => 2,
                         _ => -100,
                     })
@@ -432,7 +436,7 @@ fn typed_concrete_result_uses_the_compiler_selected_interface_adapter() {
             .unwrap();
         module
             .function(&registered_function, |f| {
-                f.produces(<Vec<String>>::kagari_type(&catalog).unwrap())
+                f.produces(<VecValues<String>>::kagari_type(&catalog).unwrap())
             })
             .unwrap();
         module
@@ -440,9 +444,10 @@ fn typed_concrete_result_uses_the_compiler_selected_interface_adapter() {
                 registered_function.clone(),
                 |cx: &mut NativeContext<'_>,
                  (text, separator): (String, String)|
-                 -> NativeResult<Vec<String>> {
+                 -> NativeResult<VecValues<String>> {
                     cx.collect_garbage()?;
                     cx.collect(text.split(&separator).map(str::to_owned))
+                        .map(VecValues)
                 },
             )
             .map(|()| registered_function)
@@ -553,7 +558,7 @@ fn typed_host_entries_convert_composites_and_retain_returned_handles() {
 
     impl KagariType for RetainedVec {
         fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
-            Vec::<i32>::kagari_type(catalog)
+            VecValues::<i32>::kagari_type(catalog)
         }
     }
 
@@ -588,9 +593,9 @@ fn typed_host_entries_convert_composites_and_retain_returned_handles() {
     );
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    type Data = Result<Option<Vec<(String, i32)>>, String>;
+    type Data = Result<Option<VecValues<(String, i32)>>, String>;
     for value in [
-        Ok(Some(vec![("雪".into(), 42)])),
+        Ok(Some(VecValues(vec![("雪".into(), 42)]))),
         Ok(None),
         Err("business failure".into()),
     ] {
@@ -601,13 +606,17 @@ fn typed_host_entries_convert_composites_and_retain_returned_handles() {
     assert_eq!(tuple, (20, 22));
     vm.execute_typed::<_, ()>(&loaded, "unit", ()).unwrap();
     let retained: RetainedVec = vm
-        .execute_typed(&loaded, "retain", (vec![20, 22],))
+        .execute_typed(&loaded, "retain", (VecValues(vec![20, 22]),))
         .unwrap();
     vm.runtime().collect_garbage().unwrap();
-    let Value::GcHandle(id) = retained.0.value(vm.runtime().gc()).unwrap() else {
-        panic!("array")
-    };
-    assert_eq!(vm.runtime().gc().sequence_get(id, 1), Some(Value::I32(22)));
+    {
+        let mut conversion = ConversionContext::new(vm.runtime(), &loaded).unwrap();
+        let values: ScriptVec<i32> = conversion.decode(&retained.0).unwrap();
+        assert_eq!(
+            values.get(&mut vm.context(&loaded).unwrap(), 1).unwrap(),
+            Some(22)
+        );
+    }
     drop(retained);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
 }
@@ -707,10 +716,14 @@ fn moving_a_result_out_of_its_report_keeps_it_rooted_without_manual_registration
     drop(result);
     vm.execute(&loaded, "idle").unwrap();
     vm.runtime().collect_garbage().unwrap();
-    let Value::GcHandle(id) = clone.value(vm.runtime().gc()).unwrap() else {
-        panic!("array result")
-    };
-    assert_eq!(vm.runtime().gc().sequence_get(id, 0), Some(Value::I32(42)));
+    {
+        let mut conversion = ConversionContext::new(vm.runtime(), &loaded).unwrap();
+        let values: ScriptVec<i32> = conversion.decode(&clone).unwrap();
+        assert_eq!(
+            values.get(&mut vm.context(&loaded).unwrap(), 0).unwrap(),
+            Some(42)
+        );
+    }
     let other = Runtime::default();
     assert!(clone.value(other.gc()).is_none());
     drop(clone);
@@ -732,18 +745,19 @@ fn native_collect_polls_between_iterator_steps_and_releases_the_failed_call() {
         let registered_function = module
             .define_function(
                 FunctionDecl::new("gather")
-                    .returns(<Vec<i32>>::kagari_type(module.declarations()).unwrap()),
+                    .returns(<VecValues<i32>>::kagari_type(module.declarations()).unwrap()),
             )
             .unwrap();
         module
             .bind(
                 registered_function.clone(),
-                move |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<Vec<i32>> {
+                move |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<VecValues<i32>> {
                     cx.collect((0..100).inspect(|_| {
                         if observed.fetch_add(1, Ordering::SeqCst) == 2 {
                             cancel.cancel();
                         }
                     }))
+                    .map(VecValues)
                 },
             )
             .map(|()| registered_function)
