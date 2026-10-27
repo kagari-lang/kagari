@@ -5136,3 +5136,31 @@ restoration. Production source and the default release binary were restored and
 the arithmetic checksum check passes. This experiment weakens cancellation and
 is not an accepted optimization; it does not change BO19 acceptance or activate
 a new implementation phase.
+
+### Abandonment and combined polling diagnostics after BO19
+
+Two further user-requested arithmetic ablations use the same fully checked frozen
+baseline, seven alternating process pairs and unchanged workloads. Medians below
+are per complete 50,000-iteration workload; reductions use median paired ratios.
+
+| Masked scalar poll | Original us | Experiment us | Paired ratio | Elapsed-time reduction | Pair ratio range |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Abandonment only | 467.0 | 419.3 | 0.90578 | 9.4% | 0.88615..0.93511 |
+| Cancellation and abandonment | 465.6 | 387.9 | 0.83598 | 16.4% | 0.82013..0.85493 |
+
+Cancellation remains enabled in the first variant. Observer and collection-due
+checks remain in both, as do the outer driver checks. Removing abandonment also
+allows its automatic-collection guard to disappear. These are whole-image timing
+differences, not isolated atomic-load costs. The earlier cancellation-only 4.6%
+cannot be added to the abandonment result to predict the combined result.
+Lua's paired ratios are 1.00879 and 0.91462 respectively, so layout/environment
+effects remain an attribution limit, particularly for the combined experiment.
+An identical-image A/A control gives Kagari ratio 1.01110 and Lua ratio 1.00667;
+it does not isolate layout effects between different images.
+
+The [diagnostic ledger](bytecode-optimization-plan.md#abandonment-and-combined-polling-ablation-2026-10-27)
+retains per-pair numbers, exact changes, hashes, environment, commands and restoration.
+Neither ablation is an accepted implementation or a change to BO19's production
+performance claim; production retains both polling guarantees.
+Source and the default release benchmark were restored; the arithmetic checksum
+check passes with both guarantees enabled.

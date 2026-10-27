@@ -2792,3 +2792,79 @@ relinking need not preserve the prior image hash. The restored image's focused
 No Rust changes remain. Final validation is documentation content/links/diff;
 no correctness, full-matrix performance or CI acceptance is claimed for the
 semantically weakened experiment. Production retains per-instruction cancellation.
+
+### Abandonment and combined polling ablation, 2026-10-27
+
+The user next requests masking `modules.abandonment_pending()` alone, then asks
+for it together with scalar cancellation. Preserve both measurements, each against
+the same fully checked baseline; no other poll or operation is changed. These are
+diagnostics, not new production phases. Pending abandoned-candidate cleanup may
+be delayed in the first variant; the combined variant additionally weakens
+cancellation as described above. Outer driver checks remain in both images.
+
+Start from clean `25349f9b`. Freeze unchanged arithmetic at 15:09:06 UTC using
+`uv run python scripts/benchmark_lua.py --interpreter-only --workload arithmetic
+--freeze-baseline target/lua-comparison/abandonment-before` (cached build 0.397 s).
+The baseline SHA-256 is
+c2f317ed6c33129179ca633e50aed88fd7e284ae0f2fb77c2668e11218e4d91e.
+Replace only `self.runtime.modules.abandonment_pending()` with `false` in
+`poll_requested`; this also lets code generation eliminate its automatic-collection
+guard. Keep cancellation, observer and collection-due checks. Run the same driver
+with `--interpreter-only --workload arithmetic --baseline-executable
+target/lua-comparison/abandonment-before`. The seven paired runs start 15:09:12 UTC;
+the release build takes 29.288 s. Candidate SHA-256 is
+f32b02b1ca44cc6dd49b04164a75dcaa842f48438197539c72379d8eb4287f00.
+
+For the combined variant, additionally remove the scalar cancellation OR term and
+repeat the same command once, starting 15:10:16 UTC (build 28.216 s). Candidate
+SHA-256 is afa1839bd713e28660b6740f5d771e34395efe93077c0f4c76f4010a9df6b19a.
+The observer and collection-due terms, outer cancellation and outer reclamation
+paths remain. No throughput target is imposed on these semantic ablations.
+
+Both use seven alternating pairs, three warmups and eleven samples per process,
+n=50,000, batch=1, with checksum 2,398,830 in every Kagari/Lua sample. Environment
+is unchanged from the preceding diagnostic: Windows 11 Pro 10.0.26300, i9-12900K,
+24 logical CPUs, 66,843,692 KiB RAM, Rust/Cargo 1.99.1 and LLVM 23.1.1,
+x86_64-pc-windows-msvc; workspace release defaults/opt-level 3, default target
+and build parallelism, source/native and vendored Lua 5.4.9, interpreter-only.
+Fresh processes/states with warmed execution; cached build products where possible.
+Setup/build time is excluded. No affinity/environment overrides or concurrent
+builds/tests/profiles overlap timing; all outliers are retained.
+
+| Pair | Original us (abandonment run) | Abandonment masked us | Ratio | Original us (combined run) | Both masked us | Ratio |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 467.3 | 414.1 | 0.88615 | 470.1 | 387.7 | 0.82472 |
+| 2 | 459.6 | 419.3 | 0.91232 | 465.8 | 389.4 | 0.83598 |
+| 3 | 467.3 | 420.9 | 0.90071 | 459.1 | 392.5 | 0.85493 |
+| 4 | 467.0 | 423.0 | 0.90578 | 465.6 | 386.0 | 0.82904 |
+| 5 | 468.1 | 417.0 | 0.89084 | 460.3 | 390.7 | 0.84879 |
+| 6 | 463.9 | 422.1 | 0.90989 | 462.5 | 387.9 | 0.83870 |
+| 7 | 442.3 | 413.6 | 0.93511 | 465.9 | 382.1 | 0.82013 |
+
+Abandonment-only medians are 467.0 -> 419.3 us, median paired ratio 0.90578:
+9.4% less elapsed time (individual reductions 6.5%..11.4%). Combined medians are
+465.6 -> 387.9 us, ratio 0.83598: 16.4% less time (14.5%..18.0%). The earlier
+cancellation-only 4.6% result is a separate measurement with a separately linked
+baseline. These percentages cannot be added to assign independent check costs.
+
+Lua medians are 364.2 -> 366.9 us for abandonment-only (paired ratio 1.00879),
+and 356.1 -> 328.2 us for the combined run (0.91462). The latter again shows a
+substantial change in unchanged Lua logic. These results measure entire rebuilt
+images, including branch/register allocation and linked-code layout effects;
+they do not isolate two atomic loads or justify removing either guarantee.
+
+An A/A control starts 15:12:12 UTC after restoring and rebuilding production,
+invoking the exact frozen baseline image in both roles. It reuses the same seven
+alternating pairs, arguments/reverse order, warmups/samples and report validation,
+without overlapping builds or tests. Kagari medians are 464.2 / 466.8 us,
+paired ratio 1.01110 (0.97683..1.06308); Lua medians are 362.7 / 364.9 us,
+ratio 1.00667 (0.97126..1.05769). This measures a 1.1% median Kagari A/A difference,
+but is not a statistical confidence bound for the two different experimental images.
+
+Restore `scalars.rs` byte-for-byte and rebuild the default release benchmark
+(28.25 seconds). Its SHA-256 is
+e56f6eb1cde8a09fb01d1e2ce5dec83ae73d33f61bf3a8dae42361397151ee6f.
+The restored `--check --interpreter-only --workload=arithmetic` passes both
+engine checksums. No Rust changes remain. Final content/link/diff checks cover
+the only retained changes, which are documentation. No semantic correctness,
+full workload matrix or CI acceptance is claimed for either temporary image.
