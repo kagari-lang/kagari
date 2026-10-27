@@ -13,7 +13,7 @@ use kagari_types::{
     arithmetic::ArithmeticError,
     conversion, integer,
     integer::IntegerMethod,
-    payload::{self, ScalarBinaryOp},
+    payload::{ScalarBinaryOp, operation::ScalarOperation},
     scalar::BuiltinType,
 };
 
@@ -97,12 +97,13 @@ pub fn binary(op: BinaryOp, lhs: Value, rhs: Value) -> Result<Value, RuntimeErro
             "expected arithmetic operation",
         ));
     }
-    let kernel = payload::binary_kernel(binary_operation(op), ty).expect("numeric carrier");
-    let bits = kernel(
-        scalar::encode(&lhs).expect("scalar"),
-        scalar::encode(&rhs).expect("scalar"),
-    )
-    .map_err(|reason| RuntimeError::new(RuntimeErrorKind::ScriptTrap, reason))?;
+    let selected = ScalarOperation::binary(binary_operation(op), ty).expect("numeric carrier");
+    let bits = selected
+        .evaluate(
+            scalar::encode(&lhs).expect("scalar"),
+            scalar::encode(&rhs).expect("scalar"),
+        )
+        .map_err(|reason| RuntimeError::new(RuntimeErrorKind::ScriptTrap, reason))?;
     Ok(scalar::decode(builtin_representation(ty), bits).expect("numeric result"))
 }
 
@@ -120,9 +121,10 @@ pub fn fixed_integer(
         (None, None) => 0,
         _ => return Err(invalid()),
     };
-    let kernel = payload::integer_kernel(operation.op, operation.input, operation.rhs)
+    let selected = ScalarOperation::integer(operation.op, operation.input, operation.rhs)
         .ok_or_else(invalid)?;
-    let bits = kernel(lhs, rhs)
+    let bits = selected
+        .evaluate(lhs, rhs)
         .map_err(|reason| RuntimeError::new(RuntimeErrorKind::ScriptTrap, reason))?;
     Ok(scalar::decode(builtin_representation(operation.input), bits).expect("integer result"))
 }
@@ -208,9 +210,10 @@ pub fn convert(conversion: NumericConversion, value: Value) -> Result<Value, Run
     if !value.has_representation(builtin_representation(conversion.source)) {
         return Err(fail());
     }
-    let kernel =
-        payload::conversion_kernel(conversion.source, conversion.target).ok_or_else(fail)?;
-    let bits = kernel(scalar::encode(&value).ok_or_else(fail)?, 0)
+    let selected =
+        ScalarOperation::conversion(conversion.source, conversion.target).ok_or_else(fail)?;
+    let bits = selected
+        .evaluate(scalar::encode(&value).ok_or_else(fail)?, 0)
         .map_err(|reason| RuntimeError::new(RuntimeErrorKind::ScriptTrap, reason))?;
     scalar::decode(builtin_representation(conversion.target), bits).ok_or_else(fail)
 }

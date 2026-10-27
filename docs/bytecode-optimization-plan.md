@@ -9,9 +9,10 @@ owned-lifecycle timing gates remain above 1.05.**
 The 2026-10-27 authorized follow-up implements BO05-BO07. BO08 measurement and
 remaining-cost attribution are recorded; its integrated acceptance retains two
 unrestricted collection timing failures plus unrun full CI.
-BO09-BO12 are a queued prepared-scalar execution proposal requested on 2026-10-27;
+BO09-BO12 are the authorized prepared-scalar execution follow-up on 2026-10-27;
 see [the execution plan](#prepared-scalar-execution-follow-up-bo09-bo12). Runtime
-implementation has not started under this planning checkpoint.
+implementation resumed after the user approved the checked-semantics revision;
+BO09 has frozen the baseline and BO10 replacement has passed its local checkpoint.
 The user explicitly requested a separate plan that can proceed before the previous
 interpreter performance work finishes. This document owns BO01-BO04: general typed
 slots, direct destinations, predicate branches and constant operands. It replaces
@@ -71,10 +72,13 @@ runs or benchmark timing overlapping builds/tests/profiling.
 
 ## Prepared scalar execution follow-up (BO09-BO12)
 
-**Status: BO09-BO12 implementation and per-phase commits authorized on 2026-10-27.** This section supersedes the earlier ideal-model sketches as
+**Status: BO09-BO10 complete; BO11 segment progress is next.**
+Implementation and per-phase commits were authorized on 2026-10-27. The
+[checked-semantics revision](#checked-semantics-catalog-revision-2026-10-27) supersedes
+the full Cartesian catalog below; the user authorized execution of this revision. This section supersedes the earlier ideal-model sketches as
 the concrete proposal. It extends the proposed scope to internal prepared scalar
-execution and segment progress publication. The user's current request is to write
-the execution plan and code shapes; no runtime changes are made at this checkpoint.
+execution and segment progress publication. The user authorized implementation
+and a coherent code commit at each phase after reviewing the plan and type coverage.
 BO04/IP12 and BO08 acceptance failures remain independent and visible.
 
 ### Task and finite scope
@@ -152,6 +156,9 @@ dependency is repaired through the existing canonical contract, not by making th
 interpreter depend on source or by weakening artifact validation.
 
 ### Target instruction and handler shapes
+
+These original full-expansion sketches are superseded by the checked-semantics
+catalog revision below where operation/condition/domain fields are specified.
 
 The following are **Rust-like design sketches, not compilable API declarations**.
 `RR`, `RK`, `KR`, `KK` mean slot/slot, slot/constant, constant/slot and two constants.
@@ -299,7 +306,7 @@ needed for local progress or preparation-time constants.
   catalog and baseline assembly/storage figures. No prepared operation may be
   omitted because direct does not use it. Baseline failures are recorded, not repaired
   by unrelated changes. Acceptance: reproducible images and complete coverage map.
-- [ ] **BO10 — Replace scalar preparation and execution coherently.** Migrate the
+- [x] **BO10 — Replace scalar preparation and execution coherently.** Migrate the
   typed handlers, shared numeric primitives, checked Value adapter and their existing
   tests together. Keep frame publication and polling behavior unchanged for attribution.
   At this checkpoint remove `OperandSite`, `PreparedScalarSite`, `PreparedOperands`,
@@ -1680,3 +1687,223 @@ Value adapters use the same semantics through an enum evaluator, not a function
 pointer. Keep enum/selection and primitive modules cohesive and below LOC limits.
 The private catalog macro has lexical crate scope, no public macro/re-export API.
 BO10 owns the complete replacement and removal of its temporary adapters.
+
+### BO10 implementation notes (in progress)
+
+The private catalog lives in `kagari-runtime/src/scalar_catalog.rs`, shared lexically
+by the enum/preparation and cursor macros. `module/execution/scalar.rs` owns input
+selection; `kagari-types/src/payload/operation.rs` and `operation/select.rs` own
+dynamic semantic identities/admission. This replaces the proposed separate opcode
+and handler modules without duplicating semantic implementations. All previous
+kernel/site APIs and scalar-site arrays are removed. Canonical code is unchanged.
+
+The first scoped check found a duplicate `scalar` module/import name; importing the
+Value codec as `scalar_value` resolves it. The scoped check and three existing
+payload contract tests pass. Two runtime test compilations were deliberately
+stopped before tests ran: an initial all-operation evaluator in every handler,
+then the direct-primitive version after over fifteen minutes of code generation.
+Neither aborted command is a passing test. Direct handlers now call their selected
+primitive, not the dynamic evaluator. Compilation cost is under investigation;
+the full type/operation coverage is retained.
+
+Scalar failures now carry only a borrowed reason and script/invariant classification
+inside the closed segment. The exit wrapper constructs the owned RuntimeError or
+quarantines the runtime. No instruction or callback can intervene after failure;
+the error kind/reason, failed commit and frame point remain unchanged. This keeps
+large owned diagnostics out of each expanded handler and reuses the existing
+region error boundary. The managed field reader adapts the same checked optional
+payload access through its existing error owner. This is not unchecked access or
+a second execution/termination policy.
+
+
+### Checked-semantics catalog revision, 2026-10-27
+
+The user explicitly retains existing checked overflow semantics after considering
+wrapping. No numeric specification change, narrow-integer promotion or implementation
+restart is authorized by this design discussion. BO10 remains paused and unaccepted;
+the uncommitted full-expansion implementation remains in the working tree. Two
+further runtime compilation attempts (lightweight errors, then shared non-inlined
+shift/cast helpers) were also stopped before tests completed. Compilation cost is
+unresolved; neither the responsible compiler pass nor the benefit of these changes
+has been established. BO10 owns replacement and subsequent verification.
+
+Proposed replacement: specialize operation and source width for RR/RK arithmetic;
+parameterize comparison conditions, shift-count domains and conversion domains.
+Use separate inline KR/KK records with shared operation/domain selection. R means
+scalar slot; K means an admitted numeric immediate. All 361 existing semantic
+identities remain supported. The source catalog contains 202 binary, 38 comparison
+and 121 unary identities: its Cartesian expansion is 202*4 + 38*7 + 121 = 1,195
+scalar variants. Some nonnumeric constant forms in that expansion are unreachable.
+
+| Proposed scalar family | Count | Selection retained as data |
+| --- | ---: | --- |
+| Integer Add/Sub/Mul/Div/Rem, eight domains, RR/RK | 80 | None |
+| Integer And/Or/Xor, eight domains, RR/RK | 48 | None |
+| f32/f64 arithmetic, five operations, RR/RK | 20 | None |
+| Shifts, eight left domains, two directions, RR/RK | 32 | Right integer domain |
+| Numeric comparisons, five physical domains, RR/RK, store/branch | 20 | Comparison condition |
+| Character comparison, RR, store/branch | 2 | Comparison condition |
+| Shared Bool/Unit equality, RR, store/branch | 2 | Eq/Ne |
+| Eight integer BitNot plus existing five negation/not operations | 13 | None |
+| IntegerConvert / IntegerToFloat / FloatToInteger / FloatConvert / BoolToInteger | 5 | Source/target domains |
+| Shared KR/KK forms described below | 9 | Operation/domain |
+| Total scalar variants | **231** | |
+
+Numeric comparison domains are I32, I64, U64, F32 and F64, as in existing lowering;
+this does not widen arithmetic semantics. Conversion families cover 64 + 16 + 16 +
+4 + 8 = 108 existing pairs, including bit-preserving identities. Do not substitute
+ordinary casts for checked conversion or omit source-domain validation.
+
+The nine shared variants are IntegerBinaryKR/KK, FloatBinaryKR/KK, ShiftKR/KK,
+CompareStoreKR/KK and CompareBranchKR. Constant-only pure comparison branches
+continue to select Jump at the same logical PC. Integer binary selection covers
+eight operations (five arithmetic and three bitwise); comparisons are separate.
+Constants remain inline raw bits plus admitted domain metadata; there is no new
+constant/site table, operand-reference allocation, Value round trip or numeric
+function pointer. Keeping KR and KK separate avoids two nested slot/immediate
+enums in every shared record. Never commute floating operands or eagerly evaluate
+fallible constant arithmetic to avoid these records.
+
+With Constant, Move, Jump, Branch, Managed, Return and Boundary, the proposal has
+**238 outer ExecutionInstruction variants**, versus the attempted 1,202. These
+are internal prepared variants, not the canonical artifact opcode count or all
+language/runtime cases: Managed contains seven existing nested operation kinds and
+Boundary retains cold canonical dispatch. The 361 semantic identities still exist;
+parameterization does not make their validation or arithmetic implementations vanish.
+The <=24-byte layout remains an acceptance requirement, not a measured property of
+this proposal. A sub-256 count alone proves neither layout nor performance.
+
+Representative proposed records (pseudocode):
+
+```text
+I8AddRK { dst, lhs_slot, rhs: i8 }
+I32CompareBranchRK { lhs_slot, rhs: i32, condition, then_pc, else_pc }
+I16ShlRR { dst, lhs_slot, rhs_slot, count_domain }
+IntegerConvert { dst, src, source_domain, target_domain }
+IntegerBinaryKR { dst, lhs_bits: u64, rhs_slot, operation_and_domain }
+IntegerBinaryKK { dst, lhs_bits: u64, rhs_bits: u64, operation_and_domain }
+```
+
+`scalar_catalog.rs` should enumerate these families instead of multiplying every
+semantic identity by every shape. `module/execution/scalar.rs` owns verified
+selection and inline admission; `frame/cursor/scalars.rs` owns slot reads, commits
+and dispatch. `kagari-types::payload` and its existing numeric owners retain one
+semantic implementation shared by direct and parameterized paths. Shared KR/KK
+and conversion dispatch should be bounded out-of-line helpers, not a copy of the
+361-way evaluator in each handler. Shift-count decoding must not instantiate all
+eight right domains in every left-domain/shape handler. An operation/domain enum
+may encode these choices without adding outer interpreter cases. Inline only the
+small direct arithmetic primitives justified by assembly/code-size evidence.
+
+The tradeoff is explicit: RR/RK arithmetic retains static selection; comparison
+condition handling may add a switch or predicate-mask work; mixed-domain shifts
+need right-domain decoding; conversions and KR/KK operations incur shared selection
+and possibly direct-call/result transport. KR/KK frequency is not established and
+must not be called cold without measurement. This reduces interpreter expansion,
+not the cost of required overflow/range checks. Compilation time and machine-code
+size improvements remain hypotheses. Direct retains its canonical instruction
+count and statically selected arithmetic, but parameterized loop comparison is a
+specific regression risk to measure.
+
+All slot operands must be fetched before numeric domain checks. Failures preserve
+the original PC, diagnostic class/reason, prior effects and unchanged destination.
+For example, (127i8 + 1i8) - 1i8 still traps at the addition; signed MIN / -1 and
+MIN % -1 keep existing failures even if an intermediate wider calculation fits.
+Cancellation/observation boundaries, manual-entry validation, source-free checks,
+NaN/signed-zero behavior and pinned ownership remain unchanged.
+
+Mechanism references: [Lua 5.4.9 operand-shape opcodes](https://www.lua.org/source/5.4/lopcodes.h.html)
+select forms such as ADD/ADDK/ADDI without expanding a full type/shape product;
+[CPython 3.14.0 comparison handlers](https://github.com/python/cpython/blob/v3.14.0/Python/bytecodes.c)
+retain condition information in oparg within type-specialized comparisons, including
+unordered floating results. These justify factoring independent dimensions, not
+copying dynamic type guards, reference counting, mutable quickening or wrapping
+arithmetic into Kagari. Kagari prepares immutable instructions from verified types;
+existing scoped-bank and generation ownership continues to apply.
+
+Before BO10 acceptance, verify exhaustive legal preparation, <=24-byte layout,
+selected checked-width/division/remainder/shift/cast/NaN contracts, source-free
+loading and manual-frame/trap atomicity. Inspect release direct assembly and measure
+original/forms/numeric workloads against BO09, including KR/KK and comparisons;
+retain the existing regression gates and CI-only exhaustive matrix. First establish
+that the bounded replacement builds; do not restart repeated speculative long
+compilations. This discussion changed only the plan. Catalog arithmetic was checked
+against the source inventory; no new runtime tests, compilation or timing are claimed.
+
+
+### BO10 compact implementation resumed, 2026-10-27
+
+The user approved the 238-variant proposal and resumed checkpoint execution.
+Replaced the full Cartesian scalar catalog with 231 scalar and seven base variants.
+`ScalarOperation` now represents independent domains/operations as fields rather
+than a 361-arm evaluator; its supported semantic combinations are unchanged.
+`payload/comparison.rs` owns parameterized conditions, `payload/shared.rs` owns
+KR/KK and count-domain decoding, and existing arithmetic/numeric owners retain
+checked arithmetic and conversion policy. Conversion policy includes the existing
+numeric::cast truncation/saturation behavior; retaining checked arithmetic does
+not change that independent contract. No canonical, ABI, GC or frame-publication
+changes are included in BO10. Original BO10 speculative expansion is superseded.
+
+The scoped runtime check and the three existing payload contract tests pass.
+Runtime layout/frame and VM numeric execution verification, release evidence and
+checkpoint quality checks are in progress; these are not yet acceptance results.
+
+
+BO10 focused verification: the 24-byte physical instruction test passes. The
+selected runtime frame/cursor suite first passed 26/27 cases; native publication's
+fixture failed its prerequisite reused-slot assertion before checking publication.
+Constant-operand lowering left the old expression without a retired slot for the
+second native result. The fixture now retains two intermediates before summing,
+so the second native destination actually reuses storage; all success/failure,
+visibility and cleanup assertions remain. The focused failing case now passes.
+All 11 VM numeric tests pass on both source and source-free artifact routes,
+including added left-constant arithmetic/shift comparisons across the existing
+integer/float matrix. No runtime semantic repair was needed for this fixture issue.
+Structure review finds no production globs/re-exports, include/path exceptions,
+unsafe access, duplicated numeric semantics or oversized files; the checker passes
+(1,737 files, zero violations/exceptions). Formatting and diff checks pass.
+Workspace all-target Clippy and release evidence remain pending.
+
+
+### BO10 accepted checkpoint, 2026-10-27
+
+Local acceptance passes: three payload tests, 27 selected runtime frame/cursor/layout
+tests (the repaired prerequisite fixture rerun separately), 11 source/source-free
+VM numeric tests, structure/fmt/diff checks and workspace all-target Clippy. No
+full workspace tests or complete backend/feature matrix were run; they remain CI.
+Prepared instructions measure 24 bytes and the execution function header 144 bytes.
+The catalog has 231 scalar + 7 base variants. Retain initialization, carrier and
+bounds validation, all numeric policies, read-before-write and original trap PCs.
+
+Release build completed in 115 seconds with default Cargo parallelism and reused
+dependency caches (not a clean-build comparison). A direct-only paired invocation
+was rejected before execution because the frozen baseline records a whole suite
+(`baseline configuration mismatch: workload`). Use matching whole suites instead;
+no baseline validator or metadata was weakened. Three alternating pairs of the
+original and source-forms suites pass all checksums. Reproduction:
+`benchmark_lua.py --interpreter-only --baseline-executable target/lua-comparison/scalar-before --runs 3`
+and the same with `--source-forms`. The toolchain/machine/profile/features/cache
+contract remains BO09's Rust 1.99.1 / LLVM 23.1.1, i7-10700F Windows x64 MSVC,
+workspace release, source/native plus vendored Lua, fresh sequential processes,
+three warmups and eleven execution samples; compilation is excluded from timings.
+These are bounded BO10 diagnostics, not BO12's seven-pair acceptance.
+
+Direct process medians are 182.7 us baseline / 112.5 us candidate / 119.4 us Lua;
+the median of three within-pair candidate/baseline ratios is 0.6158, range
+0.5955..0.6220. Original arithmetic and branches ratios are 0.6784 and 0.6840.
+All 19 original/forms execution ratios are <=1.05; the largest increases are
+host_callback 1.0386 and native 1.0351, which remain visible for final acceptance.
+Reports were produced at 11:24:48 UTC (original) and 11:27:15 UTC (forms).
+
+Candidate executable SHA-256 is
+62b81e545368c2f41d163f111a73f6a3541578245993d4d673fdd71876a638d6
+(saved as target/lua-comparison/scalar-bo10.exe for phase attribution).
+Same-build runtime archive disassembly using MSVC dumpbin /disasm shows direct
+integer primitives inlined and no indirect calls in either scalar loop. Remaining
+calls serve shared shapes, conversions, shift decoding and floating remainder;
+no per-site/function-pointer interpretation remains. Code growth is explicit:
+the unbounded loop is about 24 KiB versus BO09's 2,169 bytes, while PE SizeOfCode
+rises from 26,165,760 to 26,191,360 bytes (+25 KiB overall). This is the cost of
+static direct handlers, not evidence that 238 variants are universally optimal.
+BO11 now owns local PC/executing publication and stable polling inputs; preserve
+this checkpoint's measured image and do not mix its changes into BO10 attribution.

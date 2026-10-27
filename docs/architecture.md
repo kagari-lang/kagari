@@ -2138,19 +2138,28 @@ Native callable frames have prepared signature layouts. Native arithmetic and
 casts admit tagged inputs once and invoke the same payload kernels as scripts.
 Managed results retain their normal allocation/root protocol.
 
-Scalar operations prepare concrete function pointers to shared `kagari-types`
-payload kernels after sealing. All integer widths, arithmetic/bit/shift families,
-numeric comparisons, f32/f64 operations and supported casts use raw payloads;
-mixed-width shift counts keep both checked domains. Source-width overflow and
-IEEE bits remain intact. These function addresses are runtime preparation data,
-never serialized artifact operands. Native public argument/result adapters remain
+Scalar operations prepare closed typed instructions after sealing. A private
+runtime catalog specializes source widths and RR/RK arithmetic. Comparison
+conditions, shift-count domains and conversion domains remain instruction data;
+KR/KK shapes use shared parameterized arithmetic without Value transport or
+numeric function pointers. `kagari-types::payload` owns direct and shared payload
+adaptation over the existing arithmetic/numeric semantics; dynamic Value adapters
+select the same operations through `ScalarOperation`. All supported integer
+widths, floats, comparisons, unary operations, mixed-domain shifts and casts remain
+covered. Checked source-width arithmetic and existing conversion/IEEE bit policies
+are preserved. Prepared variants are runtime data, never serialized artifact operands.
+Native public argument/result adapters remain
 Value interfaces; concrete script transfers remain raw through the caller bank.
-Ordinary scalar operands/contracts are inline. `BinaryOperands` and
-`PredicateBranch` additionally use immutable function-owned prepared scalar sites
-containing resolved constant bits, operand orientation, a shared numeric kernel and
-a store/branch destination. Typed constants retain source widths in the canonical
-pool; execution does not repeat constant lookup or numeric selection. Predicate
-polarity negates the original Boolean result, never substitutes an ordered inverse
+Ordinary and constant scalar operands/contracts are inline. `BinaryOperands` and
+`PredicateBranch` select the same typed family, with immediate bits and store/branch
+destinations directly in the instruction; there is no scalar site array. Typed
+constants retain source widths in the canonical pool and use native-width immediate
+fields on direct paths and domain-bearing raw bits on shared paths after verification.
+Execution retains slot availability and carrier checks,
+loading all slot inputs before domain validation and committing only on success.
+Pure constant predicates become a fixed jump at the same PC; fallible arithmetic
+still executes at its original PC. Predicate polarity swaps branch destinations,
+never substitutes an ordered inverse
 that would change NaN behavior. Non-scalar comparison categories keep their checked
 ordinary path. Identity-bearing types, strings, call arguments and other variable-length
 metadata remain in canonical immutable instruction records. Their final PC is the

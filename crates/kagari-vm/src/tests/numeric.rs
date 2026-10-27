@@ -261,6 +261,8 @@ fn all_integer_widths_cover_arithmetic_bits_comparisons_and_concrete_generics() 
                      x = x + b;
                      x == 9{ty} && a + b == 9{ty} && a - b == 3{ty}
                      && a * b == 18{ty} && a / b == 2{ty} && a % b == 0{ty}
+                     && 9{ty} - a == 3{ty} && 12{ty} / a == 2{ty} && 7{ty} % a == 1{ty}
+                     && (15{ty} & a) == 6{ty} && (1{ty} << b) == 8{ty}
                      && (a & b) == 2{ty} && (a | b) == 7{ty} && (a ^ b) == 5{ty}
                      && (a << 1u32) == 12{ty} && (a >> 1u32) == 3{ty}
                      && a > b && a >= b && b < a && b <= a && a != b
@@ -325,6 +327,8 @@ fn floats_use_their_source_precision_and_ieee_comparisons() {
                     val nan = 0.0{ty} / 0.0{ty};
                     a + b == 9.0{ty} && a - b == 3.0{ty}
                     && a * b == 18.0{ty} && a / b == 2.0{ty} && a % b == 0.0{ty}
+                    && 9.0{ty} - a == 3.0{ty} && 12.0{ty} / a == 2.0{ty}
+                    && 7.0{ty} % a == 1.0{ty} && 3.0{ty} < a
                     && -b == -3.0{ty} && a > b && b <= a
                     && nan != nan && !(nan < a) && -0.0{ty} == 0.0{ty}
                     && (a as i32) == 6
