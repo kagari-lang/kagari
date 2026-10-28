@@ -38,6 +38,263 @@ Production interleaving and joint incremental acceptance remain with PG05-PG06/
 NC05-NC06. PG00-PG04 and NC01-NC04 are closed locally; full-workspace/feature/backend/
 platform CI remains unrun.
 
+## Direct-reference trial and API proposal (2026-10-28)
+
+Status: concrete trial proposal requested after the remote scalar optimization
+merge. No direct-reference implementation or new performance acceptance is claimed.
+This section owns the proposed change to reference representation and the finite
+trial below; the remainder describes the implemented handle-based migration until
+replaced by a corresponding checkpoint. PG05/NC05 and PG06/NC06 remain open. Do not
+continue speculative handle-path tuning in parallel with this trial or count the
+trial as closure of the existing gates.
+
+### Evidence, scope and reference implementations
+
+The current `Value` is public, Copy, and unrooted; managed variants carry
+`HeapObjectId { owner, slot, generation }`. A concrete scalar field operation in
+`frame/cursor/objects.rs` obtains an admitted layout but still calls the heap with
+an object ID and field slot. Heap access resolves identity and physical storage.
+The earlier field-read regression was observed with automatic GC disabled; it
+does not establish that incremental scheduling or graph locking caused the loss.
+Direct references remove this lookup from admitted field accesses, but a speedup
+and its magnitude remain hypotheses requiring a fresh combined-source baseline.
+
+Reuse nonmoving pages, single-driver incremental tracing, bounded disposal, exact
+roots and library-owned Native collections. Replace internal object transport and
+its access boundary; do not add concurrent marking, Go scheduling, moving or
+nursery collection, pointer compression, arbitrary reflection, or a second VM.
+Module/reload generations and host-borrow identities are separate from heap-slot
+generations and retain their existing contracts.
+
+Primary mechanisms reviewed:
+
+- Go 1.26.0 [field lowering](https://github.com/golang/go/blob/go1.26.0/src/cmd/compile/internal/ssagen/ssa.go)
+  lowers `ODOTPTR` using a pointer plus a prepared field offset and a load. Its
+  [collector](https://github.com/golang/go/blob/go1.26.0/src/runtime/mgc.go) is precise,
+  noncompacting mark-sweep. Apply stable internal addresses and prepared layouts.
+  Go compiler/runtime cooperation supplies liveness; Rust embedding callers do
+  not automatically participate in that cooperation. Do not copy Go's concurrent
+  barrier algorithm into Kagari's different single-driver publication protocol.
+- V8's [embedding guide](https://v8.dev/docs/embed), whose example identifies
+  v13.1, separates local handle scopes from persistent retention. Apply explicit
+  external retention and bounded access lifetimes. V8's moving collector and C++
+  handle discipline are not Kagari's Rust safety proof or a prescription for its
+  internal representation.
+
+Kagari needs a distinct boundary because Rust providers live outside script stack
+maps, can call script synchronously, and retain lexical types independently of
+executable generations. Existing `RootedValue`, `ScriptValue`, `StorageType` and
+payload loans already implement much of that boundary; extend those owners.
+
+### Representation and ownership
+
+| Layer | Proposed representation | Lifetime and validation owner |
+| --- | --- | --- |
+| VM registers and traced heap edges | Tagged `VmValue` with opaque direct `GcRef` for objects | Runtime/backend admission, frame publication, tracing and write barriers |
+| Long-lived host state | Existing `RootedValue`, `ScriptValue`, `Object`, `Opaque<T>` and typed collection/function handles | Root lease, runtime identity, declared type and access checks |
+| Temporary host inspection | Invariant `ValueView<'view>` | Scoped loan retaining the source; no raw value or reference escape |
+| Unsafe Native payload storage | Opaque `StoredValue` holding scalars or direct edges | Installed provider, checked storage access, scanner and edit protocol |
+| Modules, functions and host views | Existing domain-specific checked identities | Existing reload/execution/borrow owners |
+
+`GcRef` points at the start of a stable object allocation with a common header.
+The first trial uses that header for shape/scan metadata and physical allocation
+identity, with the prepared field offset including the payload displacement.
+Alignment and large-object allocation remain explicit. GC consults the header;
+admitted scalar field loads do not resolve a global slot table. Keep page occupancy
+and allocation bitmaps with their page owner. Current 1 KiB slabs have only their
+declared alignment: do not derive a page base by masking an arbitrary address.
+Header overhead, size-class changes and retained metadata count in memory gates.
+An arena/page address map is deferred unless this measured header design fails a
+specific gate; it is not a second implementation to maintain during the trial.
+
+Internal pointers are never owning `Arc`s, public Rust references, serialized
+addresses, or independently valid capabilities. Allocation publishes a fully
+initialized, scan-valid object before exposing it; failed initialization disposes
+only initialized fields. All managed temporaries live in traced frames, roots or
+provider work storage before allocation, polling or callbacks can collect. Queued
+mark/sweep records cannot survive the retirement of their target storage. Address
+reuse starts a new lifetime and cannot revive an old external root. Pointer
+identity never replaces language equality, hashing rules or metadata retention.
+
+Runtime and backend crates need one narrow shared transport surface. Rust
+cross-crate visibility is not proof that an API is safe: opaque constructors and
+trusted dereference operations must enforce or explicitly require live-frame,
+heap-owner and prepared-layout evidence. No safe API may accept a freely copied
+stale `VmValue` and dereference it. Keep unsafe operations in the owning kernels,
+with debug validation where useful; do not create general public pointer access.
+No new ABI version is required for unpublished internals; invalidate affected
+in-memory products and disposable caches, and keep artifacts address-free.
+
+### Proposed host API shape
+
+The following sketches specify intended behavior, not implemented signatures.
+Keep ordinary typed execution and owning adapters recognizable:
+
+```text
+let fields: VecValues<String> = runtime.execute_typed(
+    &loaded, "split_text", ("hello,world".to_owned(),), &context,
+)?;
+
+let report = runtime.execute(&loaded, "main", &[], &context)?;
+let result: RootedValue = report.return_value;
+let retained = result.clone();       // Shares a root, does not copy the object.
+// Subsequent execution/collection may run while retained remains alive.
+let number = retained.inspect(runtime.runtime(), |view| view.as_i64())?;
+drop(retained);                      // Releases this retention share.
+```
+
+`RootedValue::inspect` is proposed as a checked, short, non-reentrant access:
+
+```text
+inspect<R>(
+    &self,
+    runtime: &Runtime,
+    read: impl for<'view> FnOnce(ValueView<'view>) -> NativeResult<R>,
+) -> NativeResult<R>
+```
+
+The source root is kept live for the entire closure. Heap identity and root
+validity are checked before any object dereference. The view is invariant and
+cannot escape in `R`; it exposes scalar/tag inspection and existing declared
+access capabilities, not arbitrary offsets or unrestricted `&T`. An RAII loan
+also excludes collection, conflicting mutation and script reentry, including
+attempts through captured runtime aliases. Unwind releases the loan. Owned
+scalar results can escape. An object that must escape uses existing owning
+conversion/retention paths. Do not run user conversions or callbacks inside the
+inspection loan; longer decoding retains the root and uses separate bounded
+loans around individual reads, with existing cancellation checks.
+
+Replace raw extraction from `RootedValue::value` and `ScriptValue::value`; do not
+keep them as safe methods returning a pointer-bearing Copy value. Preserve
+`ScriptValue::decode`, declared-type information, owning collection adapters and
+typed functions. Root replacement accepts checked rooted/scoped input and retains
+publication semantics, never an unchecked internal pointer. Scoped host execution
+returns a scope-bound value instead of an escapable raw transport. Conversion
+traits and low-level argument/result paths migrate with this boundary; ordinary
+`execute_typed` users should not need manual rooting. Untyped entry arguments are
+not made newly functional as part of this GC change.
+
+There is no new public `WeakValue` or general unrooted ID API in this trial. Add
+one only for an identified consumer, with owner/generation checks before pointer
+resolution. Root IDs retain generation checks even though object field accesses
+stop using heap-slot generations.
+
+### Proposed Native provider API shape
+
+Ordinary callbacks keep `NativeContext`, typed arguments, `ScriptValue` and owned
+return conversions. Unsafe storage providers replace embedded `Value` with opaque
+`StoredValue`; scalars do not require a heap allocation. This is not a root per
+collection element. Its fields and constructors are controlled by storage access,
+and it has no safe standalone dereference. Payloads remain `Any + Send`; do not
+pretend a Rust lifetime parameter can brand an entire `'static` provider graph.
+
+Keep resumable scanning, budget charging, shape revision checks and the existing
+unsafe provider responsibility. The visitor changes element type:
+
+```text
+unsafe trait NativePayload {
+    type ScanState;
+    fn scan(&self, state, budget, visit: FnMut(&StoredValue)) -> ScanStatus;
+    fn charge(&self) -> HeapCharge;
+    // Existing begin_scan, scan-kind and storage registration contracts remain.
+}
+```
+
+A read obtains a loan-bound view from a stored edge under its admitted owner.
+A read that needs a callback result first retains that edge as `ScriptValue`.
+An edit imports a checked rooted/scoped value through `StorageAccess`, publishes
+its edge, then commits the stored slot. Exact method names are implementation
+choices; the required sequence is:
+
+```text
+retained_item = read_payload(owner, |payload, access| {
+    access.retain(&payload.items[index], element_contract)
+})?;                                  // Payload loan has ended.
+answer = callback.call(cx, retained_item)?; // GC/reentry permitted here.
+edit_payload(owner, plan, |payload, access| {
+    imported = access.import(&answer, element_contract)?;
+    access.replace(&mut payload.items[index], imported)
+})?;
+```
+
+This is schematic: preserve operation guards, callback mutation detection, access
+rights, once-only evaluation, error ordering, edit charge bounds and unwind
+reconciliation in the actual APIs. `import`/`replace` cannot smuggle a pointer
+between heaps or bypass the incremental publication barrier. Unsafe providers
+must scan all installed and temporary edges, cannot expose extracted pointers,
+and cannot mutate traced state behind a shared loan. Independent providers use
+the same mechanism as stdlib Vec/Map; no builtin-only bypass or permanent roots
+inside every element. Release all payload loans before collecting callbacks.
+
+### Prepared field path
+
+For `point.x`, use the same checked source and source-free admission facts:
+
+```text
+Current: frame value -> heap owner/slot/generation -> physical object
+         -> layout/field resolution -> scalar read
+Trial:   admitted frame object reference + prepared concrete field offset
+         -> scalar read
+```
+
+Prepared access records the exact concrete layout, field representation, offset
+and declared access rights. Runtime/backend admission establishes the base's
+layout relationship before trusting that record; a tagged pointer alone is not
+proof. Dynamic/generic/reflection paths retain required checks or create the same
+admitted operation. Layout records stay alive for their exact data/code owners
+across reload. Scalar writes preserve checked numeric behavior; managed writes
+use the existing publication/barrier owner. No collector safepoint is introduced
+between an unrooted temporary extraction and its destination publication.
+
+### Finite trial sequence and acceptance
+
+These are substeps of the existing GC plan, not a separate progress queue:
+
+1. **Boundary closure and baseline.** Freeze the combined post-merge source,
+   including PG05 work, with reproducible provenance before measuring. Inventory
+   all raw `Value` consumers, source-free/native backends and conversion hooks.
+   Finalize root/view/backend access contracts and replace unsafe public escape
+   routes coherently. Establish selected field-read, construction, native-access,
+   collection and memory baselines. Existing historical gates remain unchanged.
+2. **Integrated vertical trial.** Implement stable headers, direct transport and
+   rooted/scoped entry/exit for a representative struct graph and prepared field
+   operations on an isolated trial branch. Include reference writes, allocation,
+   root scanning, full collection and reuse; a raw-pointer microbenchmark alone
+   cannot qualify it. Temporary mixed representation is confined to explicitly
+   unaccepted migration checkpoints and must be removed in step 3. Check field
+   throughput, header cost, GC correctness and boundary usability before expansion.
+3. **Complete reference migration.** Switch all managed variants, frames, parked
+   execution, roots, joint module edges and Native providers/stdlib together.
+   Preserve PG05 incremental driving/barriers and NC's independent provider proof.
+   Retire the heap-object slot-resolution transport, bridge conversions and old
+   safe raw-value entrypoints. Keep physical slot metadata for allocation/sweep
+   and generation IDs in domains that still require them. No dual semantic engine.
+4. **Joint validation and decision.** Run selected correctness/performance/memory
+   gates on the frozen final image, then complete PG05/PG06/NC acceptance in their
+   assigned local/CI scope. Compare against both the combined-source baseline and
+   the applicable existing historical gates; do not substitute a new baseline to
+   erase regressions. If the integrated path fails, diagnose once against the
+   stated invariants and measurements, record the result here, and stop expansion
+   until a concrete revised model addresses it. Do not repeat timings until green.
+
+Local correctness selection covers foreign heap rejection, root clone/drop and
+runtime teardown, address reuse, view escape compile-fail cases, Rust aliasing
+under Miri for selected kernels, collection/reentry exclusion during a loan,
+collecting callbacks after release, managed field barriers, cancellation/unwind,
+retained reload layouts and one source-free execution path. Reuse existing
+contract tests; add only newly uncovered boundaries. Check all collectors' work
+records and detached disposal for stale direct references. Diagnostic validation
+must not enter ordinary timing artifacts.
+
+Report toolchain/machine/profile/features/parallelism/cache state and source/image
+identity. Separate compile time, execution throughput, normal-step pauses, full
+GC, construction and allocator/metadata memory. Include the existing failing
+field-read and mixed Native workloads; a field-only win is insufficient. Freeze
+selected rows and run counts before measuring. Full-workspace tests and exhaustive
+backend/feature/platform coverage remain CI-only; implementation checkpoints run
+the repository's lightweight checks and workspace all-target Clippy. This proposal
+is documentation-only and does not justify rerunning implementation checks.
+
 ## Goals and scope
 
 Design a precise, single-driver, incremental mark-sweep collector with paged
@@ -2112,6 +2369,16 @@ Full-workspace tests and the complete feature/backend/platform matrix remain CI-
 Documentation-only work needs content/link/diff checks, not Rust builds.
 
 ## Progress and error ledger
+
+### Direct-reference proposal handoff (2026-10-28)
+
+The user requested a concrete Go-inspired trial and resulting API shape. The
+[proposal](#direct-reference-trial-and-api-proposal-2026-10-28) records current-path
+evidence, pinned primary references, header-based direct internal transport,
+retained/scoped host APIs, the unsafe provider boundary and four finite trial
+steps. No runtime code changed, no benchmarks ran, and no PG/NC phase was closed.
+Implementation starts with boundary/baseline closure, not another speculative
+PG05 micro-optimization round. Existing uncommitted PG05 work is preserved.
 
 ### Remote scalar optimization integration (2026-10-28)
 

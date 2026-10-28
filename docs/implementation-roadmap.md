@@ -565,6 +565,12 @@ optimization remain separate scopes. Git history owns the completed OM ledger.
 
 ## Library-owned native collections
 
+A concrete [direct-reference trial and API proposal](paged-incremental-gc-design.md#direct-reference-trial-and-api-proposal-2026-10-28)
+now specifies the next architecture experiment requested on 2026-10-28: stable
+internal object references, existing owning host handles and scoped inspection.
+It is documented, not implemented or performance-accepted; PG05/NC05 and PG06/NC06
+remain open. Its finite steps and decisions belong to the existing GC plan.
+
 The joint [PG00-PG06/NC migration](paged-incremental-gc-design.md#execution-plan)
 was activated at `50ab194b` on 2026-10-26. PG00/NC01 contract closure and baseline
 are locally complete at `47be3cb7`. PG01/NC02 general provider capabilities and the
