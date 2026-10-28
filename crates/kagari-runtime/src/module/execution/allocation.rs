@@ -23,6 +23,7 @@ pub(super) struct SlotAllocation {
     pub slots: Box<[SlotColor]>,
     pub scalar_count: usize,
     pub ranges: Box<[Option<(usize, usize)>]>,
+    pub ends_at_write: Box<[bool]>,
 }
 
 #[derive(Default)]
@@ -63,6 +64,7 @@ impl SlotAllocation {
                 slots,
                 scalar_count,
                 ranges: Box::default(),
+                ends_at_write: Box::default(),
             }
         })
     }
@@ -217,6 +219,36 @@ impl SlotAllocation {
         for slot in &function.metadata.parameter_slots {
             touch(&mut ranges[slot.index()], 0);
         }
+        // Only closed scalar handlers consume every input before a fallible
+        // computation and commit the output after success. Keep named homes and
+        // parameters at closed endpoints for debugger and public entry access.
+        let mut early_ends = vec![false; count];
+        let mut named = vec![false; count];
+        for range in &function.metadata.debug.local_live_ranges {
+            charge(work, 1)?;
+            named[range.slot.index()] = true;
+        }
+        for slot in &function.metadata.parameter_slots {
+            named[slot.index()] = true;
+        }
+        for (pc, instruction) in code.iter().enumerate() {
+            charge(work, 1)?;
+            if !read_before_write(instruction, function) {
+                continue;
+            }
+            let dst = instruction
+                .slot_output()
+                .expect("closed scalar destination");
+            for input in instruction.slot_inputs() {
+                charge(work, 1)?;
+                if input != dst
+                    && !named[input.index()]
+                    && ranges[input.index()].is_some_and(|(_, end)| end == pc)
+                {
+                    early_ends[input.index()] = true;
+                }
+            }
+        }
         charge(work, count)?;
         let mut has_scalar = false;
         let mut slots: Vec<_> = function
@@ -239,12 +271,13 @@ impl SlotAllocation {
             .filter_map(|(slot, &range)| range.map(|(start, end)| (start, end, slot)))
             .collect::<Vec<_>>();
         intervals.sort_unstable();
-        let mut active = Vec::<(usize, usize)>::new();
+        let mut active = Vec::<(usize, usize, usize)>::new();
         let mut free = Vec::new();
         let mut allocated = 0;
+        let mut ends_at_write = vec![false; count];
         for (start, end, logical) in intervals {
             charge(work, active.len() + 1)?;
-            active.retain(|&(last, physical)| {
+            active.retain(|&(last, physical, _)| {
                 if last < start {
                     free.push(physical);
                     false
@@ -252,13 +285,29 @@ impl SlotAllocation {
                     true
                 }
             });
-            let physical = free.pop().unwrap_or_else(|| {
-                let slot = allocated;
-                allocated += 1;
-                slot
-            });
+            // Prefer a fully dead color. Mark a consumed endpoint only when its
+            // physical location is actually selected for this result.
+            let physical = free
+                .pop()
+                .or_else(|| {
+                    let index = active.iter().position(|&(last, _, previous)| {
+                        last == start
+                            && early_ends[previous]
+                            && code[start]
+                                .slot_output()
+                                .is_some_and(|slot| slot.index() == logical)
+                    })?;
+                    let (_, physical, previous) = active.swap_remove(index);
+                    ends_at_write[previous] = true;
+                    Some(physical)
+                })
+                .unwrap_or_else(|| {
+                    let slot = allocated;
+                    allocated += 1;
+                    slot
+                });
             slots[logical] = SlotColor::Scalar(physical);
-            active.push((end, physical));
+            active.push((end, physical, logical));
         }
         // Unused scalar registers keep a valid color for defensive raw frame
         // inspection. Managed-only functions need no scalar storage at all.
@@ -269,8 +318,27 @@ impl SlotAllocation {
             slots: slots.into(),
             scalar_count: allocated,
             ranges: ranges.into(),
+            ends_at_write: ends_at_write.into(),
         })
     }
+}
+
+fn read_before_write(instruction: &BytecodeInstruction, function: &BytecodeFunction) -> bool {
+    matches!(
+        instruction,
+        BytecodeInstruction::Move { .. }
+            | BytecodeInstruction::Unary { .. }
+            | BytecodeInstruction::Binary { .. }
+            | BytecodeInstruction::BinaryOperands { .. }
+            | BytecodeInstruction::Numeric { .. }
+            | BytecodeInstruction::Convert { .. }
+    ) && instruction
+        .slot_output()
+        .is_some_and(|dst| scalar_type(function.metadata.slots[dst.index()]).is_some())
+        && instruction
+            .slot_inputs()
+            .iter()
+            .all(|slot| scalar_type(function.metadata.slots[slot.index()]).is_some())
 }
 
 fn touch(range: &mut Option<(usize, usize)>, pc: usize) {
@@ -457,13 +525,16 @@ mod tests {
             }
         };
         let allocation = SlotAllocation::prepare(&function, &mut 0);
-        assert_eq!(allocation.scalar_count, 4);
+        assert_eq!(allocation.scalar_count, 3);
         for live in 0..2 {
             for temporary in 2..5 {
                 assert_ne!(allocation.slots[live], allocation.slots[temporary]);
             }
         }
-        assert_ne!(allocation.slots[2], allocation.slots[3]);
+        assert_eq!(
+            allocation.slots[2], allocation.slots[3],
+            "the dying scalar input is read before its result replaces it"
+        );
     }
 
     #[test]

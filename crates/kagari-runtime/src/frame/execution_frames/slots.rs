@@ -10,7 +10,9 @@ use crate::{
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     artifact::KbcArtifact,
-    instruction::{BytecodeInstruction as I, ConstantId, ConstantOperand, JumpTarget, Slot},
+    instruction::{
+        BinaryOp, BytecodeInstruction as I, ConstantId, ConstantOperand, JumpTarget, Slot,
+    },
     module::{
         BytecodeDebugMetadata, BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord,
         InstructionOrigin, LocalLiveRange,
@@ -22,7 +24,6 @@ use kagari_contract::ids::FunctionRef;
 use std::mem::size_of;
 
 fn reused_bindings(runtime: &mut Runtime) -> ExecutableModule {
-    let context = DefinitionContext::new().unwrap();
     let range = |slot, start, end| LocalLiveRange {
         slot: Slot::new(slot),
         binding: slot as u32,
@@ -69,12 +70,25 @@ fn reused_bindings(runtime: &mut Runtime) -> ExecutableModule {
         ],
         ..Default::default()
     };
+    load_slots(
+        runtime,
+        function,
+        vec![ConstantOperand::I32(7), ConstantOperand::I32(9)],
+    )
+}
+
+fn load_slots(
+    runtime: &mut Runtime,
+    function: BytecodeFunction,
+    constants: Vec<ConstantOperand>,
+) -> ExecutableModule {
+    let context = DefinitionContext::new().unwrap();
     let artifact = KbcArtifact::from_program(
         ProgramFixture {
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule {
                 types: vec![ValueType::Unit, ValueType::I32],
-                constants: vec![ConstantOperand::I32(7), ConstantOperand::I32(9)],
+                constants,
                 function_table: vec![FunctionRecord {
                     id: function.id,
                     identity: None,
@@ -110,6 +124,104 @@ fn reused_bindings(runtime: &mut Runtime) -> ExecutableModule {
         )
         .unwrap();
     runtime.select_program(&program).unwrap()
+}
+
+#[test]
+fn consumed_scalar_alias_changes_owner_only_after_a_successful_write() {
+    for input in [7, i32::MAX] {
+        let mut runtime = Runtime::default();
+        let function = BytecodeFunction {
+            name: "main".into(),
+            slot_count: 2,
+            metadata: FunctionMetadata {
+                slots: vec![ValueType::I32; 2],
+                return_type: ValueType::I32,
+                origins: (0..3)
+                    .map(|instruction| InstructionOrigin {
+                        instruction,
+                        span: Default::default(),
+                        line: None,
+                        column: None,
+                    })
+                    .collect(),
+                ..Default::default()
+            },
+            instructions: vec![
+                I::LoadConst {
+                    dst: Slot::new(0),
+                    constant: ConstantId::new(0),
+                },
+                I::Binary {
+                    dst: Slot::new(1),
+                    op: BinaryOp::Add,
+                    lhs: Slot::new(0),
+                    rhs: Slot::new(0),
+                },
+                I::Return(Some(Slot::new(1))),
+            ],
+            ..Default::default()
+        };
+        let loaded = load_slots(&mut runtime, function, vec![ConstantOperand::I32(input)]);
+        let stack = runtime.enter_execution_stack(&loaded).unwrap();
+        stack
+            .push(&runtime, loaded.slot(), FunctionRef::new(0), &[], None)
+            .unwrap();
+        assert_eq!(stack.current().unwrap().physical_slot_count(), 1);
+        assert!(matches!(
+            stack.execute_region(&runtime, &mut Some(1), |_, _, _, _| unreachable!()),
+            Ok(RegionExit::Slice)
+        ));
+        {
+            let mut frame = stack.current_mut().unwrap();
+            frame.prepare_instruction();
+            assert_eq!(
+                frame.read_slot(&runtime, Slot::new(0)).unwrap(),
+                Value::I32(input)
+            );
+            assert!(frame.read_slot(&runtime, Slot::new(1)).is_err());
+            assert!(
+                frame
+                    .write_slot(&runtime, Slot::new(1), Value::I32(99))
+                    .is_err()
+            );
+        }
+        let result = stack.execute_region(&runtime, &mut Some(1), |_, _, _, _| unreachable!());
+        {
+            let mut frame = stack.current_mut().unwrap();
+            if input == 7 {
+                assert!(matches!(result, Ok(RegionExit::Slice)));
+                assert_eq!(
+                    frame.read_slot(&runtime, Slot::new(1)).unwrap(),
+                    Value::I32(14)
+                );
+                assert!(frame.read_slot(&runtime, Slot::new(0)).is_err());
+                assert!(
+                    frame
+                        .write_slot(&runtime, Slot::new(0), Value::I32(99))
+                        .is_err()
+                );
+                assert!(
+                    frame.jump_to(&runtime, 1).is_err(),
+                    "consumed input cannot be reexecuted"
+                );
+                frame.prepare_instruction();
+                assert_eq!(
+                    frame.read_slot(&runtime, Slot::new(1)).unwrap(),
+                    Value::I32(14)
+                );
+            } else {
+                assert!(result.is_err());
+                assert_eq!(
+                    frame.read_slot(&runtime, Slot::new(0)).unwrap(),
+                    Value::I32(input)
+                );
+                assert!(frame.read_slot(&runtime, Slot::new(1)).is_err());
+            }
+        }
+        drop(stack);
+        assert_eq!(runtime.gc().active_roots(), 0);
+        assert_eq!(runtime.resources().counters().current_call_depth, 0);
+    }
 }
 
 #[test]

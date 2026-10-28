@@ -75,7 +75,12 @@ fn native_completion_fixture(
     let source = if discard {
         "use test::completion::value; fn main() { value(); }"
     } else {
-        "use test::completion::value; fn main() -> i32 { (value() + 1) + value() }"
+        // Keep two intermediates live before their sum. Constant-operand lowering
+        // otherwise updates the first result in place and leaves no retired slot
+        // for the second native destination to reuse.
+        "use test::completion::value; fn main() -> i32 {
+            val a = value(); val b = a + 1; (a + b) + value() - 7
+        }"
     };
     let mut sources = SourceDatabase::default();
     let root = sources

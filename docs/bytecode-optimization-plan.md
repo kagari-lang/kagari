@@ -5,8 +5,22 @@
 **Status: active, implementation and one commit per phase authorized on 2026-10-19;
 BO01-BO03 completed; BO04 is blocked after its bounded diagnosis/repair: four
 owned-lifecycle timing gates remain above 1.05.**
+
+The 2026-10-27 authorized follow-up implements BO05-BO07. BO08 measurement and
+remaining-cost attribution are recorded; its integrated acceptance retains two
+unrestricted collection timing failures plus unrun full CI.
+BO09-BO12 are the authorized prepared-scalar execution follow-up on 2026-10-27;
+see [the execution plan](#prepared-scalar-execution-follow-up-bo09-bo12). Runtime
+implementation resumed after the user approved the checked-semantics revision;
+BO09-BO12 implementation and selected local evidence are complete; full CI remains
+unrun. Earlier BO04/BO08/IP12 failures are unchanged.
+BO13-BO16 are the general scalar-loop follow-up authorized on 2026-10-27;
+see [the execution sequence](#general-scalar-loop-follow-up-bo13-bo16). This
+implementation and remaining-cost attribution are locally complete; full CI is pending.
+BO17-BO19's finite scalar-dispatch follow-up is also locally complete: all 19
+original/forms timing gates pass; full CI and earlier independent failures remain open.
 The user explicitly requested a separate plan that can proceed before the previous
-interpreter performance work finishes. This document owns BO01-BO04: general typed
+interpreter performance work finishes. The original BO01-BO04 scope covers general typed
 slots, direct destinations, predicate branches and constant operands. It replaces
 the proposed instruction-model extension in the older plan, not its retained work.
 
@@ -29,6 +43,605 @@ The [roadmap](implementation-roadmap.md#bytecode-optimization) owns priority;
 the only bytecode-optimization ledger. The user's subsequent instruction activates
 BO01-BO04 and authorizes one coherent commit per completed phase, with the phase
 trailer below. No additional phase activates automatically after BO04.
+
+## Scalar dispatch follow-up (BO17-BO19)
+
+Status: authorized on 2026-10-27 after BO16 attribution; local implementation,
+measurement and attribution complete. Full CI remains pending.
+Task: reduce repeated scalar interpreter boundary/bank work without weakening
+checked values, initialization, public side entry or logical polling semantics.
+Context: `frame/cursor/scalars.rs` owns the closed borrowed execution loop;
+`frame/values/operands.rs` admits same-range payload/initialization slices. Their
+length equality is currently lost at the scalar function boundary. The loop also
+rechecks its first-instruction mode on ordinary arithmetic and branch backedges.
+BO16's same-image assembly/sample evidence motivates this finite scope.
+
+The selected final model retains the existing instruction loop, adds only the
+equal-length segment precondition and preserves inline known-domain comparisons.
+The common-tail variant below was rejected after measured register pressure;
+no first-instruction/continue policy change remains in production.
+
+Start with safe checked Rust: expose equal bank lengths once at segment entry so
+LLVM can share the existing bounds checks, and move first-entry boundary selection
+outside a common instruction loop/backedge. Keep `.get`/`.get_mut`, initialization
+and full payload-domain validation. No mutable value-validity cache, new opcode,
+unsafe indexing, division specialization or frame-layout migration is required.
+The segment cannot resize its borrowed banks or admit callbacks. All exits release
+borrows; ordinary calls, managed handoffs, reentry, observation and resume keep their
+owners. Slice exhaustion precedes clearing the executing PC; polling follows that
+clear and still happens before every subsequent instruction. Failed arithmetic
+must publish its original PC and never commit a destination.
+
+Mechanism review: [Rust 1.99.1 Zip](https://doc.rust-lang.org/src/core/iter/adapters/zip.rs.html)
+uses a shared bounded index for two collections after establishing a joint length.
+Kagari uses random physical slots and retains checked slice access; it does not copy
+Zip's trusted/unchecked iterator contract. [Lua 5.4.9 vmfetch](https://www.lua.org/source/5.4/lvm.c.html)
+keeps PC/base local and processes hooks at fetch boundaries, with separate call/GC
+handoffs. Its integer overflow and cancellation rules differ, so only locality and
+explicit boundary ownership apply. No computed-goto or unchecked arithmetic is
+introduced. If safe length propagation does not survive code generation, diagnose
+that boundary before introducing a different storage/proof model.
+
+- [x] BO17: Freeze original/forms at `817147a7`, record source/assembly diagnosis
+  and the selected boundary contract before production edits.
+- [x] BO18: Implement the finite common boundary/shape change; inspect optimized
+  assembly and run affected frame, numeric, observation, cancellation and slice
+  contracts. Retain one execution event per canonical instruction and shared
+  checked arithmetic semantics. Run required structure/fmt/workspace Clippy/diff.
+- [x] BO19: Seven alternating pairs of unchanged original/forms, three warmups and
+  eleven samples per process. Arithmetic target <=0.95, every other row <=1.05;
+  these are criteria, not predicted gains. No overlap with builds/tests/profiling.
+  Retain failures; a miss requires diagnosis before any further local adjustment.
+  Record setup, image/storage size and independent instruction/GC counts. Update
+  lasting architecture and performance owners, then commit coherent checkpoints.
+
+Local selection uses runtime `frame::execution_frames::slots`, scalar window
+initialization/admission tests, cursor publication tests, and VM numeric,
+breakpoint, owned-drive and observer/cancellation contracts. Add coverage only for
+an uncovered distinct boundary. Full workspace/backend/feature/platform tests
+remain CI-only. Earlier failed gates are independent. No lifecycle repair or
+additional optimization phase is automatically activated by this scope.
+
+## Authorized general follow-up, 2026-10-27
+
+The user authorized implementation of the reviewed general direct target and a
+fresh attribution of remaining costs afterward. BO05-BO08 below are active; the
+historical BO04/IP12 gates remain separate and unresolved. This explicitly extends
+the earlier block-local scope to bounded guarded MIR loop rotation and a review
+of scalar read/write location reuse. No encoding/kernel/GC/call-boundary rewrite
+is authorized by this follow-up. Implement finite shared rules, not benchmark
+recognition, and retain all existing source-free, debug and execution validation.
+
+- [x] BO05: General scalar destinations, constant/home/return transport and fallthrough cleanup.
+- [x] BO06: Bounded guarded MIR loop rotation, reverified facts and canonical correspondence.
+- [x] BO07: Eligible scalar read-before-write reuse with public frame lifetime checks.
+- [ ] BO08: Focused correctness, local quality checks, matched execution/lifecycle comparison and remaining-cost attribution.
+
+Freeze ordinary original/forms/controls at production `03246d94` (documentation
+HEAD `22854ff9`) before runtime/compiler edits. The saved general-before image
+uses SHA-256 883ea385c40e3d262b5019889ddc7ad697209ac9a585734ded4426f69ee07f9a;
+three checked freeze runs completed at 07:16:25 / 07:16:50 / 07:16:58 UTC. Use
+seven alternating pairs per suite, unchanged inputs/estimators and 1.05 regression
+limits; require forms_direct <=0.90. These are this follow-up's new matched gates,
+not a replacement for prior failed gates. Default scheduler remains unchanged;
+any uncertainty diagnosis must be declared separately and preserve failed evidence.
+
+Local tests select compiler bytecode placement and passes/numeric boundaries,
+source-free artifact/native-input/debug correspondence, runtime reused-frame
+inspection and representative VM cancellation/trap/slice/loop cases. Complete
+workspace and backend/feature/platform test matrices remain CI-only. Required
+structure/fmt/workspace all-target Clippy/diff checks run at implementation
+checkpoints. Record actual commands/failures below; no repeated full-suite local
+runs or benchmark timing overlapping builds/tests/profiling.
+
+## General scalar-loop follow-up (BO13-BO16)
+
+**Status: BO13-BO16 implementation, local validation and attribution complete;
+full CI pending. Coherent batch commits were authorized on 2026-10-27.**
+The user requested reaching the ideal bytecode before attributing remaining time. This
+section owns the finite work breakdown and progress; earlier failed timing gates
+remain independent. It supersedes the inspection-only disposition for planning,
+without treating this documentation checkpoint as an implementation result.
+
+### Task, target and scope
+
+Task: make ordinary scalar loops compose correctly with snapshot propagation,
+guarded rotation and bytecode placement, using existing checked instructions.
+Context: MIR owns values/CFG transformations; compiler placement owns physical
+bytecode destinations and origin mapping; runtime preparation consumes final
+verified code. The [instruction contract](#arithmetic-target-instruction-contract-2026-10-27)
+defines the unchanged arithmetic target: eight static run instructions, four
+logical/physical scalar slots, four instructions per iteration and 200,007 total
+instructions for the successful 50,000-iteration entry. Preserve the main/run
+boundary; equivalent slot numbering and layout are acceptable.
+
+Expected behavior: unchanged values, once-only evaluation, checked traps and
+successful commits, zero-trip loops, debug states, source-free validation,
+cancellation and slicing. Improve general CFG/dataflow handling, without matching
+function names, constants, iteration counts or a recurrence formula. Original
+`branches`, `calls` and all three `arrays` loops also contain loop-head copies and
+separate backedges in fresh disassembly; these are candidate beneficiaries, not
+measured speedups or permission to remove call/managed snapshots indiscriminately.
+
+Scope includes deterministic pass scheduling, necessary bounded scalar-home
+proofs, existing guarded rotation, metadata reconstruction and directly affected
+tests. Exclude new opcodes/superinstructions, inlining, tail calls, algebraic loop
+replacement, per-constant code generation, GC/collection/call-admission changes,
+new scalar banks, removed runtime checks/polls, JIT expansion and async rotation.
+Retain artifact/ABI identifiers and independent verification. Development artifacts
+may need regeneration at the final coherent checkpoint; no compatibility bridge.
+
+### Architecture and implementation decisions
+
+At BO13 entry the pipeline ran constants, copies, rotation, verification and dead
+cleanup. Copies can share the header's local read with the body, while rotation
+requires closed conditions and placement only removes same-block local reads.
+Inspect intermediate MIR before changing those rules: final bytecode establishes
+the missed opportunity but does not select the safest repair by itself.
+
+Prefer correcting composition first: evaluate bounded rotation before cross-block
+snapshot sharing, followed by the existing copy/dead cleanup and fresh verification.
+This may retain the existing closed-condition algorithm with fresh temporaries,
+instead of introducing escaping-value repair. Confirm how constants and cleanup
+affect eligibility and that the later passes do not recreate the original overhead.
+Do not turn the optimizer into an unbounded repeat-until-stable loop. If scheduling
+is insufficient, record the exact remaining CFG and choose a bounded remedy here
+before implementation; a global SSA conversion or mutable temporary aliasing model
+is outside this task.
+
+If concrete cases still require cross-block home forwarding, extend the compiler's
+placement owner rather than adding another execution/verification analysis:
+
+- A replacement must have the same complete semantic type, a reaching definition
+  on every path, initialized storage, and compatible debug/binding state.
+- For every substituted use, prove that the home has not changed since the read.
+  Meet facts across all reachable predecessors; unknown edges and backedges cannot
+  inherit an optimistic fact. Writes kill the relevant fact. Calls, capture cells,
+  managed access, suspension and uncertain observation boundaries remain barriers
+  unless existing checked evidence already proves the exact interval safe.
+- Keep MIR temporaries as value snapshots. Do not globally equate a mutable local
+  with an immutable value, replace a saved pre-write value with a later read, or
+  extend scalar equivalence to shared heap contents. Read inputs before committing
+  a destination that shares storage with an input.
+- Scope scratch facts to one function/transformation and invalidate them when its
+  CFG or writes change. Reuse existing checked CFG/point facts where available;
+  account for visits, edges, storage and cancellation before expensive work. Retain
+  the owners' existing budget failure/decline behavior without raising limits or
+  admitting partial unchecked transformations.
+
+Keep scalar-home proofs in placement and condition cloning/control-flow policy in
+MIR rotation. Runtime remains one-to-one with final verified instructions, including
+manual entry, debug observation and slice boundaries. Rebuild origins, selected
+operation origins, spans/scopes, binding ranges, roots and jump targets through
+their existing owners. The same deterministic lowering must reproduce full
+canonical bytecode from portable MIR; runtime/verifier must not recreate the
+optimization independently. Retain sound BO05-BO07 mechanisms; merge overlapping
+logic and remove superseded paths in the same checkpoint.
+
+References and applicability:
+
+| Source/version | Mechanism to reuse | Kagari constraint |
+| --- | --- | --- |
+| [Rust 1.90.0 CopyProp](https://github.com/rust-lang/rust/blob/1.90.0/compiler/rustc_mir_transform/src/copy_prop.rs) | Replacement follows proved copy-equivalence facts; facts are computed for one MIR body. | Rust's single-assignment/borrow/move assumptions do not establish equality for Kagari mutable homes or shared objects. Prove the exact no-write interval. |
+| [LLVM rotated loops](https://llvm.org/docs/LoopTerminology.html#rotated-loops), rolling documentation reviewed 2026-10-27 | Retain an entry guard and move the repeated test to the latch with valid dataflow. | LLVM PHIs and undefined-overflow assumptions cannot replace Kagari snapshots, checked arithmetic, condition effects or debug states. |
+| [PUC Lua 5.4.9 VM](https://www.lua.org/source/5.4/lvm.c.html) | Direct destinations and immediate operands; count executed fast-path instructions separately from encoded fallback words. | Lua integer wrapping and hook/GC rules are not Kagari semantics; Lua timings remain comparison evidence, not proof of equivalent runtime contracts. |
+
+### Phase order and checkpoints
+
+- [x] **BO13 — Freeze evidence and settle pass composition.** Preserve a fresh
+  ordinary release baseline before production edits, recording revision, executable
+  hash, toolchain/machine/features, cache/build settings and original/forms reports.
+  Capture arithmetic MIR before/after copies and rotation, canonical disassembly,
+  prepared slot counts and independent instruction counts. Inspect branches/calls/
+  arrays plus the existing non-benchmark recurrence and snapshot fixtures. Record
+  why scheduling is sufficient or the minimal additional proof needed. Acceptance:
+  reproducible baseline, fixed eligibility/ownership decisions and frozen test and
+  timing selection. Do not claim the earlier dev-profile counts as release timings.
+- [x] **BO14 — Repair copy/rotation composition.** Implement the BO13 decision at
+  `crates/kagari-mir/src/passes.rs`, `passes/copies.rs` and `passes/rotation.rs`, only
+  where needed. Retain entry guards, dominated latch requirements, fresh identities,
+  16-instruction condition / 256-instruction duplication limits and shared work
+  budget. Preserve effectful-condition and suspension declines. Reverify edited
+  MIR and exercise positive/negative snapshot, nested-loop and break/continue
+  contracts. Acceptance: general eligible loops rotate safely, checked facts and
+  origins remain coherent, and previously optimized recurrences stay optimized.
+- [x] **BO15 — Finish placement and prove generality.** Inspect BO14 output before
+  modifying `crates/kagari-compiler/src/bytecode/placement.rs` and its ordinary child
+  modules. Implement only the remaining proved scalar transport/destination changes;
+  retain the existing compaction and metadata owners. If BO14 already meets every
+  target, this phase validates/consolidates coverage without inventing a new analysis.
+  Acceptance: arithmetic meets the four-slot/four-operation target; a non-benchmark
+  recurrence and at least two distinct CFG contexts (branch body, loop containing a
+  call, collection-loop control, or a non-loop join) demonstrate general rules.
+  Unsafe snapshots remain intact, and direct plus portable-MIR/source-free paths
+  agree. Record declines with their actual safety reason rather than promising every
+  collection/call case improves. No forced runtime allocator change to meet counts.
+- [x] **BO16 — Measure, diagnose and hand off.** Complete focused local validation
+  and required quality checks, then measure unchanged original/forms workloads once
+  using the frozen image and predeclared protocol below. Record instruction/slot
+  changes alongside timing, including regressions and retained declines. If gates
+  fail, diagnose the changed architecture before proposing another adjustment;
+  do not add runtime/lifecycle optimizations or retry until green. Update lasting
+  ownership in architecture/bytecode docs and results in the performance report.
+  Record remaining issues in this ledger/roadmap and distinguish local completion
+  from pending exhaustive CI. Earlier BO04/BO08/IP12 failures are not closed here.
+
+Each implementation checkpoint must build in its affected scope and pass its
+selected checks; no intentional broken-build migration is needed. Record real
+failures, reproduction and the owning phase immediately. Use coherent Conventional
+Commits with `Plan-Phase: BO13` through `BO16`; a phase may be a documented no-code
+acceptance checkpoint when no extra implementation is justified.
+
+### Focused correctness and structural acceptance
+
+Use existing owners first, selecting the affected subset at each phase:
+
+| Owner | Required evidence |
+| --- | --- |
+| Compiler `tests::passes` | Join/snapshot facts, call invalidation, full types, budget/cancellation, no partial publication. |
+| Compiler `tests::bytecode::placement` and `tests::program_points` | General recurrence/transport shape, actual operation origins and binding ranges; portable MIR canonical correspondence is already exercised by the placement owner. |
+| VM `tests::numeric` | `rotated_loops_preserve_entry_control_flow_and_condition_effects`, `local_reads_are_snapshots_across_later_writes_and_captured_calls`, `direct_local_overflow_keeps_the_old_destination_and_prior_commit`; add a case only for a missing semantic boundary. |
+| VM execution debugger and existing execution/owned-drive tests | Reached-path breakpoints, named before/after values, representative synchronous loop cancellation and sliced resume without repeating effects. BO13 records exact available test filters before changes. |
+| Existing bytecode validation and source-free artifact owners | Independent rejection of malformed slot/control metadata, rebuilt verified facts, deterministic executable correspondence without frontend dependencies. |
+
+Cover zero/negative, one and many iterations; both join arms, intervening writes,
+captured mutation, break/continue/nesting and non-loop use. Reuse parameterized
+owners rather than adding one smoke test for each spelling. Shape assertions belong
+to the existing lowering contract and should inspect dataflow/edges rather than
+hard-code incidental PCs or slot numbers. Instruction counts are diagnostic/target
+evidence, never replacements for semantic assertions. Source-free/GC cleanup and
+host boundary guarantees remain mandatory even though those owners are not rewritten.
+
+At implementation checkpoints run `uv run --locked scripts/check_structure.py`,
+`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`
+and `git diff --check`. Review imports, visibility/re-exports, effective LOC and
+ownership manually; no blanket exceptions or forwarding layers. Reuse passing
+evidence for unaffected code. Full workspace tests and the exhaustive backend/
+feature/platform matrix remain CI-only. Documentation-only checkpoints require
+content, link and diff checks, not Rust builds/tests or a benchmark run.
+
+### Measurement contract and acceptance
+
+Freeze and compare on the same machine/toolchain with workspace release defaults,
+default Cargo target/parallelism, source/native plus vendored Lua, interpreter-only
+execution and unchanged workload/checksum/GC policy. Earlier i7-10700F measurements
+cannot serve as the current i9-12900K baseline. Use seven alternating process pairs,
+three warmups and eleven samples per process; the median of within-pair VM ratios
+is the existing estimator. Preserve raw samples, process medians and all pair ranges.
+No concurrent builds, tests, observation or profiling during throughput measurement.
+Record compilation, preparation/linking and code/storage size separately.
+
+Predeclared performance gates: original arithmetic candidate/baseline **<= 0.90**;
+every other original/forms execution row **<= 1.05**. The 10% arithmetic target is
+an acceptance criterion, not a predicted gain. Lua absolute times and VM/Lua ratios
+must be recorded for all rows, with unmatched native/numeric semantics identified.
+General applicability requires the BO15 instruction evidence, not that every row
+must become faster. Setup/build changes are diagnostics to explain, not evidence
+of execution speed. Existing runtime-only lifecycle gates are not rerun or repaired
+by this compiler-scoped work unless a newly discovered change actually affects them.
+
+```text
+uv run python scripts/benchmark_lua.py --interpreter-only --freeze-baseline target/lua-comparison/loop-before
+uv run python scripts/benchmark_lua.py --interpreter-only --source-forms --freeze-baseline target/lua-comparison/loop-before
+uv run python scripts/benchmark_lua.py --interpreter-only --baseline-executable target/lua-comparison/loop-before
+uv run python scripts/check_benchmark.py <original-results.json> --target arithmetic=0.90
+uv run python scripts/benchmark_lua.py --interpreter-only --source-forms --baseline-executable target/lua-comparison/loop-before
+uv run python scripts/check_benchmark.py <forms-results.json>
+```
+
+Run instruction/GC observation separately on baseline and candidate; report the
+expected 300,008 -> 200,007 arithmetic count and 5 -> 4 physical slots only when
+observed. Fewer dispatches are not a proportional elapsed-time claim. A missed
+gate or remaining gap requires source/CFG and, if necessary, same-image runtime
+attribution with clear uncertainty. Preserve the failed evidence and record a
+bounded diagnosis before any further experiment; do not change the workload,
+threshold, affinity or semantic checks to obtain acceptance.
+
+## Prepared scalar execution follow-up (BO09-BO12)
+
+**Status: BO09-BO12 implementation and selected local evidence complete; full CI pending.**
+Implementation and per-phase commits were authorized on 2026-10-27. The
+[checked-semantics revision](#checked-semantics-catalog-revision-2026-10-27) supersedes
+the full Cartesian catalog below; the user authorized execution of this revision. This section supersedes the earlier ideal-model sketches as
+the concrete proposal. It extends the proposed scope to internal prepared scalar
+execution and segment progress publication. The user authorized implementation
+and a coherent code commit at each phase after reviewing the plan and type coverage.
+BO04/IP12 and BO08 acceptance failures remain independent and visible.
+
+### Task and finite scope
+
+Task: replace prepared scalar-site interpretation and per-operation numeric
+function-pointer calls with closed, typed instruction handlers, then reduce
+frame-state traffic inside a scalar segment.
+
+Context: canonical bytecode remains the executable verification/tooling contract.
+`kagari-runtime` owns prepared operations, physical storage and observation;
+`kagari-types` owns numeric semantics. Existing typed arithmetic helpers are already
+available; this task must not create a second arithmetic implementation.
+
+Expected behavior: unchanged checked results, evaluation/trap order, failed commits,
+source-free validation, debug visibility, same-PC reuse and logical observation /
+cancellation boundaries. Direct retains 11 canonical instructions, 30,005 dynamic
+instructions and four physical scalar locations. Improvements come from executing
+those instructions with less repeated decoding and call transport.
+
+Scope: migrate every operation currently executed through `ExecutionInstruction::Scalar`
+or `OperandSite`, including integer widths, floats, comparisons, unary operations,
+shifts and casts. Managed identity/object operations retain their existing owners.
+Keep the canonical MIR/KBC model, native codegen contract, artifact identifiers,
+slot allocation, GC policy, call routing and script workloads unchanged. No JIT,
+superinstructions, benchmark recognition, per-constant code generation or new bank
+representation is included. Unpublished internal changes do not require ABI bumps.
+
+Defensive initialization checks and initialization writes remain in scope as
+preserved behavior, not removal targets. This plan does not authorize unchecked
+slice access or broad elimination of dynamic carrier validation. Manual side entry
+does not supply normal-entry definite-initialization proofs. More aggressive proof
+reuse is a recorded gap after this finite replacement, not an implicit extra phase.
+
+### Evidence and references
+
+The [direct report](performance-baseline.md#direct-scalar-execution-attribution-windows-2026-10-27)
+records same-image assembly and two agreeing profiles: about 23% of all samples
+fall in site/constant-operand handling, 14% in fetch/PC/dispatch, and 13%-14% in
+polling/reset. Indirect numeric calls and stack-returned Result traffic survive
+optimization. These locations motivate the replacement but do not predict speedups
+or establish each mechanism's contribution to the Lua gap. `% 251` is common work;
+its standalone cost is not a differential explanation.
+
+PUC Lua 5.4.9's [lvm.c](https://www.lua.org/source/5.4/lvm.c.html), independently
+inspected in the vendored build, supplies the relevant mechanism: arithmetic inside
+selected handlers, local PC, and publication at required boundaries. Adopt handler
+locality, not Lua's wrapping arithmetic, hooks, stack authority or GC policy.
+Kagari instead has checked widths, immutable validated code, scoped bank borrows,
+public frame access, cancellation and generation-pinned execution. Those ownership
+differences require typed admission and explicit progress publication below.
+
+### Files and responsibility changes
+
+Paths below are repository-relative; new modules are proposed locations, not
+existing APIs. Split further only if responsibilities or effective LOC require it.
+
+| Owner / files | Concrete change |
+| --- | --- |
+| `crates/kagari-runtime/src/module/execution.rs` | Retain orchestration and the prepared instruction facade; replace `Scalar` / `OperandSite` fields and remove `ExecutionFunction::scalar_sites` and `OperationTables::scalar`. |
+| `crates/kagari-runtime/src/module/execution/operands.rs` | Replace site-building with direct scalar preparation; rename to `scalar.rs` once its site model is removed. Resolve full operation/width/shape and constant payload here. |
+| New `crates/kagari-runtime/src/module/execution/scalar_ops.rs` | Own the finite operation catalog and shape constructors. Emit explicit enum/handler coverage through ordinary Rust/macros; no handwritten `include!`, opaque packed union or unchecked transmute. |
+| `crates/kagari-runtime/src/frame/cursor/scalars.rs` | Retain slice/poll/fetch orchestration; dispatch directly to typed handlers. Keep managed handlers outside the scalar loop. |
+| New `crates/kagari-runtime/src/frame/cursor/scalar_ops.rs` | Typed operand access, direct operation bodies and cold error adaptation; inline only where release assembly shows the required handler boundary. |
+| New `crates/kagari-runtime/src/frame/cursor/progress.rs` | Segment-local next/executing state and explicit writeback for every exit path. No persistent frame field or second execution state machine. |
+| `crates/kagari-runtime/src/frame/cursor.rs`, `cursor/kernel.rs` | Publish segment state before existing managed/transition handlers; cache only proved segment-invariant poll inputs. Preserve existing completion publication owner. |
+| `crates/kagari-types/src/arithmetic.rs`, `integer.rs` | Reuse `i32_binary`, `i64_binary`, narrow/unsigned helpers and existing shift semantics. Avoid rewriting their checked rules. |
+| `crates/kagari-types/src/payload.rs` and ordinary child modules if needed | Separate direct, inlineable scalar semantics from checked dynamic payload adaptation. Remove `ScalarKernel` and function-pointer selector APIs after all consumers migrate. Preserve cast bit behavior, scalar domains and diagnostic distinctions. |
+| `crates/kagari-runtime/src/numeric.rs` | Migrate Value-based callers to the checked direct evaluator sharing those semantics; no old function-pointer adapter retained for compatibility. |
+| `frame/values/operands.rs`, `frame/values.rs`, `module/execution/layout.rs`, `value/scalar.rs`, `frame.rs` | Audit admission and all scalar writers. Change only helpers necessary for the typed access contract; public access, initialization, lifetime and representation checks stay authoritative. |
+| Existing runtime/type/VM tests and `module/execution.rs::tests` | Update their semantic owners and physical-storage accounting; add only distinct uncovered contracts. |
+| `docs/architecture.md`, `docs/spec/execution.md`, performance report and this plan | Record implemented ownership and actual evidence at each corresponding checkpoint. |
+
+Compiler, MIR and Cranelift should require no semantic changes. Any discovered
+dependency is repaired through the existing canonical contract, not by making the
+interpreter depend on source or by weakening artifact validation.
+
+### Target instruction and handler shapes
+
+These original full-expansion sketches are superseded by the checked-semantics
+catalog revision below where operation/condition/domain fields are specified.
+
+The following are **Rust-like design sketches, not compilable API declarations**.
+`RR`, `RK`, `KR`, `KK` mean slot/slot, slot/constant, constant/slot and two constants.
+Constants remain data, not const-generic specializations on their values.
+
+```text
+enum ExecutionInstruction {
+    // Representative entries in the exhaustive supported-operation catalog.
+    I32AddRR { dst: ScalarSlot, lhs: ScalarSlot, rhs: ScalarSlot },
+    I32AddRK { dst: ScalarSlot, lhs: ScalarSlot, rhs: i32 },
+    I32SubKR { dst: ScalarSlot, lhs: i32, rhs: ScalarSlot },
+    I32MulRK { dst: ScalarSlot, lhs: ScalarSlot, rhs: i32 },
+    I32RemRK { dst: ScalarSlot, lhs: ScalarSlot, rhs: i32 },
+    I32LtBranchRK {
+        lhs: ScalarSlot, rhs: i32,
+        then_target: JumpTarget, else_target: JumpTarget,
+    },
+    F64LtBranchRR { ... },
+    I16CheckedAddRR { ... },
+    F64ToI32 { dst: ScalarSlot, src: ScalarSlot },
+    // Constant, Move, Jump, Branch, Return, Managed and Boundary remain.
+}
+```
+
+Preparation maps `Binary`, `Numeric` and `BinaryOperands` into the same opcode
+family where their semantic contracts agree. It uses recorded widths, never
+guesses source width from a physical carrier. `PredicateBranch` selects a direct
+comparison handler. Fold `negated` by swapping then/else targets, not by changing
+`<` into `>=` (which is incorrect for NaN). Preserve operand order and explicit
+KR forms for noncommutative operations; do not silently reorder floating operands.
+
+List only legal domain/operation combinations. Avoid multiplying every conversion
+by every binary shape, and retain source/RHS shift domains where validation needs
+them. Constant-only stores use KK forms; constant-only pure predicates can prepare
+a fixed-target branch at the same canonical PC after validating the constants.
+Do not execute fallible arithmetic early or remove its runtime trap position.
+No operation currently served by a scalar kernel may quietly fall back to the
+managed/Value boundary merely to finish this migration.
+
+The current 24-byte `ExecutionInstruction` ceiling remains the initial hard layout
+constraint; it fits the representative i64-constant/slot/two-target payload.
+Verify actual Rust layout before completing the catalog. Do not relax the existing
+assertion to get green tests; a necessary change requires an explicit design and
+total-footprint review. Measure operation arrays and removed site arrays together.
+
+```text
+// module/execution/scalar.rs: all semantic/shape selection happens here.
+match (verified_operation, prepared_lhs, prepared_rhs, destination) {
+    (CheckedAdd(I32), Slot(lhs), I32(rhs), Store(dst)) =>
+        ExecutionInstruction::I32AddRK { dst, lhs, rhs },
+    (LessThan(I32), Slot(lhs), I32(rhs), Branch(then_pc, else_pc)) =>
+        ExecutionInstruction::I32LtBranchRK { lhs, rhs, then_pc, else_pc },
+    ... exhaustive supported forms ...
+}
+
+// frame/cursor/scalar_ops.rs: shared semantic implementation is statically called.
+I32AddRK { dst, lhs, rhs } => {
+    let lhs = read_i32_checked(lhs)?;
+    let result = arithmetic::i32_binary(IntegerBinaryOp::Add, lhs, rhs)
+        .map_err(cold_arithmetic_trap)?;
+    write_i32_checked(dst, result)?;
+}
+I32LtBranchRK { lhs, rhs, then_pc, else_pc } => {
+    let lhs = read_i32_checked(lhs)?;
+    progress.next = if lhs < rhs { then_pc } else { else_pc };
+}
+```
+
+Use the existing typed numeric helpers or factor shared float/comparison/cast
+primitives within `kagari-types`. A Rust Result may remain in source: success must
+inline to arithmetic plus its real failure branch, with error construction cold.
+Do not force function-pointer devirtualization through blanket inline attributes.
+Comparisons return boolean control flow directly; ordinary comparison expressions
+still write a boolean payload when the program actually uses that value.
+
+`read_i32_checked` is deliberately not an unchecked cast: initially it performs
+the existing bounds/initialization validation and rejects a non-i32 carrier before
+conversion. Preserve the existing error class/reason and operand read/failure
+ordering, including that all required slot availability checks precede numeric
+domain checks where the current handler does so. A two-input implementation may
+therefore load both raw inputs first and then decode them. Its helper shape must
+not accidentally turn right-slot unavailability into a later error than left-domain
+failure. Prepared typed constants need no repeated runtime domain check.
+`write_i32_checked` sign-extends the result into the existing u64 bank and preserves
+initialization writes. All inputs are captured before a fallible result commits,
+including when the result shares a dying input's physical location.
+
+The checked dynamic evaluator used by `numeric.rs` validates Value/payload inputs
+then calls the same primitives. Its runtime operation match is appropriate at that
+boundary; it must not be called by every typed interpreter instruction. This is an
+adapter and one semantic implementation, not parallel arithmetic engines.
+
+### Segment progress and polling
+
+Use the scalar segment as the first publication boundary, rather than changing
+every managed handler to understand deferred frame state. Direct stays in one
+segment until return. Mixed functions flush before each existing managed handler.
+
+```text
+fn execute_scalars(...) -> Result<ScalarExit, RuntimeError> {
+    let mut progress = ScalarProgress::from_frame(next_pc, executing_pc);
+    let result = run_scalar_loop(&mut progress, ...); // deliberately no '?' here
+    publish_progress(progress);                     // executes for Ok and Err
+    result
+}
+
+// Inside run_scalar_loop, state is local; the compiler may keep it in registers.
+if slice_exhausted() { return Slice; }
+progress.executing = None;
+if poll_required_requests() { return Safepoint; }
+let pc = progress.next;
+let op = fetch_checked(pc)?;
+progress.executing = Some(pc);
+progress.next = pc + 1;
+execute_selected_handler(op, &mut progress)?;
+```
+
+Preserve the special first instruction already admitted/polled by the driver and
+the existing bounded/unbounded mode selection. Do not add a completion store per
+scalar operation. The wrapper must publish before returning an error, including
+an early `?` inside the inner loop; return/managed/slow-boundary exits use it too.
+
+| Exit | Required publication / existing owner |
+| --- | --- |
+| Slice before fetching a successor | Preserve previous executing point and next PC; the admitted region owner retains current successful-completion behavior. |
+| Safepoint during successor preparation | Preserve the existing cleared-executing/next-PC behavior and observer ordering. |
+| Arithmetic/operand trap | Publish the failing instruction and current next PC; no failed result or successful completion is published. |
+| Scalar return | Publish the return point before the existing return/completion protocol consumes it. |
+| Managed operation, call or lazy transition | Publish the consumed operation's origin before handing off; the existing owner still publishes its own successful completion. |
+
+Capture automatic-collection policy only after proving it cannot change during
+the scalar borrow. `collection_due` is already captured by the region owner; do
+not introduce a duplicate cache. Cancellation and abandonment requests remain
+dynamically polled at every existing logical boundary. Keep observer checks unless
+their segment invariance is established; never change cancellation/observation
+frequency to make the timing gate pass. No new persistent frame validity flag is
+needed for local progress or preparation-time constants.
+
+### Execution order and checkpoint acceptance
+
+- [x] **BO09 — Freeze and enumerate contracts.** Freeze the current ordinary
+  executable and original/forms/numeric/controls reports before edits. Enumerate
+  every scalar constructor, supported domain/shape and consumer of kernel selectors;
+  inspect raw/manual frame writers and error precedence. Finalize the opcode/layout
+  catalog and baseline assembly/storage figures. No prepared operation may be
+  omitted because direct does not use it. Baseline failures are recorded, not repaired
+  by unrelated changes. Acceptance: reproducible images and complete coverage map.
+- [x] **BO10 — Replace scalar preparation and execution coherently.** Migrate the
+  typed handlers, shared numeric primitives, checked Value adapter and their existing
+  tests together. Keep frame publication and polling behavior unchanged for attribution.
+  At this checkpoint remove `OperandSite`, `PreparedScalarSite`, `PreparedOperands`,
+  `ScalarDestination`, scalar site arrays, `ScalarKernel` and obsolete selector APIs;
+  no compatibility aliases or forgotten generic-kernel fallback remains. Temporary
+  adapters may exist only inside this phase and must be gone before its checkpoint.
+  Acceptance: selected numeric/source-free/frame tests pass, exhaustive supported
+  preparation, <=24-byte operation, and direct assembly has no numeric function-pointer
+  calls or generic site interpretation. Record a bounded diagnostic timing comparison.
+- [x] **BO11 — Localize scalar progress and invariant polling inputs.** Implement
+  the wrapper/writeback protocol and exit table. Reuse existing completed-state
+  publication and exact origins. Keep bank initialization/bounds checks and all
+  genuinely dynamic polls. Acceptance: selected slice, observation, manual entry,
+  same-PC trap/reuse, cancellation and cleanup contracts pass; release direct assembly
+  removes ordinary per-operation frame-PC publication without adding equivalent
+  out-of-line helper traffic. Revisit the model if register allocation defeats it.
+- [x] **BO12 — Integrated evidence and ownership documentation (local scope; CI pending).** Run the selected
+  local contracts and quality checks, final paired execution and controls, fresh
+  same-image profile and storage accounting. Rewrite architecture/spec owners to
+  describe the implemented model, and record unresolved proof opportunities here.
+  Delete obsolete tests only when their contract is covered at its surviving owner.
+  Full workspace/backend/feature/platform correctness remains CI-only. A missed gate
+  triggers architectural diagnosis, not automatic extra tuning phases or relaxed limits.
+
+Each phase must leave the affected packages buildable and commits use their exact
+`Plan-Phase: BO09` through `BO12` trailer. Before a cross-crate replacement compiles,
+record the attempted scoped build, diagnostics and owning repair in this ledger;
+no production stubs or weakened validation. No plan checkbox represents unrun tests.
+
+### Selected verification and measurement
+
+Reuse existing owners rather than build a new mirrored opcode test suite:
+
+| Change | Local contracts / command selection |
+| --- | --- |
+| Numeric primitive/adapter replacement | `cargo test -p kagari-types --lib payload::tests --no-fail-fast`; select existing arithmetic owner cases as needed. Preserve malformed carriers, width bounds, signed MIN/-1, shifts, casts, NaN and signed zero. |
+| Prepared typed operations and commits | `cargo test -p kagari-vm --lib tests::numeric --no-fail-fast`; includes snapshots, predicate polarity, mixed constants, failed commits and rotated loops across existing artifact routes. |
+| Physical state and public-frame boundaries | `cargo test -p kagari-runtime --lib frame::execution_frames --no-fail-fast` plus `frame::cursor::tests` and the existing `physical_instruction_budget` filter. Add only uncovered outcome/state combinations at those owners. |
+| Canonical authority remains intact | Select existing compiler recurrence/native-input correspondence and invalid constant/branch initialization cases; no full compiler or backend matrix locally. |
+| Progress/poll changes | Select existing VM cancellation-after-effect, owned slicing and native-origin cases; retained frames/roots must clean up on traps and cancellation. |
+
+At implementation checkpoints run structure review and
+`uv run --locked scripts/check_structure.py`, `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`, and `git diff --check`.
+Do not rerun unchanged passing selections after a documentation repair. The current
+plan-only checkpoint requires link/content/diff review, not builds or Clippy.
+
+Use workspace release defaults, default target/Cargo parallelism, unchanged features
+and workloads, fresh processes and ordinary checked results. Existing benchmark
+drivers provide seven alternating pairs, three warmups and eleven samples per
+process. Freeze each suite with `--freeze-baseline target/lua-comparison/scalar-before`,
+then compare using `--baseline-executable` and the same suite flag. Numeric rows
+compare Kagari before/after; their Lua loops are not matched parity evidence.
+
+Proposed predeclared gates for this follow-up: direct candidate/baseline <=0.90,
+other selected original/forms/numeric execution and controls rows <=1.05, using
+the existing paired estimator. The direct threshold is an acceptance target,
+not a forecast or a Lua-parity promise. Preserve every failed result and pair range;
+no retry-until-green, workload changes, diagnostics-enabled timings or GC-policy
+changes. A single bounded investigation may be declared after a failure; it cannot
+replace that evidence. Earlier BO04/BO08/IP12 failures remain independent.
+
+Record compiler/preparation time separately, retained operation/site/layout/debug
+bytes, scalar bank size, executable text size and the relevant handler assembly.
+Repeat the direct main-thread profile separately from timing and retain unresolved
+addresses honestly; use same-image object matching when release PDBs lack names.
+Successful proof/code-shape changes alone do not establish performance acceptance.
+
 
 ## Objective and scope
 
@@ -418,7 +1031,8 @@ architecture/spec owners and measurements to the performance document. Update th
 roadmap/review rather than leaving an implemented proposal queued. Retire this plan
 when its own required work is handed off; outstanding IP12 acceptance does not keep
 it open. Authorized implementation commits use
-`Plan-Phase: BO01` through `Plan-Phase: BO04` trailers for their respective checkpoints.
+`Plan-Phase: BO01` through `Plan-Phase: BO08` trailers for their respective checkpoints;
+BO05-BO08 require the explicit follow-up authorization above.
 
 ## Focused correctness selection
 
@@ -852,3 +1466,1405 @@ Linux/backend/platform acceptance remains CI-owned and has not been rerun here.
 No timing or retained-memory measurements were repeated after the reuse-guard
 metadata change: earlier image/layout measurements remain historical evidence,
 not measurements of this repair. BO04's four timing gates remain blocked.
+
+### Direct target instruction shape, 2026-10-27
+
+The user requested the ideal output before discussing implementation. This is a
+proposed target and comparison, not another activated implementation phase or a
+change to BO04 acceptance. The [actual direct listing](performance-baseline.md#direct-bytecode-inspection-2026-10-27)
+contains fifteen instructions, eight logical slots/five prepared scalar locations,
+and 40,008 dynamic operations. The current source is unchanged by this review.
+
+A general register-style target uses state, sum and i homes plus one scalar scratch
+location, constant operands, success-only arithmetic destinations, direct return
+and a conditional backedge. The following is pseudobytecode: typed names explain
+contracts, not required new opcodes; constants may use the existing prepared pool
+operands. The initial guard retains zero-iteration behavior without relying on
+benchmark-specific bounds. Each conditional evaluates the original i32 less-than
+and applies polarity; the other successor is the following instruction.
+
+```text
+00  const.i32 state, 1
+01  const.i32 sum, 0
+02  const.i32 i, 0
+03  branch_false.i32.lt i, 5000, exit
+body:
+04  mul_checked.i32 scratch, state, 3
+05  add_checked.i32 scratch, scratch, 7
+06  rem_checked.i32 state, scratch, 251
+07  add_checked.i32 sum, sum, state
+08  add_checked.i32 i, i, 1
+09  branch_true.i32.lt i, 5000, body
+exit:
+10  return.i32 sum
+```
+
+This target has eleven stored instructions and 30,005 dynamic operations for
+5,000 iterations: three initializations, one initial guard, six operations per
+iteration and one return. The prior 35,005-operation proposal retains the original
+loop-header/backedge arrangement; it is a separate, smaller placement change.
+The conditional-backedge form eliminates a dispatched unconditional jump on every
+successful iteration without merging arithmetic operations. If ordinary constant
+propagation proves the first condition true (here i=0 and bound=5000), the entry
+guard can additionally disappear: ten stored instructions / 30,004 operations.
+These are work counts for proposed layouts, not measured runtime/retained-memory
+improvements or evidence that the existing pipeline can emit/verify them unchanged.
+Four scalar locations are a target, not a new observation of physical allocation.
+
+Success-only destination publication is essential: state must remain unchanged if
+multiply/add/remainder fails, sum must retain its old value if its own addition
+fails, and i must remain unchanged until its own increment succeeds. scratch can
+be overwritten after each successful operation because its earlier intermediate
+has no later use. Do not algebraically combine the multiply/add/remainder or
+reorder checked operations based only on this fixture's safe inputs.
+
+Existing constant operands and PredicateBranch already supply the operation model.
+Multi-use result-to-home forwarding and physical scratch reuse have different
+owners: bytecode placement consumes verified MIR facts, while runtime preparation
+owns location allocation. Loop rotation is an additional compiler CFG/layout
+proposal beyond the implemented block-local placement rules. Duplicating/moving
+condition code requires explicit semantic origins/canonical correspondence,
+statement/loop debug states, checked initialization and source-free validation;
+it must not be implemented by skipping final bytecode instructions in the runtime.
+Final executable boundaries still own cancellation, slicing and observation.
+The target does not replace the recurrence with a closed-form result or a
+workload-specific opcode. Retain the whole semantic validation model even if its final
+physical code has fewer operations.
+
+Primary references checked on 2026-10-27: Lua 5.4.9
+[lopcodes.h](https://www.lua.org/source/5.4/lopcodes.h.html) uses register destinations
+and immediate/constant arithmetic operands;
+[lvm.c](https://www.lua.org/source/5.4/lvm.c.html) consumes comparison-controlled
+jumps in its comparison handler. These support direct operand/control transport,
+not Lua's wrapping arithmetic, raw value pointers or an identical code encoding.
+The rolling Rust [MIR guide](https://rustc-dev-guide.rust-lang.org/mir/index.html)
+describes typed CFG operations and constant/place operands; Kagari retains the
+separate verified semantic MIR, interpreter placement and physical allocation
+owners. Its checked commits, source origins and cancellation boundaries require
+those adaptations. Before implementation, freeze same-machine baseline images
+and select focused numeric overflow/trap order, debug/origin, empty-loop,
+cancellation/slice and source-free contract coverage. Existing failed lifecycle
+performance gates remain open; no unmeasured speedup is claimed.
+
+The [exact Lua direct dump](performance-baseline.md#direct-lua-instruction-comparison-2026-10-27)
+confirms four Lua registers, nineteen stored 32-bit words and 40,006 successful-input
+hook dispatches. Its loop reloads 5000 into the scratch register, and still has a
+separate backedge: eight dispatched handlers versus the proposed six. Arithmetic
+metamethod fallback words are skipped on integer success. Lua instruction storage
+is denser; no new Kagari encoding or per-handler/elapsed performance claim follows.
+
+### General implementation ownership for the direct target, 2026-10-27
+
+The user asked which changes the ideal output requires and whether they generalize.
+This records a bounded design review, not implementation activation, another BO phase
+or disposition of the outstanding gates. These are general scalar placement, CFG
+and allocation rules; no source/function-name, literal-count or recurrence matching
+is justified. Existing MIR BasicBlock/Terminator, bytecode PredicateBranch/constant
+operands and prepared scalar kernels are the foundations; no second IR or execution
+semantics is proposed.
+
+| Required behavior | Current owner / concrete gap | General adjustment |
+| --- | --- | --- |
+| Final arithmetic result writes directly to its local home | compiler bytecode/placement.rs requires the temporary's sole use to be the following Move | Extend bounded scalar destination selection using definition/use and clobber facts. Rewrite additional uses only while the home still carries the same value; retain snapshots across writes, calls, cells, managed access or uncertain debug states. |
+| Constants initialize homes; return consumes the original result | The same placement owner retains shared-zero initialization and exit transport in direct | Fold eligible constant-to-home initialization and forward terminal copies using existing full type, initialization, debug/origin and lifetime facts. Duplication of a cheap scalar literal must not duplicate managed materialization or side effects. |
+| No jump to the next emitted instruction | compiler bytecode.rs lowers every MIR Jump; placement already repacks PCs | Add bounded final fallthrough cleanup with shared target/origin/debug remapping. Protect entry, target and completion/inspection contracts instead of merely deleting a word. |
+| Conditional backedge replaces separate test and jump | MIR passes.rs has scalar/copy/dead passes but no loop rotation; MirFunction::emission_order is entry then block-ID order | A bounded MIR CFG transformation produces guarded rotated loops before fresh verification and origin emission. Start with simple reducible loops and closed scalar conditions, preserve break/continue and condition evaluation count/order, and decline uncertain/suspending/reentrant shapes. Bytecode's existing predicate selection then emits the conditional backedge. |
+| Entry guard disappears only when proven true | MIR constants pass owns scalar/branch simplification | Feed the transformed CFG into the existing verified simplification pipeline where adequate facts exist. Keep guards for unknown/false bounds; proving this fixture's first test true is optional after the general layout works. |
+| Three homes plus one physical scratch location | runtime module/execution/allocation.rs uses inclusive first/last-PC intervals and expires an active color only when last < start | Review read-before-write reuse for eligible scalar operations. A dying input may share its successful output's physical location, but named binding availability, suspended/native views and public inspection must retain correct before/after values. This is separate from removing bytecode Move dispatches. |
+| Preserve complete executable correspondence | compiler native_input.rs re-lowers portable verified MIR and compares all canonical facts | Use the same deterministic lowering/selection for source compilation and source-free comparison; regenerate transformed MIR analyses, origins, roots, debug ranges and actual-origin selections. Do not bypass equality or independently recreate optimization semantics in verifier/runtime. |
+
+A multi-use temporary is not automatically a home alias. In the sequence t=expr;
+x=t; x=other; use(t), forwarding the final use to x changes its value. Likewise,
+x=x+f() may require preserving the pre-call x if f mutates an alias. Eligibility
+must be established over the exact interval, not by removing the single-use guard
+without replacing its proof. Arithmetic inputs are consumed before destination
+publication; failed arithmetic retains the previous local home.
+
+The four-location goal needs an explicit allocation decision. Current intervals
+record both an operation's last input use and first output definition at the same
+PC, then require last < start for reuse, so an otherwise dying scalar input and
+output cannot share a color under that rule. Simply changing it to <= would affect
+all instructions and public reused-slot inspection. Retain the current conservative
+rule unless operation-specific read/write phases, definition/lifetime guards and
+actual handler behavior establish safe reuse; managed roots/callbacks are outside
+the first bounded scalar review. Six loop operations can be delivered independently
+of the four-location target. Logical slot count need not equal physical bank count.
+
+Loop rotation is an additional CFG mechanism beyond implemented block-local BO
+selection. The existing nondecreasing semantic-origin-to-PC contract makes arbitrary
+post-hoc block movement inappropriate. Prefer transforming/reverifying MIR before
+assigning its canonical emission origins, and let the single deterministic bytecode
+lowering consume those facts. Each duplicated condition site must receive correct
+verified program-point/debug correspondence; do not widen artifact rules just to
+hide a mapping failure. Existing Terminator::Branch already carries two successors;
+compare-plus-branch selection can remain bytecode-owned rather than adding another
+MIR predicate terminator solely for this example.
+
+Suggested review order is destination/copy/fallthrough placement, guarded loop
+rotation with correspondence, then any justified scalar allocation refinement.
+Bytecode packing and the 24-byte prepared instruction / scalar-site footprint are
+separate design work: matching the six-operation target does not require an encoding
+migration, numeric-kernel ABI change, collector change or more native backend support.
+No promised end-to-end speedup follows from these operation counts.
+
+References checked on 2026-10-27: Lua 5.4.9
+[lcode.c](https://www.lua.org/source/5.4/lcode.c.html) directs a local assignment's
+expression into its target register and manages temporary registers. Kagari must
+add its checked commits, lexical/type/ownership facts and debug availability rather
+than copy that source frontend's mechanism. LLVM 22.1.0
+[rotated loops](https://releases.llvm.org/22.1.0/docs/LoopTerminology.html#rotated-loops)
+use a guard when a first iteration is not proven, supporting the proposed control
+shape. LLVM's SSA/LoopInfo, undefined-overflow assumptions and backend ownership are
+not Kagari contracts. The rolling Rust
+[MIR optimization guide](https://rustc-dev-guide.rust-lang.org/mir/optimizations.html)
+supports applying typed transformations before codegen; Kagari's existing optimizer
+consumes its old seal and rebuilds verification rather than accepting edited facts.
+
+Implementation validation must reuse focused owners: checked arithmetic/trap and
+completed-assignment semantics; clobbered scalar snapshots; zero/one/multiple loop
+iterations plus break/continue; float predicate polarity where shared selection is
+affected; debug actual origins and reused-slot before/after inspection; cancellation,
+slicing, traps and source-free native-input canonical correspondence. Add only
+uncovered contracts. Compare full retained instruction/site/layout/origin storage,
+not opcode counts alone, then run a frozen same-machine original/forms comparison
+and the selected dependent lifecycle controls without changing old gate outcomes.
+Required implementation structure/fmt/workspace Clippy/diff checks and CI-only full
+matrix policy remain unchanged. This review has no implementation tests or new
+measurements to report.
+
+### BO05-BO06 implementation ledger, 2026-10-27
+
+BO05 adds a bounded transfers owner after local-read forwarding. It selects
+multi-use scalar homes only with same-block full-type/debug and no-clobber facts,
+initializes scalar homes directly, forwards scalar tail returns, and removes final
+fallthrough jumps after constant/predicate selection. Tail return removal must
+extend still-visible binding ranges through the retained return's observation;
+initial testing exposed lost outer/c bindings, and the existing assertions now
+pass without weakening them. The loop-lowering test now checks behavior instead of counting
+redundant jump instructions: break/false successors and continue's
+infinite backedge. A new non-benchmark recurrence (different coefficients, runtime
+bound) confirms no scalar transport and no fallthrough jumps after optimized MIR.
+
+Initial selected lowering run: 21/24 passed; debug local-tail availability and
+metadata binding inventory failures were caused by return observation remapping,
+not removed language coverage. Those two now pass. The remaining loop check needed
+to follow retained Jump edges rather than assume one exact layout; the final
+selected lowering run passes all 24 tests.
+The focused recurrence placement test passes after moving fallthrough cleanup
+behind constant/predicate selection. No required quality/performance acceptance
+was claimed during BO06 integration; final quality checks are recorded below.
+
+BO06's bounded MIR rotation retains the original guard and clones closed scalar
+conditions into dominated Jump backedges, with fresh temporary IDs and original
+span/scope columns. Header-defined snapshots consumed outside the condition are
+declined rather than rewritten or conflated. It excludes suspending functions,
+limits a condition to 16 instructions and duplication to 256 instructions/function,
+and shares the existing optimizer work/cancellation budget. Fresh verification
+rebuilds facts and source-free canonical lowering remains unchanged in authority.
+The first compile found TempId lacks Ord; internal maps now key checked indices,
+without broadening ID APIs. The final recurrence test passes complete portable
+MIR-to-bytecode canonical comparison and checks a selected conditional backedge.
+
+
+### BO06 prerequisite correction and focused verification, 2026-10-27
+
+The first optimized loop behavior run passed seven selected VM cases but failed
+`rotated_loops_preserve_entry_control_flow_and_condition_effects`: its effectful
+condition eventually overflowed. A temporary MIR/KBC dump established an earlier
+frontend defect: `while { checks += 1; steps < n } { steps += 1; }` lowered the
+condition block as both condition and body. The dump's body incremented checks
+and never steps, before bytecode placement or rotation. `WhileStmt::body` selected
+the first direct BlockExpr rather than the ordinary condition's second direct
+expression. This finite prerequisite correction selects the body expression by
+position and retains binding-condition handling. Parser coverage now distinguishes
+path, block and binding conditions. The VM loop case passes with optimization off
+and on, direct and source-free routes, including zero/one/many iterations,
+break/continue, nesting and repeated condition effects. Temporary dump code was
+removed; its first relative output path was corrected before diagnosis.
+
+Focused local evidence for the composed candidate:
+
+- `cargo test -p kagari-syntax --lib tests::parser::control_flow --no-fail-fast`: 2 passed.
+- Compiler `tests::bytecode::lowering`: 24 passed. `tests::passes` plus recurrence
+  placement: 14 passed, covering pass limits/cancellation, checked traps, snapshots,
+  CFG joins, constants and provenance. The final selection of placement, native
+  canonical mismatch, invalid/missing/reordered origins, constant domains and
+  predicate target/initialization validation: 5 passed.
+- Runtime `frame::execution_frames`: 23 passed, including both reused-slot owners,
+  stripped source-free trap origins, cancellation/depth admission and cleanup.
+  Allocation and layout selections: 4 + 4 passed. The old allocation test's four
+  colors and nonalias assertion described closed same-PC endpoints; the new three
+  colors intentionally reuse a consumed scalar input. Its loop-carried-vs-temporary
+  assertions remain intact, with the new success/trap ownership test proving the
+  endpoint contract. Physical instruction/storage budget: 1 passed.
+- Selected VM snapshot, NaN/control, checked failed commit and mixed constant-domain
+  cases, two owned-slice/iterator cases and post-host-effect cancellation: 7 passed.
+  The corrected loop case separately passes both optimization settings and artifact
+  routes. No full workspace test or backend/platform matrix was run locally.
+- `uv run --locked scripts/check_structure.py`: 1,732 files, zero violations or
+  exceptions; `cargo fmt --all -- --check`,
+  `cargo clippy --workspace --all-targets -- -D warnings`, and `git diff --check` pass.
+
+BO07 admits same-PC reuse only for closed scalar Move/Unary/Binary/constant-operand
+numeric/Convert handlers that read inputs before computing and commit after success.
+Named homes and parameter homes retain closed endpoints; managed/call/field/native
+paths are excluded. Allocation prefers wholly dead colors and marks only a consumed
+color actually selected for the output. Immutable layout guards use existing
+pending/executing/completed frame state: pending output writes cannot overwrite its
+input, success expires the input, traps retain it, and reexecution requires intact
+inputs. Redirection preserves current observation publication until resume. No new
+per-scalar hot-loop marker, GC root path or second bank was introduced.
+
+Seven-pair timing/storage attribution remains BO08 work, separate from these checks.
+
+BO05 checkpoint: scalar home/return/fallthrough placement is implemented and
+locally verified. Its six-operation loop depends on the separately checked BO06
+rotation; timing acceptance remains BO08.
+
+BO06 checkpoint: guarded closed-condition rotation and fresh semantic/debug
+facts are implemented. The non-benchmark recurrence proves a conditional backedge
+and full canonical native-input correspondence; selected loop behavior passes with
+optimization disabled/enabled and both artifact routes. The real forms direct dump
+is 11 static instructions and 5 logical slots; timing and physical attribution
+remain BO08.
+
+BO07 checkpoint: scalar consumption/result reuse and immutable public-frame
+guards are implemented and locally verified. The real direct frame uses 4 scalar
+locations rather than 5. A temporary storage probe loaded old/new complete artifacts
+and compared original/current allocation; it was removed after measuring all
+affected instruction/site/layout/origin/debug arrays. No diagnostic module or old
+allocator remains in production or tracked tests. BO08 records results and limits.
+
+
+### BO08 unrestricted timing and bounded diagnosis declaration, 2026-10-27
+
+Seven alternating pairs at committed candidate f6aa9cbc pass 7/7 original and
+12/12 forms execution gates, including forms_direct 0.873062 against 0.90.
+Controls pass 22/24: collect/roots_256_forward_complete is 1.101449
+(pair range 0.324786..2.033333) and collect/roots_256_random_cancel is 1.078947
+(0.490683..1.586667), above 1.05. These failures remain evidence; the earlier
+BO04/IP12 gates are not reclassified. Helper/concrete generic execution ratios
+1.041743/1.039672 are within the declared limit but are small slowdowns.
+
+Before further timing, declare one diagnostic only: rerun the unchanged controls
+for seven alternating pairs with the PowerShell parent and its child processes
+restricted to affinity mask 0x4 (logical CPU 2). Use the same frozen baseline,
+ordinary candidate, driver, estimators and 1.05 limits, without changing GC or
+sampling counts. This tests scheduler/frequency sensitivity on the existing
+microsecond rows; it does not replace unrestricted failures or establish their
+cause by assumption. Retain all pair ranges and record the result. Sampling
+profiles run afterward, independently of every throughput measurement/build/test.
+
+
+### BO08 measurement disposition and remaining ownership, 2026-10-27
+
+The [lasting measurement report](performance-baseline.md#general-loop-placement-follow-up-windows-2026-10-27)
+records all 19 execution results, retained storage, fresh eight-workload samples,
+reproduction scope, known limits and both control comparisons. Ordinary candidate
+SHA-256 is 01791dd819e30149109b0ac294bee2090c94bce0a6fd8fb18224c9a76d2c04e8.
+The real direct executable is 11 static / 30,005 dynamic instructions, 5 logical /
+4 physical scalar slots; unchanged Lua counts 40,006 dynamic instructions. Paired
+direct execution improves 12.7%, to 179.7 us versus Lua 119.4 us. It retains the
+entry guard, checked arithmetic and binding/origin correspondence.
+
+Private-owner allocation and public cloned-function probes measured all affected
+instruction/site/layout/origin/debug array payloads and frame banks: 6,945 ->
+6,606 bytes. Full forms KBC grows 0.267% (1,738,824 -> 1,743,458 bytes). This is
+not whole-program heap/RSS accounting. Temporary diagnostic code, including its
+baseline allocator module, was removed before the final ordinary build. The
+baseline allocator's unused-field warning existed only in that discarded probe;
+no compatibility implementation, diagnostic feature or extra API was retained.
+
+The declared affinity diagnostic did not close acceptance. It passed 22/24 with
+new collection failures: roots_256_forward_cancel 1.271429 (1.029412..2.25),
+roots_256_random_complete 1.273973 (0.739496..2.197183). The unrestricted failed
+forward_complete/random_cancel rows became 0.944444/0.985915. Pinning therefore
+neither stabilized the rows nor established their cause. Keep unrestricted
+forward_complete 1.101449 and random_cancel 1.078947 unaccepted; do not substitute
+the diagnostic or add collection repairs to this finite bytecode task. All admission
+and retirement rows pass; no further timing retries/tuning are authorized here.
+BO08 remains unchecked for integrated acceptance, separately from its completed
+measurement/attribution scope and implemented BO05-BO07. BO04/IP12 are unchanged.
+
+The next review should start with general call selection/admission/return ownership:
+helper is still 22.08x Lua even at 45,005 versus 65,007 bytecodes. Concrete, recursive,
+native, shared and captured calls inherit the boundary. Interface additionally
+allocates MethodComputation per live invocation and triggers 4.91 collections per
+5,000 calls. Native imports currently bypass the retained in-region Vec/String
+bodies through the common prepared-call path. Maps add repeated probes and Option
+allocation. Preserve exact/current publication semantics, host borrows, roots,
+trap/cancellation cleanup and all entry validation when investigating these owners;
+no cache, primitive reactivation or invocation representation change is activated
+by this measurement checkpoint.
+
+A separate bytecode generality limit remains: the current copies-before-rotation
+order can reuse a condition snapshot in a body, causing the closed-condition rule
+to decline rotation. A later ordering/model review may test whether doing rotation
+before cross-block forwarding can avoid artificial escapes while preserving real
+snapshots; no such speedup or behavior has been validated here. Do not broaden
+rotation by reusing temporary identities or ignoring escape evidence.
+
+Sampling has 25.0%-53.5% unresolved addresses in boundary-heavy workloads and 98.4%
+in direct. Range-verified call/installation/hash/frame/type names and source paths
+support the review order, but exact inclusive shares and direct kernel/dispatch
+percentages remain unmeasured. No additional implementation is implied. Full
+workspace/backend/feature/platform correctness validation remains CI-only; passing
+local focused tests and Clippy are unchanged-code evidence, not full CI acceptance.
+
+### Direct-only execution diagnosis, 2026-10-27
+
+The user explicitly requested further direct attribution instead of proceeding to
+call-boundary work. Production code and the f6aa9cbc executable are unchanged.
+The [direct report](performance-baseline.md#direct-scalar-execution-attribution-windows-2026-10-27)
+adds exact-image COFF/PE matching and one repeat ten-second profile. Masking only
+COFF relocations resolves the previously unnamed scalar loop and typed kernels:
+approximately 70% of samples are in the loop, 27% in numeric kernels (15% in
+remainder), and 2%-3% elsewhere/unmapped. Two windows agree closely. Within the
+loop, site lookup/constant operand handling is approximately 23% of all samples,
+fetch/PC/dispatch 14%, and polling/executing reset 13%-14%. These are sampled
+locations, not causal cycle percentages or predicted removable time.
+
+Release assembly confirms indirect kernel calls and stack-returned Result traffic,
+repeated input carrier/range/initialization checks, site shape/destination selection
+and PC publication. Cancellation is already inline; i32 arithmetic already uses
+native operations rather than i128 helpers. Local vendored and official Lua 5.4.9
+arithmetic/fetch handlers provide the comparison: reuse the principle of direct
+typed handler work, not Lua's wrapping or differing polling semantics.
+
+The proposed review owner is prepared scalar shape plus the shared kagari-types
+numeric interface, followed by region proof/PC/poll ownership. Preserve external
+frame/debug admission, checked traps/commits, same-PC reuse, source-free validation,
+cancellation and abandonment checks. No runtime change, benchmark-specific handler,
+new optimization phase, throughput rerun or gate relaxation was performed. Existing
+BO08/BO04/IP12 failures and pending CI are unchanged. This documentation checkpoint
+requires content/link review and git diff --check; unchanged code retains prior
+focused test and Clippy evidence.
+
+### Proposed ideal scalar execution model, 2026-10-27
+
+The user requested a coherent ideal Kagari execution model. This is a design
+proposal, not authorization to implement a new runtime phase. The preceding
+sampling table describes Kagari's own hot locations; remainder's cost alone does
+not explain a difference from Lua executing the same workload. Relative attribution
+requires comparing equivalent paths, and no sampled share predicts a speedup.
+
+Retain canonical bytecode as the source-free verification, tooling and origin
+contract. Refine the existing prepared execution product, with one prepared
+operation per canonical PC. Preparation owns type/width, operand shape, constant
+payload, destination kind, physical slot and branch-target resolution. Encode
+these facts in a bounded set of closed operation forms, for example checked i32
+add-with-immediate and i32 less-than-immediate branch. Immediates remain data;
+there is no opcode or generated handler per constant, function or benchmark.
+Review total instruction/side-table size and handler growth together; fixed
+encoding width and a full type/operation/shape Cartesian product are not goals.
+
+A successful arithmetic handler should read inputs, directly invoke inlineable
+shared typed semantics, branch to a cold trap path on a real arithmetic failure,
+and commit the result only on success. kagari-types remains the single semantic
+owner. Source-level Result or Option is acceptable; the target is elimination of
+an opaque indirect call and stack-return ABI on every operation, not removal of
+fallibility. A typed comparison branches directly, without transporting a numeric
+boolean through the arithmetic Result ABI or rechecking its boolean domain.
+
+Keep the existing region admission and exclusive bank/code borrows. Entry admits
+runtime/session/window ownership and exact executable identity. Internal typed
+operations may rely on scalar-domain facts established by checked constants,
+external writes/arguments and typed results. Physical bounds proofs must bind the
+prepared function's layout to the actual admitted window. Arbitrary manual jumps,
+fetch-and-skip histories and debug resume do not inherit ordinary-entry definite
+initialization facts: retain defensive initialization reads unless a specific
+entry/control-flow proof exists. Do not introduce an unchecked public frame API,
+a second interpreter or a persistent validity flag without an invalidation model.
+
+Use local next/current PC and necessary progress state inside a closed region;
+publish the existing next/executing/completed/origin distinctions before every
+observable exit, trap, callback, collection or debugger handoff. Preserve failed
+commit behavior and consumed-input reuse guards. Keep cancellation and asynchronous
+abandonment polling at current logical boundaries; only facts invariant for the
+borrowed region are candidates for hoisting. Initialization state must remain
+correct at observation points; repeated flag stores cannot simply disappear.
+
+The design priority is prepared forms and inlineable shared scalar semantics,
+then justified proof reuse, then PC/poll-state traffic. Lua 5.4.9's handler-local
+arithmetic and local PC provide precedent (see the linked direct report), but its
+wrapping arithmetic, hook policy and stack authority do not define Kagari's
+contract. Later implementation requires selected numeric/trap, artifact, public
+frame/debug/side-entry, reuse, cancellation and cleanup coverage, release assembly
+inspection and matched timing; code-size effects and existing gates remain visible.
+
+### Prepared scalar execution planning checkpoint, 2026-10-27
+
+The requested BO09-BO12 execution proposal now records concrete file ownership,
+typed opcode/preparation/handler sketches, shared arithmetic reuse, a complete
+scalar-family migration, obsolete API deletion, segment exit publication and
+focused verification plus predeclared performance targets. Inspection found
+existing inline typed arithmetic helpers in kagari-types; reuse them. Preserve
+defensive slot initialization/bounds and dynamic carrier validation where manual
+entry does not establish normal CFG facts. No numeric/cursor code or workloads
+changed. BO09-BO12 remain queued. Local link/content review and git diff --check
+pass; no build/test/Clippy or timing run is claimed for this documentation change.
+
+
+### BO09 baseline and scalar contract inventory, 2026-10-27
+
+The user authorized execution and per-phase commits. Freeze at edc4eb90 retains
+ordinary executable SHA-256 01791dd819e30149109b0ac294bee2090c94bce0a6fd8fb18224c9a76d2c04e8.
+Original/forms/controls freezes all pass checksums; direct is 181.0 us vs Lua
+119.6 us in this single-process baseline, not a performance acceptance comparison.
+The unchanged image's prior release assembly and 24-byte operations / 48-byte
+sites remain valid. Baseline uses default release, source/native, vendored Lua,
+default Cargo parallelism, fresh processes, three warmups and eleven samples on
+this report's i7-10700F Windows machine. No timing overlaps builds/tests/profiling.
+
+Numeric freeze was rejected by the existing driver's explicit policy ("freeze an
+ordinary unpaired original/forms run"). A one-process ordinary numeric run passes
+all checksums and is retained separately. Numeric paired diagnostics will run the
+same frozen/current executables with --numeric-matrix directly and report Kagari
+before/after; they will not be relabelled as the driver's interpreter parity gate.
+Reproduction: benchmark_lua.py --interpreter-only / --source-forms /
+--execution-controls, each with --freeze-baseline target/lua-comparison/scalar-before;
+numeric baseline: benchmark_lua.py --numeric-matrix --runs 1.
+
+The complete current semantic inventory has 361 closed operations: 72 fixed-width
+integer operations (nine across eight widths), 128 mixed-domain shifts (two across
+8 x 8 domains), 18 integer-carrier comparisons, 22 float arithmetic/comparisons,
+six character comparisons, two shared bool/unit equality operations, five unary
+negation/boolean operations, and 108 conversions (10 x 10 numeric plus eight bool
+to integer). Eight integer bit-not entries and 113 negation/not/conversion entries
+are unary; the remaining 240 are binary, including 38 comparisons. Source-narrow
+comparison lowering already uses its checked physical carrier; source-narrow
+arithmetic retains its precise operation domain.
+
+Only module/execution preparation, numeric.rs and payload tests consume the current
+function-pointer selectors. ExecutionInstruction::Scalar carries ordinary unary,
+Binary, Numeric and Convert; OperandSite carries BinaryOperands/PredicateBranch.
+Both raw operands are fetched before kernel domain validation. Preserve this error
+precedence and all read-before-write commits. All public scalar writes validate
+Location representation/domain, but manual fetch/jump does not establish normal
+CFG initialization; retain bounds, initialization and dynamic carrier checks.
+Constants are validated once and can be embedded using native-width payload fields.
+
+Implementation catalog: one finite macro list of semantic operation identities
+and typed immediate fields drives flat prepared variants, constructors and handler
+arms. No function/constant specialization or new public opcode ABI. Binary forms
+RR/RK/KR/KK and comparison branch forms RR/RK/KR plus existing Jump for constant-only
+predicates fit the 24-byte design; actual layout is an acceptance test. Shared
+payload operations statically select existing integer/float/cast primitives; dynamic
+Value adapters use the same semantics through an enum evaluator, not a function
+pointer. Keep enum/selection and primitive modules cohesive and below LOC limits.
+The private catalog macro has lexical crate scope, no public macro/re-export API.
+BO10 owns the complete replacement and removal of its temporary adapters.
+
+### BO10 implementation notes (in progress)
+
+The private catalog lives in `kagari-runtime/src/scalar_catalog.rs`, shared lexically
+by the enum/preparation and cursor macros. `module/execution/scalar.rs` owns input
+selection; `kagari-types/src/payload/operation.rs` and `operation/select.rs` own
+dynamic semantic identities/admission. This replaces the proposed separate opcode
+and handler modules without duplicating semantic implementations. All previous
+kernel/site APIs and scalar-site arrays are removed. Canonical code is unchanged.
+
+The first scoped check found a duplicate `scalar` module/import name; importing the
+Value codec as `scalar_value` resolves it. The scoped check and three existing
+payload contract tests pass. Two runtime test compilations were deliberately
+stopped before tests ran: an initial all-operation evaluator in every handler,
+then the direct-primitive version after over fifteen minutes of code generation.
+Neither aborted command is a passing test. Direct handlers now call their selected
+primitive, not the dynamic evaluator. Compilation cost is under investigation;
+the full type/operation coverage is retained.
+
+Scalar failures now carry only a borrowed reason and script/invariant classification
+inside the closed segment. The exit wrapper constructs the owned RuntimeError or
+quarantines the runtime. No instruction or callback can intervene after failure;
+the error kind/reason, failed commit and frame point remain unchanged. This keeps
+large owned diagnostics out of each expanded handler and reuses the existing
+region error boundary. The managed field reader adapts the same checked optional
+payload access through its existing error owner. This is not unchecked access or
+a second execution/termination policy.
+
+
+### Checked-semantics catalog revision, 2026-10-27
+
+The user explicitly retains existing checked overflow semantics after considering
+wrapping. No numeric specification change, narrow-integer promotion or implementation
+restart is authorized by this design discussion. BO10 remains paused and unaccepted;
+the uncommitted full-expansion implementation remains in the working tree. Two
+further runtime compilation attempts (lightweight errors, then shared non-inlined
+shift/cast helpers) were also stopped before tests completed. Compilation cost is
+unresolved; neither the responsible compiler pass nor the benefit of these changes
+has been established. BO10 owns replacement and subsequent verification.
+
+Proposed replacement: specialize operation and source width for RR/RK arithmetic;
+parameterize comparison conditions, shift-count domains and conversion domains.
+Use separate inline KR/KK records with shared operation/domain selection. R means
+scalar slot; K means an admitted numeric immediate. All 361 existing semantic
+identities remain supported. The source catalog contains 202 binary, 38 comparison
+and 121 unary identities: its Cartesian expansion is 202*4 + 38*7 + 121 = 1,195
+scalar variants. Some nonnumeric constant forms in that expansion are unreachable.
+
+| Proposed scalar family | Count | Selection retained as data |
+| --- | ---: | --- |
+| Integer Add/Sub/Mul/Div/Rem, eight domains, RR/RK | 80 | None |
+| Integer And/Or/Xor, eight domains, RR/RK | 48 | None |
+| f32/f64 arithmetic, five operations, RR/RK | 20 | None |
+| Shifts, eight left domains, two directions, RR/RK | 32 | Right integer domain |
+| Numeric comparisons, five physical domains, RR/RK, store/branch | 20 | Comparison condition |
+| Character comparison, RR, store/branch | 2 | Comparison condition |
+| Shared Bool/Unit equality, RR, store/branch | 2 | Eq/Ne |
+| Eight integer BitNot plus existing five negation/not operations | 13 | None |
+| IntegerConvert / IntegerToFloat / FloatToInteger / FloatConvert / BoolToInteger | 5 | Source/target domains |
+| Shared KR/KK forms described below | 9 | Operation/domain |
+| Total scalar variants | **231** | |
+
+Numeric comparison domains are I32, I64, U64, F32 and F64, as in existing lowering;
+this does not widen arithmetic semantics. Conversion families cover 64 + 16 + 16 +
+4 + 8 = 108 existing pairs, including bit-preserving identities. Do not substitute
+ordinary casts for checked conversion or omit source-domain validation.
+
+The nine shared variants are IntegerBinaryKR/KK, FloatBinaryKR/KK, ShiftKR/KK,
+CompareStoreKR/KK and CompareBranchKR. Constant-only pure comparison branches
+continue to select Jump at the same logical PC. Integer binary selection covers
+eight operations (five arithmetic and three bitwise); comparisons are separate.
+Constants remain inline raw bits plus admitted domain metadata; there is no new
+constant/site table, operand-reference allocation, Value round trip or numeric
+function pointer. Keeping KR and KK separate avoids two nested slot/immediate
+enums in every shared record. Never commute floating operands or eagerly evaluate
+fallible constant arithmetic to avoid these records.
+
+With Constant, Move, Jump, Branch, Managed, Return and Boundary, the proposal has
+**238 outer ExecutionInstruction variants**, versus the attempted 1,202. These
+are internal prepared variants, not the canonical artifact opcode count or all
+language/runtime cases: Managed contains seven existing nested operation kinds and
+Boundary retains cold canonical dispatch. The 361 semantic identities still exist;
+parameterization does not make their validation or arithmetic implementations vanish.
+The <=24-byte layout remains an acceptance requirement, not a measured property of
+this proposal. A sub-256 count alone proves neither layout nor performance.
+
+Representative proposed records (pseudocode):
+
+```text
+I8AddRK { dst, lhs_slot, rhs: i8 }
+I32CompareBranchRK { lhs_slot, rhs: i32, condition, then_pc, else_pc }
+I16ShlRR { dst, lhs_slot, rhs_slot, count_domain }
+IntegerConvert { dst, src, source_domain, target_domain }
+IntegerBinaryKR { dst, lhs_bits: u64, rhs_slot, operation_and_domain }
+IntegerBinaryKK { dst, lhs_bits: u64, rhs_bits: u64, operation_and_domain }
+```
+
+`scalar_catalog.rs` should enumerate these families instead of multiplying every
+semantic identity by every shape. `module/execution/scalar.rs` owns verified
+selection and inline admission; `frame/cursor/scalars.rs` owns slot reads, commits
+and dispatch. `kagari-types::payload` and its existing numeric owners retain one
+semantic implementation shared by direct and parameterized paths. Shared KR/KK
+and conversion dispatch should be bounded out-of-line helpers, not a copy of the
+361-way evaluator in each handler. Shift-count decoding must not instantiate all
+eight right domains in every left-domain/shape handler. An operation/domain enum
+may encode these choices without adding outer interpreter cases. Inline only the
+small direct arithmetic primitives justified by assembly/code-size evidence.
+
+The tradeoff is explicit: RR/RK arithmetic retains static selection; comparison
+condition handling may add a switch or predicate-mask work; mixed-domain shifts
+need right-domain decoding; conversions and KR/KK operations incur shared selection
+and possibly direct-call/result transport. KR/KK frequency is not established and
+must not be called cold without measurement. This reduces interpreter expansion,
+not the cost of required overflow/range checks. Compilation time and machine-code
+size improvements remain hypotheses. Direct retains its canonical instruction
+count and statically selected arithmetic, but parameterized loop comparison is a
+specific regression risk to measure.
+
+All slot operands must be fetched before numeric domain checks. Failures preserve
+the original PC, diagnostic class/reason, prior effects and unchanged destination.
+For example, (127i8 + 1i8) - 1i8 still traps at the addition; signed MIN / -1 and
+MIN % -1 keep existing failures even if an intermediate wider calculation fits.
+Cancellation/observation boundaries, manual-entry validation, source-free checks,
+NaN/signed-zero behavior and pinned ownership remain unchanged.
+
+Mechanism references: [Lua 5.4.9 operand-shape opcodes](https://www.lua.org/source/5.4/lopcodes.h.html)
+select forms such as ADD/ADDK/ADDI without expanding a full type/shape product;
+[CPython 3.14.0 comparison handlers](https://github.com/python/cpython/blob/v3.14.0/Python/bytecodes.c)
+retain condition information in oparg within type-specialized comparisons, including
+unordered floating results. These justify factoring independent dimensions, not
+copying dynamic type guards, reference counting, mutable quickening or wrapping
+arithmetic into Kagari. Kagari prepares immutable instructions from verified types;
+existing scoped-bank and generation ownership continues to apply.
+
+Before BO10 acceptance, verify exhaustive legal preparation, <=24-byte layout,
+selected checked-width/division/remainder/shift/cast/NaN contracts, source-free
+loading and manual-frame/trap atomicity. Inspect release direct assembly and measure
+original/forms/numeric workloads against BO09, including KR/KK and comparisons;
+retain the existing regression gates and CI-only exhaustive matrix. First establish
+that the bounded replacement builds; do not restart repeated speculative long
+compilations. This discussion changed only the plan. Catalog arithmetic was checked
+against the source inventory; no new runtime tests, compilation or timing are claimed.
+
+
+### BO10 compact implementation resumed, 2026-10-27
+
+The user approved the 238-variant proposal and resumed checkpoint execution.
+Replaced the full Cartesian scalar catalog with 231 scalar and seven base variants.
+`ScalarOperation` now represents independent domains/operations as fields rather
+than a 361-arm evaluator; its supported semantic combinations are unchanged.
+`payload/comparison.rs` owns parameterized conditions, `payload/shared.rs` owns
+KR/KK and count-domain decoding, and existing arithmetic/numeric owners retain
+checked arithmetic and conversion policy. Conversion policy includes the existing
+numeric::cast truncation/saturation behavior; retaining checked arithmetic does
+not change that independent contract. No canonical, ABI, GC or frame-publication
+changes are included in BO10. Original BO10 speculative expansion is superseded.
+
+The scoped runtime check and the three existing payload contract tests pass.
+Runtime layout/frame and VM numeric execution verification, release evidence and
+checkpoint quality checks are in progress; these are not yet acceptance results.
+
+
+BO10 focused verification: the 24-byte physical instruction test passes. The
+selected runtime frame/cursor suite first passed 26/27 cases; native publication's
+fixture failed its prerequisite reused-slot assertion before checking publication.
+Constant-operand lowering left the old expression without a retired slot for the
+second native result. The fixture now retains two intermediates before summing,
+so the second native destination actually reuses storage; all success/failure,
+visibility and cleanup assertions remain. The focused failing case now passes.
+All 11 VM numeric tests pass on both source and source-free artifact routes,
+including added left-constant arithmetic/shift comparisons across the existing
+integer/float matrix. No runtime semantic repair was needed for this fixture issue.
+Structure review finds no production globs/re-exports, include/path exceptions,
+unsafe access, duplicated numeric semantics or oversized files; the checker passes
+(1,737 files, zero violations/exceptions). Formatting and diff checks pass.
+Workspace all-target Clippy and release evidence remain pending.
+
+
+### BO10 accepted checkpoint, 2026-10-27
+
+Local acceptance passes: three payload tests, 27 selected runtime frame/cursor/layout
+tests (the repaired prerequisite fixture rerun separately), 11 source/source-free
+VM numeric tests, structure/fmt/diff checks and workspace all-target Clippy. No
+full workspace tests or complete backend/feature matrix were run; they remain CI.
+Prepared instructions measure 24 bytes and the execution function header 144 bytes.
+The catalog has 231 scalar + 7 base variants. Retain initialization, carrier and
+bounds validation, all numeric policies, read-before-write and original trap PCs.
+
+Release build completed in 115 seconds with default Cargo parallelism and reused
+dependency caches (not a clean-build comparison). A direct-only paired invocation
+was rejected before execution because the frozen baseline records a whole suite
+(`baseline configuration mismatch: workload`). Use matching whole suites instead;
+no baseline validator or metadata was weakened. Three alternating pairs of the
+original and source-forms suites pass all checksums. Reproduction:
+`benchmark_lua.py --interpreter-only --baseline-executable target/lua-comparison/scalar-before --runs 3`
+and the same with `--source-forms`. The toolchain/machine/profile/features/cache
+contract remains BO09's Rust 1.99.1 / LLVM 23.1.1, i7-10700F Windows x64 MSVC,
+workspace release, source/native plus vendored Lua, fresh sequential processes,
+three warmups and eleven execution samples; compilation is excluded from timings.
+These are bounded BO10 diagnostics, not BO12's seven-pair acceptance.
+
+Direct process medians are 182.7 us baseline / 112.5 us candidate / 119.4 us Lua;
+the median of three within-pair candidate/baseline ratios is 0.6158, range
+0.5955..0.6220. Original arithmetic and branches ratios are 0.6784 and 0.6840.
+All 19 original/forms execution ratios are <=1.05; the largest increases are
+host_callback 1.0386 and native 1.0351, which remain visible for final acceptance.
+Reports were produced at 11:24:48 UTC (original) and 11:27:15 UTC (forms).
+
+Candidate executable SHA-256 is
+62b81e545368c2f41d163f111a73f6a3541578245993d4d673fdd71876a638d6
+(saved as target/lua-comparison/scalar-bo10.exe for phase attribution).
+Same-build runtime archive disassembly using MSVC dumpbin /disasm shows direct
+integer primitives inlined and no indirect calls in either scalar loop. Remaining
+calls serve shared shapes, conversions, shift decoding and floating remainder;
+no per-site/function-pointer interpretation remains. Code growth is explicit:
+the unbounded loop is about 24 KiB versus BO09's 2,169 bytes, while PE SizeOfCode
+rises from 26,165,760 to 26,191,360 bytes (+25 KiB overall). This is the cost of
+static direct handlers, not evidence that 238 variants are universally optimal.
+BO11 now owns local PC/executing publication and stable polling inputs; preserve
+this checkpoint's measured image and do not mix its changes into BO10 attribution.
+
+
+### BO11 segment-local progress implementation, 2026-10-27
+
+`frame/cursor/scalars.rs` now keeps next/executing PCs in locals for one closed
+scalar segment and publishes both after an inner closure returns, including every
+error path. The closure is only a control-flow boundary: it does not allocate or
+introduce a callback. Its small state remains beside the loop instead of creating
+an otherwise empty progress module. Managed operations, returns, slow boundaries,
+slices and safepoints all flush before their existing owners run. Automatic-GC
+policy is captured at segment entry; cancellation, observer attachment and pending
+abandonment remain checked at each existing logical boundary. First-instruction
+admission and bounded/unbounded counters are unchanged. Checks and diagnostics
+remain authoritative; failures publish their original instruction before quarantine
+or error allocation. No numeric changes are part of this checkpoint.
+
+Selected verification: runtime frame/cursor contracts; VM owned-drive slicing,
+native/cancellation/effect/reentry contracts plus numeric trap/loop/NaN observation
+cases. The full matrix remains CI-only. Local quality checks and same-build release
+assembly are required before the BO11 commit; BO12 owns the final seven-pair suites.
+
+
+BO11 first implementation passes 26 runtime and nine selected VM tests plus all
+local quality checks. Release assembly found the immediate closure outlined into
+a function capturing PC locals by reference, preserving unwanted local memory
+traffic and adding a segment call. This fails the intended code shape despite
+correct behavior. Replace that closure with a labeled loop and a local result
+propagation macro: every successful/error exit breaks to one writeback block,
+without captured references or an extra execution helper. Keep the same checks,
+error values and publication ordering. Reverify affected boundary tests and inspect
+the rebuilt release loop before accepting BO11; no inlining override or poll-policy
+change is used to conceal the ownership problem.
+
+
+### BO11 accepted checkpoint, 2026-10-27
+
+The labeled-loop implementation passes the same 26 runtime frame/cursor and nine
+selected VM contracts, structure (zero exceptions), formatting, diff and workspace
+all-target Clippy checks. These reruns are justified by the changed exit protocol;
+unchanged numeric/other BO10 tests retain their evidence. Full CI remains unrun.
+Release rebuilding the final loop takes 52 seconds with the existing cache.
+
+Same-build MSVC dumpbin assembly now contains exactly the bounded/unbounded loop
+functions, with no outlined closure. The unbounded normal fetch at 0xc4..0xf5 keeps
+current/next PCs in rdi/r12; the ordinary result backedge does not publish frame
+PCs. The shared exit at 0x625b..0x626d stores next/executing fields before returning.
+Automatic-GC policy is loaded at entry; cancellation/observer/abandonment loads stay
+in the loop. Shared numeric calls remain limited to their admitted families; no
+per-instruction progress helper or function pointer was introduced. The private
+macro only propagates errors to this common exit and does not implement numeric
+semantics. BO12 now owns final timing, same-image sampling and remaining-cost
+attribution; no speed claim is inferred from this assembly check.
+
+
+### BO12 first integrated measurement and bounded repair, 2026-10-27
+
+Candidate 95e252b1 / SHA-256 f88ec00086c0e49e816503226c4e602136bd200c2a9085ee5c104decd58930f0
+passes all checksums in seven alternating pairs per suite. Original seven execution
+rows pass (arithmetic 0.64311, branches 0.66507; worst arrays 1.02534). All ten numeric
+rows pass, ratios 0.76606..0.83683. All 24 owned-control rows pass, worst
+admit/roots_1_tail_cancel exactly 1.05. These do not close earlier BO04/BO08/IP12 gates.
+Source forms direct is 108.4 us vs Lua 119.5 us, ratio to the paired Kagari baseline
+0.5959 (range 0.3985..0.6048), but host_callback 1.0725 (1.0596..1.0968) and native
+1.0886 (1.0655..1.0936) FAIL the 1.05 limit. Other ten forms pass. Preserve the full
+ranges, including noisy outliers; no failed run is discarded. Reports: 11:39:15 UTC
+forms, 11:40:49 original, 11:45:35 numeric, 11:46:34 controls. BO12 is not accepted.
+
+Architectural diagnosis: both failed forms call the same host_step, which performs
+three public numeric::binary operations per iteration. The Value adapter already
+knows the exact full-width carrier but constructs ScalarOperation through two
+selection helpers, then evaluates through shared integer/domain decoding. Same-image
+native sampling at 11:47:25 UTC contains 3,898 samples; relocation-masked exact
+COFF-to-PE matching finds 49 in shared decode_integer, 41 in shared integer, 44 in
+numeric::binary, and 38 in operation selection/evaluation. These establish surviving
+work, not causal percentages explaining the entire regression. The rest includes
+unmapped code and existing native admission/stack costs. Preserve the failure image.
+
+One bounded general repair: ordinary Value arithmetic matches the carrier once,
+then calls the existing typed checked arithmetic or floating payload primitive.
+Type-error-before-op-error precedence remains; typed i32/i64/u64 Values themselves
+establish full-width domains. Narrow NumericOperation adapters retain explicit
+semantic-domain validation. Shared KR/KK integer evaluation computes its domain
+layout once and validates both operands through the same inline domain primitive;
+shift evaluation retains independent count decoding. No new opcode, unchecked
+access, alternate arithmetic implementation or special benchmark path is added.
+The existing native numeric boundary owner gains coverage for ordinary Value
+arithmetic/IEEE/error precedence; existing payload and VM numeric contracts remain.
+Rebuild/check and repeat the affected original/forms/numeric suites once; unchanged
+owned-control evidence remains applicable because it does not execute these paths.
+No retry-until-green or lifecycle repair is authorized by this diagnostic.
+
+
+### BO12 final local checkpoint, 2026-10-27
+
+The one bounded repair passes six runtime numeric boundary tests, three payload
+contracts and eleven VM numeric tests. The selection covers the Value admission
+change, shared domain validation, checked source-width results and source-free
+routes. BO10/BO11 passing frame/public-entry, progress, cancellation, observation
+and reentry evidence remains applicable. Structure checks scan 1,737 Rust files
+with zero violations/exceptions; formatting, diff and workspace all-target Clippy
+pass. The restored fixed_integer Rustdoc is documentation-only. No full workspace
+or exhaustive feature/backend/platform tests ran locally; CI remains pending.
+
+Final ordinary image SHA-256:
+207901bd948eb8fdf350f809d2e72bfa9a67efcc917a4418cc4c5abe4d73059b.
+Seven-pair final source forms (11:53:17 UTC), original (11:56:34) and numeric
+(12:01:36) all pass checksums and the predeclared median-ratio gates. Direct is
+180.2 -> 108.0 us, Lua 119.4 us; paired ratio 0.59821 (0.56963..0.61734).
+Host_callback/native recover to 0.99232/0.99323. Original arithmetic/branches are
+0.64988/0.67414; calls is 1.04618 with range 0.93758..1.72638, close to the threshold
+and noisy. Numeric ratios are 0.73657..0.83518; preserve the f64 outlier 1.32126.
+No failed pair or previous failed image was discarded, and no extra timing retries
+were performed. Unchanged 24-row controls retain their earlier BO11 evidence as
+explicitly described above; do not represent these as final-image reruns.
+
+The [lasting report](performance-baseline.md#compact-prepared-scalar-execution-windows-2026-10-27)
+records all original/forms pair ranges, numeric results, setup/build separation,
+image identities, toolchain/machine/features/cache/parallelism and remaining costs.
+Final same-image direct profiling at 12:02:37 UTC maps 3,719/3,866 samples to the
+unbounded loop using relocation-masked COFF/PE byte matching. No scalar kernel
+function-pointer or site interpretation remains. Main sampled locations are logical
+polling 24.44%, fetch/dispatch 18.16%, checked writeback/backedge 13.68% and the i32
+remainder handler 14.92%; these are locations, not predicted removable time.
+The observed stream remains 30,005 instructions and zero GC/script heap allocation.
+
+Storage accounting keeps all unchanged canonical/layout/origin/debug/bank arrays:
+direct selected payload 6,606 -> 6,318 bytes, including prepared instructions/sites
+552 -> 264. The instruction remains 24 bytes and the catalog remains 238 variants.
+PE code grows 37,376 bytes (36.5 KiB, 0.143%); unbounded handler code is 25,615 bytes
+versus 2,169 before. The final cache-reusing release build takes 106.9 seconds;
+no clean compilation comparison is claimed. Exact figures and exclusions live in
+the report. Architecture now documents typed preparation, numeric ownership,
+Value admission and segment-exit progress publication.
+
+Unresolved opportunities stay finite: private bank/domain validity across all
+writers and manual/debug/resume entry, condition selection, dispatch and dynamic
+polling costs. Existing checks cannot simply be removed. These are findings for a
+future user-directed decision, not newly activated implementation checkpoints.
+BO12 local scope is complete; full CI is unrun. BO04's four lifecycle gates, BO08's
+two collection gates and IP12's independent historical gate remain unresolved.
+
+### BO05 verifier fixture follow-up, 2026-10-27
+
+The malformed local-slot test still replaced instruction 1 with an invalid Move.
+After scalar transfer removal, that position is the Return, so verification rejected
+missing termination before reaching the intended invalid-register check. The fixture
+now inserts the malformed Move before the retained return, using its actual source
+slot and the existing instruction-metadata replacement helper. Error-kind and code
+assertions remain intact; verifier production behavior is unchanged.
+
+All 22 compiler bytecode-validation tests pass, covering the reported failure plus
+adjacent slot, flow, debug and source-free artifact contracts. The final assertion
+cleanup also passes the exact reported test; structure, formatting, workspace
+all-target Clippy and diff checks pass. Full workspace tests and the exhaustive
+feature/backend/platform matrix remain CI-owned.
+
+### Arithmetic bytecode review, 2026-10-27
+
+User-requested inspection at `4553fc74`, without an implementation change. The
+original `arithmetic` fixture calls `run(50000)` and computes
+`sum = sum + i % 97; i = i + 1` in a while loop. Fresh CLI artifact emission and
+disassembly show nine instructions in `run` and three in `main`. With symbolic
+names substituted for slots, the complete run body is:
+
+```text
+0: i = 0
+1: sum = 0
+2: snapshot = i
+3: branch snapshot < n -> 4, else -> 8
+4: remainder = snapshot % const(97)
+5: sum = sum + remainder
+6: i = snapshot + const(1)
+7: jump 2
+8: return sum
+```
+
+The existing benchmark's independent observation pass confirms 300,008 Kagari
+instructions: 100,000 BinaryOperands, 50,001 Move, 50,001 PredicateBranch, 50,000
+Binary, 50,000 Jump, three LoadConst, two Return and one Call. `run` uses five
+logical and five physical scalar slots, no managed slots. The separate execution
+window reports zero script heap allocations and collections. This is instruction
+and layout evidence, not a fresh release throughput comparison.
+
+PUC Lua 5.4.9's matching `luac -l -l -p` output has 13 static run instructions and
+four slots. The normal loop dispatches LT, MODK, ADD, ADDI and its backward JMP;
+successful arithmetic skips MMBIN/MMBINK/MMBINI, and the successful condition
+skips the exit JMP. The benchmark's actual Lua hook count is 250,007. Thus Kagari
+executes one additional copy per condition evaluation, or 50,001 more dispatched
+instructions, about 20% more overall. The Lua fallback rules are owned by
+[Lua 5.4.9 lvm.c](https://www.lua.org/source/5.4/lvm.c.html); encoded words must not
+be mistaken for executed instructions. Lua wrapping arithmetic, dynamic values
+and hook rules do not replace Kagari's checked arithmetic and observation contract.
+
+Source review explains the remaining snapshot and unrotated loop:
+[copy propagation](../crates/kagari-mir/src/passes/copies.rs) forwards the header's
+local read into the body. [Rotation](../crates/kagari-mir/src/passes/rotation.rs),
+which runs after copies, rejects header outputs used in another block.
+[Bytecode placement](../crates/kagari-compiler/src/bytecode/placement.rs) likewise
+only eliminates local reads whose uses stay in the defining block. Each restriction
+protects valid snapshot semantics, but their composition misses this scalar loop.
+The physical allocator does not recover that lost optimization: all five locations
+remain distinct. Constants are already inline operands after preparation, results
+write their homes directly, and comparison/branch are already combined.
+
+A bounded follow-up should reconcile cross-block local-home validity and condition
+snapshot ownership at MIR/placement, retaining the existing immutable MIR values
+and typed runtime handlers. First prove that the home cannot change before every
+substituted use; do not globally alias mutable locals to immutable temporaries.
+Then evaluate guarded rotation with correct body-use remapping. LLVM's
+[rotated-loop description](https://llvm.org/docs/LoopTerminology.html#rotated-loops)
+(rolling documentation reviewed 2026-10-27) supplies the entry-guard/latch model;
+its SSA/PHI and undefined-overflow assumptions differ from Kagari's local homes,
+checked traps and source observations. No copied LLVM runtime model is proposed.
+Removing the copy alone would give 250,007 logical instructions; a four-operation
+rotated body would give 200,007. These are proposed instruction counts, not measured
+speedups or implemented behavior. Preserve zero-trip loops, read-before-write,
+overflow/side-effect order, debug values, cancellation and bounded analysis.
+Reuse their existing semantic tests, verify source-free canonical correspondence,
+and only then measure the unchanged arithmetic workload in release before attributing
+remaining cost to dispatch, bank checks or polling. No new optimization phase is
+activated by this inspection.
+
+Reproduction: substitute `__N__` with `50000` in the tracked arithmetic fixtures,
+then `cargo run -p kagari-cli --bin kg -- emit -o <artifact> <source>` and
+`kg disasm <artifact> --list-functions` / `--function <run-selector>`.
+Count with `cargo run -p kagari-lua-benchmark -- --interpreter-only --profile=arithmetic`.
+The count run used Rust 1.99.1 / LLVM 23.1.1, Windows x64 MSVC, i9-12900K,
+workspace dev opt-level 1, existing build cache, default Cargo parallelism/target,
+source/native plus vendored lua54, and the ordinary single-thread driver. The
+ten-second window precedes observer counting; its elapsed time is not compared
+with the earlier i7-10700F release results. Official luac 5.4.9 was built against
+the vendored 5.4.9 sources solely for disassembly. Temporary products stay under
+ignored `target/arithmetic-review`; this entry retains the findings independently.
+
+### Arithmetic target instruction contract, 2026-10-27
+
+The user requested an explicit ideal bytecode standard before optimizing the
+implementation. Under the existing general instruction set, target this shape
+for the unchanged `run(n: i32)` fixture. This is a proposed acceptance target,
+not a description of current emitted code or an implementation checkpoint.
+
+```text
+slots: s0 = n, s1 = i, s2 = sum, s3 = remainder; all i32
+0: load_const s1, 0
+1: load_const s2, 0
+2: predicate_branch.lt s1, s0 -> 3, else -> 7
+3: binary_operands.rem s3, s1, const(97):i32
+4: binary.add s2, s2, s3
+5: binary_operands.add s1, s1, const(1):i32
+6: predicate_branch.lt s1, s0 -> 3, else -> 7
+7: return s2
+```
+
+The entry guard handles every `n <= 0` without entering the body. The loop has
+three arithmetic instructions and one conditional backedge, no local snapshot
+Move, materialized boolean or standalone Jump. `run` has eight static instructions
+and four logical/physical scalar slots. Existing `main` retains its three-instruction
+load/call/return boundary; inlining and tail-call changes are not needed to meet
+this target. For a successful `n > 0` execution, run executes `4*n + 4` logical instructions; with the
+unchanged main, total execution is `4*n + 7`, or 200,007 at n=50,000. For `n <= 0`,
+run executes four instructions and returns zero. Slot numbers and textual block
+ordering are illustrative; acceptance concerns equivalent control/data flow.
+
+Preparation should select existing Constant, I32RemRK, I32AddRR, I32AddRK and
+I32CompareBranchRR handlers, retaining one prepared instruction per final canonical
+PC. Immediate constant fields are prepared once; no per-iteration constant load,
+type inference or ordinary Value transport is required. All existing runtime
+operand/domain/initialization and polling guarantees remain. Remainder is still
+an ordinary checked operation with a runtime immediate, not a promise of native
+constant-divisor strength reduction.
+
+Correctness constrains this target: read all operands before writing an overlapping
+destination; trap before committing a failed add; preserve a successful sum update
+if a later operation fails; retain zero-trip behavior, snapshots across intervening
+writes/calls, full source types and source/debug origins. Every final instruction
+keeps normal cancellation, observation and slice behavior. The execution and
+debugger specifications permit recompilation to change instruction counts and PCs;
+runtime preparation must not silently omit boundaries from already verified code.
+The target does not combine sum and counter updates into a special loop instruction.
+
+Implementation acceptance should pair the shape above with existing semantic owners:
+zero/single/many iterations, checked overflow and completed effects, cross-block
+snapshots and joins, break/continue, debug values, cancellation/slicing, and source-free
+verification/canonical correspondence. Reuse existing tests and add only distinct
+uncovered contracts. Demonstrate general applicability with existing non-benchmark
+recurrences rather than source/constant recognition. After correctness and required
+local checks, compare unchanged release arithmetic on the same machine/toolchain
+with a frozen before image and the existing paired driver. Reuse small directly
+affected regression selections; the exhaustive matrix remains CI-owned. The target
+reduces dispatch count by about one third, not a promised one-third elapsed-time
+improvement; residual runtime costs require fresh attribution after measurement.
+
+### BO13-BO16 planning checkpoint, 2026-10-27
+
+Execution plan written after source/implementation/test-owner review. All four
+phases remain unstarted; no new release baseline, speedup or CI acceptance is
+claimed. The main unresolved design choice belongs to BO13: whether earlier
+rotation followed by existing cleanup suffices, or concrete cases need additional
+bounded home-validity proof. There are no new carried build failures. Historical
+BO04/BO08/IP12 results retain their existing owners and disposition. Planning
+validation checks document links, content consistency and `git diff --check`;
+no Rust tests/builds or new timing runs are needed for this documentation change.
+
+### BO13 baseline and pass-composition decision, 2026-10-27
+
+Execution and validated batch commits are now authorized. Baseline is `36c4419c`,
+ordinary executable SHA-256 de8d76c7c7754cab3c2a1ed990d5d14d8f832640dc79880f9c21f826993ed154,
+frozen as target/lua-comparison/loop-before. Original/forms freeze runs at
+14:03:28 / 14:05:42 UTC pass every checksum. Environment: Windows 11 build 26300,
+i9-12900K, 64 GiB, Rust 1.99.1 / LLVM 23.1.1, workspace release opt-level 3,
+source/native plus vendored Lua 5.4.9, default Cargo target/parallelism and sequential
+single-thread execution. Initial release build took 107.064 seconds, forms reused
+it in 0.365 seconds. Timing excludes compilation/preparation. Original arithmetic
+freeze medians are 645.1 us Kagari / 364.9 us Lua; final acceptance uses seven paired
+runs, not this one-process freeze. Independent baseline observation confirms 300,008
+instructions, five scalar slots and zero script heap allocations/collections.
+
+The existing placement test now includes a non-benchmark counter recurrence using
+modulus 13 and runtime n. Before the production change its exact counter_snapshot
+case fails the existing no-Move assertion. Temporary MIR inspection confirms header
+read t2 is initially separate from the body reads; copies rewrites both remainder
+and increment to t2. Rotation then leaves the CFG unchanged because t2 escapes the
+header. The temporary inspection code is removed. BO14 selects constants -> rotation
+-> copies -> verification/dead cleanup, retaining the closed-condition proof and
+fresh temporary identities. No escaping-value repair or new home analysis is yet
+justified; BO15 will inspect the resulting general cases.
+
+Selected checks: compiler passes/placement/program_points and bytecode validation;
+VM numeric loop/snapshot/trap/NaN contracts, optimized breakpoint binding states and
+owned_drive::async_owned_drive_contract (its synchronous slice/cancellation cases).
+Placement already verifies portable-MIR canonical correspondence. All required
+local quality checks apply; exhaustive workspace/backend/feature/platform tests
+remain CI-only. The source test and documentation edits after the original freeze
+do not alter the saved release image; the forms freeze verifies the same hash.
+
+BO14 scheduling passes 16 compiler and seven selected VM contracts. Arithmetic now
+has a four-instruction body but still nine static instructions/five logical slots:
+copies forwards the entry's shared zero into the one-time guard, while placement
+separately materializes zero into i and sum. BO15 therefore needs no general new
+home-validity analysis. Extend the existing numeric constant selection only when a
+retained, same-origin home initializer already preserves the removed constant's
+observation. That anchor must precede any use, have the same complete scalar type
+and constant, and preserve debug state/control path. The original immutable constant
+can then feed immediate operands across blocks without moving its observation to
+a different source path. Unsupported consumers still decline. Existing definition,
+verification, budget and origin remapping remain authoritative. This is a finite
+completion of constant/home materialization, not a runtime or CFG model expansion.
+
+### BO14-BO15 implementation checkpoint, 2026-10-27
+
+The composed implementation meets the target: arithmetic run has eight canonical
+instructions and four logical slots. Its entry compares immediate zero with n;
+the body is remainder, sum add, counter add and conditional backedge. No Move,
+standalone backedge Jump or temporary boolean remains. The non-benchmark modulus-13
+recurrence asserts the same shape and independently verifies portable-MIR canonical
+correspondence. Existing zero/one/many loop coverage now also checks a negative bound.
+
+Fresh disassembly demonstrates generality with unchanged workloads (n=100 for these
+shape probes): branches changes 19 instructions/11 slots to 18/10, calls 11/7 to
+10/6, and arrays 35/23 to 32/20. Their counter snapshots and standalone loop
+backjumps disappear; arrays has three guarded conditional backedges. The pre-call
+sum snapshot, managed array snapshots and branch-body state transport remain under
+the existing safety proofs. No cross-block mutable-home forwarding was necessary.
+
+Validation: the initial scheduling change passed 16 compiler passes/placement/
+program-point tests. Constant selection passed 25 placement/validation/program-point
+tests; tightening the anchor to the next retained instruction passed the three
+placement/program-point cases again. Final seven selected VM cases pass: rotated
+loops (including negative bounds, nesting, break/continue and effectful-condition
+declines), local/captured snapshots, overflow commits, NaN predicates, breakpoint
+binding state and both matching owned-drive contracts. All four local quality checks
+pass: structure (1,737 files, zero violations/exceptions), fmt, workspace all-target
+Clippy with warnings denied, and diff whitespace. Manual review finds no widened
+visibility, new reexports, size exceptions, runtime checks removed or ABI changes.
+The source-free numeric and portable-MIR tests retain independent validation.
+Full workspace/backend/feature/platform testing remains CI-only and unrun. BO16
+timing and sampling follow this implementation checkpoint without overlapping builds.
+
+### BO16 matched timing and remaining-cost handoff, 2026-10-27
+
+Implementation is committed as `41d613a9`. On that clean revision both unchanged
+original/forms suites complete seven alternating process pairs, three warmups and
+eleven samples per process; every checksum passes. Candidate image SHA-256 is
+d7c2457b345ba1ead750d3d51b72da2618032efaca5a982a552facefdb180697. Original run began
+14:17:02 UTC and forms 14:20:37 UTC. The gate checker passes all 19 execution rows:
+arithmetic 0.77414 against 0.90; other rows 0.87085..0.99886 against 1.05.
+No retry, affinity restriction or sample deletion was used. All paired ranges,
+absolute VM/Lua times, environment, setup/build and storage diagnostics are in the
+[durable report](performance-baseline.md#bo13-bo16-scalar-loops-windows-2026-10-27).
+This new baseline does not close earlier BO04/BO08/IP12 collection/lifecycle gates.
+
+Arithmetic process medians are 644.7 -> 503.7 us, Lua 366.5 us (1.37 times Lua).
+The median paired reduction is 22.6%, distinct from the quotient of these medians.
+Branches' paired ratio is 0.87085; already-optimized forms_direct is essentially
+unchanged at 0.99858. Generality does not imply every workload gets a timing win.
+The original and forms release builds took 18.964 / 0.389 seconds respectively;
+timing excludes source compilation, artifact preparation and linking.
+
+Independent observation confirms 200,007 arithmetic instructions and four logical/
+physical scalar slots, versus baseline 300,008/five; Lua remains 250,007. A separate
+ten-second main-thread profile at 14:21:44 UTC uses the identical image and matching
+PDB, with 4,219 samples and no capture errors. Script allocations, collections and
+live-object delta are zero. Exact COFF-to-PE matching attributes 99.00% of samples
+to the unbounded scalar execution function; unresolved PDB labels alone are not
+used as attribution. Polling/fetch/writeback accounts for 41.93% of sampled locations,
+checked remainder 33.56%, the two checked additions 12.78%, predicate/target handling
+10.74%, and other code 1.00% (rounding applies). The report records byte ranges,
+matching evidence and reproduction; sampling locations are not causal cycle or
+removable-time percentages. `% 97` remains runtime `idiv`, with many samples just
+after it; no constant-divisor speedup is inferred.
+
+Remaining decision: if more arithmetic speed is requested, review execution-validity
+and dispatch ownership at `frame/cursor/scalars.rs` / prepared execution rather than
+adding more loop bytecode rewrites. Bounds/initialization and payload-domain checks
+remain alongside observable overflow/polling guarantees. Any private validity proof
+must cover all writers, manual/debug side entry and resume; division specialization
+would need its own general design and evidence. No runtime removal, special loop
+opcode or collection/call-boundary optimization is activated by this handoff.
+
+BO13-BO16's finite local implementation/measurement scope is complete. There are no
+carried local build/test/timing failures in these phases. Focused correctness and
+quality evidence from the implementation checkpoint remains valid; this reporting
+checkpoint changes documentation only and checks content/links/diff. Full workspace,
+backend, feature and platform correctness remains CI-only and unrun. The plan stays
+open for its earlier unresolved gates and this explicit CI limit; no parallel queue
+or new implementation phase is introduced.
+
+### BO17-BO18 dispatch experiment, 2026-10-27
+
+Frozen original/forms at `817147a7`, starting 14:30:31 / 14:31:19 UTC, with the
+unchanged BO16 executable d7c2457b345ba1ead750d3d51b72da2618032efaca5a982a552facefdb180697.
+Both checksum sets pass; cached build walls are 0.430 / 0.354 seconds. Environment
+and workload contracts match BO16. The arithmetic freeze is 504.0 us against Lua
+363.8 us; acceptance uses paired runs, not these single-process values.
+
+The first candidate uses a common post-instruction boundary (including branches)
+and an explicit equality check for the admitted payload/initialization bank lengths.
+No unsafe operation, cache, layout or instruction model is added. Seven runtime
+frame/window/cursor tests and sixteen selected VM numeric/owned-drive/debugger/
+observer-cancellation/reentry tests pass. Structure (1,737 files, no violations or
+exceptions), fmt, workspace all-target Clippy and diff checks pass. Existing
+contract coverage is reused without duplicate smoke tests.
+
+Independent same-image observation at 14:34:44 UTC confirms unchanged 200,007
+Kagari / 250,007 Lua instructions, four logical/physical scalar slots, no script
+heap allocation or GC. COFF/PE matching verifies 25,350 of the unbounded function's
+25,746 bytes (RVA 0x010e8280), attributing 3,982 of 4,221 samples. The bounded
+function shrinks 28,025 -> 24,545 bytes. Assembly proves shared bounds: remainder
+at +0x426f performs one bank bound plus initialization/domain/divisor checks;
+writeback at +0x6244 has one bound before both stores. However, the new common
+tail also spills/restores several live registers per handler. Timing must decide
+whether removing checks outweighs this register-allocation cost. The profile's
+call count is not throughput acceptance. Seven original process pairs begin
+14:35:33 UTC; keep failed evidence and diagnose before any adjustment.
+
+The first original gate run fails arithmetic: 0.95635 (0.94583..1.01843) versus
+the predeclared 0.95 target. Other ratios: branches 1.04945, arrays 1.01105,
+calls 1.00947, entry 1.01265, fibonacci 1.00635, maps 1.02073; their 1.05 gates
+pass, but branches consistently slows (1.02145..1.08587). Candidate image is
+17d7172d091c72c3b9a966e906306388f6a761913eb6ed5b3671f2de77520550. All seven pairs
+are retained; this image is not measured again or accepted by changing thresholds.
+
+Renewed diagnosis: the source-level common tail changes the large match's live
+register ranges. The i32 remainder now spills four registers at +0x425b..0x426f,
+and writeback reloads three at +0x625a..0x6269; the old handler has no corresponding
+stack-save prefix. Removing a first-mode test is not a sufficient model of the
+generated dispatch cost. Reject the common-tail rearrangement and keep the existing
+loop/boundary ownership. The bounded repair retains only the equal-bank-length
+entry check, which independently removes duplicate bounds without that CFG change.
+No new runtime model or unchecked contract is introduced. Revalidate the affected
+contracts and inspect code generation before the final original/forms comparison.
+
+The equal-length-only image 177a538fcf67e92a5d5866d54496456b84f99d6687aced4906eef2ee896a49bd
+also misses acceptance in the seven pairs starting 14:41:51 UTC: arithmetic 0.97106
+(0.95906..1.50138), arrays 1.05377 (0.99492..1.59363); other rows pass. The outliers
+are retained. Seven runtime and sixteen VM contracts plus all local quality checks
+pass for this image. Its 31.11-second release build and separate 14:40:37 profile
+confirm unchanged counts/slots/zero script allocation and GC. Scalar code shrinks
+to 18,510 bytes unbounded / 20,126 bounded, but size alone is not timing acceptance.
+
+Assembly diagnoses another composition issue with the existing BO09-BO12 design:
+LLVM now outlines the statically selected i32 comparison. At scalar offset +0x3148
+it calls `kagari_types::payload::comparison::i32_compare` (COFF relocation +0x3149),
+passing a stack-returned Result and restoring loop registers afterward. The original
+BO16 handler inlined those same checked semantics. Equal lengths still eliminate
+duplicate bounds, but the altered inlining heuristic adds work at every condition;
+arrays also traverses these conditions. This explains a concrete added cost, not a
+claim that it alone accounts for the noisy collection regression.
+
+The bounded repair makes the seven known-domain comparison entrypoints and their
+shared condition test `inline(always)`, retaining `ComparisonDomain::evaluate` as
+the out-of-line dynamic dispatcher. This restores the intended typed-handler
+boundary without duplicating numeric semantics or removing any validation. No other
+payload operation, generic loop policy or collection mechanism is changed. The
+[Rust codegen reference](https://doc.rust-lang.org/reference/attributes/codegen.html#the-inline-attribute)
+describes these attributes as hints; require fresh assembly evidence rather than
+assuming an annotation guarantees inlining or speed. This is an implementation
+repair within BO18, not a new opcode or execution-validity model.
+
+The comparison annotation repair passes all five tests selected by the types
+`payload` filter (three payload owners and two matching domain cases), and three
+VM numeric filters covering every integer width/concrete generics, NaN/control
+predicates and mixed constant sides. The previous seven runtime and sixteen VM
+passes remain evidence for the unchanged bank/loop code. All four local quality
+checks pass again. No public API, unsafe code, dependency, opcode, layout or
+semantic implementation changes; no LOC or reexport exception is required.
+
+Final BO18 assembly/observation checkpoint: a 53.05-second release rebuild produces
+image 735352aeda2e1b85259a0590cc80a20ab0b086d78a51e13a2fb20308310fa834. The separate
+14:47:46 UTC profile confirms the same 200,007 instructions/four slots and zero
+script allocations/collections. Same-image COFF matching locates 4,169 of 4,224
+samples in the unbounded loop at RVA 0x010a7830, matching 19,809 of 20,101 bytes.
+Its static known-domain comparison call relocations are now absent; the checked
+predicate body is inline again. Both input access and result writeback retain one
+shared bound plus initialization/domain checks, without the rejected common-tail
+register-save prefix. Unbounded/bounded scalar code is 20,101 / 21,150 bytes versus
+baseline 25,615 / 28,025. PE SizeOfCode falls 26,204,672 -> 26,194,944 bytes; physical
+bank and bytecode/prepared instruction layouts are unchanged. BO19 still requires
+fresh paired timing against dispatch-before; sampling throughput is not acceptance.
+
+### BO19 final paired acceptance and handoff, 2026-10-27
+
+Clean production `19aa9570` completes both unchanged suites against `817147a7`:
+original starts 14:49:02 UTC, forms 14:52:02 UTC. Both use final image
+735352aeda2e1b85259a0590cc80a20ab0b086d78a51e13a2fb20308310fa834 and seven alternating
+process pairs, three warmups and eleven samples per process. Every checksum passes;
+all observations and outliers are retained. No test/build/profile overlaps timing.
+Cached build walls are 0.395 / 0.364 seconds and are excluded from execution.
+
+All 19 execution gates pass. Arithmetic is 504.9 -> 467.1 us, paired ratio 0.92315
+(0.88084..0.93145), meeting the predeclared <=0.95 target. Paired elapsed-time
+reduction is 7.7%; same-suite Lua is 362.3 us, giving 1.29 times Lua.
+Other paired medians span 0.97962..1.01916 against <=1.05. Individual pair ranges
+are retained even when they exceed 1.05; acceptance uses the predeclared median.
+The [report](performance-baseline.md#bo17-bo19-scalar-dispatch-windows-2026-10-27)
+records every row, setup diagnostics, image/storage sizes, code-generation and
+independent instruction/GC/sample evidence. Neither rejected image is accepted or
+rerun; their failed results and architectural diagnoses remain above.
+
+The finite optimization is complete: expose the admitted banks' shared length at
+the scalar boundary and preserve inline known-domain checked comparisons. Retain
+the original execution loop, all public-frame checks and logical polling. The
+200,007 instructions/four slots stay unchanged. Remaining sampled locations include
+polling/fetch/writeback (45.66%) and checked remainder (32.55%); these are not causal
+cycle shares or predicted speedups. No additional bytecode rewrite, unchecked
+execution model, divisor specialization or collection work activates automatically.
+
+Focused correctness and all four required local quality checks passed for the
+production checkpoint; documentation-only completion checks content, links and diff.
+No local build/test/timing failure remains for BO17-BO19. Full workspace, backend,
+feature and platform correctness is CI-only and unrun. Earlier BO04/BO08/IP12
+failures retain their existing owners, so the broader plan remains open.
+
+### Cancellation ablation diagnostic, 2026-10-27
+
+The user explicitly requested temporarily masking only the scalar loop's
+`cancellation.check().is_err()` term to measure its effect. This is a diagnostic,
+not a production semantic change or a new optimization phase. Observer attachment,
+collection-due and automatic-collection/abandonment checks remain unchanged, as do
+outer driver cancellation checks. Unobserved unbounded scalar loops can therefore
+delay cancellation indefinitely in this temporary image; it is not accepted code.
+
+Start from clean `2b72affc` (production `19aa9570`). Freeze arithmetic alone at
+15:03:59 UTC with `uv run python scripts/benchmark_lua.py --interpreter-only
+--workload arithmetic --freeze-baseline target/lua-comparison/cancellation-before`.
+The baseline executable SHA-256 is
+735352aeda2e1b85259a0590cc80a20ab0b086d78a51e13a2fb20308310fa834.
+Remove only the first OR term in `frame/cursor/scalars.rs::poll_requested`, then
+run the same driver with `--interpreter-only --workload arithmetic
+--baseline-executable target/lua-comparison/cancellation-before`.
+Seven alternating pairs start at 15:04:11 UTC, with three warmups and eleven
+samples per process, n=50,000 and batch=1. Every checksum is 2,398,830.
+The temporary image SHA-256 is
+c6885df5b5ae32106cdae2756c873747372f1fc0e2cbad2d93a098deb0b7c9b7.
+
+Environment matches BO19: Windows 11 Pro 10.0.26300, i9-12900K, 24 logical CPUs,
+66,843,692 KiB RAM; Rust 1.99.1/LLVM 23.1.1, Cargo 1.99.1, x86_64-pc-windows-msvc.
+Workspace release defaults/opt-level 3, default Cargo parallelism/target,
+source/native and vendored Lua 5.4.9 features, interpreter-only execution.
+Build cache is reused where possible; fresh processes prepare separate states,
+then warm execution. Frozen/candidate build walls are 0.386 / 27.986 seconds,
+excluded along with setup from execution. No affinity/environment override,
+concurrent builds/tests/profiles, sample deletion or performance-target tuning.
+
+| Pair | Original us | Cancellation masked us | Masked/original |
+| --- | ---: | ---: | ---: |
+| 1 | 485.5 | 448.9 | 0.92461 |
+| 2 | 459.8 | 440.3 | 0.95759 |
+| 3 | 463.8 | 442.4 | 0.95386 |
+| 4 | 470.5 | 443.4 | 0.94240 |
+| 5 | 461.4 | 442.4 | 0.95882 |
+| 6 | 465.0 | 438.4 | 0.94280 |
+| 7 | 466.4 | 450.1 | 0.96505 |
+
+Medians are 465.0 -> 442.4 us. The median paired ratio is 0.95386: 4.6% less
+elapsed time, with individual reductions of 3.5%..7.5%. This includes any codegen
+and linked-image layout effects; it is not the isolated cost of an atomic load.
+The unchanged Lua logic also changes 364.8 -> 331.9 us, paired ratio 0.91325,
+so the experiment cannot attribute the full Kagari difference solely to polling.
+
+To check process-order noise without rerunning the ablation, an A/A control starts
+15:06:16 UTC and invokes the exact frozen executable for both roles. It retains
+the same seven alternating pairs, arguments/reverse order, warmups/samples,
+checksums and shared report validator. No compilation occurs during the control.
+Kagari medians are 468.3 / 466.5 us, paired ratio 0.99531 with range
+0.96845..1.04597. Lua medians are 365.9 / 361.0 us, paired ratio 1.01448 with
+range 0.95275..1.02097. This smaller median A/A difference supports an observed
+ablation-image improvement but neither isolates layout effects nor establishes
+cross-session statistical confidence or a pure cancellation cost.
+
+Restore `scalars.rs` byte-for-byte after measurement and rebuild the default
+release benchmark (27.73 seconds). Its restored-image SHA-256 is
+c2f317ed6c33129179ca633e50aed88fd7e284ae0f2fb77c2668e11218e4d91e;
+relinking need not preserve the prior image hash. The restored image's focused
+`--check --interpreter-only --workload=arithmetic` passes both engine checksums.
+No Rust changes remain. Final validation is documentation content/links/diff;
+no correctness, full-matrix performance or CI acceptance is claimed for the
+semantically weakened experiment. Production retains per-instruction cancellation.
+
+### Abandonment and combined polling ablation, 2026-10-27
+
+The user next requests masking `modules.abandonment_pending()` alone, then asks
+for it together with scalar cancellation. Preserve both measurements, each against
+the same fully checked baseline; no other poll or operation is changed. These are
+diagnostics, not new production phases. Pending abandoned-candidate cleanup may
+be delayed in the first variant; the combined variant additionally weakens
+cancellation as described above. Outer driver checks remain in both images.
+
+Start from clean `25349f9b`. Freeze unchanged arithmetic at 15:09:06 UTC using
+`uv run python scripts/benchmark_lua.py --interpreter-only --workload arithmetic
+--freeze-baseline target/lua-comparison/abandonment-before` (cached build 0.397 s).
+The baseline SHA-256 is
+c2f317ed6c33129179ca633e50aed88fd7e284ae0f2fb77c2668e11218e4d91e.
+Replace only `self.runtime.modules.abandonment_pending()` with `false` in
+`poll_requested`; this also lets code generation eliminate its automatic-collection
+guard. Keep cancellation, observer and collection-due checks. Run the same driver
+with `--interpreter-only --workload arithmetic --baseline-executable
+target/lua-comparison/abandonment-before`. The seven paired runs start 15:09:12 UTC;
+the release build takes 29.288 s. Candidate SHA-256 is
+f32b02b1ca44cc6dd49b04164a75dcaa842f48438197539c72379d8eb4287f00.
+
+For the combined variant, additionally remove the scalar cancellation OR term and
+repeat the same command once, starting 15:10:16 UTC (build 28.216 s). Candidate
+SHA-256 is afa1839bd713e28660b6740f5d771e34395efe93077c0f4c76f4010a9df6b19a.
+The observer and collection-due terms, outer cancellation and outer reclamation
+paths remain. No throughput target is imposed on these semantic ablations.
+
+Both use seven alternating pairs, three warmups and eleven samples per process,
+n=50,000, batch=1, with checksum 2,398,830 in every Kagari/Lua sample. Environment
+is unchanged from the preceding diagnostic: Windows 11 Pro 10.0.26300, i9-12900K,
+24 logical CPUs, 66,843,692 KiB RAM, Rust/Cargo 1.99.1 and LLVM 23.1.1,
+x86_64-pc-windows-msvc; workspace release defaults/opt-level 3, default target
+and build parallelism, source/native and vendored Lua 5.4.9, interpreter-only.
+Fresh processes/states with warmed execution; cached build products where possible.
+Setup/build time is excluded. No affinity/environment overrides or concurrent
+builds/tests/profiles overlap timing; all outliers are retained.
+
+| Pair | Original us (abandonment run) | Abandonment masked us | Ratio | Original us (combined run) | Both masked us | Ratio |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 467.3 | 414.1 | 0.88615 | 470.1 | 387.7 | 0.82472 |
+| 2 | 459.6 | 419.3 | 0.91232 | 465.8 | 389.4 | 0.83598 |
+| 3 | 467.3 | 420.9 | 0.90071 | 459.1 | 392.5 | 0.85493 |
+| 4 | 467.0 | 423.0 | 0.90578 | 465.6 | 386.0 | 0.82904 |
+| 5 | 468.1 | 417.0 | 0.89084 | 460.3 | 390.7 | 0.84879 |
+| 6 | 463.9 | 422.1 | 0.90989 | 462.5 | 387.9 | 0.83870 |
+| 7 | 442.3 | 413.6 | 0.93511 | 465.9 | 382.1 | 0.82013 |
+
+Abandonment-only medians are 467.0 -> 419.3 us, median paired ratio 0.90578:
+9.4% less elapsed time (individual reductions 6.5%..11.4%). Combined medians are
+465.6 -> 387.9 us, ratio 0.83598: 16.4% less time (14.5%..18.0%). The earlier
+cancellation-only 4.6% result is a separate measurement with a separately linked
+baseline. These percentages cannot be added to assign independent check costs.
+
+Lua medians are 364.2 -> 366.9 us for abandonment-only (paired ratio 1.00879),
+and 356.1 -> 328.2 us for the combined run (0.91462). The latter again shows a
+substantial change in unchanged Lua logic. These results measure entire rebuilt
+images, including branch/register allocation and linked-code layout effects;
+they do not isolate two atomic loads or justify removing either guarantee.
+
+An A/A control starts 15:12:12 UTC after restoring and rebuilding production,
+invoking the exact frozen baseline image in both roles. It reuses the same seven
+alternating pairs, arguments/reverse order, warmups/samples and report validation,
+without overlapping builds or tests. Kagari medians are 464.2 / 466.8 us,
+paired ratio 1.01110 (0.97683..1.06308); Lua medians are 362.7 / 364.9 us,
+ratio 1.00667 (0.97126..1.05769). This measures a 1.1% median Kagari A/A difference,
+but is not a statistical confidence bound for the two different experimental images.
+
+Restore `scalars.rs` byte-for-byte and rebuild the default release benchmark
+(28.25 seconds). Its SHA-256 is
+e56f6eb1cde8a09fb01d1e2ce5dec83ae73d33f61bf3a8dae42361397151ee6f.
+The restored `--check --interpreter-only --workload=arithmetic` passes both
+engine checksums. No Rust changes remain. Final content/link/diff checks cover
+the only retained changes, which are documentation. No semantic correctness,
+full workload matrix or CI acceptance is claimed for either temporary image.

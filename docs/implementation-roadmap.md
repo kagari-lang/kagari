@@ -622,6 +622,12 @@ The plan covers Vec/HashMap/HashSet, their base cursors, host adapters and sourc
 consumers, with an external collection proof. Builtin Array remains separate; reuse the
 implemented host registration and scoped borrowing contracts.
 
+The separate [standard library inventory](standard-library-inventory.md) records
+current APIs, missing conveniences and requested IndexMap/IndexSet/BTreeMap/BTreeSet
+products, alongside pure extensions and host services. It is a scope checklist,
+not another execution ledger or authorization to enlarge PG/NC acceptance. Those
+products remain separate from the fixed-i32 external collection fixture.
+
 ## Test execution cost
 
 Repository-wide test organization is implemented and reconciled across all 24
@@ -767,6 +773,60 @@ features, specialized loop instructions and numeric-kernel ABI changes remain ou
 of scope. Required verifier/debug/native/AOT mapping updates are part of the coherent
 bytecode replacement. The independent plan can be completed and retired regardless
 of whether IP12 remains open. BO phase commits use their own Plan-Phase trailers.
+
+On 2026-10-27 the user explicitly authorized the reviewed BO05-BO08 follow-up.
+BO05-BO07 implement general scalar transport removal, guarded bounded MIR rotation
+and read-before-write scalar location reuse. Direct is now 11 static / 30,005
+dynamic instructions with 4 physical scalars; paired execution improves 12.7%.
+All 19 execution gates pass. BO08 measured/attributed remaining costs, but integrated
+acceptance retains two unrestricted collection timing failures; one predeclared
+affinity diagnosis failed different rows and did not close them. Full CI is unrun.
+The [new report](performance-baseline.md#general-loop-placement-follow-up-windows-2026-10-27)
+and existing plan retain these results separately from BO04/IP12. General call
+admission, invocation allocation and native/container boundary findings are review
+inputs, not automatically activated implementation phases.
+
+The user subsequently requested the concrete
+[BO09-BO12 prepared scalar execution proposal](bytecode-optimization-plan.md#prepared-scalar-execution-follow-up-bo09-bo12).
+It specifies typed internal handlers, shared numeric semantics, segment-local PC
+publication, migration/removal checkpoints and validation. Implementation and
+per-phase commits are authorized; BO09 froze the baseline and BO10 implements
+238 compact prepared variants with checked semantics and 24-byte instructions.
+BO11 localizes scalar progress with passing boundary tests and release assembly.
+BO12 selected local evidence is complete: seven-pair direct improves 40.2%
+(180.2 -> 108.0 us, Lua 119.4 us), and the bounded native adapter repair resolves
+the first integrated image's host_callback/native regressions. Final affected
+original/forms/numeric gates pass; unchanged controls retain their earlier BO11
+evidence. The [report](performance-baseline.md#compact-prepared-scalar-execution-windows-2026-10-27)
+records pair ranges, code/storage tradeoffs and remaining polling/bank/dispatch
+costs. Full CI is pending; earlier BO04/BO08/IP12 failures remain unchanged. Public
+frame initialization checks and logical polling frequency stay in the contract.
+
+The user-requested [BO13-BO16 scalar-loop execution plan](bytecode-optimization-plan.md#general-scalar-loop-follow-up-bo13-bo16)
+is locally complete at production `41d613a9`. Rotation precedes copies, and numeric
+constant selection retains same-origin initializer observations. Arithmetic reaches
+four scalar slots and four instructions per iteration (200,007 per 50,000-iteration
+entry), preserving traps, debug states and source-free correspondence. All 19 fresh
+original/forms paired gates pass on the i9-12900K: arithmetic 644.7 -> 503.7 us,
+paired ratio 0.77414, versus Lua 366.5 us. The
+[report](performance-baseline.md#bo13-bo16-scalar-loops-windows-2026-10-27) records
+remaining polling/dispatch/writeback and checked arithmetic costs. No new opcodes,
+runtime check removal or collection/call-boundary tuning was needed. A further
+runtime validity/dispatch decision belongs to the existing plan; it is not an
+automatically activated phase. Full CI remains pending and prior BO04/BO08/IP12
+failures remain independent.
+
+The user authorized [BO17-BO19 scalar dispatch work](bytecode-optimization-plan.md#scalar-dispatch-follow-up-bo17-bo19).
+BO17-BO18 establish shared scalar-bank bounds with safe slice access and preserve
+inline known-domain comparison handlers. Numeric, frame, observation and slice
+checks pass. A common-tail rearrangement was rejected after register-pressure
+costs; two failed timing images remain recorded. The final image's assembly keeps
+checked comparisons inline and reduces scalar code size. BO19 passes all 19
+original/forms timing gates: arithmetic 504.9 -> 467.1 us, paired ratio 0.92315,
+versus Lua 362.3 us (1.29 times). Runtime validation, polling and canonical
+instruction counts remain. The [report](performance-baseline.md#bo17-bo19-scalar-dispatch-windows-2026-10-27)
+records remaining costs and both rejected variants. This finite follow-up is locally
+complete; full CI and earlier independent BO04/BO08/IP12 failures remain open.
 
 ## Module-owned standard-library registration
 

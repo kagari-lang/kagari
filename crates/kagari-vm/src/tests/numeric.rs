@@ -3,11 +3,12 @@ use crate::tests::common::round_trip_bytecode;
 use crate::{
     error::VmError,
     executor::Executor,
-    tests::common::{compile_test_bytecode, standard_runtime},
+    tests::common::{compile_test_bytecode, compile_test_bytecode_with_options, standard_runtime},
     vm::Vm,
 };
 
 use kagari_bytecode::instruction::BytecodeInstruction;
+use kagari_compiler::source::lower::instances::MirLoweringOptions;
 use kagari_runtime::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
@@ -18,11 +19,42 @@ use kagari_runtime::{
 use std::sync::{Arc, Mutex};
 
 #[test]
+fn rotated_loops_preserve_entry_control_flow_and_condition_effects() {
+    let source = "fn scan(n: i32) -> i32 { var i = 0; var sum = 0;
+         while i < n { i += 1; if i == 2 { continue; } if i == 5 { break; } sum += i; }
+         i * 100 + sum }
+         pub fn guards() -> bool { scan(-1) == 0 && scan(0) == 0 && scan(1) == 101 && scan(4) == 408 && scan(8) == 508 }
+         fn effects(n: i32) -> i32 { var checks = 0; var steps = 0;
+         while { checks += 1; steps < n } { steps += 1; } checks * 10 + steps }
+         pub fn effectful() -> bool { effects(0) == 10 && effects(3) == 43 }
+         pub fn nested() -> bool { var i = 0; var total = 0;
+         while i < 2 { var j = 0; while j < 3 { total += 1; j += 1; } i += 1; } total == 6 }";
+    for optimization in [None, Some(Default::default())] {
+        check_with_options(
+            source,
+            &["guards".into(), "effectful".into(), "nested".into()],
+            false,
+            &MirLoweringOptions {
+                optimization,
+                ..Default::default()
+            },
+        );
+    }
+}
+
+#[test]
 fn local_reads_are_snapshots_across_later_writes_and_captured_calls() {
     check(
         "pub fn later_write() -> bool { var x = 7; x = x + { x = 40; 2 }; x == 9 }
-         pub fn captured_call() -> bool { var x = 7; val f = || { x = 40; 2 }; x = x + f(); x == 9 }",
-        &["later_write".into(), "captured_call".into()],
+         pub fn captured_call() -> bool { var x = 7; val f = || { x = 40; 2 }; x = x + f(); x == 9 }
+         fn saved_rhs(input: i32) -> bool { var x = input; val saved = x * 3;
+             x = saved; x += 1; saved == 21 && x == 22 }
+         pub fn overwritten_rhs() -> bool { saved_rhs(7) }",
+        &[
+            "later_write".into(),
+            "captured_call".into(),
+            "overwritten_rhs".into(),
+        ],
         false,
     );
 }
@@ -166,10 +198,15 @@ const INTEGERS: [(&str, u32, bool); 8] = [
 ];
 
 fn check(source: &str, entries: &[String], traps: bool) {
+    check_with_options(source, entries, traps, &Default::default());
+}
+
+fn check_with_options(source: &str, entries: &[String], traps: bool, options: &MirLoweringOptions) {
     println!("numeric source: {source}");
-    let source_program = compile_test_bytecode(&format!(
-        "{source}\npub fn numeric_ready() -> bool {{ true }}"
-    ));
+    let source_program = compile_test_bytecode_with_options(
+        &format!("{source}\npub fn numeric_ready() -> bool {{ true }}"),
+        options,
+    );
     let decoded = round_trip_bytecode(source_program.clone());
     // These fixtures use scalar locals and fields. Install/load once per artifact
     // route; the successful probe after every entry checks independent calls
@@ -224,6 +261,8 @@ fn all_integer_widths_cover_arithmetic_bits_comparisons_and_concrete_generics() 
                      x = x + b;
                      x == 9{ty} && a + b == 9{ty} && a - b == 3{ty}
                      && a * b == 18{ty} && a / b == 2{ty} && a % b == 0{ty}
+                     && 9{ty} - a == 3{ty} && 12{ty} / a == 2{ty} && 7{ty} % a == 1{ty}
+                     && (15{ty} & a) == 6{ty} && (1{ty} << b) == 8{ty}
                      && (a & b) == 2{ty} && (a | b) == 7{ty} && (a ^ b) == 5{ty}
                      && (a << 1u32) == 12{ty} && (a >> 1u32) == 3{ty}
                      && a > b && a >= b && b < a && b <= a && a != b
@@ -288,6 +327,8 @@ fn floats_use_their_source_precision_and_ieee_comparisons() {
                     val nan = 0.0{ty} / 0.0{ty};
                     a + b == 9.0{ty} && a - b == 3.0{ty}
                     && a * b == 18.0{ty} && a / b == 2.0{ty} && a % b == 0.0{ty}
+                    && 9.0{ty} - a == 3.0{ty} && 12.0{ty} / a == 2.0{ty}
+                    && 7.0{ty} % a == 1.0{ty} && 3.0{ty} < a
                     && -b == -3.0{ty} && a > b && b <= a
                     && nan != nan && !(nan < a) && -0.0{ty} == 0.0{ty}
                     && (a as i32) == 6

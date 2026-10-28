@@ -1,4 +1,4 @@
-//! Bounded block-local operand and control selection before final PC repacking.
+//! Bounded operand and control selection with preserved source observations.
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     instruction::{
@@ -7,6 +7,7 @@ use kagari_bytecode::{
     module::BytecodeFunction,
 };
 use kagari_types::ty::Ty;
+use std::ops::Range;
 
 const MAX_WORK: usize = 4_000_000;
 
@@ -47,6 +48,49 @@ fn accepts_constant(instruction: &I, function: &BytecodeFunction) -> bool {
         I::BinaryOperands { .. } => true,
         _ => false,
     }
+}
+
+/// A retained home initialization can own the literal's original observation.
+fn constant_observation(
+    function: &BytecodeFunction,
+    interval: Range<usize>,
+    blocks: &[usize],
+    homes: usize,
+    retained: &[bool],
+    debug_compatible: &impl Fn(usize, usize) -> bool,
+    work: &mut usize,
+) -> Option<usize> {
+    let pc = interval.start;
+    let I::LoadConst {
+        dst: source,
+        constant,
+    } = function.instructions[pc]
+    else {
+        return None;
+    };
+    for next in pc + 1..interval.end {
+        *work = work.saturating_add(1);
+        if *work > MAX_WORK || blocks[next] != blocks[pc] || !debug_compatible(pc, next) {
+            return None;
+        }
+        if retained[next]
+            && let I::LoadConst {
+                dst,
+                constant: other,
+            } = function.instructions[next]
+            && dst.index() < homes
+            && constant == other
+            && function.metadata.semantic.slots.get(&source.index())
+                == function.metadata.semantic.slots.get(&dst.index())
+            && function.metadata.origins[pc].span == function.metadata.origins[next].span
+        {
+            return Some(next);
+        }
+        if retained[next] {
+            return None;
+        }
+    }
+    None
 }
 
 fn replace_operand(instruction: &mut I, source: Slot, constant: ScalarOperand) {
@@ -126,19 +170,30 @@ pub(super) fn select(
         if work > MAX_WORK {
             break;
         }
-        if uses.iter().any(|&next| {
-            next <= pc
-                || blocks[next] != blocks[pc]
-                || !accepts_constant(&function.instructions[next], function)
-        }) {
+        if uses
+            .iter()
+            .any(|&next| next <= pc || !accepts_constant(&function.instructions[next], function))
+        {
             continue;
         }
+        let observation = constant_observation(
+            function,
+            pc..uses[0],
+            blocks,
+            homes,
+            retained,
+            &debug_compatible,
+            &mut work,
+        );
         let last = *uses.last().expect("nonempty uses");
         work = work.saturating_add(last - pc);
         if work > MAX_WORK {
             break;
         }
-        if !(pc..=last).all(|next| debug_compatible(pc, next)) {
+        if observation.is_none()
+            && (uses.iter().any(|&next| blocks[next] != blocks[pc])
+                || !(pc..=last).all(|next| debug_compatible(pc, next)))
+        {
             continue;
         }
         let operand = ScalarOperand::Constant { constant, ty: *ty };
@@ -146,6 +201,9 @@ pub(super) fn select(
             replace_operand(&mut function.instructions[next], dst, operand);
         }
         retained[pc] = false;
+        if let Some(observation) = observation {
+            targets[pc] = observation;
+        }
     }
     let (definitions, uses) = roles(function, retained);
     for branch in 0..retained.len() {

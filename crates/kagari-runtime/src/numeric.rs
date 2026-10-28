@@ -9,11 +9,10 @@ use kagari_contract::{
     representation::builtin_representation,
 };
 use kagari_types::{
-    arithmetic,
-    arithmetic::ArithmeticError,
+    arithmetic::{self, ArithmeticError, IntegerBinaryOp},
     conversion, integer,
     integer::IntegerMethod,
-    payload::{self, ScalarBinaryOp},
+    payload::{self, ScalarBinaryOp, operation::ScalarOperation},
     scalar::BuiltinType,
 };
 
@@ -71,39 +70,62 @@ pub fn unary(op: UnaryOp, value: Value) -> Result<Value, RuntimeError> {
     }
 }
 
+/// Admit matching Value carriers once, then use the shared typed arithmetic owner.
+/// Invalid carriers precede invalid operations; arithmetic retains its checked traps.
 pub fn binary(op: BinaryOp, lhs: Value, rhs: Value) -> Result<Value, RuntimeError> {
     if let BinaryOp::Numeric(operation) = op {
         return fixed_integer(operation, lhs, Some(rhs));
     }
-    let ty = match (&lhs, &rhs) {
-        (Value::I32(_), Value::I32(_)) => BuiltinType::I32,
-        (Value::I64(_), Value::I64(_)) => BuiltinType::I64,
-        (Value::U64(_), Value::U64(_)) => BuiltinType::U64,
-        (Value::F32(_), Value::F32(_)) => BuiltinType::F32,
-        (Value::F64(_), Value::F64(_)) => BuiltinType::F64,
-        _ => {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "arithmetic requires matching numeric operands",
-            ));
-        }
-    };
-    if !matches!(
-        op,
-        BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem
-    ) {
-        return Err(RuntimeError::new(
-            RuntimeErrorKind::ScriptTrap,
-            "expected arithmetic operation",
-        ));
+    macro_rules! integer {
+        ($lhs:ident, $rhs:ident, $value:ident, $kernel:path) => {{
+            let op = match op {
+                BinaryOp::Add => IntegerBinaryOp::Add,
+                BinaryOp::Sub => IntegerBinaryOp::Sub,
+                BinaryOp::Mul => IntegerBinaryOp::Mul,
+                BinaryOp::Div => IntegerBinaryOp::Div,
+                BinaryOp::Rem => IntegerBinaryOp::Rem,
+                _ => return Err(expected_arithmetic()),
+            };
+            $kernel(op, $lhs, $rhs)
+                .map(Value::$value)
+                .map_err(arithmetic_trap)
+        }};
     }
-    let kernel = payload::binary_kernel(binary_operation(op), ty).expect("numeric carrier");
-    let bits = kernel(
-        scalar::encode(&lhs).expect("scalar"),
-        scalar::encode(&rhs).expect("scalar"),
+    match (lhs, rhs) {
+        (Value::I32(lhs), Value::I32(rhs)) => integer!(lhs, rhs, I32, arithmetic::i32_binary),
+        (Value::I64(lhs), Value::I64(rhs)) => integer!(lhs, rhs, I64, arithmetic::i64_binary),
+        (Value::U64(lhs), Value::U64(rhs)) => integer!(lhs, rhs, U64, arithmetic::u64_binary),
+        (Value::F32(lhs), Value::F32(rhs)) => {
+            float_bits::<true>(op, u64::from(lhs.to_bits()), u64::from(rhs.to_bits()))
+                .map(|bits| Value::F32(f32::from_bits(bits as u32)))
+        }
+        (Value::F64(lhs), Value::F64(rhs)) => float_bits::<false>(op, lhs.to_bits(), rhs.to_bits())
+            .map(|bits| Value::F64(f64::from_bits(bits))),
+        _ => Err(RuntimeError::new(
+            RuntimeErrorKind::ScriptTrap,
+            "arithmetic requires matching numeric operands",
+        )),
+    }
+}
+
+fn float_bits<const F32: bool>(op: BinaryOp, lhs: u64, rhs: u64) -> Result<u64, RuntimeError> {
+    match op {
+        BinaryOp::Add => payload::float_binary::<0, F32>(lhs, rhs),
+        BinaryOp::Sub => payload::float_binary::<1, F32>(lhs, rhs),
+        BinaryOp::Mul => payload::float_binary::<2, F32>(lhs, rhs),
+        BinaryOp::Div => payload::float_binary::<3, F32>(lhs, rhs),
+        BinaryOp::Rem => payload::float_binary::<4, F32>(lhs, rhs),
+        _ => return Err(expected_arithmetic()),
+    }
+    .map_err(|reason| RuntimeError::new(RuntimeErrorKind::ScriptTrap, reason))
+}
+
+#[cold]
+fn expected_arithmetic() -> RuntimeError {
+    RuntimeError::new(
+        RuntimeErrorKind::ScriptTrap,
+        "expected arithmetic operation",
     )
-    .map_err(|reason| RuntimeError::new(RuntimeErrorKind::ScriptTrap, reason))?;
-    Ok(scalar::decode(builtin_representation(ty), bits).expect("numeric result"))
 }
 
 /// Execute the verified source-width contract, independently of Value storage width.
@@ -120,9 +142,10 @@ pub fn fixed_integer(
         (None, None) => 0,
         _ => return Err(invalid()),
     };
-    let kernel = payload::integer_kernel(operation.op, operation.input, operation.rhs)
+    let selected = ScalarOperation::integer(operation.op, operation.input, operation.rhs)
         .ok_or_else(invalid)?;
-    let bits = kernel(lhs, rhs)
+    let bits = selected
+        .evaluate(lhs, rhs)
         .map_err(|reason| RuntimeError::new(RuntimeErrorKind::ScriptTrap, reason))?;
     Ok(scalar::decode(builtin_representation(operation.input), bits).expect("integer result"))
 }
@@ -208,9 +231,10 @@ pub fn convert(conversion: NumericConversion, value: Value) -> Result<Value, Run
     if !value.has_representation(builtin_representation(conversion.source)) {
         return Err(fail());
     }
-    let kernel =
-        payload::conversion_kernel(conversion.source, conversion.target).ok_or_else(fail)?;
-    let bits = kernel(scalar::encode(&value).ok_or_else(fail)?, 0)
+    let selected =
+        ScalarOperation::conversion(conversion.source, conversion.target).ok_or_else(fail)?;
+    let bits = selected
+        .evaluate(scalar::encode(&value).ok_or_else(fail)?, 0)
         .map_err(|reason| RuntimeError::new(RuntimeErrorKind::ScriptTrap, reason))?;
     scalar::decode(builtin_representation(conversion.target), bits).ok_or_else(fail)
 }
@@ -243,6 +267,103 @@ pub(crate) fn read_integer(ty: BuiltinType, value: &Value) -> Result<i128, Runti
 mod boundary_tests {
     use super::*;
     use rstest::rstest;
+
+    #[test]
+    fn value_arithmetic_preserves_domains_error_order_and_ieee_results() {
+        for (op, expected) in [
+            (BinaryOp::Add, 9),
+            (BinaryOp::Sub, 3),
+            (BinaryOp::Mul, 18),
+            (BinaryOp::Div, 2),
+            (BinaryOp::Rem, 0),
+        ] {
+            for (lhs, rhs, result) in [
+                (Value::I32(6), Value::I32(3), Value::I32(expected)),
+                (
+                    Value::I64(6),
+                    Value::I64(3),
+                    Value::I64(i64::from(expected)),
+                ),
+                (Value::U64(6), Value::U64(3), Value::U64(expected as u64)),
+                (
+                    Value::F32(6.0),
+                    Value::F32(3.0),
+                    Value::F32(expected as f32),
+                ),
+                (
+                    Value::F64(6.0),
+                    Value::F64(3.0),
+                    Value::F64(f64::from(expected)),
+                ),
+            ] {
+                assert_eq!(binary(op, lhs, rhs).unwrap(), result);
+            }
+        }
+        for (op, lhs, rhs, message) in [
+            (
+                BinaryOp::Add,
+                Value::I32(i32::MAX),
+                Value::I32(1),
+                "integer overflow",
+            ),
+            (
+                BinaryOp::Rem,
+                Value::I32(i32::MIN),
+                Value::I32(-1),
+                "integer overflow",
+            ),
+            (
+                BinaryOp::Div,
+                Value::I64(i64::MIN),
+                Value::I64(-1),
+                "integer overflow",
+            ),
+            (
+                BinaryOp::Mul,
+                Value::U64(u64::MAX),
+                Value::U64(2),
+                "integer overflow",
+            ),
+            (
+                BinaryOp::Div,
+                Value::I64(1),
+                Value::I64(0),
+                "integer division by zero",
+            ),
+            (
+                BinaryOp::Rem,
+                Value::U64(1),
+                Value::U64(0),
+                "integer remainder by zero",
+            ),
+            (
+                BinaryOp::Eq,
+                Value::I32(1),
+                Value::I64(1),
+                "arithmetic requires matching numeric operands",
+            ),
+            (
+                BinaryOp::Eq,
+                Value::I32(1),
+                Value::I32(1),
+                "expected arithmetic operation",
+            ),
+        ] {
+            let error = binary(op, lhs, rhs).unwrap_err();
+            assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
+            assert_eq!(error.message(), message);
+        }
+        let Value::F32(nan) = binary(BinaryOp::Div, Value::F32(0.0), Value::F32(0.0)).unwrap()
+        else {
+            panic!("f32 result")
+        };
+        assert!(nan.is_nan());
+        let Value::F64(zero) = binary(BinaryOp::Div, Value::F64(-0.0), Value::F64(1.0)).unwrap()
+        else {
+            panic!("f64 result")
+        };
+        assert_eq!(zero.to_bits(), (-0.0f64).to_bits());
+    }
 
     #[test]
     fn native_integer_results_and_error_context_preserve_the_declared_contract() {

@@ -2113,6 +2113,33 @@ Documentation-only work needs content/link/diff checks, not Rust builds.
 
 ## Progress and error ledger
 
+### Remote scalar optimization integration (2026-10-28)
+
+Merged `origin/main` at `47a2d829` into the local GC branch, preserving the five
+committed PG checkpoints and restoring the existing uncommitted PG05 worktree.
+The architecture conflict retains library-owned collections and incorporates the
+remote scalar-segment PC publication and polling contract. No GC policy, acceptance
+limit or object-reference model was changed by this integration.
+
+Validation ran on the combined worktree, including uncommitted PG05, not only the
+merge commit. Selected existing contracts passed: runtime frame cursor 5, collection
+driver 11, compiler placement 2 and VM numeric semantics 11. Selection covers native
+completion/managed publication, incremental lifecycle and budgets, scalar placement,
+field access, overflow commits, loop effects and numeric domains:
+
+```sh
+cargo test -p kagari-runtime --lib frame::cursor::tests
+cargo test -p kagari-runtime --lib gc::collection::tests
+cargo test -p kagari-compiler --lib tests::bytecode::placement
+cargo test -p kagari-vm --lib tests::numeric
+```
+
+Structure (1829 Rust files, zero violations/exceptions), formatting, workspace
+all-target Clippy with warnings denied and diff checks passed. Full-workspace and
+exhaustive feature/backend/platform tests remain CI-only and were not run. No new
+performance measurements were made; earlier PG05 image results do not establish
+acceptance of this combined source. PG05/NC05 and PG06/NC06 remain incomplete.
+
 - [x] Record the user-selected paged storage direction and incremental GC scope.
 - [x] Record ownership, concrete storage/sweep examples and primary references.
 - [x] Clarify ordinary Native GC object operations versus storage-provider access,

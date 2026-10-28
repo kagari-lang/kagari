@@ -2075,6 +2075,13 @@ the operation that needs them. No persistent frame field, code clone or extra mo
 lease is needed: all views end with the original frame/window borrow.
 Internal operand access reuses these borrows without repeated session or window lookup;
 the region releases them before returning to GC, observation, calls or reentry.
+Scalar execution explicitly checks equal payload/initialization bank lengths at its
+non-inlined segment entry. Admission already projects the same range for both;
+the check exposes that invariant to code generation so indexed access can share
+one bound. Safe slice indexing, initialization and payload-domain checks remain.
+Known-domain comparison entrypoints request inlining into the prepared handler;
+dynamic domain dispatch remains out of line. Both use the same checked comparison
+owner, and machine-code inspection is required to verify the intended call boundary.
 Checked external frame access and region entry still enforce sticky termination and
 quarantine. Internal writes retain heap-value validation, bounds and slot representation
 checks through the same bank access implementation as external frame access.
@@ -2124,8 +2131,31 @@ Compiler placement forwards proven stable block-local scalar reads and redirects
 eligible adjacent scalar assignments into binding homes when full types and debug
 states agree. Inputs are read before successful commit; failure leaves the old
 home unchanged. Managed/cell/call/await and uncertain snapshots remain explicit.
-MIR's semantic namespaces and its own pass pipeline remain separate. See the
+Subsequent uses may share that home only while same-block no-clobber and observation
+facts preserve their snapshots. Scalar literals initialize homes directly; eligible
+tail reads return their source slot, retaining the tail's visible names. Final
+fallthrough jumps are removed after constant/predicate selection.
+
+Numeric constant selection may cross blocks when the next retained instruction is
+a same-origin home initializer with the same complete type, literal and debug state.
+That initializer anchors the removed load's observation; only supported immediate
+consumers are rewritten. Other cases retain the existing block-local proof.
+
+MIR's bounded pass pipeline may retain an entry guard and duplicate a closed scalar
+condition onto dominated Jump backedges. The condition's inputs are defined inside
+it, its outputs do not escape, and every copy receives fresh temporaries and the
+original span/scope columns. Suspending functions and effectful conditions are
+declined. Limits are 16 condition instructions and 256 duplicated instructions per
+function, under the existing work/cancellation budget. Fresh MIR verification
+rebuilds facts before deterministic bytecode lowering assigns final PCs; portable
+MIR must still reproduce the complete canonical bytecode. No new terminator or
+runtime instruction decoder is needed. See the
 [bytecode contract](spec/bytecode.md#semantic-projection-and-placement).
+
+Pass order is constants, guarded rotation, copies, verification and dead cleanup.
+Rotation precedes copy propagation so sharing a condition snapshot with the body
+does not unnecessarily make an otherwise closed condition escape. Copy propagation
+then meets facts across the transformed CFG; immutable snapshot semantics stay intact.
 
 VerifiedProgram derives compact physical operations once from sealed bytecode.
 Bounded control-flow liveness, parameter entry, suspension uses and retained binding
@@ -2265,19 +2295,30 @@ Native callable frames have prepared signature layouts. Native arithmetic and
 casts admit tagged inputs once and invoke the same payload kernels as scripts.
 Managed results retain their normal allocation/root protocol.
 
-Scalar operations prepare concrete function pointers to shared `kagari-types`
-payload kernels after sealing. All integer widths, arithmetic/bit/shift families,
-numeric comparisons, f32/f64 operations and supported casts use raw payloads;
-mixed-width shift counts keep both checked domains. Source-width overflow and
-IEEE bits remain intact. These function addresses are runtime preparation data,
-never serialized artifact operands. Native public argument/result adapters remain
+Scalar operations prepare closed typed instructions after sealing. A private
+runtime catalog specializes source widths and RR/RK arithmetic. Comparison
+conditions, shift-count domains and conversion domains remain instruction data;
+KR/KK shapes use shared parameterized arithmetic without Value transport or
+numeric function pointers. `kagari-types::payload` owns direct and shared payload
+adaptation over the existing arithmetic/numeric semantics. Ordinary Value arithmetic
+admits matching full-width carriers once and calls the same typed checked primitives;
+narrow-domain and conversion adapters select `ScalarOperation`. This avoids rebuilding
+prepared operation metadata at a native boundary that already knows its carrier.
+All supported integer widths, floats, comparisons, unary operations, mixed-domain
+shifts and casts remain covered. Checked source-width arithmetic and existing
+conversion/IEEE bit policies are preserved. Prepared variants are runtime data, never serialized artifact operands.
+Native public argument/result adapters remain
 Value interfaces; concrete script transfers remain raw through the caller bank.
-Ordinary scalar operands/contracts are inline. `BinaryOperands` and
-`PredicateBranch` additionally use immutable function-owned prepared scalar sites
-containing resolved constant bits, operand orientation, a shared numeric kernel and
-a store/branch destination. Typed constants retain source widths in the canonical
-pool; execution does not repeat constant lookup or numeric selection. Predicate
-polarity negates the original Boolean result, never substitutes an ordered inverse
+Ordinary and constant scalar operands/contracts are inline. `BinaryOperands` and
+`PredicateBranch` select the same typed family, with immediate bits and store/branch
+destinations directly in the instruction; there is no scalar site array. Typed
+constants retain source widths in the canonical pool and use native-width immediate
+fields on direct paths and domain-bearing raw bits on shared paths after verification.
+Execution retains slot availability and carrier checks,
+loading all slot inputs before domain validation and committing only on success.
+Pure constant predicates become a fixed jump at the same PC; fallible arithmetic
+still executes at its original PC. Predicate polarity swaps branch destinations,
+never substitutes an ordered inverse
 that would change NaN behavior. Non-scalar comparison categories keep their checked
 ordinary path. Identity-bearing types, strings, call arguments and other variable-length
 metadata remain in canonical immutable instruction records. Their final PC is the
@@ -2353,8 +2394,13 @@ kernels. Library borrowed-payload operations retain bounds, readonly capability,
 element contracts, resource preflight and mutation commits. Builtin Array retains
 its independent checked engine kernels. Conversions that may allocate or reenter
 retain their own roots, limits and safepoints.
-Each scalar segment reuses the region's immutable function and disjoint mutable
-logical-PC fields and bounded scalar/initialization slices. Fetch borrows one
+Each scalar segment reuses the region's immutable function and bounded
+scalar/initialization slices. Next/executing PCs stay local until the segment exits;
+the wrapper publishes both on success and failure before diagnostics or managed
+handoffs. Slice exhaustion preserves the last executing point; safepoint preparation
+clears it as before. No external frame access or callback can observe intermediate
+local progress. Automatic-collection policy is captured at segment entry; dynamic
+cancellation, observer and abandonment requests retain per-instruction polling. Fetch borrows one
 immutable instruction; dispatch reads only its selected payload rather than copying
 the complete nested enum before classifying it. Instructions still check operand
 bounds and initialization without recovering the function or bank range. Closed

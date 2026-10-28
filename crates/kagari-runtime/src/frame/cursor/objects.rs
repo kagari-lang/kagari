@@ -33,9 +33,10 @@ impl ExecutionCursor<'_> {
         if let Some(ty) = operation.scalar {
             let bits = match operation.access {
                 FieldAccess::Read { .. } => None,
-                FieldAccess::Write { value } => {
-                    Some(self.payload(value.operand.scalar().ok_or_else(|| self.invalid())?)?)
-                }
+                FieldAccess::Write { value } => Some(
+                    self.payload(value.operand.scalar().ok_or_else(|| self.invalid())?)
+                        .ok_or_else(|| self.invalid())?,
+                ),
             };
             let id = self
                 .values

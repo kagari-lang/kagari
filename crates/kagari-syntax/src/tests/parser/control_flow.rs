@@ -41,34 +41,51 @@ fn parses_if_expression_with_else_block() {
 
 #[test]
 fn parses_while_loop_break_and_continue_statements() {
-    let module = common::parse_ok("fn main() { while flag { break ; } loop { continue ; } }");
-    let function = common::first_function(&module);
+    for condition in ["flag", "{ check(); flag }", "val Some(value) = input"] {
+        let module = common::parse_ok(&format!(
+            "fn main() {{ while {condition} {{ break ; }} loop {{ continue ; }} }}"
+        ));
+        let function = common::first_function(&module);
 
-    let body = function.body().expect("expected function body");
-    let statements: Vec<_> = body.statements().collect();
+        let body = function.body().expect("expected function body");
+        let statements: Vec<_> = body.statements().collect();
 
-    assert_eq!(statements.len(), 2);
+        assert_eq!(statements.len(), 2);
 
-    match &statements[0] {
-        Stmt::WhileStmt(stmt) => {
-            match stmt.condition().expect("expected while condition") {
-                Expr::PathExpr(path) => assert_eq!(path.name_text().as_deref(), Some("flag")),
-                other => panic!("unexpected while condition: {other:?}"),
+        match &statements[0] {
+            Stmt::WhileStmt(stmt) => {
+                if let Some(binding) = stmt.binding_condition() {
+                    assert!(
+                        matches!(binding.initializer(), Some(Expr::PathExpr(path)) if path.name_text().as_deref() == Some("input"))
+                    );
+                } else {
+                    match stmt.condition().expect("expected while condition") {
+                        Expr::PathExpr(path) => {
+                            assert_eq!(path.name_text().as_deref(), Some("flag"))
+                        }
+                        Expr::BlockExpr(block) => {
+                            assert!(
+                                matches!(block.tail_expr(), Some(Expr::PathExpr(path)) if path.name_text().as_deref() == Some("flag"))
+                            );
+                        }
+                        other => panic!("unexpected while condition: {other:?}"),
+                    }
+                }
+
+                let body = stmt.body().expect("expected while body");
+                let inner: Vec<_> = body.statements().collect();
+                assert!(matches!(inner.first(), Some(Stmt::BreakStmt(_))));
             }
-
-            let body = stmt.body().expect("expected while body");
-            let inner: Vec<_> = body.statements().collect();
-            assert!(matches!(inner.first(), Some(Stmt::BreakStmt(_))));
+            other => panic!("unexpected first statement: {other:?}"),
         }
-        other => panic!("unexpected first statement: {other:?}"),
-    }
 
-    match &statements[1] {
-        Stmt::LoopStmt(stmt) => {
-            let body = stmt.body().expect("expected loop body");
-            let inner: Vec<_> = body.statements().collect();
-            assert!(matches!(inner.first(), Some(Stmt::ContinueStmt(_))));
+        match &statements[1] {
+            Stmt::LoopStmt(stmt) => {
+                let body = stmt.body().expect("expected loop body");
+                let inner: Vec<_> = body.statements().collect();
+                assert!(matches!(inner.first(), Some(Stmt::ContinueStmt(_))));
+            }
+            other => panic!("unexpected second statement: {other:?}"),
         }
-        other => panic!("unexpected second statement: {other:?}"),
     }
 }

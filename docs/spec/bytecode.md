@@ -314,6 +314,13 @@ and compound path writes are not redirected by this pass. Uncertain snapshots st
 explicit `Move` operations. Final PCs, branch targets, debug ranges and origins are
 repacked after selection; unused temporary slots are removed.
 
+A uniquely defined numeric constant may feed supported immediate operands across
+blocks if its next retained instruction is a home initialization with the same
+literal, complete semantic type, source span and compatible debug state in the
+same block. This retained initializer anchors the original load's source observation
+before every use; selection does not move it across an effect or onto another path.
+Otherwise constant selection requires the existing block-local observation proof.
+
 Runtime physical reuse is a separate bounded preparation step. CFG liveness,
 parameter entry and retained binding availability contribute conservative intervals.
 Disjoint scalar lifetimes may share a physical location; managed slots currently

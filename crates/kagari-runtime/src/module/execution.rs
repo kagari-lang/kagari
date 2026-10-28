@@ -10,7 +10,7 @@ pub(crate) mod frames;
 pub(crate) mod indices;
 pub(crate) mod layout;
 pub mod managed;
-pub(crate) mod operands;
+pub(crate) mod scalar;
 
 use crate::{
     module::execution::{
@@ -19,19 +19,25 @@ use crate::{
         fields::PreparedFieldOperation,
         frames::CalleeLayout,
         indices::{IndexAccess, PreparedIndexOperation},
-        layout::{FrameLayout, Location, scalar_type},
+        layout::{FrameLayout, Location},
         managed::{ManagedOperation, PreparedManagedOperation},
-        operands::{PreparedScalarSite, binary_kernel},
     },
-    value::{Value, scalar},
+    value::{Value, scalar as scalar_value},
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
-    instruction::{BytecodeInstruction, CallTarget, ConstantOperand, JumpTarget, Slot, UnaryOp},
+    instruction::{BytecodeInstruction, CallTarget, ConstantOperand, JumpTarget, Slot},
     module::{BytecodeModule, CallableTarget},
     suspension::AwaitLiveness,
 };
-use kagari_types::payload::{self, ScalarKernel};
+use kagari_types::{
+    integer::IntegerOp,
+    payload::{
+        comparison::{Comparison, ComparisonDomain},
+        operation::{FloatOperation, FloatType, ShiftKind},
+    },
+    scalar::IntegerType,
+};
 use std::collections::BTreeMap;
 
 /// A bounded physical operand in a prepared function's value window.
@@ -70,40 +76,59 @@ impl ScalarSlot {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum ExecutionInstruction {
-    Constant {
-        dst: ScalarSlot,
-        value: u64,
-    },
-    Move {
-        dst: ScalarSlot,
-        src: ScalarSlot,
-    },
-    Scalar {
-        dst: ScalarSlot,
-        lhs: ScalarSlot,
-        rhs: ScalarSlot,
-        kernel: ScalarKernel,
-    },
-    OperandSite {
-        index: usize,
-    },
-    Jump(JumpTarget),
-    Branch {
-        cond: ScalarSlot,
-        then_target: JumpTarget,
-        else_target: JumpTarget,
-    },
-    Managed(PreparedManagedOperation),
-    Return {
-        value: Option<ScalarSlot>,
-        representation: ValueType,
-    },
-    /// Consult the canonical instruction at the current logical PC after
-    /// releasing the cursor, before a potentially allocating/reentrant operation.
-    Boundary,
+macro_rules! define_execution {
+    (binary { $(($bp:pat, $brr:ident, $brk:ident, $bt:ty, $be:path),)* }
+     shift { $(($sk:ident, $srr:ident, $srk:ident, $se:path),)* }
+     compare { $(($cd:ident, $crr:ident, $crk:ident, $jrr:ident, $jrk:ident, $ct:ty, $ce:path),)* }
+     simple_compare { $(($sd:ident, $qrr:ident, $qjrr:ident, $qe:path),)* }
+     unary { $(($u:ident, $ur:ident, $ue:path),)* }
+     convert { $(($cv:ident, $cs:ty, $ctarget:ty),)* }) => {
+        /// Closed prepared operations with admitted physical operands.
+        #[derive(Debug, Clone, Copy)]
+        pub enum ExecutionInstruction {
+            Constant { dst: ScalarSlot, value: u64 },
+            Move { dst: ScalarSlot, src: ScalarSlot },
+            $(
+                $brr { dst: ScalarSlot, lhs: ScalarSlot, rhs: ScalarSlot },
+                $brk { dst: ScalarSlot, lhs: ScalarSlot, rhs: $bt },
+            )*
+            $(
+                $srr { dst: ScalarSlot, lhs: ScalarSlot, rhs: ScalarSlot, count_domain: IntegerType },
+                $srk { dst: ScalarSlot, lhs: ScalarSlot, rhs: u64, count_domain: IntegerType },
+            )*
+            $(
+                $crr { dst: ScalarSlot, lhs: ScalarSlot, rhs: ScalarSlot, condition: Comparison },
+                $crk { dst: ScalarSlot, lhs: ScalarSlot, rhs: $ct, condition: Comparison },
+                $jrr { lhs: ScalarSlot, rhs: ScalarSlot, then_target: JumpTarget, else_target: JumpTarget, condition: Comparison },
+                $jrk { lhs: ScalarSlot, rhs: $ct, then_target: JumpTarget, else_target: JumpTarget, condition: Comparison },
+            )*
+            $(
+                $qrr { dst: ScalarSlot, lhs: ScalarSlot, rhs: ScalarSlot, condition: Comparison },
+                $qjrr { lhs: ScalarSlot, rhs: ScalarSlot, then_target: JumpTarget, else_target: JumpTarget, condition: Comparison },
+            )*
+            $($ur { dst: ScalarSlot, src: ScalarSlot },)*
+            $($cv { dst: ScalarSlot, src: ScalarSlot, source: $cs, target: $ctarget },)*
+            BoolToInteger { dst: ScalarSlot, src: ScalarSlot, target: IntegerType },
+            IntegerBinaryKR { dst: ScalarSlot, lhs: u64, rhs: ScalarSlot, op: IntegerOp, domain: IntegerType },
+            IntegerBinaryKK { dst: ScalarSlot, lhs: u64, rhs: u64, op: IntegerOp, domain: IntegerType },
+            FloatBinaryKR { dst: ScalarSlot, lhs: u64, rhs: ScalarSlot, op: FloatOperation, domain: FloatType },
+            FloatBinaryKK { dst: ScalarSlot, lhs: u64, rhs: u64, op: FloatOperation, domain: FloatType },
+            ShiftKR { dst: ScalarSlot, lhs: u64, rhs: ScalarSlot, kind: ShiftKind, count_domain: IntegerType },
+            ShiftKK { dst: ScalarSlot, lhs: u64, rhs: u64, kind: ShiftKind, count_domain: IntegerType },
+            CompareStoreKR { dst: ScalarSlot, lhs: u64, rhs: ScalarSlot, domain: ComparisonDomain, condition: Comparison },
+            CompareStoreKK { dst: ScalarSlot, lhs: u64, rhs: u64, domain: ComparisonDomain, condition: Comparison },
+            CompareBranchKR { lhs: u64, rhs: ScalarSlot, domain: ComparisonDomain, condition: Comparison, then_target: JumpTarget, else_target: JumpTarget },
+            Jump(JumpTarget),
+            Branch { cond: ScalarSlot, then_target: JumpTarget, else_target: JumpTarget },
+            Managed(PreparedManagedOperation),
+            Return { value: Option<ScalarSlot>, representation: ValueType },
+            /// Release the cursor before canonical operations requiring a boundary.
+            Boundary,
+        }
+    };
 }
+
+scalar_catalog!(define_execution);
 
 #[derive(Debug)]
 pub(crate) struct ExecutionModule {
@@ -121,7 +146,6 @@ pub(crate) struct ExecutionFunction {
     pub calls: Box<[PreparedCall]>,
     pub fields: Box<[PreparedFieldOperation]>,
     pub indices: Box<[PreparedIndexOperation]>,
-    pub scalar_sites: Box<[PreparedScalarSite]>,
     pub native_calls: usize,
     pub has_call_contracts: bool,
     has_linked_constants: bool,
@@ -141,7 +165,6 @@ impl ExecutionFunction {
 struct OperationTables {
     fields: Vec<PreparedFieldOperation>,
     indices: Vec<PreparedIndexOperation>,
-    scalar: Vec<PreparedScalarSite>,
 }
 
 impl ExecutionModule {
@@ -199,22 +222,10 @@ impl ExecutionModule {
                                     layout_sites += 1;
                                     site
                                 });
-                            if matches!(
-                                instruction,
-                                BytecodeInstruction::BinaryOperands { .. }
-                                    | BytecodeInstruction::PredicateBranch { .. }
-                            ) {
-                                if let Some(site) = PreparedScalarSite::prepare(
-                                    instruction,
-                                    function,
-                                    module,
-                                    slot_layout,
-                                ) {
-                                    let index = sites.scalar.len();
-                                    sites.scalar.push(site);
-                                    return ExecutionInstruction::OperandSite { index };
-                                }
-                                return ExecutionInstruction::Boundary;
+                            if let Some(operation) =
+                                scalar::prepare(instruction, function, module, slot_layout)
+                            {
+                                return operation;
                             }
                             ExecutionInstruction::prepare(
                                 layout_site,
@@ -243,7 +254,6 @@ impl ExecutionModule {
                         has_layout_operands: layout_sites != 0,
                         fields: sites.fields.into_boxed_slice(),
                         indices: sites.indices.into_boxed_slice(),
-                        scalar_sites: sites.scalar.into_boxed_slice(),
                         native_calls,
                         has_call_contracts: false,
                     }
@@ -269,22 +279,6 @@ impl ExecutionInstruction {
                 .expect("verified register")
         };
         let slot = |register: Slot| location(register).operand;
-        let scalar = |dst: Slot, lhs: Slot, rhs: Slot, kernel: Option<ScalarKernel>| {
-            let Some(kernel) = kernel else {
-                return Self::Boundary;
-            };
-            let (Some(dst), Some(lhs), Some(rhs)) =
-                (slot(dst).scalar(), slot(lhs).scalar(), slot(rhs).scalar())
-            else {
-                return Self::Boundary;
-            };
-            Self::Scalar {
-                dst,
-                lhs,
-                rhs,
-                kernel,
-            }
-        };
 
         match *instruction {
             BytecodeInstruction::Call {
@@ -320,7 +314,7 @@ impl ExecutionInstruction {
                 };
                 Self::Constant {
                     dst,
-                    value: scalar::encode(&value).expect("scalar constant"),
+                    value: scalar_value::encode(&value).expect("scalar constant"),
                 }
             }
             BytecodeInstruction::Move { dst, src } => {
@@ -335,14 +329,6 @@ impl ExecutionInstruction {
                     slot_layout,
                 ));
                 Self::managed(ManagedOperation::Field { index })
-            }
-            BytecodeInstruction::Unary { dst, op, operand } => {
-                let ty = scalar_type(location(operand).representation);
-                let kernel = match op {
-                    UnaryOp::Neg => ty.and_then(payload::negation_kernel),
-                    UnaryOp::Not => Some(payload::boolean_not as ScalarKernel),
-                };
-                scalar(dst, operand, operand, kernel)
             }
             BytecodeInstruction::ReadAggregateIndex { dst, base, index } => {
                 let ordinal = indices.len();
@@ -364,31 +350,6 @@ impl ExecutionInstruction {
                 });
                 Self::managed(ManagedOperation::Index { index: ordinal })
             }
-            BytecodeInstruction::Binary { dst, op, lhs, rhs } => {
-                let kernel = binary_kernel(op, location(lhs).representation);
-                scalar(dst, lhs, rhs, kernel)
-            }
-            BytecodeInstruction::Convert {
-                dst,
-                src,
-                conversion,
-            } => scalar(
-                dst,
-                src,
-                src,
-                payload::conversion_kernel(conversion.source, conversion.target),
-            ),
-            BytecodeInstruction::Numeric {
-                dst,
-                operation,
-                lhs,
-                rhs,
-            } => scalar(
-                dst,
-                lhs,
-                rhs.unwrap_or(lhs),
-                payload::integer_kernel(operation.op, operation.input, operation.rhs),
-            ),
             BytecodeInstruction::Jump { target } => Self::Jump(target),
             BytecodeInstruction::Branch {
                 cond,
@@ -443,13 +404,6 @@ mod tests {
     #[test]
     fn physical_instruction_budget() {
         assert!(size_of::<ExecutionInstruction>() <= 24);
-        eprintln!(
-            "selected scalar storage bytes: operand={}, pair={}, site={}, table={}",
-            size_of::<kagari_bytecode::instruction::ScalarOperand>(),
-            size_of::<operands::PreparedOperands>(),
-            size_of::<PreparedScalarSite>(),
-            size_of::<Box<[PreparedScalarSite]>>()
-        );
         eprintln!(
             "layout metadata bytes: function={}, application={}, operand={}, application_cell={}",
             size_of::<FunctionLayouts>(),
