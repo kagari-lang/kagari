@@ -276,7 +276,7 @@ fn capabilities<P: HashPayload>(
             &read,
             "get",
             0,
-            enums::pending(2, &[enums::OPTION], access::map_get),
+            enums::pending_option(2, access::map_get),
         )?);
     }
     module.trait_implementation_with(arity, |items| {
@@ -314,9 +314,9 @@ fn capabilities<P: HashPayload>(
         "next",
         0,
         if map {
-            typed(cursor::map_next)
+            enums::pending_option(1, hash::map_next)
         } else {
-            typed(cursor::set_next)
+            enums::pending_option(1, hash::set_next)
         },
     )?;
     module.trait_implementation_with(arity, |items| {

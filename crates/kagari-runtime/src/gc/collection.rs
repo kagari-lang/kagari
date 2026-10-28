@@ -1,19 +1,51 @@
-//! Collection orchestration over the heap's checked storage and root records.
+//! One persistent lifecycle, driven only at legal runtime collection boundaries.
+mod observation;
+mod retirement;
+#[cfg(test)]
+mod tests;
+
 use crate::{
     clock::Instant,
     error::RuntimeError,
-    gc::{GcCollection, GcHeap, HeapObjectId, collector, storage::append_value_edges},
+    gc::{
+        GcCollection, GcHeap, HeapObjectId, collector,
+        graph::{MarkPhase, roots::InitialRoots},
+        metrics::{IndivisibleKind, IndivisibleSample},
+        storage::append_value_edges,
+    },
     host::HostRegistry,
-    module::{ModuleStore, collection::ModuleSweep},
-    native::storage::scan::{ScanBudget, ScanStatus},
-    resource::HeapCharge,
+    module::{ModuleStore, collection::AbandonmentTicket},
+    native::storage::scan::{NORMAL_WORK, ScanBudget, ScanStatus},
+    resource::CommittedPressure,
     value::Value,
 };
+use observation::{Invocation, ServiceKind};
+use retirement::{Retirement, SWEEP_PREFLIGHT_WORK};
+use std::{fmt, time::Duration};
 
-use std::panic::{AssertUnwindSafe, catch_unwind};
+/// Cursors and accounting only: GraphState owns the authoritative cycle phase.
+/// No borrow, native loan, marker guard or borrowed program survives a service call.
+pub(super) struct CollectionCycle {
+    roots: InitialRoots,
+    retirement: Option<Retirement>,
+    abandonment: AbandonmentTicket,
+    pressure: CommittedPressure,
+    metadata_pressure: u128,
+    unit_threshold: u128,
+    byte_threshold: u128,
+    work: usize,
+    service_time: Duration,
+}
 
-// One domain's batch is completely disposed before the next is detached.
-const RETIRE_BATCH: usize = 32;
+impl fmt::Debug for CollectionCycle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CollectionCycle")
+            .field("roots", &self.roots)
+            .field("work", &self.work)
+            .field("service_time", &self.service_time)
+            .finish_non_exhaustive()
+    }
+}
 
 impl GcHeap {
     pub(super) fn trace_values(&self, values: &[Value]) -> Option<Vec<HeapObjectId>> {
@@ -36,272 +68,266 @@ impl GcHeap {
         })
     }
 
-    /// Drain the sole marker synchronously. Each owner uses the same finite slice
-    /// protocol exercised by test-only mutator interleaving; PG05 owns scheduling.
+    /// Finish an active cycle, then collect the current roots in one fresh cycle.
+    /// Reports are invocation-local; earlier automatic retirements are never replayed.
     pub(crate) fn collect(
         &self,
         modules: &ModuleStore,
         host: &HostRegistry,
+        entry: Option<Instant>,
     ) -> Result<GcCollection, RuntimeError> {
-        let started = Instant::now();
-        let mut programs = modules.begin_collection();
+        let mut invocation = Invocation::new(self, entry);
+        let mut report = GcCollection::default();
         let result = (|| {
-            let mut roots = self.begin_initial_roots(modules, host)?;
-            while self.scan_initial_root_slice(
-                modules,
-                host,
-                &mut roots,
-                &mut ScanBudget::new(usize::MAX),
-            )? == ScanStatus::Pending
-            {}
-            self.drain_graph_work(modules)?;
-            self.resources.collect_operation(|| {
-                self.graph.try_lock()?.close_mark()?;
-                self.sweep_closed(&mut programs, started).ok_or_else(|| {
-                    RuntimeError::module_validation("invalid closed graph retirement")
-                })
-            })?
-        })();
-        if result.is_err() {
-            if let Ok(mut graph) = self.graph.try_lock() {
-                graph.fault();
+            if self.graph.phase() != MarkPhase::Idle {
+                self.finish_cycle(modules, host, &mut report, true, &mut invocation)?;
             }
-            return Err(self.resources.quarantine("collection graph failed"));
+            self.finish_cycle(modules, host, &mut report, true, &mut invocation)
+        })();
+        let result = self.collection_result(result);
+        match result {
+            Ok(()) => {
+                report.pause = invocation.finish(self, ServiceKind::Explicit, false);
+                Ok(report)
+            }
+            Err(error) => {
+                drop(report);
+                invocation.finish(self, ServiceKind::Explicit, true);
+                Err(error)
+            }
+        }
+    }
+
+    /// Automatic work is disabled as a whole, including continuation and assists.
+    /// Occupancy is only a start trigger; it cannot stop an already active cycle.
+    pub(crate) fn service_collection(
+        &self,
+        modules: &ModuleStore,
+        host: &HostRegistry,
+        entry: Option<Instant>,
+    ) -> Result<(), RuntimeError> {
+        if !self.automatic_collection_enabled() {
+            return Ok(());
+        }
+        let active = self.graph.phase() != MarkPhase::Idle;
+        if !active && !self.collection_due() {
+            modules.check_collection_access()?;
+            if !modules.abandonment_pending() {
+                return Ok(());
+            }
+        }
+        self.resources.ensure_not_publishing()?;
+        self.ensure_no_native_borrow()?;
+        self.resources.ensure_execution_allowed()?;
+        let mut invocation = Invocation::new(self, entry);
+        let mut kind = ServiceKind::Normal;
+        let result = (|| {
+            let assist = if active {
+                let cycle = self.collection.try_borrow().map_err(|_| invalid())?;
+                let cycle = cycle.as_ref().ok_or_else(invalid)?;
+                let pressure = self.resources.committed_pressure();
+                let metadata = self.graph.try_lock()?.committed_metadata_pressure();
+                pressure
+                    .units
+                    .saturating_sub(cycle.pressure.units)
+                    .saturating_add(metadata.saturating_sub(cycle.metadata_pressure))
+                    >= cycle.unit_threshold
+                    || pressure.bytes.saturating_sub(cycle.pressure.bytes) >= cycle.byte_threshold
+            } else {
+                false
+            };
+            let mut discarded = GcCollection::default();
+            if assist {
+                kind = ServiceKind::PressureAssist;
+                self.finish_cycle(modules, host, &mut discarded, false, &mut invocation)
+            } else {
+                self.collection_step(
+                    modules,
+                    host,
+                    &mut discarded,
+                    false,
+                    &mut invocation,
+                    NORMAL_WORK,
+                )
+                .map(drop)
+            }
+        })();
+        let result = self.collection_result(result);
+        invocation.finish(self, kind, result.is_err());
+        result
+    }
+
+    fn finish_cycle(
+        &self,
+        modules: &ModuleStore,
+        host: &HostRegistry,
+        report: &mut GcCollection,
+        report_modules: bool,
+        invocation: &mut Invocation,
+    ) -> Result<(), RuntimeError> {
+        // Drain the same owner/chunk engine without imposing a mutator-service yield.
+        // Provider chunks and detached-owner bounds remain independent of this allowance.
+        while self.collection_step(
+            modules,
+            host,
+            report,
+            report_modules,
+            invocation,
+            usize::MAX,
+        )? == ScanStatus::Pending
+        {}
+        Ok(())
+    }
+
+    fn start_cycle(
+        &self,
+        modules: &ModuleStore,
+        host: &HostRegistry,
+    ) -> Result<Box<CollectionCycle>, RuntimeError> {
+        let abandonment = modules.begin_collection();
+        let roots = self.begin_initial_roots(modules, host)?;
+        Ok(Box::new(CollectionCycle {
+            roots,
+            retirement: None,
+            abandonment,
+            pressure: self.resources.committed_pressure(),
+            metadata_pressure: self.graph.try_lock()?.committed_metadata_pressure(),
+            unit_threshold: self.next_collection.get() as u128,
+            byte_threshold: self.next_byte_collection.get(),
+            work: 0,
+            service_time: Duration::ZERO,
+        }))
+    }
+
+    fn collection_step(
+        &self,
+        modules: &ModuleStore,
+        host: &HostRegistry,
+        report: &mut GcCollection,
+        report_modules: bool,
+        invocation: &mut Invocation,
+        allowance: usize,
+    ) -> Result<ScanStatus, RuntimeError> {
+        if self.graph.phase() == MarkPhase::Idle {
+            invocation.next_cycle(self);
+        }
+        let mut budget = ScanBudget::new(allowance);
+        let mut cycle = if self.graph.phase() == MarkPhase::Idle {
+            // Four root cursor captures, lifecycle setup and pressure snapshot.
+            assert!(budget.take(6));
+            match self.start_cycle(modules, host) {
+                Ok(cycle) => cycle,
+                Err(error) => {
+                    invocation.slice(self, budget.spent());
+                    return Err(error);
+                }
+            }
+        } else {
+            self.collection
+                .try_borrow_mut()
+                .map_err(|_| invalid())?
+                .take()
+                .ok_or_else(invalid)?
+        };
+        let result = self.advance_cycle(
+            modules,
+            host,
+            &mut cycle,
+            &mut budget,
+            report,
+            report_modules,
+        );
+        invocation.slice(self, budget.spent());
+        cycle.work = cycle.work.saturating_add(budget.spent());
+        match result {
+            Ok(ScanStatus::Complete) => {
+                invocation.completed = Some((cycle.work, cycle.service_time));
+                self.complete_cycle(*cycle);
+            }
+            _ => *self.collection.try_borrow_mut().map_err(|_| invalid())? = Some(cycle),
         }
         result
     }
 
-    /// No store borrow spans destruction. A panic quarantines execution but does
-    /// not abandon other detached records or leave their accounting outstanding.
-    fn dispose_batches<T>(
+    fn advance_cycle(
         &self,
-        mut detach: impl FnMut(&mut usize, usize) -> Vec<T>,
-        release_credits: bool,
-        panic_message: &'static str,
-    ) -> usize {
-        let mut cursor = 0;
-        let mut count = 0;
-        loop {
-            let retired = detach(&mut cursor, RETIRE_BATCH);
-            if retired.is_empty() {
-                return count;
+        modules: &ModuleStore,
+        host: &HostRegistry,
+        cycle: &mut CollectionCycle,
+        budget: &mut ScanBudget,
+        report: &mut GcCollection,
+        report_modules: bool,
+    ) -> Result<ScanStatus, RuntimeError> {
+        if self.graph.phase() == MarkPhase::Sweep {
+            if !budget.take(SWEEP_PREFLIGHT_WORK) {
+                return Ok(ScanStatus::Pending);
             }
-            assert!(retired.len() <= RETIRE_BATCH);
-            count += retired.len();
-            {
-                let mut graph = self.graph.lock();
-                graph.observe_retirement(retired.len());
-                if release_credits {
-                    for _ in 0..retired.len() {
-                        graph.retire_prepared();
+            // A mutator interval may have acquired a view into any later store.
+            // Fresh mark-to-sweep admission below already performs this preflight.
+            self.resources
+                .collect_operation(|| self.preflight_sweep_access(modules))??;
+        }
+        loop {
+            match self.graph.phase() {
+                MarkPhase::Roots => {
+                    if self.scan_initial_root_slice(modules, host, &mut cycle.roots, budget)?
+                        == ScanStatus::Pending
+                    {
+                        return Ok(ScanStatus::Pending);
                     }
                 }
-            }
-            for record in retired {
-                if catch_unwind(AssertUnwindSafe(|| drop(record))).is_err() {
-                    self.resources.quarantine(panic_message);
+                MarkPhase::Mark => {
+                    if self.scan_graph_slice(modules, budget)? == ScanStatus::Pending {
+                        return Ok(ScanStatus::Pending);
+                    }
+                    // Reserve closure, finite cursor captures and all-owner exclusive
+                    // admission before setting up any destructive phase state.
+                    if !budget.take(16 + SWEEP_PREFLIGHT_WORK) {
+                        return Ok(ScanStatus::Pending);
+                    }
+                    self.resources
+                        .collect_operation(|| {
+                            self.graph.try_lock()?.close_mark()?;
+                            self.begin_retirement(modules)
+                        })?
+                        .map(|retirement| cycle.retirement = Some(retirement))?;
                 }
+                MarkPhase::Sweep => {
+                    return self.resources.collect_operation(|| {
+                        self.retirement_slice(
+                            modules,
+                            cycle.retirement.as_mut().ok_or_else(invalid)?,
+                            budget,
+                            report,
+                            report_modules,
+                        )
+                    })?;
+                }
+                MarkPhase::Idle | MarkPhase::Faulted | MarkPhase::Poisoned => return Err(invalid()),
             }
         }
     }
 
-    fn sweep_closed(
-        &self,
-        programs: &mut ModuleSweep<'_>,
-        started: Instant,
-    ) -> Option<GcCollection> {
-        if self.resources.is_quarantined() {
-            return None;
+    fn complete_cycle(&self, cycle: CollectionCycle) {
+        debug_assert_eq!(self.graph.phase(), MarkPhase::Idle);
+        let started = self.observation_clock().start();
+        cycle.abandonment.finish();
+        drop((cycle.roots, cycle.retirement));
+        if let Some(started) = started {
+            self.observe_indivisible(
+                IndivisibleKind::LifecycleDrop,
+                IndivisibleSample::new(
+                    "CollectionCycle",
+                    1,
+                    1,
+                    Some(size_of::<CollectionCycle>()),
+                    started.elapsed(),
+                ),
+            );
         }
-        let mut dead_programs = programs.prepare_sweep()?;
-        // Preflight every storage borrow before the first irreversible detach.
-        let groups = self.operation_groups.try_borrow_mut().ok()?;
-        let applications = self.applications.try_borrow_mut().ok()?;
-        let interfaces = self.interfaces.try_borrow_mut().ok()?;
-        let environments = self.environments.try_borrow_mut().ok()?;
-        let native = self.native_applications.try_borrow_mut().ok()?;
-        let calls = self.interface_calls.try_borrow_mut().ok()?;
-        let descriptions = self.interface_descriptions.try_borrow_mut().ok()?;
-        let mut objects = self.objects.try_borrow_mut().ok()?;
-        let moved = self.moved.try_borrow_mut().ok()?;
-        let retired_identities = {
-            let graph = self.graph.lock();
-            moved
-                .values()
-                .filter(|mark| !graph.is_survivor(*mark).expect("closed moved marks"))
-                .count()
-        };
-        let counters = self.resources.counters();
-        objects.begin_physical_sweep(
-            &self.graph.lock(),
-            counters
-                .current_heap_units
-                .checked_sub(retired_identities)?,
-            counters.current_retained_bytes,
-        )?;
-
-        drop((
-            groups,
-            applications,
-            interfaces,
-            environments,
-            native,
-            calls,
-            descriptions,
-            objects,
-            moved,
-        ));
-        self.graph.lock().begin_retirement();
-        // The physical owner prepares/consumes charges once and retains progress.
-        // Production still drains synchronously; PG05 owns driver interleaving.
-        let mut released_backing = 0u128;
-        loop {
-            let batch = self.objects.borrow_mut().sweep_batch(
-                self.owner,
-                &self.interfaces,
-                &mut self.graph.lock(),
-                &mut ScanBudget::new(1024),
-            )?;
-            let complete = batch.complete;
-            released_backing += self.dispose_sweep_batch(batch) as u128;
-            if complete {
-                break;
-            }
-        }
-        let totals = self.objects.borrow_mut().finish_physical_sweep()?;
-        let reclaimed_objects = totals.objects;
-        let reclaimed_units = totals.units.checked_add(retired_identities)?;
-        let reclaimed_retained_bytes = totals.bytes.checked_add(released_backing)?;
-        let live_objects = totals.live;
-        self.objects.borrow_mut().retire_wrappers();
-        {
-            let mut moved = self.moved.borrow_mut();
-            let mut graph = self.graph.lock();
-            moved.retain(|_, mark| {
-                if graph.is_survivor(mark).expect("closed moved marks") {
-                    return true;
-                }
-                graph.can_retire(mark).expect("closed moved work");
-                graph.retire_prepared();
-                false
-            });
-        }
-        self.resources
-            .release_heap_charge(HeapCharge::new(retired_identities, 0));
-        let reclaimed_operation_groups = self.dispose_batches(
-            |cursor, limit| {
-                let graph = self.graph.lock();
-                self.operation_groups
-                    .borrow_mut()
-                    .detach_batch(cursor, limit, |mark| {
-                        graph.is_survivor(mark).expect("closed metadata marks")
-                    })
-            },
-            true,
-            "operation group destruction panicked",
-        );
-        let reclaimed_method_applications = self.dispose_batches(
-            |cursor, limit| {
-                let graph = self.graph.lock();
-                self.applications
-                    .borrow_mut()
-                    .detach_batch(cursor, limit, |mark| {
-                        graph.is_survivor(mark).expect("closed metadata marks")
-                    })
-            },
-            true,
-            "method application destruction panicked",
-        );
-        let reclaimed_interface_snapshots = self.dispose_batches(
-            |cursor, limit| {
-                let graph = self.graph.lock();
-                self.interfaces
-                    .borrow_mut()
-                    .detach_batch(cursor, limit, |mark| {
-                        graph.is_survivor(mark).expect("closed metadata marks")
-                    })
-            },
-            true,
-            "interface metadata destruction panicked",
-        );
-        let reclaimed_environments = self.dispose_batches(
-            |cursor, limit| {
-                let graph = self.graph.lock();
-                self.environments
-                    .borrow_mut()
-                    .detach_batch(cursor, limit, |mark| {
-                        graph.is_survivor(mark).expect("closed metadata marks")
-                    })
-            },
-            true,
-            "environment metadata destruction panicked",
-        );
-        let mut reclaimed_modules = Vec::new();
-        self.dispose_batches(
-            |_, limit| {
-                let retired = programs.detach_program_batch(&mut dead_programs, limit);
-                reclaimed_modules.extend(retired.iter().map(|record| record.key));
-                retired
-            },
-            false,
-            "module metadata destruction panicked",
-        );
-        self.dispose_batches(
-            |_, limit| programs.detach_cell_batch(&mut dead_programs, limit),
-            false,
-            "static cell destruction panicked",
-        );
-        programs.finish(dead_programs);
-        #[cfg(feature = "execution-diagnostics")]
-        programs.record_storage_usage();
-        self.roots.borrow_mut().drain_released();
-        self.objects.borrow_mut().prune(live_objects);
-        self.dispose_batches(
-            |cursor, limit| {
-                self.native_applications.borrow_mut().detach_batch(
-                    cursor,
-                    limit,
-                    &mut self.graph.lock(),
-                )
-            },
-            false,
-            "native application destruction panicked",
-        );
-        self.dispose_batches(
-            |cursor, limit| {
-                self.interface_calls.borrow_mut().detach_batch(
-                    cursor,
-                    limit,
-                    &mut self.graph.lock(),
-                )
-            },
-            false,
-            "interface call destruction panicked",
-        );
-        self.dispose_batches(
-            |cursor, limit| {
-                self.interface_descriptions.borrow_mut().detach_batch(
-                    cursor,
-                    limit,
-                    &mut self.graph.lock(),
-                )
-            },
-            false,
-            "interface description destruction panicked",
-        );
-        if self.resources.is_quarantined() {
-            return None;
-        }
-        self.graph.try_lock().ok()?.finish_sweep().ok()?;
-        self.interfaces.borrow_mut().prune_descriptions();
-        self.struct_layouts.borrow_mut().prune();
-        self.native_operations.prune();
-        let pause = started.elapsed();
         let mut stats = self.stats.borrow_mut();
         stats.collections += 1;
-        stats.reclaimed_objects += reclaimed_objects;
-        stats.allocated_objects -= reclaimed_objects;
-        stats.last_pause = pause;
+
         self.next_collection.set(
             self.resources
                 .counters()
@@ -321,17 +347,19 @@ impl GcHeap {
                 .saturating_mul(2)
                 .max(self.config.retained_byte_threshold.max(1) as u128),
         );
-        Some(GcCollection {
-            reclaimed_environments,
-            reclaimed_operation_groups,
-            reclaimed_method_applications,
-            reclaimed_interface_snapshots,
-            reclaimed_modules,
-            reclaimed_objects,
-            reclaimed_units,
-            reclaimed_retained_bytes,
-            live_objects,
-            pause,
-        })
     }
+
+    fn collection_result<T>(&self, result: Result<T, RuntimeError>) -> Result<T, RuntimeError> {
+        if result.is_err() {
+            if let Ok(mut graph) = self.graph.try_lock() {
+                graph.fault();
+            }
+            return Err(self.resources.quarantine("collection graph failed"));
+        }
+        result
+    }
+}
+
+fn invalid() -> RuntimeError {
+    RuntimeError::module_validation("invalid or borrowed collection lifecycle")
 }

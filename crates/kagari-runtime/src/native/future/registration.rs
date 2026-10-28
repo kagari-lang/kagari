@@ -79,8 +79,8 @@ where
                     .map(|index| call.argument(index))
                     .collect::<NativeResult<Vec<_>>>()?;
                 call.runtime.gc().validate_async_values(&values)?;
-                call.allocate_result_payload(
-                    FuturePayload {
+                call.allocate_result_payload(&[], |_, _| {
+                    Ok(FuturePayload {
                         cold: Some(ColdFuture::Native(NativeFuture {
                             origin: Some(CallableObservation {
                                 publication: call.owner.publication_token(),
@@ -95,9 +95,8 @@ where
                             values,
                             producer: producer.clone(),
                         })),
-                    },
-                    &[],
-                )
+                    })
+                })
             },
         );
         Ok(binding)

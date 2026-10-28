@@ -1,6 +1,7 @@
 //! Concrete Rust callbacks share the checked conversion boundary with host access.
 mod loan_arguments;
 pub mod loans;
+mod payload;
 mod receiver;
 use crate::{
     Runtime,
@@ -65,6 +66,16 @@ impl<'call> NativeContext<'call> {
     /// Checked conversions share the invocation's retained owner and temporary roots.
     pub fn conversion(&mut self) -> &mut ConversionContext<'call> {
         &mut self.conversion
+    }
+
+    /// Lend exact program retention to an independent temporary conversion. The
+    /// child cannot outlive this context; other program generations retain their
+    /// own lease. No store borrow or payload loan crosses conversion or reentry.
+    pub fn conversion_scope<'scope>(
+        &'scope self,
+        owner: &'scope ExecutableModule,
+    ) -> NativeResult<ConversionContext<'scope>> {
+        self.conversion.scoped(owner)
     }
 
     /// Retain this native invocation's complete result contract.

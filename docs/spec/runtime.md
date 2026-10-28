@@ -311,9 +311,12 @@ validation. The generic managed tag accepts occupied managed kinds; the speciali
 Array tag additionally checks the native Array subtype. Reads do not create retention.
 Explicit Faulted state permits diagnostic graph reads but rejects publication/new
 admission. Poisoned state instead rejects graph access, publication and work acquisition:
-interrupted graph-guard work publishes this terminal state before unlock, including
-when the guard was acquired during unwinding. Pure identity inspection is not graph
-access; production collection faults also quarantine execution.
+a new unwind across graph-guard work publishes this terminal state before unlock.
+A guard acquired and successfully released wholly during an existing unwind can perform
+mandatory recovery without creating poison; it never clears preexisting Poisoned state.
+The guard records entry panic state rather than treating all cleanup during unwind as
+interrupted work. Pure identity inspection is not graph access; production collection
+faults also quarantine execution.
 
 Operation groups live in a runtime-owned generational store. They contain receiver
 tables and individual concrete selections. Environments carry an OperationId for a
@@ -357,14 +360,32 @@ Physical page/slot sweep uses a persistent cursor and reusable bounded page/rang
 disposal, not a complete heap dead-object list; inspected holes and survivors also
 consume work. Remaining metadata/module inventories and interface batch filtering
 remain separate costs, not an O(live) total-collector bound. PG04 is locally complete
-pending commit; the
+at `fe56b675`; the
 [phase ledger](../paged-incremental-gc-design.md#pg04-marker-implementation-and-open-acceptance)
 separates fresh and reused evidence. PG05 owns remaining sweep adapters, pressure-driven
-execution scheduling and production interleaving. The selected 1024-unit normal budget
+execution scheduling and production interleaving. Its integrated worktree implementation
+has repaired preflight/unwind regressions and source-approved budget/cache corrections
+with selected tests passing. Ordinary-build collector observation windows are implemented;
+automatic-harness check mode and disabled-observation correction checks pass. The
+completed frozen run passes all 22 observed normal-step gates (34 no-activity rows are
+not passes). Fresh memory passes 55/55; ordinary timing failures still prevent PG05
+acceptance, as recorded in the
+[PG05 ledger](../paged-incremental-gc-design.md#pg05-integrated-driver-and-open-acceptance);
+the synchronous description here records the accepted PG04 checkpoint. The selected 1024-unit normal budget
 is not a measured wall-clock deadline; PG06 and full CI acceptance remain outstanding.
 
-Collection closes marking and preflights cross-store borrows before removing slots,
-then prepares accounting and detaches unreachable objects and metadata in batches of
+The integrated PG05 driver uses one collection engine with caller-selected work allowance:
+normal service supplies 1024 structural units across all phases; explicit collection and
+pressure assists supply `usize::MAX` to drain rather than repeatedly imposing the normal
+slice limit. Retirement obeys the supplied allowance. This does not change the 32-owner
+disposal cap, bounded-provider admission or resumable-provider chunk limits. Explicit
+collection finishes any active cycle, then one fresh cycle; pressure assist finishes the
+active cycle. Neither is a normal-step pause sample or a wall-clock bound.
+
+Collection closes marking and preflights all stores before destructive admission, and
+repeats that preflight when Sweep resumes after a possible mutator interval, not between
+batches within the same exclusion. It then prepares accounting and detaches unreachable
+objects and metadata in batches of
 at most 32 owners total. A full-page token counts all its payloads; the current batch
 finishes disposal before another batch/domain detaches. Physical preparation is
 batch-atomic: identity/location/charge checks and aggregate credit subtraction are
@@ -376,7 +397,9 @@ reenter execution or mutate roots. A tracing panic quarantines the runtime witho
 sweeping a partial graph. Destructor panics quarantine it before the next destructor
 while disposal continues for other detached objects; each payload is dropped once.
 Process aborts, including a second panic during Rust's own unwinding, remain outside
-recovery guarantees.
+recovery guarantees. Metadata output/cache-release/disposal reservations use the captured
+remaining-slot upper bound, capped at 32, before detachment. This bound supplies no identity
+proof: an exhausted cursor still validates its owner, but needs no output backing.
 Runtime::collect_garbage reports reclaimed heap objects, reclaimed_operation_groups,
 reclaimed_method_applications, reclaimed_interface_snapshots and reclaimed_modules;
 there is no independent module-only sweep that could discard code reached from the heap.
@@ -489,7 +512,8 @@ can make byte-pressure collection due; allocation itself does not collect it.
 current/peak retained bytes. `GcCollection` reports reclaimed units and retained
 bytes as well as objects; GC stats also report collection count and the last pause.
 These are attributed occupancy counters, not cumulative allocation or quotas.
-Incremental and generational GC remain deferred.
+The integrated incremental driver remains under PG05 acceptance; generational GC
+remains deferred. Ordinary-build service observations are specified below.
 
 Host retention uses gc::roots::RootedValue, returned by Runtime::root_value. The
 heap owns a generational root table containing the values; handles contain checked
@@ -680,6 +704,82 @@ runtime storage alive after teardown. RootedCallable has been removed.
 An explicit diagnostic snapshot copy is not an execution or retention capability.
 Holding a scoped heap view blocks mutation with a checked error and no partial
 write or accounting change; collection rejects the borrow before any detachment.
+
+### Collector observation windows
+
+[`gc::metrics`](../../crates/kagari-runtime/src/gc/metrics.rs) provides opt-in,
+fixed-space observations in ordinary builds, without `execution-diagnostics` or a
+counting allocator. The heap owns the observation buffer; copied results own no heap,
+program, descriptor or root references and cannot affect liveness or execution policy.
+
+| `GcHeap` method | Contract |
+| --- | --- |
+| `start_collection_observation() -> Result<(), RuntimeError>` | Starts or resets a window, clearing its counts/maxima and recording whether a cycle is already active. First start allocates one fixed-size buffer; reset reuses it. Normal execution/borrow exclusion applies, including quarantine rejection. Start/reset is rejected during admitted collector service, including destructor callbacks; the existing window is unchanged. |
+| `collection_observation() -> Option<CollectionObservation>` | Copies the current window without resetting it; None means observation is disabled. Results remain available after a trace fault. |
+| `finish_collection_observation() -> Option<CollectionObservation>` | Outside collector service, returns the window and releases its fixed backing; subsequent reads return None until another start. During admitted service (including destructor callbacks), returns None without changing the window. |
+
+No history, callback, root registration or per-step observation allocation is added.
+Optional observation clocks, sample construction and accumulation are gated before
+operations when observation is disabled; structural work charging and public `last_pause`
+remain active independently. This does not promise zero total collector instrumentation
+cost. Start/reset/finish are host-selected boundaries, not collector steps. They may
+change a window between service invocations, including while an incremental cycle is
+still active, but cannot change observation enablement inside an admitted invocation.
+A destructor callback may copy the current snapshot; it cannot start/reset or finish the
+window during service. Snapshot reads need not include the still-running operation or
+invocation. No active observation borrow is held across a yield or user callback. Counters and
+work/time sums saturate instead of wrapping. Work means charged structural units,
+not CPU instructions; a failed bounded scan can retain its prepaid reservation on
+unwind rather than refunding unused work.
+
+`CollectionObservation` separates three disjoint invocation series: `normal`,
+`pressure_assist` and `explicit`. Each `WorkMeasurements` reports count/failures and
+total/last/maximum work and duration. Disabled/no-op safepoints and operations rejected
+before collector admission are not samples. Structural `slices` report work only;
+slices inside an explicit call or assist are **not normal automatic pause samples**.
+
+Invocation timing covers the complete admitted service, including entry guards,
+completed-cycle/threshold bookkeeping, owned-cursor destruction, discarded automatic
+reports and error normalization. It ends immediately before the final telemetry update;
+that update and return-to-caller instructions are excluded. It excludes interleaved
+mutator time. Raw pauses **include indivisible operations** and are never adjusted by
+subtracting their attribution. Explicit active-plus-fresh completion is one explicit
+invocation, not two inferred normal steps.
+
+`cycles` accumulates full collector work/service time for cycles begun in the window,
+including completion bookkeeping. `active_cycle_at_start` identifies a cycle already
+in flight; its eventual full result goes to `carried_cycles`, including accumulated
+pre-window work/time. For example, resetting observation after a normal slice clears
+normal maxima but does not restart the collector: later completion of that old cycle
+is carried, while a subsequent fresh cycle belongs to `cycles`. Do not attribute the
+carried total wholly to the new workload/window. Entry-guard timing is available only
+while observation is enabled; cycle service totals exclude gaps spent running mutator
+code and are not wall-clock elapsed time from first to last slice.
+
+Indivisible attribution is an array indexed by the eleven `IndivisibleKind` values:
+`ProviderScan`, `PayloadDrop`, `BackingRelease`, `MetadataDrop`, `RootDrop`,
+`DescriptorDrop`, `WeakTokenDrop`, `DirectoryCompaction`, `EmptyMapRelease`,
+`QueueCompaction` and `LifecycleDrop`. Each kind accumulates count, total items/work,
+known bytes, unknown-size count and duration, retaining only its slowest sample.
+Physical payload destruction counts **each actual payload destructor**, including
+those inside page/range batches, rather than retaining only a batch maximum. Range
+retirement tokens carry no accumulator: an enabled disposal caller owns the call-scoped
+measurement, merges it after disposal, and retains no observation reference across a
+yield. Disabled disposal and fallback cleanup use the same destruction loop without an
+accumulator; destructor panic containment, charges and public pause timing are unchanged.
+
+A sample contains a static owner/representation name, optional native-provider
+`TypeId`, local item/work extent, optional known bytes and duration. Provider scans
+can identify their Rust type; physical payload drops identify representation kind,
+not necessarily that Rust type. Known bytes describe local backing or shallow size,
+not transitive destructor cost, RSS or necessarily bytes freed; None is explicitly
+counted as unknown, never silently treated as a zero-size object. Samples retain no
+script identities. Nested attribution is evidence about concrete operations, not an
+exemption for an entire collection, nor a value to subtract from an unrelated maximum.
+
+These APIs permit ordinary-build observation but do not establish a pause guarantee
+or pass the performance gates. The active [PG05 ledger](../paged-incremental-gc-design.md#pg05-integrated-driver-and-open-acceptance)
+owns remaining harness/measurement acceptance, not a second metrics progress queue.
 
 ## Type Registry
 

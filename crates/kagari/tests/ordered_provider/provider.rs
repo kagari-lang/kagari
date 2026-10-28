@@ -32,6 +32,9 @@ use std::{
 pub struct Observations {
     pub drops: AtomicUsize,
     pub pending: AtomicUsize,
+    pub scan_position: AtomicUsize,
+    pub scan_limit: AtomicUsize,
+    pub completed_scans: AtomicUsize,
     pub recoveries: AtomicUsize,
 }
 
@@ -71,6 +74,10 @@ unsafe impl NativePayload for OrderedMap {
     const SCAN_KIND: NativeScanKind = NativeScanKind::Resumable;
 
     fn begin_scan(&self) -> Self::ScanState {
+        self.observations.scan_position.store(0, Ordering::SeqCst);
+        self.observations
+            .scan_limit
+            .store(self.slots.len(), Ordering::SeqCst);
         (0, self.slots.len())
     }
 
@@ -89,7 +96,13 @@ unsafe impl NativePayload for OrderedMap {
                 visit(value);
             }
             state.0 += 1;
+            self.observations
+                .scan_position
+                .store(state.0, Ordering::SeqCst);
         }
+        self.observations
+            .completed_scans
+            .fetch_add(1, Ordering::SeqCst);
         ScanStatus::Complete
     }
 
@@ -380,18 +393,21 @@ pub fn next(
     cx: &mut NativeContext<'_>,
     (cursor,): (Opaque<Cursor>,),
 ) -> NativeResult<Option<(i32, ScriptValue)>> {
-    // SAFETY: Retain source before leaving the cursor loan; keep all extracted
-    // entries rooted through cursor advancement and result conversion.
+    // SAFETY: The owning cursor stays rooted and scans its unchanged source.
+    // No callback or collection separates copying that edge from its immediate
+    // read; aliases cannot remove it in this gap. Retain the returned entry under
+    // the source loan before cursor advancement or fallible result conversion.
     unsafe {
-        let (source, after, revision) = cursor.read(cx, None, |cursor, access| {
+        let borrowed = cursor.borrow(cx)?;
+        let (source, contract, after, revision) = borrowed.read(cx, None, |cursor, _| {
             Ok((
-                access.retain(&cursor.contract, &cursor.source)?,
+                cursor.source,
+                cursor.contract.clone(),
                 cursor.after,
                 cursor.revision,
             ))
         })?;
-        let source = source.decode::<Opaque<OrderedMap>>(cx)?;
-        let result = source.read(cx, None, |map, access| {
+        let result = cx.read_payload::<OrderedMap, _>(source, &contract, |map, access| {
             access.check_revision(revision)?;
             let entry = match after {
                 None => map.index.first_key_value(),

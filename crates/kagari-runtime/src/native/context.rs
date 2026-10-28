@@ -30,6 +30,7 @@ use crate::{
         conversion::{IntoKagari, context::ConversionContext},
         declarations::SelectedCall,
         function_handle::PreparedFunction,
+        payload::read::ReadReceiver,
         scalar::NativeScalar,
         storage::{
             NativePayload, StorageContext,
@@ -298,11 +299,24 @@ impl<'call> CallContext<'call> {
         })
     }
 
-    /// Retain only declared selected slots as metadata edges of the result.
-    pub fn allocate_result_payload<S: NativePayload>(
+    /// Build a payload for this call's exact admitted native result.
+    ///
+    /// Result occurrence, Rust payload mapping and executable publication are checked
+    /// before `build` runs. The builder borrows the call's existing roots and receives
+    /// its concrete result scope; no owning native type descriptor is constructed.
+    /// No module-store or payload borrow spans the builder, so it may collect or
+    /// reenter through the call's checked services. It must retain extracted edges
+    /// across any such operation, just as other native code must.
+    ///
+    /// Selected slots are resolved after the builder succeeds, then stored as metadata
+    /// edges. Allocation revalidates after builder effects and uses the ordinary
+    /// payload scanner/publication path. Errors do not undo completed builder effects.
+    /// The returned value is a terminal native-result handoff: publish it before any
+    /// subsequent callback or safepoint, or retain it with an explicit root.
+    pub fn allocate_result_payload<P: NativePayload>(
         &self,
-        payload: S,
-        slots: &[usize],
+        selected_slots: &[usize],
+        build: impl FnOnce(&CallContext<'_>, &TypeArgument) -> NativeResult<P>,
     ) -> NativeResult<Value> {
         self.heap().ensure_no_native_borrow()?;
         let admitted = self
@@ -320,7 +334,16 @@ impl<'call> CallContext<'call> {
             .storage
             .get_id(nominal.declaration)
             .ok_or_else(|| RuntimeError::module_validation("native storage is not installed"))?;
-        let selected = StoredSelection::slots(self.owner, &self.function.selected, slots)?;
+        if !storage.accepts_payload::<P>() {
+            return Err(RuntimeError::module_validation(
+                "native allocation payload type mismatch",
+            ));
+        }
+        // Availability alone permits diagnostic access after an explicit graph fault;
+        // executing a builder requires the authoritative publication check as well.
+        self.runtime.publish_executable_module(self.owner)?;
+        let payload = build(self, &admitted)?;
+        let selected = StoredSelection::slots(self.owner, &self.function.selected, selected_slots)?;
         let root = storage.allocate_payload(
             &StorageContext {
                 runtime: self.runtime,
@@ -388,11 +411,12 @@ impl<'call> CallContext<'call> {
         index: usize,
         read: impl for<'payload> FnOnce(&'payload S, &mut StorageAccess<'payload>) -> NativeResult<R>,
     ) -> NativeResult<R> {
-        self.poll()?;
-        let Value::GcHandle(id) = self.argument(index)? else {
-            return Err(RuntimeError::module_validation("native storage argument"));
-        };
-        self.heap().read_native(self.runtime, id, None, read)
+        self.heap().read_native(
+            self.runtime,
+            ReadReceiver::Argument(self, index),
+            None,
+            read,
+        )
     }
 
     /// Edit provider storage using the call's rooted receiver and the ordinary

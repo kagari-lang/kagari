@@ -577,9 +577,14 @@ Safe `Opaque<T: NativeData>::read_data` lends fixed data only for its closure.
 `NativeType<T>::create(cx, payload, selected_slots)` validates the registered Rust
 representation and scanned edges before publication, roots the result before a
 safepoint and retains its exact applied scope. `bind_native_type_declaration` accepts
-the portable registration identity directly. Typed constructor callbacks obtain
-`let ty = cx.result_native_type::<T>()?` and call `ty.create(cx, payload, slots)`;
-there is no `create_opaque` helper. Empty slots require no active selection evidence;
+the portable registration identity directly. Typed constructors needing an independently
+owned factory obtain `let ty = cx.result_native_type::<T>()?` and call
+`ty.create(cx, payload, slots)`. Immediate raw results instead use
+`CallContext::allocate_result_payload(slots, builder)`, borrowing checked call authority
+without a temporary owning descriptor/DataRecord. Exact mapping/publication preflight
+precedes builder effects; selected slots resolve afterward and allocation revalidates.
+The [native result contract](spec/host-interop.md#immediate-native-result-construction)
+owns callback ordering, roots and terminal raw-result handoff. There is no `create_opaque` helper. Empty slots require no active selection evidence;
 nonempty slots require the current checked native invocation. Bounded host types
 require a closed verified application occurrence, not runtime trait discovery.
 Contextual conversion checks both Rust mapping and Kagari nominal scope; registering

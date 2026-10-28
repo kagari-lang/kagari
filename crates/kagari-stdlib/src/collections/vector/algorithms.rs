@@ -281,7 +281,10 @@ impl<T: FromKagari> ScriptVec<T> {
         cx: &mut NativeContext<'_>,
         mut keep: impl FnMut(&mut NativeContext<'_>, T) -> NativeResult<bool>,
     ) -> NativeResult<()> {
-        self.compact(cx, |cx, _, value| keep(cx, value), false)
+        self.retain_retained(cx, |cx, value| {
+            let value = value.decode(cx)?;
+            keep(cx, value)
+        })
     }
 
     /// Linear adjacent deduplication, preserving the first element of each run.
@@ -290,7 +293,36 @@ impl<T: FromKagari> ScriptVec<T> {
         cx: &mut NativeContext<'_>,
         mut equal: impl FnMut(&mut NativeContext<'_>, T, T) -> NativeResult<bool>,
     ) -> NativeResult<()> {
-        self.compact(
+        self.compact_retained(
+            cx,
+            |cx, previous, value| {
+                let previous = previous.map(|value| value.decode(cx)).transpose()?;
+                let value = value.decode(cx)?;
+                match previous {
+                    Some(previous) => Ok(!equal(cx, previous, value)?),
+                    None => Ok(true),
+                }
+            },
+            true,
+        )
+    }
+
+    /// Script callbacks consume the retained extraction directly. Host conversion
+    /// belongs in the typed adapter, not in the shared compaction algorithm.
+    pub(crate) fn retain_retained(
+        &self,
+        cx: &mut NativeContext<'_>,
+        mut keep: impl FnMut(&mut NativeContext<'_>, ScriptValue) -> NativeResult<bool>,
+    ) -> NativeResult<()> {
+        self.compact_retained(cx, |cx, _, value| keep(cx, value), false)
+    }
+
+    pub(crate) fn dedup_retained(
+        &self,
+        cx: &mut NativeContext<'_>,
+        mut equal: impl FnMut(&mut NativeContext<'_>, ScriptValue, ScriptValue) -> NativeResult<bool>,
+    ) -> NativeResult<()> {
+        self.compact_retained(
             cx,
             |cx, previous, value| match previous {
                 Some(previous) => Ok(!equal(cx, previous, value)?),
@@ -300,10 +332,14 @@ impl<T: FromKagari> ScriptVec<T> {
         )
     }
 
-    fn compact(
+    fn compact_retained(
         &self,
         cx: &mut NativeContext<'_>,
-        mut keep: impl FnMut(&mut NativeContext<'_>, Option<T>, T) -> NativeResult<bool>,
+        mut keep: impl FnMut(
+            &mut NativeContext<'_>,
+            Option<ScriptValue>,
+            ScriptValue,
+        ) -> NativeResult<bool>,
         adjacent: bool,
     ) -> NativeResult<()> {
         let count = self.len(cx)?;
@@ -346,8 +382,6 @@ impl<T: FromKagari> ScriptVec<T> {
                     ))
                 })?
             };
-            let previous = previous.map(|value| value.decode(cx)).transpose()?;
-            let value = value.decode(cx)?;
             let retain = keep(cx, previous, value)?;
             // SAFETY: The decision commits exactly this item. Failure later restores
             // only the unvisited suffix; removed entries never return.

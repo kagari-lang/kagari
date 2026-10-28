@@ -3,8 +3,8 @@ use crate::{
     error::RuntimeError,
     gc::{
         GcHeap,
-        graph::objects::{EdgeVisitor, ScanEdge},
-        roots::{RootId, lock_releases},
+        graph::objects::{ScanEdge, ScanVisitor},
+        roots::{RootId, RootReleaseCursor},
     },
     native::storage::scan::{ScanBudget, ScanStatus},
 };
@@ -13,7 +13,7 @@ use crate::{
 pub(crate) struct RootCursor {
     next: usize,
     end: usize,
-    releases: usize,
+    releases: RootReleaseCursor,
     active: Option<RootId>,
     field: usize,
     values: usize,
@@ -23,7 +23,7 @@ pub(crate) struct RootCursor {
 impl GcHeap {
     pub(crate) fn begin_root_scan(&self) -> Result<RootCursor, RuntimeError> {
         let roots = self.roots.try_borrow().map_err(|_| invalid())?;
-        let releases = lock_releases(&roots.released).pending.len();
+        let releases = roots.begin_release_drain();
         Ok(RootCursor {
             next: 0,
             end: roots.slots.len(),
@@ -39,17 +39,10 @@ impl GcHeap {
         &self,
         cursor: &mut RootCursor,
         budget: &mut ScanBudget,
-        visit: &mut EdgeVisitor<'_>,
+        visit: &mut ScanVisitor<'_>,
     ) -> Result<ScanStatus, RuntimeError> {
-        while cursor.releases != 0 {
-            if !budget.take(1) {
-                return Ok(ScanStatus::Pending);
-            }
-            self.roots
-                .try_borrow_mut()
-                .map_err(|_| invalid())?
-                .drain_released_limit(1);
-            cursor.releases -= 1;
+        if self.drain_root_release_slice(&mut cursor.releases, budget)? == ScanStatus::Pending {
+            return Ok(ScanStatus::Pending);
         }
         while cursor.next < cursor.end {
             if !budget.take(1) {
@@ -86,12 +79,16 @@ impl GcHeap {
                 continue;
             }
             if cursor.field < cursor.values {
-                if let Some(value) = entry.values.get(cursor.field) {
-                    visit(ScanEdge::Value(*value))?;
+                if let Some(value) = entry.values.get(cursor.field)
+                    && visit(ScanEdge::Value(*value), budget)? == ScanStatus::Pending
+                {
+                    return Ok(ScanStatus::Pending);
                 }
             } else if cursor.field - cursor.values < cursor.metadata {
-                if let Some(root) = entry.metadata.get(cursor.field - cursor.values) {
-                    visit(ScanEdge::Metadata(root.edge()))?;
+                if let Some(root) = entry.metadata.get(cursor.field - cursor.values)
+                    && visit(ScanEdge::Metadata(root.edge()), budget)? == ScanStatus::Pending
+                {
+                    return Ok(ScanStatus::Pending);
                 }
             } else {
                 cursor.next += 1;

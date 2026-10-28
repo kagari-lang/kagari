@@ -56,7 +56,11 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>, name: &str) -> NativeResult<
         &protocol,
         "from_output",
         0,
-        enums::pending(1, symbols, output),
+        if name == "Option" {
+            enums::pending_option(1, output)
+        } else {
+            enums::pending(1, symbols, output)
+        },
     )?;
     module.trait_implementation_with(arity, |arguments| {
         let output_type = arguments[usize::from(name == "ControlFlow")].clone();
@@ -82,7 +86,11 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>, name: &str) -> NativeResult<
         &from_residual,
         "from_residual",
         0,
-        enums::pending(1, symbols, residual),
+        if name == "Option" {
+            enums::pending_option(1, residual)
+        } else {
+            enums::pending(1, symbols, residual)
+        },
     )?;
     let from = interface(module, "From", 1)?;
     let from_method = module.reference_method(&from, "from", 0)?;
@@ -110,7 +118,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>, name: &str) -> NativeResult<
     })?;
     if name == "Option" {
         let default = interface(module, "Default", 0)?;
-        let entry = override_entry(module, &default, "default", 0, enums::pending(0, &[enums::OPTION], |symbols, cx| enums::option(symbols, cx, None)))?
+        let entry = override_entry(module, &default, "default", 0, enums::pending_option(0, |symbols, cx| enums::option(symbols, cx, None)))?
             .documentation("Return Option<T>::None using the checked Option enum identity. T need not implement Default.\n\nSee `core::default::Default` for the construction contract.");
         module.trait_implementation_with(1, |arguments| {
             Ok(TraitImplementation {

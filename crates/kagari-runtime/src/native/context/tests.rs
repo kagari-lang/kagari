@@ -1,10 +1,10 @@
 use crate::{
     Runtime,
-    error::RuntimeErrorKind,
+    error::{RuntimeError, RuntimeErrorKind},
     frame::driver::ReturnAction,
-    module::ExecutableModule,
+    module::{ExecutableModule, Program},
     native::{
-        binding::{Codec, NativeBinding, NativeResult},
+        binding::{Codec, LinkedNativeFunction, NativeBinding, NativeResult},
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
         context::{
@@ -21,10 +21,299 @@ use crate::{
 };
 use kagari_bytecode::{instruction::NativeImportId, module::CallableTarget};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
-use std::sync::{
-    Arc, Mutex,
-    atomic::{AtomicUsize, Ordering},
+use std::{
+    cell::Cell,
+    panic::{AssertUnwindSafe, catch_unwind},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
+
+fn payload_factory() -> (Runtime, Program, Arc<LinkedNativeFunction>) {
+    let mut builder = ModuleBuilder::new("test::factory", &DeclarationCatalog::default()).unwrap();
+    let mut data = builder.define_type("Payload").unwrap();
+    data.native_storage(NativeStorage::data::<u32>()).unwrap();
+    let payload = data.finish().unwrap();
+    let make = builder
+        .define_function(FunctionDecl::new("make").returns(payload.apply([]).unwrap()))
+        .unwrap();
+    builder
+        .bind(
+            make,
+            NativeBinding::new(vec![], payload.codec(), |_| unreachable!()),
+        )
+        .unwrap();
+    let native = builder.finish().unwrap();
+    let mut runtime = Runtime::default();
+    native.install(&mut runtime).unwrap();
+    let program = runtime
+        .load_program("factory", free_function_program(&native.to_declaration()))
+        .unwrap();
+    let owner = runtime.select_program(&program).unwrap();
+    let function = runtime
+        .modules
+        .native_binding(&owner, NativeImportId::new(0))
+        .unwrap();
+    (runtime, program, function)
+}
+
+fn factory_call<'a>(
+    runtime: &'a Runtime,
+    owner: &'a ExecutableModule,
+    function: &'a LinkedNativeFunction,
+) -> CallContext<'a> {
+    CallContext {
+        runtime,
+        owner,
+        function,
+        arguments: ArgumentView {
+            heap: runtime.gc(),
+            frame: None,
+            slots: ArgumentSlots::Scalars(&[]),
+            narrowed: None,
+        },
+        invoke_script: |_, _, _, _| unreachable!(),
+    }
+}
+
+#[test]
+fn payload_builder_preflight_rejects_mapping_and_occurrence_before_effects() {
+    let (runtime, program, function) = payload_factory();
+    let owner = runtime.select_program(&program).unwrap();
+    let call = factory_call(&runtime, &owner, &function);
+    let effects = Cell::new(0);
+    let error = call
+        .allocate_result_payload(&[], |_, _| {
+            effects.set(effects.get() + 1);
+            Ok(7_u64)
+        })
+        .unwrap_err();
+    assert!(error.message().contains("payload type mismatch"));
+    let mut wrong = function.as_ref().clone();
+    wrong.import = NativeImportId::new(1);
+    let error = factory_call(&runtime, &owner, &wrong)
+        .allocate_result_payload(&[], |_, _| {
+            effects.set(effects.get() + 1);
+            Ok(7_u32)
+        })
+        .unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
+    let mut wrong = function.as_ref().clone();
+    let mut signature = wrong.prepared_signature.take().unwrap();
+    signature.result = runtime
+        .type_arguments(&owner, None, &[Ty::Builtin(BuiltinType::I32)])
+        .unwrap()
+        .pop()
+        .unwrap();
+    wrong.prepared_signature.set(signature).unwrap();
+    assert!(
+        factory_call(&runtime, &owner, &wrong)
+            .allocate_result_payload(&[], |_, _| {
+                effects.set(effects.get() + 1);
+                Ok(7_u32)
+            })
+            .is_err()
+    );
+    assert_eq!(effects.get(), 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
+}
+
+#[test]
+fn payload_builder_preflight_rejects_unavailable_and_faulted_authority_before_effects() {
+    enum Rejected {
+        Foreign,
+        Abandoned,
+        Condemned,
+        Faulted,
+        Poisoned,
+    }
+
+    for rejected in [
+        Rejected::Foreign,
+        Rejected::Abandoned,
+        Rejected::Condemned,
+        Rejected::Faulted,
+        Rejected::Poisoned,
+    ] {
+        let (runtime, program, function) = payload_factory();
+        let original = runtime.select_program(&program).unwrap();
+        let owner = match rejected {
+            Rejected::Foreign => {
+                let (foreign, program, _) = payload_factory();
+                foreign.select_program(&program).unwrap()
+            }
+            Rejected::Abandoned => {
+                let staged = runtime
+                    .stage_reload_verified_program(
+                        &program,
+                        None,
+                        original.verified_program().clone(),
+                    )
+                    .unwrap();
+                let owner = staged.module().clone();
+                drop(staged);
+                owner
+            }
+            Rejected::Condemned => {
+                let mut marker = runtime.gc.graph.lock();
+                marker.begin_cycle().unwrap();
+                marker.finish_roots().unwrap();
+                marker.close_mark().unwrap();
+                original
+            }
+            Rejected::Faulted => {
+                runtime.gc.graph.lock().fault();
+                // Availability for diagnostics is not permission to build a payload.
+                runtime.validate_executable_module(&original).unwrap();
+                original
+            }
+            Rejected::Poisoned => {
+                assert!(
+                    catch_unwind(AssertUnwindSafe(|| {
+                        let _marker = runtime.gc.graph.lock();
+                        panic!("injected factory graph poison");
+                    }))
+                    .is_err()
+                );
+                original
+            }
+        };
+        let effects = Cell::new(0);
+        assert!(
+            factory_call(&runtime, &owner, &function)
+                .allocate_result_payload(&[], |_, _| {
+                    effects.set(effects.get() + 1);
+                    Ok(7_u32)
+                })
+                .is_err()
+        );
+        assert_eq!(effects.get(), 0);
+    }
+}
+
+#[test]
+fn payload_builder_precedes_selected_slots_and_preserves_completed_effects() {
+    let (runtime, program, function) = payload_factory();
+    let owner = runtime.select_program(&program).unwrap();
+    let call = factory_call(&runtime, &owner, &function);
+    let effects = Cell::new(0);
+    let error = call
+        .allocate_result_payload::<u32>(&[0], |_, _| {
+            effects.set(effects.get() + 1);
+            Err(RuntimeError::module_validation("builder failed"))
+        })
+        .unwrap_err();
+    assert_eq!(error.message(), "module validation failed: builder failed");
+    let error = call
+        .allocate_result_payload(&[0], |_, _| {
+            effects.set(effects.get() + 1);
+            Ok(7_u32)
+        })
+        .unwrap_err();
+    assert!(error.message().contains("selected callable slot"));
+    assert_eq!(effects.get(), 2);
+    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+}
+
+#[test]
+fn payload_builder_effects_do_not_let_allocation_reuse_expired_admission() {
+    let (runtime, program, function) = payload_factory();
+    let owner = runtime.select_program(&program).unwrap();
+    let effects = Cell::new(0);
+    assert!(
+        factory_call(&runtime, &owner, &function)
+            .allocate_result_payload(&[], |_, _| {
+                effects.set(effects.get() + 1);
+                runtime.gc.graph.lock().fault();
+                Ok(7_u32)
+            })
+            .is_err()
+    );
+    assert_eq!(effects.get(), 1);
+    assert_eq!(runtime.gc().active_roots(), 0);
+}
+
+#[test]
+fn payload_builder_borrows_call_authority_and_result_survives_without_factory_program() {
+    let (runtime, program, function) = payload_factory();
+    let owner = runtime.select_program(&program).unwrap();
+    let session = runtime
+        .begin_execution(&owner, runtime.execution_options())
+        .unwrap();
+    let before = runtime.modules().retention_counts(owner.key());
+    let roots = runtime.gc().active_roots();
+    let call = factory_call(&runtime, &owner, &function);
+    let value = call
+        .allocate_result_payload(&[], |call, argument| {
+            assert_eq!(argument.ty(), call.result_type());
+            let during = runtime.modules().retention_counts(owner.key());
+            assert_eq!(during.runtime_values, before.runtime_values);
+            assert_eq!(during.active_calls, before.active_calls);
+            assert_eq!(runtime.gc().active_roots(), roots);
+            // An actual owning factory has a distinct lease. Immediate construction
+            // must not manufacture that lease, even temporarily around the builder.
+            {
+                let native = call.native_context()?;
+                let factory = native.result_native_type::<u32>()?;
+                assert_eq!(
+                    runtime
+                        .modules()
+                        .retention_counts(owner.key())
+                        .runtime_values,
+                    before.runtime_values + 1
+                );
+                drop(factory);
+            }
+            runtime.modules().check_sweep_access()?;
+            call.collect_garbage()?;
+            assert_eq!(
+                runtime
+                    .modules()
+                    .retention_counts(owner.key())
+                    .runtime_values,
+                before.runtime_values
+            );
+            Ok(42_u32)
+        })
+        .unwrap();
+    let root = runtime.root_value(value).unwrap();
+    assert_eq!(
+        runtime
+            .modules()
+            .retention_counts(owner.key())
+            .runtime_values,
+        before.runtime_values
+    );
+    drop(session);
+    let staged = runtime
+        .stage_reload_verified_program(&program, None, owner.verified_program().clone())
+        .unwrap();
+    runtime.publish_staged_reload(staged).unwrap();
+    // Edge-free data retains immutable type facts, not the factory's executable
+    // program. Only stored executable dependencies would keep that program alive.
+    assert!(
+        runtime
+            .collect_garbage()
+            .unwrap()
+            .reclaimed_modules
+            .contains(&owner.key())
+    );
+    let Value::GcHandle(id) = root.value(runtime.gc()).unwrap() else {
+        panic!("native result")
+    };
+    assert_eq!(
+        runtime
+            .gc()
+            .with_native::<u32, _>(id, |payload| Ok(*payload))
+            .unwrap(),
+        42
+    );
+    drop(root);
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+    assert!(!runtime.gc().validate_value(&value));
+}
 
 fn invoke_stored(
     runtime: &Runtime,

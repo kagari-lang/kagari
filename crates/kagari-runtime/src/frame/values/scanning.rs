@@ -3,7 +3,7 @@ use crate::{
     error::RuntimeError,
     execution_metadata::MetadataEdge,
     frame::values::{ExecutionValues, FrameSlots},
-    gc::graph::objects::{EdgeVisitor, ScanEdge},
+    gc::graph::objects::{ScanEdge, ScanVisitor},
     native::storage::scan::{ScanBudget, ScanStatus},
 };
 
@@ -31,7 +31,7 @@ impl ExecutionValues {
         &self,
         cursor: &mut FrameCursor,
         budget: &mut ScanBudget,
-        visit: &mut EdgeVisitor<'_>,
+        visit: &mut ScanVisitor<'_>,
     ) -> Result<ScanStatus, RuntimeError> {
         while cursor.next < cursor.end {
             if !budget.take(1) {
@@ -60,27 +60,42 @@ impl ExecutionValues {
                 continue;
             }
             match cursor.field {
-                0 => visit(ScanEdge::Metadata(MetadataEdge::Program(&window.program)))?,
+                0 => {
+                    if visit(
+                        ScanEdge::Metadata(MetadataEdge::Program(&window.program)),
+                        budget,
+                    )? == ScanStatus::Pending
+                    {
+                        return Ok(ScanStatus::Pending);
+                    }
+                }
                 1 => {
-                    if let Some(environment) = &window.environment {
-                        visit(ScanEdge::Metadata(MetadataEdge::Environment(
-                            environment.id,
-                        )))?;
+                    if let Some(environment) = &window.environment
+                        && visit(
+                            ScanEdge::Metadata(MetadataEdge::Environment(environment.id)),
+                            budget,
+                        )? == ScanStatus::Pending
+                    {
+                        return Ok(ScanStatus::Pending);
                     }
                 }
                 2 => {
-                    if let Some(application) = &window.native_application {
-                        visit(ScanEdge::Metadata(MetadataEdge::NativeApplication(
-                            application,
-                        )))?;
+                    if let Some(application) = &window.native_application
+                        && visit(
+                            ScanEdge::Metadata(MetadataEdge::NativeApplication(application)),
+                            budget,
+                        )? == ScanStatus::Pending
+                    {
+                        return Ok(ScanStatus::Pending);
                     }
                 }
                 3..=5 => {
                     if let Some(root) = window
                         .invocation
                         .and_then(|invocation| invocation.metadata_field(cursor.field - 3))
+                        && visit(ScanEdge::Metadata(root.edge()), budget)? == ScanStatus::Pending
                     {
-                        visit(ScanEdge::Metadata(root.edge()))?;
+                        return Ok(ScanStatus::Pending);
                     }
                 }
                 field if field - 6 < cursor.values => {
@@ -88,7 +103,9 @@ impl ExecutionValues {
                     let value = self.values.get(index).ok_or_else(|| {
                         RuntimeError::module_validation("invalid frame scan range")
                     })?;
-                    visit(ScanEdge::Value(*value))?;
+                    if visit(ScanEdge::Value(*value), budget)? == ScanStatus::Pending {
+                        return Ok(ScanStatus::Pending);
+                    }
                 }
                 _ => {
                     cursor.next += 1;

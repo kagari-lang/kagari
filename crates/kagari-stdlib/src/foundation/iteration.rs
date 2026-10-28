@@ -109,7 +109,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         &iteration.iterator,
         "next",
         0,
-        enums::pending(1, &[enums::OPTION], iterable::next),
+        enums::pending_option(1, iterable::next),
     )?;
     module.trait_implementation_with(1, |items| {
         Ok(TraitImplementation {

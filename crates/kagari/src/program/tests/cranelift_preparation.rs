@@ -8,7 +8,9 @@ use crate::{
     error::{EmbeddingError, RuntimeFailureKind},
     program::PreparedProgram,
 };
+use kagari_abi::native_call::JIT_POLL_EXECUTION_SYMBOL;
 use kagari_codegen_cranelift::CraneliftBackend;
+use kagari_contract::native::ExecutableSafepointKind;
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
@@ -165,6 +167,105 @@ fn unsupported_mir_selects_interpreter_before_any_script_instruction(
     );
     drop(report.return_value);
     assert_eq!(runtime.runtime().gc().active_roots(), 0);
+}
+
+#[test]
+fn decoded_scalar_native_body_completes_automatic_gc_through_abi_safepoints() {
+    let engine = KagariEngine::default();
+    // Stay inside the backend's straight-line i32 subset. Preserve logical points
+    // rather than folding the whole body to one constant before native emission.
+    let mut expressions = (1..=64).map(|value| value.to_string()).collect::<Vec<_>>();
+    // A balanced expression stays within the ordinary inference-depth limit.
+    while expressions.len() > 1 {
+        expressions = expressions
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| format!("({} + {})", pair[0], pair[1]))
+            .collect();
+    }
+    let expression = expressions.pop().unwrap();
+    let mut options = ArtifactOptions::default();
+    options.lowering.optimization = None;
+    let artifact = engine
+        .compile_to_artifact(
+            SourceFile::new(
+                "native-gc.kgr",
+                format!("fn main() -> i32 {{ {expression} }}"),
+            ),
+            options,
+        )
+        .unwrap();
+    let program = PreparedProgram::from_artifact(
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap(),
+        &Default::default(),
+        &Default::default(),
+    )
+    .unwrap();
+    drop(artifact);
+    let context = ExecutionContext {
+        jit_policy: JitPolicy::Enabled,
+        ..Default::default()
+    };
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let prepared = runtime
+        .prepare_native(
+            &program,
+            &loaded,
+            ProgramEntry::Main,
+            &mut CraneliftBackend::for_host().unwrap(),
+            &context.cancellation,
+        )
+        .unwrap();
+    let PreparedNativeEntry::Native(installed) = &prepared else {
+        panic!("the supported scalar body must compile, never fall back");
+    };
+    assert!(installed.artifact().safepoints.len() >= 64);
+    assert!(installed.artifact().safepoints.iter().all(|point| matches!(
+        &point.kind,
+        ExecutableSafepointKind::RuntimeHelperCall { helper }
+            if helper == JIT_POLL_EXECUTION_SYMBOL
+    )));
+    drop(program);
+
+    let heap = runtime.runtime().gc();
+    let retained = heap.root_execution_values(vec![Value::Unit; 4096]).unwrap();
+    const GARBAGE: usize = 4096;
+    for _ in 0..GARBAGE {
+        heap.alloc_string("garbage".into()).unwrap();
+    }
+    let before = heap.stats();
+    // No explicit collect_garbage or host gc_safepoint occurs in this interval.
+    // One entry-boundary step cannot scan the retained root extent, much less
+    // reclaim this heap: progress must continue at the emitted native ABI polls.
+    let report = runtime
+        .execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
+        .unwrap();
+    assert_eq!(report.return_value.value(heap), Some(Value::I32(2080)));
+    let jit = report.jit.unwrap();
+    assert_eq!(jit.status, JitExecutionStatus::Native);
+    assert!(jit.artifact.is_some());
+    assert!(jit.diagnostics.is_empty());
+    let after = heap.stats();
+    assert!(after.collections > before.collections);
+    assert!(after.reclaimed_objects - before.reclaimed_objects >= GARBAGE);
+    eprintln!(
+        "Cranelift native entry: ABI safepoints={}, completed cycles={}, reclaimed objects={}",
+        installed.artifact().safepoints.len(),
+        after.collections - before.collections,
+        after.reclaimed_objects - before.reclaimed_objects,
+    );
+    assert_eq!(retained.get(heap, 4095), Some(Value::Unit));
+    drop(report.return_value);
+    drop(retained);
+    assert_eq!(heap.active_roots(), 0);
+    assert_eq!(
+        runtime.runtime().resources().counters().current_call_depth,
+        0
+    );
+    assert!(!runtime.runtime().is_quarantined());
 }
 
 #[test]

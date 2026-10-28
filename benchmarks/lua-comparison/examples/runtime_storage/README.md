@@ -139,9 +139,9 @@ memory savings or pause improvements from these modeled byte counts.
 
 ## Incremental acceptance boundary
 
-These probes measure the current synchronous full collector only. They establish
-comparison baselines, not future pause measurements. The active PG plan owns the
-numerical acceptance decision and work-unit contract. Future instrumentation must
+The frozen modes above retain explicit full-collection comparisons. The separate
+`--automatic-families` mode below measures actual automatic activity. The active PG
+plan owns the numerical acceptance decision and work-unit contract. Observations
 separately report normal steps, escalation/assists, completed-cycle work and time,
 and indivisible provider scan/drop or allocator operations. A pause gate on normal
 bounded steps cannot silently omit an entire metadata graph or container traversal
@@ -150,3 +150,170 @@ must identify actual operations, their duration/size/count and their inclusion i
 full-cycle cost. Explicit `collect_garbage` still means completed collection, not
 one incremental step. No hard real-time guarantee, native backend proof, exhaustive
 size/platform coverage or new semantic test-suite acceptance is claimed here.
+
+## Automatic-family observations
+
+Use the same example in an **ordinary build**, without the benchmark `diagnostics`
+feature or runtime execution-event instrumentation. No new Cargo feature or product
+is required. The mode rejects the benchmark's counting-allocator build.
+
+```sh
+cargo build --release --locked -p kagari-lua-benchmark --example runtime_storage
+# One lifecycle per family; validate behavior and observations, not timing gates.
+target/release/examples/runtime_storage --automatic-families --check
+target/release/examples/runtime_storage --automatic-families --check --pressure
+# Only after measurement authorization: 3 warmups and 11 measured lifecycles.
+target/release/examples/runtime_storage --automatic-families
+target/release/examples/runtime_storage --automatic-families --pressure
+```
+
+`default` retains the production trigger floors (1024 logical units, 64 KiB).
+`--pressure` is a separately labeled, predeclared 64-unit/4096-byte trigger-floor
+profile, not a change to the 1024-work-unit service allowance or 32-item disposal
+cap. The normal post-collection doubling rule still applies. Never pool policies
+or substitute the pressure result for the default result. Pressure runs require
+normal automatic activity in every lifecycle; default runs report inactivity rather
+than manufacturing allocations or fake zero-cost step samples. The offline validator
+requires real activity in every selected family for both policies.
+
+Both policies reuse the seven existing family sources, populations, native payloads
+and reload versions. Construction, verification/access and root-release safepoints
+are observed as `Automatic`; live/release cleanup remains explicit and is separately
+labeled `Explicit`. The original frozen modes, output rows, object/alias/key/reload
+assertions and disabled-auto settings are unchanged. Those seven families introduce
+no per-element roots or additional payload population. A separate, absolute-only host
+pressure control is described below. Retained reload checks original
+closure bodies with current named helpers; cycles still check 129 sparse survivors
+and final cleanup. External-provider/native-backend proof remains with its tests.
+
+Every measured phase starts/resets the public heap observation before its wall timer.
+The first start's fixed observation allocation, later resets, snapshots, formatting
+and final buffer release are outside that action timer; backing is not claimed zero
+or included in the old 55-memory comparison. Runtime-owned invocation clocks exclude
+only final telemetry publication and return-to-caller instructions. This opt-in
+instrumentation still has overhead; record the exact build/source provenance.
+
+Output retains:
+
+- `auto_phase`: scope, action wall time (including mutator work), before/after object
+  counts and whether a collector cycle was already active on entry.
+- `auto_work`: separate `normal`, `pressure_assist`, `explicit`, `cycles` and
+  `carried_cycles` count/failures, total/last/max work and duration. Action wall time
+  is not GC pause. Carried-cycle totals include earlier windows and must not be
+  attributed entirely to the current phase or added again to service durations.
+- `auto_slices`: structural work only, including slices inside assists/explicit calls;
+  these are not mislabeled as normal invocation pauses.
+- `auto_indivisible`: all eleven operation kinds, including zero counts; items, work,
+  known bytes, unknown-size count, duration sum and maximum, plus the slowest sample's
+  owner/native TypeId where available. Known bytes are local/shallow, not necessarily
+  freed bytes or transitive destructor cost. TypeId debug text is not a stable ID
+  across builds. Raw normal pauses include indivisible operations: never subtract
+  this maximum or total, or exempt the entire containing service.
+- `auto_summary`: all eleven per-lifecycle normal maxima/counts and their **maximum**
+  over the process, not their median. `auto_check` proves semantic assertions and
+  actual automatic normal activity separately from explicit cleanup.
+
+Validation also checks failure counts, work/time extrema, disjoint service scopes,
+service/slice work equality, service time within action wall time, completed-cycle
+counts against ordinary heap statistics, and unchanged final observation on release.
+Zero assists/carried cycles are honest absence of that observation, not evidence of
+assist latency. Explicit active-plus-fresh semantics are never divided into an
+invented average cycle time.
+
+Validate complete logs with the existing summary entrypoint:
+
+```sh
+uv run python benchmarks/lua-comparison/examples/runtime_storage/summarize.py --automatic --check target/default-check.log target/pressure-check.log --json target/automatic-check.json
+uv run python benchmarks/lua-comparison/examples/runtime_storage/summarize.py --automatic target/default-0.log target/default-1.log --json target/automatic-summary.json
+```
+
+The parser rejects check logs as timing evidence unless `--check` is explicit,
+missing/duplicate phases or categories, incorrect summary maxima and missing family
+activity. It preserves every process maximum, their median and the absolute maximum;
+it does **not** claim paired acceptance without corresponding frozen full-cycle
+baselines. For each measured scenario, use fresh seven-pair baseline `F_i`, compute
+`M_i / max(50000 ns, F_i / 4)` from that process's normal maximum, and take the median
+of seven normalized values. Publish every `M_i` and the absolute maximum. Windows
+with zero normal invocations have no latency sample, not a passing zero. The frozen
+association below selects only full-cycle GC rows, never constructor/action wall time
+or whichever phase happens to have the largest baseline. Keep full-cycle/assist/
+indivisible results and the separate original 55-memory gates alongside the pause report.
+
+### Frozen normal-step association
+
+`automatic_baselines.py` is the executable owner of this premeasurement association.
+It binds the unchanged logical family population, not an assertion that every earlier
+incremental slice sees the final graph or that PG00 and PG05 have identical physical
+object counts. Transient object counts, partial cycles and carried work remain in
+raw output. Normal maxima are per phase, not a lifetime maximum reassigned afterward.
+The same association applies separately to default and pressure profiles.
+
+| Family / unchanged logical population | Automatic window | PG00 full-cycle row used for F |
+| --- | --- | --- |
+| 32 nominal declarations x 4 instances; 128 interface entries | `construct`, `access` | `live_gc` |
+| 128 tuples x 6 native payloads | `construct`, `access` | `live_gc` |
+| One scalar Vec of 65536 i32 values | `construct`, `access` | `live_gc` |
+| One reference Vec of 8192 distinct Points | `construct`, `access` | `live_gc` |
+| 256 script keys / 16 hash buckets, unchanged insertion/update/read work | `construct`, `access` | `live_gc` |
+| Each of the preceding five families after its returned root is dropped | `release_boundary` | that same family's `release_gc` |
+| 4096 cyclic Nodes | `construct` | `dense_gc` |
+| Same dense graph reduced to 64 retained Nodes and their edge Vecs | `sparsify` | `sparsify_gc` |
+| 64 retained cycles plus a new 4096-node population in round i | `churn_construct_i` | `churn_gc_i`, same i, never the slowest round |
+| Verification of the retained 64 cycles after round i cleanup | `churn_access_i` | `sparse_live_gc` |
+| Final 64-cycle root release | `release_boundary` | `release_gc` |
+| Four retained generations x 256 Items, with three reload publications | `construct_reload`, `access` | `retained_gc` |
+| Drop the first three closure generations, retain the fourth | `release_old_boundary` | `release_old_gc` |
+| Drop the final retained closure generation | `release_all_boundary` | `release_all_gc` |
+
+Explicit observation windows are not normal-step gates. Their slices cannot inflate
+normal counts or replace the original full-GC throughput checks. The new host control
+has **no PG00 association**: its distinct population must not borrow a reference-Vec
+or root-control baseline. Assists are measured absolutely, never divided by a normal
+step's 1024 units or put under a normal-pause gate.
+
+For paired evaluation, `--automatic-pairs manifest.json` accepts a manifest containing
+`association_sha256` (the canonical association fingerprint) and `pairs`. Each pair
+contains `policy`, zero-based `pair`, `candidate`, `baseline_families` and
+`baseline_script_keys` log paths. It must exactly cover the input candidate logs,
+provide seven distinct baseline pairs, and use the same baseline pair for both
+policies. Baseline F is validated against eleven raw samples and three warmups, and
+is recomputed for each fresh process from the preserved PG00 images. The parser
+rejects a changed association, duplicate pair, check-mode log or policy mismatch.
+No historical median, constructor duration, summed family timings or PG04 result can
+substitute for F. Output includes all paired F/M/limits/ratios, absolute maxima,
+input hashes, and `passed=null` when a window has no normal observations in any pair.
+
+### Forced pressure-assist and carried-cycle control
+
+Both automatic policies additionally run `host_pressure_burst_2048x2048`. This is a
+small host scenario in the same example, not a new benchmark product or an added
+population inside a frozen family. It deliberately creates 2048 independent retained
+host String roots, then one burst of 2048 unrooted Strings through public allocation
+APIs with no intervening safepoint. The roots are explicit workload state, not
+per-element rooting of a library container's internal edges; all are released.
+
+- Start from a fresh Runtime with zero completed cycles and no explicit setup GC.
+  Thus the first captured unit threshold is the configured floor, which is asserted
+  below 2048 in both profiles; no previous cycle has doubled it.
+- Admit the 2048 roots without collector service. One public safepoint must produce
+  exactly one normal slice with `0 < work <= 1024` and no cycle completion. The root
+  extent cannot fit in that slice; no private phase inspection or test-only budget
+  is used.
+- Reset observation during that active cycle. The burst must add exactly 2048 objects
+  and more positive heap units than the first-cycle threshold, with zero collector
+  calls and no intervening completion. Reset again immediately before the safepoint.
+- That safepoint must produce exactly one pressure assist with work greater than 1024,
+  zero normal/explicit invocations, one carried completion and zero newly begun cycle
+  completions. Snapshots before/after prove classification and work; action wall time
+  is not substituted for service pause. Carried work must equal first-slice work plus
+  assist work exactly once.
+- Read every retained String through public rooted handles. Explicit fresh cleanup
+  must leave exactly the 2048 retained Strings; after root release, final explicit
+  cleanup must return to baseline. Indivisible destruction remains separately reported.
+
+`auto_work` retains absolute assist duration/work; summary JSON adds per-process assist
+counts, total work/time, maxima, their median and absolute maximum. The control's
+first normal slice is also reported, but is absolute-only rather than a fabricated
+PG00 ratio. This makes absence of escalation in the natural families distinguishable
+from actual forced-assist evidence. The mode and parser fail if the intended assist
+or carried cycle does not occur; no pressure threshold is retuned after timing.

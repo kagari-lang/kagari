@@ -2,8 +2,8 @@ use crate::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, MAX_IDENTITY_PATH_SEGMENTS,
     ModuleIdentity, PackageId,
     table::{
-        DefinitionId, DefinitionIndex, DefinitionTableBuilder, DefinitionTableError, TableData,
-        module::ModuleHandle,
+        DefinitionId, DefinitionIndex, DefinitionSegment, DefinitionTableBuilder,
+        DefinitionTableError, TableData, module::ModuleHandle,
     },
 };
 use rstest::rstest;
@@ -119,6 +119,80 @@ fn borrowed_identity_queries_require_the_explicit_scope() {
         }),
         Err(DefinitionTableError::InvalidIndex)
     ));
+}
+
+#[test]
+fn component_lookup_preserves_full_identity_and_snapshot_scope() {
+    let mut expected = path("game", "hp");
+    expected.module.path = vec!["combat".into(), "damage".into()];
+    let mut builder = DefinitionTableBuilder::new().unwrap();
+    let empty = builder.freeze();
+    let id = builder.intern_path(&expected).unwrap();
+    let table = builder.freeze();
+    let segments = [
+        DefinitionSegment {
+            kind: DefinitionKind::Struct,
+            name: "Player",
+            occurrence: 0,
+        },
+        DefinitionSegment {
+            kind: DefinitionKind::Field,
+            name: "hp",
+            occurrence: 0,
+        },
+    ];
+    let package = expected.module.package.0.as_str();
+    let modules = ["combat", "damage"];
+    assert_eq!(
+        table.lookup_components(package, modules, segments),
+        Some(id)
+    );
+    assert_eq!(table.lookup(&expected), Some(id));
+    assert_eq!(empty.lookup_components(package, modules, segments), None);
+    assert_eq!(table.lookup_components("foreign", modules, segments), None);
+    assert_eq!(
+        table.lookup_components(package, ["damage", "combat"], segments),
+        None
+    );
+    assert_eq!(table.lookup_components(package, ["combat"], segments), None);
+    assert!(table.lookup_components(package, ["combat"], []).is_some());
+    for replacement in [
+        DefinitionSegment {
+            kind: DefinitionKind::Function,
+            ..segments[1]
+        },
+        DefinitionSegment {
+            name: "missing",
+            ..segments[1]
+        },
+        DefinitionSegment {
+            occurrence: 1,
+            ..segments[1]
+        },
+    ] {
+        assert_eq!(
+            table.lookup_components(package, modules, [segments[0], replacement]),
+            None
+        );
+    }
+    assert_eq!(
+        table.lookup_components(package, modules, [segments[1]]),
+        None
+    );
+
+    let mut foreign = DefinitionTableBuilder::new().unwrap();
+    let foreign_id = foreign.intern_path(&expected).unwrap();
+    assert_ne!(foreign_id, id);
+    assert_eq!(
+        foreign
+            .freeze()
+            .lookup_components(package, modules, segments),
+        Some(foreign_id)
+    );
+    assert_eq!(
+        foreign.freeze().resolve(id).unwrap_err(),
+        DefinitionTableError::ForeignTable
+    );
 }
 
 fn path(module: &str, name: &str) -> DefinitionPath {

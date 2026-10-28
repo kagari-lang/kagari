@@ -96,6 +96,13 @@ pub struct ResourceCounters {
     pub peak_retained_bytes: u128,
 }
 
+/// Monotonic committed growth, independent of current occupancy and releases.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CommittedPressure {
+    pub(crate) units: u128,
+    pub(crate) bytes: u128,
+}
+
 #[derive(Debug)]
 pub struct ResourceState {
     // Observe destruction in ownership regressions without making storage shared.
@@ -108,12 +115,15 @@ pub struct ResourceState {
     execution: ExecutionState,
     limits: RuntimeLimits,
     counters: RefCell<ResourceCounters>,
+    pressure: Cell<CommittedPressure>,
 }
 
 /// Exclusive, preflighted transition; no callbacks or reentry while held.
 pub(crate) struct HeapChange<'a> {
     session: Option<Ref<'a, SessionState>>,
     counters: RefMut<'a, ResourceCounters>,
+    pressure: &'a Cell<CommittedPressure>,
+    before: HeapCharge,
     base_units: usize,
     base_bytes: u128,
     max_units: usize,
@@ -125,6 +135,14 @@ impl HeapChange<'_> {
             charge.logical_units <= self.max_units,
             "preflighted heap change"
         );
+        let mut pressure = self.pressure.get();
+        pressure.units += charge
+            .logical_units
+            .saturating_sub(self.before.logical_units) as u128;
+        pressure.bytes += charge
+            .retained_bytes
+            .saturating_sub(self.before.retained_bytes) as u128;
+        self.pressure.set(pressure);
         let units = self.base_units + charge.logical_units;
         let bytes = self.base_bytes + charge.retained_bytes as u128;
         self.counters.current_heap_units = units;
@@ -176,6 +194,7 @@ impl ResourceState {
             execution: Default::default(),
             limits,
             counters: RefCell::new(ResourceCounters::default()),
+            pressure: Cell::default(),
         }
     }
 
@@ -279,6 +298,10 @@ impl ResourceState {
         Ok(())
     }
 
+    pub(crate) fn committed_pressure(&self) -> CommittedPressure {
+        self.pressure.get()
+    }
+
     pub fn counters(&self) -> ResourceCounters {
         *self.counters.borrow()
     }
@@ -375,9 +398,20 @@ impl ResourceState {
         base_bytes
             .checked_add(usize::MAX as u128)
             .ok_or_else(|| self.limit("retained bytes"))?;
+        let pressure = self.pressure.get();
+        pressure
+            .units
+            .checked_add(max_units as u128)
+            .ok_or_else(|| self.limit("committed heap pressure"))?;
+        pressure
+            .bytes
+            .checked_add(usize::MAX as u128)
+            .ok_or_else(|| self.limit("committed backing pressure"))?;
         Ok(HeapChange {
             session: None,
             counters,
+            pressure: &self.pressure,
+            before,
             base_units,
             base_bytes,
             max_units,
@@ -417,6 +451,51 @@ impl Default for ResourceState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn positive_pressure_survives_release_and_failed_preparation() {
+        let resources = ResourceState::default();
+        resources
+            .prepare_heap_change(HeapCharge::default(), 3)
+            .unwrap()
+            .commit(HeapCharge::new(3, 32));
+        drop(
+            resources
+                .prepare_heap_change(HeapCharge::new(3, 32), 9)
+                .unwrap(),
+        );
+        assert_eq!(
+            resources.committed_pressure(),
+            CommittedPressure {
+                units: 3,
+                bytes: 32
+            }
+        );
+        resources
+            .prepare_heap_change(HeapCharge::new(3, 32), 3)
+            .unwrap()
+            .commit(HeapCharge::new(1, 64));
+        resources.release_heap_charge(HeapCharge::new(1, 64));
+        assert_eq!(
+            resources.committed_pressure(),
+            CommittedPressure {
+                units: 3,
+                bytes: 64
+            }
+        );
+        assert_eq!(resources.counters().current_heap_units, 0);
+        resources
+            .prepare_heap_change(HeapCharge::default(), 2)
+            .unwrap()
+            .commit(HeapCharge::new(2, 8));
+        assert_eq!(
+            resources.committed_pressure(),
+            CommittedPressure {
+                units: 5,
+                bytes: 72
+            }
+        );
+    }
 
     #[test]
     fn tracks_call_depth_peaks() {

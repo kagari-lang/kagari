@@ -505,9 +505,18 @@ slots, including slots without edges: `ScanBudget::take` consumes work before
 inspection, while `charge` reports indivisible work even when it exceeds the budget.
 `Pending` must report finite progress; `Complete` ends the traversal. The runtime
 checks capability/work reporting, but this does not replace the provider's unsafe
-edge-completeness obligation. The current driver drains the scanner synchronously;
-resumable provider support does not promise production incremental marking or a
-hard pause bound.
+edge-completeness obligation. PG05 traced service reserves provider work plus up to
+four bitmap-reset words per emitted edge before advancing opaque continuation state.
+`Bounded::max_work` is limited to **204 provider units**: at worst 204 × 5 = 1020 units
+fit the normal 1024-unit service allowance. A bounded scan waits until its complete
+reservation fits; larger providers use Resumable or explicitly Indivisible. Resumable
+service has a 256-provider-unit chunk ceiling but adapts to the remaining shared
+budget; 256 is not a guaranteed slice size. Unused reservation is refunded, and actual
+provider and reset work is counted. Indivisible scans report full work and duration,
+including overruns. Admission can still drain the scanner synchronously. The integrated
+PG05 driver remains under validation in the
+[phase ledger](../paged-incremental-gc-design.md#pg05-integrated-driver-and-open-acceptance);
+provider capability does not establish a hard pause bound or phase acceptance.
 
 General `Opaque<P>::read(cx, operation, closure)` and
 `edit(cx, operation, EditPlan, closure)` are unsafe. Their higher-ranked closures
@@ -567,6 +576,49 @@ views are blocked until finalization clears the loan flag and reconciles charge
 and revision. Internal scoped validation still checks actual aggregates and
 ownership; stable physical placement does not waive collection/reentry exclusion.
 
+### Immediate checked payload reads
+
+Unsafe `NativeContext::read_payload` reads an already protected raw value without
+creating a root, borrowed view or reusable access token. Its signature is:
+
+```text
+pub unsafe fn read_payload<P: NativePayload, R>(
+    &self,
+    value: Value,
+    contract: &StorageType,
+    read: impl for<'loan> FnOnce(&'loan P, &mut StorageAccess<'loan>) -> NativeResult<R>,
+) -> NativeResult<R>
+```
+
+The scoped contract supplies the original lexical type owner; the NativeContext
+supplies current live execution authority. Old data need not keep its original
+program executable. Admission checks contract/value compatibility before executable/
+mapping admission, preserving runtime, generation, kind, nominal application,
+installed Rust representation, graph phase, cancellation and operation-conflict
+checks. Admission invokes neither user conversion nor collection. Invalid or
+unavailable values and conflicting loans/guards fail before the closure runs.
+
+The method uses the same `read_native` loan kernel as owning/argument-backed access.
+Collection, take, competing loans and script reentry are excluded during the closure;
+errors/unwinds restore the loan, and a read does not run provider charging. Interior
+mutation must not change edges, structure or accounting. The higher-ranked closure
+prevents a payload reference escaping through `R`, but `R` can still contain copied
+raw values: retain them before their source protection expires or changes.
+
+**Caller safety obligation:** a root or unchanged traced edge must protect `value`
+until access begins. A copied Value or cloned contract is not a root. For example,
+a rooted parent may yield a copied child Value and contract under one loan; end that
+loan before immediately reading the child. The edge must remain traced and unchanged,
+with no intervening callback, collection or mutation removing its protection. Retain
+any child result that must survive that protection before ending the child loan.
+If the sequence needs such an intervening operation, retain the child first instead.
+This is not a projection-membership capability, multi-object loan or NoGcGuard.
+
+`StorageType: Clone` shares scoped TypeArgument and lexical-owner metadata without
+allocation, a GC root or an executable lease. Internal unscoped contracts may clone
+an owned type allocation. Cloning evidence preserves its original scope; it neither
+retains the raw value nor grants authority to execute the old owner.
+
 ## Retained native data and executable preparation
 
 `Opaque<P>` owns its root and shared data metadata (exact TypeArgument, lexical
@@ -591,9 +643,10 @@ call retains its selected computation.
 
 `ModuleBuilder::define_opaque::<P>(name)` associates the declaration, storage policy
 from `P::registration_storage()` and `Opaque<P>` mapping once. Host creation uses
-`NativeType<P>::create(cx, payload, selected_slots)`. A typed constructor obtains
-that descriptor with `cx.result_native_type::<P>()?`; the separate `create_opaque`
-entrypoint is removed. Empty slots need no active native-call selection evidence;
+`NativeType<P>::create(cx, payload, selected_slots)`. A typed constructor needing an
+independently owned descriptor obtains it with `cx.result_native_type::<P>()?`.
+Immediate raw native results instead use the call-scoped builder specified below;
+the separate `create_opaque` entrypoint is removed. Empty slots need no active native-call selection evidence;
 nonempty slots must belong to the current checked invocation. Stored relationships
 are metadata edges. `Opaque::stored_function` provides a typed handle and low-level
 `CallContext::call_stored_values` returns `RootedValue`, not an unprotected result.
@@ -605,15 +658,64 @@ cancellation and depth checks without invoking Rust conversion callbacks. Provid
 can retain just the active comparison pair across a collecting call instead of
 re-encoding it or retaining the complete input collection.
 
+### Immediate native result construction
+
+The single `CallContext` payload-allocation entrypoint takes a builder, not a prebuilt
+payload argument:
+
+```text
+pub fn allocate_result_payload<P: NativePayload>(
+    &self,
+    selected_slots: &[usize],
+    build: impl FnOnce(&CallContext<'_>, &TypeArgument) -> NativeResult<P>,
+) -> NativeResult<Value>
+```
+
+Before the builder runs, the runtime validates the exact checked import/result occurrence,
+installed Rust payload mapping and authoritative executable publication. Diagnostic
+availability alone does not admit explicit Faulted, Poisoned, condemned or unavailable
+owners. The builder borrows the existing call authority and receives its concrete result
+type argument; this path prepares no owning NativeType, RustType or DataRecord. No module
+store or payload borrow spans the builder. Collecting/reentrant work must still use the
+checked services available to the caller and retain extracted edges across such work;
+the shared CallContext receiver does not broaden mutable `call_values` access.
+
+After a successful builder, selected slots resolve in the current invocation. The common
+NativeStorage allocation kernel revalidates after builder effects, scans edges, publishes
+and roots the object before its allocation safepoint. A builder or later failure does not
+roll back completed effects. The raw returned Value is a **terminal native-result handoff**:
+return/publish it before another callback or safepoint, or explicitly root it first.
+
+Ordering depends on the existing operation. An adapter that originally called sources
+before allocating keeps those callbacks before `allocate_result_payload`, holds their roots
+outside the builder through allocation return, and moves the prepared payload into the
+closure. An immediate Node/Vec constructor builds its payload inside the builder so result
+preflight still precedes construction. Independently escaping NativeType/Opaque values keep
+their owned path; call-local authority is not a reusable descriptor or an external lease.
+An edge-free rooted payload can remain readable after its old executable program is
+reclaimed; only actual stored executable dependencies retain that code.
+
+Flat NativeBinding methods can use `CallContext::payload::<P>(index)` for a checked,
+call-scoped borrowed receiver rather than decoding owning Opaque/DataRecord and duplicate
+roots. This retains payload loans and exact runtime/type/revision validation. Cursor next
+still preflights its result, encodes Option, roots escaping source/results and commits
+advancement in the specified once-only order; it is not an unchecked access shortcut.
+
 Bounded host binding consumes closed native-application witnesses sealed by
 source-free verification, with carrier, occurrence, nominal application and binder
 scope. Source analysis and lowering preserve native bounds; verification checks
 imports/shared-call applications against declarations before producing witnesses.
 They are immutable nonserialized verification facts, not runtime trait search or
 GC state. Open or unseen applications, wrong supplying scopes and forged/omitted
-bounds cannot authorize host construction. An active native constructor uses only
-its exact import/result witness (including an adapter's concrete receiver), then
-checks the prepared result's type and scope. Reconstructing a descriptor from an
+bounds cannot authorize host construction. Native linking resolves the import from its
+actual verified carrier and import slot and checks the installed result plus its sealed
+opaque witness (occurrence, nominal application and binder), including concrete result-
+adapter receivers and shared templates. Load/reload/publication revalidation supply that
+carrier; checked signature preparation/application retains the result facts. Each active
+constructor still validates live owner/environment/import agreement and compares scoped
+import/result views with the prepared signature, rather than materializing and discarding
+a second TypeArgument. Shared symbolic comparison may still resolve type expressions;
+this is not a bypass of generic bounds, dynamic authority or post-builder revalidation. Reconstructing a descriptor from an
 existing object instead validates that object's type, owner/generation and Rust
 representation. Type admission alone does not manufacture callable constructor
 selections.

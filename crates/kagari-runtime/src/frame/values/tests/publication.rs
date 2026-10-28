@@ -318,7 +318,11 @@ fn root_cursor_survives_compaction_reuse_and_direct_operand_publication() {
         (first, second, values.begin_root_scan())
     };
     runtime.gc.graph.lock().begin_cycle().unwrap();
-    let mut visit = |edge: ScanEdge<'_>| runtime.gc.shade_graph_edge(&runtime.modules, edge);
+    let mut visit = |edge: ScanEdge<'_>, budget: &mut ScanBudget| {
+        runtime
+            .gc
+            .shade_scanned_edge(&runtime.modules, edge, budget)
+    };
     // Both windows have one managed slot. Advance past the second value, but
     // leave its full identity active while the preceding bank range is removed.
     assert_eq!(
@@ -326,7 +330,7 @@ fn root_cursor_survives_compaction_reuse_and_direct_operand_publication() {
             .resources()
             .frame_values
             .borrow()
-            .scan_root_slice(&mut cursor, &mut ScanBudget::new(17), &mut visit)
+            .scan_root_slice(&mut cursor, &mut ScanBudget::new(25), &mut visit)
             .unwrap(),
         ScanStatus::Pending
     );
@@ -390,14 +394,16 @@ fn scan_frames(runtime: &Runtime, cursor: &mut FrameCursor, work: usize) -> Scan
         .resources()
         .frame_values
         .borrow()
-        .scan_root_slice(cursor, &mut ScanBudget::new(work), &mut |edge| {
-            runtime.gc.shade_graph_edge(&runtime.modules, edge)
+        .scan_root_slice(cursor, &mut ScanBudget::new(work), &mut |edge, budget| {
+            runtime
+                .gc
+                .shade_scanned_edge(&runtime.modules, edge, budget)
         })
         .unwrap()
 }
 
 fn close_frame_cycle(runtime: &Runtime, cursor: &mut FrameCursor, retained: Value) {
-    assert!((0..1000).any(|_| scan_frames(runtime, cursor, 1) == ScanStatus::Complete));
+    assert!((0..1000).any(|_| scan_frames(runtime, cursor, 5) == ScanStatus::Complete));
     runtime.gc.graph.lock().finish_roots().unwrap();
     runtime.gc.drain_graph_work(&runtime.modules).unwrap();
     runtime.gc.graph.lock().close_mark().unwrap();

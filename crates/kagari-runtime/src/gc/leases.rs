@@ -14,6 +14,8 @@ impl Entry {
     }
 }
 
+/// Entries exist exactly while at least one guard is outstanding. The final
+/// guard removes its entry, so collection never needs to scan this table.
 #[derive(Debug, Default)]
 pub(crate) struct LeaseTable {
     entries: RefCell<HashMap<HeapObjectId, Entry>>,
@@ -67,6 +69,8 @@ impl LeaseTable {
         entries
             .try_reserve(1)
             .map_err(|_| RuntimeError::resource_limit("storage lease registry"))?;
+        // A new zero-count entry always admits its first guard. Overflow can
+        // only reject an existing nonzero entry and leaves its guards intact.
         let entry = entries.entry(id).or_default();
         entry.borrowed = entry
             .borrowed
@@ -74,10 +78,49 @@ impl LeaseTable {
             .ok_or_else(|| RuntimeError::resource_limit("storage lease depth"))?;
         Ok(BorrowedLease { table: self, id })
     }
+}
 
-    pub(crate) fn prune(&self) {
-        self.entries
-            .borrow_mut()
-            .retain(|_, entry| entry.borrowed != 0);
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    #[test]
+    fn failed_nested_borrow_and_unwind_preserve_final_guard_removal() {
+        let table = LeaseTable::default();
+        let id = HeapObjectId {
+            owner: 7,
+            slot: 0,
+            generation: 0,
+        };
+        let first = table
+            .borrow_operation(id, NativeOperationKind::ExclusiveSlots)
+            .unwrap();
+        let nested = table.borrow(id).unwrap();
+        drop(first);
+        assert!(table.is_active(id));
+        assert_eq!(
+            table.operation(id),
+            Some(NativeOperationKind::ExclusiveSlots)
+        );
+        // Capacity exhaustion must leave the existing registration intact.
+        table.entries.borrow_mut().get_mut(&id).unwrap().borrowed = usize::MAX;
+        assert!(table.borrow(id).is_err());
+        assert_eq!(table.entries.borrow()[&id].borrowed, usize::MAX);
+        table.entries.borrow_mut().get_mut(&id).unwrap().borrowed = 1;
+        assert!(
+            catch_unwind(AssertUnwindSafe(|| {
+                let _nested = nested;
+                panic!("unwind the final lease");
+            }))
+            .is_err()
+        );
+        assert!(!table.is_active(id));
+        assert!(table.operation(id).is_none());
+        assert!(table.entries.borrow().is_empty());
+        let next = table.borrow(id).unwrap();
+        assert!(table.operation(id).is_none());
+        drop(next);
+        assert!(table.entries.borrow().is_empty());
     }
 }

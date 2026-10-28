@@ -1,27 +1,45 @@
-//! One bounded prepare/commit owner for physical sweep and committed charges.
+//! Bounded multi-fragment prepare/commit with one aggregate identity/charge proof.
+pub(in crate::gc) mod disposal;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod transaction_tests;
 
+use self::disposal::SweepBatch;
 use super::{
     ObjectStorage, PayloadKind, PayloadLocation,
-    pages::{Retired, retirement::RetiredRange},
+    descriptors::DescriptorId,
+    pages::batch::{Fragment, order::ordering_work},
 };
 use crate::{
     execution_metadata::interfaces::InterfaceStore,
     gc::{
-        GcHeap, HeapObjectId,
+        HeapObjectId,
         graph::{GraphMarker, MarkPhase, sweep::SweepGraph},
     },
-    native::storage::scan::ScanBudget,
+    native::storage::scan::{ScanBudget, ScanStatus},
 };
-use std::cell::RefCell;
+use std::{cell::RefCell, mem};
 
 pub(in crate::gc) const RETIRE_LIMIT: usize = 32;
+// Three fixed arrays, output-empty preflight, final empty token-array cleanup,
+// and two selection-local bitmap words. Reserve before any initialization,
+// including progress-only and failed preparation.
+const WORKSPACE_WORK: usize = RETIRE_LIMIT * 5 + 2;
+const OWNER_RETIRE_WORK: usize = 8;
+// Bitmap checks, physical detach/finish, descriptor counts and final-owner release.
+const FRAGMENT_FINISH_WORK: usize = 32;
+const BATCH_FINISH_WORK: usize = 32;
+
+enum PreparedOwner {
+    Survivor,
+    Retire,
+    Pending,
+}
 
 #[derive(Debug)]
 pub(super) struct Sweep {
-    wrapper: usize,
-    wrapper_end: usize,
+    pub(super) wrapper: usize,
     outstanding: bool,
     max_units: usize,
     max_bytes: u128,
@@ -36,86 +54,122 @@ pub(in crate::gc) struct SweepTotals {
     pub(in crate::gc) live: usize,
 }
 
-enum Disposal {
-    Payload(Retired),
-    Range(RetiredRange),
+struct Candidate {
+    index: usize,
+    location: PayloadLocation,
+    physical: Option<(DescriptorId, bool)>,
 }
 
-/// Fixed workspace, not an allocation proportional to the dead population. This
-/// proof never escapes prepare/commit's exclusive, noncallback storage borrow.
 struct Prepared {
+    owner: u64,
     identities: [Option<HeapObjectId>; RETIRE_LIMIT],
-    start: Option<PayloadLocation>,
+    fragments: [Option<Fragment>; RETIRE_LIMIT],
+    fragment_count: usize,
     count: usize,
     units: usize,
     bytes: u128,
 }
 
+/// Only borrowed prefixes leave preparation; the large arrays stay in place.
+struct Commit<'a> {
+    identities: &'a [Option<HeapObjectId>],
+    fragments: &'a [Option<Fragment>],
+    units: usize,
+    bytes: u128,
+}
+
 impl Prepared {
-    fn new() -> Self {
+    #[inline(always)]
+    fn new(owner: u64) -> Self {
         Self {
+            owner,
             identities: [None; RETIRE_LIMIT],
-            start: None,
+            fragments: [None; RETIRE_LIMIT],
+            fragment_count: 0,
             count: 0,
             units: 0,
             bytes: 0,
         }
     }
 
+    fn extends(&self, candidate: &Candidate) -> bool {
+        candidate.physical.is_some_and(|(descriptor, small)| {
+            small
+                && self.fragment_count != 0
+                && self.fragments[self.fragment_count - 1]
+                    .is_some_and(|fragment| fragment.extends(candidate.location, descriptor))
+        })
+    }
+
     fn push(
         &mut self,
-        id: HeapObjectId,
-        location: PayloadLocation,
+        candidate: &Candidate,
+        generation: u32,
         units: usize,
         bytes: usize,
     ) -> Option<()> {
         self.units = self.units.checked_add(units)?;
         self.bytes = self.bytes.checked_add(bytes as u128)?;
-        self.start.get_or_insert(location);
-        self.identities[self.count] = Some(id);
+        if let Some((descriptor, small)) = candidate.physical {
+            if self.extends(candidate) {
+                self.fragments[self.fragment_count - 1].as_mut()?.count += 1;
+            } else {
+                self.fragments[self.fragment_count] = Some(Fragment {
+                    start: candidate.location,
+                    descriptor,
+                    count: 1,
+                    small,
+                });
+                self.fragment_count += 1;
+            }
+        }
+        self.identities[self.count] =
+            Some(HeapObjectId::new(self.owner, candidate.index, generation));
         self.count += 1;
         Some(())
     }
 
-    /// Consume the checked identities without repeating batch-wide occupancy or
-    /// free-list setup. No callback or admission can intervene after preparation.
-    fn commit(
-        self,
-        objects: &mut ObjectStorage,
-        disposal: Option<Disposal>,
-        totals: SweepTotals,
-        complete: bool,
-    ) -> SweepBatch {
-        let identities = &self.identities[..self.count];
+    /// Invalidate before the first mutation. An abandoned or failed page preflight
+    /// cannot replay this prefix, and no large workspace is moved into commit.
+    fn seal(&mut self) -> Commit<'_> {
+        let count = mem::take(&mut self.count);
+        assert_ne!(count, 0, "nonempty unconsumed retirement proof");
+        let fragments = mem::take(&mut self.fragment_count);
+        Commit {
+            identities: &self.identities[..count],
+            fragments: &self.fragments[..fragments],
+            units: mem::take(&mut self.units),
+            bytes: mem::take(&mut self.bytes),
+        }
+    }
+}
+
+impl Commit<'_> {
+    fn commit(self, objects: &mut ObjectStorage, batch: &mut SweepBatch<'_>, totals: SweepTotals) {
+        batch.objects = self.identities.len();
+        batch.units = self.units;
+        batch.bytes = self.bytes;
         let mut free = objects.free_identity;
-        for id in identities.iter().flatten() {
+        for id in self.identities.iter().flatten() {
+            let location = objects.slots[id.index()]
+                .location()
+                .expect("prepared occupied identity");
+            if location.kind == PayloadKind::Interface {
+                objects.remove_wrapper_prepared(location.page as usize);
+            }
             objects.slots[id.index()].retire(id.index() as u32, &mut free);
         }
         objects.free_identity = free;
         objects.occupied = totals.live;
-        // Consult the actual owner once, not a shadow initialization counter.
         if !objects.initialization_owners.is_empty() {
-            for id in identities.iter().flatten() {
+            for id in self.identities.iter().flatten() {
                 objects.initialization_owners.remove(id);
             }
         }
         let sweep = objects.sweep.as_mut().expect("active physical sweep");
         sweep.totals = totals;
         sweep.outstanding = true;
-        SweepBatch {
-            disposal,
-            units: self.units,
-            bytes: self.bytes,
-            complete,
-        }
     }
-}
-
-pub(in crate::gc) struct SweepBatch {
-    disposal: Option<Disposal>,
-    units: usize,
-    bytes: u128,
-    pub(in crate::gc) complete: bool,
 }
 
 impl ObjectStorage {
@@ -130,13 +184,10 @@ impl ObjectStorage {
         if graph.phase() != MarkPhase::Sweep || self.sweep.is_some() {
             return None;
         }
-        // Backing is accounted separately at final release. Reserve its entire
-        // committed total, including survivor pages, before accepting payload sums.
         let max_bytes = retained_bytes.checked_sub(self.backing_bytes() as u128)?;
         self.pages.begin_sweep();
         self.sweep = Some(Sweep {
-            wrapper: 0,
-            wrapper_end: self.interface_directories.len(),
+            wrapper: self.interface_directories.len(),
             outstanding: false,
             max_units,
             max_bytes,
@@ -147,119 +198,113 @@ impl ObjectStorage {
 
     fn prepare_owner(
         &self,
-        owner: u64,
-        index: usize,
-        location: PayloadLocation,
+        candidate: &Candidate,
         interfaces: &RefCell<InterfaceStore>,
         graph: &SweepGraph<'_, '_>,
         prepared: &mut Prepared,
-    ) -> Option<bool> {
-        let slot = self.slots.get(index)?;
-        if slot.location()? != location {
+        budget: &mut ScanBudget,
+    ) -> Option<PreparedOwner> {
+        let slot = self.slots.get(candidate.index)?;
+        if slot.location()? != candidate.location {
             return None;
         }
         #[cfg(test)]
         self.discovery_visits.set(self.discovery_visits.get() + 1);
-        let mark = self.mark_for_directory(index);
-        if graph.is_survivor(mark).ok()? {
-            return Some(true);
+        if graph
+            .is_survivor(self.mark_for_directory(candidate.index))
+            .ok()?
+        {
+            return Some(PreparedOwner::Survivor);
         }
-
-        let charge = self.get(location, interfaces)?.charge(interfaces)?;
+        let new_fragment = candidate.physical.is_some() && !prepared.extends(candidate);
+        let reserve = OWNER_RETIRE_WORK
+            + if prepared.count == 0 {
+                BATCH_FINISH_WORK
+            } else {
+                0
+            }
+            + if new_fragment {
+                FRAGMENT_FINISH_WORK + ordering_work(prepared.fragment_count + 1)
+                    - ordering_work(prepared.fragment_count)
+            } else {
+                0
+            };
+        // Reserve the monotone proof-bound delta before admitting this fragment:
+        // both scratch arrays, merge comparisons/writes and adjacent interval checks.
+        if !budget.take(reserve) {
+            return Some(PreparedOwner::Pending);
+        }
+        let charge = self
+            .get(candidate.location, interfaces)?
+            .charge(interfaces)?;
         prepared.push(
-            HeapObjectId::new(owner, index, slot.generation),
-            location,
+            candidate,
+            slot.generation,
             charge.logical_units,
             charge.retained_bytes,
         )?;
-        Some(false)
+        Some(PreparedOwner::Retire)
     }
 
-    /// Each call returns at most one page-local descriptor range (or one large
-    /// owner), never splitting a small page just to fill another page's batch.
-    /// Every inspected slot, including holes and survivors, consumes budget.
+    /// Greedily select at most 32 actual owners across physical allocations. All
+    /// fragments validate before the first detach. Preview cursors publish only
+    /// after successful preflight or successful inspection-only progress.
     pub(in crate::gc) fn sweep_batch(
         &mut self,
         owner: u64,
         interfaces: &RefCell<InterfaceStore>,
         graph: &mut GraphMarker<'_>,
         budget: &mut ScanBudget,
-    ) -> Option<SweepBatch> {
-        if self.sweep.as_ref()?.outstanding {
+        batch: &mut SweepBatch<'_>,
+    ) -> Option<()> {
+        if self.sweep.as_ref()?.outstanding || batch.has_retirements() || batch.fragments != 0 {
             return None;
         }
         let graph = graph.sweep_batch().ok()?;
-        let mut prepared = Prepared::new();
-        let mut descriptor = None;
-
-        let mut small = false;
-        let page = self.pages.sweep_page();
-        while page.is_some()
-            && self.pages.sweep_page() == page
-            && prepared.count < RETIRE_LIMIT
-            && budget.take(1)
-        {
-            let candidate = self.pages.sweep_slot();
-            if prepared.count != 0
-                && !candidate.as_ref().is_some_and(|slot| {
-                    Some(slot.descriptor) == descriptor
-                        && slot.location.page == prepared.start.unwrap().page
-                        && slot.location.slot as usize
-                            == prepared.start.unwrap().slot as usize + prepared.count
-                })
-            {
+        let mut prepared = Prepared::new(owner);
+        let mut scanner = self.pages.scanner();
+        let mut wrapper = self.sweep.as_ref()?.wrapper;
+        while prepared.count < RETIRE_LIMIT {
+            let Some(slot) = scanner.peek(budget)? else {
+                break;
+            };
+            let candidate = Candidate {
+                index: slot.directory as usize,
+                location: slot.location,
+                physical: Some((slot.descriptor, slot.small)),
+            };
+            if matches!(
+                self.prepare_owner(&candidate, interfaces, &graph, &mut prepared, budget)?,
+                PreparedOwner::Pending
+            ) {
                 break;
             }
-            if let Some(slot) = candidate {
-                small = slot.small;
-                descriptor = Some(slot.descriptor);
-                let survivor = self.prepare_owner(
-                    owner,
-                    slot.directory as usize,
-                    slot.location,
-                    interfaces,
-                    &graph,
-                    &mut prepared,
-                )?;
-
-                self.pages.advance_sweep();
-                if !small || (survivor && prepared.count != 0) {
-                    break;
-                }
-            } else {
-                self.pages.advance_sweep();
-            }
+            scanner.advance();
         }
-        if prepared.count == 0 && self.pages.sweep_done() {
-            while prepared.count < RETIRE_LIMIT {
-                let sweep = self.sweep.as_mut()?;
-                if sweep.wrapper == sweep.wrapper_end || !budget.take(1) {
-                    break;
-                }
-                let ordinal = sweep.wrapper;
-                sweep.wrapper += 1;
-                let wrapper = &self.interface_directories[ordinal];
-                let location = PayloadLocation {
-                    kind: PayloadKind::Interface,
-                    page: ordinal as u32,
-                    slot: 0,
+        let cursor = scanner.cursor();
+        // Never mix page payloads with wrapper swap-removal in a transaction.
+        if prepared.count == 0 && cursor.page.is_none() {
+            while wrapper != 0 && prepared.count < RETIRE_LIMIT && budget.take(1) {
+                let ordinal = wrapper - 1;
+                let candidate = Candidate {
+                    index: self.interface_directories[ordinal].directory as usize,
+                    location: PayloadLocation {
+                        kind: PayloadKind::Interface,
+                        page: ordinal as u32,
+                        slot: 0,
+                    },
+                    physical: None,
                 };
-                // A prior take/retirement may have reused the directory. The old
-                // wrapper ordinal must not name its replacement's metadata.
-                if self.slots[wrapper.directory as usize].location() != Some(location) {
-                    continue;
+                if matches!(
+                    self.prepare_owner(&candidate, interfaces, &graph, &mut prepared, budget)?,
+                    PreparedOwner::Pending
+                ) {
+                    break;
                 }
-                self.prepare_owner(
-                    owner,
-                    wrapper.directory as usize,
-                    location,
-                    interfaces,
-                    &graph,
-                    &mut prepared,
-                )?;
+                wrapper -= 1;
             }
         }
-        let sweep = self.sweep.as_mut()?;
+        let sweep = self.sweep.as_ref()?;
         let totals = SweepTotals {
             objects: sweep.totals.objects.checked_add(prepared.count)?,
             units: sweep.totals.units.checked_add(prepared.units)?,
@@ -269,96 +314,41 @@ impl ObjectStorage {
         if totals.units > sweep.max_units || totals.bytes > sweep.max_bytes {
             return None;
         }
-        let complete = self.pages.sweep_done() && sweep.wrapper == sweep.wrapper_end;
-        let credits = graph.prepare_retirement(prepared.count).ok()?;
-        // All fallible charge/identity checks precede detachment. A range validates
-        // its complete initialized interval before mutating any slot; no callbacks
-        // or allocations occur between preparation and consuming these identities.
-        let disposal = if let Some(start) = prepared.start {
-            if start.kind == PayloadKind::Interface {
-                None
-            } else if small {
-                Some(Disposal::Range(
-                    self.pages.prepare_range(start, prepared.count)?.detach(),
-                ))
-            } else {
-                Some(Disposal::Payload(self.pages.detach(start)?))
-            }
+        let status = if cursor.page.is_none() && wrapper == 0 {
+            ScanStatus::Complete
         } else {
-            None
+            ScanStatus::Pending
         };
-        let batch = prepared.commit(self, disposal, totals, complete);
-        credits.commit();
-        Some(batch)
+        if prepared.count != 0 {
+            if prepared.fragment_count == 0 {
+                self.prepare_wrapper_removal(prepared.count)?;
+            }
+            let credits = graph.prepare_retirement(prepared.count).ok()?;
+            let proof = prepared.seal();
+            let physical = self
+                .pages
+                .prepare_batch(proof.fragments, &mut batch.disposal)?;
+            batch.fragments = proof.fragments.len();
+            physical.detach();
+            self.pages.publish_sweep(cursor);
+            self.sweep.as_mut()?.wrapper = wrapper;
+            proof.commit(self, batch, totals);
+            credits.commit();
+        } else {
+            self.pages.publish_sweep(cursor);
+            self.sweep.as_mut()?.wrapper = wrapper;
+        }
+        batch.status = status;
+        Some(())
     }
 
     pub(in crate::gc) fn finish_physical_sweep(&mut self) -> Option<SweepTotals> {
         let sweep = self.sweep.as_ref()?;
-        if sweep.outstanding || !self.pages.sweep_done() || sweep.wrapper != sweep.wrapper_end {
+        if sweep.outstanding || !self.pages.sweep_done() || sweep.wrapper != 0 {
             return None;
         }
         let mut totals = self.sweep.take()?.totals;
-        // A take or newborn between slices can change an already visited page.
         totals.live = self.occupied;
         Some(totals)
-    }
-}
-
-impl GcHeap {
-    /// Accounting remains committed during payload destruction and final dispatch /
-    /// backing-owner release. A panic quarantines before the next destructor runs.
-    pub(in crate::gc) fn dispose_sweep_batch(&self, mut batch: SweepBatch) -> usize {
-        match &mut batch.disposal {
-            Some(Disposal::Payload(payload)) => {
-                if payload.dispose() {
-                    self.resources
-                        .quarantine("native payload destruction panicked");
-                }
-            }
-            Some(Disposal::Range(range)) => {
-                range.dispose(|| {
-                    self.resources
-                        .quarantine("native payload destruction panicked");
-                });
-            }
-            None => {}
-        }
-        let (released, disposal) = {
-            let mut objects = self.objects.borrow_mut();
-            match batch.disposal {
-                Some(Disposal::Payload(payload)) => {
-                    let (bytes, payload) = objects.finish(payload);
-                    (bytes, Some(Disposal::Payload(payload)))
-                }
-                Some(Disposal::Range(range)) => (
-                    objects.pages.finish_range(&range),
-                    Some(Disposal::Range(range)),
-                ),
-                None => (0, None),
-            }
-        };
-        let panicked = match disposal {
-            Some(Disposal::Payload(payload)) => payload.release(),
-            Some(Disposal::Range(range)) => range.release(),
-            None => false,
-        };
-        if panicked {
-            self.resources
-                .quarantine("representation owner destruction panicked");
-        }
-        self.resources.release_heap_totals(
-            batch.units,
-            batch
-                .bytes
-                .checked_add(released as u128)
-                .expect("prepared payload and backing bound"),
-        );
-        self.objects
-            .borrow_mut()
-            .sweep
-            .as_mut()
-            .expect("active physical sweep")
-            .outstanding = false;
-        released
     }
 }

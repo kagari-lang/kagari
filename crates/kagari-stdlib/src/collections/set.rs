@@ -187,7 +187,7 @@ impl<T> ScriptSet<T> {
 impl<T: KagariType + 'static> ScriptSet<T> {
     /// Invoke the checked public constructor with a concrete host element mapping.
     pub fn create(cx: &mut NativeContext<'_>) -> NativeResult<Self> {
-        let element = ConversionContext::new(cx.runtime(), cx.owner())?.type_for::<T>()?;
+        let element = cx.conversion_scope(cx.owner())?.type_for::<T>()?;
         Self::create_with_type(cx, &element)
     }
 
@@ -203,7 +203,8 @@ impl<T: KagariType + 'static> ScriptSet<T> {
                     "HashSet",
                     DefinitionKind::AssociatedType,
                 ))?;
-        let receiver = ConversionContext::new(cx.runtime(), cx.owner())?
+        let receiver = cx
+            .conversion_scope(cx.owner())?
             .apply_type(&declaration, slice::from_ref(element))?;
         cx.runtime()
             .bind_constructor::<Self>(cx.owner(), &receiver)?

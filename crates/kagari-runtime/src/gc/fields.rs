@@ -3,29 +3,44 @@ mod codec;
 
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
-    gc::{GcHeap, HeapObjectId, directory::descriptors::Descriptor},
+    gc::{
+        GcHeap, HeapObjectId,
+        directory::descriptors::Descriptor,
+        weak_cache::{WeakCache, WeakCacheToken},
+    },
     module::{
         StructLayoutRef,
         layout_storage::{StoredField, StructStorageKey, StructStorageLayout},
     },
+    native::storage::scan::{ScanBudget, ScanStatus},
     value::{StructValueField, Value, scalar},
     value_check::matches_type_in,
 };
 use kagari_contract::representation::builtin_representation;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
-use std::{
-    collections::HashMap,
-    sync::{Arc, Weak},
-};
+use std::sync::Arc;
 
 #[derive(Debug, Default)]
 pub(super) struct StructStorageLayouts {
-    entries: HashMap<StructStorageKey, Weak<Descriptor>>,
+    entries: WeakCache<StructStorageKey, Descriptor>,
 }
 
 impl StructStorageLayouts {
-    pub(super) fn prune(&mut self) {
-        self.entries.retain(|_, layout| layout.strong_count() != 0);
+    /// Unlink the exact admission retired by the original descriptor directory.
+    /// The directory establishes deadness; token identity protects replacements.
+    /// The cache precharges its fixed structural work before inspecting a slot;
+    /// no semantic key components or collision chains are visited. On Pending the
+    /// caller must retain the incoming token for retry. On Complete, destroy both
+    /// incoming and detached tokens outside the cache borrow.
+    pub(super) fn release(
+        &mut self,
+        token: &WeakCacheToken<StructStorageKey, Descriptor>,
+        budget: &mut ScanBudget,
+    ) -> (
+        ScanStatus,
+        Option<WeakCacheToken<StructStorageKey, Descriptor>>,
+    ) {
+        self.entries.remove(token, budget)
     }
 }
 
@@ -159,18 +174,34 @@ impl GcHeap {
             .struct_layouts
             .try_borrow_mut()
             .map_err(|_| RuntimeError::module_validation("struct descriptions borrowed"))?;
-        if let Some(layout) = layouts.entries.get(&key).and_then(Weak::upgrade) {
+        if let Some(layout) = layouts.entries.get(&key) {
             return Ok(layout);
         }
         let layout = Descriptor::structure(
             StructStorageLayout::prepare(layout)
                 .ok_or_else(|| RuntimeError::module_validation("closed struct storage layout"))?,
         )?;
-        layouts
-            .entries
-            .try_reserve(1)
-            .map_err(|_| self.resource_limit("struct description registry"))?;
-        layouts.entries.insert(key, Arc::downgrade(&layout));
+        let insertion = layouts.entries.prepare_insert(key, &layout)?;
+        let token = insertion.token();
+        // Reservation finishes semantic lookup before the descriptor association
+        // is installed. Commit cannot fail, including when replacing a dead hint.
+        let registered = self
+            .objects
+            .try_borrow_mut()
+            .map_err(|_| RuntimeError::module_validation("object storage borrowed"))
+            .and_then(|mut objects| objects.register_struct_descriptor(&layout, token.clone()));
+        if let Err(error) = registered {
+            // Keep the token alive until both the insertion guard and cache borrow
+            // end, so abandoning an unpublished key cannot destroy it under either.
+            drop(insertion);
+            drop(layouts);
+            drop(token);
+            return Err(error);
+        }
+        let displaced = insertion.commit();
+        drop(layouts);
+        drop(displaced);
+        drop(token);
         Ok(layout)
     }
 }
@@ -331,5 +362,140 @@ impl GcHeap {
             })
         })
         .ok_or_else(|| field_error("invalid heap target"))?
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        Runtime,
+        gc::{storage::HeapObject, weak_cache::WEAK_CACHE_REMOVE_WORK},
+        test_support::layouts::layout,
+    };
+
+    #[test]
+    fn failed_struct_preparation_and_allocation_leave_no_weak_cache_entry_after_collection() {
+        for allocation in [false, true] {
+            let mut runtime = Runtime::default();
+            let semantic = layout(
+                &mut runtime,
+                "Unused",
+                &[("value", Ty::Builtin(BuiltinType::I32), true)],
+            );
+            let key = semantic.storage_key();
+            let heap = runtime.gc();
+            if allocation {
+                let storage = heap
+                    .prepare_struct_storage(semantic, vec![Value::I32(1)])
+                    .unwrap();
+                let _borrow = heap.objects.borrow();
+                assert!(heap.alloc_object(HeapObject::Struct { storage }).is_err());
+            } else {
+                assert!(
+                    heap.prepare_struct_storage(semantic, vec![Value::Bool(false)])
+                        .is_err()
+                );
+            }
+            assert!(heap.struct_layouts.borrow().entries.token(&key).is_some());
+            assert!(heap.struct_layouts.borrow().entries.get(&key).is_none());
+            runtime.collect_garbage().unwrap();
+            assert!(heap.struct_layouts.borrow().entries.token(&key).is_none());
+            assert!(!runtime.is_quarantined());
+        }
+    }
+
+    #[test]
+    fn rejected_descriptor_registration_leaves_cache_admission_uncommitted() {
+        for replacement in [false, true] {
+            let mut runtime = Runtime::default();
+            let semantic = layout(
+                &mut runtime,
+                "Uncommitted",
+                &[("value", Ty::Builtin(BuiltinType::I32), true)],
+            );
+            let key = semantic.storage_key();
+            let heap = runtime.gc();
+            let original = replacement.then(|| {
+                let descriptor = heap.struct_storage_description(semantic.clone()).unwrap();
+                let token = heap.struct_layouts.borrow().entries.token(&key).unwrap();
+                drop(descriptor);
+                token
+            });
+            {
+                let _borrow = heap.objects.borrow();
+                assert!(heap.struct_storage_description(semantic).is_err());
+            }
+            if let Some(original) = original {
+                // Removing by the original identity proves failed replacement did
+                // not overwrite its cleanup association with an abandoned token.
+                for available in [0, WEAK_CACHE_REMOVE_WORK - 1] {
+                    let mut budget = ScanBudget::new(available);
+                    let (status, removed) = heap
+                        .struct_layouts
+                        .borrow_mut()
+                        .release(&original, &mut budget);
+                    assert_eq!(status, ScanStatus::Pending);
+                    assert!(removed.is_none());
+                    assert_eq!(budget.spent(), 0);
+                    assert!(heap.struct_layouts.borrow().entries.token(&key).is_some());
+                }
+                let mut budget = ScanBudget::new(WEAK_CACHE_REMOVE_WORK);
+                let (status, removed) = heap
+                    .struct_layouts
+                    .borrow_mut()
+                    .release(&original, &mut budget);
+                assert_eq!(status, ScanStatus::Complete);
+                assert_eq!(budget.spent(), WEAK_CACHE_REMOVE_WORK);
+                assert!(removed.is_some());
+                drop(removed);
+            }
+            assert!(heap.struct_layouts.borrow().entries.token(&key).is_none());
+            runtime.collect_garbage().unwrap();
+            assert!(!runtime.is_quarantined());
+        }
+    }
+
+    #[test]
+    fn descriptor_release_preserves_live_tokens_and_newer_cache_replacements() {
+        let mut runtime = Runtime::default();
+        let semantic = layout(
+            &mut runtime,
+            "Record",
+            &[("value", Ty::Builtin(BuiltinType::I32), true)],
+        );
+        let key = semantic.storage_key();
+        let heap = runtime.gc();
+        let first = heap.struct_storage_description(semantic.clone()).unwrap();
+        let original = heap.struct_layouts.borrow().entries.token(&key).unwrap();
+        runtime.collect_garbage().unwrap();
+        assert!(Arc::ptr_eq(
+            &heap.struct_layouts.borrow().entries.get(&key).unwrap(),
+            &first,
+        ));
+        drop(first);
+        let next = heap.struct_storage_description(semantic).unwrap();
+        assert!(!original.is_for(&next));
+        runtime.collect_garbage().unwrap();
+        assert!(Arc::ptr_eq(
+            &heap.struct_layouts.borrow().entries.get(&key).unwrap(),
+            &next,
+        ));
+        let mut budget = ScanBudget::new(WEAK_CACHE_REMOVE_WORK);
+        let (status, removed) = heap
+            .struct_layouts
+            .borrow_mut()
+            .release(&original, &mut budget);
+        assert_eq!(status, ScanStatus::Complete);
+        assert_eq!(budget.spent(), WEAK_CACHE_REMOVE_WORK);
+        assert!(removed.is_none());
+        assert!(Arc::ptr_eq(
+            &heap.struct_layouts.borrow().entries.get(&key).unwrap(),
+            &next,
+        ));
+        drop(next);
+        runtime.collect_garbage().unwrap();
+        assert!(heap.struct_layouts.borrow().entries.token(&key).is_none());
+        assert!(!runtime.is_quarantined());
     }
 }

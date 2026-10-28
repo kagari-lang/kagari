@@ -1,6 +1,8 @@
 //! Validate registrations and prepare concrete entries/callables before execution.
 
 mod dependencies;
+#[cfg(test)]
+mod tests;
 use crate::{
     error::RuntimeError,
     host::HostPathAdapter,
@@ -17,7 +19,7 @@ use crate::{
 use kagari_bytecode::{
     instruction::NativeImportId,
     module::{BytecodeModule, CallableTarget},
-    program::ModuleRef,
+    program::{ModuleRef, native::NativeApplicationOccurrence},
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -30,15 +32,15 @@ use kagari_common::{
 };
 use kagari_contract::{
     callable::witness::OperationWitness,
-    native_import::{
-        NativeImport,
-        callables::{NativeCallableApplication, NativeCallableOrigin},
-    },
+    native_import::callables::{NativeCallableApplication, NativeCallableOrigin},
     standard::RuntimePrimitive,
 };
 use kagari_types::{
     callable::{CallableImplementation, Signature},
-    declaration::{NativeDeclaration, TraitDef, verify::validate_native_declarations},
+    declaration::{
+        NativeDeclaration, TraitDef, TypeDefKind, native::NativeStorageLayout,
+        verify::validate_native_declarations,
+    },
     language::Protocol,
     ty::Ty,
 };
@@ -233,10 +235,15 @@ impl NativeRegistry {
 
     pub(crate) fn link(
         &self,
-        import: &NativeImport,
+        carrier: ModuleRef,
         slot: NativeImportId,
         program: &VerifiedProgram,
     ) -> NativeResult<Arc<LinkedNativeFunction>> {
+        let import = program
+            .modules()
+            .get(carrier.index())
+            .and_then(|module| module.native_imports.get(slot.index()))
+            .ok_or_else(|| RuntimeError::module_validation("native import carrier"))?;
         let entry = self
             .entries
             .get_id(import.binding)
@@ -272,9 +279,33 @@ impl NativeRegistry {
         if let Some(adapter) = &import.result_adapter {
             signature.result = adapter.receiver.clone();
         }
+        if let Ty::NativeObject(nominal) = &signature.result {
+            let declared = self
+                .catalog
+                .types
+                .get_id(nominal.declaration)
+                .ok_or_else(|| {
+                    RuntimeError::module_validation("native result type is not installed")
+                })?;
+            // The verified carrier/import admits the template under its exact binder.
+            // Closed signature preparation and shared application retain those facts;
+            // payload construction need not rediscover this witness on every call.
+            if declared.kind == TypeDefKind::NativeStorage(NativeStorageLayout::Opaque)
+                && !program.native_applications().iter().any(|witness| {
+                    witness.carrier() == carrier
+                        && witness.occurrence() == NativeApplicationOccurrence::Import(slot)
+                        && witness.nominal() == nominal
+                        && witness.binder() == import.generic.as_ref()
+                })
+            {
+                return Err(RuntimeError::module_validation(
+                    "native result occurrence witness",
+                ));
+            }
+        }
         entry
             .binding
-            .check(&signature, program.definitions(), &entry.required_catalog)?;
+            .check(&signature, program.definitions(), &self.catalog)?;
         let selected = import
             .callables
             .iter()

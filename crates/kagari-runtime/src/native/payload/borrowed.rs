@@ -2,13 +2,15 @@
 use crate::{
     Runtime,
     error::RuntimeError,
+    frame::types::arguments::TypeArgument,
     gc::{HeapObjectId, roots::RootedValue},
     native::{
         binding::NativeResult,
         context::{ArgumentView, CallContext},
         conversion::{KagariType, arguments::KagariArguments},
         function_handle::Function,
-        payload::{Opaque, operation_guard},
+        payload::{Opaque, operation_guard, read::ReadReceiver},
+        rust_type::check_opaque_mapping,
         storage::{
             NativePayload,
             access::{EditPlan, StorageAccess},
@@ -19,6 +21,7 @@ use crate::{
     value::Value,
 };
 use kagari_contract::standard::RuntimePrimitive;
+use kagari_types::ty::Ty;
 use std::{marker::PhantomData, ptr};
 
 /// A provider receiver protected by a borrowed argument or owning handle root.
@@ -79,6 +82,54 @@ impl<'call> CallContext<'call> {
     }
 }
 
+impl<'view, P: NativePayload> BorrowedPayload<'view, P> {
+    /// Admit the mapping and existing root under the context's exact retained owner.
+    /// No conversion or callback occurs, so one ordered admission covers the view.
+    pub(in crate::native) fn from_root(
+        cx: &NativeContext<'view>,
+        root: Option<&'view RootedValue>,
+        expected: &TypeArgument,
+    ) -> NativeResult<Self> {
+        let runtime = cx.runtime();
+        runtime.gc().ensure_no_native_borrow()?;
+        admit_payload_mapping::<P>(cx, expected)?;
+        let root = root.ok_or_else(|| RuntimeError::module_validation("native storage root"))?;
+        let Some(Value::GcHandle(id)) = root.value(runtime.gc()) else {
+            return Err(RuntimeError::module_validation("native storage root"));
+        };
+        runtime
+            .gc()
+            .check_native_payload_argument::<P>(id, expected, cx.owner())?;
+        Ok(Self {
+            runtime,
+            source: Source::Owned(root),
+            id,
+            mapping: PhantomData,
+        })
+    }
+}
+
+/// Admit executable services independently of the payload's lexical type owner.
+/// No user conversion, collector service or store borrow escapes this operation.
+pub(in crate::native) fn admit_payload_mapping<P: NativePayload>(
+    cx: &NativeContext<'_>,
+    expected: &TypeArgument,
+) -> NativeResult<()> {
+    let runtime = cx.runtime();
+    runtime.resources().ensure_execution_allowed()?;
+    runtime.validate_executable_module(cx.owner())?;
+    // Availability alone permits diagnostic reads after Faulted; publication is
+    // required even when this context already retains the exact executable owner.
+    runtime.modules().publish_program(cx.owner())?;
+    expected.validate(runtime)?;
+    let Ty::NativeObject(nominal) = expected.ty() else {
+        return Err(RuntimeError::module_validation(
+            "native object requires an opaque storage type",
+        ));
+    };
+    check_opaque_mapping::<P>(runtime, nominal.declaration)
+}
+
 impl<P: NativePayload> BorrowedPayload<'_, P> {
     /// Inspect immutable builtin evidence without preparing an owning callable.
     /// Generated builtin adapters carry the same evidence as native entries.
@@ -98,7 +149,7 @@ impl<P: NativePayload> BorrowedPayload<'_, P> {
             .primitive())
     }
 
-    fn value(&self, runtime: &Runtime) -> NativeResult<Value> {
+    pub(super) fn value(&self, runtime: &Runtime) -> NativeResult<Value> {
         let value = match &self.source {
             Source::Argument(arguments, index) => arguments.get(*index),
             Source::Owned(root) => root.value(runtime.gc()),
@@ -134,11 +185,9 @@ impl<P: NativePayload> BorrowedPayload<'_, P> {
         operation: Option<&NativeOperationGuard<'_>>,
         read: impl for<'a> FnOnce(&'a P, &mut StorageAccess<'a>) -> NativeResult<R>,
     ) -> NativeResult<R> {
-        cx.poll()?;
-        self.value(cx.runtime())?;
-        self.runtime
+        cx.runtime()
             .gc()
-            .read_native(self.runtime, self.id, operation, read)
+            .read_native(cx.runtime(), ReadReceiver::Borrowed(self), operation, read)
     }
 
     /// Edit storage with ordinary preflight, publication, and unwind reconciliation.

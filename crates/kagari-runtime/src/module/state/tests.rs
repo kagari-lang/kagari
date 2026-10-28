@@ -45,21 +45,21 @@ fn black_static_initialization_replacement_and_sweep_reload_preserve_published_e
         .gc
         .begin_initial_roots(runtime.modules(), runtime.host())
         .unwrap();
-    loop {
-        if runtime
+    // Setup must fit a four-word bitmap reset plus its root inspection.
+    let mut status = ScanStatus::Pending;
+    for _ in 0..64 {
+        let mut budget = ScanBudget::new(64);
+        status = runtime
             .gc
-            .scan_initial_root_slice(
-                runtime.modules(),
-                runtime.host(),
-                &mut roots,
-                &mut ScanBudget::new(1),
-            )
-            .unwrap()
-            == ScanStatus::Complete
-        {
+            .scan_initial_root_slice(runtime.modules(), runtime.host(), &mut roots, &mut budget)
+            .unwrap();
+        assert!(budget.spent() <= 64);
+        if status == ScanStatus::Complete {
             break;
         }
+        assert!(budget.spent() > 0, "initial-root setup must make progress");
     }
+    assert_eq!(status, ScanStatus::Complete, "bounded initial-root setup");
     runtime.gc.drain_graph_work(runtime.modules()).unwrap();
     {
         let _session = runtime.begin_execution(&owner, Default::default()).unwrap();
@@ -911,7 +911,12 @@ fn corrupt_storage_quarantines_and_cleans_frame_resources(#[case] corruption: St
         .unwrap();
     let id = cell(&runtime.modules, &module, 0);
     if corruption == StorageCorruption::MissingCell {
-        runtime.modules.inner.borrow_mut().cells.remove(&id);
+        let removed = {
+            let mut store = runtime.modules.inner.borrow_mut();
+            let mut graph = runtime.modules.graph.lock();
+            store.cells.remove(&id, &mut graph).unwrap().unwrap()
+        };
+        drop(removed);
     } else if corruption == StorageCorruption::WrongValue {
         runtime
             .modules

@@ -82,12 +82,16 @@ fn lifecycle(engine: &KagariEngine, programs: &[PreparedProgram; 4]) -> Record {
     record
 }
 
-pub(super) fn run(engine: &KagariEngine) {
-    let programs: [_; 4] = array::from_fn(|version| {
+pub(super) fn programs(engine: &KagariEngine) -> [PreparedProgram; 4] {
+    array::from_fn(|version| {
         let source = SOURCE
             .replace("__VERSION__", &version.to_string())
             .replace("__CAPTURED_BODY__", &(version * 10).to_string());
         prepare(engine, "storage_reload.kgr", &source)
-    });
+    })
+}
+
+pub(super) fn run(engine: &KagariEngine) {
+    let programs = programs(engine);
     observations::run("retained_reload_4x256", || lifecycle(engine, &programs));
 }

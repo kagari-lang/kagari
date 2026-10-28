@@ -371,7 +371,11 @@ fn heap_path_temporaries_survive_collection_during_write_preparation(
             .unwrap();
         runtime.gc.graph.lock().begin_cycle().unwrap();
         let mut cursor = runtime.host.begin_root_scan().unwrap();
-        let mut visit = |edge: ScanEdge<'_>| runtime.gc.shade_graph_edge(runtime.modules(), edge);
+        let mut visit = |edge: ScanEdge<'_>, budget: &mut ScanBudget| {
+            runtime
+                .gc
+                .shade_scanned_edge(runtime.modules(), edge, budget)
+        };
         assert_eq!(
             runtime
                 .host

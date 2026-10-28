@@ -134,6 +134,9 @@ mod tests {
         let mut foreign_runtime = Runtime::default();
         let (_foreign_program, foreign) = load(&mut foreign_runtime);
         assert_eq!(own.key(), foreign.key());
+        let own_lease = runtime
+            .retain_program(&own, ModuleEpochRetention::ActiveCall)
+            .unwrap();
         assert!(
             runtime
                 .retain_module(&foreign, ModuleEpochRetention::ActiveCall)
@@ -144,6 +147,7 @@ mod tests {
                 .retain_program(&foreign, ModuleEpochRetention::RuntimeValue)
                 .is_none()
         );
+        drop(own_lease);
         assert_eq!(runtime.modules().retention_counts(own.key()).total(), 0);
         let candidate = runtime
             .stage_reload_program(&target, None, program())
@@ -194,7 +198,19 @@ mod tests {
                 .is_empty()
         );
         assert!(runtime.modules().is_program_root(first.key()));
+        let successor = runtime
+            .retain_program(&first, ModuleEpochRetention::RuntimeValue)
+            .unwrap();
         thread::spawn(move || drop(clone)).join().unwrap();
+        assert_eq!(runtime.modules().retention_counts(first.key()).total(), 1);
+        assert!(
+            runtime
+                .collect_garbage()
+                .unwrap()
+                .reclaimed_modules
+                .is_empty()
+        );
+        drop(successor);
         assert_eq!(runtime.modules().retention_counts(first.key()).total(), 0);
         assert_eq!(
             runtime.collect_garbage().unwrap().reclaimed_modules,
@@ -249,6 +265,26 @@ mod tests {
             assert!(runtime.is_quarantined());
             assert_eq!(runtime.modules().retention_counts(module.key()).total(), 0);
         }
+    }
+
+    #[test]
+    fn existing_program_retention_does_not_bypass_publication_faults() {
+        let mut runtime = Runtime::default();
+        let (_program, module) = load(&mut runtime);
+        let lease = runtime
+            .retain_program(&module, ModuleEpochRetention::ActiveCall)
+            .unwrap();
+        runtime.gc.graph.lock().fault();
+        // Explicit trace faults permit diagnostic reads, not new publications.
+        assert!(!runtime.is_quarantined());
+        assert!(runtime.validate_executable_module(&module).is_ok());
+        assert!(
+            runtime
+                .retain_program(&module, ModuleEpochRetention::RuntimeValue)
+                .is_none()
+        );
+        assert_eq!(runtime.modules().retention_counts(module.key()).total(), 1);
+        drop(lease);
     }
 
     #[test]

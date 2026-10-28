@@ -1,9 +1,12 @@
 #![cfg(test)]
 use super::{
     GraphIdentity, GraphMarker, GraphState, MarkPhase,
-    marks::{Color, Domain, MarkBlocks, OwnerMark, PageMarks},
+    marks::{self, Color, Domain, MarkBlocks, OwnerMark, PageMarks},
 };
-use crate::{gc::HeapObjectId, native::storage::scan::ScanBudget};
+use crate::{
+    gc::HeapObjectId,
+    native::storage::scan::{ScanBudget, ScanStatus},
+};
 
 fn object(slot: usize, generation: u32) -> GraphIdentity {
     GraphIdentity::Object(HeapObjectId::new(1, slot, generation))
@@ -196,8 +199,30 @@ fn page_marks_reset_lazily_charge_work_and_reinitialize_reused_slots() {
         marker.admit_prepared(object(index, 0), page.slot(index));
     }
     marker.begin_cycle().unwrap();
-    marker.shade(object(64, 0), page.slot(64)).unwrap();
-    assert_eq!(marker.bitmap_work, 4);
+    let initialized = marks::initialized_words();
+    let mut short = ScanBudget::new(3);
+    assert_eq!(
+        marker
+            .shade_scanned(object(64, 0), page.slot(64), &mut short)
+            .unwrap(),
+        ScanStatus::Pending
+    );
+    assert_eq!(short.spent(), 0);
+    assert_eq!(
+        marks::initialized_words(),
+        initialized,
+        "no word reset before reservation"
+    );
+    assert_eq!(page.slot(64).color(marker.epoch), Color::White);
+    let mut exact = ScanBudget::new(4);
+    assert_eq!(
+        marker
+            .shade_scanned(object(64, 0), page.slot(64), &mut exact)
+            .unwrap(),
+        ScanStatus::Complete
+    );
+    assert_eq!(exact.spent(), 4);
+    assert_eq!(marks::initialized_words() - initialized, 4);
     assert_eq!(page.slot(0).color(marker.epoch), Color::White);
     assert_eq!(page.slot(127).color(marker.epoch), Color::White);
     marker.finish_roots().unwrap();
@@ -212,9 +237,7 @@ fn page_marks_reset_lazily_charge_work_and_reinitialize_reused_slots() {
         Some(object(64, 0))
     );
     marker.finish_owner(object(64, 0), page.slot(64)).unwrap();
-    assert!(marker.close_mark().is_err());
-    assert!(!marker.charge_bitmap_work(&mut ScanBudget::new(3)));
-    assert!(marker.charge_bitmap_work(&mut ScanBudget::new(1)));
+
     marker.close_mark().unwrap();
     marker.can_retire(page.slot(64)).unwrap();
     marker.retire_prepared();
@@ -271,7 +294,7 @@ fn publication_into_queued_block_needs_no_spare_queue_position() {
             .finish_owner(id, marks.slot(Domain::Object, owner.index()))
             .unwrap();
     }
-    assert!(marker.charge_bitmap_work(&mut ScanBudget::new(16)));
+
     marker.close_mark().unwrap();
 }
 
@@ -347,7 +370,7 @@ fn grouped_gray_work_deduplicates_reopens_and_survives_block_growth() {
     marker
         .finish_owner(object(127, 0), marks.slot(Domain::Object, 127))
         .unwrap();
-    assert!(marker.charge_bitmap_work(&mut ScanBudget::new(24)));
+
     marker.close_mark().unwrap();
     for slot in 0..641 {
         assert!(

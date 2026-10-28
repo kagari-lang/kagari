@@ -5,16 +5,20 @@ use crate::diagnostics::{self, Event};
 use crate::{
     Runtime,
     error::RuntimeError,
-    execution_metadata::MetadataEdge,
+    execution_metadata::{
+        MetadataEdge,
+        scanning::{MetadataSweepCursor, RetirementBatch},
+    },
     frame::types::{EnvironmentRecord, TypeEnvironment},
     gc::{
         GcHeap,
         graph::{
-            GraphIdentity,
+            GraphIdentity, GraphMarker,
             marks::{Domain, MarkBlocks, MarkRef},
         },
     },
     module::ExecutableModule,
+    native::storage::scan::{ScanBudget, ScanStatus},
 };
 use std::{cell::Ref, collections::TryReserveError};
 
@@ -69,6 +73,8 @@ impl EnvironmentStore {
             Some(slot) => slot,
             None => {
                 self.slots.try_reserve(1)?;
+                self.free
+                    .try_reserve(self.slots.len() + 1 - self.free.len())?;
                 self.slots.push(Slot {
                     generation: 0,
                     environment: None,
@@ -124,31 +130,46 @@ impl EnvironmentStore {
         self.count
     }
 
-    /// The whole graph has been marked and validated before any store detaches.
-    pub(crate) fn detach_batch(
+    pub(crate) fn begin_sweep(&self) -> MetadataSweepCursor {
+        MetadataSweepCursor::new(self.owner, Domain::Environment, self.slots.len())
+    }
+
+    pub(crate) fn detach_slice(
         &mut self,
-        cursor: &mut usize,
+        cursor: &mut MetadataSweepCursor,
+        budget: &mut ScanBudget,
         limit: usize,
-        mut survivor: impl FnMut(MarkRef<'_>) -> bool,
-    ) -> Vec<PublishedEnvironment> {
-        assert!(limit != 0);
-        let mut retired = Vec::new();
-        while *cursor < self.slots.len() && retired.len() < limit {
-            let index = *cursor;
-            *cursor += 1;
+        graph: &mut GraphMarker<'_>,
+        retired: &mut Vec<PublishedEnvironment>,
+    ) -> Result<ScanStatus, RuntimeError> {
+        cursor.validate(
+            self.owner,
+            Domain::Environment,
+            self.slots.len(),
+            graph.phase(),
+        )?;
+        let batch = RetirementBatch::new(retired.len(), limit)?;
+        while cursor.next < cursor.end {
+            if batch.is_full(retired.len()) || !budget.take(1) {
+                return Ok(ScanStatus::Pending);
+            }
+            let index = cursor.next;
             let slot = &mut self.slots[index];
-            if !survivor(self.marks.slot(Domain::Environment, index))
-                && let Some(environment) = slot.environment.take()
-            {
-                retired.push(environment);
+            let mark = self.marks.slot(Domain::Environment, index);
+            if slot.environment.is_some() && !graph.is_survivor(mark)? {
+                graph.can_retire(mark)?;
+                batch.prepare(retired, cursor.remaining_slots())?;
+                retired.push(slot.environment.take().expect("occupied environment"));
+                graph.retire_prepared();
                 self.count -= 1;
                 if let Some(generation) = slot.generation.checked_add(1) {
                     slot.generation = generation;
                     self.free.push(index);
                 }
             }
+            cursor.next += 1;
         }
-        retired
+        Ok(ScanStatus::Complete)
     }
 }
 

@@ -793,6 +793,13 @@ and the [scope contract](host-interop.md).
 `Interface` and `Function<A, R>` retain the values needed by the host. Clones
 preserve identity and share retention; dropping the last handle permits collection.
 `ScriptValue` forwards an exact declared generic value without erasing its type.
+Fresh retention of Unit/Bool/Char/I32/I64/U64/F32/F64 may use a private immutable copy
+with its original runtime owner instead of renting a mutable root slot. Type metadata,
+owner checks, execution/publication admission and borrow exclusion remain; managed and
+interface values retain ordinary checked roots, and ephemeral values gain no shortcut.
+A ScriptValue constructed from an existing root always keeps that root, even for a scalar,
+preserving shared mutation and attached metadata. Public RootedValue/RootSet contracts
+are unchanged; scalar copies do not retain the runtime or require drop notifications.
 Ordinary field/collection reads and callback results need no manual root operation.
 Opaque and collection handles retain data metadata without implicitly preparing an
 executable NativeType. Use `opaque.prepare_native_type(cx)` when executable access
@@ -853,8 +860,12 @@ API. No payload reference may escape a loan or span callbacks/collection. See th
 [provider protocol](host-interop.md#general-native-payload-protocol).
 
 Ordinary registration uses `define_opaque::<T>(name)?`. Create instances through
-`NativeType<T>::create(cx, payload, selected_slots)`; typed constructors obtain the
-descriptor with `cx.result_native_type::<T>()?`. Use `&[]` without stored selections;
+`NativeType<T>::create(cx, payload, selected_slots)`; typed constructors needing an
+owned factory obtain the descriptor with `cx.result_native_type::<T>()?`. Immediate raw
+results instead use `CallContext::allocate_result_payload(selected_slots, builder)` without
+an owning descriptor/DataRecord; its preflight, effect ordering and terminal handoff follow
+[immediate native result construction](host-interop.md#immediate-native-result-construction).
+Use `&[]` without stored selections;
 nonempty slots require current checked native-call evidence. Bounded host binding
 uses [verified application occurrences](host-interop.md#native-application-admission),
 not a runtime trait resolver.

@@ -1,12 +1,17 @@
 //! Hash callbacks use library-owned storage through the public provider boundary.
 use crate::collections::{
-    hash::{input::Input, invalid, operations},
+    hash::{
+        cursor::{self, HashCursor},
+        input::Input,
+        invalid, operations,
+    },
     map::MapStorage,
     set::SetStorage,
 };
+use crate::foundation::enumerations::value::{EnumSymbols, converted_option};
 use kagari_runtime::native::{
-    binding::NativeResult, conversion::context::ConversionContext, payload::Opaque,
-    typed::NativeContext, value_handle::ScriptValue,
+    binding::NativeResult, context::CallContext, conversion::context::ConversionContext,
+    payload::Opaque, typed::NativeContext, value_handle::ScriptValue,
 };
 use kagari_runtime::value::Value;
 
@@ -20,6 +25,29 @@ pub(crate) fn set_new(cx: &mut NativeContext<'_>, (): ()) -> NativeResult<Opaque
     let ty = cx.result_native_type::<SetStorage>()?;
     let payload = SetStorage::empty(cx, &ty)?;
     ty.create(cx, payload, &[0, 1])
+}
+
+pub(crate) fn map_next(symbols: &EnumSymbols, call: &mut CallContext<'_>) -> NativeResult<Value> {
+    let mut cx = call.native_context()?;
+    let result_type = call.result_type_argument()?;
+    // The linked Option contract does not prove the tuple or its child mappings.
+    let element = cx.conversion().parameter(&result_type, 0)?;
+    cx.conversion()
+        .check_type::<(ScriptValue, ScriptValue)>(&element)?;
+    let receiver = call.payload::<HashCursor<MapStorage>>(0)?;
+    let result = cursor::map_next(&mut cx, &receiver)?;
+    // The ordinary child converter retains the tuple through Option allocation.
+    converted_option(symbols, call, cx.conversion(), &result_type, result)
+}
+
+pub(crate) fn set_next(symbols: &EnumSymbols, call: &mut CallContext<'_>) -> NativeResult<Value> {
+    let mut cx = call.native_context()?;
+    let result_type = call.result_type_argument()?;
+    let element = cx.conversion().parameter(&result_type, 0)?;
+    cx.conversion().check_type::<ScriptValue>(&element)?;
+    let receiver = call.payload::<HashCursor<SetStorage>>(0)?;
+    let result = cursor::set_next(&mut cx, &receiver)?;
+    converted_option(symbols, call, cx.conversion(), &result_type, result)
 }
 
 pub(crate) fn from_array(

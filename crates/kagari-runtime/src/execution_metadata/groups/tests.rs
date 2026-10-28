@@ -116,22 +116,138 @@ fn sweep_constructors_and_access_require_surviving_operation_dependencies() {
 
 #[test]
 fn foreign_stale_and_exhausted_group_ids_cannot_alias_records() {
-    let mut first = OperationGroupStore::new(1);
-    let mut second = OperationGroupStore::new(2);
-    let old = first.insert(vec![]).unwrap();
-    let foreign = second.insert(vec![]).unwrap();
-    assert!(first.get(foreign).is_none());
-    assert!(second.get(old).is_none());
-    assert_eq!(first.detach_batch(&mut 0, 32, |_| false).len(), 1);
-    let next = first.insert(vec![]).unwrap();
+    let first = Runtime::default();
+    let second = Runtime::default();
+    let old = first
+        .gc
+        .alloc_operation_group(first.modules(), vec![])
+        .unwrap();
+    let foreign = second
+        .gc
+        .alloc_operation_group(second.modules(), vec![])
+        .unwrap();
+    assert!(first.gc.operation_group(foreign).is_none());
+    assert!(second.gc.operation_group(old).is_none());
+    assert_eq!(
+        first.collect_garbage().unwrap().reclaimed_operation_groups,
+        1
+    );
+    let next = first
+        .gc
+        .alloc_operation_group(first.modules(), vec![])
+        .unwrap();
     assert_eq!(old.slot, next.slot);
     assert_ne!(old.generation, next.generation);
-    assert!(first.get(old).is_none());
-    first.slots[next.slot].generation = u64::MAX;
-    assert_eq!(first.detach_batch(&mut 0, 32, |_| false).len(), 1);
-    let fresh = first.insert(vec![]).unwrap();
+    assert!(first.gc.operation_group(old).is_none());
+    first.gc.operation_groups.borrow_mut().slots[next.slot].generation = u64::MAX;
+    assert_eq!(
+        first.collect_garbage().unwrap().reclaimed_operation_groups,
+        1
+    );
+    let fresh = first
+        .gc
+        .alloc_operation_group(first.modules(), vec![])
+        .unwrap();
     assert_ne!(fresh.slot, next.slot);
-    assert_eq!(first.count(), 1);
+    assert_eq!(first.gc.operation_groups.borrow().count(), 1);
+}
+
+#[test]
+fn sweep_slices_debit_survivors_and_holes_without_spending_retirement_allowance() {
+    let runtime = Runtime::default();
+    let ids = (0..40)
+        .map(|_| {
+            runtime
+                .gc
+                .alloc_operation_group(runtime.modules(), vec![])
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    runtime.gc.graph.lock().begin_cycle().unwrap();
+    for id in &ids[..35] {
+        runtime
+            .publish_metadata_edge(MetadataEdge::Group(*id))
+            .unwrap();
+    }
+    runtime.gc.graph.lock().finish_roots().unwrap();
+    runtime.gc.drain_graph_work(runtime.modules()).unwrap();
+    runtime.gc.graph.lock().close_mark().unwrap();
+    let mut cursor = runtime.gc.operation_groups.borrow().begin_sweep();
+    let mut retired = Vec::new();
+    let mut budget = ScanBudget::new(3);
+    assert_eq!(
+        runtime
+            .gc
+            .operation_groups
+            .borrow_mut()
+            .detach_slice(
+                &mut cursor,
+                &mut budget,
+                32,
+                &mut runtime.gc.graph.lock(),
+                &mut retired,
+            )
+            .unwrap(),
+        ScanStatus::Pending
+    );
+    assert_eq!(budget.spent(), 3);
+    assert_eq!(cursor.next, 3);
+    assert!(retired.is_empty());
+    assert_eq!(retired.capacity(), 0);
+    for position in 4..=40 {
+        let mut budget = ScanBudget::new(1);
+        let limit = 32 - retired.len();
+        let status = runtime
+            .gc
+            .operation_groups
+            .borrow_mut()
+            .detach_slice(
+                &mut cursor,
+                &mut budget,
+                limit,
+                &mut runtime.gc.graph.lock(),
+                &mut retired,
+            )
+            .unwrap();
+        assert_eq!(budget.spent(), 1);
+        assert_eq!(cursor.next, position);
+        if position <= 35 {
+            assert_eq!(retired.capacity(), 0, "survivors need no disposal backing");
+        }
+        assert_eq!(
+            status,
+            if position == 40 {
+                ScanStatus::Complete
+            } else {
+                ScanStatus::Pending
+            }
+        );
+    }
+    assert_eq!(retired.len(), 5);
+    assert_eq!(runtime.gc.operation_groups.borrow().count(), 35);
+    drop(retired);
+    let mut holes = runtime.gc.operation_groups.borrow().begin_sweep();
+    let mut budget = ScanBudget::new(40);
+    let mut retired = Vec::new();
+    assert_eq!(
+        runtime
+            .gc
+            .operation_groups
+            .borrow_mut()
+            .detach_slice(
+                &mut holes,
+                &mut budget,
+                32,
+                &mut runtime.gc.graph.lock(),
+                &mut retired,
+            )
+            .unwrap(),
+        ScanStatus::Complete
+    );
+    assert_eq!(budget.spent(), 40);
+    assert!(retired.is_empty());
+    assert_eq!(retired.capacity(), 0, "survivors and holes need no backing");
+    runtime.gc.graph.lock().finish_sweep().unwrap();
 }
 
 #[test]

@@ -50,7 +50,9 @@ impl GcHeap {
         let result = self
             .resources()
             .collect_operation(|| {
-                let mut visit = |edge: ScanEdge<'_>| self.shade_graph_edge(modules, edge);
+                let mut visit = |edge: ScanEdge<'_>, budget: &mut ScanBudget| {
+                    self.shade_scanned_edge(modules, edge, budget)
+                };
                 while roots.section < 4 {
                     let status = match roots.section {
                         0 => self.scan_root_slice(&mut roots.roots, budget, &mut visit)?,
@@ -67,9 +69,15 @@ impl GcHeap {
                     if status == ScanStatus::Pending {
                         return Ok(status);
                     }
+                    if !budget.take(1) {
+                        return Ok(ScanStatus::Pending);
+                    }
                     roots.section += 1;
                 }
                 if roots.section == 4 {
+                    if !budget.take(1) {
+                        return Ok(ScanStatus::Pending);
+                    }
                     self.graph.try_lock()?.finish_roots()?;
                     roots.section = 5;
                 }

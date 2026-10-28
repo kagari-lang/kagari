@@ -11,13 +11,52 @@ use std::{fmt::Write, time::Instant};
 
 const NOMINAL_TYPES: i32 = 32;
 
-struct Case {
-    name: &'static str,
-    entry: &'static str,
-    check: &'static str,
-    count: i32,
-    expected: i32,
+pub(super) struct Case {
+    pub(super) name: &'static str,
+    pub(super) entry: &'static str,
+    pub(super) check: &'static str,
+    pub(super) count: i32,
+    pub(super) expected: i32,
 }
+
+pub(super) const CASES: [Case; 4] = [
+    Case {
+        name: "sparse_types_32x4",
+        entry: "sparse_types",
+        check: "check_sparse_types",
+        count: 4,
+        expected: 128,
+    },
+    Case {
+        name: "mixed_native_128x6",
+        entry: "mixed_native",
+        check: "check_mixed",
+        count: 128,
+        expected: 128,
+    },
+    Case {
+        name: "scalar_65536",
+        entry: "numbers",
+        check: "check_numbers",
+        count: 65_536,
+        expected: 65_536,
+    },
+    Case {
+        name: "references_8192",
+        entry: "points",
+        check: "check_points",
+        count: 8192,
+        expected: 8192,
+    },
+];
+
+pub(super) const SCRIPT_KEYS: Case = Case {
+    name: "script_keys_256",
+    entry: "script_keys",
+    check: "check_script_keys",
+    count: 256,
+    expected: 256,
+};
 
 pub(super) fn prepare(engine: &KagariEngine, name: &str, source: &str) -> PreparedProgram {
     let start = Instant::now();
@@ -35,7 +74,7 @@ pub(super) fn prepare(engine: &KagariEngine, name: &str, source: &str) -> Prepar
     prepared
 }
 
-fn source() -> String {
+pub(super) fn source() -> String {
     let mut source = String::from(include_str!("workload.kgr"));
     source.push_str(include_str!("families.kgr"));
     // Distinct declarations, not many instances of one generic type.
@@ -152,36 +191,7 @@ pub(super) fn run() {
         println!("native_layout,{name},size={size},align={align}");
     }
     let program = prepare(&engine, "storage_families.kgr", &source());
-    for case in [
-        Case {
-            name: "sparse_types_32x4",
-            entry: "sparse_types",
-            check: "check_sparse_types",
-            count: 4,
-            expected: 128,
-        },
-        Case {
-            name: "mixed_native_128x6",
-            entry: "mixed_native",
-            check: "check_mixed",
-            count: 128,
-            expected: 128,
-        },
-        Case {
-            name: "scalar_65536",
-            entry: "numbers",
-            check: "check_numbers",
-            count: 65_536,
-            expected: 65_536,
-        },
-        Case {
-            name: "references_8192",
-            entry: "points",
-            check: "check_points",
-            count: 8192,
-            expected: 8192,
-        },
-    ] {
+    for case in CASES {
         observations::run(case.name, || lifecycle(&engine, &program, &case));
     }
     observations::run("sparse_cycles_4096_keep64", || {
@@ -198,13 +208,7 @@ fn script_keys(engine: &KagariEngine) {
         "storage_script_keys.kgr",
         include_str!("script_keys.kgr"),
     );
-    let case = Case {
-        name: "script_keys_256",
-        entry: "script_keys",
-        check: "check_script_keys",
-        count: 256,
-        expected: 256,
-    };
+    let case = SCRIPT_KEYS;
     observations::run(case.name, || lifecycle(engine, &program, &case));
 }
 

@@ -18,7 +18,7 @@ use kagari_runtime::{
     frame::types::arguments::TypeArgument,
     native::{
         binding::NativeResult,
-        conversion::{FromKagari, IntoKagari, context::ConversionContext},
+        conversion::{FromKagari, IntoKagari},
         payload::Opaque,
         storage::access::EditPlan,
         storage_type::StorageType,
@@ -67,7 +67,7 @@ impl<T> ScriptVec<T> {
         cx: &NativeContext<'_>,
         object: Opaque<VecStorage>,
     ) -> NativeResult<Self> {
-        let conversion = ConversionContext::new(cx.runtime(), cx.owner())?;
+        let conversion = cx.conversion_scope(cx.owner())?;
         let element = conversion.parameter(object.type_argument(), 0)?;
         Ok(Self {
             object,
@@ -335,7 +335,7 @@ impl<T: FromKagari> ScriptVec<T> {
 
 impl<T: IntoKagari> ScriptVec<T> {
     fn retained(&self, cx: &mut NativeContext<'_>, value: T) -> NativeResult<ScriptValue> {
-        let mut conversion = ConversionContext::new(cx.runtime(), cx.owner())?;
+        let mut conversion = cx.conversion_scope(cx.owner())?;
         let value = conversion.encode_value(&self.element, value)?;
         conversion.decode_value(&self.element, &value)
     }

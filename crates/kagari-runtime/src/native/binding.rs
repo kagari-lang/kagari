@@ -13,7 +13,7 @@ use crate::{
         declarations::SelectedCall,
         primitive::NativePrimitive,
         result::LinkedResultAdapter,
-        types::{Type, same_definition},
+        types::{Type, TypeRef, same_definition},
     },
     value::Value,
 };
@@ -43,6 +43,16 @@ pub type NativeEntry =
 pub enum Codec {
     Exact(Type),
     Value,
+    /// Prove the outer enum declaration and arity without fixing its applied children.
+    ///
+    /// Registration and executable linking require the declaration in the available
+    /// catalog and compare its scoped identity with the actual signature. Generic
+    /// application retains the signature's concrete children. This grants no Rust
+    /// child-conversion proof and never bypasses dynamic return-value validation.
+    NominalEnum {
+        declaration: TypeRef,
+        arity: usize,
+    },
     Object {
         declaration: DefinitionId,
         definitions: DefinitionTable,
@@ -56,6 +66,24 @@ impl Codec {
     pub(crate) fn receiver_shape_matches(&self, method: &Self) -> bool {
         match (self, method) {
             (Self::Exact(left), Self::Exact(right)) => left.same_type(right),
+            (
+                Self::NominalEnum {
+                    declaration: left,
+                    arity: left_arity,
+                },
+                Self::NominalEnum {
+                    declaration: right,
+                    arity: right_arity,
+                },
+            ) => {
+                left_arity == right_arity
+                    && same_definition(
+                        left.id(),
+                        left.definitions(),
+                        right.id(),
+                        right.definitions(),
+                    )
+            }
             (
                 Self::Object {
                     declaration: left,
@@ -95,6 +123,35 @@ impl Codec {
             Self::Exact(expected) => Type::from_semantic(ty.clone(), definitions)
                 .is_ok_and(|actual| expected.same_type(&actual)),
             Self::Value => true,
+            Self::NominalEnum { declaration, arity } => {
+                let Ty::Enum(nominal) = ty else {
+                    return false;
+                };
+                if declaration.declaration.kind != TypeDefKind::Enum
+                    || declaration.declaration.generic_params.len() != *arity
+                    || nominal.arguments.len() != *arity
+                    || !same_definition(
+                        declaration.id(),
+                        declaration.definitions(),
+                        nominal.declaration,
+                        definitions,
+                    )
+                {
+                    return false;
+                }
+                let Ok(identity) = declaration.definitions().resolve(declaration.id()) else {
+                    return false;
+                };
+                // A scoped identity alone is not a provider. Resolve through the
+                // catalog at this registration/link boundary, never during a call.
+                catalog
+                    .types
+                    .get(&identity.to_path())
+                    .is_some_and(|installed| {
+                        installed.kind == TypeDefKind::Enum
+                            && installed.generic_params.len() == *arity
+                    })
+            }
             Self::Object {
                 declaration,
                 definitions: source,

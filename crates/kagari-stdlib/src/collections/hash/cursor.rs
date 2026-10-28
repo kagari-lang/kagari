@@ -7,8 +7,7 @@ use crate::collections::{
 use kagari_runtime::{
     native::{
         binding::NativeResult,
-        conversion::context::ConversionContext,
-        payload::Opaque,
+        payload::{Opaque, borrowed::BorrowedPayload},
         storage::{
             NativePayload,
             access::EditPlan,
@@ -64,12 +63,16 @@ pub(crate) fn iter<P: HashPayload>(
     let source_type = source.type_argument().clone();
     let owner = source.owner().clone();
     let contract = StorageType::prepare_scoped(source_type.clone(), &owner)?;
-    let mut conversion = ConversionContext::new(cx.runtime(), cx.owner())?;
-    let source = conversion.encode_value(&source_type, source)?;
+    // The original handle protects the source through cursor publication after
+    // the temporary conversion releases its scratch roots.
+    let source_value = {
+        let mut conversion = cx.conversion_scope(cx.owner())?;
+        conversion.encode_value(&source_type, source.clone())?
+    };
     ty.create(
         cx,
         HashCursor {
-            source,
+            source: source_value,
             contract,
             position: 0,
             revision,
@@ -81,21 +84,24 @@ pub(crate) fn iter<P: HashPayload>(
 
 fn next<P: HashPayload>(
     cx: &mut NativeContext<'_>,
-    cursor: Opaque<HashCursor<P>>,
+    cursor: &BorrowedPayload<'_, HashCursor<P>>,
 ) -> NativeResult<Option<(ScriptValue, Option<ScriptValue>)>> {
-    // SAFETY: Retain source/item under their source loans. No reference or
-    // borrowed Rust iterator crosses a callback/conversion/allocation boundary.
+    // SAFETY: The rooted cursor scans its unchanged source edge. No callback or
+    // collection separates the parent loan from the immediate source read, so
+    // aliases cannot remove that protection. The shared reader retains escaping
+    // fields under the source loan before advancement or result conversion.
     unsafe {
-        let (source, mut position, revision) = cursor.read(cx, None, |cursor, access| {
+        let (source, contract, mut position, revision) = cursor.read(cx, None, |cursor, _| {
             Ok((
-                access.retain(&cursor.contract, &cursor.source)?,
+                cursor.source,
+                cursor.contract.clone(),
                 cursor.position,
                 cursor.revision,
             ))
         })?;
-        let source = source.decode::<Opaque<P>>(cx)?;
-        cx.poll()?;
-        let result = operations::retained_entry(cx, &source.borrow(cx)?, revision, position)?;
+        let result = cx.read_payload::<P, _>(source, &contract, |payload, access| {
+            operations::retain_entry(payload, access, revision, position)
+        })?;
         if result.is_some() {
             position += 1;
         }
@@ -117,7 +123,7 @@ fn next<P: HashPayload>(
 
 pub(crate) fn map_next(
     cx: &mut NativeContext<'_>,
-    (cursor,): (Opaque<HashCursor<MapStorage>>,),
+    cursor: &BorrowedPayload<'_, HashCursor<MapStorage>>,
 ) -> NativeResult<Option<(ScriptValue, ScriptValue)>> {
     next(cx, cursor)?
         .map(|(key, value)| Ok((key, value.ok_or_else(invalid)?)))
@@ -126,7 +132,7 @@ pub(crate) fn map_next(
 
 pub(crate) fn set_next(
     cx: &mut NativeContext<'_>,
-    (cursor,): (Opaque<HashCursor<SetStorage>>,),
+    cursor: &BorrowedPayload<'_, HashCursor<SetStorage>>,
 ) -> NativeResult<Option<ScriptValue>> {
     Ok(next(cx, cursor)?.map(|(key, _)| key))
 }

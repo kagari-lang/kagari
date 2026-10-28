@@ -121,17 +121,19 @@ fn construct(cx: &mut CallContext<'_>, operation: Operation) -> NativeResult<Val
     let _second = second
         .map(|value| cx.heap().root_value(value).ok_or_else(invalid))
         .transpose()?;
-    cx.allocate_result_payload(
-        Adapter {
-            source,
-            second,
-            operation,
-            callback,
-            remaining: Cell::new(remaining),
-            switched: Cell::new(false),
-        },
-        if second.is_some() { &[1, 3] } else { &[1] },
-    )
+    // Preserve completed source callbacks before result admission. Their temporary
+    // roots stay outside the builder through payload scanning and allocation.
+    let payload = Adapter {
+        source,
+        second,
+        operation,
+        callback,
+        remaining: Cell::new(remaining),
+        switched: Cell::new(false),
+    };
+    cx.allocate_result_payload(if second.is_some() { &[1, 3] } else { &[1] }, |_, _| {
+        Ok(payload)
+    })
 }
 
 fn next(

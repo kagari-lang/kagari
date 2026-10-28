@@ -1,17 +1,21 @@
 //! Runtime-owned method applications, addressed by checked identities.
 use crate::{
     error::RuntimeError,
-    execution_metadata::MetadataEdge,
+    execution_metadata::{
+        MetadataEdge,
+        scanning::{MetadataSweepCursor, RetirementBatch},
+    },
     frame::types::{TypeEnvironment, arguments::ScopedSignature},
     gc::{
         GcHeap,
         graph::{
-            GraphIdentity,
+            GraphIdentity, GraphMarker,
             marks::{Domain, MarkBlocks, MarkRef},
         },
         interfaces::InterfaceResultBinding,
     },
     module::{ModuleStore, dispatch::SelectedTarget},
+    native::storage::scan::{ScanBudget, ScanStatus},
 };
 use kagari_types::callable::Signature;
 use std::{cell::Ref, collections::TryReserveError};
@@ -111,14 +115,6 @@ impl ApplicationStore {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn insert(
-        &mut self,
-        application: MethodApplication,
-    ) -> Result<ApplicationId, TryReserveError> {
-        self.insert_record(ApplicationRecord::Semantic(application))
-    }
-
     fn insert_record(
         &mut self,
         application: ApplicationRecord,
@@ -129,6 +125,8 @@ impl ApplicationStore {
             Some(slot) => slot,
             None => {
                 self.slots.try_reserve(1)?;
+                self.free
+                    .try_reserve(self.slots.len() + 1 - self.free.len())?;
                 self.slots.push(Slot {
                     generation: 0,
                     application: None,
@@ -187,31 +185,46 @@ impl ApplicationStore {
         self.count
     }
 
-    /// The whole graph has been marked and validated before any store detaches.
-    pub(crate) fn detach_batch(
+    pub(crate) fn begin_sweep(&self) -> MetadataSweepCursor {
+        MetadataSweepCursor::new(self.owner, Domain::Application, self.slots.len())
+    }
+
+    pub(crate) fn detach_slice(
         &mut self,
-        cursor: &mut usize,
+        cursor: &mut MetadataSweepCursor,
+        budget: &mut ScanBudget,
         limit: usize,
-        mut survivor: impl FnMut(MarkRef<'_>) -> bool,
-    ) -> Vec<ApplicationRecord> {
-        assert!(limit != 0);
-        let mut retired = Vec::new();
-        while *cursor < self.slots.len() && retired.len() < limit {
-            let index = *cursor;
-            *cursor += 1;
+        graph: &mut GraphMarker<'_>,
+        retired: &mut Vec<ApplicationRecord>,
+    ) -> Result<ScanStatus, RuntimeError> {
+        cursor.validate(
+            self.owner,
+            Domain::Application,
+            self.slots.len(),
+            graph.phase(),
+        )?;
+        let batch = RetirementBatch::new(retired.len(), limit)?;
+        while cursor.next < cursor.end {
+            if batch.is_full(retired.len()) || !budget.take(1) {
+                return Ok(ScanStatus::Pending);
+            }
+            let index = cursor.next;
             let slot = &mut self.slots[index];
-            if !survivor(self.marks.slot(Domain::Application, index))
-                && let Some(application) = slot.application.take()
-            {
-                retired.push(application);
+            let mark = self.marks.slot(Domain::Application, index);
+            if slot.application.is_some() && !graph.is_survivor(mark)? {
+                graph.can_retire(mark)?;
+                batch.prepare(retired, cursor.remaining_slots())?;
+                retired.push(slot.application.take().expect("occupied application"));
+                graph.retire_prepared();
                 self.count -= 1;
                 if let Some(generation) = slot.generation.checked_add(1) {
                     slot.generation = generation;
                     self.free.push(index);
                 }
             }
+            cursor.next += 1;
         }
-        retired
+        Ok(ScanStatus::Complete)
     }
 }
 

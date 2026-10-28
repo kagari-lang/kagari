@@ -54,10 +54,18 @@ impl DefinitionTable {
     /// Walk borrowed package/path components through interned module roots.
     /// An interned prefix is not evidence of an actual module declaration.
     pub fn lookup_module_path(&self, package: &PackageId, path: &[String]) -> Option<ModuleHandle> {
-        let package = self.data.symbol_indices.get(package.0.as_str())?;
+        self.lookup_module_components(&package.0, path.iter().map(String::as_str))
+    }
+
+    pub(super) fn lookup_module_components<'a>(
+        &self,
+        package: &str,
+        path: impl IntoIterator<Item = &'a str>,
+    ) -> Option<ModuleHandle> {
+        let package = self.data.symbol_indices.get(package)?;
         let mut index = *self.data.package_roots.get(package)?;
         for name in path {
-            let name = self.data.symbol_indices.get(name.as_str())?;
+            let name = self.data.symbol_indices.get(name)?;
             index = *self.data.module_children.get(&(index, *name))?;
         }
         Some(ModuleHandle(DefinitionId {

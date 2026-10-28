@@ -44,6 +44,8 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+#[cfg(feature = "execution-diagnostics")]
+mod collection;
 mod lifecycle;
 
 #[derive(Debug)]

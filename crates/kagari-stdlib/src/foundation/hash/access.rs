@@ -8,10 +8,7 @@ use crate::{
     foundation::enumerations::value::{EnumSymbols, option},
 };
 use kagari_runtime::{
-    native::{
-        binding::NativeResult, context::CallContext, conversion::context::ConversionContext,
-        value_handle::ScriptValue,
-    },
+    native::{binding::NativeResult, context::CallContext, value_handle::ScriptValue},
     value::Value,
 };
 
@@ -86,9 +83,11 @@ pub(crate) fn map_remove(call: &mut CallContext<'_>) -> NativeResult<Value> {
     // Allocate and retain Option before committing removal. Failed preparation
     // leaves the entry installed and does not retry any completed Hash/Eq callback.
     let result_type = call.result_type_argument()?;
-    let mut conversion = ConversionContext::new(cx.runtime(), cx.owner())?;
-    let result = conversion.encode_value(&result_type, value)?;
-    let result: ScriptValue = conversion.decode_value(&result_type, &result)?;
+    let result: ScriptValue = {
+        let mut conversion = cx.conversion_scope(cx.owner())?;
+        let result = conversion.encode_value(&result_type, value)?;
+        conversion.decode_value(&result_type, &result)?
+    };
     operations::remove(&mut cx, &object, found)?;
     result.value(cx.runtime())
 }

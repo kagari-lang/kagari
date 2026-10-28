@@ -39,7 +39,12 @@ Opaque root with `Opaque::borrow`, instead of manufacturing an owning adapter.
 `BorrowedPayload::edit_prepared` fuses preparation/preflight and a short edit;
 `StorageAccess::publish_argument` validates the current rooted call argument.
 These generic APIs preserve unsafe loan obligations and cannot span callbacks.
-See the [provider protocol](spec/host-interop.md#general-native-payload-protocol)
+For an already protected raw Value, unsafe `NativeContext::read_payload(value,
+&contract, closure)` performs immediate checked access without creating retention or
+a view. Keep its root/traced-edge protection intact until entry; retain values that
+must cross a callback or outlive that protection. See the
+[immediate-read safety contract](spec/host-interop.md#immediate-checked-payload-reads),
+the [provider protocol](spec/host-interop.md#general-native-payload-protocol)
 and [explicit executable preparation](spec/host-interop.md#retained-native-data-and-executable-preparation).
 
 ## Collection, sealing and preparation
@@ -350,9 +355,16 @@ associates the payload representation and `Opaque<P>` mapping once, using
 Explicit managed schemas and special factories still use their descriptor builders.
 Generic parameters and bounds remain ordinary checked declaration facts.
 
-Prepare a `NativeType<P>` through `bind_native_type` or, inside a typed constructor,
-`cx.result_native_type::<P>()?`. Create with `ty.create(cx, payload, selected_slots)`;
-use `&[]` without retained selections. Nonempty slots require the current checked
+For an independently owned factory, prepare `NativeType<P>` through `bind_native_type`
+or, inside a typed constructor, `cx.result_native_type::<P>()?`; create with
+`ty.create(cx, payload, selected_slots)`. For an immediate raw native result, use
+`CallContext::allocate_result_payload(selected_slots, builder)` instead: the builder
+receives `(&CallContext, &TypeArgument)` and returns `NativeResult<P>` after exact result
+mapping/authority preflight, without an owning descriptor/DataRecord. Selected slots resolve
+after the builder, and allocation revalidates before publication. Return the raw Value
+immediately or root it before another callback/safepoint. See the
+[builder ordering and lifetime contract](spec/host-interop.md#immediate-native-result-construction).
+Use `&[]` without retained selections. Nonempty slots require the current checked
 native invocation's selection evidence. There is no `create_opaque` entrypoint.
 Bounded host applications require a closed verified occurrence in the supplying
 program/type scope; a matching type name or runtime trait lookup is not evidence.

@@ -4,7 +4,7 @@ use crate::vm::Vm;
 use kagari_bytecode::{program::verify_program, verifier::BytecodeVerificationError};
 use kagari_contract::types::ConcreteFunctionIdentity;
 use kagari_runtime::{
-    Runtime,
+    Runtime, RuntimeConfig,
     error::RuntimeError,
     module::entry::ProgramEntry,
     native::{
@@ -310,8 +310,8 @@ fn dynamic_iteration_preserves_gc_roots_and_detects_invalidation() {
         })
         .unwrap();
     let module = builder.finish().unwrap();
-    let (vm, loaded) = compile(
-        r#"use std::collections::{List, MutableList};
+    let program = compile_program(
+        r#"use std::collections::{List, MutableList, HashMap, HashSet};
 
         use example::collection_gc::collect;
         struct Node { val value: i32 }
@@ -321,7 +321,23 @@ fn dynamic_iteration_preserves_gc_roots_and_detects_invalidation() {
             for node in view { collect(); sum += node.value; }
             sum
         }
-        fn main() -> i32 { sum(Vec::from([Node { value: 20 }, Node { value: 22 }])) }
+        fn main() -> i32 {
+            val map: HashMap<String, Node> = HashMap::new();
+            map.insert(String::from('k'), Node { value: 21 });
+            val entry = map.iter().next();
+            map.clear(); collect();
+            val kept = match entry {
+                Some((key, node)) => key == String::from('k') && node.value == 21,
+                None => false,
+            };
+            if !kept { return -1; }
+            val set: HashSet<String> = HashSet::new();
+            set.insert(String::from('k'));
+            val item = set.iter().next();
+            set.clear(); collect();
+            if !(match item { Some(key) => key == String::from('k'), None => false }) { return -2; }
+            sum(Vec::from([Node { value: 20 }, Node { value: 22 }]))
+        }
         fn mutate(values: MutableList<i32>) {
             val view: List<i32> = values;
             for item in view { values.push(item); }
@@ -330,6 +346,13 @@ fn dynamic_iteration_preserves_gc_roots_and_detects_invalidation() {
     "#,
         Some(&module),
     );
+    let mut config = RuntimeConfig::default();
+    config.gc.collection_threshold = Some(1);
+    let mut runtime = Runtime::new(config);
+    NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
+    module.install(&mut runtime).unwrap();
+    let loaded = runtime.load_program("collection-gc", program).unwrap();
+    let vm = Vm::new(runtime);
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     assert_eq!(

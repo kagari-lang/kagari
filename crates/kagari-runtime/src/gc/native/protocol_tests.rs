@@ -5,9 +5,11 @@ use crate::{
     gc::{
         HeapObjectId,
         graph::{GraphIdentity, objects::ScanEdge},
+        metrics::IndivisibleKind,
     },
     native::{
         conversion::context::ConversionContext,
+        payload::read::ReadReceiver,
         storage::{
             NativePayload, NativeStorage,
             access::EditPlan,
@@ -22,6 +24,7 @@ use crate::{
 };
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::{
+    any::TypeId,
     panic::{AssertUnwindSafe, catch_unwind},
     sync::{
         Arc,
@@ -167,12 +170,16 @@ fn payload_admission_and_inspection_preserve_a_suspended_heap_scan_workspace() {
 }
 
 #[derive(Debug)]
-struct TraceFault(Arc<AtomicBool>);
+struct TraceFault<const INDIVISIBLE: bool>(Arc<AtomicBool>);
 
 // Deliberate provider fault injection after successful admission.
-unsafe impl NativePayload for TraceFault {
+unsafe impl<const INDIVISIBLE: bool> NativePayload for TraceFault<INDIVISIBLE> {
     type ScanState = ();
-    const SCAN_KIND: NativeScanKind = NativeScanKind::Resumable;
+    const SCAN_KIND: NativeScanKind = if INDIVISIBLE {
+        NativeScanKind::Indivisible
+    } else {
+        NativeScanKind::Resumable
+    };
 
     fn begin_scan(&self) {}
 
@@ -194,6 +201,11 @@ unsafe impl NativePayload for TraceFault {
 
 #[test]
 fn provider_scan_panic_prevents_any_sweep_or_retry() {
+    check_provider_scan_fault::<false>();
+    check_provider_scan_fault::<true>();
+}
+
+fn check_provider_scan_fault<const INDIVISIBLE: bool>() {
     let mut runtime = Runtime::default();
     let owner = allocation_owner(&mut runtime);
     let heap = runtime.gc();
@@ -201,25 +213,43 @@ fn provider_scan_panic_prevents_any_sweep_or_retry() {
         .alloc_string("unreachable but not swept".into())
         .unwrap();
     let fault = Arc::new(AtomicBool::new(false));
-    let object = NativeStorage::payload::<TraceFault>()
+    let object = NativeStorage::payload::<TraceFault<INDIVISIBLE>>()
         .prepare_payload(
             heap,
             &Ty::Builtin(BuiltinType::Unit),
-            TraceFault(fault.clone()),
+            TraceFault::<INDIVISIBLE>(fault.clone()),
             &owner,
         )
         .unwrap();
     let id = heap.alloc_native(object).unwrap();
     let _root = runtime.root_value(Value::GcHandle(id)).unwrap();
     let before = heap.stats();
+    heap.start_collection_observation().unwrap();
     fault.store(true, Ordering::Relaxed);
     assert!(runtime.collect_garbage().is_err());
     assert!(runtime.is_quarantined());
     assert_eq!(heap.stats(), before);
     assert!(heap.validate_value(&dead));
+    let observed = heap.collection_observation().unwrap();
+    assert_eq!(observed.explicit.count, 1);
+    assert_eq!(observed.explicit.failures, 1);
+    assert_eq!(observed.cycles.count, 0);
+    let scans = observed.indivisible[IndivisibleKind::ProviderScan as usize];
+    assert_eq!(scans.count, u64::from(INDIVISIBLE));
+    if INDIVISIBLE {
+        let scan = scans.slowest.unwrap();
+        assert_eq!(scan.rust_type, Some(TypeId::of::<TraceFault<true>>()));
+        assert_eq!(scan.work, 1);
+        assert!(scan.time <= observed.explicit.total_time);
+    }
     fault.store(false, Ordering::Relaxed);
     assert!(runtime.collect_garbage().is_err());
     assert_eq!(heap.stats(), before);
+    assert_eq!(
+        heap.collection_observation().unwrap(),
+        observed,
+        "rejection before collector admission is not another service sample"
+    );
 }
 
 #[test]
@@ -515,9 +545,12 @@ fn retained_extraction_survives_replacement_and_checks_publication_type_and_owne
     let root = runtime.root_value(Value::GcHandle(id)).unwrap();
     let retained = runtime
         .gc()
-        .read_native::<Slots, _>(&runtime, id, None, |payload, access| {
-            access.retain(&contract, &payload.0[0])
-        })
+        .read_native::<Slots, _>(
+            &runtime,
+            ReadReceiver::Value(id),
+            None,
+            |payload, access| access.retain(&contract, &payload.0[0]),
+        )
         .unwrap();
     runtime
         .gc()
@@ -629,12 +662,17 @@ fn operation_guard_blocks_aliases_and_recovers_after_execution_is_closed(#[case]
     };
     assert!(heap.with_native::<Slots, _>(id, |_| Ok(())).is_err());
     assert!(
-        heap.read_native::<Slots, _>(&runtime, id, None, |_, _| Ok(()))
+        heap.read_native::<Slots, _>(&runtime, ReadReceiver::Value(id), None, |_, _| Ok(()))
             .is_err()
     );
     assert!(
-        heap.read_native::<Slots, _>(&runtime, id, Some(&guard), |payload, _| Ok(payload.0.len()))
-            .is_ok()
+        heap.read_native::<Slots, _>(
+            &runtime,
+            ReadReceiver::Value(id),
+            Some(&guard),
+            |payload, _| Ok(payload.0.len())
+        )
+        .is_ok()
     );
     assert!(
         heap.try_enter_native_operation(id, NativeOperationKind::ReadOnlyCallbacks)

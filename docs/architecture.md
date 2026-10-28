@@ -1119,12 +1119,25 @@ a permanent payload Box. Competing payload views and escaping public
 string/tuple/enum/closure views remain blocked until loan finalization. Internal
 scoped aggregate validation remains active.
 
-`NativeType::create(cx, payload, selected_slots)` is the typed creation entrypoint;
-a native constructor obtains its descriptor through `result_native_type`. Bounded
+`NativeType::create(cx, payload, selected_slots)` is the independently owned typed
+creation path; a constructor needing that descriptor uses `result_native_type`.
+Immediate raw results use `CallContext::allocate_result_payload(selected_slots, builder)`:
+exact occurrence/mapping/publication preflight, call-scoped payload construction, then
+selected-slot resolution and revalidated allocation through the common NativeStorage
+kernel. No temporary owning NativeType/DataRecord is required; escaping factories retain
+their owned lease. Flat NativeBinding receivers can borrow through `CallContext::payload`
+without duplicate owning conversion/roots. See the
+[ordering and lifetime contract](spec/host-interop.md#immediate-native-result-construction). Bounded
 host binding consumes closed, carrier-scoped native-application witnesses sealed
-by source-free verification after declaration/call/bounds validation. Active
-constructor results consume their exact import/result witness and prepared scope,
-not a runtime trait search. Existing-object reconstruction validates that object's
+by source-free verification after declaration/call/bounds validation. Native linking
+checks the exact verified carrier/import/result witness; signature preparation/application
+owns the prepared result facts. Calls retain live authority and scoped compatibility checks
+without rebuilding a discarded TypeArgument. Enum conversion validates installation through
+borrowed symbolic-component lookup shared with owned DefinitionPath resolution, rather
+than materializing an authoring TypeRef or owned path. Catalog installation and expected
+nominal identity are resolved in their respective tables; foreign table-local IDs are
+never compared directly. Arity and child mapping checks remain. Neither route adds a
+type cache or performs runtime trait search. Existing-object reconstruction validates that object's
 identity and representation. A type witness is not callable constructor evidence.
 See [provider contracts](spec/host-interop.md#general-native-payload-protocol).
 
@@ -1874,10 +1887,12 @@ Graph-only mark construction is lazy, not a validation bypass. One acquire phase
 selects Idle versus active service; no mirrored phase or permission cache is added.
 Explicit Faulted state permits diagnostic graph reads but rejects publication/admission.
 Terminal Poisoned state rejects graph access and work acquisition as well. Every graph
-mutex acquisition, including Debug formatting, is wrapped immediately; unwinding guard
-Drop publishes Poisoned with release ordering before unlock, even for acquisition during
-unwind. The standard mutex poison flag remains an advisory backstop, not the ordinary
-phase observer. Provider scan failure outside a guard explicitly faults/quarantines.
+mutex acquisition, including Debug formatting, is wrapped immediately. The guard captures
+whether the thread was already panicking on entry: a new unwind across held work publishes
+Poisoned with release ordering before unlock, while successful mandatory recovery wholly
+inside prior unwinding does not create poison. This PG05 correction matches std's entry/
+exit panic-state rule; it never clears existing Poisoned state. The standard mutex poison
+flag remains an advisory backstop, not the ordinary phase observer. Provider scan failure outside a guard explicitly faults/quarantines.
 
 Production synchronously drains the persistent marker and physical page/slot sweep.
 The physical cursor uses reusable bounded page/range disposal instead of a whole-heap
@@ -1899,13 +1914,43 @@ Edge-freedom is not destructor-freedom. Descriptor and backing owners release ou
 borrows after disposal. Interface identities directly locate
 snapshots and use a narrow occupied-directory index, with no slab wrapper payload.
 Physical sweep and bounded disposal were brought forward into PG04, now locally
-complete pending commit; the
+complete at `fe56b675`; the
 [PG04 ledger](paged-incremental-gc-design.md#pg04-marker-implementation-and-open-acceptance)
-records fresh versus reused acceptance evidence. Remaining metadata/module inventories,
-interface batch filtering and pressure-driven production interleaving belong to PG05.
+records that checkpoint's fresh versus reused acceptance evidence. PG05 integrates
+remaining metadata/module sweeps, interface maintenance and pressure-driven production
+interleaving; its [current ledger](paged-incremental-gc-design.md#pg05-integrated-driver-and-open-acceptance)
+records repaired preflight/unwind regressions and source-approved budget/cache corrections
+with selected tests and local quality passing. Ordinary-build full-service observation
+windows and automatic-family harness check mode are implemented. Disabled-observation
+per-payload timing/accumulation is now gated before operations, preserving public pause
+accounting; focused/quality checks pass. Observation enablement cannot change during
+admitted service, including destructor callbacks, and no observation borrow spans a yield.
+The completed frozen numerical run has ten ordinary timing failures; all 22 observed
+normal-step gates pass, while 34 no-activity rows are not passes. Fresh owner-footprint
+memory now passes all 55 gates with 21 zero-net teardowns. The ledger distinguishes
+this memory acceptance from subsequent scoped-retention/cursor diagnostics. The implemented
+same-engine scheduler supplies 1024 work units for normal service and `usize::MAX` for
+explicit/pressure-assist drains, without changing the 32-owner disposal cap or provider
+limits. Seven metadata stages cap reservations to remaining extent while retaining owner
+validation. Module/static preparation validates owner/phase/continuation before empty
+completion and caps output reservations by the available captured/occupied extent;
+pre-detach report capacity and caller ownership of partial output remain mandatory.
+PG05 timing acceptance remains open. The synchronous behavior above describes the accepted PG04 checkpoint,
+not completed PG05 validation.
 The selected normal budget remains 1024 work units, not a wall-clock deadline.
 Neither synchronous slicing nor local acceptance establishes an O(live) total-GC
 bound, incremental pause acceptance or completion of joint CI.
+
+[`gc::metrics`](../crates/kagari-runtime/src/gc/metrics.rs) owns opt-in fixed-buffer
+collector observations in ordinary builds, not a callback/event-history subsystem.
+It separates complete normal/assist/explicit invocation measurements and new/carried
+cycle totals, with fixed-size indivisible-operation attribution and no retained graph
+owners or per-service observation allocation. Timing includes admitted-service
+bookkeeping/destruction/error normalization but excludes final telemetry publication
+and return instructions; raw pauses retain nested indivisible work. The
+[observation contract](spec/runtime.md#collector-observation-windows) defines window
+lifecycle, saturation, carried-cycle attribution and size/type limitations. These
+observations do not change roots, collector scheduling or execution charging.
 
 `ResourceState` owns aggregate logical occupancy and attributed backing pressure.
 `HeapCharge` carries `logical_units` and `retained_bytes`; each `NativeObject` owns

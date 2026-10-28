@@ -57,7 +57,7 @@ impl GcHeap {
     /// Access does not create retention; only successful mark closure condemns.
     /// Collector/disposal resolution uses with_heap_mark directly instead.
     pub(crate) fn heap_identity_accessible(&self, id: GraphIdentity) -> bool {
-        self.with_heap_mark(id, |mark| self.graph.accessible(mark))
+        self.with_heap_mark(id, |mark| Ok(self.graph.accessible(mark).unwrap_or(false)))
             .unwrap_or(false)
     }
 
@@ -124,6 +124,7 @@ impl GcHeap {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn shade_graph_identity(
         &self,
         modules: &ModuleStore,

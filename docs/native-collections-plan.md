@@ -8,13 +8,23 @@ after coordinated final validation (PG01 commit `fc651b92`). PG02 physical stora
 is locally complete at `4d8aa0c1`. PG03/NC03-NC04 is locally complete and committed
 at `8d597b93` after final independent review, focused contracts, selected paired gates
 and parent local checks. The finite removal inventory below is closed. PG04 is locally
-complete pending commit, with synchronously drained marking and bounded physical sweep;
-PG05/NC05 is next. This is not NC06, production interleaving or joint CI acceptance. The
+complete at `fe56b675`, with synchronously drained marking and bounded physical sweep.
+PG05/NC05 is integrated but not complete: borrowed-view preflight and callback-unwind
+cleanup are fixed, and selected actual-native proof passes. Budget/cache source review,
+selected tests and local quality pass. Ordinary-build runtime observations are implemented
+and locally validated; the later disabled-observation overhead finding is repaired with
+focused/quality checks passing. The trusted actual-root replacement completed all 112 timing
+processes with semantic assertions passing: **77 ordinary gates pass / 11 fail; 19 observed
+normal gates pass / 3 fail; 34 rows are unobserved, not passes**. Separately audited fresh memory
+passes **55/55 with 21 zero-net teardowns**. Old 78/10 and 22-normal summaries are historical;
+the contaminated selected 23/6 interpretation is withdrawn. Numerical acceptance remains open;
+the [PG05 ledger](paged-incremental-gc-design.md#pg05-trusted-replacement-results-and-finite-follow-up)
+owns current results and finite follow-up. This is not NC06 or joint CI acceptance. The
 [roadmap](implementation-roadmap.md#library-owned-native-collections) owns sequencing;
 this plan owns NC01-NC06, the selected Native contracts and the collection ledger.
 General provider APIs and standard collection algorithms below are implemented;
 PG04 graph/publication mechanisms have passed local acceptance under synchronous
-draining; production interleaving remains PG05 work. The [PG00 baseline](paged-incremental-gc-design.md#pg00-contract-closure-and-baseline)
+draining; the integrated PG05 interleaved driver remains under validation. The [PG00 baseline](paged-incremental-gc-design.md#pg00-contract-closure-and-baseline)
 owns shared measurements, frozen gates and actual local validation.
 
 Storage inventory refresh, 2026-10-18: the prioritized
@@ -198,7 +208,7 @@ At activation, the existing low-level selected-slot path is:
 
 ```rust
 // During a checked native constructor, with declared callable requirements:
-cx.allocate_result_payload(payload, &[hash_slot, eq_slot])?;
+cx.allocate_result_payload(&[hash_slot, eq_slot], |_cx, _result| Ok(payload))?;
 // During a later method, whose argument 0 roots that native receiver:
 cx.call_stored_values(0, 0, &[key])?;
 ```
@@ -508,7 +518,13 @@ visitor references. ScanState contains only owned cursor data: no payload pointe
 roots, untraced edges or drop obligations. ScanBudget spends inspected logical
 slots/edges, including holes, and setup/metadata work; Pending must make progress
 for positive sufficient budget. Indivisible providers explicitly charge their full
-work and provide no bounded-step claim. Large standard collections use Resumable.
+work and provide no bounded-step claim. PG05's traced service pre-reserves up to four
+bitmap-reset words per emitted edge in addition to provider work. Bounded max_work is
+therefore at most **204 provider units** (204 × 5 = 1020 within normal 1024 work);
+larger scans must be Resumable or explicitly Indivisible. Resumable chunks are capped
+at 256 provider units but adapt to the remaining shared budget. Unused reservation
+is refunded; actual provider/reset work is counted, including Indivisible overruns.
+Large standard collections use Resumable.
 Runtime separately traverses NativeObject's selected metadata through the same graph
 work owner; providers do not embed external Function/root leases to retain internal
 relationships. Stored callable values use their existing traced representation.
@@ -552,9 +568,9 @@ leaves the old state intact. No scanner/loan holds a workspace pointer across gr
 Builtin/metadata scan state and root/frame enumeration use owned resumable cursors,
 not root snapshots. Existing-target barrier enqueue, scanner start/resume and cleanup
 republication require no allocation. Retaining a new external root may fail before
-removal, never as recovery work. Production still drains synchronously, with finite
+removal, never as recovery work. PG04 drains synchronously, with finite
 256-unit resumable scanner chunks; this is distinct from the selected 1024-unit normal
-driver budget and does not enable PG05 interleaving. The
+driver budget. PG05 integrates interleaved service, with open acceptance below. The
 [PG04 ledger](paged-incremental-gc-design.md#pg04-marker-implementation-and-open-acceptance)
 owns local evidence and source applicability.
 
@@ -836,12 +852,15 @@ NativeType<P>::create(&self, cx: &mut NativeContext, payload: P,
                       selected_slots: &[usize]) -> NativeResult<Opaque<P>>
 ```
 
-Use `cx.result_native_type::<P>()?.create(cx, payload, &[hash_slot, eq_slot])` in a
-declared constructor and `&[]` when no selections are needed. Nonempty slots must
-belong to the current checked invocation; validate signatures and supplying scopes
-before allocation. Move allocate_result_payload's selection-copying logic into this
-common creation implementation; any low-level call adapter delegates without a
-second admission implementation. The object stores StoredSelection metadata edges,
+Use `cx.result_native_type::<P>()?.create(cx, payload, &[hash_slot, eq_slot])` when a
+declared constructor needs an independently owned factory. Immediate raw result creation
+instead uses `cx.allocate_result_payload(&[hash_slot, eq_slot], builder)`, with exact
+result occurrence/mapping/publication preflight before construction and selected-slot
+resolution afterward. Both paths use the common NativeStorage allocation kernel, not
+separate scanning/admission semantics. Use `&[]` when no selections are needed;
+nonempty slots belong to the checked invocation. The
+[immediate result contract](spec/host-interop.md#immediate-native-result-construction)
+defines builder errors, completed effects, callback roots and terminal raw handoff. The object stores StoredSelection metadata edges,
 not external program/root leases inside P. PG01 removes `cx.create_opaque`;
 PG03 removes special Map/Set constructor resolution. Host convenience
 factories invoke the checked
@@ -1034,8 +1053,9 @@ NC02 may prove the public protocol with the synchronous collector and isolated
 scanner tests, but cannot claim interleaved GC acceptance. Record collection
 results only in this ledger; link PG results rather than copy their checklist.
 The user authorized this phase sequence at the activation revision. PG00/NC01 and
-PG01/NC02, PG02, PG03/NC03-NC04 and PG04 have passed local acceptance. PG04 is pending
-commit; its fresh/reused evidence is owned by the PG ledger. PG05/NC05 is next.
+PG01/NC02, PG02, PG03/NC03-NC04 and PG04 have passed local acceptance. PG04 is committed
+at `fe56b675`; its fresh/reused evidence is owned by the PG ledger. PG05/NC05 is in
+progress with integrated code, not locally complete.
 Cancellation policy and cx.poll redesign remain outside the migration.
 
 | Phase | Scope and exit condition |
@@ -1170,14 +1190,70 @@ CI acceptance. Planning-only edits need content/link/diff checks, not builds.
 - [x] NC02: General storage capabilities, locally complete with PG01.
 - [x] NC03: Vec migration (locally complete with PG03).
 - [x] NC04: HashMap/HashSet migration (locally complete with PG03).
-- [ ] NC05: External extensibility and cursors.
+- [ ] NC05: External extensibility and cursors (integrated stdlib/external immediate access;
+  fresh representative root-built correctness/quality pass. Trusted PG05 replacement:
+  ordinary 77 pass / 11 fail, observed normal 19 pass / 3 fail, 34 unobserved;
+  fresh memory 55/55 and 21 zero teardowns. Numerical/joint acceptance remains open).
 - [ ] NC06: Final integration.
 
 NC01 is locally complete with PG00. The GC plan owns physical/pressure choices,
 reproducible measurements, frozen gates and actual local validation; NC reuses its
 Vec, primitive/script-key Map, reference-storage and callback baselines. PG00/NC01
 was committed at `47be3cb7`; its baseline does not establish future speedup or CI
-acceptance. The current PG03/NC03-NC04 handoff and historical PG01/NC02 evidence follow.
+acceptance. Current NC05 progress, the PG03/NC03-NC04 handoff and historical
+PG01/NC02 evidence follow.
+
+### NC05 interleaved provider handoff (in progress)
+
+PG04 is committed at `fe56b675`; PG05/NC05 is integrated but **not locally complete**.
+The trusted actual-root replacement completed **112/112 timing processes**, all workload
+semantic assertions passing: **77 ordinary pass / 11 fail; 19 observed normal pass / 3 fail;
+34 unobserved rows are not passes. Fresh memory passes 55/55 with 21 zero-net teardowns.**
+The [owning PG05 result table](paged-incremental-gc-design.md#pg05-trusted-replacement-results-and-finite-follow-up)
+contains current failures/limits, normal same-family associations and follow-up; do not
+maintain a second correction queue here. Normal failures affect mixed construction under
+both policies and pressure scalar construction despite the correct 1024-work ceiling.
+
+The selected 23/6 production interpretation is withdrawn for confirmed instrumented artifacts.
+Earlier 78/10 ordinary and 22 observed-normal summaries are historical, not current acceptance.
+The 36-path audit distinguishes 4 contaminated images, 6 verified baseline paths, 18
+unverifiable images and 8 intentional probes; absence of markers alone is not complete
+source-to-image proof. The trusted replacement uses two byte-identical actual-root clean
+builds, dependency/marker/accessor checks, and separately rebuilt/audited memory diagnostics.
+Fresh root-built validation passes 22 runtime, 6 VM and 4 SDK/provider cases, one compile-fail
+doctest and 4 Miri cases; structure1819/Clippy/fmt/diff pass. This is focused local evidence,
+not exhaustive CI or a fresh rerun of all earlier external tests.
+
+The existing public OrderedMap fixture exercises actual automatic scanner/cursor/callback
+schedules without private runtime access. Fresh SDK/provider scope includes constructor and
+retained extraction, indexed scanner/adapters, callback alias/recovery, plus the source-free
+algorithm/application boundary under default features. Earlier seven-fixture results remain
+historical. Operation guards distinguish entry unwind from a new panic without clearing
+existing poison; all-store borrowed-view preflight precedes resumed destructive service.
+
+Implemented collection-facing contracts use the ordinary runtime owners:
+- `allocate_result_payload(selected_slots, builder)` preflights mapping/authority before
+  builder effects; callback adapters preserve original callback/root ordering.
+- Fixed outer Option codecs move immutable nominal/provider proof to registration/link/
+  application without removing child/scope/custom conversion or final-result checks.
+- Unsafe immediate `NativeContext::read_payload` reuses the checked loan kernel. Stdlib and
+  external cursors copy source/contract under a rooted parent, then read the child with no
+  callback/collection gap and retain escaping results before loan end. Traced membership is
+  a provider obligation, not a runtime-discovered projection capability. Hash paths share
+  the same retained-entry body; revision/cancellation/result ordering remains intact.
+- Scoped StorageType clones preserve lexical metadata without creating roots/leases; copied
+  scalar retention does not change supplied RootedValue aliases or metadata.
+
+The [host-interop contract](spec/host-interop.md#immediate-checked-payload-reads) owns safety;
+[observation windows](spec/runtime.md#collector-observation-windows) own normal/assist/explicit
+and indivisible reporting. Normal and explicit/assist use the same collector engine; raw
+normal pauses include indivisibles. No collection-specific bypass or NoGc category is added.
+
+Parent authorizes only 53's prepared-large consumption and sound vacant-word skip/charge
+proposal, 820's common permission/preparation redundancy work, and 0a's normal-phase/observer
+audit under the PG05 ledger. No gate/work-budget relaxation or backing/descriptor transfer.
+Artifact provenance remains mandatory. **NC05 and NC06 stay unchecked**; joint numerical
+closure and exhaustive CI/backend/platform acceptance are pending and unrun.
 
 ### NC03/NC04 implementation handoff (2026-10-27; locally complete)
 
@@ -1217,12 +1293,12 @@ collections 5, ownership/page-quarantine 7 and retention 15 variants; parent str
 These are repeated contract checks, not additional distinct-test totals.
 NC03/NC04 are locally complete with PG03 at `8d597b93`. The
 [PG04 ledger](paged-incremental-gc-design.md#pg04-marker-implementation-and-open-acceptance)
-owns the locally complete, pending-commit synchronously drained marker, 128-slot
+owns the locally complete checkpoint `fe56b675`: synchronously drained marker, 128-slot
 owner-block queue, physical sweep, 32-total bounded disposal and module/frame
 corrections. Final Map/arrays paired gates pass; six sort/construction and older
 script-key/GC results retain their prior provenance. Authenticated memory reuse is
 55/55 with 21 zero-net teardowns, not a fresh probe. Known blockers are fixed and
-parent final local checks pass. PG05/NC05 is next; PG06/NC06 and full CI remain
+parent final local checks passed for PG04. PG05/NC05 is now in progress; PG06/NC06 and full CI remain
 outstanding. No parallel collection correction queue is added.
 
 ### NC02 implementation handoff (2026-10-27; locally complete)

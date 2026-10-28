@@ -28,10 +28,7 @@ use crate::{
     gc::graph::GraphState,
     host::{HostPathDescriptorId, HostRegistryId},
     metadata::TypeId,
-    module::state::{
-        StaticState,
-        cells::{CellId, StaticCell},
-    },
+    module::state::{StaticState, cells::StaticCells},
     module::{
         dispatch::{PublicationDispatch, PublicationToken},
         execution::ExecutionModule,
@@ -42,7 +39,7 @@ use crate::{
         retention::{ProgramLease, Retentions},
         staging::{CandidateLease, StagedProgram},
     },
-    native::binding::LinkedNativeFunction,
+    native::{binding::LinkedNativeFunction, conversion::context::ConversionRetention},
     reload::{
         ModuleEpoch, ModuleEpochAllocator,
         updates::{ReloadAdmission, RetainedDemands, coverage::CoverageFacts},
@@ -710,7 +707,7 @@ struct ModuleStoreInner {
     graph: GraphState,
     epochs: ModuleEpochAllocator,
     next_cell: u64,
-    cells: HashMap<CellId, StaticCell>,
+    cells: StaticCells,
     next_id: u64,
     next_installation: u64,
     ids_by_member: HashMap<(InstallationId, ModuleIdentity), ModuleId>,
@@ -773,12 +770,30 @@ impl ModuleStore {
         &self,
         module: &ExecutableModule,
         kind: ModuleEpochRetention,
+        authority: Option<ConversionRetention<'_>>,
     ) -> Option<ProgramLease> {
         self.publish_program(module).ok()?;
+        let covered = authority
+            .map(|authority| authority.covers_store(self, module))
+            .transpose()
+            .ok()?
+            .unwrap_or(false);
         let mut inner = self.inner.try_borrow_mut().ok()?;
-        if !module
-            .members()
-            .all(|member| inner.resolve(&member).is_some())
+        // An exact borrowed conversion scope already protects the complete program.
+        // Otherwise the first whole-program registration validates every member.
+        // Existing registrations keep those records installed; this exclusive borrow
+        // prevents reclamation before the new registration even if an old lease drops
+        // concurrently. Member-only retention is not whole-program authority.
+        let retained = covered
+            || inner
+                .retentions
+                .get(&module.program_key())?
+                .program_counts()
+                .is_retained();
+        if !retained
+            && !module
+                .members()
+                .all(|member| inner.resolve(&member).is_some())
         {
             return None;
         }

@@ -14,10 +14,11 @@ use kagari_runtime::{
         conversion::context::ConversionContext,
         declarations::{FunctionDecl, MethodDecl},
         module::NativeModule,
-        payload::{Opaque, take::NativeTake},
+        payload::{NativeType, Opaque, take::NativeTake},
         storage::{NativePayload, NativeStorage},
         typed::{NativeContext, loans::LoanContext},
         types::{Type, TypeRef},
+        value_handle::ScriptValue,
     },
     resource::HeapCharge,
     value::Value,
@@ -28,7 +29,7 @@ use std::{
     panic::{AssertUnwindSafe, catch_unwind},
     slice,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
     },
     thread,
@@ -350,6 +351,117 @@ const SOURCE: &str = r#"
 "#;
 
 #[test]
+fn native_call_factory_retains_its_program_after_the_lending_scope_and_reload() {
+    fn assert_send<T: Send>() {}
+    assert_send::<NativeType<PlayerState>>();
+    let escaped = Arc::new(Mutex::new(None));
+    let output = escaped.clone();
+    let mut module = ModuleBuilder::new(
+        "example::scoped_factory",
+        &StandardDeclarations::default().catalog().unwrap(),
+    )
+    .unwrap();
+    let player = module
+        .define_opaque::<PlayerState>("Player")
+        .unwrap()
+        .finish()
+        .unwrap();
+    let new = module
+        .define_function(FunctionDecl::new("new").returns(player.apply([]).unwrap()))
+        .unwrap();
+    module
+        .bind(
+            new,
+            move |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<Opaque<PlayerState>> {
+                let factory = cx.result_native_type::<PlayerState>()?;
+                let object = factory.create(
+                    cx,
+                    PlayerState {
+                        hp: 17,
+                        position: [0.0; 3],
+                    },
+                    &[],
+                )?;
+                cx.collect_garbage()?;
+                *output.lock().unwrap() = Some(factory);
+                Ok(object)
+            },
+        )
+        .unwrap();
+    let module = module.finish().unwrap();
+    let (mut vm, program) = fixture(
+        "use example::scoped_factory::{Player, new}; pub fn make() -> Player { new() }",
+        Some(&module),
+    );
+    let owner = vm.runtime().select_program(&program).unwrap();
+    let value: ScriptValue = vm.execute_typed(&owner, "make", ()).unwrap();
+    let object = {
+        let mut cx = vm.context(&owner).unwrap();
+        let roots = vm.runtime().gc().active_roots();
+        let borrowed = value.borrow_payload::<PlayerState>(&cx).unwrap();
+        assert_eq!(vm.runtime().gc().active_roots(), roots);
+        assert!(value.borrow_payload::<Counter>(&cx).is_err());
+        cx.collect_garbage().unwrap();
+        // SAFETY: Only an edge-free scalar is read; no payload reference escapes.
+        assert_eq!(
+            unsafe { borrowed.read(&cx, None, |state, _| Ok(state.hp)) }.unwrap(),
+            17
+        );
+        let object: Opaque<PlayerState> = value.decode(&mut cx).unwrap();
+        object
+    };
+    drop(value);
+    let factory = escaped.lock().unwrap().take().unwrap();
+    assert_eq!(
+        vm.runtime()
+            .modules()
+            .retention_counts(owner.key())
+            .runtime_values,
+        1
+    );
+    let candidate = vm
+        .runtime_mut()
+        .stage_reload_verified_program(&program, None, owner.verified_program().clone())
+        .unwrap();
+    vm.runtime_mut().publish_staged_reload(candidate).unwrap();
+    assert!(
+        vm.runtime()
+            .collect_garbage()
+            .unwrap()
+            .reclaimed_modules
+            .is_empty()
+    );
+    {
+        let mut cx = vm.context(&owner).unwrap();
+        let second = factory
+            .create(
+                &mut cx,
+                PlayerState {
+                    hp: 23,
+                    position: [1.0; 3],
+                },
+                &[],
+            )
+            .unwrap();
+        assert_eq!(second.read_data(&cx, |value| Ok(value.hp)).unwrap(), 23);
+        assert_eq!(object.read_data(&cx, |value| Ok(value.hp)).unwrap(), 17);
+    }
+    drop(factory);
+    assert!(
+        vm.runtime()
+            .collect_garbage()
+            .unwrap()
+            .reclaimed_modules
+            .contains(&owner.key())
+    );
+    // The returned object is still independently rooted; only its old executable
+    // program lease expires. Ordinary access uses the current caller's authority.
+    let current = vm.runtime().select_program(&program).unwrap();
+    let cx = vm.context(&current).unwrap();
+    assert_eq!(object.read_data(&cx, |value| Ok(value.hp)).unwrap(), 17);
+}
+
+#[test]
 fn retained_native_factories_share_aliases_and_check_nominal_and_runtime_identity() {
     let dropped = Arc::new(AtomicUsize::new(0));
     let (module, declaration, other, _) = module(dropped.clone());
@@ -446,6 +558,7 @@ fn native_borrows_reject_reentry_and_release_on_error_and_unwind() {
         unsafe {
             object.read(&cx, None, |_, _access| {
                 assert!(cx.collect_garbage().is_err());
+                assert!(cx.conversion_scope(cx.owner()).is_err());
                 assert!(object.read(&cx, None, |_, _access| Ok(())).is_err());
                 assert!(
                     vm.execute_typed::<_, Opaque<Counter>>(&owner, "make", (0,))

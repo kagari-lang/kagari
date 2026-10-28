@@ -3,11 +3,22 @@ pub(crate) mod scanning;
 #[cfg(feature = "execution-diagnostics")]
 use crate::diagnostics::{self, Event};
 use crate::{
-    Runtime, error::RuntimeError, execution_metadata::MetadataRoot, gc::GcHeap,
-    native::binding::NativeResult, value::Value,
+    Runtime,
+    error::RuntimeError,
+    execution_metadata::MetadataRoot,
+    gc::{
+        GcHeap,
+        metrics::{IndivisibleKind, IndivisibleSample},
+    },
+    native::{
+        binding::NativeResult,
+        storage::scan::{ScanBudget, ScanStatus},
+    },
+    value::Value,
 };
 use std::{
     mem,
+    panic::{AssertUnwindSafe, catch_unwind},
     sync::{Arc, Mutex, MutexGuard, PoisonError, Weak},
 };
 
@@ -92,6 +103,48 @@ impl RootedValue {
             return None;
         }
         self.roots.set(heap, 0, value)
+    }
+}
+
+/// Immutable host retention, with no root-table entry for edge-free scalar data.
+/// Supplied mutable roots are never demoted: their aliases and metadata stay shared.
+#[derive(Debug, Clone)]
+pub(crate) struct RetainedValue {
+    retention: Retention,
+}
+
+#[derive(Debug, Clone)]
+enum Retention {
+    Scalar { owner: u64, value: Value },
+    Rooted(RootedValue),
+}
+
+impl RetainedValue {
+    pub(crate) fn from_root(root: RootedValue) -> Self {
+        Self {
+            retention: Retention::Rooted(root),
+        }
+    }
+
+    pub(crate) fn as_root(&self) -> Option<&RootedValue> {
+        match &self.retention {
+            Retention::Scalar { .. } => None,
+            Retention::Rooted(root) => Some(root),
+        }
+    }
+
+    pub(crate) fn value(&self, heap: &GcHeap) -> Option<Value> {
+        match &self.retention {
+            Retention::Scalar { owner, value } => {
+                if *owner != heap.owner {
+                    return None;
+                }
+                // Preserve the root owner's read exclusion without renting a slot.
+                let _roots = heap.roots.try_borrow().ok()?;
+                Some(*value)
+            }
+            Retention::Rooted(root) => root.value(heap),
+        }
     }
 }
 
@@ -201,12 +254,39 @@ struct RootEntry {
     lease: Weak<RootLease>,
     values: Vec<Value>,
     metadata: Vec<MetadataRoot>,
+    #[cfg(test)]
+    disposal_probe: Option<tests::DisposalProbe>,
+}
+
+impl RootEntry {
+    /// Each top-level dependency gets its own unwind boundary, so one panic does
+    /// not cause remaining dependencies to be dropped during that unwind.
+    fn dispose(self) -> bool {
+        drop(self.lease);
+        drop(self.values);
+        let mut panicked = false;
+        #[cfg(test)]
+        {
+            panicked |= catch_unwind(AssertUnwindSafe(|| drop(self.disposal_probe))).is_err();
+        }
+        for dependency in self.metadata {
+            panicked |= catch_unwind(AssertUnwindSafe(|| drop(dependency))).is_err();
+        }
+        panicked
+    }
 }
 
 #[derive(Debug)]
 struct RootSlot {
     generation: u64,
     entry: Option<RootEntry>,
+}
+
+/// A finite release allowance captured from the notification stack.
+/// Later releases can replace pending work, but cannot extend this drain.
+#[derive(Debug)]
+pub(crate) struct RootReleaseCursor {
+    remaining: usize,
 }
 
 #[derive(Debug)]
@@ -245,8 +325,14 @@ impl RootTable {
             .then_some(entry)
     }
 
-    fn insert(&mut self, values: Vec<Value>) -> Option<RootSet> {
-        self.drain_released();
+    fn insert(&mut self, values: Vec<Value>) -> (Option<RootSet>, Option<RootEntry>) {
+        // Detach at most one released slot. The caller must dispose its dependencies
+        // after releasing the table borrow, even if admission fails.
+        let (_, retired) = self.drain_released_limit(1);
+        (self.register(values), retired)
+    }
+
+    fn register(&mut self, values: Vec<Value>) -> Option<RootSet> {
         if self.free.is_empty() {
             self.slots.try_reserve(1).ok()?;
             // Every slot can enter the free list once, even if all leases drop together.
@@ -275,33 +361,66 @@ impl RootTable {
             lease: Arc::downgrade(&lease),
             values,
             metadata: Vec::new(),
+            #[cfg(test)]
+            disposal_probe: None,
         });
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::RootRegistration);
         Some(RootSet { id, lease })
     }
 
-    pub(super) fn drain_released(&mut self) {
-        self.drain_released_limit(usize::MAX);
+    pub(super) fn begin_release_drain(&self) -> RootReleaseCursor {
+        RootReleaseCursor {
+            remaining: lock_releases(&self.released).pending.len(),
+        }
     }
 
-    /// Process at most `limit` release IDs, including rejected stale notifications.
-    /// Returns inspected IDs, not retired slots. Transport capacity is retained.
-    pub(super) fn drain_released_limit(&mut self, limit: usize) -> usize {
+    /// Detach at most one record; the heap owner disposes it outside this borrow.
+    /// Every inspection, including stale notifications and empty probes, is charged.
+    fn drain_release_slice(
+        &mut self,
+        cursor: &mut RootReleaseCursor,
+        budget: &mut ScanBudget,
+    ) -> (ScanStatus, Option<RootEntry>) {
+        while cursor.remaining != 0 {
+            if !budget.take(1) {
+                return (ScanStatus::Pending, None);
+            }
+            let (processed, retired) = self.drain_released_limit(1);
+            if processed == 0 {
+                cursor.remaining = 0;
+            } else {
+                cursor.remaining -= 1;
+            }
+            if retired.is_some() {
+                let status = if cursor.remaining == 0 {
+                    ScanStatus::Complete
+                } else {
+                    ScanStatus::Pending
+                };
+                return (status, retired);
+            }
+        }
+        (ScanStatus::Complete, None)
+    }
+
+    /// Inspect at most `limit` IDs, stopping at the first detachable record.
+    /// Returns inspected IDs (including stale ones) and ownership for disposal
+    /// outside the table borrow. No allocation or dependency destruction occurs here.
+    fn drain_released_limit(&mut self, limit: usize) -> (usize, Option<RootEntry>) {
         let mut processed = 0;
         while processed < limit {
             let Some(id) = lock_releases(&self.released).pending.pop() else {
                 break;
             };
-            // Retire identity/credit before destroying detached contents, so even
-            // a destructor panic cannot strand a slot or its notification credit.
             let entry = self.release(id);
             lock_releases(&self.released).credits -= 1;
             processed += 1;
-            // Contents can release other leases; no transport lock spans their Drop.
-            drop(entry);
+            if entry.is_some() {
+                return (processed, entry);
+            }
         }
-        processed
+        (processed, None)
     }
 
     fn release(&mut self, id: RootId) -> Option<RootEntry> {
@@ -343,7 +462,6 @@ impl RootTable {
     /// Hold each live lease while copying its roots. A concurrent last drop can
     /// conservatively retain an object for this collection, never remove a live root.
     fn visit_snapshots(&mut self, mut visit: impl FnMut(&RootEntry)) {
-        self.drain_released();
         for slot in &self.slots {
             if let Some(entry) = &slot.entry
                 && let Some(_lease) = entry.lease.upgrade()
@@ -412,10 +530,20 @@ impl GcHeap {
         })
     }
 
-    /// Retain an existing storable edge during an authorized native payload loan.
+    /// Retain an immutable value with ordinary execution and publication checks.
+    pub(crate) fn retain_value(&self, value: Value) -> Option<RetainedValue> {
+        if !value.is_storable(self) {
+            return None;
+        }
+        self.ensure_execution_allowed().ok()?;
+        self.checked_target(value)?.publish().ok()?;
+        self.retain_published_value(value).ok()
+    }
+
+    /// Retain an existing storable value during an authorized native payload loan.
     /// StorageAccess owns declared-type and recovery checks; this checks execution,
-    /// identity and root-table admission without lifting the loan's GC exclusion.
-    pub(crate) fn root_native_value(&self, value: Value) -> NativeResult<RootedValue> {
+    /// identity and root admission without lifting the loan's GC exclusion.
+    pub(crate) fn retain_native_value(&self, value: Value) -> NativeResult<RetainedValue> {
         self.resources.ensure_execution_allowed()?;
         if self.native_borrows.get() == 0 {
             return Err(RuntimeError::module_validation(
@@ -429,25 +557,126 @@ impl GcHeap {
             return Err(invalid());
         }
         self.checked_target(value).ok_or_else(invalid)?.publish()?;
-        let mut roots = self
-            .roots
-            .try_borrow_mut()
-            .map_err(|_| RuntimeError::module_validation("root storage is borrowed"))?;
+        self.retain_published_value(value)
+    }
+
+    fn retain_published_value(&self, value: Value) -> NativeResult<RetainedValue> {
+        if matches!(
+            value,
+            Value::Unit
+                | Value::Bool(_)
+                | Value::Char(_)
+                | Value::I32(_)
+                | Value::I64(_)
+                | Value::U64(_)
+                | Value::F32(_)
+                | Value::F64(_)
+        ) {
+            // These variants contain neither heap IDs nor metadata. The checked,
+            // never-reused heap owner is sufficient for an immutable scalar;
+            // mutable roots still require their slot generation and shared lease.
+            let _roots = self
+                .roots
+                .try_borrow_mut()
+                .map_err(|_| RuntimeError::module_validation("root storage is borrowed"))?;
+            return Ok(RetainedValue {
+                retention: Retention::Scalar {
+                    owner: self.owner,
+                    value,
+                },
+            });
+        }
         let mut values = Vec::new();
         values
             .try_reserve(1)
             .map_err(|_| self.resource_limit("native root value storage"))?;
         values.push(value);
-        let roots = roots
-            .insert(values)
-            .ok_or_else(|| self.resource_limit("native root registration"))?;
-        Ok(RootedValue { roots })
+        let roots = self.insert_root(values)?;
+        Ok(RetainedValue::from_root(RootedValue { roots }))
     }
 
     pub fn root_execution_values(&self, values: Vec<Value>) -> Option<RootSet> {
         self.ensure_execution_allowed().ok()?;
         self.publish_root_values(&values)?;
-        self.roots.try_borrow_mut().ok()?.insert(values)
+        self.insert_root(values).ok()
+    }
+
+    fn insert_root(&self, values: Vec<Value>) -> Result<RootSet, RuntimeError> {
+        let (root, retired) = self
+            .roots
+            .try_borrow_mut()
+            .map_err(|_| RuntimeError::module_validation("root storage is borrowed"))?
+            .insert(values);
+        if let Some(retired) = retired {
+            // Registration can run during ordinary execution or a native loan.
+            // A final metadata owner must not reenter execution/collection here.
+            self.resources.collect_operation(|| {
+                self.dispose_root_entry(retired, &mut ScanBudget::new(0))
+            })??;
+        }
+        root.ok_or_else(|| self.resource_limit("root registration"))
+    }
+
+    /// Service a finite allowance under the caller's collection exclusion. At most
+    /// one root record is detached at a time, and its dependencies are destroyed
+    /// outside the table/transport borrow before further inspection. Disposal may
+    /// exceed the budget as indivisible work; no later record is inspected then.
+    pub(super) fn drain_root_release_slice(
+        &self,
+        cursor: &mut RootReleaseCursor,
+        budget: &mut ScanBudget,
+    ) -> Result<ScanStatus, RuntimeError> {
+        loop {
+            let (status, retired) = self
+                .roots
+                .try_borrow_mut()
+                .map_err(|_| RuntimeError::module_validation("root storage is borrowed"))?
+                .drain_release_slice(cursor, budget);
+            let had_retired = retired.is_some();
+            if let Some(retired) = retired {
+                self.dispose_root_entry(retired, budget)?;
+            }
+            if status == ScanStatus::Complete || !had_retired {
+                return Ok(status);
+            }
+        }
+    }
+
+    fn dispose_root_entry(
+        &self,
+        retired: RootEntry,
+        budget: &mut ScanBudget,
+    ) -> Result<(), RuntimeError> {
+        // Account for every stored item plus release of the record backing. The
+        // transitive cost of final Arc destruction is opaque and timed separately.
+        let items = retired.values.len().saturating_add(retired.metadata.len());
+        let work = items.saturating_add(1);
+        budget.charge(work);
+        let started = self.observation_clock().start();
+        let panicked = retired.dispose();
+        if let Some(started) = started {
+            self.observe_indivisible(
+                IndivisibleKind::RootDrop,
+                IndivisibleSample::new(
+                    "RootEntry",
+                    items,
+                    work,
+                    Some(size_of::<RootEntry>()),
+                    started.elapsed(),
+                ),
+            );
+        }
+        if panicked {
+            return Err(self
+                .resources
+                .quarantine("root dependency destruction panicked"));
+        }
+        if self.resources.is_quarantined() {
+            return Err(self
+                .resources
+                .quarantine("root dependency cleanup reentered execution"));
+        }
+        Ok(())
     }
 
     pub(super) fn root_snapshots(&self) -> Option<Vec<Value>> {

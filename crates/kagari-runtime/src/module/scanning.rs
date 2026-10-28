@@ -5,7 +5,7 @@ use crate::{
     gc::graph::{
         GraphIdentity,
         marks::MarkRef,
-        objects::{EdgeVisitor, ScanEdge},
+        objects::{ScanEdge, ScanVisitor},
     },
     host::HostRegistryId,
     module::{
@@ -124,7 +124,7 @@ impl ModuleStore {
         &self,
         cursor: &mut ProgramRootCursor,
         budget: &mut ScanBudget,
-        visit: &mut EdgeVisitor<'_>,
+        visit: &mut ScanVisitor<'_>,
     ) -> Result<ScanStatus, RuntimeError> {
         let store = self.inner.try_borrow().map_err(|_| invalid())?;
         while cursor.retained.is_some() || cursor.next < cursor.end {
@@ -172,9 +172,14 @@ impl ModuleStore {
             if current || staged.is_some() {
                 // Keep the upgraded candidate lease through publication, never
                 // across a yield. Its concurrent last release can only overretain.
-                visit(ScanEdge::Identity(GraphIdentity::Program(
-                    resolved.identity(),
-                )))?;
+                if visit(
+                    ScanEdge::Identity(GraphIdentity::Program(resolved.identity())),
+                    budget,
+                )? == ScanStatus::Pending
+                {
+                    cursor.next -= 1;
+                    return Ok(ScanStatus::Pending);
+                }
             } else {
                 cursor.retained = Some(RetainedProgramCursor {
                     id: resolved.identity(),
@@ -208,7 +213,11 @@ impl ModuleStore {
     /// Collector lookup checks exact executable identity, not temporary candidate
     /// availability. Public admission checks availability before shading; an owner
     /// already queued must remain resolvable after its last candidate lease drops.
-    pub(crate) fn shade_program_edge(&self, owner: &ExecutableModule) -> Result<(), RuntimeError> {
+    pub(crate) fn with_program_edge_mark<R>(
+        &self,
+        owner: &ExecutableModule,
+        action: impl FnOnce(GraphIdentity, MarkRef<'_>) -> Result<R, RuntimeError>,
+    ) -> Result<R, RuntimeError> {
         let store = self.inner.try_borrow().map_err(|_| invalid())?;
         let root = owner.program_root();
         let resolved = store
@@ -216,7 +225,11 @@ impl ModuleStore {
             .resolve(&root.key())
             .filter(|resolved| resolved.record().matches(&root))
             .ok_or_else(invalid)?;
-        store.records.publish(resolved, &self.graph)
+        let id = resolved.identity();
+        action(
+            GraphIdentity::Program(id),
+            store.records.mark(id).ok_or_else(invalid)?,
+        )
     }
 
     #[cfg(test)]
@@ -266,19 +279,17 @@ impl ModuleStore {
         })
     }
 
-    pub(crate) fn scan_module_slice(
+    /// Runtime-owned fields only: no provider invocation or descriptor release.
+    /// Complete ends this prefix, not the module's descriptor continuation.
+    pub(crate) fn scan_module_fields(
         &self,
         cursor: &mut ModuleCursor,
         budget: &mut ScanBudget,
-        visit: &mut EdgeVisitor<'_>,
+        visit: &mut ScanVisitor<'_>,
     ) -> Result<ScanStatus, RuntimeError> {
-        while cursor.section < 5 {
+        while cursor.section < 4 {
             if !budget.take(1) {
                 return Ok(ScanStatus::Pending);
-            }
-            if cursor.section == 4 {
-                self.scan_descriptor_field(cursor, visit)?;
-                continue;
             }
             let store = self.inner.try_borrow().map_err(|_| invalid())?;
             let record = store.records.scan_record(cursor.id).ok_or_else(invalid)?;
@@ -302,12 +313,18 @@ impl ModuleStore {
                         .member(ModuleRef::new(cursor.index))
                         .ok_or_else(invalid)?;
                     let id = store.records.scan_id(&member).ok_or_else(invalid)?;
-                    visit(ScanEdge::Identity(GraphIdentity::Program(id)))?;
+                    if visit(ScanEdge::Identity(GraphIdentity::Program(id)), budget)?
+                        == ScanStatus::Pending
+                    {
+                        return Ok(ScanStatus::Pending);
+                    }
                     cursor.index += 1;
                 }
                 1 => {
-                    if let Some(value) = record.constants.scan_field(cursor.index) {
-                        visit(ScanEdge::Value(value))?;
+                    if let Some(value) = record.constants.scan_field(cursor.index)
+                        && visit(ScanEdge::Value(value), budget)? == ScanStatus::Pending
+                    {
+                        return Ok(ScanStatus::Pending);
                     }
                     cursor.index += 1;
                 }
@@ -317,7 +334,11 @@ impl ModuleStore {
                         owner: cell.owner.registry_owner,
                         cell: record.bindings[cursor.index],
                     };
-                    visit(ScanEdge::Identity(GraphIdentity::Static(id)))?;
+                    if visit(ScanEdge::Identity(GraphIdentity::Static(id)), budget)?
+                        == ScanStatus::Pending
+                    {
+                        return Ok(ScanStatus::Pending);
+                    }
                     cursor.index += 1;
                 }
                 3 => {
@@ -326,8 +347,10 @@ impl ModuleStore {
                         cursor.index += 1;
                         cursor.field = 0;
                     } else {
-                        if let Some(edge) = execution.scan_call(cursor.index, cursor.field) {
-                            visit(ScanEdge::Metadata(edge))?;
+                        if let Some(edge) = execution.scan_call(cursor.index, cursor.field)
+                            && visit(ScanEdge::Metadata(edge), budget)? == ScanStatus::Pending
+                        {
+                            return Ok(ScanStatus::Pending);
                         }
                         cursor.field += 1;
                     }
@@ -338,19 +361,42 @@ impl ModuleStore {
         Ok(ScanStatus::Complete)
     }
 
+    /// The driver must release graph control before this suffix: finishing a
+    /// descriptor can destroy an evicted entry, including its owned dependencies.
+    pub(crate) fn scan_module_descriptors(
+        &self,
+        cursor: &mut ModuleCursor,
+        budget: &mut ScanBudget,
+        visit: &mut ScanVisitor<'_>,
+    ) -> Result<ScanStatus, RuntimeError> {
+        if cursor.section < 4 {
+            return Err(invalid());
+        }
+        while cursor.section < 5 {
+            if !budget.take(1) {
+                return Ok(ScanStatus::Pending);
+            }
+            if self.scan_descriptor_field(cursor, budget, visit)? == ScanStatus::Pending {
+                return Ok(ScanStatus::Pending);
+            }
+        }
+        Ok(ScanStatus::Complete)
+    }
+
     fn scan_descriptor_field(
         &self,
         cursor: &mut ModuleCursor,
-        visit: &mut EdgeVisitor<'_>,
-    ) -> Result<(), RuntimeError> {
+        budget: &mut ScanBudget,
+        visit: &mut ScanVisitor<'_>,
+    ) -> Result<ScanStatus, RuntimeError> {
         if cursor.kind == cursor.descriptors.len() {
             cursor.section = 5;
-            return Ok(());
+            return Ok(ScanStatus::Complete);
         }
         if cursor.index == cursor.descriptors[cursor.kind] {
             cursor.kind += 1;
             cursor.index = 0;
-            return Ok(());
+            return Ok(ScanStatus::Complete);
         }
         let Some(slot) = cursor.pinned else {
             let mut store = self.inner.try_borrow_mut().map_err(|_| invalid())?;
@@ -365,7 +411,7 @@ impl ModuleStore {
             cursor.dependency = 0;
             cursor.field = 0;
             cursor.available = true;
-            return Ok(());
+            return Ok(ScanStatus::Complete);
         };
         {
             let store = self.inner.try_borrow().map_err(|_| invalid())?;
@@ -377,14 +423,16 @@ impl ModuleStore {
             if let Some(owner) = view.dependencies.get(cursor.dependency) {
                 cursor.available &= store.resolve(owner).is_some();
                 cursor.dependency += 1;
-                return Ok(());
+                return Ok(ScanStatus::Complete);
             }
             if cursor.available && cursor.field < view.field_count() {
-                if let Some(edge) = view.field(cursor.field) {
-                    visit(ScanEdge::Metadata(edge))?;
+                if let Some(edge) = view.field(cursor.field)
+                    && visit(ScanEdge::Metadata(edge), budget)? == ScanStatus::Pending
+                {
+                    return Ok(ScanStatus::Pending);
                 }
                 cursor.field += 1;
-                return Ok(());
+                return Ok(ScanStatus::Complete);
             }
         }
         let mut store = self.inner.try_borrow_mut().map_err(|_| invalid())?;
@@ -396,7 +444,7 @@ impl ModuleStore {
             .scan_finish(cursor.kind, slot);
         cursor.pinned = None;
         cursor.index += 1;
-        Ok(())
+        Ok(ScanStatus::Complete)
     }
 
     #[cfg(test)]
@@ -418,7 +466,7 @@ impl ModuleStore {
         &self,
         id: StaticScanId,
         budget: &mut ScanBudget,
-        visit: &mut EdgeVisitor<'_>,
+        visit: &mut ScanVisitor<'_>,
     ) -> Result<ScanStatus, RuntimeError> {
         if !budget.take(1) {
             return Ok(ScanStatus::Pending);
@@ -430,9 +478,19 @@ impl ModuleStore {
         }
         if !cell.failed_attempt() {
             match &cell.state {
-                StaticState::Ready(value) => visit(ScanEdge::Value(*value))?,
+                StaticState::Ready(value) => {
+                    if visit(ScanEdge::Value(*value), budget)? == ScanStatus::Pending {
+                        return Ok(ScanStatus::Pending);
+                    }
+                }
                 StaticState::Uninitialized(recipe) | StaticState::Initializing(recipe) => {
-                    visit(ScanEdge::Metadata(MetadataEdge::Program(&recipe.module)))?
+                    if visit(
+                        ScanEdge::Metadata(MetadataEdge::Program(&recipe.module)),
+                        budget,
+                    )? == ScanStatus::Pending
+                    {
+                        return Ok(ScanStatus::Pending);
+                    }
                 }
                 StaticState::Failed(_) => {}
             }
@@ -448,7 +506,7 @@ fn scan_retained_program(
     store: &ModuleStoreInner,
     cursor: &mut RetainedProgramCursor,
     budget: &mut ScanBudget,
-    visit: &mut EdgeVisitor<'_>,
+    visit: &mut ScanVisitor<'_>,
 ) -> Result<ScanStatus, RuntimeError> {
     let record = store.records.scan_record(cursor.id).ok_or_else(invalid)?;
     while cursor.next < cursor.end {
@@ -471,7 +529,14 @@ fn scan_retained_program(
             .get(&key)
             .is_some_and(|retentions| retentions.is_retained())
         {
-            visit(ScanEdge::Identity(GraphIdentity::Program(cursor.id)))?;
+            if visit(
+                ScanEdge::Identity(GraphIdentity::Program(cursor.id)),
+                budget,
+            )? == ScanStatus::Pending
+            {
+                cursor.next -= 1;
+                return Ok(ScanStatus::Pending);
+            }
             return Ok(ScanStatus::Complete);
         }
     }
@@ -526,23 +591,30 @@ mod tests {
         let mut selected = Vec::new();
         let mut work = 0;
         loop {
-            let mut budget = ScanBudget::new(1);
+            let mut budget = ScanBudget::new(5);
             let status = runtime
                 .modules
-                .scan_root_slice(cursor, &mut budget, &mut |edge| {
+                .scan_root_slice(cursor, &mut budget, &mut |edge, budget| {
                     let ScanEdge::Identity(id) = edge else {
                         panic!("program root identity")
                     };
-                    selected.push(id);
-                    runtime.gc.shade_graph_identity(&runtime.modules, id)
+                    let status = runtime.gc.shade_scanned_edge(
+                        &runtime.modules,
+                        ScanEdge::Identity(id),
+                        budget,
+                    )?;
+                    if status == ScanStatus::Complete {
+                        selected.push(id);
+                    }
+                    Ok(status)
                 })
                 .unwrap();
-            assert!(budget.spent() <= 1);
+            assert!(budget.spent() <= 5);
             work += budget.spent();
             if status == ScanStatus::Complete {
                 return (selected, work);
             }
-            assert_eq!(budget.spent(), 1);
+            assert!(budget.spent() > 0);
         }
     }
 
@@ -571,7 +643,11 @@ mod tests {
         assert_eq!(selected, [baseline_id, staged_id]);
         // Every stable slot is inspected, including nonroots; current/staged
         // programs do not additionally inspect each member's retention records.
-        assert_eq!(work, 80);
+        assert_eq!(
+            work,
+            80 + 4 + 1,
+            "slots, one four-word block reset, and the root slot retried when reset did not fit"
+        );
         thread::spawn(move || drop(staged)).join().unwrap();
         close_root_scan(&runtime);
         assert!(
@@ -617,7 +693,7 @@ mod tests {
             assert_eq!(
                 runtime
                     .modules
-                    .scan_root_slice(&mut cursor, &mut budget, &mut |_| {
+                    .scan_root_slice(&mut cursor, &mut budget, &mut |_, _| {
                         panic!("no member retained before the final member")
                     })
                     .unwrap(),
@@ -657,7 +733,11 @@ mod tests {
         runtime.gc.graph.lock().begin_cycle().unwrap();
         let (selected, work) = scan_program_roots(&runtime, &mut cursor);
         assert!(!selected.contains(&baseline_id));
-        assert_eq!(work, 12);
+        assert_eq!(
+            work,
+            12 + 4,
+            "slots and retention checks plus one block reset"
+        );
         let member = baseline.member(ModuleRef::new(0)).unwrap();
         let lease = runtime
             .retain_module(&member, ModuleEpochRetention::ActiveCall)

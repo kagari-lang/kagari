@@ -10,7 +10,6 @@ use kagari_runtime::{
     native::{
         binding::NativeResult,
         context::CallContext,
-        conversion::context::ConversionContext,
         payload::NativeType,
         storage::{
             NativePayload,
@@ -97,8 +96,12 @@ impl VecStorage {
 
     /// Copy from a call-rooted Array without executing child converters. The
     /// source protects all edges until ordinary result scanner admission finishes.
-    pub(crate) fn from_array(call: &CallContext<'_>, source: HeapObjectId) -> NativeResult<Self> {
-        let element = call.result_type_parameter(0)?;
+    pub(crate) fn from_array(
+        call: &CallContext<'_>,
+        source: HeapObjectId,
+        result: &TypeArgument,
+    ) -> NativeResult<Self> {
+        let element = call.type_parameter(result, 0)?;
         let mut payload = Self::empty_element(element.clone(), call.owner())?;
         let count = call
             .heap()
@@ -122,7 +125,7 @@ impl VecStorage {
     }
 
     pub(crate) fn empty(cx: &NativeContext<'_>, ty: &NativeType<Self>) -> NativeResult<Self> {
-        let conversion = ConversionContext::new(cx.runtime(), ty.owner())?;
+        let conversion = cx.conversion_scope(ty.owner())?;
         Self::empty_element(conversion.parameter(ty.type_argument(), 0)?, ty.owner())
     }
 

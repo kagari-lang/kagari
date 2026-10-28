@@ -11,6 +11,7 @@ use kagari_runtime::{
     native::{
         binding::NativeResult,
         builder::ModuleBuilder,
+        context::CallContext,
         declarations::{FunctionDecl, MethodDecl},
         module::NativeModule,
         payload::Opaque,
@@ -18,6 +19,7 @@ use kagari_runtime::{
         types::TypeRef,
         value_handle::ScriptValue,
     },
+    value::Value,
 };
 use kagari_stdlib::declarations::StandardDeclarations;
 use std::slice;
@@ -26,7 +28,7 @@ kagari_runtime::native_data! {
     struct BoundedState { value: i32 }
 }
 
-fn registration() -> (NativeModule, TypeRef) {
+fn registration(builder_result: bool) -> (NativeModule, TypeRef) {
     let mut module = ModuleBuilder::new(
         "example::bounded_native",
         &StandardDeclarations::default().catalog().unwrap(),
@@ -51,16 +53,29 @@ fn registration() -> (NativeModule, TypeRef) {
                     methods.method(&function, |signature| {
                         signature.bound(element.clone(), marker.apply([])?)
                     })?;
-                    methods.bind(
-                        function,
-                        move |cx: &mut NativeContext<'_>,
-                              (): ()|
-                              -> NativeResult<Opaque<BoundedState>> {
-                            let ty = cx.result_native_type()?;
-                            cx.collect_garbage()?;
-                            ty.create(cx, BoundedState { value }, &[])
-                        },
-                    )?;
+                    if name == "new" {
+                        methods.bind(
+                            function,
+                            move |call: &mut CallContext<'_>| -> NativeResult<Value> {
+                                call.allocate_result_payload(&[], |call, result| {
+                                    assert_eq!(result.ty(), call.result_type());
+                                    call.collect_garbage()?;
+                                    Ok(BoundedState { value })
+                                })
+                            },
+                        )?;
+                    } else {
+                        methods.bind(
+                            function,
+                            move |cx: &mut NativeContext<'_>,
+                                  (): ()|
+                                  -> NativeResult<Opaque<BoundedState>> {
+                                let ty = cx.result_native_type()?;
+                                cx.collect_garbage()?;
+                                ty.create(cx, BoundedState { value }, &[])
+                            },
+                        )?;
+                    }
                 }
                 Ok(())
             })?;
@@ -77,16 +92,31 @@ fn registration() -> (NativeModule, TypeRef) {
             signature.produces(holder.apply([element.ty()])?)
         })
         .unwrap();
-    module
-        .bind(
-            adapted,
-            |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<Opaque<BoundedState>> {
-                cx.collect_garbage()?;
-                cx.result_native_type()?
-                    .create(cx, BoundedState { value: 23 }, &[])
-            },
-        )
-        .unwrap();
+    if builder_result {
+        module
+            .bind(
+                adapted,
+                |call: &mut CallContext<'_>| -> NativeResult<Value> {
+                    call.allocate_result_payload(&[], |call, result| {
+                        assert_eq!(result.ty(), call.result_type());
+                        call.collect_garbage()?;
+                        Ok(BoundedState { value: 23 })
+                    })
+                },
+            )
+            .unwrap();
+    } else {
+        module
+            .bind(
+                adapted,
+                |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<Opaque<BoundedState>> {
+                    cx.collect_garbage()?;
+                    cx.result_native_type()?
+                        .create(cx, BoundedState { value: 23 }, &[])
+                },
+            )
+            .unwrap();
+    }
     (module.finish().unwrap(), holder)
 }
 
@@ -158,7 +188,7 @@ const SOURCE: &str = r#"
 
 #[test]
 fn bounded_native_host_construction_requires_closed_type_and_separate_callable_evidence() {
-    let (module, holder) = registration();
+    let (module, holder) = registration(false);
     let (vm, program) = fixture(SOURCE, &module);
     let runtime = vm.runtime();
     let owner = runtime.select_program(&program).unwrap();
@@ -246,7 +276,7 @@ fn bounded_native_host_construction_requires_closed_type_and_separate_callable_e
 
 #[test]
 fn bounded_native_witness_cannot_borrow_foreign_runtime_or_argument_layout_scope() {
-    let (module, holder) = registration();
+    let (module, holder) = registration(false);
     let (mut vm, old) = fixture(SOURCE, &module);
     let (foreign_vm, foreign) = fixture(SOURCE, &module);
     let foreign_key = foreign_vm
@@ -290,9 +320,10 @@ fn bounded_native_witness_cannot_borrow_foreign_runtime_or_argument_layout_scope
 
 #[test]
 fn bounded_native_result_adapter_consumes_concrete_import_witness() {
-    let (module, holder) = registration();
-    let (vm, program) = fixture(
-        r#"
+    for builder_result in [false, true] {
+        let (module, holder) = registration(builder_result);
+        let (vm, program) = fixture(
+            r#"
         use example::bounded_native::{Holder, Tag, View, adapted};
         pub struct Key {}
         impl Tag for Key {}
@@ -308,36 +339,37 @@ fn bounded_native_result_adapter_consumes_concrete_import_witness() {
             factory.make::<OpenKey>()
         }
     "#,
-        &module,
-    );
-    let owner = vm.runtime().select_program(&program).unwrap();
-    let _: ScriptValue = vm.execute_typed(&owner, "make", ()).unwrap();
-    let _: ScriptValue = vm.execute_typed(&owner, "indirect", ()).unwrap();
-    let open_key = vm
-        .runtime()
-        .bind_type(&program.root(), "OpenKey", &[])
-        .unwrap();
-    assert!(
-        vm.runtime()
+            &module,
+        );
+        let owner = vm.runtime().select_program(&program).unwrap();
+        let _: ScriptValue = vm.execute_typed(&owner, "make", ()).unwrap();
+        let _: ScriptValue = vm.execute_typed(&owner, "indirect", ()).unwrap();
+        let open_key = vm
+            .runtime()
+            .bind_type(&program.root(), "OpenKey", &[])
+            .unwrap();
+        assert!(
+            vm.runtime()
+                .bind_native_type::<BoundedState>(
+                    &program.root(),
+                    &holder,
+                    slice::from_ref(open_key.type_argument()),
+                )
+                .is_err()
+        );
+        let key = vm.runtime().bind_type(&program.root(), "Key", &[]).unwrap();
+        let native = vm
+            .runtime()
             .bind_native_type::<BoundedState>(
                 &program.root(),
                 &holder,
-                slice::from_ref(open_key.type_argument()),
+                slice::from_ref(key.type_argument()),
             )
-            .is_err()
-    );
-    let key = vm.runtime().bind_type(&program.root(), "Key", &[]).unwrap();
-    let native = vm
-        .runtime()
-        .bind_native_type::<BoundedState>(
-            &program.root(),
-            &holder,
-            slice::from_ref(key.type_argument()),
-        )
-        .unwrap();
-    assert!(
-        vm.runtime()
-            .bind_associated_function::<(), Opaque<BoundedState>>(&native, "new")
-            .is_err()
-    );
+            .unwrap();
+        assert!(
+            vm.runtime()
+                .bind_associated_function::<(), Opaque<BoundedState>>(&native, "new")
+                .is_err()
+        );
+    }
 }

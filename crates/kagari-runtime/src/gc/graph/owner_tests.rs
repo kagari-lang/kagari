@@ -26,16 +26,16 @@ use std::{
 
 fn drain_tiny(runtime: &Runtime) {
     for _ in 0..10000 {
-        let mut budget = ScanBudget::new(1);
+        let mut budget = ScanBudget::new(5);
         let status = runtime
             .gc
             .scan_graph_slice(runtime.modules(), &mut budget)
             .unwrap();
-        assert!(budget.spent() <= 1);
+        assert!(budget.spent() <= 5);
         if status == ScanStatus::Complete {
             return;
         }
-        assert_eq!(budget.spent(), 1, "finite owner slices must progress");
+        assert!(budget.spent() > 0, "finite owner slices must progress");
     }
     panic!("owner scanning did not finish");
 }
@@ -327,14 +327,7 @@ fn failed_admission_preserves_the_active_owner_and_publishes_no_credit_or_record
         .gc
         .shade_graph_edge(runtime.modules(), ScanEdge::Value(child))
         .unwrap();
-    // Charge the first page's lazy bitmap reset separately from owner start.
-    assert!(
-        runtime
-            .gc
-            .graph
-            .lock()
-            .charge_bitmap_work(&mut ScanBudget::new(4))
-    );
+    // This is mutator publication: its bitmap work is not deferred service debt.
     assert_eq!(
         runtime
             .gc

@@ -10,7 +10,6 @@ use kagari_runtime::{
     error::RuntimeError,
     native::{
         binding::NativeResult,
-        conversion::context::ConversionContext,
         payload::NativeType,
         storage::{
             NativePayload,
@@ -119,7 +118,7 @@ impl<V: HashValue> HashTable<V> {
         cx: &NativeContext<'_>,
         ty: &NativeType<P>,
     ) -> NativeResult<Self> {
-        let conversion = ConversionContext::new(cx.runtime(), ty.owner())?;
+        let conversion = cx.conversion_scope(ty.owner())?;
         let key_argument = conversion.parameter(ty.type_argument(), 0)?;
         let builtin_keys = match (cx.selected_at(0), cx.selected_at(1)) {
             (Ok(hash), Ok(equal)) => {

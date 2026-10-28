@@ -166,7 +166,7 @@ impl StringTraversal {
             }
         };
         let value = piece
-            .map(|piece| {
+            .map(|piece| -> Result<PendingItem, RuntimeError> {
                 let mut result = String::new();
                 result
                     .try_reserve_exact(piece.len())

@@ -53,6 +53,7 @@ impl ObjectStorage {
             page_metadata_bytes: usage.small_controls,
             large_metadata_bytes: usage.large_controls,
             backing_control_bytes: usage.backing_controls,
+            allocation_padding_bytes: usage.padding,
             descriptor_bytes,
             representation_descriptors,
             descriptor_directory_bytes,

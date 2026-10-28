@@ -35,6 +35,8 @@ pub struct RetirementUsage {
 /// initialized payload and Native payload bytes are subsets, not additional allocations.
 /// Unused backing includes vacant slots, class rounding and page tails. Arc control
 /// records for allocation backing and representation descriptors are counted explicitly.
+/// Coallocated headers, slots, bitmaps and alignment padding are disjoint from the
+/// payload areas; their sum is the complete requested raw allocation, not extra backing.
 /// HashMap bucket/control arrays, canonical struct layout children, native registration
 /// metadata, roots, other payload children and allocator overhead remain outside these
 /// byte counts; registry entry counts/capacities are reported, not claimed as exact bytes.
@@ -55,6 +57,8 @@ pub struct StorageUsage {
     pub page_metadata_bytes: usize,
     pub large_metadata_bytes: usize,
     pub backing_control_bytes: usize,
+    /// Interior alignment gaps between payload, header, slots and bitmap regions.
+    pub allocation_padding_bytes: usize,
     pub descriptor_bytes: usize,
     pub representation_descriptors: usize,
     pub descriptor_directory_bytes: usize,

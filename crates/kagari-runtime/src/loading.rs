@@ -16,7 +16,7 @@ use kagari_bytecode::{
     artifact::{ArtifactCompatibility, KbcArtifact, validate_program_resource_limits},
     instruction::NativeImportId,
     module::BytecodeModule,
-    program::BytecodeProgram,
+    program::{BytecodeProgram, ModuleRef},
 };
 use kagari_common::{cancellation::CancellationToken, identity::metadata::DefinitionMetadata};
 use std::sync::Arc;
@@ -39,12 +39,13 @@ impl Runtime {
         kind: ModuleEpochRetention,
     ) -> Option<ProgramLease> {
         self.resources().ensure_execution_allowed().ok()?;
-        self.modules.retain_program(module, kind)
+        self.modules.retain_program(module, kind, None)
     }
 
     fn link_native_module(
         &self,
         module: &BytecodeModule,
+        carrier: ModuleRef,
         program: &VerifiedProgram,
     ) -> Result<LinkedHostBindings, RuntimeError> {
         self.native_entries.validate_installed_contracts(module)?;
@@ -55,9 +56,9 @@ impl Runtime {
             .native_imports
             .iter()
             .enumerate()
-            .map(|(index, import)| {
+            .map(|(index, _)| {
                 self.native_entries
-                    .link(import, NativeImportId::new(index), program)
+                    .link(carrier, NativeImportId::new(index), program)
             })
             .collect::<Result<_, _>>()?;
         Ok(bindings)
@@ -147,7 +148,8 @@ impl Runtime {
         let bindings = program
             .modules()
             .iter()
-            .map(|module| self.link_native_module(module, &program))
+            .enumerate()
+            .map(|(index, module)| self.link_native_module(module, ModuleRef::new(index), &program))
             .collect::<Result<Vec<_>, _>>()?;
         let installation = self.modules.reserve_installation(
             self.host.owner(),
@@ -187,7 +189,11 @@ impl Runtime {
         program: &ExecutableModule,
     ) -> Result<(), RuntimeError> {
         for member in program.members() {
-            let current = self.link_native_module(&member.bytecode, member.verified_program())?;
+            let current = self.link_native_module(
+                &member.bytecode,
+                member.slot(),
+                member.verified_program(),
+            )?;
             if current.paths != member.host_paths {
                 return Err(RuntimeError::module_validation(
                     "host bindings changed after candidate staging",
@@ -290,7 +296,8 @@ impl Runtime {
         let bindings = program
             .modules()
             .iter()
-            .map(|module| self.link_native_module(module, &program))
+            .enumerate()
+            .map(|(index, module)| self.link_native_module(module, ModuleRef::new(index), &program))
             .collect::<Result<Vec<_>, _>>()
             .map_err(ReloadValidationError::Runtime)?;
         Ok(PreparedReload {
@@ -323,9 +330,9 @@ impl Runtime {
             .map_err(ReloadValidationError::Runtime)?;
         // Only admission may have changed; do not rebuild immutable checked evidence.
         validate_reload_target(&baseline, Some(&latest))?;
-        for (module, prepared) in program.modules().iter().zip(&bindings) {
+        for (index, (module, prepared)) in program.modules().iter().zip(&bindings).enumerate() {
             let current = self
-                .link_native_module(module, &program)
+                .link_native_module(module, ModuleRef::new(index), &program)
                 .map_err(ReloadValidationError::Runtime)?;
             if current.paths != prepared.paths {
                 return Err(ReloadValidationError::Runtime(

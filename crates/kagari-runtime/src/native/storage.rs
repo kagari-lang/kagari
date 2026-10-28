@@ -523,15 +523,16 @@ impl NativeObject {
 
     pub(crate) fn scan_slice<'payload>(
         &'payload self,
+        heap: &GcHeap,
         workspace: &mut ScanWorkspace,
         budget: &mut ScanBudget,
-        visit: &mut dyn FnMut(&'payload Value),
+        visit: &mut dyn FnMut(&'payload Value, &mut ScanBudget) -> NativeResult<ScanStatus>,
     ) -> NativeResult<ScanStatus> {
         let payload = self.payload.view(&self.storage.entries.erasure)?;
         self.storage
             .entries
             .scan
-            .resume(payload, workspace, budget, visit)
+            .resume_traced(heap, payload, workspace, budget, visit)
     }
 
     pub(crate) fn inspect<'payload>(

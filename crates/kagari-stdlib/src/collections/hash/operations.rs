@@ -3,7 +3,7 @@ use crate::collections::hash::{HashPayload, HashTable, HashValue, input::Input, 
 use kagari_contract::standard::RuntimePrimitive;
 use kagari_runtime::native::{
     binding::NativeResult,
-    conversion::{IntoKagari, context::ConversionContext},
+    conversion::IntoKagari,
     payload::{Opaque, borrowed::BorrowedPayload},
     storage::access::{EditPlan, StorageAccess},
     storage_type::StorageType,
@@ -51,7 +51,7 @@ pub(crate) fn encode<P: HashPayload, T: IntoKagari>(
     index: usize,
     value: T,
 ) -> NativeResult<ScriptValue> {
-    let mut conversion = ConversionContext::new(cx.runtime(), cx.owner())?;
+    let mut conversion = cx.conversion_scope(cx.owner())?;
     let argument = conversion.parameter(object.type_argument(), index)?;
     let value = conversion.encode_value(&argument, value)?;
     conversion.decode_value(&argument, &value)
@@ -494,26 +494,35 @@ pub(crate) fn retained_entry<P: HashPayload>(
     // fields before any conversion or callback can replace/remove this entry.
     unsafe {
         object.read(cx, None, |payload, access| {
-            access.check_revision(revision)?;
-            let table = payload.table();
-            table
-                .slots
-                .get(position)
-                .map(|entry| {
-                    Ok((
-                        access.retain(&table.key, &entry.key)?,
-                        table
-                            .value
-                            .as_ref()
-                            .map(|contract| {
-                                access.retain(contract, entry.value.as_value().ok_or_else(invalid)?)
-                            })
-                            .transpose()?,
-                    ))
-                })
-                .transpose()
+            retain_entry(payload, access, revision, position)
         })
     }
+}
+
+pub(crate) fn retain_entry<P: HashPayload>(
+    payload: &P,
+    access: &mut StorageAccess<'_>,
+    revision: u64,
+    position: usize,
+) -> NativeResult<Option<(ScriptValue, Option<ScriptValue>)>> {
+    access.check_revision(revision)?;
+    let table = payload.table();
+    table
+        .slots
+        .get(position)
+        .map(|entry| {
+            Ok((
+                access.retain(&table.key, &entry.key)?,
+                table
+                    .value
+                    .as_ref()
+                    .map(|contract| {
+                        access.retain(contract, entry.value.as_value().ok_or_else(invalid)?)
+                    })
+                    .transpose()?,
+            ))
+        })
+        .transpose()
 }
 
 pub(crate) fn snapshot<P: HashPayload>(

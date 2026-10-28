@@ -1,4 +1,25 @@
 use super::*;
+use crate::{
+    Runtime,
+    gc::{directory::pages::allocation::LargeHeader, metrics::IndivisibleMeasurements},
+    native::storage::scan::{ScanBudget, ScanStatus},
+};
+use std::mem::align_of;
+
+fn maintain_descriptors(pages: &mut Pages) {
+    let mut cursor = pages.descriptors.begin_maintenance();
+    loop {
+        let step = pages.descriptors.maintenance_slice(
+            &mut cursor,
+            &mut ScanBudget::new(4),
+            Default::default(),
+        );
+        assert!(step.removed_structure.is_none());
+        if step.status == ScanStatus::Complete {
+            break;
+        }
+    }
+}
 
 fn bytes(size: usize, align: usize, edges: bool) -> Arc<Descriptor> {
     Arc::new(Descriptor::new(
@@ -50,17 +71,27 @@ fn classes_alignment_full_page_reuse_and_immediate_empty_release() {
     }
     #[cfg(feature = "execution-diagnostics")]
     {
-        let (backing, counts) = crate::diagnostics::allocations::measure(|| {
-            Backing::new(Layout::from_size_align(17, 64).unwrap()).unwrap()
+        let ((backing, offset), counts) = crate::diagnostics::allocations::measure(|| {
+            Backing::new(
+                Layout::from_size_align(17, 64).unwrap(),
+                Layout::new::<LargeHeader>(),
+            )
+            .unwrap()
         });
-        assert_eq!(counts.net_bytes, (17 + Backing::control_bytes()) as i128);
+        assert_eq!(counts.requests, 2);
+        assert_eq!(offset % align_of::<LargeHeader>(), 0);
+        assert!(offset >= 17);
+        assert_eq!(
+            counts.net_bytes,
+            (backing.layout().size() + Backing::control_bytes()) as i128
+        );
         drop(backing);
     }
     assert_eq!(size_of::<Slot>(), 8);
     assert!(
-        size_of::<Large>() + Backing::control_bytes() + size_of::<Allocation>() <= 96,
+        size_of::<LargeHeader>() + Backing::control_bytes() + size_of::<Allocation>() <= 96,
         "large control={}, backing control={}, directory record={}",
-        size_of::<Large>(),
+        size_of::<LargeHeader>(),
         Backing::control_bytes(),
         size_of::<Allocation>()
     );
@@ -105,11 +136,106 @@ fn classes_alignment_full_page_reuse_and_immediate_empty_release() {
     }
 }
 
+#[cfg(feature = "execution-diagnostics")]
+#[test]
+fn coallocated_controls_have_two_allocations_and_disjoint_complete_accounting() {
+    use crate::diagnostics::allocations::measure;
+
+    let small = (0..CLASSES.len() * 2)
+        .map(|group| measure(|| Allocation::Small(Small::new(group).unwrap())));
+    let large = [(0, 64), (17, 64), (1025, 1), (1201, 256)]
+        .into_iter()
+        .map(|(size, align)| {
+            measure(|| {
+                Allocation::Large(
+                    Large::new(Layout::from_size_align(size, align).unwrap(), 0).unwrap(),
+                )
+            })
+        });
+    for (allocation, counts) in small.chain(large) {
+        assert_eq!(
+            counts.requests, 2,
+            "one composite region and one Arc control"
+        );
+        let raw_bytes = match &allocation {
+            Allocation::Small(page) => page.backing().layout().size(),
+            Allocation::Large(large) => large.backing().layout().size(),
+            Allocation::Vacant(_) => unreachable!(),
+        };
+        assert_eq!(counts.requested_bytes, raw_bytes + Backing::control_bytes());
+        assert_eq!(counts.net_bytes, counts.requested_bytes as i128);
+        let payload = allocation.bytes();
+        let mut pages = Pages::default();
+        let index = pages.publish_allocation(allocation).unwrap();
+        let usage = pages.usage();
+        assert_eq!(
+            pages.backing_bytes, payload,
+            "runtime charge excludes controls"
+        );
+        assert_eq!(usage.slabs + usage.large, payload);
+        assert_eq!(
+            usage.slabs
+                + usage.large
+                + usage.slots
+                + usage.bitmaps
+                + usage.small_controls
+                + usage.large_controls
+                + usage.padding,
+            raw_bytes
+        );
+        assert_eq!(usage.backing_controls, Backing::control_bytes());
+        let (_, released) = measure(|| pages.release_allocation(index));
+        assert_eq!(released.requests, 0);
+        assert_eq!(released.net_bytes, -counts.net_bytes);
+        assert_eq!(pages.backing_bytes, 0);
+    }
+}
+
+#[test]
+fn trailer_layout_rejects_overflow_and_mutation_does_not_borrow_payload() {
+    let largest = Layout::from_size_align(isize::MAX as usize, 1).unwrap();
+    assert!(Backing::new(largest, Layout::new::<LargeHeader>()).is_err());
+
+    let mut small = Small::new(0).unwrap();
+    let first = small.reserve();
+    let pointer = small.pointer(first).cast::<u64>();
+    // SAFETY: reserved aligned eight-byte payload; initialize before borrowing.
+    unsafe { pointer.as_ptr().write(41) };
+    // SAFETY: the test owns this payload exclusively. Trailer operations below
+    // must not create a reference covering it, even transiently.
+    let value = unsafe { &mut *pointer.as_ptr() };
+    let second = small.reserve();
+    small.state_mut().active.next = 7;
+    small.parts_mut().slots[second].directory = 9;
+    *value += 1;
+    assert_eq!(*value, 42);
+    assert_eq!(small.slots()[second].directory, 9);
+
+    let mut large = Large::new(Layout::from_size_align(17, 64).unwrap(), 1).unwrap();
+    let pointer = large.backing().pointer();
+    assert_eq!(pointer.as_ptr().addr() % 64, 0);
+    assert_eq!(
+        (large.header() as *const LargeHeader).addr() % align_of::<LargeHeader>(),
+        0
+    );
+    // SAFETY: initialize and exclusively borrow the entire payload prefix only.
+    unsafe { pointer.as_ptr().write_bytes(5, 17) };
+    let payload = unsafe { std::slice::from_raw_parts_mut(pointer.as_ptr(), 17) };
+    large.header_mut().directory = 2;
+    payload[16] = 7;
+    assert_eq!(payload[0], 5);
+    assert_eq!(payload[16], 7);
+    assert_eq!(large.header().directory, 2);
+}
+
 #[test]
 fn failed_partial_byte_initialization_restores_occupancy_and_nonfull_links() {
-    for keep_survivor in [false, true] {
+    for (size, align, keep_survivor) in [(32, 16), (1025, 1), (17, 64)]
+        .into_iter()
+        .flat_map(|(size, align)| [false, true].map(|keep| (size, align, keep)))
+    {
         let mut pages = Pages::default();
-        let descriptor = bytes(32, 16, false);
+        let descriptor = bytes(size, align, false);
         let survivor = keep_survivor.then(|| insert(&mut pages, 0, descriptor.clone()));
         let before = pages.backing_bytes;
         let result = pages.insert(1, descriptor.clone(), |pointer| {
@@ -149,7 +275,7 @@ fn descriptor_ids_remain_owned_through_retirement_and_recycle_only_after_last_to
         unreachable!()
     };
     let first_id = *first_id;
-    pages.descriptors.prune();
+    maintain_descriptors(&mut pages);
     assert!(pages.descriptors.get(first_id).is_some());
     let mut foreign = Pages::default();
     assert!(
@@ -168,7 +294,7 @@ fn descriptor_ids_remain_owned_through_retirement_and_recycle_only_after_last_to
     ));
     assert!(!retired.dispose());
     pages.finish(retired);
-    pages.descriptors.prune();
+    maintain_descriptors(&mut pages);
     assert!(pages.descriptors.get(first_id).is_none());
     let third = insert(&mut pages, 2, bytes(8, 8, false));
     let third_descriptor = pages.get(third).unwrap().1 as *const Descriptor;
@@ -251,22 +377,50 @@ fn bounded_ranges_keep_unprocessed_slots_and_contain_each_destructor_panic() {
             .all(|&location| pages.get(location).is_some())
     );
     assert_eq!(pages.get(locations[32]).unwrap().0, address);
-    assert!(retired.dispose(|| {
+    let runtime = Runtime::default();
+    let heap = runtime.gc();
+    heap.start_collection_observation().unwrap();
+    heap.stats
+        .borrow_mut()
+        .observation
+        .as_mut()
+        .unwrap()
+        .collecting = true;
+    let clock = heap.observation_clock();
+    let mut measurements = IndivisibleMeasurements::default();
+    assert!(retired.dispose(Some((clock, &mut measurements)), || {
         RESOURCES.with(|resources| {
             resources.quarantine("page destructor probe");
         });
     }));
     assert_eq!(DROPS.load(Ordering::SeqCst), 32);
     assert_eq!(QUARANTINED_DROPS.load(Ordering::SeqCst), 28);
-    assert!(!retired.dispose(|| panic!("already disposed")));
+    assert_eq!(
+        measurements.count, 32,
+        "panicking destructor is also observed"
+    );
+    assert_eq!(measurements.total_items, 32);
+    assert!(
+        !retired.dispose(Some((clock, &mut measurements)), || panic!(
+            "already disposed"
+        ))
+    );
+    assert_eq!(measurements.count, 32, "no repeated destruction or sample");
     assert_eq!(pages.finish_range(&retired), 0);
     assert!(!retired.release());
     assert!(weak.upgrade().is_some());
     let mut retired = pages.prepare_range(locations[32], 10).unwrap().detach();
     assert_eq!(pages.occupied().count(), 0);
     assert_eq!(pages.backing_bytes, SLAB_BYTES, "committed until disposal");
-    assert!(!retired.dispose(|| panic!("unexpected second panic")));
+    assert!(
+        !retired.dispose(Some((clock, &mut measurements)), || panic!(
+            "unexpected second panic"
+        ))
+    );
     assert_eq!(DROPS.load(Ordering::SeqCst), 42);
+    assert_eq!(measurements.count, 42);
+    assert_eq!(measurements.total_known_bytes, 42 * 24);
+    assert_eq!(measurements.unknown_size_count, 0);
     assert_eq!(pages.finish_range(&retired), SLAB_BYTES);
     assert!(
         weak.upgrade().is_some(),
@@ -311,21 +465,21 @@ fn checked_range_crosses_bitmap_words_without_mutating_failed_or_abandoned_proof
             .map(|index| insert(&mut pages, index, descriptor.clone()))
             .collect();
         let page = locations[60].page;
-        let original = pages.small(page).bits.clone();
+        let original = pages.small(page).bits().to_vec();
         // The later bitmap word must be checked before any slot changes.
-        pages.small_mut(page).bits[1] &= !1;
+        pages.small_mut(page).parts_mut().bits[1] &= !1;
         assert!(pages.prepare_range(locations[60], count).is_none());
-        assert_eq!(pages.small(page).bits[0], original[0]);
+        assert_eq!(pages.small(page).bits()[0], original[0]);
         assert_eq!(pages.occupied().count(), 128);
-        pages.small_mut(page).bits[1] = original[1];
-        pages.small_mut(page).bits[3] |= 1;
+        pages.small_mut(page).parts_mut().bits[1] = original[1];
+        pages.small_mut(page).parts_mut().bits[3] |= 1;
         assert!(pages.prepare_range(locations[60], count).is_none());
-        pages.small_mut(page).bits[3] = original[3];
+        pages.small_mut(page).parts_mut().bits[3] = original[3];
         {
             let _abandoned = pages.prepare_range(locations[60], count).unwrap();
         }
-        assert_eq!(pages.small(page).bits, original);
-        assert_eq!(pages.small(page).free, 0);
+        assert_eq!(pages.small(page).bits(), original);
+        assert_eq!(pages.small(page).state().free, 0);
 
         let mut retired = pages.prepare_range(locations[60], count).unwrap().detach();
         // An independent retiring sibling must remain unavailable. Total detached
@@ -335,20 +489,20 @@ fn checked_range_crosses_bitmap_words_without_mutating_failed_or_abandoned_proof
             pages.occupied().count(),
             128 - count - usize::from(sibling.is_some())
         );
-        assert!(!retired.dispose(|| panic!("raw byte descriptor")));
-        let retiring = pages.small(page).bits.clone();
-        pages.small_mut(page).bits[3] &= !1;
-        let invalid = pages.small(page).bits.clone();
+        assert!(!retired.dispose(Default::default(), || panic!("raw byte descriptor")));
+        let retiring = pages.small(page).bits().to_vec();
+        pages.small_mut(page).parts_mut().bits[3] &= !1;
+        let invalid = pages.small(page).bits().to_vec();
         assert!(catch_unwind(AssertUnwindSafe(|| pages.finish_range(&retired))).is_err());
         assert_eq!(
-            pages.small(page).bits,
+            pages.small(page).bits(),
             invalid,
             "finish preflights both words"
         );
-        assert_eq!(pages.small(page).free, 0);
-        pages.small_mut(page).bits[3] = retiring[3];
+        assert_eq!(pages.small(page).state().free, 0);
+        pages.small_mut(page).parts_mut().bits[3] = retiring[3];
         assert_eq!(pages.finish_range(&retired), 0);
-        assert_eq!(pages.small(page).free, count);
+        assert_eq!(pages.small(page).state().free, count);
         assert!(!retired.release());
         assert!(pages.get(locations[59]).is_some());
         assert!(pages.get(locations[60 + count]).is_some());
@@ -357,7 +511,7 @@ fn checked_range_crosses_bitmap_words_without_mutating_failed_or_abandoned_proof
             assert!(!sibling.dispose());
             let (_, sibling) = pages.finish(sibling);
             assert!(!sibling.release());
-            assert_eq!(pages.small(page).free, count + 1);
+            assert_eq!(pages.small(page).state().free, count + 1);
         }
         let remaining: Vec<_> = pages.occupied().map(|(_, location)| location).collect();
         for location in remaining {
@@ -381,7 +535,7 @@ fn sweep_cursor_unlinks_before_reuse_and_skips_prepended_allocations() {
         pages.advance_sweep();
     }
     let mut retired = pages.prepare_range(locations[0], 32).unwrap().detach();
-    assert!(!retired.dispose(|| panic!("raw byte descriptor")));
+    assert!(!retired.dispose(Default::default(), || panic!("raw byte descriptor")));
     assert_eq!(pages.finish_range(&retired), 0);
     assert!(!retired.release());
     // Removal of the current page between slices repairs both page and ordinal.
@@ -411,6 +565,270 @@ fn sweep_cursor_unlinks_before_reuse_and_skips_prepended_allocations() {
 }
 
 #[test]
+fn multi_fragment_preflight_rejects_late_corruption_and_overlap_before_any_detach() {
+    use crate::gc::directory::pages::batch::{Disposal, Fragment};
+    let mut pages = Pages::default();
+    let large = insert(&mut pages, 0, bytes(1056, 64, false));
+    let descriptor = bytes(8, 8, false);
+    let slots: Vec<_> = (1..=4)
+        .map(|id| insert(&mut pages, id, descriptor.clone()))
+        .collect();
+    let id = |location: PayloadLocation, pages: &Pages| match &pages.allocations
+        [location.page as usize]
+    {
+        Allocation::Small(page) => page.slots()[location.slot as usize].descriptor.unwrap(),
+        Allocation::Large(large) => large.header().descriptor.unwrap(),
+        _ => unreachable!(),
+    };
+    let first = Fragment {
+        start: large,
+        descriptor: id(large, &pages),
+        count: 1,
+        small: false,
+    };
+    let last = Fragment {
+        start: slots[0],
+        descriptor: id(slots[0], &pages),
+        count: 4,
+        small: true,
+    };
+    let fragments = [Some(first), Some(last)];
+    let mut output = [const { None }; 32];
+    let original = pages.small(slots[0].page).bits()[0];
+    pages.small_mut(slots[0].page).parts_mut().bits[0] &= !4;
+    assert!(pages.prepare_batch(&fragments, &mut output).is_none());
+    assert!(output.iter().all(Option::is_none));
+    assert!(pages.get(large).is_some());
+    assert_eq!(pages.occupied().count(), 5);
+    pages.small_mut(slots[0].page).parts_mut().bits[0] = original;
+    assert!(
+        pages
+            .prepare_batch(&[Some(first), Some(last), Some(last)], &mut output)
+            .is_none()
+    );
+    assert_eq!(pages.occupied().count(), 5);
+    let wrong = Fragment {
+        descriptor: first.descriptor,
+        ..last
+    };
+    assert!(
+        pages
+            .prepare_batch(&[Some(first), Some(wrong)], &mut output)
+            .is_none()
+    );
+    let nested = Fragment {
+        start: slots[1],
+        count: 2,
+        ..last
+    };
+    let wrong_kind = Fragment {
+        start: PayloadLocation {
+            kind: PayloadKind::Native,
+            ..last.start
+        },
+        ..last
+    };
+    let wrong_variant = Fragment {
+        small: false,
+        ..last
+    };
+    let late_invalid = Fragment {
+        start: slots[3],
+        count: 2,
+        ..last
+    };
+    for invalid in [
+        [Some(last), Some(first), Some(nested)],
+        [Some(first), Some(last), Some(first)],
+        [Some(last), Some(first), Some(wrong_kind)],
+        [Some(first), Some(wrong_variant), None],
+        [Some(first), Some(last), Some(late_invalid)],
+        [
+            Some(last),
+            Some(Fragment {
+                descriptor: last.descriptor,
+                ..first
+            }),
+            None,
+        ],
+        [
+            Some(last),
+            Some(Fragment {
+                start: PayloadLocation {
+                    kind: PayloadKind::Native,
+                    ..first.start
+                },
+                ..first
+            }),
+            None,
+        ],
+        [
+            Some(last),
+            Some(Fragment {
+                start: PayloadLocation {
+                    slot: 1,
+                    ..first.start
+                },
+                ..first
+            }),
+            None,
+        ],
+    ] {
+        assert!(pages.prepare_batch(&invalid, &mut output).is_none());
+        assert!(output.iter().all(Option::is_none));
+        assert_eq!(pages.occupied().count(), 5);
+        assert_eq!(pages.small(slots[0].page).bits()[0], original);
+        assert!(pages.get(large).is_some());
+        assert!(slots.iter().all(|&location| pages.get(location).is_some()));
+    }
+    // Sorting proof ordinals must not change original token/destructor order.
+    let fragments = [Some(last), Some(first)];
+    pages
+        .prepare_batch(&fragments, &mut output)
+        .unwrap()
+        .detach();
+    assert!(matches!(output[0], Some(Disposal::Range(_))));
+    assert!(matches!(output[1], Some(Disposal::Payload(_))));
+    assert_eq!(pages.occupied().count(), 0);
+    drop(pages);
+    for token in output.iter_mut().flatten() {
+        match token {
+            Disposal::Payload(payload) => assert!(!payload.dispose()),
+            Disposal::Range(range) => assert!(!range.dispose(None, || panic!("raw bytes"))),
+        }
+    }
+}
+
+#[test]
+fn bitmap_sweep_charges_words_and_occupied_slots_not_vacant_runs() {
+    for (stride, count, words) in [(24, 42, 2), (8, 128, 4)] {
+        let mut pages = Pages::default();
+        let descriptor = bytes(stride, 8, false);
+        let locations: Vec<_> = (0..count)
+            .map(|id| insert(&mut pages, id, descriptor.clone()))
+            .collect();
+        for &location in &locations[..count as usize - 1] {
+            release(&mut pages, location);
+        }
+        pages.begin_sweep();
+        let mut scanner = pages.scanner();
+        let mut short = ScanBudget::new(words - 1);
+        assert!(scanner.peek(&mut short).unwrap().is_none());
+        assert_eq!(short.spent(), 0, "both planes reserved before reading");
+        let mut bitmap_only = ScanBudget::new(words);
+        assert!(scanner.peek(&mut bitmap_only).unwrap().is_none());
+        assert_eq!(bitmap_only.spent(), words);
+        // Publish verified hole-skipping progress, but not consumption of the owner.
+        let cursor = scanner.cursor();
+        pages.publish_sweep(cursor);
+        let mut scanner = pages.scanner();
+        let mut exact = ScanBudget::new(words + 1);
+        let slot = scanner.peek(&mut exact).unwrap().unwrap();
+        assert_eq!(slot.location, *locations.last().unwrap());
+        assert_eq!(slot.directory, count - 1);
+        scanner.advance();
+        assert!(scanner.cursor().page.is_none());
+        assert_eq!(exact.spent(), words + 1);
+        release(&mut pages, slot.location);
+        assert_eq!(pages.backing_bytes, 0);
+    }
+}
+
+#[test]
+fn bitmap_sweep_reloads_numeric_prefix_across_words_take_and_newborns() {
+    let mut pages = Pages::default();
+    let descriptor = bytes(8, 8, false);
+    let locations: Vec<_> = (0..128)
+        .map(|id| insert(&mut pages, id, descriptor.clone()))
+        .collect();
+    // Keep slot 64 retiring: it is neither occupied nor free and must not be read.
+    let mut retiring = pages.detach(locations[64]).unwrap();
+    for (ordinal, &location) in locations.iter().enumerate() {
+        if ![63, 64, 65].contains(&ordinal) {
+            release(&mut pages, location);
+        }
+    }
+    pages.begin_sweep();
+    let mut scanner = pages.scanner();
+    let mut first = ScanBudget::new(5);
+    assert_eq!(
+        scanner.peek(&mut first).unwrap().unwrap().location,
+        locations[63]
+    );
+    scanner.advance();
+    let cursor = scanner.cursor();
+    pages.publish_sweep(cursor);
+    assert_eq!(first.spent(), 5);
+    release(&mut pages, locations[63]);
+    let newborn = insert(&mut pages, 128, descriptor.clone());
+    assert_eq!(
+        newborn.slot, 0,
+        "reused prefix is outside the captured cursor"
+    );
+    assert!(!retiring.dispose());
+    pages.finish(retiring);
+    // Reuse an unvisited slot in the same page: the next slice reloads its bitmap.
+    let prefix: Vec<_> = (1..=64)
+        .map(|id| insert(&mut pages, 128 + id, descriptor.clone()))
+        .collect();
+    assert_eq!(prefix.last().unwrap().slot, 64);
+    let mut scanner = pages.scanner();
+    let mut second = ScanBudget::new(6);
+    assert_eq!(
+        scanner.peek(&mut second).unwrap().unwrap().location,
+        prefix[63]
+    );
+    scanner.advance();
+    assert_eq!(
+        scanner.peek(&mut second).unwrap().unwrap().location,
+        locations[65]
+    );
+    scanner.advance();
+    assert!(scanner.cursor().page.is_none());
+    assert_eq!(
+        second.spent(),
+        6,
+        "planes loaded once within an exclusive selection"
+    );
+}
+
+#[test]
+fn bitmap_sweep_rejects_corrupt_planes_cardinality_tail_and_missing_descriptor() {
+    let mut pages = Pages::default();
+    let location = insert(&mut pages, 0, bytes(24, 8, false));
+    pages.begin_sweep();
+    let descriptor = pages.small(location.page).slots()[0].descriptor;
+    for (occupied, reserved, free, published) in [
+        (0, 0, 41, descriptor),             // Missing occupied publication bit.
+        (1, 1, 40, descriptor),             // Occupied and retiring cannot overlap.
+        (1 | (1 << 42), 0, 40, descriptor), // Outside the 42-slot class.
+        (1, 0, 42, descriptor),             // Free count contradicts occupied bits.
+        (1, 0, 41, None),                   // An authoritative occupied bit must resolve a slot.
+    ] {
+        let page = pages.small_mut(location.page).parts_mut();
+        page.bits[0] = occupied;
+        page.bits[1] = reserved;
+        page.state.free = free;
+        page.slots[0].descriptor = published;
+        let mut budget = ScanBudget::new(3);
+        assert!(pages.scanner().peek(&mut budget).is_none());
+        assert!(
+            !pages.sweep_done(),
+            "failed preview never publishes progress"
+        );
+        assert!(budget.spent() <= 3);
+    }
+    let page = pages.small_mut(location.page).parts_mut();
+    page.bits[0] = 1;
+    page.bits[1] = 0;
+    page.state.free = 41;
+    page.slots[0].descriptor = descriptor;
+    release(&mut pages, location);
+    assert!(pages.sweep_done());
+    assert_eq!(pages.backing_bytes, 0);
+}
+
+#[test]
 fn range_unwind_fallback_retains_backing_after_owner_teardown_and_never_retries_drop() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     static DROPS: AtomicUsize = AtomicUsize::new(0);
@@ -435,7 +853,9 @@ fn range_unwind_fallback_retains_backing_after_owner_teardown_and_never_retries_
     drop(pages);
     assert!(weak.upgrade().is_some());
     let result = catch_unwind(AssertUnwindSafe(move || {
-        range.dispose(|| panic!("injected quarantine callback unwind"));
+        range.dispose(Default::default(), || {
+            panic!("injected quarantine callback unwind")
+        });
     }));
     assert!(result.is_err());
     assert_eq!(DROPS.load(Ordering::SeqCst), 12);

@@ -16,7 +16,7 @@ use super::*;
 fn collect(store: &ModuleStore) -> Vec<ModuleKey> {
     let mut heap = GcHeap::new(Default::default(), ResourceState::default());
     heap.graph = store.graph.clone();
-    heap.collect(store, &HostRegistry::default())
+    heap.collect(store, &HostRegistry::default(), None)
         .unwrap()
         .reclaimed_modules
 }

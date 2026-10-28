@@ -121,7 +121,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
             let symbols = EnumSymbols::new(view.catalog(), &[enums::OPTION])?;
             Ok(NativeBinding::new(
                 vec![Codec::Value, Codec::Exact(Type::u64())],
-                Codec::Value,
+                symbols.option_codec()?,
                 move |cx| vectors::get(&symbols, cx),
             ))
         }),
@@ -145,7 +145,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                 vectors::push,
             )),
         ),
-        ("pop", enums::pending(1, &[enums::OPTION], vectors::pop)),
+        ("pop", enums::pending_option(1, vectors::pop)),
         (
             "insert",
             PendingBinding::implementation_send(scoped(
@@ -153,10 +153,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                 vectors::insert,
             )),
         ),
-        (
-            "remove",
-            enums::pending(2, &[enums::OPTION], vectors::remove),
-        ),
+        ("remove", enums::pending_option(2, vectors::remove)),
         (
             "clear",
             PendingBinding::implementation_with_send(|view| Ok(vectors::clear(view.declaration()))),
@@ -215,9 +212,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         &iterator,
         "next",
         0,
-        PendingBinding::implementation_with_send(|view| {
-            Ok(NativeBinding::declared(view.declaration(), cursor::next))
-        }),
+        enums::pending_option(1, vectors::next),
     )?;
     module.trait_implementation_with(1, |items| {
         Ok(TraitImplementation {

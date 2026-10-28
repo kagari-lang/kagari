@@ -2,21 +2,193 @@ use super::*;
 #[cfg(feature = "execution-diagnostics")]
 use crate::diagnostics::allocations;
 use crate::test_support::native::program::ProgramFixture;
-use crate::{Runtime, native::storage::NativeStorage, test_support::layouts::allocation_owner};
+use crate::{
+    Runtime,
+    native::{payload::read::ReadReceiver, storage::NativeStorage},
+    test_support::layouts::allocation_owner,
+    value::EphemeralValueId,
+};
 use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
 use kagari_common::identity::map::DefinitionContext;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 #[cfg(feature = "execution-diagnostics")]
 use std::sync::Barrier;
 use std::{
+    cell::RefCell,
     panic::{AssertUnwindSafe, catch_unwind},
+    rc::Rc,
+    sync::atomic::{AtomicUsize, Ordering},
     thread,
 };
+
+thread_local! {
+    static DISPOSAL_RUNTIME: RefCell<Option<Rc<Runtime>>> = const { RefCell::new(None) };
+}
+
+#[derive(Debug)]
+pub(super) struct DisposalProbe {
+    drops: Arc<AtomicUsize>,
+    reenter: bool,
+}
+
+impl Drop for DisposalProbe {
+    fn drop(&mut self) {
+        let runtime = DISPOSAL_RUNTIME.with(|slot| slot.borrow().as_ref().unwrap().clone());
+        assert!(runtime.gc().roots.try_borrow_mut().is_ok());
+        self.drops.fetch_add(1, Ordering::Relaxed);
+        if self.reenter {
+            assert!(runtime.gc().root_value(Value::Unit).is_none());
+        } else {
+            panic!("final root dependency destruction");
+        }
+    }
+}
+
+#[test]
+fn root_release_stops_after_an_indivisible_record_exhausts_the_budget() {
+    let runtime = Runtime::default();
+    let heap = runtime.gc();
+    let first = heap.root_execution_values(vec![Value::Unit; 8]).unwrap();
+    let first_id = first.id;
+    let second = heap.root_execution_values(vec![Value::Unit; 16]).unwrap();
+    drop(first);
+    drop(second);
+    let mut cursor = heap.roots.borrow().begin_release_drain();
+    let mut budget = ScanBudget::new(1);
+    assert_eq!(
+        heap.resources
+            .collect_operation(|| heap.drain_root_release_slice(&mut cursor, &mut budget))
+            .unwrap()
+            .unwrap(),
+        ScanStatus::Pending,
+    );
+    assert_eq!(budget.spent(), 18);
+    assert_eq!(cursor.remaining, 1);
+    assert_eq!(heap.roots.borrow().release_visits, 1);
+    assert!(heap.roots.borrow().slots[first_id.slot].entry.is_some());
+    let mut budget = ScanBudget::new(2);
+    assert_eq!(
+        heap.resources
+            .collect_operation(|| heap.drain_root_release_slice(&mut cursor, &mut budget))
+            .unwrap()
+            .unwrap(),
+        ScanStatus::Complete,
+    );
+    assert_eq!(budget.spent(), 10);
+    assert_eq!(heap.roots.borrow().release_visits, 2);
+}
+
+#[test]
+fn root_disposal_releases_table_borrow_and_contains_panic_or_reentry() {
+    for insertion in [false, true] {
+        for reenter in [false, true] {
+            let runtime = Rc::new(Runtime::default());
+            DISPOSAL_RUNTIME.with(|slot| *slot.borrow_mut() = Some(runtime.clone()));
+            let heap = runtime.gc();
+            let root = heap.root_execution_values(vec![Value::Unit]).unwrap();
+            let drops = Arc::new(AtomicUsize::new(0));
+            heap.roots.borrow_mut().slots[root.id.slot]
+                .entry
+                .as_mut()
+                .unwrap()
+                .disposal_probe = Some(DisposalProbe {
+                drops: drops.clone(),
+                reenter,
+            });
+            drop(root);
+            if insertion {
+                assert!(heap.root_execution_values(vec![Value::Unit]).is_none());
+            } else {
+                let mut cursor = heap.roots.borrow().begin_release_drain();
+                let mut budget = ScanBudget::new(1);
+                assert!(
+                    heap.resources
+                        .collect_operation(|| {
+                            heap.drain_root_release_slice(&mut cursor, &mut budget)
+                        })
+                        .is_err()
+                );
+                // One notification plus one stored value and record backing.
+                assert_eq!(budget.spent(), 3);
+                assert_eq!(cursor.remaining, 0);
+            }
+            assert_eq!(drops.load(Ordering::Relaxed), 1);
+            assert!(runtime.is_quarantined());
+            assert_eq!(heap.active_roots(), 0);
+            let roots = heap.roots.borrow();
+            let released = lock_releases(&roots.released);
+            assert_eq!(released.credits, usize::from(insertion));
+            assert_eq!(released.pending.len(), usize::from(insertion));
+            drop(released);
+            drop(roots);
+            drop(runtime);
+            drop(DISPOSAL_RUNTIME.with(|slot| slot.borrow_mut().take()));
+            assert_eq!(drops.load(Ordering::Relaxed), 1);
+        }
+    }
+}
+
+impl RootTable {
+    fn insert_test(&mut self, values: Vec<Value>) -> Option<RootSet> {
+        let (root, retired) = self.insert(values);
+        if let Some(retired) = retired {
+            assert!(!retired.dispose());
+        }
+        root
+    }
+
+    fn drain_test_limit(&mut self, limit: usize) -> usize {
+        let mut processed = 0;
+        while processed < limit {
+            let (inspected, retired) = self.drain_released_limit(limit - processed);
+            processed += inspected;
+            if let Some(retired) = retired {
+                assert!(!retired.dispose());
+            }
+            if inspected == 0 {
+                break;
+            }
+        }
+        processed
+    }
+
+    fn drain_test_slice(
+        &mut self,
+        cursor: &mut RootReleaseCursor,
+        budget: &mut ScanBudget,
+    ) -> ScanStatus {
+        loop {
+            let (status, retired) = self.drain_release_slice(cursor, budget);
+            let had_retired = retired.is_some();
+            if let Some(retired) = retired {
+                budget.charge(
+                    retired
+                        .values
+                        .len()
+                        .saturating_add(retired.metadata.len())
+                        .saturating_add(1),
+                );
+                assert!(!retired.dispose());
+            }
+            if status == ScanStatus::Complete || !had_retired {
+                return status;
+            }
+        }
+    }
+}
 
 fn inject_release(roots: &RootTable, id: RootId) {
     let mut released = lock_releases(&roots.released);
     released.reserve().unwrap();
     released.pending.push(id);
+}
+
+fn drain_captured_releases(roots: &mut RootTable) {
+    let mut cursor = roots.begin_release_drain();
+    assert_eq!(
+        roots.drain_test_slice(&mut cursor, &mut ScanBudget::new(usize::MAX)),
+        ScanStatus::Complete,
+    );
 }
 
 #[test]
@@ -35,27 +207,33 @@ fn native_root_admission_requires_a_loan_and_preserves_validation_and_borrow_che
         .unwrap();
     let id = heap.alloc_native(object).unwrap();
     let receiver = heap.root_value(Value::GcHandle(id)).unwrap();
-    assert!(heap.root_native_value(value).is_err());
+    assert!(heap.retain_native_value(value).is_err());
+    assert!(heap.retain_native_value(Value::I32(1)).is_err());
     let retained = heap
-        .read_native::<i32, _>(&runtime, id, None, |payload, _| {
+        .read_native::<i32, _>(&runtime, ReadReceiver::Value(id), None, |payload, _| {
             assert_eq!(*payload, 42);
             let before = heap.active_roots();
             assert!(heap.root_value(value).is_none());
             assert!(heap.root_execution_values(vec![value]).is_none());
             assert!(runtime.collect_garbage().is_err());
             for invalid in [stale, foreign_value, Value::HostRoot(id)] {
-                assert!(heap.root_native_value(invalid).is_err());
+                assert!(heap.retain_native_value(invalid).is_err());
             }
             {
                 let _objects = heap.objects.borrow_mut();
-                assert!(heap.root_native_value(value).is_err());
+                assert!(heap.retain_native_value(value).is_err());
             }
             {
                 let _roots = heap.roots.borrow();
-                assert!(heap.root_native_value(value).is_err());
+                assert!(heap.retain_native_value(value).is_err());
+                assert!(heap.retain_native_value(Value::I32(1)).is_err());
             }
             assert_eq!(heap.active_roots(), before);
-            let retained = heap.root_native_value(value)?;
+            let scalar = heap.retain_native_value(Value::I32(42))?;
+            assert_eq!(heap.active_roots(), before);
+            assert_eq!(scalar.value(heap), Some(Value::I32(42)));
+            assert!(heap.retain_value(Value::I32(42)).is_none());
+            let retained = heap.retain_native_value(value)?;
             assert!(heap.ensure_no_native_borrow().is_err());
             assert_eq!(retained.value(heap), Some(value));
             Ok(retained)
@@ -79,14 +257,86 @@ fn native_root_admission_does_not_bypass_closed_execution() {
         .prepare_payload(heap, &Ty::Builtin(BuiltinType::I32), 0_i32, &owner)
         .unwrap();
     let id = heap.alloc_native(object).unwrap();
-    heap.read_native::<i32, _>(&runtime, id, None, |_, _| {
+    heap.read_native::<i32, _>(&runtime, ReadReceiver::Value(id), None, |_, _| {
         let before = heap.active_roots();
         heap.resources.close_execution();
-        assert!(heap.root_native_value(Value::Unit).is_err());
+        assert!(heap.retain_native_value(Value::Unit).is_err());
         assert_eq!(heap.active_roots(), before);
         Ok(())
     })
     .unwrap();
+}
+
+#[test]
+fn immutable_scalar_retention_preserves_owner_borrows_and_lifetime_without_slots() {
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<RetainedValue>();
+    let runtime = Runtime::default();
+    let heap = runtime.gc();
+    let foreign = Runtime::default();
+    let values = [
+        Value::Unit,
+        Value::Bool(true),
+        Value::Char('λ'),
+        Value::I32(-1),
+        Value::I64(i64::MIN),
+        Value::U64(u64::MAX),
+        Value::F32(-0.0),
+        Value::F64(1.5),
+    ];
+    let retained: Vec<_> = values
+        .iter()
+        .map(|value| heap.retain_value(*value).unwrap())
+        .collect();
+    assert_eq!(heap.active_roots(), 0);
+    assert!(heap.roots.borrow().slots.is_empty());
+    assert_eq!(lock_releases(&heap.roots.borrow().released).credits, 0);
+    for (value, retained) in values.into_iter().zip(&retained) {
+        assert!(retained.as_root().is_none());
+        assert_eq!(retained.value(heap), Some(value));
+        assert!(retained.value(foreign.gc()).is_none());
+        {
+            let _roots = heap.roots.borrow_mut();
+            assert!(retained.value(heap).is_none());
+            assert!(heap.retain_value(value).is_none());
+        }
+        {
+            let _roots = heap.roots.borrow();
+            assert!(heap.retain_value(value).is_none());
+        }
+    }
+    assert!(
+        heap.retain_value(Value::RuntimeEphemeral(EphemeralValueId(0)))
+            .is_none()
+    );
+    runtime.collect_garbage().unwrap();
+    let copies = retained.clone();
+    thread::spawn(move || drop(retained)).join().unwrap();
+    heap.resources.close_execution();
+    assert!(heap.retain_value(Value::I32(1)).is_none());
+    assert_eq!(copies[3].value(heap), Some(Value::I32(-1)));
+    let resources = runtime.resources().lifetime_probe();
+    drop(runtime);
+    assert!(resources.upgrade().is_none());
+    assert!(copies[3].value(foreign.gc()).is_none());
+    thread::spawn(move || drop(copies)).join().unwrap();
+}
+
+#[test]
+fn scalar_retention_during_collection_preserves_reentry_quarantine() {
+    let runtime = Runtime::default();
+    let retained = runtime.gc().retain_value(Value::I32(7)).unwrap();
+    assert!(
+        runtime
+            .resources()
+            .collect_operation(|| {
+                assert!(runtime.gc().retain_value(Value::I32(8)).is_none());
+            })
+            .is_err()
+    );
+    assert!(runtime.is_quarantined());
+    assert_eq!(retained.value(runtime.gc()), Some(Value::I32(7)));
+    assert_eq!(runtime.gc().active_roots(), 0);
 }
 
 #[test]
@@ -108,10 +358,10 @@ fn collection_callbacks_cannot_replace_roots_even_if_they_ignore_rejection() {
 #[test]
 fn root_generation_and_lease_both_protect_reused_slots() {
     let mut roots = RootTable::new(7);
-    let first = roots.insert(vec![Value::I32(1)]).unwrap();
+    let first = roots.insert_test(vec![Value::I32(1)]).unwrap();
     let stale_id = first.id;
     drop(first);
-    let next = roots.insert(vec![Value::I32(2)]).unwrap();
+    let next = roots.insert_test(vec![Value::I32(2)]).unwrap();
     assert_eq!(stale_id.slot, next.id.slot);
     assert!(next.id.generation > stale_id.generation);
     let stale = RootSet {
@@ -139,52 +389,50 @@ fn exhausted_root_generation_retires_its_slot() {
         entry: None,
     });
     roots.free.push(0);
-    let first = roots.insert(vec![Value::Unit]).unwrap();
+    let first = roots.insert_test(vec![Value::Unit]).unwrap();
     let old_slot = first.id.slot;
     assert_eq!(first.id.generation, u64::MAX);
     drop(first);
-    let next = roots.insert(vec![Value::Unit]).unwrap();
+    let next = roots.insert_test(vec![Value::Unit]).unwrap();
     assert_ne!(old_slot, next.id.slot);
     assert!(roots.slots[old_slot].entry.is_none());
     assert_eq!(roots.active(), 1);
 }
 
 #[test]
-fn registration_work_follows_releases_not_root_high_water() {
+fn registration_checks_one_release_regardless_of_pending_or_root_high_water() {
     for peak in [64, 4096] {
         let mut roots = RootTable::new(7);
         let mut retained: Vec<_> = (0..peak)
-            .map(|_| roots.insert(vec![Value::Unit]).unwrap())
+            .map(|_| roots.insert_test(vec![Value::Unit]).unwrap())
             .collect();
         assert_eq!(roots.release_visits, 0);
         drop(retained.split_off(4));
-        let root = roots.insert(vec![Value::I32(42)]).unwrap();
-        assert_eq!(roots.release_visits, peak - 4);
+        let root = roots.insert_test(vec![Value::I32(42)]).unwrap();
+        assert_eq!(roots.release_visits, 1);
+        assert_eq!(lock_releases(&roots.released).pending.len(), peak - 5);
         assert_eq!(roots.slots.len(), peak);
         drop(root);
         let before = roots.release_visits;
         for _ in 0..32 {
-            let root = roots.insert(vec![Value::I32(42)]).unwrap();
+            let root = roots.insert_test(vec![Value::I32(42)]).unwrap();
             assert_eq!(roots.entry(&root).unwrap().values, [Value::I32(42)]);
             drop(root);
         }
         assert_eq!(roots.release_visits - before, 32);
         assert_eq!(roots.slots.len(), peak);
         assert_eq!(roots.active(), 4);
-        eprintln!(
-            "root peak={peak}: retained registration releases=0, batch={}, reuse releases=32",
-            peak - 4
-        );
+        assert_eq!(lock_releases(&roots.released).pending.len(), peak - 4);
     }
 }
 
 #[test]
 fn stale_foreign_duplicate_and_live_release_notifications_cannot_retire_a_root() {
     let mut roots = RootTable::new(7);
-    let first = roots.insert(vec![Value::I32(1)]).unwrap();
+    let first = roots.insert_test(vec![Value::I32(1)]).unwrap();
     let old = first.id;
     drop(first);
-    let next = roots.insert(vec![Value::I32(2)]).unwrap();
+    let next = roots.insert_test(vec![Value::I32(2)]).unwrap();
     assert_eq!(old.slot, next.id.slot);
     for id in [
         old,
@@ -201,14 +449,14 @@ fn stale_foreign_duplicate_and_live_release_notifications_cannot_retire_a_root()
     ] {
         inject_release(&roots, id);
     }
-    roots.drain_released();
+    drain_captured_releases(&mut roots);
     assert_eq!(roots.release_visits, 6);
     assert!(roots.free.is_empty());
     assert_eq!(roots.entry(&next).unwrap().values, [Value::I32(2)]);
     let current = next.id;
     drop(next);
     inject_release(&roots, current);
-    roots.drain_released();
+    drain_captured_releases(&mut roots);
     assert_eq!(roots.free, [current.slot]);
     assert_eq!(roots.slots[current.slot].generation, current.generation + 1);
     assert_eq!(roots.active(), 0);
@@ -218,10 +466,10 @@ fn stale_foreign_duplicate_and_live_release_notifications_cannot_retire_a_root()
 fn failed_release_reservation_does_not_publish_or_consume_a_slot() {
     for reuse in [false, true] {
         let mut roots = RootTable::new(7);
-        let root = roots.insert(vec![Value::I32(42)]).unwrap();
+        let root = roots.insert_test(vec![Value::I32(42)]).unwrap();
         if reuse {
-            drop(roots.insert(Vec::new()).unwrap());
-            roots.drain_released();
+            drop(roots.insert_test(Vec::new()).unwrap());
+            drain_captured_releases(&mut roots);
         }
         let slots = roots.slots.len();
         let free = roots.free.clone();
@@ -230,7 +478,7 @@ fn failed_release_reservation_does_not_publish_or_consume_a_slot() {
         // an actual enormous allocation or changing the successful admission path.
         for exhausted in [usize::MAX, usize::MAX - 1] {
             lock_releases(&roots.released).credits = exhausted;
-            assert!(roots.insert(Vec::new()).is_none());
+            assert!(roots.insert_test(Vec::new()).is_none());
             assert_eq!(lock_releases(&roots.released).credits, exhausted);
             lock_releases(&roots.released).credits = credits;
             assert_eq!(roots.slots.len(), slots);
@@ -238,34 +486,89 @@ fn failed_release_reservation_does_not_publish_or_consume_a_slot() {
             assert_eq!(roots.entry(&root).unwrap().values, [Value::I32(42)]);
         }
         drop(root);
-        roots.drain_released();
+        drain_captured_releases(&mut roots);
         assert_eq!(lock_releases(&roots.released).credits, 0);
-        assert!(roots.insert(Vec::new()).is_some());
+        assert!(roots.insert_test(Vec::new()).is_some());
     }
 }
 
 #[test]
 fn bounded_release_drain_counts_rejected_ids_and_preserves_pending_credits() {
     let mut roots = RootTable::new(7);
-    let root = roots.insert(Vec::new()).unwrap();
+    let root = roots.insert_test(Vec::new()).unwrap();
     let id = root.id;
     drop(root);
     inject_release(&roots, RootId { owner: 8, ..id });
-    assert_eq!(roots.drain_released_limit(0), 0);
+    assert_eq!(roots.drain_test_limit(0), 0);
     assert_eq!(lock_releases(&roots.released).credits, 2);
-    assert_eq!(roots.drain_released_limit(1), 1);
+    assert_eq!(roots.drain_test_limit(1), 1);
     assert!(roots.slots[id.slot].entry.is_some());
     assert_eq!(lock_releases(&roots.released).credits, 1);
-    assert_eq!(roots.drain_released_limit(1), 1);
+    assert_eq!(roots.drain_test_limit(1), 1);
     assert!(roots.slots[id.slot].entry.is_none());
     assert_eq!(lock_releases(&roots.released).credits, 0);
-    assert_eq!(roots.drain_released_limit(1), 0);
+    assert_eq!(roots.drain_test_limit(1), 0);
+}
+
+#[test]
+fn release_cursor_charges_stale_notifications_without_following_new_arrivals() {
+    let mut roots = RootTable::new(7);
+    let root = roots.insert_test(Vec::new()).unwrap();
+    let id = root.id;
+    drop(root);
+    inject_release(&roots, RootId { owner: 8, ..id });
+    let mut cursor = roots.begin_release_drain();
+    let mut zero = ScanBudget::new(0);
+    assert_eq!(
+        roots.drain_test_slice(&mut cursor, &mut zero),
+        ScanStatus::Pending
+    );
+    assert_eq!(roots.release_visits, 0);
+    for expected in [ScanStatus::Pending, ScanStatus::Complete] {
+        // LIFO arrivals can replace work, but cannot grow the captured allowance.
+        inject_release(&roots, RootId { owner: 8, ..id });
+        let mut budget = ScanBudget::new(1);
+        assert_eq!(roots.drain_test_slice(&mut cursor, &mut budget), expected);
+        assert_eq!(budget.spent(), 1);
+    }
+    assert_eq!(roots.release_visits, 2);
+    assert!(roots.slots[id.slot].entry.is_some());
+    assert_eq!(lock_releases(&roots.released).credits, 2);
+    assert!(roots.snapshots().is_empty());
+    assert_eq!(roots.release_visits, 2);
+    drain_captured_releases(&mut roots);
+    assert_eq!(lock_releases(&roots.released).credits, 0);
+}
+
+#[test]
+fn release_cursor_finishes_when_registration_consumes_the_pending_work() {
+    let mut roots = RootTable::new(7);
+    let first = roots.insert_test(Vec::new()).unwrap();
+    let mut empty = roots.begin_release_drain();
+    drop(first);
+    let mut zero = ScanBudget::new(0);
+    assert_eq!(
+        roots.drain_test_slice(&mut empty, &mut zero),
+        ScanStatus::Complete
+    );
+    assert_eq!(roots.release_visits, 0);
+    let mut cursor = roots.begin_release_drain();
+    let next = roots.insert_test(Vec::new()).unwrap();
+    assert_eq!(roots.release_visits, 1);
+    let mut budget = ScanBudget::new(1);
+    assert_eq!(
+        roots.drain_test_slice(&mut cursor, &mut budget),
+        ScanStatus::Complete
+    );
+    assert_eq!(budget.spent(), 1);
+    assert_eq!(roots.release_visits, 1);
+    assert!(roots.entry(&next).is_some());
 }
 
 #[test]
 fn poisoned_release_transport_does_not_panic_during_unwind_cleanup() {
     let mut roots = RootTable::new(7);
-    let root = roots.insert(Vec::new()).unwrap();
+    let root = roots.insert_test(Vec::new()).unwrap();
     assert!(
         catch_unwind(AssertUnwindSafe(|| {
             let _released = lock_releases(&roots.released);
@@ -281,9 +584,9 @@ fn poisoned_release_transport_does_not_panic_during_unwind_cleanup() {
         }))
         .is_err()
     );
-    assert_eq!(roots.drain_released_limit(1), 1);
+    assert_eq!(roots.drain_test_limit(1), 1);
     assert_eq!(lock_releases(&roots.released).credits, 0);
-    assert!(roots.insert(Vec::new()).is_some());
+    assert!(roots.insert_test(Vec::new()).is_some());
 }
 
 #[cfg(feature = "execution-diagnostics")]
@@ -291,11 +594,11 @@ fn poisoned_release_transport_does_not_panic_during_unwind_cleanup() {
 fn last_drop_and_bounded_drain_allocate_nothing_at_full_notification_capacity() {
     let mut roots = RootTable::new(7);
     let mut retained: Vec<_> = (0..257)
-        .map(|_| roots.insert(Vec::new()).unwrap())
+        .map(|_| roots.insert_test(Vec::new()).unwrap())
         .collect();
     let capacity = lock_releases(&roots.released).pending.capacity();
     while retained.len() < capacity {
-        retained.push(roots.insert(Vec::new()).unwrap());
+        retained.push(roots.insert_test(Vec::new()).unwrap());
     }
     let copies = retained.clone();
     let (_, counts) = allocations::measure(|| drop(copies));
@@ -322,20 +625,20 @@ fn last_drop_and_bounded_drain_allocate_nothing_at_full_notification_capacity() 
         assert_eq!(released.pending.capacity(), capacity);
         assert_eq!(released.credits, capacity);
     }
-    let (processed, counts) = allocations::measure(|| roots.drain_released_limit(7));
+    let (processed, counts) = allocations::measure(|| roots.drain_test_limit(7));
     assert_eq!(counts.requests, 0);
     assert_eq!(processed, 7);
     assert_eq!(lock_releases(&roots.released).credits, capacity - 7);
-    let (processed, counts) = allocations::measure(|| roots.drain_released_limit(capacity));
+    let (processed, counts) = allocations::measure(|| roots.drain_test_limit(capacity));
     assert_eq!(counts.requests, 0);
     assert_eq!(processed, capacity - 7);
     assert_eq!(roots.free.len(), capacity);
     assert_eq!(lock_releases(&roots.released).credits, 0);
     assert_eq!(lock_releases(&roots.released).pending.capacity(), capacity);
-    let reused = roots.insert(Vec::new()).unwrap();
+    let reused = roots.insert_test(Vec::new()).unwrap();
     let (_, counts) = allocations::measure(|| {
         drop(reused);
-        roots.drain_released();
+        drain_captured_releases(&mut roots);
     });
     assert_eq!(counts.requests, 0);
 }
@@ -345,8 +648,8 @@ fn last_drop_and_bounded_drain_allocate_nothing_at_full_notification_capacity() 
 fn late_last_drop_uses_disconnected_transport_without_allocating() {
     let mut roots = RootTable::new(7);
     let released = Arc::downgrade(&roots.released);
-    let first = roots.insert(Vec::new()).unwrap();
-    let last = roots.insert(Vec::new()).unwrap();
+    let first = roots.insert_test(Vec::new()).unwrap();
+    let last = roots.insert_test(Vec::new()).unwrap();
     let start = Barrier::new(2);
     thread::scope(|scope| {
         let dropping = scope.spawn(|| {
@@ -387,7 +690,7 @@ fn snapshot_upgrade_holds_last_lease_across_cross_thread_drop_while_table_is_bor
     });
     assert_eq!(copied, [Value::I32(42)]);
     assert_eq!(table.release_visits, 0);
-    table.drain_released();
+    drain_captured_releases(&mut table);
     assert_eq!(table.release_visits, 1);
     assert_eq!(table.active(), 0);
     drop(table);
@@ -413,7 +716,7 @@ fn delayed_notification_does_not_resurrect_value_or_metadata_snapshots() {
     assert!(table.metadata_snapshots().is_empty());
     assert_eq!(table.release_visits, 0);
     lock_releases(&table.released).pending.push(id);
-    table.drain_released();
+    drain_captured_releases(&mut table);
     assert_eq!(table.release_visits, 1);
     assert!(table.slots[id.slot].entry.is_none());
 }

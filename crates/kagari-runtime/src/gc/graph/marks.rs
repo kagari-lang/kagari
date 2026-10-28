@@ -1,6 +1,16 @@
 //! Marks live with physical owners, not in a second identity registry.
 use std::{cell::Cell, collections::TryReserveError};
 
+#[cfg(test)]
+thread_local! {
+    static INITIALIZED_WORDS: Cell<usize> = const { Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn initialized_words() -> usize {
+    INITIALIZED_WORDS.with(Cell::get)
+}
+
 /// Stable owner-local slot blocks, not payload addresses or cross-runtime IDs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Domain {
@@ -177,19 +187,29 @@ impl MarkRef<'_> {
         }
     }
 
-    /// Returns bitmap initialization work. Reset is lazy and bounded by four words.
-    pub(crate) fn set(self, epoch: u64, color: Color) -> usize {
+    /// Work required before changing this mark in the selected epoch.
+    pub(crate) fn initialization_work(self, epoch: u64) -> usize {
+        match self {
+            Self::Page(page, _, _) if page.epoch.get() != epoch => 4,
+            _ => 0,
+        }
+    }
+
+    /// Reset is lazy and bounded by four words. Collector callers must reserve
+    /// initialization_work before entering; mutator publication pays its own work.
+    pub(crate) fn set(self, epoch: u64, color: Color) {
         match self {
             Self::Owner(mark) => {
                 mark.epoch.set(epoch);
                 mark.color.set(color);
-                0
             }
             Self::Page(page, slot, _) => {
                 let reset = page.epoch.get() != epoch;
                 if reset {
                     for word in page.discovered.iter().chain(&page.scanned) {
                         word.set(0);
+                        #[cfg(test)]
+                        INITIALIZED_WORDS.with(|count| count.set(count.get() + 1));
                     }
                     page.epoch.set(epoch);
                 }
@@ -199,7 +219,6 @@ impl MarkRef<'_> {
                 discovered
                     .set((discovered.get() & !bit) | if color != Color::White { bit } else { 0 });
                 scanned.set((scanned.get() & !bit) | if color == Color::Black { bit } else { 0 });
-                if reset { 4 } else { 0 }
             }
         }
     }

@@ -3,6 +3,10 @@
 mod tests;
 use crate::{
     error::RuntimeError,
+    gc::{
+        GcHeap,
+        metrics::{IndivisibleKind, IndivisibleSample},
+    },
     native::{binding::NativeResult, storage::NativePayload},
     value::Value,
 };
@@ -10,14 +14,26 @@ use std::{
     alloc::{Layout, alloc, dealloc},
     any::{Any, TypeId},
     fmt,
+    mem::size_of_val,
+    panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
     ptr::{self, NonNull},
 };
+
+pub(crate) const NORMAL_WORK: usize = 1024;
+// One inspected provider unit can emit one edge, whose owner may reset four words.
+pub(crate) const EDGE_SCAN_WORK: usize = 5;
+pub(crate) const MAX_BOUNDED_WORK: usize = NORMAL_WORK / EDGE_SCAN_WORK;
 
 /// The work guarantee of a payload's single scanner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeScanKind {
     EdgeFree,
-    Bounded { max_work: usize },
+    /// A whole scan of at most 204 provider units. Each unit also reserves up to
+    /// four collector bitmap-word resets, fitting the 1024-unit service allowance.
+    /// Larger providers must use `Resumable` or explicitly declare `Indivisible`.
+    Bounded {
+        max_work: usize,
+    },
     Resumable,
     Indivisible,
 }
@@ -59,8 +75,19 @@ impl ScanBudget {
         self.spent = self.spent.saturating_add(work);
     }
 
+    /// Return unused work from a reservation made by the same owner before entry.
+    pub(crate) fn refund(&mut self, work: usize) {
+        assert!(work <= self.spent);
+        self.spent -= work;
+        self.remaining += work;
+    }
+
     pub fn spent(&self) -> usize {
         self.spent
+    }
+
+    pub(crate) fn remaining(&self) -> usize {
+        self.remaining
     }
 }
 
@@ -138,7 +165,18 @@ impl ScanEntries {
         payload: &'a dyn Any,
         visit: &mut dyn FnMut(&'a Value),
     ) -> NativeResult<()> {
+        self.validate_kind()?;
         (self.inspect)(payload, visit)
+    }
+
+    fn validate_kind(&self) -> NativeResult<()> {
+        if matches!(self.kind, NativeScanKind::Bounded { max_work } if max_work > MAX_BOUNDED_WORK)
+        {
+            return Err(RuntimeError::module_validation(
+                "native bounded scanner exceeds 204 provider units plus edge work; use Resumable or Indivisible",
+            ));
+        }
+        Ok(())
     }
 
     /// Start only after the graph owner has resolved its full checked identity.
@@ -159,6 +197,7 @@ impl ScanEntries {
                 "native scanner payload type mismatch",
             ));
         }
+        self.validate_kind()?;
         let state = workspace.pointer(self.layout)?;
         // An unwind cannot leave a partially initialized cursor resumable.
         workspace.state = WorkspaceState::Faulted;
@@ -197,6 +236,93 @@ impl ScanEntries {
         Ok(status)
     }
 
+    /// Reserve both provider work and all possible edge resets before advancing
+    /// its opaque continuation. An emitted edge cannot be paused independently.
+    pub(crate) fn resume_traced<'a>(
+        &self,
+        heap: &GcHeap,
+        payload: &'a dyn Any,
+        workspace: &mut ScanWorkspace,
+        budget: &mut ScanBudget,
+        visit: &mut dyn FnMut(&'a Value, &mut ScanBudget) -> NativeResult<ScanStatus>,
+    ) -> NativeResult<ScanStatus> {
+        let indivisible = self.kind == NativeScanKind::Indivisible;
+        let available = if indivisible {
+            budget.remaining
+        } else {
+            (budget.remaining / EDGE_SCAN_WORK).min(drain_work(self.kind))
+        };
+        if available == 0
+            || matches!(self.kind, NativeScanKind::Bounded { max_work } if available < max_work)
+        {
+            return Ok(ScanStatus::Pending);
+        }
+        let reserved = if indivisible {
+            0
+        } else {
+            available * EDGE_SCAN_WORK
+        };
+        assert!(budget.take(reserved));
+        let mut provider = ScanBudget::new(available);
+        let mut edges = ScanBudget::new(if indivisible {
+            usize::MAX
+        } else {
+            available * 4
+        });
+        let mut error = None;
+        let started = if indivisible {
+            heap.observation_clock().start()
+        } else {
+            None
+        };
+        let mut emitted = 0usize;
+        let mut scan = || {
+            self.resume(payload, workspace, &mut provider, &mut |value| {
+                emitted = emitted.saturating_add(1);
+                if error.is_none() {
+                    error = match visit(value, &mut edges) {
+                        Ok(ScanStatus::Complete) => None,
+                        Ok(ScanStatus::Pending) => Some(RuntimeError::module_validation(
+                            "native scanner exhausted its reserved edge work",
+                        )),
+                        Err(error) => Some(error),
+                    };
+                }
+            })
+        };
+        let result = if indivisible {
+            catch_unwind(AssertUnwindSafe(scan))
+        } else {
+            Ok(scan())
+        };
+        let pause = started.map(|started| started.elapsed());
+        budget.refund(reserved);
+        let work = provider.spent().saturating_add(edges.spent());
+        budget.charge(work);
+        if let Some(time) = pause {
+            heap.observe_indivisible(
+                IndivisibleKind::ProviderScan,
+                IndivisibleSample {
+                    owner: "NativePayload",
+                    rust_type: Some(self.payload_type),
+                    items: emitted,
+                    work,
+                    known_bytes: Some(size_of_val(payload)),
+                    time,
+                },
+            );
+        }
+        let status = match result {
+            Ok(result) => result?,
+            Err(panic) => resume_unwind(panic),
+        };
+        if let Some(error) = error {
+            workspace.state = WorkspaceState::Faulted;
+            return Err(error);
+        }
+        Ok(status)
+    }
+
     #[cfg(test)]
     pub(crate) fn trace<'a>(
         &self,
@@ -222,6 +348,19 @@ fn drain_work(kind: NativeScanKind) -> usize {
     }
 }
 
+/// Transfer reported provider work even when its callback unwinds. This is a
+/// stack-scoped budget owner, never a continuation or observation buffer.
+struct ProviderSlice<'a> {
+    parent: &'a mut ScanBudget,
+    budget: ScanBudget,
+}
+
+impl Drop for ProviderSlice<'_> {
+    fn drop(&mut self) {
+        self.parent.charge(self.budget.spent());
+    }
+}
+
 fn checked_step<'a>(
     kind: NativeScanKind,
     budget: &mut ScanBudget,
@@ -236,14 +375,17 @@ fn checked_step<'a>(
     {
         return Ok(ScanStatus::Pending);
     }
-    let mut slice = ScanBudget::new(available);
+    let mut slice = ProviderSlice {
+        parent: budget,
+        budget: ScanBudget::new(available),
+    };
     let mut edges = 0usize;
-    let status = step(&mut slice, &mut |value| {
+    let status = step(&mut slice.budget, &mut |value| {
         edges = edges.saturating_add(1);
         visit(value);
     });
-    let spent = slice.spent();
-    budget.charge(spent);
+    let spent = slice.budget.spent();
+    drop(slice);
     if kind == NativeScanKind::EdgeFree && edges != 0 {
         return Err(RuntimeError::module_validation(
             "edge-free native scanner reported an edge",

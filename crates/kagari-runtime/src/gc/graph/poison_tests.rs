@@ -1,4 +1,7 @@
-use super::{GraphState, MarkPhase};
+use super::{ControlError, GraphIdentity, GraphState, MarkPhase, marks::OwnerMark};
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::allocations;
+use crate::{error::RuntimeError, gc::HeapObjectId};
 use std::{
     fmt::{self, Write},
     panic::{AssertUnwindSafe, catch_unwind},
@@ -7,18 +10,75 @@ use std::{
 fn assert_poisoned(state: &GraphState) {
     // Observe before any acquisition can repair a raw mutex's poison state.
     assert_eq!(state.phase(), MarkPhase::Poisoned);
-    assert!(
-        state
-            .with_access(|| panic!("poison must reject before resolving a mark"))
-            .is_err()
+    assert_eq!(
+        state.with_access(|| panic!("poison must reject before resolving a mark")),
+        Err(ControlError::Poisoned)
     );
-    assert!(
-        state
-            .with_publication(|| panic!("poison must reject before preparing work"))
-            .is_err()
+    let error = state
+        .with_publication(|| panic!("poison must reject before preparing work"))
+        .unwrap_err();
+    assert_eq!(
+        error.message(),
+        "module validation failed: poisoned graph control state"
     );
-    assert!(state.try_lock().is_err());
+    assert_eq!(state.try_lock().unwrap_err(), ControlError::Poisoned);
     assert_eq!(state.phase(), MarkPhase::Poisoned);
+}
+
+#[test]
+fn control_rejections_stay_compact_until_reported() {
+    let state = GraphState::default();
+    let mut guard = state.lock();
+    guard.begin_cycle().unwrap();
+    guard.finish_roots().unwrap();
+    guard.close_mark().unwrap();
+    let check = || {
+        let lock = state.try_lock().unwrap_err();
+        let access = state
+            .with_access(|| panic!("borrowed control must reject before mark resolution"))
+            .unwrap_err();
+        (lock, access)
+    };
+    #[cfg(feature = "execution-diagnostics")]
+    let rejected = {
+        let (rejected, counts) = allocations::measure(check);
+        assert_eq!(counts.requests, 0);
+        rejected
+    };
+    #[cfg(not(feature = "execution-diagnostics"))]
+    let rejected = check();
+    assert_eq!(rejected, (ControlError::Borrowed, ControlError::Borrowed));
+    let error = RuntimeError::from(rejected.1);
+    assert_eq!(
+        error.message(),
+        "module validation failed: graph control state is borrowed"
+    );
+    drop(guard);
+    assert!(!state.accessible(OwnerMark::default().as_ref()).unwrap());
+
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| {
+            let _guard = state.lock();
+            panic!("poison before availability-only rejection");
+        }))
+        .is_err()
+    );
+    let check = || {
+        assert_eq!(state.try_lock().unwrap_err(), ControlError::Poisoned);
+        state
+            .with_access(|| panic!("poisoned mark resolution"))
+            .unwrap_or(false)
+    };
+    #[cfg(feature = "execution-diagnostics")]
+    let available = {
+        let (available, counts) = allocations::measure(check);
+        assert_eq!(counts.requests, 0);
+        available
+    };
+    #[cfg(not(feature = "execution-diagnostics"))]
+    let available = check();
+    assert!(!available);
+    assert_poisoned(&state);
 }
 
 #[test]
@@ -60,29 +120,89 @@ fn guard_unwind_publishes_terminal_poison_from_every_phase() {
 }
 
 #[test]
-fn acquisition_during_unwind_poison_is_authoritative_without_mutex_poison() {
-    struct AcquireOnDrop<'a>(&'a GraphState);
+fn recovery_publication_during_existing_unwind_preserves_phase_and_checks() {
+    struct PublishOnDrop<'a> {
+        state: &'a GraphState,
+        target: GraphIdentity,
+        mark: &'a OwnerMark,
+        result: &'a mut Option<Result<(), RuntimeError>>,
+    }
 
-    impl Drop for AcquireOnDrop<'_> {
+    impl Drop for PublishOnDrop<'_> {
         fn drop(&mut self) {
-            let marker = self.0.try_lock().unwrap();
-            assert_eq!(marker.phase(), MarkPhase::Idle);
-            drop(marker);
+            *self.result = Some(self.state.shade(self.target, self.mark.as_ref()));
         }
     }
 
-    let state = GraphState::default();
-    assert!(
-        catch_unwind(AssertUnwindSafe(|| {
-            let _cleanup = AcquireOnDrop(&state);
-            panic!("panic predates graph acquisition");
-        }))
-        .is_err()
-    );
-    // std records the panic state at acquisition and does not poison this case.
-    // Graph work nevertheless must not become usable after our unwinding drop.
-    assert!(!state.0.work.is_poisoned());
-    assert_poisoned(&state);
+    for phase in [
+        MarkPhase::Idle,
+        MarkPhase::Roots,
+        MarkPhase::Mark,
+        MarkPhase::Sweep,
+        MarkPhase::Faulted,
+    ] {
+        let state = GraphState::default();
+        let target = GraphIdentity::Object(HeapObjectId::new(1, 0, 0));
+        let mark = OwnerMark::default();
+        {
+            let mut marker = state.lock();
+            marker.prepare_identity().unwrap();
+            marker.admit_prepared(target, mark.as_ref());
+            if phase != MarkPhase::Idle {
+                marker.begin_cycle().unwrap();
+            }
+            if matches!(phase, MarkPhase::Mark | MarkPhase::Sweep) {
+                marker.finish_roots().unwrap();
+            }
+            if phase == MarkPhase::Sweep {
+                // A white target remains condemned: unwind is not permission to
+                // resurrect it or to bypass the closed graph's publication check.
+                marker.close_mark().unwrap();
+            }
+            if phase == MarkPhase::Faulted {
+                marker.fault();
+            }
+        }
+        let mut publication = None;
+        assert!(
+            catch_unwind(AssertUnwindSafe(|| {
+                let _cleanup = PublishOnDrop {
+                    state: &state,
+                    target,
+                    mark: &mark,
+                    result: &mut publication,
+                };
+                panic!("panic predates recovery graph acquisition");
+            }))
+            .is_err()
+        );
+        assert_eq!(
+            publication.unwrap().is_ok(),
+            !matches!(phase, MarkPhase::Sweep | MarkPhase::Faulted)
+        );
+        assert!(!state.0.work.is_poisoned());
+        assert_eq!(state.phase(), phase);
+        assert_eq!(
+            state.accessible(mark.as_ref()).unwrap(),
+            phase != MarkPhase::Sweep
+        );
+        let mut marker = state.try_lock().unwrap();
+        if matches!(phase, MarkPhase::Roots | MarkPhase::Mark) {
+            // Recovery must actually enqueue the target, not merely avoid poison.
+            assert_eq!(
+                marker
+                    .next_owner(|_, _| panic!("singleton fixture"))
+                    .unwrap(),
+                Some(target)
+            );
+            marker.finish_owner(target, mark.as_ref()).unwrap();
+            if phase == MarkPhase::Roots {
+                marker.finish_roots().unwrap();
+            }
+            marker.close_mark().unwrap();
+            assert!(marker.is_survivor(mark.as_ref()).unwrap());
+        }
+    }
 }
 
 #[test]

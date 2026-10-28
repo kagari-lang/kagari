@@ -1,4 +1,6 @@
 pub(crate) mod array_storage;
+pub(crate) mod weak_cache;
+
 use crate::{
     closure::ClosureValueSnapshot,
     error::{RuntimeError, RuntimeErrorKind},
@@ -16,6 +18,7 @@ use crate::{
         },
     },
     gc::{
+        collection::CollectionCycle,
         directory::{ObjectSlot, ObjectStorage, PayloadKind, PayloadLocation},
         fields::{StructStorageLayouts, StructView, StructViewMut},
         graph::{GraphIdentity, GraphState, driver::ActiveScan},
@@ -66,6 +69,7 @@ pub(crate) mod graph;
 pub(crate) mod interfaces;
 mod iter;
 pub(crate) mod leases;
+pub mod metrics;
 mod moved;
 pub(crate) mod publication;
 pub mod roots;
@@ -120,6 +124,7 @@ struct CollectorStats {
     collections: u64,
     reclaimed_objects: usize,
     last_pause: Duration,
+    observation: Option<Box<metrics::ObservationState>>,
 }
 
 /// Unrooted checked identity. Copies never retain objects or expose their addresses.
@@ -151,7 +156,7 @@ impl HeapObjectId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct GcCollection {
     /// Operation group records detached by this collection.
     pub reclaimed_operation_groups: usize,
@@ -211,6 +216,7 @@ pub struct GcHeap {
     native_scan_workspace: RefCell<ScanWorkspace>,
     pub(crate) graph: GraphState,
     graph_scan: RefCell<Option<ActiveScan>>,
+    collection: RefCell<Option<Box<CollectionCycle>>>,
     pub(crate) native_applications:
         RefCell<SharedScanStore<NativeApplication, NativeApplicationScanId>>,
     pub(crate) interface_calls: RefCell<SharedScanStore<ScopedInterfaceCall, InterfaceCallScanId>>,
@@ -261,6 +267,7 @@ impl GcHeap {
             native_scan_workspace: RefCell::default(),
             graph: GraphState::default(),
             graph_scan: RefCell::default(),
+            collection: RefCell::default(),
             native_applications: RefCell::new(SharedScanStore::new(owner)),
             interface_calls: RefCell::new(SharedScanStore::new(owner)),
             interface_descriptions: RefCell::new(SharedScanStore::new(owner)),

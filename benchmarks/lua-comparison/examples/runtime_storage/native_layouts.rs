@@ -92,9 +92,13 @@ fn register<T: NativePayload>(
 }
 
 pub(super) fn engine() -> KagariEngine {
-    let mut builder = KagariEngine::builder().unwrap();
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = None;
+    configured_engine(config)
+}
+
+pub(super) fn configured_engine(config: EngineConfig) -> KagariEngine {
+    let mut builder = KagariEngine::builder().unwrap();
     builder.config(config);
     let mut module = ModuleBuilder::new("probe::layouts", builder.declarations()).unwrap();
     register(&mut module, "S8", || S8([42; 8]));

@@ -106,7 +106,9 @@ impl ModuleRecords {
         resolved: ResolvedRecord<'_>,
         graph: &GraphState,
     ) -> Result<bool, RuntimeError> {
-        graph.with_access(|| self.marks.slot(Domain::Program, resolved.index))
+        graph
+            .with_access(|| self.marks.slot(Domain::Program, resolved.index))
+            .map_err(RuntimeError::from)
     }
 
     pub(in crate::module) fn publish(
@@ -136,18 +138,6 @@ impl ModuleRecords {
 
     pub(in crate::module) fn values(&self) -> impl Iterator<Item = &ModuleRecord> {
         self.slots.iter().filter_map(|slot| slot.record.as_deref())
-    }
-
-    pub(in crate::module) fn iter(&self) -> impl Iterator<Item = (&ModuleKey, &ModuleRecord)> {
-        self.by_key.iter().map(|(key, index)| {
-            (
-                key,
-                self.slots[*index]
-                    .record
-                    .as_deref()
-                    .expect("indexed module record"),
-            )
-        })
     }
 
     pub(in crate::module) fn scan_id(&self, module: &ExecutableModule) -> Option<ProgramScanId> {

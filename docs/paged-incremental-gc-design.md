@@ -8,10 +8,24 @@ inline storage is locally complete; focused tests, Miri, memory probes and final
 local checks are recorded below (PG02 commit `4d8aa0c1`). PG03/NC03-NC04 is
 locally complete and committed at `8d597b93` after final independent review,
 selected focused contracts, paired gates and parent local checks. PG04 is locally
-complete, pending commit, after parent acceptance of final Map/arrays paired gates,
+complete at commit `fe56b675`, after parent acceptance of final Map/arrays paired gates,
 scoped reuse of unaffected timing/memory evidence, repaired review blockers and final
-local checks. Production marking and physical sweep remain synchronously drained.
-PG05/NC05 is next; PG06/NC06 and full CI remain outstanding.
+local checks. That checkpoint drains marking and physical sweep synchronously.
+PG05/NC05 implementation is now integrated in the worktree but **not complete**:
+borrow-preflight and unwind-cleanup regressions are fixed and selected actual-native
+proof passes. Budget/cache corrections have final source approval and selected tests/
+local quality pass. Ordinary-build collector observations are implemented and locally
+validated. The disabled-observation timing/accumulation finding is repaired, preserving
+work budgets and public last_pause; the latest focused/quality checkpoint passes.
+The trusted actual-root replacement reports **77 ordinary gates passing / 11 failing** and
+**19 observed normal-step gates passing / 3 failing**; **34 unobserved rows are not passes**.
+All **112 timing processes** completed once with semantic assertions passing. Separately
+verified fresh memory passes **55/55**, with **21 zero-net teardowns**. This supersedes older
+measurement summaries, not the frozen gates. The contaminated selected 23/6 interpretation
+remains withdrawn; other historical artifacts retain their individual audit qualifications.
+Subsequent finite source corrections are not yet timed or memory-accepted; these totals remain
+prior-image evidence. Numerical closure and CI remain pending. The [PG05 ledger](#pg05-integrated-driver-and-open-acceptance)
+owns current progress. PG06/NC06 remains outstanding.
 Initial implementation parameters remain selected policy, not measured optima or
 acceptance of future performance gates. The execution breakdown
 was originally recorded against `bb836eff`, following the design at `8c2a4568`.
@@ -2290,8 +2304,8 @@ privileged storage paths until final acceptance.
 ### PG04: incremental graph state and complete publication coverage
 
 **Dependency:** PG03. Integrate one replacement marker with existing graph owners;
-production collection still drains its work synchronously until PG05 opens the
-interleaving boundary. PG04 is locally complete pending commit, with fresh/reused
+PG04 production collection drains its work synchronously; PG05 owns opening the
+interleaving boundary. PG04 is locally complete at `fe56b675`, with fresh/reused
 acceptance evidence in the [PG04 ledger](#pg04-marker-implementation-and-open-acceptance).
 Physical page/slot sweep, reusable page/range disposal and the 32-total detached-owner
 bound were explicitly brought forward from PG05; remaining metadata/module sweep and
@@ -2329,8 +2343,10 @@ Do not enable automatic incremental interleaving based only on object-field test
 
 ### PG05: incremental sweep, disposal and execution driving
 
-**Dependency:** PG04 publication coverage and marking closure. NC05 completes the
-external/cursor proof under the same interleaved service as the standard library.
+**Dependency:** PG04 publication coverage and marking closure (`fe56b675`). NC05
+completes the external/cursor proof under the same interleaved service as the standard
+library. The integrated implementation and open regressions are recorded in the
+[PG05 ledger](#pg05-integrated-driver-and-open-acceptance); this phase is not complete.
 
 **Work:**
 
@@ -2579,12 +2595,20 @@ acceptance of this combined source. PG05/NC05 and PG06/NC06 remain incomplete.
 - [x] PG02: Paged physical storage (locally complete).
 - [x] PG03: Remove privileged collection paths (locally complete with NC03/NC04;
   final independent review, selected gates and parent local checks passed).
-- [x] PG04: Incremental graph state and complete publication coverage (locally complete,
-  pending commit; synchronously drained marker and physical sweep/bounded disposal.
+- [x] PG04: Incremental graph state and complete publication coverage (locally complete
+  at `fe56b675`; synchronously drained marker and physical sweep/bounded disposal.
   Fresh Map 1.031376 / arrays 0.920740 pass; scoped timing and 55-memory/21-zero-teardown
   evidence reuse are explicit below. Final focused/quality checks pass; known blockers
   fixed. This is not production interleaving or joint CI acceptance).
-- [ ] PG05: Incremental sweep, disposal and execution driving (with NC05).
+- [ ] PG05: Incremental sweep, disposal and execution driving (with NC05; integrated
+  worktree implementation; preflight/unwind fixes and selected actual-native proof pass.
+  Budget/cache source review, selected tests/Miri/native proof and local quality pass.
+  Runtime disabled-observation gating is repaired and focused/quality checks pass.
+  Trusted actual-root replacement: 112/112 timing processes complete; ordinary **77 pass /
+  11 fail**, observed normal **19 pass / 3 fail**, **34 unobserved**. Fresh memory **55/55**,
+  **21 zero teardowns**. Old 78/10 and 22-normal results are historical; contaminated selected
+  23/6 is withdrawn. Subsequent source corrections have focused validation but no fresh timing/
+  memory acceptance; these totals describe the prior image. Numerical closure/CI remain open).
 - [ ] PG06: Joint integration and acceptance (with NC06).
 
 PG00 status: locally complete with NC01 at `47be3cb7`. That checkpoint closed design,
@@ -2868,20 +2892,21 @@ and retention **15 variants**. These repeat existing contract evidence and are n
 added to earlier totals. The parent confirms final structure **1766 files, zero
 violations**, formatting, workspace all-target Clippy and diff checks passed.
 PG03/NC03/NC04 are therefore locally complete at `8d597b93`. PG04 is subsequently
-locally complete pending commit, with separate evidence below. PG05/NC05 is next;
+locally complete at `fe56b675`, with separate evidence below. PG05/NC05 is in progress;
 PG06/NC06, incremental pause/interleaving acceptance and the full CI matrix remain
 outstanding.
 
 ### PG04 marker implementation and open acceptance
 
-**Status: locally complete, pending commit**, accepted by the parent on 2026-10-27
-against committed PG03 `8d597b93fc69f688faf674f847cfdac4b0596ff9` plus the reviewed
-PG04 overlay. Final fresh Map/arrays gates pass; unaffected timing and authenticated
+**Historical checkpoint: locally complete at commit `fe56b675`**, accepted by the parent
+on 2026-10-27 against PG03 `8d597b93fc69f688faf674f847cfdac4b0596ff9` plus the reviewed
+PG04 overlay. The worktree was clean after this commit, before PG05 integration. Final fresh Map/arrays gates pass; unaffected timing and authenticated
 memory evidence retain the provenance below. Known review blockers are fixed. Parent
 reports final focused/quality checks passing. This heading remains stable for incoming
-links; **joint acceptance**, not PG04 local closure, remains open. PG05/NC05 is next;
-PG06/NC06 and full CI remain outstanding. Production still drains marking and physical
-sweep synchronously: no production interleaving or incremental pause acceptance is claimed.
+links; **joint acceptance**, not PG04 local closure, remains open. PG05/NC05 progress
+is recorded in its own phase entry below; PG06/NC06 and full CI remain outstanding.
+PG04 drains marking and physical sweep synchronously: its evidence establishes neither
+PG05 production interleaving nor incremental pause acceptance.
 This is the single owning PG04 ledger, not a parallel collection correction queue.
 
 #### Implemented model and bounded adaptations
@@ -3188,6 +3213,2070 @@ bounded disposal. **PG06/NC06** owns broader integration/performance and full CI
 Normal work remains selected **1024**, not a hard pause guarantee. The future incremental
 step gate and indivisible exemptions remain as frozen in PG00; no future pause is passed
 by synchronous timing. PG04 local closure does not close those obligations.
+
+### PG05 integrated driver and open acceptance
+
+**Status: integrated implementation, not locally complete**, on committed PG04
+`fe56b675`. The prior worktree was clean before the coordinated driver, physical sweep,
+module/static, metadata and root/cache changes. This entry owns PG05 integration errors
+and validation; [NC05](native-collections-plan.md#nc05-interleaved-provider-handoff-in-progress)
+owns only the external-provider handoff. **Current trusted result: 77 ordinary pass / 11 fail;
+19 observed normal pass / 3 fail, 34 unobserved; fresh memory 55/55 and 21 zero teardowns.**
+All 112 replacement timing processes completed once with semantic assertions passing, using
+saved binaries from two proved actual-root clean builds; diagnostics were separately rebuilt
+and audited. The earlier selected 23/6 interpretation remains **invalid**, not production
+acceptance or regression evidence. The 36-path audit qualifies older images individually;
+the finite follow-up below is now source-implemented, but its timing/memory remain unmeasured.
+The trusted totals therefore describe the prior verified image, not the latest source changes.
+820's proved root build and fresh representative checks passed. See
+[the owning recovery contract](#pg05-build-provenance-and-recovery) below. Earlier results
+(including original 78/10 ordinary, 22 observed normal and 55/55 memory) remain recorded
+historical evidence with their scope/provenance, not blanket-invalidated or automatically
+reaffirmed for the current tree. Independent source reviews remain distinct from binary
+validation; representative correctness checks require fresh proved artifacts. PG00 gates
+are unchanged; PG04 history cannot establish the new driver's acceptance. The chronological
+handoffs below retain then-current results and uncertainty; only
+[the trusted replacement](#pg05-trusted-replacement-results-and-finite-follow-up) is the current
+numerical status, not older phrases such as “ten failures remain”.
+
+**Material implemented changes, inspected in the current worktree:**
+
+- [Collection driver](../crates/kagari-runtime/src/gc/collection.rs) retains one owned
+  `CollectionCycle` across legal safepoints, including initial roots, graph progress,
+  retirement and maintenance. A normal invocation uses **1024 structural work units**
+  shared across phases, not 1024 per owner. Setup, task dispatch, inspected slots and
+  retirement/disposal work are charged. Positive committed unit/backing growth and
+  metadata admissions since cycle start trigger finish-active assistance at captured
+  thresholds; releasing temporary growth does not erase that pressure. Current occupancy
+  starts cycles but does not suspend an already active cycle below the start threshold.
+  This is neither a hard pause bound nor an execution/cancellation charging system.
+- Explicit collection **finishes an active cycle, then completes one fresh cycle** over
+  current roots. Its report includes only retirements during that invocation, not those
+  already reported by automatic service. Automatic-off freezes automatic continuation
+  and assistance as well as starts, independently of explicit collection. The same
+  phase driver implements both routes: normal service supplies 1024 work units, explicit/
+  pressure-assist drains supply `usize::MAX`, with no independent retirement 1024 cutoff.
+  Detached-owner/provider limits remain; poll/cancellation policy is unchanged. Selected
+  actual-native ABI and Cranelift execution proof now passes, within the scope below.
+- [Physical retirement](../crates/kagari-runtime/src/gc/collection/retirement.rs) now
+  services PG04's persistent page/slot cursor with the shared budget; moved identities,
+  interface-wrapper discovery and maintenance also have owned progress. The cap remains
+  **32 actual detached-but-undisposed owners total**, not 32 per domain or per token.
+  Complete each batch outside storage borrows before detaching the next. Identity,
+  generation, phase, charge and newborn checks are retained; late preparation faults
+  do not roll back earlier completed batches. Cross-store conflict preflight now checks
+  all **12 stores**, charging **12 units** at destructive admission and on resumed Sweep
+  entry after a possible mutator interval. It does not repeat immediately after mark
+  closure or between batches under the same exclusion. Guards end before scanners/destructors. The repaired
+  regression and subsequent budget/cache review corrections are recorded below.
+- [Module collection](../crates/kagari-runtime/src/module/collection.rs) replaces the
+  borrowed lifecycle-wide sweep guard/dead inventory with owned `AbandonmentTicket`
+  and `ModuleSweep` progress. The ticket consumes only the request observed at entry;
+  abort restores it, while successful completion cannot clear a newer release request.
+  Stable module slots charge vacancies, survivors and newborns. Static cells remain in
+  their **original HashMap**, with occupied previous/next links in the cells and one
+  owner-held sweep continuation. Removal repairs that continuation; insertion prepends
+  outside its captured chain. This avoids repeated HashMap-capacity scans or a second
+  semantic registry, without replacing non-reused static IDs or generation validation.
+  Detached modules/cells stay in caller-owned output through errors and dispose only
+  after module/graph borrows end. No borrowed iterator survives a service slice.
+- [Metadata cursors](../crates/kagari-runtime/src/execution_metadata/scanning.rs) capture
+  exact owner/domain and finite slot extents for groups, applications, interfaces,
+  environments and shared scan records. **Every inspected slot costs work**, including
+  holes and survivors; retirement allowance counts only detached records. Appends are
+  outside the captured extent and reused slots still consult current-epoch marks.
+  Seven metadata stages reserve output/cache-release/disposal for
+  `min(32, remaining_slots)` before detach; remaining extent is a capacity bound, not
+  identity proof. Exhausted cursors still validate their owner but require no output
+  allocation. Partial error outputs remain with the driver for outside-borrow disposal. This does not authorize late discovery of an
+  already-held metadata view after unrelated reclamation.
+- [Root release](../crates/kagari-runtime/src/gc/roots.rs) captures a finite notification
+  allowance, charging stale IDs and empty probes too. This is LIFO count-bounded work,
+  **not a promised original FIFO prefix**; new arrivals do not increase the allowance.
+  At most one root record detaches, then disposes outside table/transport borrows before
+  the next inspection. Its `values.len + metadata.len + 1` cleanup charge can overrun
+  a slice as explicit **indivisible work**; final Arc destruction is not bounded by
+  that item count and its duration is measured separately. Panic/reentry quarantines
+  before another record detaches. Registration services at most one notification,
+  not an unlimited drain; reserved allocation-free last-drop transport is unchanged.
+- [Descriptor maintenance](../crates/kagari-runtime/src/gc/directory/maintenance.rs)
+  uses captured progress and now transports prepared cache-admission tokens rather than
+  semantic Arc keys for release lookup. Failed preparation/allocation also leaves
+  reclaimable registrations; exact admission identity protects newer replacements.
+  Nonempty initialization-owner maps retain capacity until empty instead of rehashing
+  during maintenance. Cache unlink's fixed precharge and token consumers have passed
+  the selected tests and final source review below; this is not measured performance
+  acceptance. Actual final destruction and allocator-only operations retain their
+  explicit limitations.
+  Lease entries disappear on final guard release; the full-map lease-prune pass is
+  removed, not replaced with another maintenance registry.
+
+The mechanism continues the PG04 reviewed original-owner/bounded-cursor model (Lua
+5.4.8 sweep progress) and consume-before-drop disposal (Rust Vec::IntoIter); it does not
+adopt concurrent collection or infer a speedup. Static occupied links preserve the
+existing lookup owner because resumable iteration over HashMap capacity would otherwise
+repeat traversal or retain a borrow. Measured work and explicit indivisible durations,
+not the number 1024 alone, must establish the eventual pause gate.
+
+**Reproduced regressions, now repaired (coordinator-confirmed):**
+
+- **Borrow preflight (820):** the earlier dependent selection had **41 passes / 3
+  failures**: application, environment and interface borrowed-view tests observed one
+  heap object (and sometimes a group) reclaimed before EngineFault. Immutable entry
+  borrows did not preflight later mutable access. The driver now checks eleven heap
+  stores plus the module/static store under collection exclusion, reserving **12 units
+  before all 12 exclusive checks at every Sweep service/resume**, not only first entry.
+  The three existing failures now pass, as does
+  `resumed_sweep_rechecks_later_store_borrows_before_any_further_detachment`. A new view
+  acquired between slices cannot permit further unrelated detach before rejection.
+  The batch-atomic late-fault contract remains distinct; assertions were not weakened.
+- **Callback unwind (53):** cleanup previously acquired/released a graph guard entirely
+  during an existing unwind, then falsely left Poisoned state. `GraphMarker` now captures
+  `panicking_on_entry` and poisons on `!panicking_on_entry && thread::panicking()` at
+  Drop, matching Rust std's entry/exit panic-state rule. Successful mandatory recovery
+  during prior unwind does not create poison; interrupted normally entered graph work
+  still poisons before unlock, and acquisition never clears existing terminal poison.
+  The applicable primary source is Rust **1.90.0**
+  [poison guard accounting](https://raw.githubusercontent.com/rust-lang/rust/1.90.0/library/std/src/sync/poison.rs),
+  not a weakening of publication or quarantine checks. Coordinator reports all **seven
+  external-provider fixtures pass** after the fix, including callback-unwind cleanup.
+  No callback-wide GC exclusion or allocation-permitted recovery was introduced.
+
+**Independent review corrections (0a findings; final source review approved):**
+
+1. **Bitmap work precharging — 820, implemented.** Deferred bitmap debt is removed.
+   Collector paths reserve actual lazy reset words before touching them and preserve
+   the next edge/cursor when work cannot fit. Coordinator-reported reproduction:
+   **five sparse roots, budget 16, actual reset work 8 words** (two blocks), Pending
+   with the next unshaded edge preserved; subsequent slices complete without lost edges.
+   This checks actual reset counters, not just a later debt total. Provider continuations
+   cannot pause independently after emitting an edge, so traced scans reserve worst-case
+   provider-plus-edge work before advancing opaque state and refund unused reservation.
+   `NativeScanKind::Bounded` now admits at most **204 provider units**: one unit plus up
+   to four bitmap-word resets per edge gives **204 × 5 = 1020**, fitting normal **1024**
+   work. A bounded scan waits for its complete reservation. Resumable/EdgeFree service
+   retains a **256-provider-unit maximum chunk**, but traced normal service adapts to
+   remaining budget divided by five; it does not always process 256. Explicit Indivisible
+   providers report full provider **and edge-reset** work and their duration, including
+   overruns. The normal budget and pause gate are unchanged, not redefined to 204/256.
+2. **Nonempty HashMap shrink — 53, implemented.** The rejected path rehashed surviving
+   semantic owners under an allocator exception. The one-unit reproduction previously
+   reported **6320 work units**. Nonempty initialization-owner map shrinking is removed;
+   the replacement tiny-budget test retains survivors/capacity with one-unit bounded
+   maintenance and releases backing only once empty. The 4096-entry/128-survivor case
+   preserves all survivors and has no nonempty resize allocation. **Tradeoff:** high-water
+   capacity remains while any entry survives. This is deliberate finite-scope avoidance
+   of unbounded rehash, not a memory improvement; the pending backing/peak gates must
+   evaluate it. Vec relocation and empty allocation release remain distinct allocator
+   operations, not permission to classify map rehash as indivisible.
+3. **Cache locators — 640 + 7917, integrated; selected tests and source review pass.**
+   The first hashbrown proposal was rejected: collision predicates still traversed an
+   unbounded chain, with work charged **after** lookup. Removing recursive key hashing
+   alone did not fix the boundary. The replacement
+   [weak cache owner](../crates/kagari-runtime/src/gc/weak_cache.rs) stores sole entry
+   records in stable generational slots, a scalar-hash index of chain heads, and intrusive
+   previous/next links. Semantic hash/equality and collision walks belong to ordinary
+   lookup/admission, not collector unlink. Release tokens validate slot/generation,
+   prepared scalar hash and exact key-allocation/Weak identity; they do not root targets.
+   Removal **precharges 12 structural units before any slot inspection/unlink**; an
+   insufficient budget returns Pending without touching the cache. Unlink updates at
+   most neighboring links or a scalar head, then generation/free-list state, without
+   semantic-key comparison, chain traversal, allocation or resize. Scalar HashMap probes
+   are expected-constant lookup primitives, not a hard worst-case CPU guarantee.
+   Struct descriptor maintenance now carries these tokens, not semantic Arc keys as
+   lookup requests. The token can retain a key Arc for identity/lifetime, but retirement
+   does not traverse its contents; final key/Weak destruction stays outside store borrows
+   and separately accounted. Exhausted generations cannot alias replacements; delayed
+   old tokens cannot remove newer entries. Four cache tests pass: over-1024 collision/
+   wide-key unlink with one precharge; old/foreign/abandoned token replacement safety;
+   vacant-slot reuse and old-key ownership; exhausted-generation nonwrap. Stable indices
+   belong to the cache's sole entry owner, not an added ID registry. Vacant slots retain
+   generation/free links and reuse high-water storage even while old tokens exist;
+   retirement does not shrink/rebuild either buffer. The source-informed mechanism
+   reuses Kagari's existing generational stores and the ownership principle referenced
+   in [slotmap](https://github.com/orlp/slotmap), not hashbrown collision predicates.
+   No hashbrown dependency remains; Cargo manifests/lockfile have **no diff**. This
+   establishes reviewed ownership and structural work, not a speed or backing win.
+
+Independent reviewer 0a approves the final budget/cache source model. The selected
+post-integration results below close those source/correctness findings, but **PG05/NC05
+remain incomplete**: the later disabled-observation overhead finding is repaired;
+the completed fixed acceptance sequence has **ten ordinary timing failures**; all
+observed normal gates pass. The latest owner-footprint correction closes both memory
+failures (**55/55**, 21 zero-net teardowns), not the timing failures. Full CI remains unrun. Frozen PG00 gates/exemptions are unchanged. No measured optimization
+or future pause guarantee follows from source approval.
+
+**Budget/cache checkpoint validation, not an exhaustive sweep:** the final selected
+new-model run passes **14 helper/metadata**, **3 fields**, **11 physical** tests and
+**5 physical Miri** cases. The cache helper's **4 passing tests** are separately identified
+above, not added to the 14 as another disjoint total. Both actual-native proof tests
+below were rerun and pass. Owner 820 reports **2 reservation**, **8 lifecycle** and
+**8 scanner** tests passing. The prior **7 external NC05 fixtures** remain passing
+evidence at their stated snapshot, not a new rerun. Final local quality passes:
+structure **1802 files / zero violations / zero exceptions**, workspace all-target
+Clippy with warnings denied, diagnostics-feature Clippy, formatting and diff checks.
+These results precede the runtime-observation/harness edits; observation-specific
+validation is recorded below and the harness remains in progress. Source review is an independent approval, not another test.
+
+**Earlier evidence, retained without summing:** coordinator reported **7 driver lifecycle
+tests** and **7 scanner tests** passing at the earlier
+integration checkpoint. The metadata scan-record log has **5 passes**; its earlier
+dependent selection was the **41/3** run, with the three failures since repaired above.
+Root/cache owner's earlier recorded execution-diagnostics filters pass:
+roots **24**, fields **2**, leases **1**, native-take **1**, operation-guard **2**
+(termination/quarantine). These are scoped results at their integration snapshots,
+not summed, relabeled as rerun after every repair or substituted for final acceptance.
+
+Reproduction commands derived from the actual selected owners (the root/cache owner
+explicitly reports the first five invocations; other commands below identify the
+focused rerun scopes, not an invented command history):
+
+```sh
+cargo test -p kagari-runtime --lib --features execution-diagnostics gc::roots::tests
+cargo test -p kagari-runtime --lib --features execution-diagnostics gc::fields::tests
+cargo test -p kagari-runtime --lib --features execution-diagnostics gc::leases::tests
+cargo test -p kagari-runtime --lib --features execution-diagnostics take_releases_recorded_backing_once_and_keeps_the_inert_identity
+cargo test -p kagari-runtime --lib --features execution-diagnostics operation_guard_blocks_aliases_and_recovers_after_execution_is_closed
+cargo test -p kagari-runtime --lib gc::collection::tests
+cargo test -p kagari-runtime --lib native::storage::scan::tests
+cargo test -p kagari-runtime --lib execution_metadata::scan_records::tests
+cargo test -p kagari-runtime --lib borrowed_application_view_prevents_allocation_and_any_partial_sweep
+cargo test -p kagari-runtime --lib borrowed_view_rejects_allocation_and_sweeping_before_any_detachment
+cargo test -p kagari-runtime --lib borrowed_interface_view_prevents_any_partial_reclamation
+cargo test -p kagari-runtime --lib resumed_sweep_rechecks_later_store_borrows_before_any_further_detachment
+cargo test -p kagari-runtime --lib initial_roots_reserve_bitmap_words_before_reset_and_retry_the_unshaded_edge
+cargo test -p kagari-runtime --lib traced_provider_reserves_actual_bitmap_resets_before_advancing_opaque_state
+cargo test -p kagari-runtime --lib tiny_budget_preserves_initialization_survivors_and_releases_only_empty_capacity
+cargo test -p kagari-runtime --lib gc::weak_cache::tests
+cargo test -p kagari --test native_storage_provider callbacks_alias_protection_and_allocation_free_scratch_recovery
+```
+
+**Actual native execution proof (7917), both focused tests rerun and passed:**
+The concrete observations below retain the original proof's provenance; the latest
+rerun confirms passes, not a new timing/observation dataset.
+
+```sh
+cargo test -p kagari-runtime --lib --features execution-diagnostics native_body_polls_interleave_bounded_automatic_gc_and_root_mutation -- --nocapture
+cargo test -p kagari --lib decoded_scalar_native_body_completes_automatic_gc_through_abi_safepoints -- --nocapture
+```
+
+- Runtime native-ABI fixture: **1 pass**, one actual installed native-body entry,
+  **2 ABI polls**, step work **[1024, 1024]**, two automatic steps, **0 assists**, and
+  one managed allocation/root replacement between polls. The 4096-slot root remains
+  valid and cleanup succeeds. This is a statically compiled C-ABI body invoked directly
+  with **no interpreter fallback**, not a claim of JIT support for allocating scripts.
+- Decoded-artifact Cranelift fixture: **1 pass**, actual `PreparedNativeEntry::Native`
+  and `JitExecutionStatus::Native`, **no fallback diagnostics**, result **2080**.
+  Its balanced 64-term scalar sum retains **128 ABI safepoints** with MIR optimization
+  disabled; emitted helpers complete **1 cycle / 4096 reclaimed objects**, preserving
+  4096 rooted values. No host safepoint or explicit collection runs in the invocation
+  interval. PreparedProgram/backend temporary owners are dropped before execution.
+  This proves actual JIT body execution from decoded portable MIR, not a frontend-
+  disabled Cargo build or per-Cranelift-poll work measurement. The latter bound is
+  checked by the first fixture. Supported zero-argument, single-block scalar coverage
+  is unchanged: no claim for loops, managed-allocation codegen or arbitrary native calls.
+
+Initial left-associated test authoring correctly hit inference depth 32; balancing the
+expression fixed the fixture without raising limits. A test-only Clippy finding was
+fixed with `as_chunks`. No production/native-backend changes were needed for these tests.
+The native-proof owner's earlier 1800-file quality pass was superseded by the
+1802-file budget/cache checkpoint and then the 1804-file observation result below,
+not combined with either. No exhaustive feature/backend/
+platform matrix, source-disabled build or performance measurement ran in that proof.
+
+**Observation implementation and validation (820):** measurement preparation had found
+mixed normal/assist/explicit maxima, timers ending before completion bookkeeping,
+last-only cycle totals and unattributed indivisible maxima. These were observation
+boundary gaps, not measured performance failures. The public ordinary-build
+[collector observation contract](spec/runtime.md#collector-observation-windows) now owns
+the implemented API and timing/attribution semantics; no duplicate contract ledger is added.
+`GcHeap::start_collection_observation`, `collection_observation` and
+`finish_collection_observation` use one fixed buffer, with no per-service allocation,
+history, callback or retained script roots. Normal/assist/explicit invocations and
+new/carried completed cycles are separate. Complete admitted timing includes bookkeeping,
+cursor destruction and error normalization, excluding only final telemetry publication
+and return instructions. Eleven indivisible categories retain bounded attribution,
+including actual per-payload destruction, shallow known bytes/unknown-size counts and
+native-provider TypeId where available. Raw pauses include that work; nothing is subtracted.
+
+Coordinator reports **12 lifecycle/observation/retirement tests**, **9 scanner tests**
+and the selected actual-native proof passing. Scanner fault/unwind coverage keeps
+work charged/settled, including retained prepaid reservation on unwind rather than
+pretending failed work cost zero. Local quality passes: structure **1804 files / zero
+violations / zero exceptions**, workspace Clippy with warnings denied, formatting and
+diff checks. These supersede the earlier observation-gap status and quality count, not
+prior distinct test coverage; no aggregate test total or benchmark result is inferred.
+
+**Runtime observation review repaired — 820:** the initial opt-in buffer still paid
+per-payload timers/accumulation while disabled. Optional observation work is now gated
+**before the operation**, preserving destruction, panic containment, structural budgets
+and public `last_pause`. Coordinator reports **13 focused observation/lifecycle/retirement
+and 9 scanner tests passing**: disabled observation makes **zero observation-clock reads**;
+enabled attribution counts **512 payload drops**. This is targeted overhead/correctness
+evidence, not a throughput measurement or removal of the ordinary pause clock. Latest
+quality passes at **1807 files / zero violations / zero exceptions**, workspace Clippy,
+formatting and diff checks; earlier checkpoint counts are not added to this result.
+Start/reset rejects admitted collector service and finish returns None without changing
+the window, including in destructor callbacks. The enabled flag therefore cannot change
+inside admitted service; no active observation borrow spans a yield. The
+[observation contract](spec/runtime.md#collector-observation-windows) owns these rules.
+
+**Automatic harness implemented and check-validated (149):** the existing tracked
+[runtime_storage automatic mode](../benchmarks/lua-comparison/examples/runtime_storage/README.md#automatic-family-observations)
+uses the public ordinary-build observation API, rejects the counting-allocator build,
+and preserves frozen explicit-GC modes. `--automatic-families [--check] [--pressure]`
+reuses the seven family populations/assertions, phase-local windows and public
+`Runtime::gc_safepoint`; action wall time, normal/assist/explicit service, new/carried
+cycles, structural slices and all eleven indivisible categories remain distinct.
+
+Coordinator reports **14 check-mode lifecycles passed** (seven families per policy):
+**493 normal steps at default pressure**, **701 at the pressure profile**, with **zero
+assists and zero carried cycles observed**. These are correctness/activity checks,
+**not latency proof**, a seven-pair timing run or assist-latency coverage. Default
+trigger floors remain 1024 units/64 KiB; the separately labeled pressure profile uses
+64 units/4096 bytes, not a different 1024-work service allowance or 32-owner disposal
+cap. Do not pool the policies or infer assistance merely from the `--pressure` name.
+The offline parser rejects check logs as timing evidence and requires corresponding
+baselines before paired acceptance. The coordinator reports the harness local quality
+checkpoint passing at **1806 files**; the separate 1807-file runtime repair result is
+recorded above.
+
+Check-mode reproduction (owner-reported validation, not rerun by this docs update):
+
+```sh
+cargo build --release --locked -p kagari-lua-benchmark --example runtime_storage
+target/release/examples/runtime_storage --automatic-families --check
+target/release/examples/runtime_storage --automatic-families --check --pressure
+```
+
+**Frozen measurement complete — gates failed (149):** both eight-scenario check profiles
+passed, including forced assist, carried-work reconciliation, retained roots and cleanup.
+All **98 ordinary + 14 automatic scheduled inputs** are now complete. Initially a grouped
+outer **240-second** deadline interrupted pair 3's family baseline after three families;
+this was not a runtime assertion or the original **180-second** individual process bound.
+Parent authorized only that missing baseline, which completed independently in
+**15.864224 seconds**, exit 0, using the same 180-second bound:
+
+```sh
+target/pg00-baseline/runtime-storage-families-before --families
+```
+
+The original binary SHA256 remains
+`2cfdd4f60c52413a9cc581807cbca70e0a6740fe1ad65937522d405c2c726c4d`.
+All other 111 completed logs and frozen images authenticated unchanged. The **whole**
+completed process replaces pair 3, including early rows, for both automatic policies;
+no favorable row mixing, candidate rerun or failed-gate retry. Original partial evidence
+is preserved. Pair 3 baseline/candidate adjacency was necessarily lost across the
+reporting interval and remains a limitation. These results describe the preserved
+integrated candidate, **not later worktree corrections**; the measurement window is released.
+
+Environment/provenance: integrated PG05 over `fe56b675`, observation gating included;
+Rust **1.99.1 / LLVM 23.1.1**, Apple **M1 Max / 32 GiB**, macOS **26.6.2**. Workspace
+release profile, default target/parallelism, ordinary timing features; diagnostics/counting
+allocator only afterward. Six preserved PG00 images authenticated; sort retains reconstructed
+PG00 harness provenance. Frozen source/image/schedule verification passed. Seven alternating
+pairs, **3 warmups / 11 samples** per process, no cache flushing, no overlapping builds/tests/
+measurements. Offline parsing was corrected for two one-sample setup rows without changing
+logs, workloads or gates. Setup rows have no invented timing gate.
+
+**Historical original run, not current acceptance: 78 pass / 10 fail; 17 setup/compilation
+rows ungated.** The trusted replacement below supersedes this summary.
+Ratios are medians of paired process-median
+ratios, not quotients of the separately shown baseline/candidate medians.
+
+| Failed row | Baseline median (ns) | Candidate median (ns) | Paired C/B | Frozen limit |
+| --- | ---: | ---: | ---: | ---: |
+| singleton root tail-cancel/retire | 1042 | 1208 | 1.119962 | 1.05 |
+| Node construction | 2176710 | 4478460 | 2.053324 | 1.10 |
+| field reads | 2685170 | 3019460 | 1.118804 | 1.10 |
+| revision callback | 13654500 | 15032300 | 1.098340 | 1.05 |
+| revision iterator | 5138120 | 14913300 | 2.912736 | 1.05 |
+
+Selected passes: Map **1.028385**, arrays **0.893729**; allocating-script construct/sort
+**0.923060 / 0.894557**, cheap-script **0.918869 / 0.864592**, scalar **0.879633 / 0.918658**.
+The five additional family failures are now **complete seven-pair gates**, superseding
+the interrupted-run diagnostics. GC acceptance statistics are
+`median(C_i/max(1.20*F_i,F_i+10000ns))`, with limit 1, not raw C/B.
+
+| Failed family phase | Paired C/B | Acceptance statistic | Frozen limit |
+| --- | ---: | ---: | ---: |
+| mixed-native release GC | 2.647461 | 2.206217 | 1 (GC-normalized) |
+| sparse-cycle construction | 2.104740 | 2.104740 | 1.10 |
+| sparse-cycle release GC | 3.097309 | 1.969653 | 1 (GC-normalized) |
+| sparse-cycle sparse-live GC | 1.518654 | 1.151235 | 1 (GC-normalized) |
+| sparse-type release GC | 1.860863 | 1.357369 | 1 (GC-normalized) |
+
+**Historical original automatic observations, superseded by the trusted replacement:**
+**92092 normal invocations**, maximum charged work **1024**;
+raw absolute normal maximum **74.167 us** (pressure sparse-cycle churn, pair 2/sample 2).
+Default/pressure absolute maxima (us): sparse types **33.625/33.833**, mixed native
+**34.666/36.583**, scalar **14.750/20.334**, references **51.167/59.000**, script keys
+**32.458/32.708**, sparse cycles **72.667/74.167**, reload **37.459/29.917**. All exclude
+warmups. **All 22 observed phase/policy normal gates pass** with the completed seven-pair
+same-family baselines; largest median normalized ratio is **0.691660**, pressure mixed-
+native construct (median process maximum **34.583 us**, absolute **36.583 us**).
+**34 rows have no normal invocation in one or more processes** and remain unobserved,
+not zero-cost passes. Every selected family has actual automatic activity. The 74.167 us
+absolute maximum remains included under its corresponding same-family `F/4` envelope;
+its phase median normalized ratio is **0.242148**, not a comparison to an unrelated 50us floor.
+
+The deliberate host-pressure control supplies **154 assists**, absolute maximum
+**367.958 us**; natural families supply none. Default/pressure median process maxima are
+**346.750/357.291 us**, absolute maxima **349.791/367.958 us**. Every control lifecycle
+observes normal work **1024**, assist **21806**, one carried cycle **22830**, and retained
+strings/cleanup passing. Assist/carried totals overlap, not additive disjoint costs.
+Largest indivisible sample: **1345.375 us**, `RetiredModule` destruction in **explicit**
+retained-reload `release_old_gc` (one item, work 8, shallow known bytes 8), not a normal
+pause or transitive-size claim. EmptyMapRelease/QueueCompaction are unobserved, not free.
+Raw pauses include indivisible work; nothing is subtracted. Structural 32-owner checks
+are still not a measured disposal high-water counter.
+
+**Original frozen candidate memory (historical): 53/55 pass; all 21 teardowns have zero requested net bytes.** Three
+complete diagnostics lifecycles, maximum estimator, no PG04 memory reuse. Sparse-type
+construct is **90484 B** in each sample versus **85368.8 B**; live-GC is **90292 B** in
+each versus **85166.4 B**. Sparse-cycle live **333816 B <= 351802 B** passes. Frozen
+caps and peak/net interval attribution are unchanged.
+
+**Initial diagnosis and owners, not established CPU attribution:** 53 owns locator/cache
+footprint: sparse-type live grows **82612 -> 90292 B (+7680)** versus PG04; descriptor
+directory backing explains **1536 -> 4608 B (+3072)**, while the remaining **4608 B** is
+not separately attributed. Preserve bounded nonallocating retirement and exact identity;
+no whole-map retain or gate relaxation. 820 owns common construction/root and checked
+read/completion paths. Singleton cancel includes backend/error completion and drain,
+not only root removal; larger root populations pass. 6ab owns stdlib iteration's repeated
+retention/conversion/loans while preserving revision/alias checks. The storage route
+**disables automatic GC**: Node construction (512 small Vec/self-reference nodes) and
+iteration (2000 scalars) are not evidence of automatic marking cost. PG00 comparisons do
+not isolate PG05-introduced regressions. Adverse teardown rows motivate attribution of
+retirement/descriptor/cache/bookkeeping, not scanner-budget relaxation or a claimed GC
+root cause for mutator regressions.
+
+**Compact-cache correction (53), intermediate memory candidate:** one
+`Arc<Admission<K,V>>` now co-owns the inline key, immutable slot/generation/hash and weak
+target. Tokens share this allocation; exact allocation identity plus the full u64 slot
+generation validates retirement. Descriptor hints are flattened; scalar heads/intrusive
+links and **12-unit precharged, nonallocating unlink** remain. No new registry/dependency,
+strong target retention or semantic-key lookup during removal. Source basis: installed
+[Rust 1.99.1 Arc implementation](https://github.com/rust-lang/rust/blob/58cf8f9c35b355199727627d07ae34a4e2846d67/library/alloc/src/sync.rs),
+shared allocation identity/weak destruction, not GC rooting or address-only authority.
+Token/slot/directory-entry sizes change **40/96/72 -> 8/40/48 B**; the key's Arc block
+also grows **96 -> 128 B**, so size reductions alone are not gate evidence.
+
+Its intermediate diagnostics process passed **53/55 / 21 zero-net teardowns**: construct
+**86388 B**, live **86196 B**, still over **85368.8/85166.4 B**. Relative deltas improved
+4096 B; absolute backing improved only 3232 B because setup grew 864 B. That historical
+positive setup difference remains unreconstructed, not a deterministic token cost.
+The later owner-footprint checkpoint below supersedes these memory results; earlier
+11 focused/5 Miri passes are not added to the repeated validation as distinct coverage.
+
+**Occupied/vacant owner correction (53), latest fresh memory PASS:** weak-cache slots
+now use `Occupied(CacheEntry)` / `Vacant { generation, next_free }`, sharing the occupied
+immutable admission's generation rather than storing it twice. Descriptor entries combine
+admitted/idle/free state with their valid cache association. Slot size **40 -> 24 B**,
+descriptor entry **48 -> 40 B**; actual sparse arrays save
+`2*32*(40-24)+64*(48-40) = 1536 B`. Full **u64 generations**, checked **usize indices**,
+exhaustion tombstones, exact Arc identity and 12-unit precharged unlink remain. No unsafe
+packing, extra allocation/registry, new capacity limit or changed shrink policy.
+
+Fresh measured result: **55/55 unchanged gates pass**, **21 zero-net teardowns**; three
+identical samples each: sparse construct **84852 <= 85368.8 B**, live
+**84660 <= 85166.4 B**, sparse-cycle live **333432 <= 351802 B**. Directory backing
+**2560 B = 64*40** confirms layout. Setup falls 672 B in this process, so absolute
+construct/live falls 2208 B; only the 1536 B workload-array reduction is attributed to
+the model. This integrated image includes 15 other changed source paths versus the
+compact-token image: it is not an isolated two-file A/B timing comparison.
+
+The first release image was stale (old 72-byte descriptor entries / 4608 B backing)
+and is excluded as invalid source/binary correspondence, not a failed-gate retry.
+Source hashes alone were insufficient. After scoped invalidation, compilation of the
+affected packages and disassembly confirmed the 40-byte stride **before** the corrected
+candidate ran once, without interposition or concurrent build/workload:
+
+```sh
+cargo clean --release -p kagari-runtime -p kagari-stdlib -p kagari-vm -p kagari
+cargo build --release --locked -p kagari-lua-benchmark --features diagnostics --example runtime_storage
+/usr/bin/time -lp target/pg05-owner-footprint/candidate-diagnostics --families
+```
+
+Corrected image SHA256:
+`21aed90ddca58db2f34120412a76bf554f911d03fa622f444292edf1a3f35f7b`.
+Same Rust 1.99.1/LLVM 23.1.1, M1 Max/32 GiB/macOS 26.6.2, default release target/profile/
+parallelism, diagnostics allocator and existing family warmup; no ordinary timing rerun.
+Owner reports **11 focused tests + 5 Miri cases** on nightly-2026-07-27, structure
+**1807 / zero violations**, fmt/diff passing; no workspace Clippy by this owner.
+
+**Setup attribution limitation:** an allocation interposer on the original saved images
+isolated the second runtime lifecycle, excluding shared compilation/preparation. Its
+corrected capture found **-864 B**, not the historical +864 B: `NativeRegistry.entries`
+BTreeMap cloning used three fewer 192 B leaf nodes and one fewer 288 B internal node;
+other grouped setup allocations matched. Rust 1.99.1
+[BTreeMap clone_subtree](https://github.com/rust-lang/rust/blob/58cf8f9c35b355199727627d07ae34a4e2846d67/library/alloc/src/collections/btree/map.rs)
+preserves tree shape. This identifies process-dependent registry occupancy as a varying
+owner, **not the original positive-delta allocation inventory**; historical node counts
+and exact insertion-order variation were not captured. Initial capture overruns from an
+incorrect executable-image boundary were excluded; corrected tagged captures lost no
+entries. Instrumentation alters timing/addresses and supplies no speed evidence. It
+also attributes the earlier 4096 B relative reduction across both caches, admission
+blocks and existing interface scan-owner slots; setup variation is not credited to GC.
+
+**Bounded retention correction (820), diagnostic not gate:** `ModuleStore::retain_program`
+now reuses an **existing exact whole-program registration under the original exclusive
+store borrow** instead of repeating member validation. `publish_program` remains first,
+including runtime/generation/installed-descriptor and authoritative phase checks; first
+registration still validates all members. Member-only retention is not proof. No new
+cache/public proof/root or borrow across callbacks is introduced. Rust's
+[Arc strong-count contract](https://doc.rust-lang.org/std/sync/struct.Arc.html#method.strong_count)
+(Rust 1.99.1 reviewed) warns counts can change: the store borrow, not an Arc count alone,
+provides exclusion. Incomplete fallible staging prevents deleting the first member walk.
+
+Exact Node counts: registrations remain **1026**, member inspections **40014 -> 20007**;
+root registrations **1030** and factory preparations **513** remain. Isolated ordinary
+single-process diagnostics (3 warmups/11 samples, same release environment, automatic GC
+off; only the retention correction overlaid) report Node **4.546708 -> 3.686250 ms**
+versus diagnostic PG00 **2.222917 ms**. This is not seven-pair acceptance; much of the
+regression predates PG05. Inclusive sampled stacks overlap and are not additive CPU
+percentages. Field counters show identity checks moved owners, not doubled; authoritative
+graph access/publication is not a proven redundant check. A narrower cancellation probe
+omits the acceptance fixture's roots vector and observes zero root-drain/retention work
+in its timed interval, ruling out that proposed cause there, not explaining the full gate.
+No speculative field/cancellation exemption is implemented. **9 tests** pass:
+
+```sh
+cargo test -p kagari-runtime --lib module::retention::tests -- --nocapture
+cargo test -p kagari-runtime --lib abandonment_invalidates_access_even_with_a_retention_lease
+cargo test -p kagari-runtime --lib member_counts_distinguish_local_and_whole_program_leases
+cargo test -p kagari-runtime --lib matching_keys_and_copied_bindings_do_not_authorize_an_uninstalled_descriptor
+```
+
+The first command passes six tests; each other command passes one. Owner reports structure
+**1807 / zero violations/exceptions**, workspace and runtime execution-diagnostics Clippy,
+fmt/diff passing. No Miri or frozen acceptance rerun for this correction. Archived diagnostic
+build products remain in the default release target: future acceptance must rebuild and
+authenticate actual production sources, not reuse probe images.
+
+**Scoped authority follow-up (820), still diagnostic:** `NativeContext::conversion_scope`
+and `ConversionContext::scoped` borrow exact same-runtime/program-generation authority,
+with fresh conversion limits/scratch and ordinary owned fallback for another generation.
+`ScriptValue::decode` retains its owning conversion contract; the separate generic
+`ScriptValue::borrow_payload` borrows the existing root via checked Rust/nominal mapping
+and actual payload/storage identity, without a new DataRecord, program lease or root.
+Private `ConversionRetention` proves the exact existing context lifetime through factory
+preparation. Central publication/phase/candidate checks still run; escaping NativeType/
+RustType obtains its own lease, remains Send, and stores no borrowed proof. No store
+borrow crosses conversion/user code. This extends the existing scoped authority pattern,
+not an ambient session flag, cache or ordinary-write exemption.
+
+Isolated Node diagnostics: member walks **20007 -> 0**, registrations **1026**, roots
+**1030**, factories **513** unchanged; median **3.686250 -> 3.077833 ms** versus PG00
+**2.222917 ms**. Same single-process 3-warmup/11-sample method, automatic GC off; nine
+production files overlaid, concurrent cache/stdlib changes excluded. The old standalone
+Vec factory conversion remains in this probe, so it does not measure 6ab's adoption.
+Counts establish removed work; **the Node gate remains failed**, with no seven-pair rerun.
+Owner reports 3 runtime conversion tests, 26 VM payload tests, a subsequent targeted
+factory test rerun and 2 compile-fail lifetime proofs passing; workspace/scoped Clippy,
+structure 1807/zero and owned-file formatting/diff pass. Its workspace fmt check found
+concurrent cache-file formatting; 53 separately reports fmt passing for the footprint
+checkpoint, not a new combined final-quality run.
+
+**Stdlib scoped conversion/cursor adoption (6ab), implemented; counts not throughput:**
+earlier shared retained compaction reduced callback roots **6012 -> 4012** and allocations
+**34261 -> 28261**, with seven selected tests passing. The next nine-file adoption is
+measured separately, with that compaction and 820's runtime APIs held fixed on both sides.
+Vector/hash cursors retain the source under the cursor loan, then use `borrow_payload`
+instead of decoding owning Opaque. Revision checks, escaping-element roots, cursor edits,
+exhaustion/cancellation and operation protection remain. Construction uses fresh scoped
+conversion and keeps the original shared root alive through cursor publication. Collection
+factories borrow exact owner authority; map removal prepares its rooted Option before
+commit, preserving failure atomicity and once-only Hash/Eq callbacks.
+
+Diagnostic method: same Rust 1.99.1/LLVM 23.1.1 M1 Max environment, default release target/
+parallelism, counting allocator/counters; exact tracked revisions (n=2000) and Node (n=512)
+workloads, automatic GC disabled. Three warmups, count the fourth execution, **no explicit
+GC between warmups**; compare only this before/after, not totals from older compaction
+probes. Iterator source access removes **2001 DataRecords / 4002 duplicate root registrations**;
+overall roots/releases **18018 -> 14016**, allocation requests **103006 -> 92998**,
+requested bytes **3994222 -> 3625966**, peak net unchanged **261783 B**. Source handle
+retention/read checks remain 2001, escaping elements/advances 2000. Node temporary factory
+context retentions **513 -> 0**, allocations **18418 -> 17905**; 513 independent factory
+retentions/DataRecord preparations and 1030 roots remain. All eight runs balance roots;
+read/edit/publication counts are unchanged. These are neither physical-memory gates nor
+throughput/interleaving proof; the separate ordinary diagnostic below supplies timing
+without converting these count measurements into gate evidence.
+
+One deliberate `ConversionContext::new` remains in hash `from_array`: it owns cumulative
+conversion state and source protection across callback-capable inserts. The scoped API's
+immutable NativeContext borrow cannot span mutable reentry; per-element resets would
+change conversion-limit semantics, and dropping protection early would create a root gap.
+No workaround or new API was added. This is outside the measured Node/revision paths.
+The existing [Java SE 25 JNI local/global reference distinction](https://docs.oracle.com/en/java/javase/25/docs/specs/jni/design.html#global-and-local-references)
+informs call-local versus escaping ownership only; Kagari retains checked generation,
+revision/reload and loan semantics. **15 selected VM tests** pass (eight library mapping,
+three native factories, dynamic iteration and three storage/revision contracts); the
+unchanged compaction's seven tests remain prior evidence, not an added disjoint total.
+Owner reports structure **1807 / zero violations**, workspace Clippy, fmt/diff passing;
+an owned import-format finding was repaired without rerunning semantic tests.
+
+**Pre-builder ordinary diagnostic (6ab), complete images, not gates:** twelve predeclared
+processes completed without retries/timeouts: PG00, PG04 and frozen current image for each
+of growth/callback/iterator/Nodes, alternating triplet order across workloads. Each process
+used 3 warmups/11 samples; ratios use its freshly measured PG00, not historical absolutes.
+
+| Workload | PG00 median ms | PG04 median ms | Current median ms | Current/PG00 |
+| --- | ---: | ---: | ---: | ---: |
+| revision growth | 1.976917 | 1.900166 | 1.796750 | 0.908865 |
+| revision callback | 14.152042 | 15.126125 | 7.841625 | 0.554098 |
+| revision iterator | 5.195041 | 14.902333 | 11.292584 | 2.173724 |
+| Nodes | 2.228917 | 4.559083 | 3.050709 | 1.368696 |
+
+Growth/callback are within their diagnostic caps, **not accepted seven-pair gates**;
+iterator/Nodes remain above 1.05/1.10. These compare complete implementations including
+concurrent runtime/cache remedies; no individual correction owns the timing delta.
+The count probes separately establish removed work, not the remaining stack-level cost.
+The ten frozen timing failures remain unchanged, including callback's earlier failure.
+
+Exact tracked scripts are byte-identical; revisions use n=2000 with result checks outside
+timing, Nodes n=512 with fresh runtime/program per lifecycle. Only execution through
+returned ScriptValue construction is timed; compile/prepare/load, initial/live/release GC
+and teardown are excluded. Untimed Node checks preserve exactly 1025 extra live objects
+and baseline restoration on release. Automatic GC is disabled. Each workload has its own
+process rather than running the complete storage suite first. Ordinary builds have no
+counters, counting allocator or sampling profiler; no p99/hard-bound or incremental claim.
+Rust/Cargo 1.99.1, LLVM 23.1.1, M1 Max/32 GiB/10 CPUs, macOS 26.6.2; workspace release,
+default target/parallelism, no cache flush or affinity/thermal tuning. Builds preceded
+all measurements; background OS activity was uncontrolled. Each archived build invalidated
+only release kagari-runtime/kagari-types products to prevent stale cross-snapshot reuse;
+other dependencies remained warm. Source/image manifests were verified around builds/run.
+Current image SHA256:
+`fbca9a2348c8c6ea7e10d30fd7b546088e0942134e1261d27feb9a4a20bc5396`.
+Workload processes had a 60-second bound; none reached it. The measurement window is
+released; no acceptance run or source changes were performed by this diagnostic task.
+
+**Lifecycle attribution and correction (0a), implemented; no gate rerun:** five preselected
+GC phases ran one warmup/three diagnostic lifecycles with fixed counters and coarse phase/
+batch clocks in an ignored source snapshot, no production instrumentation. Same machine/
+toolchain/release defaults; no baseline comparison. Before correction, internal steps /
+preflights were mixed release **33/34**, sparse-type release **13/14**, reference-live
+control **66/11**, sparse-live **6/6**, sparse release **9/10**. Zero-detachment phases
+still requested **7*32 = 224 metadata output slots** (reservation calls, not measured
+allocations); full-batch reservations refused service with 421/441/568 work remaining.
+Preflight medians were **0.166–0.879 us**, insufficient to explain the regression.
+Instrumented physical/total medians (us) were mixed release **157.405/196.125**, sparse
+release **52.248/71.292**, sparse-type release **29.883/62.375**; sparse-live split mark/
+physical **25.916/21.327**, reference-live was marking-dominated. Nested clocks overlap
+and instrumentation adds cost: these are attribution, not frozen timings or speedup proof.
+
+The implemented same engine now receives **1024** for normal service and **usize::MAX**
+for explicit/pressure-assist drains; retirement obeys the supplied allowance, not a second
+hardcoded 1024. Actual detached batches remain **32 total**, bounded provider admission
+**204**, resumable chunks **256**. Preflight is retained at destructive admission and
+resumed Sweep after a possible mutator interval, not immediately duplicated at closure.
+Seven metadata stages reserve the exact `min(32, remaining_slots)` upper bound before
+detachment; even empty cursors still validate. Accounting, error order/quarantine and
+outside-borrow disposal are preserved. Source basis: [Lua v5.4.8 lgc.c](https://raw.githubusercontent.com/lua/lua/v5.4.8/lgc.c)
+`singlestep`/`incstep` versus `luaC_runtilstate`/`fullinc`: one collection engine with
+separate scheduling, **not** Lua's atomic/weak/finalizer semantics. Kagari retains explicit
+active-plus-fresh behavior and its own identity/publication/provider contracts.
+
+Owner reports **14 lifecycle + 9 scanner tests + 4 Miri cases** passing, including exact
+18-work two-owner tail/validated zero-capacity empty cursor, resumed-borrow rejection,
+normal <=1024, explicit active+fresh and assist drains. Commands:
+
+```sh
+cargo test -p kagari-runtime --lib gc::collection:: -- --nocapture
+cargo test -p kagari-runtime --lib native::storage::scan::tests::
+cargo +nightly-2026-07-27 miri test -p kagari-runtime --lib gc::collection::retirement::tests::
+cargo +nightly-2026-07-27 miri test -p kagari-runtime --lib gc::collection::tests::automatic_budget_spans_mark_sweep_and_disposal_and_reports_only_new_retirements
+```
+
+Scoped/workspace Clippy, structure **1807 / zero violations/exceptions**, fmt/diff pass.
+Module/static empty-reservation follow-up is now implemented and selected-tested:
+owner/phase and continuation validation precede empty completion; module output/report
+capacity is capped by captured remaining slots. Static sweep checks the repaired occupied
+continuation before reserving, then caps capacity by current occupied count without
+traversing/extending the captured chain. Pre-detach reservations and caller-owned partial
+output remain. Coordinator reports the **six pending module cases passed**, plus the
+prior **11 selected cases: 17 selected passing** for that follow-up, not a new exhaustive
+suite or a total to add to the lifecycle/scanner evidence.
+
+**Physical observation ownership correction (53), implemented:** `RetiredRange` no
+longer embeds its one **176 B** measurement record (never an eleven-category array).
+Range size returns **240 -> 56 B**, SweepBatch **288 -> 96 B**; the 32 optional-identity
+workspace remains **512 B** (`Prepared` remains 560 B). Only an enabled disposal caller
+owns a call-scoped accumulator in a separate non-inlined helper; the range's single
+destruction loop accepts optional observation and stores no borrowed reference. Disabled
+emitted code has no observation timer/accumulator initialization/read/copy/merge, though
+shared-function frame/control overhead remains. Fallback Drop uses the same loop without
+observation. Consume-before-dispatch, each panic's sample/quarantine, remaining cleanup,
+retiring bits, descriptor/backing lifetime, charge, normal budget and 32-owner bound are
+preserved. No statistics/storage borrow spans a destructor; merging occurs afterward.
+Public invocation pause timing is independent and unchanged.
+
+One fixed before/after comparison includes the explicit-unlimited scheduler on **both**
+sides and overlays only four physical-observation files. Same M1 Max/32 GiB/macOS 26.6.2,
+Rust 1.99.1, workspace release/default features/target/parallelism, warm dependencies;
+scoped artifact invalidation prevented stale snapshot reuse. Ordinary mode has one warmup/
+seven lifecycles, no attribution counters/clocks except the selected outer timer. All
+workload assertions pass. Medians in us (**not seven-pair frozen acceptance**):
+
+| Selected phase | Before | After |
+| --- | ---: | ---: |
+| mixed-native release | 147.084 | 138.958 |
+| sparse-type release | 47.708 | 43.125 |
+| reference live control | 794.292 | 784.791 |
+| sparse-cycle live | 48.542 | 46.958 |
+| sparse-cycle release | 56.500 | 52.625 |
+
+Sparse after-run maxima remain **60.042/69.417 us** for live/release; outliers and movement
+in the reference control limit causal timing precision. Separate instrumented runs use
+one warmup/three lifecycles; nested region clocks overlap and add substantial short-batch
+cost, so do not compare them to ordinary timings. Counts are unchanged: mixed release
+**678 dispatches / 293 ranges / 384 individual payloads**; sparse release **130 dispatches /
+129 single-owner ranges**; sparse-live **129 dispatches / zero detached owners**; reference
+live **65 dispatches / zero detached owners**. Sparse-live cost therefore cannot all be
+payload destruction: survivor/page inspection and no-disposal dispatch still occur.
+This correction removes demonstrated representation/copy work, not all physical cost.
+
+Owner reports **21 focused tests** (9 pages, 10 retirement, 2 collection), the separate
+execution-diagnostics geometry case, and **5 Miri cases** on nightly-2026-07-27 passing.
+Enabled payload-drop count stays **512**, disabled clock reads **zero**, public pause and
+normal1024 unchanged. Page tests cover observed 32+10 panic cleanup/repeated dispose and
+fallback after owner teardown. Structure **1807 / zero violations/exceptions**, fmt/diff
+and scoped runtime Clippy pass; no workspace Clippy or fresh memory run by this owner.
+Diagnostic release artifacts must not be reused for acceptance: rebuild/authenticate actual
+production source with coordinated scoped cleanup. All ten frozen timing failures remain.
+
+**Immediate result builder and borrowed receiver integration — implemented (820/6ab):**
+the existing public `CallContext::allocate_result_payload` now has one replacement
+signature: `(&self, selected_slots: &[usize], build: impl FnOnce(&CallContext<'_>,
+&TypeArgument) -> NativeResult<P>) -> NativeResult<Value>` for `P: NativePayload`.
+The [native result contract](spec/host-interop.md#immediate-native-result-construction)
+owns exact preflight, builder lifetime/effects, post-builder selected-slot resolution and
+common NativeStorage revalidation/publication. No compatibility entrypoint, ABI/version
+bump, collector change or mutable-receiver broadening. Immediate allocation borrows existing
+call authority instead of constructing owning NativeType/RustType/DataRecord; independently
+escaping factories retain their owned lease. Existing flat NativeBinding plus
+`CallContext::payload` supplies checked borrowed cursor receivers while preserving result
+preflight, Option encoding, roots, revision checks and once-only advancement.
+
+**Intermediate E0596 repaired:** source callbacks had been moved into an immutable builder
+while `call_values` requires `&mut CallContext`. 6ab restored the **original** adapter
+order: callbacks before allocation, their roots held outside the builder through return,
+then moving the prepared payload into the closure. Node/new-Vec payload construction
+stays inside preflight. No broader receiver/API or weakened global preflight was needed.
+
+Coordinator reports **22 selected stdlib integration tests passing**. 820 reports all
+**38 selected runtime/VM tests passing**, including 5 builder tests, 26 payload tests
+(source-free bounded occurrences/adapters, owned and builder modes), collecting/reentrant
+stored callback, constructor, composition and four native-wait cases. Exact selection:
+
+```sh
+cargo test -p kagari-runtime --lib native::context::tests::payload_builder --no-fail-fast
+cargo test -p kagari-vm --lib native_boundary_payload --no-fail-fast
+cargo test -p kagari-vm --lib stored_callbacks_trace_captures_through_an_ordinary_native_payload
+cargo test -p kagari-vm --lib native_constructor_supplies_a_traced_payload_without_a_default_factory
+cargo test -p kagari-runtime --lib native::composition::tests --no-fail-fast
+cargo test -p kagari-vm --lib tests::native_wait --no-fail-fast
+```
+
+The sets can overlap; do not sum them into unique coverage. Builder tests preserve
+pre-effect rejection (including explicit Faulted), selected-slot ordering/completed effects,
+post-builder revalidation, no temporary leases/roots and independent result lifetime.
+A test initially expected edge-free typed data to pin its old executable. It was corrected
+to the stronger intended contract: **old program reclaimed while rooted payload stays
+readable, then payload reclaimed after root release**; no production ownership relaxation.
+Structure **1807 / zero violations/exceptions**, workspace and execution-diagnostics Clippy,
+fmt/diff pass. 0a's six module cases subsequently passed (17 selected with the prior 11,
+as recorded above). Independent b680 source review approves builder/cursor root ordering;
+that review is not an additional test run or timing result.
+
+**Actual count-only comparison, not timing or memory gates:** same prior scoped/borrowed-
+source probe, complete current snapshot (not one-file isolation), automatic GC off, one
+fresh process per workload with three warmups then one counted run. Runtime reused, no GC
+between warmups; diagnostics allocator and ten fixed runtime hooks, default release target/
+parallelism. Compilation/setup excluded. Nodes512 DataRecords **513 -> 0**, registrations
+**513 -> 0**, conversion contexts **514 -> 1**, roots/releases **1030 -> 517**, allocations
+**17905 -> 14827**; requested bytes **1432732 -> 1235740**, net **354128 B unchanged**.
+Iterator2000 DataRecords **2004 -> 2**, roots/releases **14016 -> 6011**, allocations
+**92998 -> 72982**; requested bytes **3625966 -> 2969254**, net **260272 B unchanged**.
+Remaining iterator ownership includes the owning iter input and escaping cursor factory;
+no further removal is authorized by these counts. Root balances end **zero**, peaks remain
+4/5. Iterator **4003 reads / 4000 edits / 4001 storage retentions / 2000 publications**
+and other execution-owner counts are unchanged. Node edits/publications remain 1024.
+These are whole-candidate allocation/work observations, not CPU attribution or RSS/peak
+acceptance. Rebuild/authenticate ordinary source after the diagnostic snapshot build.
+The subsequent ordinary diagnostic is complete below; these counts remain separate from
+timing evidence and do not themselves close a gate.
+
+**Ordinary diagnostic after borrowed receivers/builders (6ab):** all **12 scheduled
+processes** completed with matching script/source-image manifests, exact result/liveness/
+cleanup assertions, and no retries/timeouts. Same predeclared PG00/PG04/current triplets,
+3 warmups/11 samples, n=2000 revisions and n=512 Nodes, per-workload processes and timing
+boundaries as the pre-builder diagnostic above. Ratios use freshly measured PG00 medians:
+
+| Workload | PG00 ms | PG04 ms | Current ms | Current/PG00 | Descriptive cap |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| growth | 1.953042 | 1.863667 | 1.810584 | 0.927058 | 1.05 |
+| callback | 13.382667 | 15.225292 | 7.826250 | 0.584805 | 1.05 |
+| iterator | 5.201125 | 15.032208 | 9.160958 | 1.761342 | 1.05 |
+| Nodes | 2.228042 | 4.624209 | 2.605792 | 1.169543 | 1.10 |
+
+Growth/callback are within descriptive caps; iterator/Nodes remain above. **No formal
+seven-pair gate is closed**, including callback's earlier frozen failure. Current image
+SHA256 `8113d0fd1aa73d683d9f3652db684313f111c602b69286f38068c2a255182768`
+includes the integrated builder, receiver, prior conversion/compaction and runtime/cache/
+physical-observer changes: complete-image comparison is not isolated CPU attribution.
+Required work counts were not rerun. Same Rust/Cargo 1.99.1, LLVM 23.1.1, M1 Max/32 GiB,
+macOS 26.6.2, workspace release/default target/parallelism, ordinary interpreter features;
+no counters/allocator instrumentation or sampling profiler. Automatic GC is disabled.
+Scoped release invalidation precedes builds; warm dependencies, no cache flush, OS activity
+uncontrolled. Images built before measurement; 60-second process bounds were not reached.
+The measurement window is released. No new quality/test claim follows from these timings.
+
+**Cursor result adaptation (6ab), implemented after attribution:** Vec/Map/Set next
+wrappers retain full Rust result-mapping preflight **before cursor effects**, then call
+the same retained-value collection kernel. Shared `converted_option` performs ordinary
+child conversion (including tuple children, nominal/readonly validation and conversion
+roots) and uses checked `CallContext::allocate_enum` for the outer Option, returned as a
+terminal raw native result with no intervening callback/safepoint. Only redundant outer
+conversion/result checking/rooting is removed. Advancement still commits **before**
+fallible result encoding; no PG00 allocation-before-commit ordering is imported. Source/
+item roots, loans, revision checks, guards and existing cancellation boundaries remain.
+No runtime/kernel change, unchecked ScriptValue extraction or alternate traversal was added.
+
+Two fixed instrumented before/after processes (2001 next calls, three warmups then one
+counted run, automatic GC off, no collection between warmups) isolate five stdlib adapter/
+registration files and one VM test; runtime/kernel sources are identical. Result encoding
+inclusive diagnostic time **2.640297 -> 0.906458 ms**, allocations **36849 -> 2832**;
+whole execution allocations **72982 -> 38965**, roots/releases **6011 -> 4010**, requested
+bytes **2969254 -> 1658599**. Net **260272 B**, peak **261783 B**, root balance **zero**,
+root peak **5** and all non-root execution counts remain unchanged. Source/item retention
+is intentionally unchanged. Nested clocks overlap and perturb timing; these measurements
+attribute removed allocation/root work, not CPU savings, RSS or acceptance pauses.
+
+One fresh ordinary iterator process (unchanged source n=2000, 3 warmups/11 samples,
+ordinary release without counters/allocator, same M1 Max/Rust 1.99.1 environment) reports
+**7.570583 ms**, range **7.531750–7.619875**. Compared with the **saved**, nonadjacent
+previous **9.160958 ms**, the median is **17.36% lower**; compared with saved PG00
+**5.201125 ms**, ratio **1.455566** still exceeds **1.05**. Neither reference was rerun;
+this is not the seven-pair estimator. No Node/other workload rerun. All three diagnostic/
+ordinary processes completed once, bounds unreached; no concurrent builds or retry.
+
+**14 selected VM tests pass**, with the existing dynamic-iteration case subsequently
+extended and rerun successfully: threshold Some(1), reference-bearing Map tuples/Set
+items retained after source clearing, readonly views and **zero-live cleanup** preserved.
+An intermediate test used a module-pinned literal and failed zero-live cleanup; replacing
+it with a dynamically constructed string fixed the fixture without weakening the assertion.
+The final rerun is not an additional distinct test. Workspace Clippy, structure **1807 /
+zero violations/exceptions**, fmt/diff pass. Source-free adapter/forged-table and existing
+mapping/revision tests retain their selected coverage; no exhaustive CI claim.
+
+**Immutable native preparation correction (820), implemented; review pending:** measured
+pre-effect enum mapping had **28014 allocations / 2001 calls** from an owning TypeRef
+created only to check installation, then discarded. `check_enum_type` now uses the existing
+borrowed catalog lookup, preserving missing-provider error cause, enum discriminator,
+exact nominal identity, arity and every Option/Result child mapping, including unselected
+arms. No authoring API change, permanent cache or validation moved after effects.
+
+Node admission separately rebuilt a temporary TypeArgument **513 times / 5130 allocations**
+only to compare it with the already-prepared linked signature and discard it. Native linking
+now resolves the **actual VerifiedProgram carrier/import slot** and checks installed result
+and sealed opaque witness (carrier, occurrence, nominal application, binder), including
+shared templates/result adapters. Load, reload and publication revalidation supply that
+carrier. Each call still checks live owner/environment/binder/import agreement and prepared
+runtime validity, then compares scoped TypeViews with the existing prepared result; no
+second materialization or new function field/root/cache. Shared symbolic comparisons may
+still resolve types. Authoritative publication before builder effects and NativeStorage
+revalidation afterward remain. This reuses execution-owned prepared facts, informed by the
+[Rust compiler monomorphization guide](https://rustc-dev-guide.rust-lang.org/backend/monomorph.html),
+not Rust whole-program specialization or an exemption from Kagari's shared/source-free/
+reload checks. Scanner/descriptor/physical-layout and struct-layout owners are unchanged.
+
+Isolated before/after overlays only four production owners and two test files; concurrent
+collector changes are excluded. Same M1 Max/32 GiB/macOS 26.6.2, Rust 1.99.1/LLVM 23.1.1,
+workspace release/default target/parallelism, warm dependencies, scoped stale-product cleanup.
+One ordinary before/after process per workload, 3 warmups/11 samples, automatic GC off:
+
+| Workload | Before ms | After ms | After range ms | After / saved PG00 | Descriptive cap |
+| --- | ---: | ---: | --- | ---: | ---: |
+| Nodes512 | 2.600125 | 2.397250 | 2.378292–2.466500 | 1.075945 | 1.10 |
+| Iterator2000 | 7.587000 | 6.756417 | 6.731666–6.785417 | 1.299030 | 1.05 |
+
+Saved PG00 medians **2.228042/5.201125 ms** were not rerun. Node is now a credible
+candidate below its diagnostic cap, **not a formal pass**; iterator remains blocked.
+Separate reused-runtime instrumented counts (not ordinary timing) show Node reifications
+**513 -> 0**, admission allocations **5130 -> 513**, total allocations **14827 -> 10210**;
+iterator mapping allocations **28014 -> 10005**, total **38965 -> 20944**. Net requested
+bytes stay **354128/260272 B**, root balances zero, all required execution/loan/publication
+counts unchanged. Remaining one allocation per Node admission and five per iterator
+preflight are not claimed eliminated or individually attributed. Inclusive clocks overlap;
+no inference about future gates or aggregate CPU savings from those clocks.
+
+**36 distinct focused tests pass**: initial 6 runtime + 26 VM; after making installed
+provider linking explicitly fail closed, 3 bounded cases rerun plus 4 Future dependents
+pass. Selection preserves source-free closed/shared witnesses, result adapters, wrong
+prepared results/authority before effects, collecting builders, conversion roots and waits:
+
+```sh
+cargo test -p kagari-runtime --lib --no-fail-fast -- native::conversion::composites::tests native::context::tests::payload_builder
+cargo test -p kagari-vm --lib --no-fail-fast -- native_boundary_payload::bounded native_boundary_conversion dynamic_iteration_preserves_gc_roots_and_detects_invalidation
+cargo test -p kagari-vm --lib --no-fail-fast -- native_boundary_payload::bounded tests::native_wait
+```
+
+Structure **1807 / zero violations/exceptions**, workspace and execution-diagnostics Clippy,
+diff and all six owned files' formatting pass. That checkpoint's global fmt failed on
+concurrent execution-metadata/module-test edits; the subsequent A/B/C checkpoint below
+reports workspace fmt passing, without retroactively relabeling the earlier failure. An installed-provider test moved to the existing VM owner
+to avoid duplicate runtime-crate instances, without adding a runtime->stdlib dependency.
+Independent **b680 review remains pending** for this correction; earlier approvals do not
+cover it. Diagnostic count artifacts occupy release target: rebuild/authenticate ordinary
+production images before further measurement.
+
+**GC A/B/C implemented and selected-tested (53/640), not gate closure:** zero-owner
+physical progress now returns before graph-credit preparation/commit/outstanding ownership;
+inspections, status and finish-time live occupancy still advance. Wrapper-only batches
+have nonzero owners and still retire; a zero-result disposal cannot finish another batch
+or release charges. DescriptorStep/MaintenanceStep are **16 B** status/token results,
+WeakCacheToken **8 B**; observation accumulation is caller-stack-only behind the enabled
+branch and merges after borrows end. Disabled maintenance has no 176 B accumulator
+initialization/copy, not zero total control/stack overhead. Full identities, max32,
+12-unit cache unlink precharge, generation history, final key/Weak destruction outside
+borrows and fault ordering remain. C's first-dead reservation makes **9 reservations for
+288 sparse-type records**, zero in the other selected phases; these are reservation calls,
+not allocator counts.
+
+53 reports **11 physical retirement / 3 descriptor / 1 initialization-owner maintenance**
+tests plus individual-payload observation, normal-budget and allocation-free geometry cases
+passing; enabled observation still counts **512**. **5 Miri cases** pass on
+nightly-2026-07-27 (progress cannot finish another batch, maintenance extent/identity,
+compaction generation history, pending descriptor ownership, individual drop observations).
+Structure **1807 / zero violations/exceptions**, scoped runtime Clippy, workspace fmt and
+diff pass; no new workspace Clippy/test sweep. Coordinator separately reports **640's nine
+lazy-reservation tests passing**, not inferred from integrated workload success.
+
+**Fresh five-phase PG00/PG04/current attribution:** all selected lifecycle assertions pass.
+Exact PG04 already carries most of the remaining mixed/sparse release cost. Ordinary
+medians in us, one warmup/seven lifecycles per image:
+
+| Phase | PG00 | PG04 | Current | Median frozen threshold | Current / threshold |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| mixed-native release | 58.917 | 120.667 | 126.958 | 68.250 | 1.8602 |
+| sparse-cycle release | 18.625 | 45.334 | 48.000 | 27.416 | 1.7508 |
+| sparse-cycle live | 31.500 | 43.792 | 43.000 | 41.333 | 1.0403 |
+| sparse-type release | 27.750 | 38.083 | 41.958 | 37.166 | 1.1289 |
+| reference live control | 1528.959 | 752.583 | 782.375 | 1842.000 | 0.4247 |
+
+The last column is a **descriptive projection** against the median saved frozen threshold,
+not `median_i(C_i/max(1.20*B_i,B_i+10us))`; fresh PG00 values do not replace frozen paired
+B values. Mixed/sparse release are about **5.2%/5.9% above PG04**, not twice PG04. Current
+includes A/B/C, explicit-unlimited scheduling and immutable admission changes; earlier
+observer-only experiments cannot isolate these corrections or be relabeled as current.
+PG00 uses exact `50ab194b` runtime plus its original safe native adapter from `47be3cb7`;
+PG04 is exact `fe56b675`. Selected lifecycle/script inputs are identical, native adapters
+revision-appropriate. M1 Max/32 GiB/macOS 26.6.2, Rust 1.99.1, workspace release/default
+features/target/parallelism. Six ordinary/diagnostic images built before the fixed order
+ordinary PG00/PG04/current, then diagnostic PG00/PG04/current; no timing retry or concurrent
+build/test. No randomized/paired confidence study. Initial stale PG00 dependencies and a
+PG04 probe-field assumption caused build failures before workloads; scoped cleanup/probe
+repair preserved historical runtime behavior, not favorable measurement selection.
+
+Coarse diagnostic clocks change only at stage transitions (one warmup/three lifecycles),
+not per batch/edge. Current physical medians **118.000 us mixed release / 36.833 us sparse
+release** dominate their remaining costs; storage maintenance **0.875/0.708 us** is small.
+These regions cannot split destructors versus backing/Arc/identity/dispatch, and medians
+are not additive. Physical geometry remains PG04's: mixed **678 calls / 293 ranges / 384
+large tokens**, sparse release **130 calls / 129 single-owner ranges**; sparse-live has
+**129 zero-owner progress calls**. Sparse-type descriptors inspect **33 captured entries**,
+not Vec capacity64. No evidence supports restoring whole-dead inventories, widening owner
+batches, changing geometry or adding a second explicit collector.
+
+**Borrowed physical commit proof (53), implemented and measured:** prior ordinary assembly in both
+PG04/current copies **560 B Prepared** into each real batch's by-value commit, including
+its **512 B fixed identity workspace**. Mixed 677 real batches imply **379120 B** emitted
+copy volume; sparse release 129 imply **72240 B**. These are code/count-derived volumes,
+not allocator traffic or measured CPU cost. `Prepared::commit(&mut self, ...)` now borrows
+the valid prefix in the exclusive transaction, consuming count/summary **before mutation**
+to prevent replay even on invariant panic. Full identities, credit/range proof, max32,
+exclusion, retiring bits, panic cleanup and the initialized safe array remain; no borrowed
+continuation persists. Coordinator reports **12 focused tests + 2 Miri cases passing**.
+Matched ordinary assembly now confirms the **560 B copy is gone**: commit receives the
+original workspace pointer, consumes count/summary before storage mutation and reads the
+prefix in place. Sweep frame **1424 -> 944 B**, commit frame **128 -> 160 B** (including
+register saves, not allocations). Prepared's 560 B initialized representation is unchanged;
+no MaybeUninit or lost checks. Other inlining/code layout changes preclude assigning every
+timing difference to the removed copy.
+
+Fixed before-ordinary / after-ordinary / candidate-diagnostic schedule completed once,
+all lifecycle assertions passing. Two source files differ (correction and replay test);
+both sides include A/B/C and borrowed identity changes. Same M1 Max/32 GiB/macOS 26.6.2,
+Rust 1.99.1, workspace release/default target/parallelism; images built sequentially with
+scoped stale-product cleanup before measurements. Ordinary one warmup/seven lifecycles;
+diagnostic one warmup/three, coarse transition clocks only. Ordinary medians, us:
+
+| Phase | Before | After | After / saved frozen threshold |
+| --- | ---: | ---: | ---: |
+| mixed release | 129.500 | 123.500 | 1.8095 |
+| sparse-cycle release | 48.250 | 46.209 | 1.6855 |
+| sparse-cycle live | 43.583 | 43.167 | 1.0444 |
+| sparse-type release | 43.209 | 42.292 | 1.1379 |
+| reference live control | 783.208 | 788.541 | 0.4281 |
+
+These are descriptive ratios of medians, **not frozen paired gates**. Sample overlap,
+reference-control movement and codegen differences limit causal precision; the major
+release gap remained; this diagnostic changed neither earlier PG00/PG04 evidence nor the
+initial ten failures. The later selected checkpoint's candidate interpretation was invalidated;
+see the build-provenance recovery contract before using any historical image as current evidence.
+
+Candidate-only successful-owner counts: mixed **1354 backing/descriptor Arc clones,
+473 raw backing frees (431104 B), 897 payload destructor dispatches**, 89 small controls
+with **267 control Boxes** plus 384 large controls. Sparse-cycle release **258 clones,
+129 raw frees (132096 B), 65 destructors, 387 control Boxes**; 64 Node structs are trivial,
+so one destructor per retired identity would be false. Sparse-live/reference-live have
+no detach/clones/backing frees/destructors; sparse-type has two backing frees and one
+payload destructor. Counts exclude Arc control deallocation, provider buffers, metadata
+and allocator internals; zero new raw backing is not an allocation-free collection.
+No percentage of CPU cost follows from these counts or nested diagnostic stage times.
+
+The prior 12 focused/2 Miri and scoped quality results remain evidence for the unchanged
+owned code, not new broad integration checks. This measurement added successful builds,
+workload assertions and diff check, with no memory/gate rerun. The subsequent physical-ownership authorization is limited to checkpoint 1 below;
+these counts alone do not authorize removing safety-required owners, widening batches
+or retaining empty pages.
+
+**Borrowed enum identity lookup (820), implemented and locally validated:** common
+`DefinitionTable::lookup_components` resolves package/module/definition segments in its
+retained table; owned `lookup` and module-path queries delegate to the same traversal.
+Option/Result authoring names and borrowed ID queries share symbols; no cached IDs,
+second resolver, borrowed identity model or schema/global-state change. Runtime resolves
+identity separately in the catalog table (requiring the declaration installed) and expected
+argument table (comparing that table's nominal ID), never equating foreign indices.
+Nominal/arity/all-child checks and missing-provider-before-child ordering remain. Existing
+[HashMap borrowed-key lookup](https://doc.rust-lang.org/std/collections/struct.HashMap.html#method.get)
+provides the mechanism; interned prefixes/IDs alone are not installation authority. Child
+TypeArgument OnceLock was **already cached** and is unchanged.
+
+Isolated six-file before/after, same M1 Max/32 GiB/macOS 26.6.2, Rust 1.99.1/LLVM 23.1.1,
+workspace release/default target/parallelism, warm caches with scoped stale-product cleanup.
+Ordinary workloads use 3 warmups/11 samples; counts use reused-runtime 3 warmups/one counted
+run, automatic GC off. **2001 warm Option preflights: 10005 allocations / 158079 B -> zero**.
+Whole iterator allocations **20944 -> 10939**, requested bytes **889319 -> 731240**; net
+**260272 B**, peak **261640 B**, 4010 root registrations/releases and all execution counters
+unchanged. Nodes remain 10210 allocations, 517 roots/releases and unchanged net/peak bytes.
+Ordinary iterator **6.935458 -> 6.768250 ms**, saved-PG00 ratio **1.301305**, still above
+1.05. Nodes **2.410416 -> 2.423125 ms**, ratio **1.087558**, within descriptive 1.10 but
+**no Node speedup** (counts unchanged). Saved baseline comparisons are not seven-pair
+acceptance; zero preflight allocation does not remove the remaining iterator execution cost.
+
+**13 selected tests pass**: 11 identity-table cases (excluding the unrelated snapshot
+capacity matrix), missing/interned-only enum-provider rejection before child mapping, and
+installed nominal/arity/Option/Result child mapping. Commands:
+
+```sh
+cargo test -p kagari-common --lib identity::table::tests:: -- --skip rl03_snapshot_capacity_matrix
+cargo test -p kagari-runtime --lib enum_mapping_requires_installed_provider_before_child_mapping
+cargo test -p kagari-vm --lib enum_mapping_preserves_nominal_identity_and_all_child_checks
+```
+
+Structure **1807 / zero violations/exceptions**, workspace and runtime execution-diagnostics
+Clippy, workspace fmt and diff pass. An initial invalid runtime `diagnostics` feature command
+was rejected before compilation; the correct execution-diagnostics check passed. No unresolved
+selected test/build failure, fresh memory run or full CI claim. Rebuild/authenticate ordinary
+production artifacts after the isolated count image.
+
+**Immutable scalar retention (820), implemented and measured:** crate-private RetainedValue
+stores either a copied immutable scalar plus original heap owner or an existing RootedValue.
+Only `Unit`, `Bool`, `Char`, `I32`, `I64`, `U64`, `F32`, `F64` qualify; no Primitive/category
+or absent-object-ID inference. `from_root` stays **always rooted**, preserving shared mutable
+aliases and attached metadata. Managed values use full slot/generation/lease checks;
+RuntimeEphemeral is rejected. Creation retains execution/session, native-loan, storable,
+type/owner, publication and root-borrow exclusion checks. Scalar reads still check owner
+and root-read exclusion; late/closed-runtime reads retain the prior contract. No scalar
+slot, Arc, notification or runtime retention is introduced. RootedValue/RootSet remain
+unchanged; pending managed/metadata cleanup remains with their existing lifecycle owners,
+not triggered merely by scalar copying. ScriptValue keeps its TypeArgument/lexical owner.
+Source basis: [JNI 25 primitive copies versus retained references](https://docs.oracle.com/en/java/javase/25/docs/specs/jni/design.html#referencing-java-objects),
+with Kagari's additional runtime/type checks, not a mutable-root or unchecked-value model.
+
+Actual layout: RetainedValue **32 B**, RootedValue **32 B**, ScriptValue **56 B**, Value
+**16 B**; existing sizes unchanged. Native Vec payloads still store Value slots. Isolated
+four-file before/after, same M1 Max/Rust 1.99.1 release/default target/parallelism environment;
+ordinary iterator n=2000, 3 warmups/11 samples, automatic GC off, before/after each once.
+Separate count runs use 3 warmups/one execution: roots/releases **4010 -> 2010**, allocations
+**10939 -> 6939**, requested bytes **731240 -> 507240**. Net **260272 B**, peak **261640 B**,
+root balance **zero**, peak **5**, storage retentions **4001**, publications **2000**, reads/
+edits **4003/4000** and all execution counters remain unchanged. This is now actual removal
+of **2000 scalar root rents/releases and 4000 allocation requests**, not a future estimate.
+
+Ordinary median **6.948042 -> 6.713209 ms** (3.3798% lower in this fixed comparison), saved
+PG00 ratio **1.290722**, still above 1.05. The identical before binary measured 6.768250 ms
+in the previous window: cross-window variation is explicit, not subtracted as a saving.
+No Node run, frozen paired acceptance or fresh memory sweep. Diagnostic artifacts require
+ordinary-source rebuild/authentication before further timing.
+
+**31 selected tests pass**: 24 root contracts, 2 value-handle cases, retained extraction,
+builder authority, collecting sort recovery, iterator cancellation cleanup and foreign
+bounded witness checks. They cover all scalar tags, alias/metadata retention from supplied
+roots, loans, closure/quarantine, foreign owners, late/cross-thread drop and no retained
+runtime. Structure **1808 / zero violations/exceptions**, workspace and execution-diagnostics
+Clippy, fmt/diff pass. No full CI or broader acceptance follows.
+
+**Current cursor-body attribution (6ab), diagnostic only:** one frozen-current-source
+instrumented process, exact iterator n=2000, automatic GC off, 3 warmups then one counted
+execution with no intervening GC; all results2000 and source/count assertions pass. Same
+M1 Max/Rust 1.99.1 release/default target/parallelism with diagnostics/counting allocator;
+no ordinary timing run or production change. Whole execution reproduces **6939 allocations /
+507240 B / 2010 root registrations/releases**, zero root balance, reads/edits **4003/4000**,
+retentions/publications **4001/2000** and unchanged peak/net bytes.
+
+The kernel's **only allocation site** is managed source retention: **2001 roots / 4002
+allocations / 224112 B**, with releases inside the kernel envelope. All **2000 scalar item
+retentions allocate/root zero**. `borrow_payload`/scoped context, receiver admission, edits
+and 2001 mapping preflights allocate zero. Outside the kernel, checked Option construction
+still makes **2832 allocations / 260976 B**; 105 requests/22152 B and nine roots belong to
+other entry/construction/return work. There are **6002 kernel loans/cleanups** (2001 cursor
+reads, 2001 source reads, 2000 edits), not three repeated full nominal checks: receiver/
+source nominal admission occurs 2001 times each. These checks have distinct ownership duties.
+
+The counted execution takes **17.458500 ms**, versus the earlier ordinary **6.713209 ms**:
+nested clocks/TLS and a copied 15x26 counter matrix are highly intrusive. Inclusive kernel
+8.002834 ms and nested source-retention 1.169017 ms are **not** production cost estimates,
+additive regions or an explanation of the saved **1.252028 ms** gap. No projection/root
+change is shown to recover that gap. No new functional/quality suite was run; the preceding
+31-test evidence remains prior evidence, not this probe's execution.
+
+**Unapproved proposal (820), deferred pending usable attribution:** consider scoped child authority under an
+existing operation guard, not a new NoGC category or collection-specific unchecked view.
+Any design must prove the selected edge remains traced and unchanged for the child's whole
+use despite aliases/reentry; an unrelated parent-root lifetime is insufficient. Preserve
+child runtime/generation/nominal checks, nonescaping scope and error/cancellation/unwind
+cleanup, without overlapping forbidden payload loans or holding one across a callback.
+No new API/model, implementation or performance claim is authorized by these counts.
+
+**Coallocated physical controls — checkpoint 1 only (53), locally validated:**
+parent approves one finite allocation-layout change. Preserve the independent **1024 B
+small-payload area** and existing classes/alignment; compose its selected trailer containing
+SmallHeader, slot storage and bitmap words in the same allocation. Large allocations compose
+the existing payload layout with a LargeHeader trailer. Keep the **original Arc<Backing>**
+ownership allocation: backing+controls and Arc owner remain **two allocations**, not a new
+single-allocation ownership model. Payload addresses must remain stable; exact checked
+layout/offsets, initialization, failure cleanup and final deallocation belong to this
+finite unsafe allocation kernel. Headers must not overlap payload or violate over-alignment.
+
+Approved source basis: [Go 1.26 span ownership](https://go.dev/doc/go1.26#runtime),
+[MMTk 0.32 block metadata](https://docs.rs/crate/mmtk/0.32.0/source/) and Rust
+[Layout::extend](https://doc.rust-lang.org/std/alloc/struct.Layout.html#method.extend).
+Span/block ownership informs colocating controls with their managed allocation; those
+runtimes' pooling and lack of Kagari-style immediate empty release are **different
+assumptions**, not permission to retain backing or copy their lifetime policies. Rust
+Layout composition supplies exact aligned offsets and the allocation/deallocation layout,
+not an exemption from provenance, initialized-byte or destruction obligations.
+
+**Not authorized:** final-range/last-owner backing or descriptor ownership transfers, or
+follow-ups beyond the separately approved cross-physical transaction below. Retain existing
+range/descriptor Arc ownership, max32,
+generation/identity checks, budgets, immediate empty release and fault/destructor ordering.
+No silent extra implementation, page-size/class change, pooling, second collector or
+unchecked lifetime shortcut. Checkpoint 1 is implemented and locally validated; this does
+not authorize later ownership transfers or complete PG05.
+
+**Allocation/accounting evidence:** every selected region makes exactly two allocation
+requests: composite raw storage and the original Arc owner. On aarch64, SmallHeader is
+40 B, LargeHeader 16 B, Arc control 48 B including counters, directory record 16 B and
+slot record 8 B. Actual payload, controls and interior alignment padding sum to the exact
+raw Layout; Arc/directory bytes are counted separately once. Deallocation uses that same
+Layout. Source comments explain Layout::extend's alignment/size composition; trailing
+pad_to_align is not assumed or required for this non-array allocation. Typed trailer
+access stays with non-Clone Small/Large owners; backing clones retain bytes without granting
+typed access. Existing payload destruction, quarantine and last-Arc release remain unchanged.
+The runtime resource ledger deliberately preserves historical normalized **payload-only**
+backing charges; it is not a whole-runtime requested-memory bound. Allocator diagnostics
+and the frozen memory gates include controls, padding and Arc bytes, not just that charge.
+
+**Reported validation:** 25 selected native tests (11 page-kernel, 12 retirement, 2 inline
+native/struct integration) and 14 Miri tests (11 page-kernel, native take between slices,
+2 integration) pass under nightly-2026-07-27. These cover exact allocation/release balances,
+overflow/alignment, initialization failure, disjoint access, detached tokens, generation
+reuse and exactly-once panic cleanup. Structure **1809 files / zero violations/exceptions**,
+workspace Clippy, fmt and diff pass; an initial diagnostics-only import warning was repaired.
+Parent subsequently reports **b680 independent source approval, no blockers**, superseding
+the measurement report's then-unavailable audit status. No workspace tests or CI claim.
+
+**Fresh frozen memory:** all **55/55 unchanged gates pass**, with **21 zero-net teardowns**.
+The tracked full-family diagnostics harness ran seven families, three repetitions each,
+once without retry; limits were checked against the original reviewed set.
+
+| Sensitive net-delta row | Candidate bytes | Unchanged ceiling bytes |
+| --- | ---: | ---: |
+| Sparse types construction | 84780 | 85368.8 |
+| Sparse types live | 84588 | 85166.4 |
+| Sparse cycles sparse-live | 329296 | 351802 |
+
+These are fresh whole-allocator backing/transient/high-water checks for checkpoint 1,
+not an inference from runtime payload charges. Before release, mixed/sparse-cycle/sparse-type
+regions respectively use 946/258/4 raw-plus-Arc allocations; separate control allocations
+are gone, but shared-retirement Arc cloning and payload frees remain. No fresh per-batch
+clone/free attribution was performed.
+
+**Five-phase ordinary diagnostic, not formal acceptance:** one uninstrumented-runtime
+process, one warmup and seven complete lifecycles per case, with clocks at phase boundaries.
+Saved historical results are not contemporaneous A/B images; coordinated changes and prior
+compile-time-disabled instrumentation preclude an identical-machine-code claim.
+
+| Phase | Current median us | Saved descriptive threshold us | Current/threshold |
+| --- | ---: | ---: | ---: |
+| Mixed release | 116.250 | 68.250 | 1.7033 |
+| Sparse-cycle release | 39.125 | 27.416 | 1.4271 |
+| Sparse-cycle live | 42.750 | 41.333 | 1.0343 |
+| Sparse-type release | 41.167 | 37.166 | 1.1077 |
+| References live control | 764.292 | 1842.000 | 0.4149 |
+
+These ratios divide medians, **not** the frozen median of seven paired ratios. Four
+thresholds still exceed one; release/inspection gaps remain. No causal speedup percentage,
+formal timing closure or baseline replacement follows. Same M1 Max/32 GiB/10 logical CPUs,
+macOS 26.6.2 arm64, Rust 1.99.1/LLVM 23.1.1, workspace release/default target/parallelism.
+Authenticated fe56b675 plus worktree snapshot, separate ordinary/diagnostics builds after
+scoped dependency cleanup; both processes ran once under 180 s bounds, no timeout. Builds
+were excluded, no concurrent heavy work was observed, background OS activity uncontrolled.
+Rebuild/authenticate ordinary sources after the diagnostics image before further timing.
+
+**Cross-physical retirement transaction (53), source approved and measured; performance open:** greedily fill
+one transaction across physical regions, capped at **32 actual detached owners**, not 32
+ranges/pages. Range cuts are permitted to fill remaining owner capacity. The approved
+prediction of nonempty transactions **677 -> 29 mixed**, **129 -> 5 sparse cycles**, and
+**133 -> 9 sparse types** is now confirmed by counts below. The predicted mixed bound was
+at most 56 additional Arc clones; actual growth is 14. Neither establishes CPU savings.
+
+Implemented fixed caller-stack workspace passed by reference and a cleanup guard, **no
+per-batch Vec**. All fragments preflight before detach; the numeric preview cursor publishes
+only on success. Zero-owner inspection can publish charged progress without identity/accounting
+commit; nonzero wrapper batches remain real transactions even with zero physical tokens.
+Physical allocation retirement precedes wrapper selection. Precharge **160 workspace units,
+8 per owner, 32 per physical fragment and 32 aggregate finish units on the first dead owner**,
+plus one per inspected slot and each fragment's preceding-fragment count for overlap checks.
+All work fits the admitted normal **1024-unit budget**, so a service may detach fewer than
+32 owners. No uncharged pairwise validation, capacity exemption or new indivisible loop.
+
+All-fragment proof and borrowed single-consumption commit preserve batch-atomic preparation,
+identity/generation checks, consume-before-dispatch and fault quarantine. Output-prefix cleanup
+guards release inner borrows before fallback disposal; accounting is not falsely settled on
+abandonment. Earlier successfully disposed batches remain retired on later fault. Assembly
+shows workspace passed by reference with **no memcpy/memmove** in the inspected retirement,
+seal/commit/proof/detach paths, not copy-free token publication. The enclosing retirement_slice
+frame is **13056 B**, including other retirement domains: bounded stack storage is not free
+or evidence of a CPU win. Backing/descriptor last-owner and final-range transfers remain
+unapproved; existing Arc ownership is retained.
+
+**Reported focused evidence:** 17 retirement and 12 page tests pass, including zero-allocation
+production batches, all-fragment rejection before detach and cleanup. The 1027-owner geometry
+uses 33 transactions and zero preparation allocations. The **eight selected Miri cases are
+now complete** under nightly-2026-07-27: six prior passes plus standalone multi-allocation/
+owner-bound and workspace/fragment-reservation cases (383.40 s/600 s bound and 0.43 s/120 s
+bound). The earlier combined command's 240 s timeout remains a partial failure, not a suite
+pass. Allocation request counts come from native diagnostics, not uninstrumented Miri.
+The measured snapshot passes structure **1812 captured files / zero violations/exceptions**,
+workspace Clippy, fmt/diff; verified manifest enumeration avoids accepting an empty ignored-
+snapshot Git listing. This evidence predates later codec work, not a quality claim for it.
+Source mechanism: [Lua 5.4.8 lgc.c](https://www.lua.org/source/5.4/lgc.c.html) bounded
+GCSWEEPMAX/sweeplist/sweepstep amortizes sweep entry; Kagari retains different checked identities,
+preflight proofs, Arc lifetimes and Rust unwind cleanup, not Lua's immediate-free pointer model.
+
+**Driver failure repaired; independent source approved (0a):** the prior
+`gc::collection::tests::active_cycle_continues_below_its_start_threshold` failure assumed
+threshold crossing after exactly 32 calls. Its 2000 strings carry 12 logical units each:
+step 32 reclaimed 1822 with 2136 units remaining; step 33 crossed with 1877 reclaimed/1476
+units, still Sweep; step 37 reached 2000 reclaimed/zero units/Idle and one completed cycle.
+The repaired test uses a finite **64-call bound**, preserving active crossing, next-call
+progress, eventual completion and no hidden assist/explicit service. Parent reports **three
+selected tests pass** and 0a source approval. This repairs an incidental schedule assumption,
+not collection policy. Physical service remains within 1024 while objects remain; the later
+existing Vec-compaction indivisible exception reaches 2317, not a new exemption (the
+2048-object budget case passes). The measured snapshot now passes **all 11 driver tests**
+and actual native-entry two-poll proof: installed native code executes once, normal work
+**[1024, 1024]**, two automatic steps, zero assists, intervening allocation survives; no
+interpreter fallback or active-cycle drain. This is bounded-service evidence, not latency acceptance.
+
+**Fresh cross-batch memory:** **55/55 unchanged gates and 21/21 zero teardowns pass**, seven
+families with three repetitions each. Sensitive net deltas remain construction **84780 B**,
+live **84588 B**, sparse cycles **329296 B**, against **85368.8/85166.4/351802 B** ceilings.
+All controls/Arc backing remain counted; passing allocator gates does not erase the emitted
+13056 B stack-frame cost or measure transitive stack high water.
+
+**Scheduled ordinary five-phase diagnostic:** one process, one warmup plus seven complete
+lifecycles per family, uninstrumented production/observations off. All samples retained,
+including mixed's 145.959 us outlier. Ratios are median(C)/median(frozen per-pair limits),
+**not formal seven-pair acceptance**; saved attribution medians are not the gate baseline.
+
+| Phase | Current median us | Frozen descriptive threshold us | Ratio |
+| --- | ---: | ---: | ---: |
+| Mixed release | 107.792 | 68.250 | 1.5794 |
+| Sparse-cycle release | 42.167 | 27.416 | 1.5380 |
+| Sparse-cycle live | 40.791 | 41.333 | 0.9869 |
+| Sparse-type release | 38.083 | 37.166 | 1.0247 |
+| Reference live | 809.708 | 1842.000 | 0.4396 |
+
+Three release thresholds remain exceeded; sparse release is worse than saved coallocation
+39.125 us. Transaction reduction alone is not a CPU win or a gate-ready candidate.
+Separate scalar-count image, one warmup + three identical counted lifecycles, confirms:
+
+| Release family | Physical / wrapper transactions | Physical owners | Arc clones | Raw region frees | Charged overlap comparisons |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Mixed | 29 / 0 | 897 | 1368 | 473 | 8705 |
+| Sparse cycles | 5 / 0 | 129 | 258 | 129 | 1984 |
+| Sparse types | 5 / 4 | 129 | 258 | 2 | 1984 |
+
+Mixed has 300 range tokens + 384 large tokens: **7 extra ranges / 14 extra Arc clones**,
+raw frees unchanged. Sparse types' 257 charge reads cover 129 physical + 128 wrapper
+identities, not duplicate reads. Live-only phases have progress-only dispatch and zero
+transactions. All overlap comparisons are precharged; counts assign no CPU percentages.
+Public observer runs establish explicit-call work/destructor attribution, **not normal
+incremental latency**, because these families disable automatic collection.
+
+Same M1 Max/32 GiB/Rust 1.99.1/LLVM 23.1.1 release/default target/parallelism; authenticated
+fe56b675 plus immutable worktree, separately saved ordinary/count/observer/memory binaries.
+Every workload ran once within 180 s, no retry. No heavy work at ordinary/observer/memory
+launch; Cargo/rustc appeared at count-only launch and may overlap memory's end. Count timing
+is excluded; allocator counts are process-local. This snapshot predates later binding edits;
+physical source hashes match, but results do not automatically accept the later codec candidate.
+Rebuild/authenticate ordinary sources after the shared target's count-instrumented image.
+**Bounded ordinal overlap proof (53), implemented and measured:** fixed bottom-up mergesort
+of at most **32 fragment ordinals**, followed by adjacent `(page, slot)` interval checks.
+Only proof ordinals reorder; fragment/payload, detach and destructor order remain unchanged.
+All fragment validity checks precede this pure, mutation-free proof. A compile-time monotone
+prefix table reserves `ordering_work(n + 1) - ordering_work(n)` before fragment admission.
+Full-32 maximum **384 units** includes 64 initialization, 129 key comparisons, 160 index
+writes and 31 adjacency checks; zero/one fragments initialize no sort scratch. Normal
+1024-unit batches may be smaller, without bypassing any work charge. Two fixed `[u8; 32]`
+arrays add no heap scratch, persistent capacity or rollback state. Source rationale: Rust
+1.85 general slice sort is adaptive, not an exact collector-work bound; use a fixed merge
+schedule instead. Rust's mem::forget contract prevents relying on guard Drop for soundness;
+this proof mutates no physical state requiring rollback.
+
+**43 focused tests and six selected Miri cases pass** on rebuilt actual source: 13 pages,
+18 retirement, 11 driver and actual native two-poll proof; Miri nightly-2026-07-27 covers all
+prefixes, overlap/late-invalid rejection, precharge, mixed pages, unwind cleanup and take/reuse.
+An obsolete cached binary lacking the new test was rejected and rebuilt, not accepted as
+validation. Structure **1815 files / zero violations/exceptions**, workspace Clippy, fmt/diff
+pass. No new memory sweep. Emitted sort has a 112 B frame and no allocator/memcpy/memmove;
+enclosing retirement_slice is **6688 B** for this image, not the previous binary's 13056 B.
+Neither is total call-chain stack high water or an isolated causal improvement claim.
+
+| Phase | Current median us | Frozen descriptive threshold us | Ratio |
+| --- | ---: | ---: | ---: |
+| Mixed release | 110.334 | 68.250 | 1.6166 |
+| Sparse-cycle release | 43.000 | 27.416 | 1.5684 |
+| Sparse-cycle live | 41.166 | 41.333 | 0.9960 |
+| Sparse-type release | 39.250 | 37.166 | 1.0561 |
+| Reference live | 809.333 | 1842.000 | 0.4394 |
+
+One ordinary process, one warmup + seven lifecycles; same M1 Max/Rust 1.99.1 release/default
+target/parallelism and authenticated separate count/observer images, no retries. Saved
+cross-batch medians are not matched A/B; **no throughput win is demonstrated**, and all three
+release thresholds remain exceeded. This is descriptive, not seven-pair acceptance.
+Scalar counters (one warmup + three identical lifecycles) replace mixed's 8705 pairwise checks
+with **1672 key comparisons + 655 adjacency checks**, plus 1792 initialization/3364 writes
+(**7483 total proof units**). Each sparse release replaces 1984 checks with **320 + 124**,
+plus 256 initialization/640 writes (**1340 units**). All work is prepaid; fewer comparisons
+alone are not a CPU estimate. Transaction/owner/Arc/free/inspection counts remain unchanged.
+Observer results are explicit-only, not incremental latency. Fresh 55-memory validation is
+still absent for this proof/access scope; authenticate ordinary sources after count artifacts.
+
+**Sparse stage diagnosis (53), measured without production changes:** fixed three rotations
+across dispatch ordinals/four regions, at most **one internal clock pair per full GC**.
+Ordinary/stage processes each perform 588 selected collections; each non-live region/ordinal
+has three samples. Separate scalar counts use one warmup + three identical lifecycles.
+Same M1 Max/32 GiB/Rust 1.99.1 release/default target/parallelism, authenticated separate
+images, no concurrent heavy work at launch, no retries; fixed process order and uncontrolled
+OS/codegen effects remain limitations. Stage columns are **sums of per-ordinal medians from
+different collections**, including clock cost, not directly timed single-cycle totals.
+
+| Phase | Ordinary whole GC us | Instrumented shift | Prepare/commit us | Payload disposal us | Physical finish us | Final owners/accounting us |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Mixed release | 107.958 | +0.77% | 51.251 | 22.122 | 7.753 | 19.415 |
+| Sparse-cycle release | 41.625 | +2.75% | 19.792 | 5.125 | 1.834 | 6.001 |
+| Sparse-type release | 37.000 | +2.03% | 10.168 | 1.000 | 1.416 | 2.874 |
+| Sparse cycles live | 40.833 | +0.61% | 13.625 | — | — | — |
+| Reference live | 806.188 | -0.16% | 75.354 | — | — | — |
+
+Prepare/commit is the largest sampled physical region, including inspection/proof/detach/
+clones, not pure geometry cost. Final-owner work includes necessary raw frees; payload
+destruction also remains necessary. Neither region sums nor counts are removable CPU shares
+or saving forecasts. Sparse types crossing its descriptive threshold on this different
+schedule is **not acceptance**. No new functional/Miri/quality or memory gates ran.
+
+Strict transfer eligibility was inspected at original detach, before this fragment's clone:
+small ranges must cover all occupied slots, have no retiring/reserved bits and sole backing
+ownership; large allocations must remain initialized with sole backing ownership. Actual
+eligible regions are **mixed 40 small + 384 large = 424**, not its 473 raw frees; sparse
+cycles **129**, sparse types **1**, not its two frees. At most one backing clone/decrement
+pair per eligible region is exposed; descriptors and final raw frees remain. No state was
+mutated. **Backing/descriptor transfer remains unapproved**; immediate unlink/reuse through
+existing take_allocation cannot substitute for a reviewed retiring-owner protocol.
+
+Ordinary assembly confirms repeated `1024 / stride` in small get, slot-at, advance, prepare,
+detach and finish paths; coallocation replaced formerly stored slice lengths with repeated
+immutable reconstruction. Count-to-instruction mapping yields **2451 mixed, 6194 sparse
+release, 778 sparse types, 6796 sparse live, 32807 reference live** dynamic udiv executions.
+These are scalar branch counts matched to emitted instructions, **not hardware counters**;
+get includes marking/lookups, and compiler-merged accessor work is counted only once.
+They neither isolate timed prepare cost nor justify restoring separate control Boxes.
+
+**Static class geometry (53), implemented and locally validated; performance open:**
+one immutable `ClassGeometry` table for the **24 existing classes**, shared by
+edge/no-edge groups. Const checked Layout composition owns stride, slot/bitmap counts,
+aligned offsets and trailer Layout; admission and access consume the same facts.
+SmallHeader's stride word is replaced with `&'static ClassGeometry`, preserving its **40 B footprint**,
+1024 B payload, exact backing/deallocation layout and all existing class/identity/budget
+semantics. No dynamic cache, registry, allocation, new root authority or survivor movement.
+Initialized extents, alignment and disjoint mutable trailer/payload access are preserved.
+The 24 entries are 56 B each: **1344 B static data**, not allocator-observed heap usage.
+Footprint-neutral means unchanged per-page allocation/header, not zero binary cost. All
+repeated runtime Small-geometry udiv sites are absent in emitted code; unchanged allocation-
+selection alignment checks remain. This proves code shape, not saved cycles or a speedup.
+Source: [Go 1.24.0 sizeclasses.go](https://raw.githubusercontent.com/golang/go/go1.24.0/src/runtime/sizeclasses.go)
+owns immutable class-derived size/page/division facts. Its 8 KiB pages, larger classes,
+concurrent spans and reciprocal mapping differ: reuse the ownership principle, **not its
+geometry, allocation policy or performance assumptions**. This approval does not authorize
+backing transfers. Rebuild/authenticate ordinary artifacts after the diagnostic count image.
+
+**33 selected tests pass** (14 pages, 18 retirement, actual native two-poll proof) and **seven
+Miri cases** pass under nightly-2026-07-27. Geometry tests authenticate all 24 classes in both
+groups against original header/layout/offset/charge/final-slot facts; allocation tests retain
+two allocations, exact byte accounting and zero-net release. Structure **1819 files / zero
+violations/exceptions**, workspace Clippy, fmt/diff pass. No fresh 55-memory sweep; exact-layout
+proof is not relabeled as a new memory result. Normal native work remains [1024, 1024].
+
+One fixed ordinary process, one warmup + seven lifecycles, same M1 Max/Rust 1.99.1 release/
+default target/parallelism, separate scalar/observer images and no retries:
+
+| Phase | Current median us | Frozen descriptive threshold us | Ratio |
+| --- | ---: | ---: | ---: |
+| Mixed release | 108.583 | 68.250 | 1.5910 |
+| Sparse-cycle release | 43.750 | 27.416 | 1.5958 |
+| Sparse-cycle live | 41.834 | 41.333 | 1.0121 |
+| Sparse-type release | 38.375 | 37.166 | 1.0325 |
+| Reference live | 821.958 | 1842.000 | 0.4462 |
+
+**No clear throughput win:** release gaps remain, sparse live also exceeds its descriptive
+threshold. Saved runs differ in schedule/window and do not establish a geometry-only causal
+regression or improvement; no formal gate closes. Actual transaction/owner/token/Arc/free/
+inspection/charge/proof counts remain identical. Read-only follow-up rules out a second full
+small-range preflight at detach: mask reconstruction is not repeated validation. Large
+selection/preflight/detach each perform generic lookup, but its cost is unmeasured and
+standalone callers still require checks. No proof-boundary migration or transfer is approved.
+
+**Iterator sampling (820), blocked attribution:** authenticated PG00 `50ab194b` and current
+`fe56b675` plus worktree each completed 3 warmups and 512 checked n=2000 executions, auto GC
+off, identical harness. `/usr/bin/sample` requested 4 seconds at 1 ms with a fixed 15-second
+deadline per process; **both samplers timed out with no report, output or usable stacks**.
+Neither was retried or extended. Workload loop totals were **2.683620500 s PG00** and
+**3.434203792 s current**, diagnostic only: sampler attachment is unconfirmed and this is
+not the acceptance schedule. Cleanup killed the workloads waiting for STOP, so successful
+loop checks do not establish normal teardown. The sampler failure cause remains unknown.
+Same M1 Max/32 GiB, macOS 26.6.2, Rust 1.99.1 ordinary release/default target/parallelism;
+no production instrumentation or changes, no new functional/quality/memory gate execution.
+No stack-based ranking of roots, loans, validation or dispatch is available.
+
+**Separate finite timer-only experiment completed (820):** three coherent integrated-current
+images, ordinary/source timers/loan-and-wrapper timers, one process each in fixed order;
+3 warmups + 11 measured n=2000 executions per image, **all 42 results valid**. Three scalar
+AtomicU64 totals replace copied matrices; no event counter, allocator, sampler retry or
+production change. Existing operation counts were not remeasured. An initial fresh snapshot
+caught incomplete sweep migration (five E0599 removed-method errors) before any workload ran.
+All measured images instead use the authenticated earlier integrated sampling snapshot;
+relevant iterator/native/root/frame/module sources match, but **new cross-physical sweep is
+not measured**. This is neither clean PG04 nor a rebuilt PG00 region comparison.
+
+| Timer image / span | Median ms per workload |
+| --- | ---: |
+| Ordinary execution | 7.060042 |
+| Source-timer execution | 6.894917 (-2.338867%) |
+| Loan/wrapper-timer execution | 7.394125 (+4.732026%) |
+| Source retain + owning drop (median of per-sample sums) | 0.451107 |
+| Loan admission + cleanup body (median of per-sample sums) | 0.528126 |
+| Inclusive next wrapper | 3.150143 |
+
+Source spans include validation/retention/root lifecycle and clocks, not pure allocator cost.
+Loan spans cover the whole workload, including growth, but omit some native boundary checks
+and post-Drop field cleanup. Wrapper/loan spans **overlap**; do not add/subtract them as disjoint
+CPU costs. Both image shifts stay below the predeclared 15% diagnostic distortion threshold,
+but the source-timed image being faster proves no exact overhead/removable-cost inference.
+Fixed order, one process each and code-layout/system variance remain limitations; no historical
+per-region regression or frozen ratio follows. Same release/default-target M1 Max environment,
+no diagnostics feature, 300 s build/60 s process bounds, no timeout in successful coherent runs.
+
+Disposition: **leave projection unimplemented**; these timings do not justify a new unsafe
+capability to recover the saved approximately 1.25 ms gap, nor bypassing loans/checks. The
+wrapper remainder is not a demonstrated bottleneck. No fresh functional/quality/memory or
+acceptance run accompanies this diagnostic. The later leaf evidence and narrowly approved
+result-contract scope follow; neither retrospectively makes these spans exact removable costs.
+
+**Wrapper-leaf diagnostic (820):** one fresh ordinary control plus three two-leaf timer
+images from the same authenticated integrated source, now including cross-physical sweep;
+fixed ordinary/setup/borrow/result order, 3 warmups + 11 measured executions each, **all 56
+results valid**. Auto GC off, same M1 Max/Rust 1.99.1 ordinary release/default target/parallelism;
+no allocator/event counters or production edits. Ordinary median **6.732916 ms**; setup,
+borrow and result images shift **+3.104777%, +1.893697%, +4.695841%** respectively. These are
+single-process diagnostic comparisons, not PG00 acceptance or confidence intervals.
+
+| Selected leaf | Median ms per n=2000 workload |
+| --- | ---: |
+| Native context + prepared result argument | 0.067434 |
+| Option mapping preflight | 0.538422 |
+| Receiver payload admission | 0.083462 |
+| Borrowed source admission | 0.421262 |
+| Child parameter + encoding | 0.265151 |
+| Raw Option construction | 0.559502 |
+
+Each image's two leaves are disjoint; cross-image medians cannot reconstruct exact ordinary
+CPU cost or be added to the earlier overlapping wrapper/loan envelopes. Preflight includes
+all mapping checks, source borrowing includes scoped preparation and payload/root admission,
+and raw Option includes necessary field storage/allocation/publication. None is wholly
+removable. Initial context/result setup already borrows the authenticated call owner and
+prepared signature; this evidence supports neither context pooling nor another retention cache.
+No new functional/quality/memory gates ran. Rebuild/authenticate ordinary live sources after
+the result-leaf timer image before later throughput measurements.
+
+**Nominal enum result contract implemented (820), following approved b680 proposal:** prepare
+nominal enum codec/result-contract facts at the correct **NativeBinding registration, linking
+and generic application** owners, for the **fixed outer enum only**. Preserve installed-provider
+validation, scoped nominal identity and arity, adapter semantics, dynamic execution/phase/owner
+admission, child conversion and final-result checks. Preserve preflight-before-effects/error
+order and observable custom `check_type` effects; the general generic conversion path remains
+unchanged. A prepared signature alone is not proof of an arbitrary Rust mapper's behavior.
+Parent reports the **NominalEnum API implemented**, nine focused runtime tests and local
+quality passing at **1813 files**. Coverage includes rejecting falsely claimed converted
+results while retaining scoped installed-provider and child checks. These are coordinator-
+reported results, not fresh docs-agent execution or performance acceptance. Separately,
+source-payload-view admission is consolidated while preserving dynamic validation/error order,
+alias and loan checks; no new cache or projection capability.
+
+**Fixed-Option stdlib adoption (6ab), implemented:** explicit `pending_option` classifies only
+fixed Option results (Vec get/pop/remove/next, Map get/next, Set/CollectionCursor next and
+Option propagation/default entries). Mixed-purpose generic builders, Result/Bound/ControlFlow
+and generic Option/Result conversion remain unchanged. Installed declaration/arity proof
+belongs to registration/link/application, not a falsely asserted converted-result flag.
+Per-call outer scope and child mapping prechecks still precede receiver admission/advancement;
+Map retains exact tuple and both child checks. Child encoding, readonly/reference roots,
+revision/cancellation and advancement-before-fallible-result construction remain unchanged.
+
+**24 selected tests pass** (16 VM mapping/iteration contracts, 3 runtime nominal-enum cases,
+5 Try ordinary source-free round trips); structure **1813 files / zero violations/exceptions**,
+workspace Clippy, fmt/diff pass. External OrderedMap and exhaustive CI were not rerun.
+One count process, 3 warmups + one n=2000 execution, auto GC off: **2001 cursor preflights**
+perform **zero outer generic enum checks, declaration resolver calls or allocations**; the
+**2001 source borrows** make zero temporary conversion contexts, registrations, DataRecords
+or allocations. This does not mean all runtime identity resolution disappeared. Reads/edits
+**4003/4000**, retentions/publications **4001/2000**, roots/releases **2010/2010**, balance zero
+and peak five remain. Total **6438 allocations / 501896 B**, net 254928 B/peak 256296 B;
+intervening runtime/physical changes prevent assigning the reduction solely to codec adoption.
+
+Four fresh ordinary processes, fixed growth/callback/iterator/Node order, 3 warmups + 11
+samples each, verified unchanged workloads, auto GC off. Same M1 Max/Rust 1.99.1 release,
+default target/parallelism; authenticated ordinary and count images, no retries. Growth
+**1.846292 ms / saved PG00 0.945342**, callback **7.675416 ms / 0.573534**, iterator
+**6.028500 ms / 1.159076**, Node **2.415584 ms / 1.084173**. Iterator still exceeds the saved
+1.05 threshold by **0.567319 ms**; Node is within descriptive 1.10. Saved-baseline comparisons
+are nonadjacent diagnostics, not formal paired gates, isolated consumer speedups or automatic-
+GC evidence. No fresh memory gate run accompanied adoption; the initial ten failures remained
+at that handoff. The later selected formal candidate interpretation was subsequently invalidated;
+its raw results do not supersede these rows as production acceptance evidence.
+
+**Immediate checked payload access (820), implemented with stdlib/external consumers:**
+public unsafe `NativeContext::read_payload<P, R>` taking a raw `Value`, `&StorageType` and
+an HRTB closure. This is immediate checked access, **not retention or a new borrowed view**;
+the closure-bound payload reference cannot escape through R. Reuse existing `read_native`
+as the sole access/loan kernel, not a second semantic path. Preserve full contract/value,
+runtime owner/generation, nominal Rust mapping, graph phase, cancellation and recovery
+checks, including the old lexical-owner semantics. Runtime admission invokes no callbacks
+or GC; the existing payload loan excludes reentry/take while the closure runs. Caller
+liveness obligations remain explicit for unsafe raw input; access itself supplies no root.
+No NoGcGuard, projection-membership proof, multi-object loan or unchecked authority is added.
+
+Selected evidence representation: clone `StorageType`/evidence via the public
+`ScopedTypeArgument` and its immutable owner evidence, allocation-free on that scoped path,
+rather than adding an Arc field/allocation. The cold private Unscoped Box may still clone;
+this is **not a universal allocation-free clone claim**. Preserve existing layout and root
+authority; immutable evidence cloning neither roots the raw value nor extends a payload loan.
+
+Finite consumer scope (6ab): stdlib and external-provider cursors copy raw source plus its
+contract between sequential loans. The exact parent call root and traced source edge retain
+liveness, with **no callback/collecting gap** between extraction and checked child access;
+this is a concrete call sequence, not permission for a reusable projection capability.
+Retain escaping results before the child loan ends. Preserve type/identity, alias, revision,
+error/cancellation/unwind and result-publication guarantees. No callback-spanning raw handle
+or simultaneous parent/child payload loan is authorized.
+
+Implemented at `native/typed/payload.rs`, with shared contract/value admission used by
+storage access and shared borrowed-owner mapping admission, then the existing `read_native`
+kernel. No new view/root/token or second access semantics. Parent reports **10 distinct unit
+tests**, diagnostics proving scoped-contract clone has **zero allocations/root/lease creation**,
+reading old lexical data after its executable is reclaimed, and the reference-escape
+compile-fail case passing. Local quality passes at **1817 files / zero violations/exceptions**.
+These are reported validation, not docs-agent test execution. The actual signature and safety
+contract are documented in the [host-interop owner](spec/host-interop.md#immediate-checked-payload-reads)
+and linked from the authoring guide, rather than duplicated examples here.
+
+**Stdlib/external cursor adoption (6ab), implemented:** Vec, Hash and existing external
+OrderedMap copy raw source/contract under the rooted parent loan, end it, then immediately
+read the child with no callback/conversion/collection gap. Provider comments state the traced-
+edge liveness obligation; runtime access does not prove edge membership. Escaping items are
+retained before child-loan end, then cursor advancement commits. Hash's shared `retain_entry`
+body serves both borrowed and immediate paths, preserving revision checks and distinct loans.
+The new API's post-admission cancellation poll subsumes the redundant old Hash poll before
+source-reader entry; result preflight/encoding and Map tuple protection remain unchanged.
+
+**15 selected tests pass: 12 stdlib + 3 external**, with structure **1817 / zero violations/
+exceptions**, workspace Clippy, fmt/diff passing. The external case initially expected reuse
+after ExclusiveSlots release; existing finalization deliberately advances revision. The test
+now preserves guard rejection, asserts invalidation, and uses a fresh cursor for managed-output
+retention; no production policy was changed. External coverage exercises collection/reentry/
+nested access/clear rejection inside the real closure, wrong mapping, retained String output
+and existing scanner/adapter/recovery contracts. Unselected external cases and CI were not rerun.
+
+One count process, 3 warmups + one n=2000 execution, auto GC off: roots/releases **2010 -> 9**,
+balance zero/peak five unchanged; retentions **4001 -> 2000**, allocations **6438 -> 2436**,
+requested bytes **501896 -> 277784**. Net/peak remain **254928/256296 B**. Reads/edits
+**4003/4000**, publications **2000** and execution counts are unchanged. Preflight, immediate
+source read and scoped-contract clone each run **2001 times with zero allocations**, temporary
+contexts/registrations/DataRecords or outer enum queries. Exactly 2001 source-root retentions
+and 4002 allocation requests/224112 B disappear; required child retention and three sequential
+loan operations remain. No separate lease counter was collected in this run.
+
+One fresh ordinary iterator process, 3 warmups + 11 samples, all 14 results valid: median
+**5.641708 ms**, min/max **5.624916–5.688084 ms**; saved PG00 **5.201125 ms**, ratio **1.084709**.
+Still **0.180527 ms above** the saved 1.05 threshold. Saved prior candidate 6.028500 ms is a
+different window/source, not isolated causal or paired-gate evidence. Same verified workload,
+M1 Max/Rust 1.99.1 release/default target/parallelism, separately authenticated ordinary/count
+images, no retries or other workload measurements. No formal gate or fresh 55-memory pass.
+The earlier projection proposal remains unimplemented and is not revived by this access API.
+
+**Selected mutator checkpoint (149), INVALID candidate interpretation:** all 70 processes
+completed, but the computed **23/29 pass, six fail** classification is now retained only as
+raw historical arithmetic for a contaminated image, **not valid production passes/failures**.
+This was the first selected formal schedule after the original 78-pass/10-fail full run,
+not a full-112 replay or unchanged-candidate retry. Seven alternating B/C pairs per route,
+three warmups/eleven samples each; estimator is **median of seven paired process-median
+ratios**, retaining every pair/outlier. Routes in order: main `--interpreter-only --workload=maps`,
+`--interpreter-only --workload=arrays`, `--interpreter-only --execution-controls`, storage
+no arguments, storage `--sort`. Each child had its own 180 s bound; grouped tool bounds
+exceeded all child limits combined. No timeout, retry, sample exclusion or relaxed threshold.
+
+| Raw row above bound (contaminated candidate; not production failure) | Median paired C/B | Frozen bound |
+| --- | ---: | ---: |
+| Map execution | 1.127442 | 1.05 |
+| Singleton cancelled-root retirement | 1.115420 | 1.05 |
+| Singleton completed-root admission | 1.052632 | 1.05 |
+| Node construction | 1.117749 | 1.10 |
+| Field reads | 1.466862 | 1.10 |
+| Revision iterator | 1.142775 | 1.05 |
+
+Raw rows below bounds: arrays **1.016364**, revision growth **0.992681**, revision callback
+**0.562308**, all six sort rows and **14/16 root cases**; **none is accepted from this image**.
+Singleton completed admission numerically exceeds its unchanged bound; that arithmetic is
+preserved without rounding, but cannot classify the intended production candidate. All Map
+pairs exceed 1.12; favorable Node/iterator pairs and adverse outliers remain retained.
+Incidental unselected field RMW **1.391875**, float fields **1.401814**, writes **1.149954**
+are also contaminated raw observations, not new production regressions. No GC gate closes.
+
+Source-copy evidence remains true but insufficient: **2484 copied inputs matched precopy
+hashes**, including clean immediate-cursor sources; geometry.rs was unreferenced by copied
+allocation.rs. The live-tree postcopy stop prevented a mixed source copy. **This did not prove
+which runtime source Cargo compiled/reused.** Preserved executable hashes prove image identity,
+not correspondence with sealed source. Requested ordinary features, no environment overrides,
+verified schedule/checksums and nonoverlapping builds likewise do not remove instrumentation.
+Rust 1.99.1/LLVM 23.1.1, M1 Max/32 GiB and shared default target remain the recorded environment.
+The prior interpretation of these hashes as an authenticated ordinary candidate is withdrawn.
+
+#### PG05 build provenance and recovery
+
+**Confirmed contamination, not speculative code-layout variance:** the bounded nine-process
+geometry/mutator diagnostic completed once, but both its current image and the preserved
+selected-formal prefix contain `gc::physical_counts`/COUNTS TLS code absent from their clean
+manifests. `Pages::get` executes that instrumentation on ordinary field/native access. Current
+code copies a **32-usize counter array** around a TLS update and reserves **320 B** stack;
+`struct_scalar` and native payload lookup reach it. Current geometry udiv is absent, but this
+is not proof of ordinary code or a geometry speedup. Prefix/current function sizes 372/680 B
+are static evidence, not CPU-cost percentages.
+
+The current build log **does not recompile kagari-runtime**. Its dep-info points into the
+class-geometry **counts-source**, includes physical_counts, and uses default features/no
+rustflags with timestamp rather than checksum freshness. Copied clean source preserved mtimes
+older than that shared-target artifact. Cargo reused the instrumented runtime despite a clean
+source manifest. Thus source hashes plus output hashes were insufficient. The diagnostic's
+Map **1.066548**, field-read **1.284659**, iterator **1.133569** and Node **1.063275** ratios
+are preserved contaminated arithmetic only: no remaining-regression, Node-pass or speedup
+claim follows. No workload retry occurred; an initial static-disassembly timeout was not a
+benchmark retry. PG00 paths inspected here have no physical_counts symbols, but that limited
+negative check is not a blanket provenance certification for every historical image.
+
+**Evidence accounting:** the selected 29-gate interpretation is invalidated in full, not just
+its six adverse rows. It neither replaces nor adds failures to the original ten historical
+full-run results; callback is not newly accepted, nor Map/completed-root admission newly
+classified from this contaminated candidate. The five original family failures were not
+formally rerun by that schedule. **149's completed 36-path audit:** **4 confirmed contaminated,
+6 verified baseline paths, 18 unverifiable, 8 intentionally instrumented controls**. Confirmed
+contamination is the selected-formal and geometry-diagnostic Map/storage pairs. Baseline
+verification combines preserved PG00 hashes and absence of known markers, not a proof against
+arbitrary unknown instrumentation. Unverifiable means no confirmed marker contamination but
+insufficient historical source/dependency-to-image proof; it includes original PG05 full-run,
+cross-batch ordinary/memory, immediate-cursor ordinary and PG04 final Map images. Intentional
+count probes are positive controls, not accidentally contaminated ordinary candidates. This
+is **not blanket invalidation**. Keep raw values, identities and failed-attempt provenance.
+Source reviews remain valid independent evidence. Count/layout/assembly facts survive only
+where actual compiled source and the relevant observation are proved; intention, matching
+manifests or successful workload assertions alone are insufficient. Prior Miri/test scopes
+remain historical; fresh representative root-built validation now passes as recorded below,
+without replaying a full suite. Cross-batch 55/55 memory and 21 zero teardowns remain historical
+unverifiable-image evidence, not a fresh verified-clean replacement pass.
+
+**Parent-frozen recovery contract (820/149):** Rust source remained frozen throughout clean
+rebuild and replacement measurement; only coordinated documentation changed. That recovery
+authorized no optimization, gate change or repeated timing-until-pass. The subsequent finite
+follow-up below is the only new source-work authorization.
+
+1. **820 root rebuild completed:** metadata identified all **24 workspace packages**. Cleaned
+   their debug and release products plus remaining build-script incremental/Miri artifacts in
+   the default target; inspection caught release leftovers after the first clean, so explicit
+   release cleanup preceded compilation. Preserved baseline/measurement archives untouched.
+   Both ordinary builds ran from the actual repository root using:
+   `cargo build --release --locked -vv -p kagari-lua-benchmark --bin kagari-lua-benchmark --example runtime_storage`.
+   Logs prove compilation of all 18 selected dependency packages, including runtime and its
+   downstream chain. After focused checks, all workspace release products were cleaned and
+   rebuilt again; **both builds produced byte-identical binaries**. This is not a workspace
+   test/build sweep or a new performance result.
+2. **Artifact proof completed:** **165 dep-info, 156 metadata and 26 Miri artifacts**, plus
+   both binaries, contain no audited probe markers/ignored source paths; dependencies point
+   to actual-root sources. Known-marker inventory covers preserved probes rather than banning
+   legitimate diagnostics/observation symbols. Actual `Pages::get`: **228 B / 57 ARM64
+   instructions, zero udiv/calls/stack frame/TLS/counter-array copies**. The 2481 frozen
+   source/config/workload inputs, metadata, compiler and environment remain unchanged. Rust
+   1.99.1/LLVM 23.1.1, default profiles/parallelism/target retained. Hashes plus this compiled-
+   path proof establish the handoff; symbol absence alone is never sufficient.
+3. **Fresh focused checks completed:** **22 runtime + 6 VM + 4 SDK/provider tests**, one
+   `read_payload` compile-fail doctest and **4 Miri cases** (nightly-2026-07-27) pass. Scope
+   covers payload/builder authority, phase/budget/scanner cleanup, geometry/aliasing/precharge,
+   reentry, cursor protection and the actual external/source-free boundary. Source-free SDK
+   coverage uses default features, not the entire no-source/backend matrix. Structure **1819
+   files / zero violations/exceptions**, workspace and runtime execution-diagnostics Clippy,
+   fmt/diff all pass. No source repair or remaining selected failure; no fresh allocator gate
+   or timing run occurred during this build handoff.
+4. **149 replacement completed:** all **98 ordinary + 14 automatic processes (112 total)**
+   and the fresh 55-gate memory workload ran once under unchanged baseline
+   association, seven-pair estimators, thresholds, profiles, target and parallelism. Use the
+   saved read-only verified ordinary images, **not mutable shared-target products**; each
+   process gets its own **180 s timeout**, with no shorter enclosing grouped deadline.
+   Reauthenticate preserved PG00 images without rebuilding them. Separately prove the memory
+   diagnostics build; preserve ordinary images first. Raw normal maxima include indivisibles,
+   assists remain separate, and sparse cap 351802 B is unchanged. This replaces invalid/
+   uncertain evidence, not a lucky retry. Actual trusted results are recorded below.
+
+Verified ordinary handoff SHA256 values (saved binaries, not a claim about later target files):
+- Map/main: `aa81397915c8f07d682ef54d642452e29770240523bf8a893d5a3582497acf44`.
+- Storage/families/sort/automatic: `f46a83299f8dd69a7dad370c779f881c7c1ee01289936df8cb197e8f5e410967`.
+- Frozen source manifest: `701f6800dacf55bfedacb7627745c92547418ca1c34820e96f4689f04530a247`.
+
+**Ongoing artifact contract:** future temporary instrumentation requires a distinct cfg/feature
+Cargo metadata identity; injecting probe code under ordinary-default artifact identity is
+forbidden. Keep instrumentation explicitly gated and reject probe dependencies/markers in
+ordinary builds. A copied source directory, feature request, mtime or source/output hash alone
+cannot establish source-to-artifact correspondence. Preserve actual compilation/dep-info,
+marker and shared-accessor proof before measurement; invalidate mismatches before execution.
+This requirement itself authorizes no source change; later work requires the explicit finite
+scope recorded below.
+
+Provenance recovery, representative correctness and replacement measurement are complete.
+The trusted numerical failures below remain open; no PG05/NC05 or CI completion follows.
+The clean rebuild does not rehabilitate the withdrawn 23/6 ratios.
+
+#### PG05 trusted replacement results and finite follow-up
+
+**Current acceptance: 77 ordinary gates pass / 11 fail; 19 observed normal-step gates pass /
+3 fail; 34 phase-policy rows are unobserved, not zero-cost passes. Fresh memory: 55/55 pass,
+21/21 exact-zero teardowns.** All 112 scheduled timing processes and the separate memory
+workload completed once, with every semantic assertion passing. No skip, timeout, retry,
+sample exclusion or gate change. These verified-root results replace the old 78/10 and
+22-normal summaries; neither contaminated selected arithmetic nor unverifiable prior images
+are substituted for fresh evidence.
+
+Source is the same 2481-input frozen manifest and two saved ordinary image hashes above,
+authenticated before/after each pair and diagnostics. The two actual-root clean builds were
+byte-identical; ordinary page-accessor/dependency/marker proof remains intact. Six preserved
+PG00 paths were reauthenticated, including the already reconstructed sort harness, not rebuilt.
+After timing, all 24 workspace packages' release products were cleaned before a root diagnostics
+build; logs prove 18 dependency packages compiled. Its **19 dep-info / 17 metadata files**,
+probe-marker scans and 228 B/57-instruction accessor passed audit before memory execution.
+Diagnostics SHA256: `49c9992ea47ca649e1a75ab92e1f1610ece7d42ff051fb345d261b132240ca1f`.
+Actual memory build/run, after all-package release cleanup and audit, from repository root:
+
+```sh
+cargo build --release --locked -vv -p kagari-lua-benchmark --features diagnostics --example runtime_storage
+target/pg05-clean-replacement/candidate-diagnostics --families
+```
+
+Same M1 Max/32 GiB/macOS 26.6.2, Rust 1.99.1/LLVM 23.1.1, root default target/profiles/
+parallelism, no overrides. Seven alternating B/C pairs, 3 warmups/11 samples per process;
+route order Map, arrays, roots, storage, families, script keys, sort, then both automatic
+policies (policy order reverses on odd pairs). Each child had 180 s, with enclosing limits
+longer than the sum of child limits. Builds and measured processes did not overlap.
+Compilation/setup remains separate. Earlier focused root-built tests/quality were not rerun
+or counted as this measurement owner's execution.
+
+**Latest failed gates:** throughput statistic is median paired `C_i/B_i`; full-GC statistic
+is median `C_i / max(1.20 F_i, F_i + 10 us)`, not a pure throughput ratio. Completed disposal
+and active-plus-fresh explicit semantics stay inside the measured call. Limits are unchanged.
+
+| Ordinary route / phase | Acceptance statistic | Limit |
+| --- | ---: | ---: |
+| Singleton cancelled-root retirement | 1.079655 | 1.05 |
+| Field reads | 1.144413 | 1.10 |
+| Revision iterator | 1.077241 | 1.05 |
+| Mixed native release GC | 1.563611 GC-normalized | 1.00 |
+| Scalar 65536 live GC | 1.064548 GC-normalized | 1.00 |
+| Scalar 65536 release GC | 1.061491 GC-normalized | 1.00 |
+| Sparse cycles 4096/keep64 construction | 1.107342 | 1.10 |
+| Sparse cycles release GC | 1.858555 GC-normalized | 1.00 |
+| Sparse cycles sparse-live GC | 1.035750 GC-normalized | 1.00 |
+| Sparse types release GC | 1.025157 GC-normalized | 1.00 |
+| Script-key Map release GC | 1.039804 GC-normalized | 1.00 |
+
+Selected passes: Map **1.034948**, arrays **0.914874**, 512-Node construction **1.072778**,
+revision growth **0.926916**, callback **0.553998**, all six sort rows. Small Node success
+cannot replace the distinct 4096-cycle construction failure. Seventeen setup/compilation
+rows remain ungated; incidental duplicate script-key output and candidate-only verification
+rows receive no additional gate. This table supersedes prior failure lists for current
+acceptance, without rewriting their raw historical values or audit classification.
+
+Normal statistic is median `Q_i = M_i / max(50 us, F_i/4)`, with **each process's maximum
+complete normal invocation** and the predeclared same-family fresh baseline. No median-of-
+steps substitution, different-family F, or indivisible subtraction. **94017 normal invocations**,
+maximum charged work **1024**; all 14 automatic processes pass scenario/activity assertions.
+
+| Failed normal phase / policy | Median process max us | Absolute max us | Median Q | Limit |
+| --- | ---: | ---: | ---: | ---: |
+| Mixed construct / default | 54.167 | 76.958 | 1.083340 | 1.00 |
+| Mixed construct / pressure 64/4096 | 70.208 | 93.791 | 1.404160 | 1.00 |
+| Scalar construct / pressure 64/4096 | 55.250 | 64.125 | 1.105000 | 1.00 |
+
+Mixed baseline F_i in us: [197.875, 193.333, 188.250, 203.875, 203.625, 201.166, 200.500];
+limits [50, 50, 50, 50.96875, 50.90625, 50.2915, 50.125]. Its default maxima are
+[54.167, 43.459, 65.375, 73.584, 39.542, 41.042, 76.958], pressure maxima
+[70.208, 93.791, 84.000, 50.334, 36.625, 71.709, 46.166]. Scalar F_i are
+[20.166, 20.167, 20.500, 18.000, 20.334, 20.167, 19.833], all limits 50 us;
+pressure maxima [42.291, 62.583, 64.125, 55.250, 55.250, 41.958, 55.167].
+Raw global normal max **293.208 us** belongs to pressure sparse-cycle churn, retaining its
+larger same-family F/4 association; it cannot relax these smaller-family limits.
+
+Forced host control records **154 assists**, absolute max **477.416 us**, separate from
+normal gates; natural families have zero assists. Each carried-cycle check preserves
+1024 initial normal + 21805 assist = 22829 work. Largest indivisible is **1547.500 us**
+RetiredModule destruction during explicit reload release, not a normal-pause sample.
+Mixed ProviderScan reaches 43.750 us, but phase-window operation maxima do not identify
+the cause of any particular maximum invocation. Keep raw pauses; never subtract indivisibles.
+
+Fresh memory uses max of three complete lifecycles per unchanged gate, not reused passes.
+Sparse types construction/live are **84780/84588 B** against **85368.8/85166.4 B**; sparse
+cycles live **329296 B** against **351802 B**. All 55 limits and 21 zero teardowns pass.
+These are requested-byte/backing/peak measurements, **not RSS**.
+
+**Finite source follow-up implemented (53), measured performance pending:** private prepared-
+large consumption uses existing batch proof; generic detach and NativeTake retain their
+standalone validation. Occupied-bitmap discovery uses **two stack words only under the active
+borrow**, retaining no mask across a yield. It checks bitmap planes, tail, free count and the
+selected descriptor; no backing/descriptor transfer or weakened all-fragment atomicity.
+Reported inspection work changes **42 -> 3**, **128 -> 5**, and **12 occupied in 42 slots ->
+14 units**. These are actual structural-work examples, **not timings or CPU savings**. Workspace
+precharge increases **160 -> 162** to pay for the two words; the shared normal allowance
+remains **1024**, not a larger budget. Parent reports **42 directory + 11 driver + 10 protocol
+tests and 7 Miri cases**, with local quality passing; no timing or new memory gate result.
+
+**Common native boundary follow-up implemented (820):** reads use one private checked boundary
+for a closed receiver, with no intervening callback, reusable token or cache. Raw-value
+admission and error ordering remain; source-path work removes one duplicate permission/session
+check and one borrow check, while edits remove one duplicate borrow check. This is check
+consolidation under the same authority, not removal of identity/phase/cancellation or loan
+exclusion. Parent reports **13 runtime + 4 VM + 3 SDK tests** and local quality at **1820 files /
+zero violations/exceptions** passing. These counts are reported focused evidence, not combined
+with earlier overlapping suites or treated as a measured speedup.
+
+**0a finite pause attribution completed, diagnostic only:** three fixed processes, control /
+Detailed / ServiceOnly, each default then pressure, eight scenarios, 3 warmups + 11 measured
+lifecycles. Each passes **16 scenario/policy checks**, observes **13222 normal calls / 9726739
+work**, maximum **1024**. All **6160 service/cycle rows per mode** have identical counts,
+failures and total/last/max work. No retries, production changes or acceptance run.
+
+Two fixed current/worst records and seven exclusive segments capture the **same invocation**;
+segment time/work sums match its public raw duration/work. New cfg metadata identities force
+fresh builds, with the control additionally compiling hooks out; each image's 21-package
+closure/18 dep-info files and 118 rustc commands were authenticated. Saved binaries, not the
+mutable target, ran on the same M1 Max/Rust 1.99.1 release/default-target environment. This
+source includes the new bitmap/native-boundary changes and differs from the trusted replacement;
+even compileout control is a diagnostic cfg/codegen/harness image, not ordinary acceptance.
+
+| Detailed same-call maximum | Entry -> exit | Raw us | Mark us | Work |
+| --- | --- | ---: | ---: | ---: |
+| Mixed default construct | Mark -> Mark | 43.125 | 43.041 | 1024 |
+| Mixed pressure construct | Mark -> Mark | 35.875 | 35.792 | 1024 |
+| Scalar pressure construct | Idle -> Sweep | 45.417 | 43.958 | 970 |
+| Global, sparse pressure churn | Mark -> Mark | 71.917 | 71.875 | 1024 |
+
+Mixed maxima contain 194/190 ProviderScan events; scalar and global Detailed maxima contain
+**zero indivisible events**. ServiceOnly still reaches **64.250 us**, Mark -> Mark with
+64.208 us in Mark; nested events are disabled in that mode, not proven absent by zero counters.
+Physical retirement is not universally negligible: another ServiceOnly maximum is physical-
+heavy. These observations focus diagnosis on Mark without assigning a particular lock,
+lookup, provider, cache effect or preemption as the cause.
+
+Mixed median window maxima change **36.084 -> 27.125 us** default and **35.416 -> 27.125 us**
+pressure between Detailed and ServiceOnly. Those are medians of eleven window maxima, **not
+seven-process gate statistics**. Removed work includes both production nested observation
+and probe hooks; exact production observer cost is not isolated. Fixed process order and
+codegen/system variation remain; scalar's central maxima are almost unchanged. No adjusted
+gate, observer-contract change or subtraction of nested duration is authorized.
+
+Scalar's Programs reservation refusal is confirmed: **256 required**, **51–54 available**,
+**40 captured slots remaining**, after 970/973 work. No detach occurs on refusal. A
+`min(32, remaining_slots)` change would do nothing here. Representative setup/admission/
+physical fixed work is 200/973 units but only **708 ns (~6.7%)** of its 10.625 us call;
+the exceptional pause spends 43.958 us in Mark. Structural units are not fixed CPU costs,
+and neither lower reservations nor a smaller normal budget is an evidenced pause remedy.
+
+**Graph-control borrow coalescing (0a), source-implemented:** the driver now retains the
+existing `GraphMarker` across owner selection, runtime-owned metadata/static scans, checked
+non-Native/non-HostPath scans, and module member/constant/static/function fields. Its private
+visitor still resolves every original owner/generation/representation through `with_edge_mark`
+and uses the same `shade_scanned` four-word precharge and credit owner. There is no new buffer,
+persistent state, second marker, unchecked lookup, unsafe code or budget change. The
+non-callback interval rechecks the object's current representation; it does not cache that
+classification across slices. The static binding owner uses existing phase-aware
+`GraphState::accessible` instead of nesting a control acquisition during Mark; its identity,
+lineage, descriptor and initialization checks remain intact.
+
+The call-graph review found two additional release boundaries: module descriptor
+`scan_finish` may destroy an evicted entry and its dependencies, and HostPath advancement
+replaces an Arc. The driver releases control before the entire descriptor suffix, Native
+begin/resume, and HostPath scanning; those visitors retain per-edge acquisitions. Initial
+roots/root release, host hooks and sweep/disposal remain unchanged. Pure scan cursors contain
+numeric state; only the excluded HostPath cursor carries an Arc. Moved-native abandonment
+resets a pointer-free Copy continuation. Borrowed module/member clones cannot be last owners
+while their source store/edge remains borrowed. Checked scan failures still fault/quarantine;
+provider begin/scan panic tests verify Faulted rather than Poisoned, while existing guarded
+unwind/poison and recovery-publication contracts remain unchanged.
+
+Applicable primary mechanism: [gc-arena 0.7.0 Context](https://docs.rs/crate/gc-arena/0.7.0/source/src/context.rs)
+passes the single collector's borrowed context through `do_collection`/`mark_one` and tracing,
+rather than reacquiring collector state for each edge. Kagari applies that ownership scope
+only to audited runtime-owned scans. It does not adopt gc-arena's direct pointers, callback
+tracing under that context, allocation-backed gray queue, or trace-panic retry model, nor Go's
+concurrent-worker model. Kagari retains dynamic IDs, prepaid credits, bounded continuations,
+callback exclusion, terminal poison and quarantine.
+
+Focused cfg(test)-only acquisition counters measured tuple fixtures with 0/8/64 edges:
+**3/27/195 -> 1 acquisition**, with unchanged **2/34/258 work** and all reachable objects
+surviving closure. The metadata/module/static fixture is **13 -> 2 acquisitions**, unchanged
+**25 work**, retaining the descriptor release boundary. Final assertions enforce these counts;
+there is no ordinary-build instrumentation and **no CPU-time speed claim**. A borrowed-control
+edge test rejects foreign/stale/wrong-kind values before spending work and verifies a
+three-unit budget cannot initialize a four-word block; provider tests check that both begin
+and scan can independently acquire control and that injected panics do not poison it.
+
+Local validation selection: graph/owner/publication/poison contracts plus module scanning and
+static state, and the 11 automatic-driver tests for budgets, assists, lifecycle and observations.
+The combined graph/module run passed **68 tests** before its 120-second timeout on
+`module::state::tests::black_static_initialization_replacement_and_sweep_reload_preserve_published_edges`.
+The fixture's initial budget 1 was below the existing four-word bitmap reset and stalled
+before the changed Mark driver. Initial-root setup now uses **64-work slices with a finite
+64-slice bound**; the previously pending case passes in **0.01 s**. Production precharge and
+semantic assertions are unchanged. Retain the prior 68 passes rather than rerunning them;
+the original timed-out command remains historical, not retroactively successful. The separate
+automatic-driver selection passes
+**11/11**. Initial local compile corrections (test `resources()` call and explicit higher-ranked
+visitor argument) and the nested static-access acquisition failure are resolved. Structure,
+format, diff and workspace Clippy (`--workspace --all-targets -- -D warnings`) pass;
+structure reports 1821 Rust files with zero violations/exceptions. Final source review
+confirmed the descriptor/HostPath/provider release boundaries and unchanged cursor work,
+per-edge validation and bitmap charging. The object dispatch adds a checked representation
+lookup per object scan; reduced acquisition counts alone do not establish a net timing win.
+No selected coalescing failure remains after that focused repair. Parent reports **b680 source
+approval** for coalescing, 53's bitmap/prepared-large changes and 820's read-admission boundary.
+Full-workspace/backend/platform validation remains CI-only, not implied by that review.
+
+**Compact GraphControl error outcome (820), source complete; independent review pending:**
+one authoritative locking/phase owner returns compact `ControlError`. Option-returning heap
+reads reject it without constructing a discarded rich RuntimeError; surfaced messages,
+phase/poison/fault semantics and validation/error order remain. This changes error representation,
+not graph admission or locking ownership. Parent reports **22 focused tests**, diagnostic
+zero-allocation rejection and local quality at **1821 files / zero violations/exceptions**
+passing. Do not extend the other source approvals to this still-pending review or infer a
+speedup. Broader field-path work and 53's large-only ownership-transfer investigation remain
+**read-only/unapproved** beyond the stated implemented scopes; no projection/transfer authority.
+
+**Parent GO for 149, measurements pending:** actual-root clean rebuild and full artifact audit
+before the new limited **70-process schedule**, covering **37 ordinary gates plus 14 automatic
+processes**. Up to **14 root-route processes** may be added when source-impact verification
+requires them; record the final scope rather than assume those ran. Use saved proved ordinary
+binaries and unchanged frozen associations/limits. Memory requires either fresh **55-gate**
+evidence or explicitly authenticated unchanged-footprint reuse for the final source, not
+unqualified reuse of a prior pass. Authorization is not completed execution, a new result or
+acceptance. The already recorded first pause probe remains diagnostic, not ordinary evidence.
+
+**Measurement boundary:** latest trusted **77/11 ordinary, 19/3 observed normal, 34 unobserved,
+55/55 memory and 21 zero teardowns** remain evidence for the **prior verified image**, not
+acceptance of these source changes. No new measured win is claimed. Use the provenance
+contract for every changed image/probe and retain the failed rows until authorized new evidence.
+Normal allowance stays 1024 and detached-owner cap 32; no gate relaxation or backing/descriptor
+transfer is approved. PG05/NC05 stay unchecked; PG06/NC06 and exhaustive CI/backend/platform
+acceptance remain pending and unrun.
+
+Historical original-run measurement recipe (not current acceptance evidence): Map, arrays, owned-root controls, storage/
+access/revisions, allocation/reload families, script-key Map and six sort/construction
+rows from the authenticated reconstructed PG00 sort harness. Each route uses seven
+alternating B/C process pairs, three warmups and eleven samples; no exhaustive backend
+matrix. Existing invocation arguments are `--interpreter-only --workload=maps`,
+`--interpreter-only --workload=arrays`, `--interpreter-only --execution-controls` for
+the main binary, and no arguments, `--families`, `--script-keys`, `--sort` for runtime_storage.
+The preserved baseline paths/estimator are documented in PG00/PG03 above. Only common
+family phases are paired; candidate-only verification rows get no invented baseline,
+and extra family script-key output is not counted again against `--script-keys`.
+
+Measurement build/check commands (run by 149, not this documentation update; preserve
+ordinary images before the later diagnostics build):
+
+```sh
+cargo build --release --locked -p kagari-lua-benchmark --bin kagari-lua-benchmark --example runtime_storage
+cp -p target/release/kagari-lua-benchmark target/pg05-gates/candidate-maps
+cp -p target/release/examples/runtime_storage target/pg05-gates/candidate-storage
+target/pg05-gates/candidate-storage --automatic-families --check
+target/pg05-gates/candidate-storage --automatic-families --check --pressure
+cargo build --release --locked -p kagari-lua-benchmark --features diagnostics --example runtime_storage
+cp -p target/release/examples/runtime_storage target/pg05-gates/candidate-diagnostics
+target/pg05-gates/candidate-diagnostics --families
+```
+
+Automatic timing uses `--automatic-families` and `--automatic-families --pressure`
+without `--check`, seven processes per policy. Ordinary argv and sampling are listed
+above; copied ordinary images were used before the diagnostics build. The measurement
+owner also reports workspace/scoped diagnostics Clippy, structure **1807 files / zero
+violations**, fmt/diff and offline mapping/arithmetic/rejection checks passing. These
+are reported validation, not new docs-agent runs or CI. Interrupted evidence remains
+visible; no unchanged successful or failed process is authorized for a favorable retry.
+
+The frozen normal-step gate needs each paired process's freshly measured PG00 full-cycle
+`F_i` for the exact scenario and `M_i`, the maximum **complete normal automatic service**
+duration over all eleven measured lifecycles (warmups separate). Use
+`Q_i = M_i / max(50000ns, F_i / 4)` and `median(Q_i) <= 1` across seven pairs. Publish
+all seven F/M/limits/Q values, `median(M_i)` and `max(M_i)`, retaining assist/indivisible
+observations separately. Do not substitute a median of step durations, choose the
+largest unrelated F, or treat an incomplete family process as accepted. Existing throughput
+and full-cycle estimators/gates remain unchanged.
+
+Earlier source reviews, selected correctness results and measurement history remain recorded
+above with their own scope. They do not bypass the **artifact-provenance contract** or
+constitute a current-image all-green transcript. The invalidated selected run cannot close
+historical gates, and no-activity rows remain unobserved. Root-build recovery and trusted
+replacement are complete: ordinary 77/11, observed normal 19/3, 34 unobserved, fresh memory
+55/55 with 21 zero teardowns. These current results, not historical summaries, govern the
+open numerical acceptance for their verified image; later source corrections remain unmeasured.
+PG05 and NC05 remain unchecked. This documentation
+update ran no Rust tests, Clippy, benchmarks or CI.
 
 ### PG01 implementation handoff (2026-10-27; locally complete)
 

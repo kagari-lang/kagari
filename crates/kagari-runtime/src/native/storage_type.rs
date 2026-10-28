@@ -1,15 +1,19 @@
 //! Element contracts retain one checked reified type, independently of collection length.
 use crate::{
+    Runtime,
     error::RuntimeError,
     frame::types::{arguments::TypeArgument, compatibility::TypeView},
-    gc::GcHeap,
+    gc::{GcHeap, publication::CheckedTarget},
     module::ExecutableModule,
     value::Value,
     value_check::matches_view,
 };
 use kagari_types::ty::Ty;
 
-#[derive(Debug)]
+/// An immutable checked storage contract with its original lexical type scope.
+/// Cloning a scoped contract shares metadata without allocating or retaining an
+/// executable lease or GC root. Internal unscoped contracts clone their owned type.
+#[derive(Debug, Clone)]
 pub struct StorageType {
     pub(crate) owner: ExecutableModule,
     evidence: Evidence,
@@ -17,7 +21,7 @@ pub struct StorageType {
 
 // Scoped contracts reuse the already shared TypeArgument rather than embedding
 // a second, large Ty in every payload. Unscoped internal contracts own their type.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Evidence {
     Scoped(TypeArgument),
     Unscoped(Box<Ty>),
@@ -89,6 +93,30 @@ impl StorageType {
 
     pub(crate) fn same_type(&self, other: &Self) -> bool {
         self.view().compatible(other.view())
+    }
+
+    /// Shared admission for storage publication, retention and immediate access.
+    /// Recovery policy belongs to the enclosing loan, not the immutable contract.
+    pub(in crate::native) fn checked_target<'runtime>(
+        &self,
+        runtime: &'runtime Runtime,
+        value: &Value,
+    ) -> Result<CheckedTarget<'runtime>, RuntimeError> {
+        runtime.resources().ensure_execution_allowed()?;
+        self.argument()?.validate(runtime)?;
+        let heap = runtime.gc();
+        let invalid = || {
+            RuntimeError::module_validation("native storage value differs from its closed contract")
+        };
+        if !value.is_default_heap_payload(heap) {
+            return Err(invalid());
+        }
+        let target = heap.checked_target(*value).ok_or_else(invalid)?;
+        // Nominal/layout admission stays inside the checked directory borrow.
+        if !self.accepts_value(heap, value) {
+            return Err(invalid());
+        }
+        Ok(target)
     }
 
     pub(crate) fn accepts_value(&self, heap: &GcHeap, value: &Value) -> bool {

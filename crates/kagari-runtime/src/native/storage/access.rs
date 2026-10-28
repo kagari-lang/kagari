@@ -62,22 +62,7 @@ impl<'loan> StorageAccess<'loan> {
                 "native recovery cannot retain or publish new values",
             ));
         }
-        self.runtime.resources().ensure_execution_allowed()?;
-        contract.argument()?.validate(self.runtime)?;
-        let heap = self.runtime.gc();
-        let invalid = || {
-            RuntimeError::module_validation("native storage value differs from its closed contract")
-        };
-        if !value.is_default_heap_payload(heap) {
-            return Err(invalid());
-        }
-        let target = heap.checked_target(*value).ok_or_else(invalid)?;
-        // Nominal/layout admission is independent of the checked directory target.
-        // Its payload reads remain inside this same protected owner borrow.
-        if !contract.accepts_value(heap, value) {
-            return Err(invalid());
-        }
-        Ok(target)
+        contract.checked_target(self.runtime, value)
     }
 
     /// Retain a checked edge before it leaves this payload loan.

@@ -5,6 +5,7 @@ mod conversion;
 pub mod data;
 pub mod managed;
 mod methods;
+pub(crate) mod read;
 pub mod take;
 
 use crate::{
@@ -17,7 +18,7 @@ use crate::{
         binding::NativeResult,
         conversion::{KagariType, arguments::KagariArguments, context::ConversionContext},
         function_handle::Function,
-        payload::{data::NativeData, managed::AppliedSchema, take::NativeTake},
+        payload::{data::NativeData, managed::AppliedSchema, read::ReadReceiver, take::NativeTake},
         rust_type::RustType,
         storage::{
             NativePayload, NativeStorage, StorageContext,
@@ -150,7 +151,8 @@ impl<T: Send + 'static> Opaque<T> {
             self.type_argument().clone(),
             &value,
         )?;
-        cx.runtime().prepare_native_data_type(data)
+        cx.runtime()
+            .prepare_native_data_type(data, Some(cx.conversion.retention()))
     }
 
     /// Retain a typed relationship from this object's selected metadata. Each
@@ -214,13 +216,9 @@ impl<T: NativePayload> Opaque<T> {
         operation: Option<&NativeOperationGuard<'_>>,
         read: impl for<'a> FnOnce(&'a T, &mut StorageAccess<'a>) -> NativeResult<R>,
     ) -> NativeResult<R> {
-        cx.poll()?;
-        let Value::GcHandle(id) = self.value(cx.runtime().gc())? else {
-            unreachable!("opaque root")
-        };
         cx.runtime()
             .gc()
-            .read_native(cx.runtime(), id, operation, read)
+            .read_native(cx.runtime(), ReadReceiver::Opaque(self), operation, read)
     }
 
     /// Edit provider storage with preflighted accounting and unwind reconciliation.
@@ -317,8 +315,11 @@ impl NativeContext<'_> {
         let function = self.function.ok_or_else(|| {
             RuntimeError::module_validation("native construction requires a declared result")
         })?;
-        self.runtime()
-            .prepare_native_result_type::<T>(self.conversion.owner(), function)
+        self.runtime().prepare_native_result_type::<T>(
+            self.conversion.owner(),
+            function,
+            self.conversion.retention(),
+        )
     }
 }
 

@@ -1,5 +1,7 @@
 //! Storage lifecycle accounting and field throughput, measured in separate builds.
 //! Run with --release; --features diagnostics selects allocation accounting only.
+#[cfg(not(feature = "diagnostics"))]
+mod automatic;
 mod families;
 #[cfg(feature = "diagnostics")]
 mod memory;
@@ -107,13 +109,35 @@ fn main() {
     let arguments: Vec<_> = env::args().skip(1).collect();
     match arguments.as_slice() {
         [] => {}
+        [mode, flags @ ..] if mode == "--automatic-families" => {
+            #[cfg(feature = "diagnostics")]
+            {
+                let _ = flags;
+                panic!("automatic timing requires an ordinary build without diagnostics");
+            }
+            #[cfg(not(feature = "diagnostics"))]
+            {
+                assert!(
+                    flags
+                        .iter()
+                        .all(|flag| flag == "--check" || flag == "--pressure")
+                        && flags.iter().filter(|flag| *flag == "--check").count() <= 1
+                        && flags.iter().filter(|flag| *flag == "--pressure").count() <= 1,
+                    "usage: runtime_storage --automatic-families [--check] [--pressure]"
+                );
+                return automatic::run(
+                    flags.iter().any(|flag| flag == "--check"),
+                    flags.iter().any(|flag| flag == "--pressure"),
+                );
+            }
+        }
         [mode] if mode == "--families" => return families::run(),
         [mode] if mode == "--slab-model" => return slab_model::run(),
         [mode] if mode == "--script-keys" => return families::script_keys_only(),
         [mode] if mode == "--sort" => return sort::run(false),
         [mode, check] if mode == "--sort" && check == "--check" => return sort::run(true),
         _ => panic!(
-            "usage: runtime_storage [--families | --script-keys | --slab-model | --sort [--check]]"
+            "usage: runtime_storage [--families | --automatic-families [--check] [--pressure] | --script-keys | --slab-model | --sort [--check]]"
         ),
     }
     // Explicit collections separate live storage, reserved capacity and release.

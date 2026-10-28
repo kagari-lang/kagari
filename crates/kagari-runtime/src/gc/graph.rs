@@ -2,6 +2,8 @@
 //!
 //! Collection drains this marker synchronously; PG05 owns incremental scheduling.
 pub(crate) mod driver;
+#[cfg(test)]
+mod driver_tests;
 pub(crate) mod marks;
 pub(crate) mod objects;
 #[cfg(test)]
@@ -34,7 +36,7 @@ use crate::{
         graph::marks::{Color, MarkRef, WorkGroup},
     },
     module::scanning::{ProgramScanId, StaticScanId},
-    native::storage::scan::ScanBudget,
+    native::storage::scan::{ScanBudget, ScanStatus},
 };
 use std::{
     fmt,
@@ -47,7 +49,9 @@ use std::{
 };
 
 /// Shared control state only; storage and active payload cursors stay with their
-/// runtime owners. Never hold this lock while invoking a provider or an edge visitor.
+/// runtime owners. The driver may borrow control across runtime-owned scanners
+/// whose edge visitor only resolves checked owners and shades through that borrow.
+/// Release it before providers, host hooks, or drop-capable scan continuations.
 #[derive(Clone, Default)]
 pub(crate) struct GraphState(Arc<GraphControl>);
 
@@ -81,12 +85,32 @@ struct GraphControl {
     work: Mutex<GraphWork>,
 }
 
-/// Like MutexGuard, but records Poisoned before unwinding unlocks. Even a guard
-/// acquired during unwinding poisons this owner; Mutex itself may not flag that.
+/// Control failures carry no allocated diagnostic. Availability-only callers can
+/// reject them directly; reporting boundaries preserve the ordinary runtime errors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ControlError {
+    Poisoned,
+    Borrowed,
+}
+
+impl From<ControlError> for RuntimeError {
+    #[cold]
+    #[inline(never)]
+    fn from(error: ControlError) -> Self {
+        Self::module_validation(match error {
+            ControlError::Poisoned => "poisoned graph control state",
+            ControlError::Borrowed => "graph control state is borrowed",
+        })
+    }
+}
+
+/// Like MutexGuard, records Poisoned before a new unwind unlocks. A guard acquired
+/// during existing unwinding may finish mandatory recovery publication normally.
 #[derive(Debug)]
 pub(crate) struct GraphMarker<'a> {
     phase: &'a AtomicU8,
     work: MutexGuard<'a, GraphWork>,
+    panicking_on_entry: bool,
 }
 
 impl Deref for GraphMarker<'_> {
@@ -105,25 +129,28 @@ impl DerefMut for GraphMarker<'_> {
 
 impl Drop for GraphMarker<'_> {
     fn drop(&mut self) {
-        if thread::panicking() {
+        if !self.panicking_on_entry && thread::panicking() {
             self.set_phase(MarkPhase::Poisoned);
         }
     }
 }
 
 impl GraphState {
-    pub(crate) fn try_lock(&self) -> Result<GraphMarker<'_>, RuntimeError> {
+    pub(crate) fn try_lock(&self) -> Result<GraphMarker<'_>, ControlError> {
         match self.0.work.try_lock() {
             Ok(work) => {
                 let marker = GraphMarker {
                     phase: &self.0.phase,
                     work,
+                    panicking_on_entry: thread::panicking(),
                 };
-                // A guard acquired during unwinding can poison our owner without
-                // poisoning Mutex. Never expose work again in that terminal state.
+                // Poison is authoritative in the phase owner as well as the mutex.
+                // Recovery acquisition never clears an existing terminal state.
                 if marker.phase() == MarkPhase::Poisoned {
-                    return Err(Self::poisoned());
+                    return Err(ControlError::Poisoned);
                 }
+                #[cfg(test)]
+                driver_tests::record_acquisition();
                 Ok(marker)
             }
             Err(TryLockError::Poisoned(poisoned)) => {
@@ -131,11 +158,9 @@ impl GraphState {
                     .phase
                     .store(MarkPhase::Poisoned as u8, Ordering::Release);
                 drop(poisoned);
-                Err(Self::poisoned())
+                Err(ControlError::Poisoned)
             }
-            Err(TryLockError::WouldBlock) => Err(RuntimeError::module_validation(
-                "graph control state is borrowed",
-            )),
+            Err(TryLockError::WouldBlock) => Err(ControlError::Borrowed),
         }
     }
 
@@ -144,13 +169,8 @@ impl GraphState {
     }
 
     #[inline]
-    fn phase(&self) -> MarkPhase {
+    pub(crate) fn phase(&self) -> MarkPhase {
         MarkPhase::load(&self.0.phase)
-    }
-
-    #[cold]
-    fn poisoned() -> RuntimeError {
-        RuntimeError::module_validation("poisoned graph control state")
     }
 
     /// Call only after the original owner checks identity and occupancy, even in
@@ -171,7 +191,7 @@ impl GraphState {
         match self.phase() {
             MarkPhase::Idle => Ok(()),
             MarkPhase::Faulted => Err(Self::faulted_publication()),
-            MarkPhase::Poisoned => Err(Self::poisoned()),
+            MarkPhase::Poisoned => Err(ControlError::Poisoned.into()),
             MarkPhase::Roots | MarkPhase::Mark | MarkPhase::Sweep => self.publish_active(target),
         }
     }
@@ -195,19 +215,20 @@ impl GraphState {
     /// Read access never creates retention. Poison is an error; an explicit trace
     /// fault still permits diagnostic reads, as before, but never publication.
     #[inline]
-    pub(crate) fn accessible(&self, mark: MarkRef<'_>) -> Result<bool, RuntimeError> {
+    pub(crate) fn accessible(&self, mark: MarkRef<'_>) -> Result<bool, ControlError> {
         self.with_access(|| mark)
     }
 
     /// Like publication, ordinary availability must validate the owner first but
-    /// need not materialize a mark when there is no condemnation boundary.
+    /// need not materialize a mark when there is no condemnation boundary. Control
+    /// errors stay compact even when the caller rejects access without reporting.
     #[inline]
     pub(crate) fn with_access<'a>(
         &self,
         mark: impl FnOnce() -> MarkRef<'a>,
-    ) -> Result<bool, RuntimeError> {
+    ) -> Result<bool, ControlError> {
         match self.phase() {
-            MarkPhase::Poisoned => Err(Self::poisoned()),
+            MarkPhase::Poisoned => Err(ControlError::Poisoned),
             MarkPhase::Sweep => self.access_during_sweep(mark),
             MarkPhase::Idle | MarkPhase::Roots | MarkPhase::Mark | MarkPhase::Faulted => Ok(true),
         }
@@ -217,7 +238,7 @@ impl GraphState {
     fn access_during_sweep<'a>(
         &self,
         mark: impl FnOnce() -> MarkRef<'a>,
-    ) -> Result<bool, RuntimeError> {
+    ) -> Result<bool, ControlError> {
         Ok(self.try_lock()?.accessible(mark()))
     }
 }
@@ -286,7 +307,8 @@ enum WorkItem {
 pub(crate) struct GraphWork {
     epoch: u64,
     credits: usize,
-    bitmap_work: usize,
+    metadata_pressure: u128,
+
     pending: Vec<WorkItem>,
     work_credits: usize,
     active: Option<GraphIdentity>,
@@ -316,6 +338,9 @@ impl GraphMarker<'_> {
             return Err(RuntimeError::module_validation("faulted graph admission"));
         }
         self.prepared = false;
+        self.metadata_pressure
+            .checked_add(1)
+            .ok_or_else(|| RuntimeError::resource_limit("committed metadata pressure"))?;
         self.credits
             .checked_add(1)
             .ok_or_else(|| RuntimeError::resource_limit("graph identity credits"))?;
@@ -357,12 +382,19 @@ impl GraphMarker<'_> {
             MarkPhase::Sweep => Color::Black,
             MarkPhase::Faulted | MarkPhase::Poisoned => panic!("admission after graph fault"),
         };
-        self.bitmap_work += mark.set(self.epoch, color);
+        mark.set(self.epoch, color);
         if color == Color::Gray {
             self.enqueue(id, mark);
         }
         self.credits += 1;
+        if !matches!(id, GraphIdentity::Object(_) | GraphIdentity::Moved(_)) {
+            self.metadata_pressure += 1;
+        }
         self.check_credits();
+    }
+
+    pub(crate) fn committed_metadata_pressure(&self) -> u128 {
+        self.metadata_pressure
     }
 
     /// Transfer color to the inert identity's original moved-ledger slot block.
@@ -381,8 +413,8 @@ impl GraphMarker<'_> {
             self.work_credits += 1;
         }
         let color = source.color(self.epoch);
-        self.bitmap_work += target.set(self.epoch, color);
-        self.bitmap_work += source.set(self.epoch, Color::White);
+        target.set(self.epoch, color);
+        source.set(self.epoch, Color::White);
         if color == Color::Gray {
             self.enqueue(id, target);
         }
@@ -472,7 +504,7 @@ impl GraphMarker<'_> {
         match self.phase() {
             MarkPhase::Idle => return Ok(()),
             MarkPhase::Faulted => return Err(Self::invalid("faulted graph publication")),
-            MarkPhase::Poisoned => return Err(GraphState::poisoned()),
+            MarkPhase::Poisoned => return Err(ControlError::Poisoned.into()),
             MarkPhase::Sweep => {
                 return if mark.color(self.epoch) == Color::Black {
                     Ok(())
@@ -483,7 +515,7 @@ impl GraphMarker<'_> {
             MarkPhase::Roots | MarkPhase::Mark => {}
         }
         if mark.color(self.epoch) == Color::White {
-            self.bitmap_work += mark.set(self.epoch, Color::Gray);
+            mark.set(self.epoch, Color::Gray);
             self.enqueue(id, mark);
         }
         self.check_credits();
@@ -499,7 +531,7 @@ impl GraphMarker<'_> {
             return Err(Self::invalid("graph mark epoch exhausted"));
         };
         self.epoch = epoch;
-        self.bitmap_work = 0;
+
         self.set_phase(MarkPhase::Roots);
         self.roots_finished = false;
         Ok(())
@@ -551,7 +583,8 @@ impl GraphMarker<'_> {
         if mark.color(self.epoch) != Color::Gray {
             return Err(Self::invalid("invalid active graph color"));
         }
-        self.bitmap_work += mark.set(self.epoch, Color::Black);
+        // Gray proves this block is already initialized in the current epoch.
+        mark.set(self.epoch, Color::Black);
         self.active = None;
         Ok(())
     }
@@ -572,7 +605,6 @@ impl GraphMarker<'_> {
             || !self.roots_finished
             || self.active.is_some()
             || !self.pending.is_empty()
-            || self.bitmap_work != 0
         {
             return Err(Self::invalid("graph marking is not closed"));
         }
@@ -615,36 +647,51 @@ impl GraphMarker<'_> {
         }
     }
 
-    pub(crate) fn finish_sweep(&mut self) -> Result<(), RuntimeError> {
+    /// Return the prior queue backing size when this completion compacts it.
+    /// The collection owner supplies optional observation timing, not this marker.
+    pub(crate) fn finish_sweep(&mut self) -> Result<usize, RuntimeError> {
         if self.phase() != MarkPhase::Sweep {
             return Err(Self::invalid("invalid graph sweep completion"));
         }
         self.set_phase(MarkPhase::Idle);
-        self.trim_idle_capacity();
-        Ok(())
+        Ok(self.trim_idle_capacity())
     }
 
     /// Once per successful sweep, never per retirement. Hysteresis avoids repeated
     /// shrinking/growing; capacity covers registered blocks and admitted singletons.
     /// Stable slot blocks remain with their generation-owning stores, not payload pages.
-    pub(crate) fn trim_idle_capacity(&mut self) {
+    fn trim_idle_capacity(&mut self) -> usize {
         assert_eq!(self.phase(), MarkPhase::Idle);
         assert!(self.pending.is_empty() && self.active.is_none());
+        let mut compacted = 0;
         if self.pending.capacity() > self.work_credits.saturating_mul(4).max(64) {
             let target = self.work_credits.saturating_mul(2);
+            compacted = self
+                .pending
+                .capacity()
+                .saturating_mul(size_of::<WorkItem>());
             self.pending.shrink_to(target);
         }
         self.check_credits();
+        compacted
     }
 
-    pub(crate) fn charge_bitmap_work(&mut self, budget: &mut ScanBudget) -> bool {
-        while self.bitmap_work != 0 {
-            if !budget.take(1) {
-                return false;
-            }
-            self.bitmap_work -= 1;
+    /// Collector edges reserve the actual lazy reset before touching any word.
+    /// Pending leaves both the target and its owning scan cursor unchanged.
+    pub(crate) fn shade_scanned(
+        &mut self,
+        id: GraphIdentity,
+        mark: MarkRef<'_>,
+        budget: &mut ScanBudget,
+    ) -> Result<ScanStatus, RuntimeError> {
+        if !matches!(self.phase(), MarkPhase::Roots | MarkPhase::Mark) {
+            return Err(Self::invalid("scanned edge outside marking"));
         }
-        true
+        if !budget.take(mark.initialization_work(self.epoch)) {
+            return Ok(ScanStatus::Pending);
+        }
+        self.shade(id, mark)?;
+        Ok(ScanStatus::Complete)
     }
 
     pub(crate) fn fault(&mut self) {

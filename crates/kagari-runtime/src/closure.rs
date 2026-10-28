@@ -302,7 +302,7 @@ impl ClosureValueSnapshot {
         if parameters.len() != expected.len() {
             return Ok(false);
         }
-        let resolve = |physical, semantic: Option<&Ty>| {
+        let resolve = |physical, semantic: Option<&Ty>| -> Result<ValueType, RuntimeError> {
             if physical != ValueType::Generic {
                 return Ok(physical);
             }

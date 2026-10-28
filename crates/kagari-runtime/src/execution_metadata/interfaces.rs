@@ -1,22 +1,24 @@
 //! Runtime-owned interface snapshots, addressed by checked identities.
 use crate::{
     error::RuntimeError,
+    execution_metadata::{
+        scan_records::{InterfaceDescriptionScanId, RetiredScanRecord},
+        scanning::{MetadataSweepCursor, RetirementBatch},
+    },
     frame::types::{compatibility::TypeIdentity, construction::ConstructionIdentity},
     gc::{
         GcHeap,
         graph::{
-            GraphIdentity,
+            GraphIdentity, GraphMarker,
             marks::{Domain, MarkBlocks, MarkRef},
         },
         interfaces::{InterfaceDescription, InterfaceValueSnapshot},
+        weak_cache::{WeakCache, WeakCacheToken},
     },
     module::ModuleKey,
+    native::storage::scan::{ScanBudget, ScanStatus},
 };
-use std::{
-    cell::Ref,
-    collections::{HashMap, TryReserveError},
-    sync::{Arc, Weak},
-};
+use std::{cell::Ref, collections::TryReserveError, sync::Arc};
 
 #[cfg(feature = "execution-diagnostics")]
 use crate::diagnostics::storage::BufferUsage;
@@ -31,6 +33,9 @@ pub(crate) struct InterfaceDescriptionKey {
     pub(crate) arguments: Vec<Arc<TypeIdentity>>,
     pub(crate) constructions: ConstructionIdentity,
 }
+
+pub(crate) type InterfaceDescriptionRelease =
+    WeakCacheToken<InterfaceDescriptionKey, InterfaceDescription>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct InterfaceSnapshotId {
@@ -60,7 +65,7 @@ pub(crate) struct InterfaceStore {
     marks: MarkBlocks,
     free: Vec<usize>,
     count: usize,
-    descriptions: HashMap<InterfaceDescriptionKey, Weak<InterfaceDescription>>,
+    descriptions: WeakCache<InterfaceDescriptionKey, InterfaceDescription>,
 }
 
 impl InterfaceStore {
@@ -71,7 +76,7 @@ impl InterfaceStore {
             marks: MarkBlocks::default(),
             free: Vec::new(),
             count: 0,
-            descriptions: HashMap::new(),
+            descriptions: WeakCache::default(),
         }
     }
 
@@ -85,6 +90,8 @@ impl InterfaceStore {
             Some(slot) => slot,
             None => {
                 self.slots.try_reserve(1)?;
+                self.free
+                    .try_reserve(self.slots.len() + 1 - self.free.len())?;
                 self.slots.push(Slot {
                     generation: 0,
                     interface: None,
@@ -131,11 +138,6 @@ impl InterfaceStore {
         BufferUsage::new("interface_snapshots", &self.slots)
     }
 
-    pub(crate) fn prune_descriptions(&mut self) {
-        self.descriptions
-            .retain(|_, description| description.strong_count() != 0);
-    }
-
     pub(crate) fn mark(&self, id: InterfaceSnapshotId) -> Option<MarkRef<'_>> {
         self.get(id)?;
         Some(self.marks.slot(Domain::Interface, id.slot))
@@ -159,31 +161,47 @@ impl InterfaceStore {
         self.count
     }
 
-    /// The whole graph has been marked and validated before any store detaches.
-    pub(crate) fn detach_batch(
+    pub(crate) fn begin_sweep(&self) -> MetadataSweepCursor {
+        MetadataSweepCursor::new(self.owner, Domain::Interface, self.slots.len())
+    }
+
+    /// The driver must finish old heap-wrapper retirement before this owner runs.
+    pub(crate) fn detach_slice(
         &mut self,
-        cursor: &mut usize,
+        cursor: &mut MetadataSweepCursor,
+        budget: &mut ScanBudget,
         limit: usize,
-        mut survivor: impl FnMut(MarkRef<'_>) -> bool,
-    ) -> Vec<InterfaceValueSnapshot> {
-        assert!(limit != 0);
-        let mut retired = Vec::new();
-        while *cursor < self.slots.len() && retired.len() < limit {
-            let index = *cursor;
-            *cursor += 1;
+        graph: &mut GraphMarker<'_>,
+        retired: &mut Vec<InterfaceValueSnapshot>,
+    ) -> Result<ScanStatus, RuntimeError> {
+        cursor.validate(
+            self.owner,
+            Domain::Interface,
+            self.slots.len(),
+            graph.phase(),
+        )?;
+        let batch = RetirementBatch::new(retired.len(), limit)?;
+        while cursor.next < cursor.end {
+            if batch.is_full(retired.len()) || !budget.take(1) {
+                return Ok(ScanStatus::Pending);
+            }
+            let index = cursor.next;
             let slot = &mut self.slots[index];
-            if !survivor(self.marks.slot(Domain::Interface, index))
-                && let Some(interface) = slot.interface.take()
-            {
-                retired.push(interface);
+            let mark = self.marks.slot(Domain::Interface, index);
+            if slot.interface.is_some() && !graph.is_survivor(mark)? {
+                graph.can_retire(mark)?;
+                batch.prepare(retired, cursor.remaining_slots())?;
+                retired.push(slot.interface.take().expect("occupied interface"));
+                graph.retire_prepared();
                 self.count -= 1;
                 if let Some(generation) = slot.generation.checked_add(1) {
                     slot.generation = generation;
                     self.free.push(index);
                 }
             }
+            cursor.next += 1;
         }
-        retired
+        Ok(ScanStatus::Complete)
     }
 }
 
@@ -192,13 +210,7 @@ impl GcHeap {
         &self,
         key: &InterfaceDescriptionKey,
     ) -> Option<Arc<InterfaceDescription>> {
-        let description = self
-            .interfaces
-            .try_borrow()
-            .ok()?
-            .descriptions
-            .get(key)?
-            .upgrade()?;
+        let description = self.interfaces.try_borrow().ok()?.descriptions.get(key)?;
         self.publish_heap_identity(GraphIdentity::InterfaceDescription(description.scan_id))
             .ok()?;
         Some(description)
@@ -212,16 +224,56 @@ impl GcHeap {
     ) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
         self.publish_heap_identity(GraphIdentity::InterfaceDescription(description.scan_id))?;
-        let mut store = self
-            .interfaces
-            .try_borrow_mut()
-            .map_err(|_| RuntimeError::module_validation("interface snapshot store is borrowed"))?;
-        store
-            .descriptions
-            .try_reserve(1)
-            .map_err(|_| self.resource_limit("interface description registry"))?;
-        store.descriptions.insert(key, Arc::downgrade(description));
+        let displaced = {
+            let mut store = self.interfaces.try_borrow_mut().map_err(|_| {
+                RuntimeError::module_validation("interface snapshot store is borrowed")
+            })?;
+            let admission = store.descriptions.prepare_insert(key, description)?;
+            let previous = self
+                .interface_descriptions
+                .try_borrow_mut()
+                .map_err(|_| {
+                    RuntimeError::module_validation("interface description store is borrowed")
+                })?
+                .cache_release(description.scan_id, admission.token())?;
+            (admission.commit(), previous)
+        };
+        drop(displaced);
         Ok(())
+    }
+
+    /// Release the original cache admission with a fixed precharged structural bound.
+    /// Pending leaves the cache intact; the caller must retain the retirement and
+    /// reserve cache-release work before detaching it. Final key/weak destruction
+    /// remains with the caller's retired scan record.
+    pub(crate) fn release_interface_description_cache(
+        &self,
+        retired: &RetiredScanRecord<InterfaceDescription, InterfaceDescriptionScanId>,
+        budget: &mut ScanBudget,
+    ) -> Result<ScanStatus, RuntimeError> {
+        if retired.id != retired.record.scan_id {
+            return Err(RuntimeError::module_validation(
+                "foreign retired description record",
+            ));
+        }
+        let Some(release) = &retired.cache_release else {
+            return Ok(ScanStatus::Complete);
+        };
+        if !release.is_for(&retired.record) {
+            return Err(RuntimeError::module_validation(
+                "foreign description cache release",
+            ));
+        }
+        let (status, removed) = {
+            let mut store = self.interfaces.try_borrow_mut().map_err(|_| {
+                RuntimeError::module_validation("interface snapshot store is borrowed")
+            })?;
+            store.descriptions.remove(release, budget)
+        };
+        // The retired record retains the same key/weak allocations, so this drop
+        // cannot destroy their backing. Its later disposal owns final destruction.
+        drop(removed);
+        Ok(status)
     }
 
     pub(crate) fn alloc_interface_snapshot(

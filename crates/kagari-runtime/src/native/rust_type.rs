@@ -7,7 +7,10 @@ use crate::{
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
-        conversion::{KagariType, context::ConversionContext},
+        conversion::{
+            KagariType,
+            context::{ConversionContext, ConversionRetention},
+        },
         projection::GeneratedField,
     },
 };
@@ -87,14 +90,17 @@ impl<T: Send + 'static> RustType<T> {
         runtime: &Runtime,
         owner: &ExecutableModule,
         argument: TypeArgument,
+        authority: Option<ConversionRetention<'_>>,
     ) -> NativeResult<Self> {
         runtime.gc().ensure_no_native_borrow()?;
         runtime.resources().ensure_execution_allowed()?;
         runtime.validate_executable_module(owner)?;
         check_mapping::<T>(runtime, owner, &argument)?;
-        let program = runtime
-            .retain_program(owner, ModuleEpochRetention::RuntimeValue)
-            .ok_or_else(invalid)?;
+        let program = match authority {
+            Some(authority) => authority.retain(runtime, owner, ModuleEpochRetention::RuntimeValue),
+            None => runtime.retain_program(owner, ModuleEpochRetention::RuntimeValue),
+        }
+        .ok_or_else(invalid)?;
         Ok(Self {
             record: Arc::new(TypeRecord {
                 argument,
@@ -163,7 +169,7 @@ impl Runtime {
         let owner = &snapshot.root;
         let cx = ConversionContext::new(self, owner)?;
         let argument = cx.type_for::<T>()?;
-        RustType::prepare(self, owner, argument)
+        RustType::prepare(self, owner, argument, Some(cx.retention()))
     }
 }
 
@@ -184,20 +190,27 @@ pub(crate) fn check_mapping<T: Send + 'static>(
                 return Err(invalid());
             }
         }
-        Ty::NativeObject(nominal) => {
-            if runtime
-                .native_entries
-                .storage
-                .get_id(nominal.declaration)
-                .is_none_or(|storage| {
-                    storage.layout() != NativeStorageLayout::Opaque
-                        || !storage.accepts_payload::<T>()
-                })
-            {
-                return Err(invalid());
-            }
-        }
+        Ty::NativeObject(nominal) => check_opaque_mapping::<T>(runtime, nominal.declaration)?,
         _ => return Err(invalid()),
+    }
+    Ok(())
+}
+
+/// Check installed storage after the caller has validated the argument's scope.
+/// Dynamic execution/owner admission stays with the enclosing operation.
+pub(in crate::native) fn check_opaque_mapping<T: Send + 'static>(
+    runtime: &Runtime,
+    declaration: DefinitionId,
+) -> NativeResult<()> {
+    if runtime
+        .native_entries
+        .storage
+        .get_id(declaration)
+        .is_none_or(|storage| {
+            storage.layout() != NativeStorageLayout::Opaque || !storage.accepts_payload::<T>()
+        })
+    {
+        return Err(invalid());
     }
     Ok(())
 }

@@ -24,30 +24,55 @@ fn application() -> MethodApplication {
 
 #[test]
 fn foreign_stale_out_of_bounds_and_exhausted_application_ids_cannot_alias() {
-    let mut store = ApplicationStore::new(1);
-    let mut other = ApplicationStore::new(2);
-    let old = store.insert(application()).unwrap();
-    let foreign = other.insert(application()).unwrap();
-    assert!(store.get(foreign).is_none());
-    assert!(other.get(old).is_none());
+    let runtime = Runtime::default();
+    let other = Runtime::default();
+    let old = runtime
+        .gc
+        .alloc_method_application(runtime.modules(), application())
+        .unwrap();
+    let foreign = other
+        .gc
+        .alloc_method_application(other.modules(), application())
+        .unwrap();
+    assert!(runtime.gc.method_application(foreign).is_none());
+    assert!(other.gc.method_application(old).is_none());
     assert!(
-        store
-            .get(ApplicationId {
+        runtime
+            .gc
+            .method_application(ApplicationId {
                 slot: usize::MAX,
                 ..old
             })
             .is_none()
     );
-    assert_eq!(store.detach_batch(&mut 0, 32, |_| false).len(), 1);
-    let next = store.insert(application()).unwrap();
+    assert_eq!(
+        runtime
+            .collect_garbage()
+            .unwrap()
+            .reclaimed_method_applications,
+        1
+    );
+    let next = runtime
+        .gc
+        .alloc_method_application(runtime.modules(), application())
+        .unwrap();
     assert_eq!(next.slot, old.slot);
     assert_ne!(next.generation, old.generation);
-    assert!(store.get(old).is_none());
-    store.slots[next.slot].generation = u64::MAX;
-    assert_eq!(store.detach_batch(&mut 0, 32, |_| false).len(), 1);
-    let fresh = store.insert(application()).unwrap();
+    assert!(runtime.gc.method_application(old).is_none());
+    runtime.gc.applications.borrow_mut().slots[next.slot].generation = u64::MAX;
+    assert_eq!(
+        runtime
+            .collect_garbage()
+            .unwrap()
+            .reclaimed_method_applications,
+        1
+    );
+    let fresh = runtime
+        .gc
+        .alloc_method_application(runtime.modules(), application())
+        .unwrap();
     assert_ne!(fresh.slot, next.slot);
-    assert_eq!(store.count(), 1);
+    assert_eq!(runtime.gc.applications.borrow().count(), 1);
 }
 
 #[test]

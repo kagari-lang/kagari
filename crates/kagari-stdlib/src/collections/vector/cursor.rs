@@ -4,8 +4,8 @@ use kagari_runtime::{
     error::RuntimeError,
     native::{
         binding::NativeResult,
-        conversion::{IntoKagari, context::ConversionContext},
-        payload::Opaque,
+        conversion::IntoKagari,
+        payload::{Opaque, borrowed::BorrowedPayload},
         storage::{
             NativePayload,
             access::EditPlan,
@@ -60,8 +60,12 @@ pub(crate) fn iter(
     let argument = values.object.type_argument().clone();
     let owner = values.object.owner().clone();
     let contract = StorageType::prepare_scoped(argument.clone(), &owner)?;
-    let mut conversion = ConversionContext::new(cx.runtime(), cx.owner())?;
-    let source = values.into_kagari(&mut conversion, &argument)?;
+    // Keep the existing owning root through cursor publication after the temporary
+    // conversion ends. Cloning the handle shares that root rather than registering one.
+    let source = {
+        let mut conversion = cx.conversion_scope(cx.owner())?;
+        values.clone().into_kagari(&mut conversion, &argument)?
+    };
     ty.create(
         cx,
         VecCursor {
@@ -76,20 +80,22 @@ pub(crate) fn iter(
 
 pub(crate) fn next(
     cx: &mut NativeContext<'_>,
-    (cursor,): (Opaque<VecCursor>,),
+    cursor: &BorrowedPayload<'_, VecCursor>,
 ) -> NativeResult<Option<ScriptValue>> {
-    // SAFETY: Retain source before ending the cursor loan. Extracted items remain
-    // rooted across cursor advancement and Option result allocation.
+    // SAFETY: The rooted cursor scans its unchanged source edge. Between the
+    // parent loan and immediate source read there is no callback or collection,
+    // so an alias cannot remove that protection. Retain the escaping item under
+    // the source loan before advancement and fallible result conversion.
     unsafe {
-        let (source, index, revision) = cursor.read(cx, None, |cursor, access| {
+        let (source, contract, index, revision) = cursor.read(cx, None, |cursor, _| {
             Ok((
-                access.retain(&cursor.contract, &cursor.source)?,
+                cursor.source,
+                cursor.contract.clone(),
                 cursor.index,
                 cursor.revision,
             ))
         })?;
-        let source = source.decode::<Opaque<VecStorage>>(cx)?;
-        let value = source.read(cx, None, |values, access| {
+        let value = cx.read_payload::<VecStorage, _>(source, &contract, |values, access| {
             access.check_revision(revision).map_err(|_| {
                 RuntimeError::module_validation("invalid or structurally modified iterator")
             })?;

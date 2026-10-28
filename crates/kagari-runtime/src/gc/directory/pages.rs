@@ -1,11 +1,17 @@
 //! One nonmoving allocator and disposal protocol with small-slab and large controls.
+mod allocation;
 mod backing;
+pub(in crate::gc) mod batch;
 pub(super) mod retirement;
 mod sweep;
 #[cfg(test)]
 mod tests;
 
-use self::{backing::Backing, sweep::Cursor};
+use self::{
+    allocation::{Allocation, Large, Links, Slot, Small},
+    backing::Backing,
+    sweep::Cursor,
+};
 use crate::{
     error::RuntimeError,
     gc::directory::{
@@ -30,140 +36,6 @@ pub(super) const CLASSES: [usize; 24] = [
     8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 448, 512, 640,
     768, 896, 1024,
 ];
-
-#[derive(Debug, Default)]
-struct Slot {
-    directory: u32,
-    descriptor: Option<DescriptorId>,
-}
-
-/// Allocation admission reserves MAX as the absent link, avoiding two padded
-/// Option<u32> fields per list while retaining full owner-local mark epochs.
-#[derive(Debug, Clone, Copy)]
-struct Links {
-    previous: u32,
-    next: u32,
-}
-
-impl Default for Links {
-    fn default() -> Self {
-        Self {
-            previous: u32::MAX,
-            next: u32::MAX,
-        }
-    }
-}
-
-impl Links {
-    fn previous(self) -> Option<u32> {
-        (self.previous != u32::MAX).then_some(self.previous)
-    }
-
-    fn next(self) -> Option<u32> {
-        (self.next != u32::MAX).then_some(self.next)
-    }
-}
-
-#[derive(Debug)]
-struct Small {
-    backing: Arc<Backing>,
-    slots: Box<[Slot]>,
-    // Occupied then retiring words, sized to this class's actual slot count.
-    bits: Box<[u64]>,
-    stride: usize,
-    group: usize,
-    free: usize,
-    available: Links,
-    active: Links,
-}
-
-impl Small {
-    fn new(group: usize) -> NativeResult<Self> {
-        let stride = CLASSES[group / 2];
-        let count = SLAB_BYTES / stride;
-        let mut slots = Vec::new();
-        slots
-            .try_reserve_exact(count)
-            .map_err(|_| RuntimeError::resource_limit("slab slots"))?;
-        slots.resize_with(count, Slot::default);
-        let mut bits = Vec::new();
-        bits.try_reserve_exact(count.div_ceil(64) * 2)
-            .map_err(|_| RuntimeError::resource_limit("slab bitmaps"))?;
-        bits.resize(count.div_ceil(64) * 2, 0);
-        Ok(Self {
-            backing: Backing::new(Layout::from_size_align(SLAB_BYTES, 16).unwrap())?,
-            slots: slots.into_boxed_slice(),
-            bits: bits.into_boxed_slice(),
-            stride,
-            group,
-            free: count,
-            available: Links::default(),
-            active: Links::default(),
-        })
-    }
-
-    fn pointer(&self, slot: usize) -> NonNull<u8> {
-        assert!(slot < self.slots.len());
-        // SAFETY: checked slab range, stride is aligned for every admitted layout.
-        unsafe { self.backing.pointer.add(slot * self.stride) }
-    }
-
-    fn reserve(&mut self) -> usize {
-        let words = self.bits.len() / 2;
-        for word in 0..words {
-            let bits = !(self.bits[word] | self.bits[words + word]);
-            let slot = word * 64 + bits.trailing_zeros() as usize;
-            if bits != 0 && slot < self.slots.len() {
-                self.bits[words + word] |= 1 << (slot % 64);
-                self.free -= 1;
-                return slot;
-            }
-        }
-        unreachable!("nonfull slab")
-    }
-}
-
-/// No slot array or slab-sized bitmaps on the large/overaligned path.
-#[derive(Debug)]
-struct Large {
-    backing: Arc<Backing>,
-    descriptor: Option<DescriptorId>,
-    directory: u32,
-    active: Links,
-}
-
-#[derive(Debug)]
-enum Allocation {
-    Small(Box<Small>),
-    Large(Box<Large>),
-    Vacant(Option<u32>),
-}
-
-impl Allocation {
-    fn active(&self) -> Option<&Links> {
-        match self {
-            Self::Small(page) => Some(&page.active),
-            Self::Large(large) => Some(&large.active),
-            Self::Vacant(_) => None,
-        }
-    }
-
-    fn active_mut(&mut self) -> &mut Links {
-        match self {
-            Self::Small(page) => &mut page.active,
-            Self::Large(large) => &mut large.active,
-            Self::Vacant(_) => unreachable!("active allocation"),
-        }
-    }
-
-    fn bytes(&self) -> usize {
-        match self {
-            Self::Small(page) => page.backing.layout.size(),
-            Self::Large(large) => large.backing.layout.size(),
-            Self::Vacant(_) => 0,
-        }
-    }
-}
 
 #[derive(Debug)]
 pub(super) struct Pages {
@@ -227,7 +99,7 @@ impl Retired {
             unreachable!("physical payload")
         };
         // SAFETY: checked offset and backing retained through disposal.
-        unsafe { backing.pointer.add(*offset) }
+        unsafe { backing.pointer().add(*offset) }
     }
 
     pub(in crate::gc) fn take_native<T: NativeTake>(&mut self) -> T {
@@ -275,7 +147,7 @@ impl Retired {
         };
         catch_unwind(AssertUnwindSafe(|| {
             // SAFETY: initialization consumed before dispatch, even on panic.
-            unsafe { destroy(backing.pointer.add(*offset)) };
+            unsafe { destroy(backing.pointer().add(*offset)) };
         }))
         .is_err()
     }
@@ -313,12 +185,12 @@ impl Pages {
     }
 
     fn link_available(&mut self, index: u32) {
-        let group = self.small(index).group;
+        let group = self.small(index).group();
         let next = self.available[group];
         if let Some(next) = next {
-            self.small_mut(next).available.previous = index;
+            self.small_mut(next).state_mut().available.previous = index;
         }
-        self.small_mut(index).available = Links {
+        self.small_mut(index).state_mut().available = Links {
             previous: u32::MAX,
             next: next.unwrap_or(u32::MAX),
         };
@@ -327,16 +199,16 @@ impl Pages {
 
     fn unlink_available(&mut self, index: u32) {
         let page = self.small(index);
-        let (group, links) = (page.group, page.available);
+        let (group, links) = (page.group(), page.state().available);
         if let Some(previous) = links.previous() {
-            self.small_mut(previous).available.next = links.next;
+            self.small_mut(previous).state_mut().available.next = links.next;
         } else {
             self.available[group] = links.next();
         }
         if let Some(next) = links.next() {
-            self.small_mut(next).available.previous = links.previous;
+            self.small_mut(next).state_mut().available.previous = links.previous;
         }
-        self.small_mut(index).available = Links::default();
+        self.small_mut(index).state_mut().available = Links::default();
     }
 
     fn publish_allocation(&mut self, mut allocation: Allocation) -> NativeResult<u32> {
@@ -435,27 +307,21 @@ impl Pages {
                 let index = if let Some(index) = self.available[group] {
                     index
                 } else {
-                    let index =
-                        self.publish_allocation(Allocation::Small(Box::new(Small::new(group)?)))?;
+                    let index = self.publish_allocation(Allocation::Small(Small::new(group)?))?;
                     self.link_available(index);
                     index
                 };
                 let page = self.small_mut(index);
                 let slot = page.reserve();
                 let pointer = page.pointer(slot);
-                if page.free == 0 {
+                if page.state().free == 0 {
                     self.unlink_available(index);
                 }
                 (index, slot, pointer)
             } else {
-                let backing = Backing::new(descriptor.layout)?;
-                let pointer = backing.pointer;
-                let index = self.publish_allocation(Allocation::Large(Box::new(Large {
-                    backing,
-                    descriptor: None,
-                    directory,
-                    active: Links::default(),
-                })))?;
+                let large = Large::new(descriptor.layout, directory)?;
+                let pointer = large.backing().pointer();
+                let index = self.publish_allocation(Allocation::Large(large))?;
                 (index, 0, pointer)
             };
         let location = PayloadLocation {
@@ -476,15 +342,16 @@ impl Pages {
         }
         match &mut self.allocations[index as usize] {
             Allocation::Small(page) => {
-                let words = page.bits.len() / 2;
-                page.bits[words + slot / 64] &= !(1 << (slot % 64));
-                page.bits[slot / 64] |= 1 << (slot % 64);
-                page.slots[slot] = Slot {
+                let parts = page.parts_mut();
+                let words = parts.bits.len() / 2;
+                parts.bits[words + slot / 64] &= !(1 << (slot % 64));
+                parts.bits[slot / 64] |= 1 << (slot % 64);
+                parts.slots[slot] = Slot {
                     directory,
                     descriptor: Some(id),
                 };
             }
-            Allocation::Large(large) => large.descriptor = Some(id),
+            Allocation::Large(large) => large.header_mut().descriptor = Some(id),
             Allocation::Vacant(_) => unreachable!(),
         }
         Ok(location)
@@ -493,8 +360,8 @@ impl Pages {
     pub(super) fn directory(&self, location: PayloadLocation) -> Option<u32> {
         self.get(location)?;
         match self.allocations.get(location.page as usize)? {
-            Allocation::Small(page) => Some(page.slots[location.slot as usize].directory),
-            Allocation::Large(large) => Some(large.directory),
+            Allocation::Small(page) => Some(page.slots()[location.slot as usize].directory),
+            Allocation::Large(large) => Some(large.header().directory),
             Allocation::Vacant(_) => None,
         }
     }
@@ -502,11 +369,11 @@ impl Pages {
     pub(super) fn get(&self, location: PayloadLocation) -> Option<(NonNull<u8>, &Descriptor)> {
         let (pointer, id) = match self.allocations.get(location.page as usize)? {
             Allocation::Small(page) => {
-                let slot = page.slots.get(location.slot as usize)?;
+                let slot = page.slots().get(location.slot as usize)?;
                 (page.pointer(location.slot as usize), slot.descriptor?)
             }
             Allocation::Large(large) if location.slot == 0 => {
-                (large.backing.pointer, large.descriptor?)
+                (large.backing().pointer(), large.header().descriptor?)
             }
             _ => return None,
         };
@@ -521,16 +388,18 @@ impl Pages {
         .flat_map(move |index| {
             let allocation = &self.allocations[index as usize];
             let count = match allocation {
-                Allocation::Small(page) => page.slots.len(),
+                Allocation::Small(page) => page.slots().len(),
                 Allocation::Large(_) => 1,
                 _ => 0,
             };
             (0..count).filter_map(move |slot| {
                 let (directory, id) = match allocation {
                     Allocation::Small(page) => {
-                        (page.slots[slot].directory, page.slots[slot].descriptor?)
+                        (page.slots()[slot].directory, page.slots()[slot].descriptor?)
                     }
-                    Allocation::Large(large) => (large.directory, large.descriptor?),
+                    Allocation::Large(large) => {
+                        (large.header().directory, large.header().descriptor?)
+                    }
                     _ => return None,
                 };
                 Some((directory, index, slot as u16, id))
@@ -560,13 +429,18 @@ impl Pages {
         let (backing, id, offset) = match &mut self.allocations[location.page as usize] {
             Allocation::Small(page) => {
                 let slot = location.slot as usize;
-                let id = page.slots[slot].descriptor.take()?;
-                let words = page.bits.len() / 2;
-                page.bits[slot / 64] &= !(1 << (slot % 64));
-                page.bits[words + slot / 64] |= 1 << (slot % 64);
-                (page.backing.clone(), id, slot * page.stride)
+                let parts = page.parts_mut();
+                let id = parts.slots[slot].descriptor.take()?;
+                let words = parts.bits.len() / 2;
+                parts.bits[slot / 64] &= !(1 << (slot % 64));
+                parts.bits[words + slot / 64] |= 1 << (slot % 64);
+                (page.backing().clone(), id, slot * page.stride())
             }
-            Allocation::Large(large) => (large.backing.clone(), large.descriptor.take()?, 0),
+            Allocation::Large(large) => (
+                large.backing().clone(),
+                large.header_mut().descriptor.take()?,
+                0,
+            ),
             Allocation::Vacant(_) => unreachable!(),
         };
         Some(Retired::Payload {
@@ -580,14 +454,19 @@ impl Pages {
     }
 
     pub(super) fn finish(&mut self, retired: Retired) -> (usize, Retired) {
+        let released = self.finish_payload(&retired);
+        (released, retired)
+    }
+
+    pub(in crate::gc::directory) fn finish_payload(&mut self, retired: &Retired) -> usize {
         assert!(retired.is_disposed());
         let Retired::Payload {
             location,
             descriptor_id,
             ..
-        } = &retired
+        } = retired
         else {
-            return (0, retired);
+            return 0;
         };
         let (location, descriptor_id) = (*location, *descriptor_id);
         let before = self.backing_bytes;
@@ -595,19 +474,20 @@ impl Pages {
         self.descriptors.release(descriptor_id);
         // Keep the last backing/descriptor owners until the caller releases its
         // storage borrow. Descriptor provenance can itself own drop-bearing state.
-        (before - self.backing_bytes, retired)
+        before - self.backing_bytes
     }
 
     fn finish_slot(&mut self, location: PayloadLocation) {
         match &mut self.allocations[location.page as usize] {
             Allocation::Small(page) => {
                 let slot = location.slot as usize;
-                let words = page.bits.len() / 2;
-                assert_ne!(page.bits[words + slot / 64] & (1 << (slot % 64)), 0);
-                page.bits[words + slot / 64] &= !(1 << (slot % 64));
-                let was_full = page.free == 0;
-                page.free += 1;
-                if page.free == page.slots.len() {
+                let parts = page.parts_mut();
+                let words = parts.bits.len() / 2;
+                assert_ne!(parts.bits[words + slot / 64] & (1 << (slot % 64)), 0);
+                parts.bits[words + slot / 64] &= !(1 << (slot % 64));
+                let was_full = parts.state.free == 0;
+                parts.state.free += 1;
+                if parts.state.free == parts.slots.len() {
                     if !was_full {
                         self.unlink_available(location.page);
                     }
@@ -617,7 +497,7 @@ impl Pages {
                 }
             }
             Allocation::Large(large) => {
-                assert!(large.descriptor.is_none());
+                assert!(large.header().descriptor.is_none());
                 self.release_allocation(location.page);
             }
             Allocation::Vacant(_) => unreachable!("retiring allocation"),
@@ -627,8 +507,8 @@ impl Pages {
     #[cfg(test)]
     pub(super) fn corrupt_structure(&mut self, location: PayloadLocation) {
         let id = match &self.allocations[location.page as usize] {
-            Allocation::Small(page) => page.slots[location.slot as usize].descriptor.unwrap(),
-            Allocation::Large(large) => large.descriptor.unwrap(),
+            Allocation::Small(page) => page.slots()[location.slot as usize].descriptor.unwrap(),
+            Allocation::Large(large) => large.header().descriptor.unwrap(),
             _ => unreachable!(),
         };
         self.descriptors.corrupt_structure(id);
@@ -644,15 +524,24 @@ impl Pages {
         for allocation in &self.allocations {
             match allocation {
                 Allocation::Small(page) => {
-                    usage.slabs += page.backing.layout.size();
-                    usage.slots += page.slots.len() * size_of::<Slot>();
-                    usage.bitmaps += page.bits.len() * size_of::<u64>();
-                    usage.small_controls += size_of::<Small>();
+                    let slots = mem::size_of_val(page.slots());
+                    let bitmaps = mem::size_of_val(page.bits());
+                    let header = page.control_bytes();
+                    let payload = page.backing().payload_bytes();
+                    usage.slabs += payload;
+                    usage.slots += slots;
+                    usage.bitmaps += bitmaps;
+                    usage.small_controls += header;
+                    usage.padding +=
+                        page.backing().layout().size() - payload - slots - bitmaps - header;
                     usage.backing_controls += Backing::control_bytes();
                 }
                 Allocation::Large(large) => {
-                    usage.large += large.backing.layout.size();
-                    usage.large_controls += size_of::<Large>();
+                    let payload = large.backing().payload_bytes();
+                    let header = large.control_bytes();
+                    usage.large += payload;
+                    usage.large_controls += header;
+                    usage.padding += large.backing().layout().size() - payload - header;
                     usage.backing_controls += Backing::control_bytes();
                 }
                 Allocation::Vacant(_) => {}
@@ -674,6 +563,7 @@ pub(super) struct PageUsage {
     pub(super) small_controls: usize,
     pub(super) large_controls: usize,
     pub(super) backing_controls: usize,
+    pub(super) padding: usize,
 }
 
 impl Drop for Pages {

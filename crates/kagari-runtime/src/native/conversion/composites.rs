@@ -10,7 +10,7 @@ use crate::{
     },
     value::{EnumTag, Value},
 };
-use kagari_common::identity::DefinitionPath;
+use kagari_common::identity::table::{DefinitionId, DefinitionTable};
 use kagari_types::{language::binding, ty::Ty};
 
 impl<T: KagariType> KagariType for Option<T> {
@@ -29,7 +29,7 @@ impl<T: KagariType> KagariType for Option<T> {
     }
 
     fn check_type(cx: &ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<()> {
-        check_enum_type(cx, expected, &binding::option_declaration(), 1)?;
+        check_enum_type(cx, expected, binding::option_declaration_id, 1)?;
         cx.check_type::<T>(&cx.parameter(expected, 0)?)
     }
 }
@@ -86,7 +86,7 @@ impl<T: KagariType, E: KagariType> KagariType for Result<T, E> {
     }
 
     fn check_type(cx: &ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<()> {
-        check_enum_type(cx, expected, &binding::result_declaration(), 2)?;
+        check_enum_type(cx, expected, binding::result_declaration_id, 2)?;
         cx.check_type::<T>(&cx.parameter(expected, 0)?)?;
         cx.check_type::<E>(&cx.parameter(expected, 1)?)
     }
@@ -95,18 +95,18 @@ impl<T: KagariType, E: KagariType> KagariType for Result<T, E> {
 fn check_enum_type(
     cx: &ConversionContext<'_>,
     expected: &TypeArgument,
-    declaration: &DefinitionPath,
+    declaration: impl Fn(&DefinitionTable) -> Option<DefinitionId>,
     arity: usize,
 ) -> NativeResult<()> {
     // The standard provider must be installed even for an empty Option or an
     // unselected Result arm. Nominal identity is never inferred from variant names.
-    cx.runtime()
-        .native_entries
-        .catalog
-        .type_reference(declaration)?;
+    let types = &cx.runtime().native_entries.catalog.types;
+    declaration(&types.context().snapshot())
+        .and_then(|id| types.get_id(id))
+        .ok_or_else(|| RuntimeError::metadata_conflict("unknown native type declaration"))?;
     if let Ty::Enum(nominal) = expected.ty()
         && nominal.arguments.len() == arity
-        && expected.definitions().lookup(declaration) == Some(nominal.declaration)
+        && declaration(expected.definitions()) == Some(nominal.declaration)
     {
         return Ok(());
     }
@@ -200,4 +200,56 @@ fn enum_payload(
     Err(RuntimeError::module_validation(
         "enum conversion variant identity",
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        Runtime,
+        error::RuntimeErrorKind,
+        native::{
+            binding::NativeResult,
+            catalog::DeclarationCatalog,
+            conversion::{KagariType, context::ConversionContext},
+            types::Type,
+        },
+        test_support::layouts::allocation_owner,
+    };
+
+    use kagari_types::language::binding;
+
+    struct UnreachableMapping;
+
+    impl KagariType for UnreachableMapping {
+        fn kagari_type(_: &DeclarationCatalog) -> NativeResult<Type> {
+            panic!("provider/nominal checks must precede child mapping");
+        }
+    }
+
+    #[test]
+    fn enum_mapping_requires_installed_provider_before_child_mapping() {
+        let mut runtime = Runtime::default();
+        let owner = allocation_owner(&mut runtime);
+        let cx = ConversionContext::new(&runtime, &owner).unwrap();
+        let expected = cx.type_for::<i32>().unwrap();
+        for interned_only in [false, true] {
+            if interned_only {
+                let types = &runtime.native_entries.catalog.types;
+                for declaration in [binding::option_declaration(), binding::result_declaration()] {
+                    let id = types.context().intern(&declaration).unwrap();
+                    assert_eq!(types.context().snapshot().lookup(&declaration), Some(id));
+                    assert!(types.get_id(id).is_none());
+                }
+            }
+            for error in [
+                cx.check_type::<Option<UnreachableMapping>>(&expected)
+                    .unwrap_err(),
+                cx.check_type::<Result<UnreachableMapping, UnreachableMapping>>(&expected)
+                    .unwrap_err(),
+            ] {
+                assert_eq!(error.kind(), RuntimeErrorKind::MetadataConflict);
+                assert!(error.message().contains("unknown native type declaration"));
+            }
+        }
+    }
 }

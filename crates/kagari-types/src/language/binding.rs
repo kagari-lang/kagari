@@ -2,10 +2,13 @@
 //! These are declaration identities, not type shapes or runtime discriminants.
 //! Consumers must resolve and validate the actual installed declarations/layouts.
 use crate::ty::{NominalTy, Ty};
-use kagari_common::identity::table::{DefinitionId, DefinitionTable};
+use kagari_common::identity::table::{DefinitionId, DefinitionSegment, DefinitionTable};
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
 };
+
+const OPTION: (&str, &str) = ("option", "Option");
+const RESULT: (&str, &str) = ("result", "Result");
 
 /// Match an external symbolic query against an ID in its retained scope.
 pub fn matches(id: &DefinitionId, expected: &DefinitionPath, table: &DefinitionTable) -> bool {
@@ -26,20 +29,44 @@ fn declaration(module: &str, name: &str) -> DefinitionPath {
     }
 }
 
+fn declaration_id(table: &DefinitionTable, module: &str, name: &str) -> Option<DefinitionId> {
+    table.lookup_components(
+        "kagari-core",
+        [module],
+        [DefinitionSegment {
+            kind: DefinitionKind::Enum,
+            name,
+            occurrence: 0,
+        }],
+    )
+}
+
 fn applied(table: &DefinitionTable, module: &str, name: &str, arguments: Vec<Ty>) -> Option<Ty> {
     Some(Ty::Enum(NominalTy {
-        declaration: table.lookup(&declaration(module, name))?,
+        declaration: declaration_id(table, module, name)?,
         arguments,
         associated_types: Default::default(),
     }))
 }
 
 pub fn option_declaration() -> DefinitionPath {
-    declaration("option", "Option")
+    declaration(OPTION.0, OPTION.1)
+}
+
+/// Resolve Option's symbolic identity without allocating an authoring path.
+/// The returned ID is table-local; its presence does not prove provider installation.
+pub fn option_declaration_id(table: &DefinitionTable) -> Option<DefinitionId> {
+    declaration_id(table, OPTION.0, OPTION.1)
 }
 
 pub fn result_declaration() -> DefinitionPath {
-    declaration("result", "Result")
+    declaration(RESULT.0, RESULT.1)
+}
+
+/// Resolve Result's symbolic identity without allocating an authoring path.
+/// The returned ID is table-local; its presence does not prove provider installation.
+pub fn result_declaration_id(table: &DefinitionTable) -> Option<DefinitionId> {
+    declaration_id(table, RESULT.0, RESULT.1)
 }
 
 pub fn ordering_declaration() -> DefinitionPath {
@@ -53,13 +80,13 @@ pub fn bound_declaration() -> DefinitionPath {
 /// Iterator.next's declared result constructor in the supplied scope.
 /// Returns None when the nominal core declaration has not been registered.
 pub fn option(table: &DefinitionTable, item: Ty) -> Option<Ty> {
-    applied(table, "option", "Option", vec![item])
+    applied(table, OPTION.0, OPTION.1, vec![item])
 }
 
 /// Checked conversion result constructor in the supplied scope.
 /// Returns None when the nominal core declaration has not been registered.
 pub fn result(table: &DefinitionTable, value: Ty, error: Ty) -> Option<Ty> {
-    applied(table, "result", "Result", vec![value, error])
+    applied(table, RESULT.0, RESULT.1, vec![value, error])
 }
 
 pub fn control_flow_declaration() -> DefinitionPath {

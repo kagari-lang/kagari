@@ -19,6 +19,11 @@ pub(crate) enum ScanEdge<'a> {
 pub(crate) type EdgeVisitor<'a> =
     dyn for<'edge> FnMut(ScanEdge<'edge>) -> Result<(), RuntimeError> + 'a;
 
+/// Collector-only visitor. Pending must leave the enclosing edge cursor in place.
+/// Mutator publication uses EdgeVisitor and never borrows a collector budget.
+pub(crate) type ScanVisitor<'a> =
+    dyn for<'edge> FnMut(ScanEdge<'edge>, &mut ScanBudget) -> Result<ScanStatus, RuntimeError> + 'a;
+
 /// Numeric extents for mutable indexed payloads. The optional host-path Arc pins
 /// immutable backing while walking its chain, never serves as graph identity and
 /// never owns a heap/root lease. No address or borrowed iterator is retained.
@@ -58,13 +63,42 @@ impl GcHeap {
         })
     }
 
+    /// Classify the currently resolved owner, not a cached representation in the
+    /// cursor. The driver cannot mutate or call out between this check and scan.
+    /// Native providers and HostPath Arc advancement require unlocked control.
+    pub(super) fn object_scan_is_internal(
+        &self,
+        cursor: &ObjectCursor,
+    ) -> Result<bool, RuntimeError> {
+        let objects = self
+            .objects
+            .try_borrow()
+            .map_err(|_| invalid("borrowed object scan storage"))?;
+        let object = self
+            .object_ref(&objects, cursor.id)
+            .ok_or_else(|| invalid("retired object scan identity"))?;
+        Ok(match object {
+            HeapObject::Native(_) | HeapObject::HostPath(_) => false,
+            HeapObject::Tuple(_)
+            | HeapObject::Enum(..)
+            | HeapObject::Struct { .. }
+            | HeapObject::Closure { .. }
+            | HeapObject::Cell { .. }
+            | HeapObject::Interface { .. }
+            | HeapObject::String(_)
+            | HeapObject::Range(_)
+            | HeapObject::HostRoot(_)
+            | HeapObject::Ephemeral(_) => true,
+        })
+    }
+
     /// Publication must shade insertions and moves; this cursor never restarts on
     /// mutation. Native providers capture their own initialized extents at begin.
     pub(crate) fn scan_object_slice(
         &self,
         cursor: &mut ObjectCursor,
         budget: &mut ScanBudget,
-        visit: &mut EdgeVisitor<'_>,
+        visit: &mut ScanVisitor<'_>,
     ) -> Result<ScanStatus, RuntimeError> {
         let objects = self
             .objects
@@ -85,8 +119,10 @@ impl GcHeap {
                                 .selected
                                 .get(cursor.index / 2)
                                 .ok_or_else(|| invalid("changed native selection extent"))?;
-                            if let Some(edge) = selection.scan_field(cursor.index % 2) {
-                                visit(ScanEdge::Metadata(edge))?;
+                            if let Some(edge) = selection.scan_field(cursor.index % 2)
+                                && visit(ScanEdge::Metadata(edge), budget)? == ScanStatus::Pending
+                            {
+                                return Ok(ScanStatus::Pending);
                             }
                             cursor.index += 1;
                             continue;
@@ -105,16 +141,12 @@ impl GcHeap {
                         .native_scan_workspace
                         .try_borrow_mut()
                         .map_err(|_| invalid("borrowed native scan workspace"))?;
-                    let mut error = None;
-                    let status = object.scan_slice(&mut workspace, budget, &mut |value| {
-                        if error.is_none() {
-                            error = visit(ScanEdge::Value(*value)).err();
-                        }
-                    })?;
-                    if let Some(error) = error {
-                        return Err(error);
-                    }
-                    return Ok(status);
+                    return object.scan_slice(
+                        self,
+                        &mut workspace,
+                        budget,
+                        &mut |value, budget| visit(ScanEdge::Value(*value), budget),
+                    );
                 }
                 HeapObject::HostPath(_) => {
                     let Some(path) = &cursor.host_path else {
@@ -124,7 +156,9 @@ impl GcHeap {
                         return Ok(ScanStatus::Pending);
                     }
                     if let Some(argument) = path.dynamic_args().as_slice().get(cursor.index) {
-                        visit(ScanEdge::Value(argument.value))?;
+                        if visit(ScanEdge::Value(argument.value), budget)? == ScanStatus::Pending {
+                            return Ok(ScanStatus::Pending);
+                        }
                         cursor.index += 1;
                     } else {
                         cursor.host_path = path.scan_base();
@@ -136,14 +170,23 @@ impl GcHeap {
                         return Ok(ScanStatus::Pending);
                     }
                     match cursor.section {
-                        0 if snapshot.call_route().is_none() => visit(ScanEdge::Metadata(
-                            MetadataEdge::Program(&snapshot.implementation),
-                        ))?,
+                        0 if snapshot.call_route().is_none() => {
+                            if visit(
+                                ScanEdge::Metadata(MetadataEdge::Program(&snapshot.implementation)),
+                                budget,
+                            )? == ScanStatus::Pending
+                            {
+                                return Ok(ScanStatus::Pending);
+                            }
+                        }
                         1 => {
-                            if let Some(environment) = &snapshot.environment {
-                                visit(ScanEdge::Metadata(MetadataEdge::Environment(
-                                    environment.id,
-                                )))?;
+                            if let Some(environment) = &snapshot.environment
+                                && visit(
+                                    ScanEdge::Metadata(MetadataEdge::Environment(environment.id)),
+                                    budget,
+                                )? == ScanStatus::Pending
+                            {
+                                return Ok(ScanStatus::Pending);
                             }
                         }
                         _ => {}
@@ -174,21 +217,31 @@ impl GcHeap {
                         _ => unreachable!("indexed object branch"),
                     }
                     .ok_or_else(|| invalid("invalid indexed object scan field"))?;
-                    visit(ScanEdge::Value(value))?;
+                    if visit(ScanEdge::Value(value), budget)? == ScanStatus::Pending {
+                        return Ok(ScanStatus::Pending);
+                    }
                     cursor.index += 1;
                 }
                 HeapObject::Cell { value, .. } => {
                     if !budget.take(1) {
                         return Ok(ScanStatus::Pending);
                     }
-                    visit(ScanEdge::Value(*value))?;
+                    if visit(ScanEdge::Value(*value), budget)? == ScanStatus::Pending {
+                        return Ok(ScanStatus::Pending);
+                    }
                     return Ok(ScanStatus::Complete);
                 }
                 HeapObject::Interface { snapshot } => {
                     if !budget.take(1) {
                         return Ok(ScanStatus::Pending);
                     }
-                    visit(ScanEdge::Metadata(MetadataEdge::Interface(snapshot)))?;
+                    if visit(
+                        ScanEdge::Metadata(MetadataEdge::Interface(snapshot)),
+                        budget,
+                    )? == ScanStatus::Pending
+                    {
+                        return Ok(ScanStatus::Pending);
+                    }
                     return Ok(ScanStatus::Complete);
                 }
                 HeapObject::String(_)

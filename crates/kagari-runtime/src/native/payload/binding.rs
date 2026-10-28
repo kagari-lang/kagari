@@ -5,6 +5,7 @@ use crate::{
     module::{ExecutableModule, Module},
     native::{
         binding::{LinkedNativeFunction, NativeResult},
+        conversion::context::ConversionRetention,
         payload::{DataRecord, NativeType, managed::AppliedSchema},
         rust_type::{RustType, check_mapping},
         storage::NativePayload,
@@ -12,13 +13,13 @@ use crate::{
     },
     value::Value,
 };
-use kagari_bytecode::program::native::NativeApplicationOccurrence;
+
 use kagari_common::identity::table::{DefinitionId, DefinitionTable};
 use kagari_types::{
     declaration::{TypeDefKind, native::NativeStorageLayout},
     ty::{NominalTy, Ty},
 };
-use std::{slice, sync::Arc};
+use std::sync::Arc;
 
 impl Runtime {
     pub fn bind_native_type<T: NativePayload>(
@@ -46,7 +47,7 @@ impl Runtime {
         let snapshot = self.capture_module(owner)?;
         let owner = &snapshot.root;
         let argument = self.apply_native_type(owner, declaration, definitions, arguments)?;
-        self.prepare_native_type(owner, argument)
+        self.prepare_native_type(owner, argument, None)
     }
 
     pub(crate) fn apply_native_type(
@@ -102,6 +103,7 @@ impl Runtime {
         &self,
         owner: &ExecutableModule,
         argument: TypeArgument,
+        authority: Option<ConversionRetention<'_>>,
     ) -> NativeResult<NativeType<T>> {
         self.gc().ensure_no_native_borrow()?;
         self.resources().ensure_execution_allowed()?;
@@ -121,7 +123,7 @@ impl Runtime {
         } else {
             self.native_application_owner(owner, &argument)?
         };
-        self.prepare_admitted_native_type(&carrier, argument)
+        self.prepare_admitted_native_type(&carrier, argument, authority)
     }
 
     /// An active native call can instantiate only its exact import's result witness.
@@ -130,9 +132,10 @@ impl Runtime {
         &self,
         owner: &ExecutableModule,
         function: &LinkedNativeFunction,
+        authority: ConversionRetention<'_>,
     ) -> NativeResult<NativeType<T>> {
         let argument = self.native_payload_result_argument(owner, function)?;
-        self.prepare_admitted_native_type(owner, argument)
+        self.prepare_admitted_native_type(owner, argument, Some(authority))
     }
 
     /// Shared admission for typed opaque creation and the low-level payload adapter.
@@ -176,30 +179,18 @@ impl Runtime {
             .types
             .get_id(nominal.declaration)
             .ok_or_else(invalid)?;
-        if declared.kind == TypeDefKind::NativeStorage(NativeStorageLayout::Opaque) {
-            owner
-                .verified_program()
-                .native_applications()
-                .iter()
-                .find(|witness| {
-                    witness.carrier() == owner.slot()
-                        && witness.occurrence()
-                            == NativeApplicationOccurrence::Import(function.import)
-                        && witness.nominal() == nominal
-                        && witness.binder() == import.generic.as_ref()
-                })
-                .ok_or_else(invalid)?;
-        } else if !declared.bounds.is_empty() {
+        if declared.kind != TypeDefKind::NativeStorage(NativeStorageLayout::Opaque)
+            && !declared.bounds.is_empty()
+        {
             return Err(invalid());
         }
-        let admitted = self
-            .type_arguments(owner, environment, slice::from_ref(result))?
-            .pop()
-            .ok_or_else(invalid)?;
+        // Linking checked this exact carrier/import's result witness, including
+        // its binder. Signature preparation/application owns the immutable closed
+        // facts. Compare their scoped meaning without rebuilding a TypeArgument;
+        // live owner/environment admission above is still required on every call.
         let prepared = &function.type_signature()?.result;
         prepared.validate(self)?;
-        if admitted.ty() != prepared.ty() || !admitted.view(owner).compatible(prepared.view(owner))
-        {
+        if !TypeView::new(result, owner, environment.as_deref()).compatible(prepared.view(owner)) {
             return Err(invalid());
         }
         Ok(prepared.clone())
@@ -232,16 +223,18 @@ impl Runtime {
         &self,
         owner: &ExecutableModule,
         argument: TypeArgument,
+        authority: Option<ConversionRetention<'_>>,
     ) -> NativeResult<NativeType<T>> {
         let data = self.prepare_native_data::<T>(owner, argument)?;
-        self.prepare_native_data_type(data)
+        self.prepare_native_data_type(data, authority)
     }
 
     pub(super) fn prepare_native_data_type<T: Send + 'static>(
         &self,
         data: Arc<DataRecord>,
+        authority: Option<ConversionRetention<'_>>,
     ) -> NativeResult<NativeType<T>> {
-        let rust_type = RustType::prepare(self, &data.owner, data.argument.clone())?;
+        let rust_type = RustType::prepare(self, &data.owner, data.argument.clone(), authority)?;
         Ok(NativeType {
             record: data,
             rust_type,

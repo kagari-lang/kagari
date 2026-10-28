@@ -3,10 +3,12 @@ mod access;
 #[cfg(feature = "execution-diagnostics")]
 mod accounting;
 pub(super) mod descriptors;
+pub(super) mod maintenance;
 mod pages;
 mod retirement;
 #[cfg(test)]
 mod tests;
+mod wrappers;
 
 use self::{
     pages::{Pages, Retired, SLAB_BYTES},
@@ -71,6 +73,26 @@ pub(super) enum PayloadKind {
     Closure,
     Cell,
     Vacant,
+}
+
+impl PayloadKind {
+    pub(in crate::gc) fn observation_owner(self) -> &'static str {
+        match self {
+            Self::String => "String",
+            Self::Tuple => "Tuple",
+            Self::Range => "Range",
+            Self::HostRoot => "HostRoot",
+            Self::HostPath => "HostPath",
+            Self::Ephemeral => "Ephemeral",
+            Self::Native => "NativeObject",
+            Self::Enum => "Enum",
+            Self::Struct => "Struct",
+            Self::Interface => "Interface",
+            Self::Closure => "Closure",
+            Self::Cell => "Cell",
+            Self::Vacant => "Vacant",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -331,6 +353,11 @@ impl ObjectStorage {
         }
         let location = slot.location()?;
         let retired = if location.kind == PayloadKind::Interface {
+            if !self.valid_wrapper(location.page as usize) {
+                return None;
+            }
+            self.prepare_wrapper_removal(1)?;
+            self.remove_wrapper_prepared(location.page as usize);
             Retired::Interface
         } else {
             self.pages.detach(location)?
@@ -343,48 +370,6 @@ impl ObjectStorage {
     /// Unlink disposed storage, returning final owners for drop outside table borrows.
     pub(super) fn finish(&mut self, retired: Retired) -> (usize, Retired) {
         self.pages.finish(retired)
-    }
-
-    // The synchronous sweep removes wrapper occupancy before metadata retirement.
-    // PG05 replaces this batch compaction with the bounded wrapper sweep driver.
-    pub(super) fn retire_wrappers(&mut self) {
-        assert!(
-            self.sweep.is_none(),
-            "wrapper ordinals stay stable during physical sweep"
-        );
-        let mut ordinal = 0;
-        self.interface_directories.retain(|wrapper| {
-            let keep = self.slots[wrapper.directory as usize]
-                .location()
-                .is_some_and(|location| {
-                    location.kind == PayloadKind::Interface && location.page as usize == ordinal
-                });
-            ordinal += 1;
-            keep
-        });
-        for (index, wrapper) in self.interface_directories.iter().enumerate() {
-            self.slots[wrapper.directory as usize].location.page = index as u32;
-        }
-        if self.interface_directories.capacity()
-            > self.interface_directories.len().saturating_mul(4).max(16)
-        {
-            self.interface_directories.shrink_to_fit();
-        }
-    }
-
-    pub(super) fn prune(&mut self, live_objects: usize) {
-        self.pages.descriptors.prune();
-        // Preserve every generation tombstone, but not geometric Vec spare capacity
-        // after a sparse sweep. Dense growth keeps its amortized admission headroom.
-        // This may move identity records, never the payloads their IDs locate.
-        if self.slots.len() > live_objects.saturating_mul(4).max(16) {
-            self.slots.shrink_to_fit();
-        }
-        if self.initialization_owners.capacity()
-            > self.initialization_owners.len().saturating_mul(4).max(16)
-        {
-            self.initialization_owners.shrink_to_fit();
-        }
     }
 
     /// Teardown cannot allocate a dead list. Each token keeps both descriptor and

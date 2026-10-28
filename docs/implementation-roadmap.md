@@ -593,7 +593,7 @@ sort-baseline provenance and the current Map/Set selected-call Program retention
 limit accepted in the scoped final review. PG00 gates are unchanged.
 
 [PG04](paged-incremental-gc-design.md#pg04-marker-implementation-and-open-acceptance)
-is **locally complete, pending commit**, with synchronously drained owner-block
+is **locally complete at `fe56b675`**, with synchronously drained owner-block
 marking, checked publication and physical page/slot sweep plus 32-total bounded
 disposal brought forward from PG05. Final fresh seven-pair median gates pass:
 Map **1.031376** and arrays **0.920740** against unchanged 1.05 limits; two adverse
@@ -603,9 +603,39 @@ allocation memory reuse passes **55/55**, with **21 zero-net teardowns**, not a 
 memory run. Parent reports 22 focused checks and final structure (1794 files, zero
 violations/exceptions), fmt, workspace Clippy and diff passing; known blockers are fixed.
 The PG04 ledger owns exact evidence, limitations and concise failed-experiment lessons.
-**PG05/NC05 is next**: remaining metadata/module sweep adapters, driver pressure and
-production interleaving. PG06/NC06, incremental pause acceptance and full CI remain
-outstanding; PG04 local acceptance is not joint completion.
+**PG05/NC05 remains integrated, not complete.** The trusted actual-root replacement
+completed **112/112 timing processes** once, with every workload semantic assertion passing:
+**77 ordinary gates pass / 11 fail; 19 observed normal-step gates pass / 3 fail; 34 rows
+are unobserved, not passes. Fresh memory passes 55/55, with 21 exact-zero teardowns.**
+Map, arrays, 512-Node construction and all sorts pass; cancelled-root retirement, field reads,
+iterator, 4096-cycle construction and seven full-GC rows remain open. Normal failures are
+mixed construction under both policies and scalar construction under pressure. The
+[trusted PG05 results](paged-incremental-gc-design.md#pg05-trusted-replacement-results-and-finite-follow-up)
+own exact statistics, unchanged limits, baseline associations and finite follow-up.
+
+This is verified production-image evidence after two actual-root clean builds with identical
+ordinary hashes, dependency/marker/accessor proof and fresh representative correctness/quality
+checks. Memory used a separately cleaned, rebuilt and audited diagnostics image. The earlier
+selected 23/6 production interpretation is withdrawn for confirmed probe contamination;
+old 78/10 and 22-normal summaries are historical, not the current result. The 36-path audit
+classified 4 contaminated, 6 verified baselines, 18 unverifiable and 8 intentional probes;
+unverifiable does not mean contaminated. Do not reuse old pass labels without their evidence.
+
+Implemented owners include the incremental driver, charged physical/module/static/metadata
+sweep and root/cache maintenance, coallocated controls, bounded cross-physical transactions,
+ordinal proof and static class geometry. Native result builders, nominal enum contracts and
+immediate checked payload reads now support stdlib/external cursors without a second access
+kernel or callback-wide collection exclusion. Public contracts remain with
+[host interop](spec/host-interop.md#immediate-checked-payload-reads) and
+[collector observations](spec/runtime.md#collector-observation-windows).
+
+Only the finite new follow-up is authorized: 53 prepared-large consumption and a sound
+vacant-bitmap-word skip/charge proposal; 820 common permission/preparation redundancy;
+0a normal-phase/observer attribution audit. No gate relaxation, work-budget change or
+backing/descriptor transfer is approved. New artifacts must satisfy the
+[provenance contract](paged-incremental-gc-design.md#pg05-build-provenance-and-recovery).
+PG06/NC06 and full CI/backend/platform acceptance remain pending and unrun; PG04 local
+acceptance is not joint completion.
 Their [runtime storage predecessor](#runtime-storage-redesign) is locally complete;
 reuse the resulting heap/descriptor contracts and NC01's audited API/code inventory
 against the current scoped identity APIs.

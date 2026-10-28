@@ -4,7 +4,7 @@ use crate::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
     gc::{HeapObjectId, roots::RootedValue},
-    module::{ExecutableModule, ModuleEpochRetention, retention::ProgramLease},
+    module::{ExecutableModule, ModuleEpochRetention, ModuleStore, retention::ProgramLease},
     native::{
         binding::NativeResult,
         context::CallContext,
@@ -20,6 +20,7 @@ use kagari_common::identity::DefinitionPath;
 use std::{
     collections::HashSet,
     ops::{Deref, DerefMut},
+    ptr,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -51,6 +52,57 @@ pub struct ConversionContext<'runtime> {
     string_bytes: usize,
     active: HashSet<HeapObjectId>,
     roots: Vec<RootedValue>,
+}
+
+/// Exact retained-program authority borrowed from an admitted conversion scope.
+/// The context either owns its lease or borrows a checked execution/call scope;
+/// neither this token nor a derived context can outlive that protection.
+#[derive(Clone, Copy)]
+pub(crate) struct ConversionRetention<'scope> {
+    context: &'scope ConversionContext<'scope>,
+}
+
+impl ConversionRetention<'_> {
+    pub(crate) fn covers(&self, runtime: &Runtime, owner: &ExecutableModule) -> NativeResult<bool> {
+        self.covers_store(runtime.modules(), owner)
+    }
+
+    pub(crate) fn covers_store(
+        &self,
+        store: &ModuleStore,
+        owner: &ExecutableModule,
+    ) -> NativeResult<bool> {
+        if !ptr::eq(self.context.runtime.modules(), store) {
+            return Err(RuntimeError::module_validation(
+                "foreign conversion retention",
+            ));
+        }
+        Ok(self.context.owner.program_identity() == owner.program_identity())
+    }
+
+    pub(crate) fn retain(
+        self,
+        runtime: &Runtime,
+        owner: &ExecutableModule,
+        kind: ModuleEpochRetention,
+    ) -> Option<ProgramLease> {
+        runtime.resources().ensure_execution_allowed().ok()?;
+        runtime.modules().retain_program(owner, kind, Some(self))
+    }
+}
+
+enum ScopeAuthority<'scope> {
+    Execution(&'scope ExecutionRetention<'scope>),
+    Conversion(ConversionRetention<'scope>),
+}
+
+impl ScopeAuthority<'_> {
+    fn covers(&self, runtime: &Runtime, owner: &ExecutableModule) -> NativeResult<bool> {
+        match self {
+            Self::Execution(authority) => authority.covers(runtime, owner),
+            Self::Conversion(authority) => authority.covers(runtime, owner),
+        }
+    }
 }
 
 struct Frame<'scope, 'runtime> {
@@ -121,14 +173,50 @@ impl<'runtime> ConversionContext<'runtime> {
         owner: &'runtime ExecutableModule,
         authority: &'runtime ExecutionRetention<'_>,
     ) -> NativeResult<Self> {
-        Self::prepare(runtime, owner, ConversionLimits::default(), Some(authority))
+        Self::prepare(
+            runtime,
+            owner,
+            ConversionLimits::default(),
+            Some(ScopeAuthority::Execution(authority)),
+        )
+    }
+
+    /// Open an independent temporary conversion scope using this exact program's
+    /// retention. Other generations retain their own lease; all dynamic admission
+    /// and publication checks precede custom conversion code. Limits and scratch
+    /// roots start fresh, as with `new`, and the child cannot outlive this context.
+    ///
+    /// ```compile_fail
+    /// use kagari_runtime::{Runtime, module::ExecutableModule};
+    /// use kagari_runtime::native::conversion::context::ConversionContext;
+    /// fn escape<'a>(runtime: &'a Runtime, owner: &'a ExecutableModule)
+    ///     -> ConversionContext<'a>
+    /// {
+    ///     let parent = ConversionContext::new(runtime, owner).unwrap();
+    ///     parent.scoped(owner).unwrap()
+    /// }
+    /// ```
+    pub fn scoped<'scope>(
+        &'scope self,
+        owner: &'scope ExecutableModule,
+    ) -> NativeResult<ConversionContext<'scope>> {
+        ConversionContext::prepare(
+            self.runtime,
+            owner,
+            ConversionLimits::default(),
+            Some(ScopeAuthority::Conversion(self.retention())),
+        )
+    }
+
+    pub(crate) fn retention(&self) -> ConversionRetention<'_> {
+        ConversionRetention { context: self }
     }
 
     fn prepare(
         runtime: &'runtime Runtime,
         owner: &'runtime ExecutableModule,
         limits: ConversionLimits,
-        authority: Option<&'runtime ExecutionRetention<'_>>,
+        authority: Option<ScopeAuthority<'runtime>>,
     ) -> NativeResult<Self> {
         runtime.gc().ensure_no_native_borrow()?;
         runtime.resources().ensure_execution_allowed()?;
@@ -218,7 +306,7 @@ impl<'runtime> ConversionContext<'runtime> {
         argument: &TypeArgument,
     ) -> NativeResult<NativeType<T>> {
         self.runtime
-            .prepare_native_type(self.owner, argument.clone())
+            .prepare_native_type(self.owner, argument.clone(), Some(self.retention()))
     }
 
     pub fn owner(&self) -> &'runtime ExecutableModule {

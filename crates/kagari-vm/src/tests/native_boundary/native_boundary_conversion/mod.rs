@@ -38,11 +38,72 @@ use kagari_runtime::{
     value_semantics::script_equal,
 };
 use kagari_stdlib::declarations::StandardDeclarations;
-use kagari_types::declaration::module::ModuleDecl;
+use kagari_types::{declaration::module::ModuleDecl, language::binding};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
+
+#[test]
+fn enum_mapping_preserves_nominal_identity_and_all_child_checks() {
+    struct UnreachableMapping;
+
+    impl KagariType for UnreachableMapping {
+        fn kagari_type(_: &DeclarationCatalog) -> NativeResult<Type> {
+            panic!("nominal checks must precede child mapping");
+        }
+    }
+
+    let module = ModuleBuilder::new(
+        "example::enum_mapping",
+        &StandardDeclarations::default().catalog().unwrap(),
+    )
+    .unwrap()
+    .finish()
+    .unwrap();
+    let (vm, program) = source_free_vm(
+        "pub fn option() -> Option<i32> { None } pub fn result() -> Result<i32, i32> { Ok(1) }",
+        &module,
+    );
+    let owner = vm.runtime().select_program(&program).unwrap();
+    let mut cx = ConversionContext::new(vm.runtime(), &owner).unwrap();
+    let option = cx.type_for::<Option<i32>>().unwrap();
+    let result = cx.type_for::<Result<i32, i32>>().unwrap();
+    cx.check_type::<Option<i32>>(&option).unwrap();
+    cx.check_type::<Result<i32, i32>>(&result).unwrap();
+    for (declaration, invalid_arity) in [
+        (binding::option_declaration(), 0),
+        (binding::option_declaration(), 2),
+        (binding::result_declaration(), 1),
+        (binding::result_declaration(), 3),
+    ] {
+        assert!(
+            cx.type_reference(&declaration)
+                .unwrap()
+                .apply(vec![Type::i32(); invalid_arity])
+                .is_err()
+        );
+    }
+    for value in [None, Some(7i32)] {
+        let encoded = cx.encode(value).unwrap();
+        assert_eq!(cx.decode::<Option<i32>>(&encoded).unwrap(), value);
+    }
+    for value in [Ok(7i32), Err(9i32)] {
+        let encoded = cx.encode(value).unwrap();
+        assert_eq!(cx.decode::<Result<i32, i32>>(&encoded).unwrap(), value);
+    }
+    assert!(cx.check_type::<Option<String>>(&option).is_err());
+    assert!(cx.check_type::<Result<i32, String>>(&result).is_err());
+    assert!(cx.check_type::<Result<String, i32>>(&result).is_err());
+    assert!(
+        cx.check_type::<Option<UnreachableMapping>>(&result)
+            .is_err()
+    );
+    assert!(
+        cx.check_type::<Result<UnreachableMapping, UnreachableMapping>>(&option)
+            .is_err()
+    );
+}
 
 #[test]
 fn conversion_limits_terminate_only_active_sessions_and_release_scratch_roots() {

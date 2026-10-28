@@ -3,7 +3,7 @@ use crate::{
     error::RuntimeError,
     gc::{
         GcHeap,
-        graph::objects::{EdgeVisitor, ScanEdge},
+        graph::objects::{ScanEdge, ScanVisitor},
     },
     host::{HostPathMutationRecord, HostPathViewHandle, HostRegistry},
     native::storage::scan::{ScanBudget, ScanStatus},
@@ -41,7 +41,7 @@ impl HostRegistry {
         &self,
         cursor: &mut HostRootCursor,
         budget: &mut ScanBudget,
-        visit: &mut EdgeVisitor<'_>,
+        visit: &mut ScanVisitor<'_>,
     ) -> Result<ScanStatus, RuntimeError> {
         if cursor.revision != self.dirty_revision.get() {
             cursor.path = None;
@@ -55,14 +55,26 @@ impl HostRegistry {
             let record = records.get(cursor.next).ok_or_else(invalid)?;
             match cursor.field {
                 0 => {
-                    if let Some(value) = record.old_value {
-                        visit(ScanEdge::Value(value))?;
+                    if let Some(value) = record.old_value
+                        && visit(ScanEdge::Value(value), budget)? == ScanStatus::Pending
+                    {
+                        return Ok(ScanStatus::Pending);
                     }
                 }
-                1 => visit(ScanEdge::Value(record.new_value))?,
-                field if field - 2 < record.dynamic_args.len() => visit(ScanEdge::Value(
-                    record.dynamic_args.as_slice()[field - 2].value,
-                ))?,
+                1 => {
+                    if visit(ScanEdge::Value(record.new_value), budget)? == ScanStatus::Pending {
+                        return Ok(ScanStatus::Pending);
+                    }
+                }
+                field if field - 2 < record.dynamic_args.len() => {
+                    if visit(
+                        ScanEdge::Value(record.dynamic_args.as_slice()[field - 2].value),
+                        budget,
+                    )? == ScanStatus::Pending
+                    {
+                        return Ok(ScanStatus::Pending);
+                    }
+                }
                 field if field - 2 == record.dynamic_args.len() => {
                     cursor.path = record.base_view.clone();
                     cursor.path_field = 0;
@@ -72,7 +84,11 @@ impl HostRegistry {
                         if let Some(argument) =
                             path.dynamic_args().as_slice().get(cursor.path_field)
                         {
-                            visit(ScanEdge::Value(argument.value))?;
+                            if visit(ScanEdge::Value(argument.value), budget)?
+                                == ScanStatus::Pending
+                            {
+                                return Ok(ScanStatus::Pending);
+                            }
                             cursor.path_field += 1;
                         } else {
                             cursor.path = path.scan_base();

@@ -173,6 +173,9 @@ fn abandonment_invalidates_access_even_with_a_retention_lease() {
     let lease = runtime
         .retain_module(&module, ModuleEpochRetention::RuntimeValue)
         .unwrap();
+    let whole = runtime
+        .retain_program(&module, ModuleEpochRetention::CompiledArtifact)
+        .unwrap();
     let view = runtime.modules.inner.borrow_mut();
     // Last-drop must not borrow a store that a caller is already inspecting.
     drop(candidate);
@@ -184,6 +187,11 @@ fn abandonment_invalidates_access_even_with_a_retention_lease() {
     assert!(
         runtime
             .retain_module(&module, ModuleEpochRetention::ActiveCall)
+            .is_none()
+    );
+    assert!(
+        runtime
+            .retain_program(&module, ModuleEpochRetention::ActiveCall)
             .is_none()
     );
     assert_eq!(
@@ -205,6 +213,7 @@ fn abandonment_invalidates_access_even_with_a_retention_lease() {
     );
     assert_eq!(runtime.select_program(&baseline).unwrap().epoch.0, 1);
     drop(lease);
+    drop(whole);
 }
 
 #[test]
@@ -296,7 +305,7 @@ fn abandoned_programs_are_retired_at_safepoints_and_before_further_staging() {
     // Last release after root discovery needs another collection even when
     // that program was already retained by the in-progress mark.
     let candidate = stage(&mut runtime, &baseline);
-    let mut graph = runtime.modules.begin_collection();
+    let ticket = runtime.modules.begin_collection();
     let mut roots = runtime
         .gc
         .begin_initial_roots(&runtime.modules, &runtime.host)
@@ -315,12 +324,31 @@ fn abandoned_programs_are_retired_at_safepoints_and_before_further_staging() {
     thread::spawn(move || drop(candidate)).join().unwrap();
     runtime.gc.drain_graph_work(&runtime.modules).unwrap();
     runtime.gc.graph.lock().close_mark().unwrap();
-    let mut dead = graph.prepare_sweep().unwrap();
-    assert!(graph.detach_program_batch(&mut dead, 32).is_empty());
-    assert!(graph.detach_cell_batch(&mut dead, 32).is_empty());
-    graph.finish(dead);
+    let mut sweep = runtime.modules.begin_sweep().unwrap();
+    let mut retired_modules = Vec::new();
+    while runtime
+        .modules
+        .sweep_programs(
+            &mut sweep,
+            &mut ScanBudget::new(1),
+            32,
+            None,
+            &mut retired_modules,
+        )
+        .unwrap()
+        == ScanStatus::Pending
+    {}
+    assert!(retired_modules.is_empty());
+    let mut retired_cells = Vec::new();
+    while runtime
+        .modules
+        .sweep_cells(&mut sweep, &mut ScanBudget::new(1), 32, &mut retired_cells)
+        .unwrap()
+        == ScanStatus::Pending
+    {}
+    assert!(retired_cells.is_empty());
     runtime.gc.graph.lock().finish_sweep().unwrap();
-    drop(graph);
+    ticket.finish();
     assert!(runtime.modules.abandonment_pending());
     runtime.gc_safepoint().unwrap();
     assert!(!runtime.modules.abandonment_pending());

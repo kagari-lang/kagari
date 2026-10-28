@@ -13,6 +13,9 @@ import json
 from pathlib import Path
 import statistics
 
+import automatic_baselines
+import automatic_summary
+
 ORDINARY = {"setup", "construct", "live_gc", "release_gc"}
 PHASES = {
     "sparse_types_32x4": ORDINARY,
@@ -118,10 +121,26 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("logs", nargs="+", type=Path)
     parser.add_argument("--memory", type=Path)
+    parser.add_argument("--automatic", action="store_true", help="validate automatic-family observation logs")
+    parser.add_argument("--automatic-pairs", type=Path, help="frozen candidate-to-PG00 baseline pairing manifest")
+    parser.add_argument("--check", action="store_true", help="accept one-lifecycle automatic validation logs, not timing evidence")
     parser.add_argument("--json", type=Path)
     args = parser.parse_args()
     if len(set(args.logs)) != len(args.logs):
         raise ValueError("duplicate timing input")
+    if args.automatic:
+        if args.memory:
+            parser.error("--automatic cannot consume allocation-instrumented --memory output")
+        if args.check and args.automatic_pairs:
+            parser.error("--check logs cannot satisfy paired timing gates")
+        report = automatic_summary.summarize(args.logs, args.check)
+        if args.automatic_pairs:
+            report["paired_normal_steps"] = automatic_baselines.paired(report, args.automatic_pairs)
+        if args.json:
+            args.json.write_text(json.dumps(report, indent=2) + "\n")
+        return
+    if args.check or args.automatic_pairs:
+        parser.error("--check and --automatic-pairs require --automatic")
     processes = [timing(path) for path in args.logs]
     keys = dict.fromkeys(key for process in processes for key in process)
     summary = []

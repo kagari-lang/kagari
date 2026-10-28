@@ -1,14 +1,18 @@
 //! A retained value with its exact declared type for generic native callbacks.
+#[cfg(test)]
+mod tests;
 use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
-    gc::roots::RootedValue,
+    gc::roots::{RetainedValue, RootedValue},
     module::ExecutableModule,
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
         conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
+        payload::borrowed::BorrowedPayload,
+        storage::NativePayload,
         storage_type::StorageType,
         typed::NativeContext,
         types::Type,
@@ -19,11 +23,12 @@ use crate::{
 /// Forward an arbitrary declared generic value without copying its object graph
 /// or exposing raw storage. This does not add an untyped Kagari value: each handle
 /// keeps its exact applied type and access view, checked on every conversion.
-/// The root retains data and callable dependencies; ordinary data keeps lexical
-/// metadata without keeping obsolete executable module state alive.
+/// Managed values retain roots for data and callable dependencies; scalar data
+/// retains only its heap identity. Both keep lexical metadata without pinning
+/// obsolete executable module state.
 #[derive(Debug, Clone)]
 pub struct ScriptValue {
-    root: RootedValue,
+    root: RetainedValue,
     argument: TypeArgument,
     owner: ExecutableModule,
 }
@@ -35,7 +40,7 @@ impl ScriptValue {
         owner: ExecutableModule,
     ) -> Self {
         Self {
-            root,
+            root: RetainedValue::from_root(root),
             argument,
             owner,
         }
@@ -69,7 +74,7 @@ impl ScriptValue {
         value: Value,
     ) -> NativeResult<Self> {
         let argument = contract.argument()?.clone();
-        let root = runtime.gc().root_native_value(value)?;
+        let root = runtime.gc().retain_native_value(value)?;
         Ok(Self {
             root,
             argument,
@@ -105,10 +110,20 @@ impl ScriptValue {
         &self.argument
     }
 
+    /// Borrow a checked provider payload without constructing an owning Opaque
+    /// descriptor or registering another root. The view cannot outlive this
+    /// handle; each loan still checks runtime, generation and storage access.
+    pub fn borrow_payload<'view, P: NativePayload>(
+        &'view self,
+        cx: &NativeContext<'view>,
+    ) -> NativeResult<BorrowedPayload<'view, P>> {
+        BorrowedPayload::from_root(cx, self.root.as_root(), &self.argument)
+    }
+
     pub fn decode<T: FromKagari>(&self, cx: &mut NativeContext<'_>) -> NativeResult<T> {
         // The supplied argument preserves its original lexical metadata. The caller
         // lends live execution services; data alone does not pin obsolete programs.
-        let mut conversion = ConversionContext::new(cx.runtime(), cx.owner())?;
+        let mut conversion = cx.conversion_scope(cx.owner())?;
         let value = self
             .root
             .value(cx.runtime().gc())
@@ -141,7 +156,8 @@ impl FromKagari for ScriptValue {
         cx.check_value(expected, value)?;
         let root = cx
             .runtime()
-            .root_value(*value)
+            .gc()
+            .retain_value(*value)
             .ok_or_else(|| RuntimeError::module_validation("script value retention"))?;
         Ok(Self {
             root,

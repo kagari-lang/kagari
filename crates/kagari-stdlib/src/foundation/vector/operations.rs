@@ -1,9 +1,12 @@
 //! Concrete Vec operations borrow call roots; callback algorithms retain SDK handles.
 use crate::{
-    collections::vector::{ScriptVec, VecStorage, borrowed},
+    collections::vector::{
+        ScriptVec, VecStorage, borrowed,
+        cursor::{self, VecCursor},
+    },
     foundation::{
         arrays::operations::{index_argument, source as array_source},
-        enumerations::value::{EnumSymbols, option},
+        enumerations::value::{EnumSymbols, converted_option, option},
         iteration::traversal::for_each,
     },
 };
@@ -44,7 +47,7 @@ pub(crate) fn retain(declaration: &DefinitionMetadata<NativeDeclaration>) -> Nat
         |cx: &mut NativeContext<'_>,
          (values, predicate): (Vector, Function<(ScriptValue,), bool>)| {
             let predicate = predicate.prepare_call(cx.runtime())?;
-            values.retain(cx, |cx, value| {
+            values.retain_retained(cx, |cx, value| {
                 predicate.call_with_options(cx, (value,), cx.runtime().execution_options())
             })
         },
@@ -62,11 +65,25 @@ pub(crate) fn dedup(
         move |cx: &mut NativeContext<'_>, (values,): (Vector,)| {
             let equal = cx.selected_function::<(ScriptValue, ScriptValue), bool>(0)?;
             let equal = equal.prepare_call(cx.runtime())?;
-            values.dedup_by(cx, |cx, left, right| {
+            values.dedup_retained(cx, |cx, left, right| {
                 equal.call_with_options(cx, (left, right), cx.runtime().execution_options())
             })
         },
     ))
+}
+
+pub(crate) fn next(symbols: &EnumSymbols, call: &mut CallContext<'_>) -> NativeResult<Value> {
+    let mut cx = call.native_context()?;
+    let result_type = call.result_type_argument()?;
+    // The binding proves outer Option identity/arity; validate this call's child
+    // mapping before the cursor can advance, including when it returns None.
+    let element = cx.conversion().parameter(&result_type, 0)?;
+    cx.conversion().check_type::<ScriptValue>(&element)?;
+    let receiver = call.payload::<VecCursor>(0)?;
+    let result = cursor::next(&mut cx, &receiver)?;
+    // Advancement commits before fallible encoding; retained items protect the
+    // result across conversion safepoints after the provider loans have ended.
+    converted_option(symbols, call, cx.conversion(), &result_type, result)
 }
 
 pub(crate) fn length(cx: &mut CallContext<'_>) -> NativeResult<Value> {
@@ -129,11 +146,9 @@ pub(crate) fn set_fluent(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 }
 
 pub(crate) fn new(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    let mut native = cx.native_context()?;
-    let ty = native.result_native_type::<VecStorage>()?;
-    let payload = VecStorage::empty(&native, &ty)?;
-    let object = ty.create(&mut native, payload, &[])?;
-    cx.encode_result(object)
+    cx.allocate_result_payload(&[], |cx, result| {
+        VecStorage::empty_element(cx.type_parameter(result, 0)?, cx.owner())
+    })
 }
 
 fn result(cx: &CallContext<'_>, value: Value) -> NativeResult<Vector> {
@@ -144,9 +159,10 @@ fn result(cx: &CallContext<'_>, value: Value) -> NativeResult<Vector> {
 }
 
 pub(crate) fn from_array(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    let source = array_source(cx)?;
-    let payload = VecStorage::from_array(cx, source)?;
-    cx.allocate_result_payload(payload, &[])
+    cx.allocate_result_payload(&[], |cx, result| {
+        let source = array_source(cx)?;
+        VecStorage::from_array(cx, source, result)
+    })
 }
 
 pub(crate) fn from_iter(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value> {

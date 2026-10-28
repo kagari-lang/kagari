@@ -2,6 +2,7 @@ use super::load;
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
+    module::ModuleEpochRetention,
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
@@ -63,7 +64,30 @@ fn exact_execution_retention_covers_members_without_another_registration_or_stor
         runtime.modules().retention_counts(root.key()).active_calls,
         1
     );
-    let value = conversion.encode("retained result".to_owned()).unwrap();
+    let value = {
+        let mut child = conversion.scoped(&root).unwrap();
+        assert_eq!(
+            runtime.modules().retention_counts(root.key()).active_calls,
+            1
+        );
+        runtime.modules().check_sweep_access().unwrap();
+        let escaping = child
+            .retention()
+            .retain(&runtime, &member, ModuleEpochRetention::RuntimeValue)
+            .unwrap();
+        let value = child.encode("retained result".to_owned()).unwrap();
+        drop(child);
+        runtime.collect_garbage().unwrap();
+        assert_eq!(
+            runtime
+                .modules()
+                .retention_counts(root.key())
+                .runtime_values,
+            1
+        );
+        drop(escaping);
+        value
+    };
     {
         let nested = runtime
             .begin_execution(&member, runtime.execution_options())
@@ -111,6 +135,7 @@ fn execution_retention_is_exact_not_an_ambient_session_permission() {
         .begin_execution(&root, runtime.execution_options())
         .unwrap();
     let authority = session.retention();
+    let parent = ConversionContext::in_execution(&runtime, &root, &authority).unwrap();
     for owner in [&unrelated, &replacement] {
         assert!(!authority.covers(&runtime, owner).unwrap());
         let before = runtime.modules().retention_counts(owner.key()).active_calls;
@@ -120,6 +145,24 @@ fn execution_retention_is_exact_not_an_ambient_session_permission() {
             before + 1
         );
         drop(conversion);
+        let child = parent.scoped(owner).unwrap();
+        assert_eq!(
+            runtime.modules().retention_counts(owner.key()).active_calls,
+            before + 1
+        );
+        drop(child);
+        let escaping = parent
+            .retention()
+            .retain(&runtime, owner, ModuleEpochRetention::RuntimeValue)
+            .unwrap();
+        assert_eq!(
+            runtime
+                .modules()
+                .retention_counts(owner.key())
+                .runtime_values,
+            1
+        );
+        drop(escaping);
         assert_eq!(
             runtime.modules().retention_counts(owner.key()).active_calls,
             before
@@ -127,11 +170,25 @@ fn execution_retention_is_exact_not_an_ambient_session_permission() {
     }
     drop(candidate);
     assert!(ConversionContext::in_execution(&runtime, &replacement, &authority).is_err());
+    assert!(parent.scoped(&replacement).is_err());
+    assert!(
+        parent
+            .retention()
+            .retain(&runtime, &replacement, ModuleEpochRetention::RuntimeValue)
+            .is_none()
+    );
     let mut foreign = Runtime::default();
     let foreign_program = load(&mut foreign, "foreign");
     let foreign_owner = foreign.select_program(&foreign_program).unwrap();
     assert!(ConversionContext::in_execution(&runtime, &foreign_owner, &authority).is_err());
     assert!(ConversionContext::in_execution(&foreign, &foreign_owner, &authority).is_err());
+    assert!(parent.scoped(&foreign_owner).is_err());
+    assert!(
+        parent
+            .retention()
+            .retain(&foreign, &foreign_owner, ModuleEpochRetention::RuntimeValue)
+            .is_none()
+    );
 }
 
 #[test]
@@ -158,6 +215,7 @@ fn borrowed_conversion_retains_dynamic_admission_and_poison_checks() {
             .begin_execution(&owner, runtime.execution_options())
             .unwrap();
         let authority = session.retention();
+        let parent = ConversionContext::in_execution(&runtime, &owner, &authority).unwrap();
         match fault {
             Fault::Quarantine => {
                 runtime.resources().quarantine("conversion admission fault");
@@ -181,6 +239,18 @@ fn borrowed_conversion_retains_dynamic_admission_and_poison_checks() {
             }
         }
         assert!(ConversionContext::new(&runtime, &owner).is_err());
+        assert!(
+            parent
+                .scoped(&owner)
+                .and_then(|cx| cx.type_for::<UnreachableMapping>())
+                .is_err()
+        );
+        assert!(
+            parent
+                .retention()
+                .retain(&runtime, &owner, ModuleEpochRetention::RuntimeValue)
+                .is_none()
+        );
         assert!(
             ConversionContext::in_execution(&runtime, &owner, &authority)
                 .and_then(|cx| cx.type_for::<UnreachableMapping>())

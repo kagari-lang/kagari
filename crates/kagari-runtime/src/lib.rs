@@ -662,26 +662,17 @@ impl Runtime {
 
     /// Collect unreachable heap objects and module instances in one graph traversal.
     pub fn collect_garbage(&self) -> Result<GcCollection, RuntimeError> {
+        let entry = self.gc.collection_entry_time();
         self.resources().ensure_not_publishing()?;
         self.gc.ensure_no_native_borrow()?;
         self.resources().ensure_execution_allowed()?;
-        self.gc.collect(&self.modules, &self.host)
+        self.gc.collect(&self.modules, &self.host, entry)
     }
 
     pub fn gc_safepoint(&self) -> Result<(), RuntimeError> {
+        let entry = self.gc.collection_entry_time();
         self.resources().poll_execution()?;
-        let collection_due = if self.gc.collection_due() {
-            true
-        } else if self.gc.automatic_collection_enabled() {
-            self.modules.check_collection_access()?;
-            self.modules.abandonment_pending()
-        } else {
-            false
-        };
-        if collection_due {
-            self.collect_garbage()?;
-        }
-        Ok(())
+        self.gc.service_collection(&self.modules, &self.host, entry)
     }
 
     pub fn reflect_type_of(&self, value: &value::Value) -> Result<value::Value, RuntimeError> {

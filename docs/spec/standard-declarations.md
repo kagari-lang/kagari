@@ -405,12 +405,21 @@ a reentry guard. Zip and chain retain both selected cursors; concrete cursors
 keep their checked concrete types. Construction performs no next or callback
 calls. Aliases share progress. Map next consumes one source item before invoking
 the mapper; a mapper failure does not cause that item to be processed again.
-The public Option is allocated once for a successful next result.
+The public Option is allocated once for a successful next result. Vec/Map/Set cursor
+wrappers validate the complete Rust result mapping before cursor effects. After the kernel
+commits advancement, ordinary child conversion preserves declared nominal/readonly views,
+limits and roots; a shared adapter allocates the checked outer Option as a terminal raw
+native result. No callback or safepoint intervenes before frame publication. This avoids
+redundant outer conversion/rooting, not child validation or source/item retention. A later
+encoding/allocation failure does not undo the committed advancement.
 
 `NativeType::create(cx, payload, slots)` retains requested selected-call metadata
-from the current checked native invocation; typed constructors prepare the type
-with `cx.result_native_type::<P>()?`. The low-level `allocate_result_payload`
-adapter remains for raw native-result handoff. `call_stored_values` validates and
+from the current checked native invocation; constructors needing an owned factory prepare
+it with `cx.result_native_type::<P>()?`. Immediate raw results use the single replacement
+`CallContext::allocate_result_payload(slots, builder)` API, not a prebuilt-payload overload.
+Exact result mapping/authority preflight precedes the builder; selected slots resolve after
+it, and allocation revalidates. See [result construction](host-interop.md#immediate-native-result-construction)
+for callback/root ordering and terminal raw handoff. `call_stored_values` validates and
 invokes stored selections after construction and returns `RootedValue`, preserving
 its result across later mutation, callbacks and safepoints. Stored selections and
 callbacks are GC metadata edges, preserving supplying generations without host

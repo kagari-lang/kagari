@@ -247,12 +247,11 @@ impl CallContext<'_> {
             contract: &cold,
             outputs: &[None, None],
         })?;
-        self.allocate_result_payload(
-            FuturePayload {
+        self.allocate_result_payload(&[], |_, _| {
+            Ok(FuturePayload {
                 cold: Some(ColdFuture::Composition(cold)),
-            },
-            &[],
-        )
+            })
+        })
     }
 }
 

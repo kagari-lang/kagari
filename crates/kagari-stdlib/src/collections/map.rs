@@ -189,9 +189,10 @@ impl<K, V> ScriptMap<K, V> {
 impl<K: KagariType + 'static, V: KagariType + 'static> ScriptMap<K, V> {
     /// Invoke the checked public constructor with concrete host type mappings.
     pub fn create(cx: &mut NativeContext<'_>) -> NativeResult<Self> {
-        let conversion = ConversionContext::new(cx.runtime(), cx.owner())?;
-        let key = conversion.type_for::<K>()?;
-        let value = conversion.type_for::<V>()?;
+        let (key, value) = {
+            let conversion = cx.conversion_scope(cx.owner())?;
+            (conversion.type_for::<K>()?, conversion.type_for::<V>()?)
+        };
         Self::create_with_types(cx, &key, &value)
     }
 
@@ -208,8 +209,9 @@ impl<K: KagariType + 'static, V: KagariType + 'static> ScriptMap<K, V> {
                     "HashMap",
                     DefinitionKind::AssociatedType,
                 ))?;
-        let conversion = ConversionContext::new(cx.runtime(), cx.owner())?;
-        let receiver = conversion.apply_type(&declaration, &[key.clone(), value.clone()])?;
+        let receiver = cx
+            .conversion_scope(cx.owner())?
+            .apply_type(&declaration, &[key.clone(), value.clone()])?;
         cx.runtime()
             .bind_constructor::<Self>(cx.owner(), &receiver)?
             .call(cx, ())

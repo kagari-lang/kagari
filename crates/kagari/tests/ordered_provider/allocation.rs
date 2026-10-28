@@ -61,11 +61,19 @@ pub fn assert_no_allocations(action: impl FnOnce()) {
     assert_eq!(count, 0, "sealed operation cleanup allocated");
 }
 
+pub struct BeginOnUnwind;
+
+impl Drop for BeginOnUnwind {
+    fn drop(&mut self) {
+        begin_cleanup_probe();
+    }
+}
+
 pub fn begin_cleanup_probe() {
     assert_eq!(ALLOCATIONS.replace(Some(0)), None);
 }
 
 pub fn end_cleanup_probe() {
     let count = ALLOCATIONS.replace(None).expect("active cleanup probe");
-    assert_eq!(count, 0, "standard collection recovery allocated");
+    assert_eq!(count, 0, "collection recovery allocated");
 }

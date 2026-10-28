@@ -3,7 +3,7 @@
 use crate::{
     error::RuntimeError,
     frame::types::compatibility::TypeView,
-    gc::graph::{GraphIdentity, GraphState, marks::OwnerMark},
+    gc::graph::{GraphIdentity, GraphMarker, GraphState, marks::OwnerMark},
     module::{
         ExecutableModule, InstallationId, ModuleStore, ModuleStoreInner,
         records::ModuleRecord,
@@ -13,7 +13,8 @@ use crate::{
 };
 use kagari_common::identity::table::DefinitionId;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, TryReserveError},
+    ops::Index,
     sync::Arc,
 };
 
@@ -23,6 +24,8 @@ pub(crate) struct CellId(u64);
 
 #[derive(Debug)]
 pub(in crate::module) struct StaticCell {
+    previous: Option<CellId>,
+    next: Option<CellId>,
     pub(in crate::module) mark: OwnerMark,
     /// Immutable type provenance, not an executable graph root.
     pub(in crate::module) owner: ExecutableModule,
@@ -30,6 +33,145 @@ pub(in crate::module) struct StaticCell {
     pub(in crate::module) lineage: InstallationId,
     pub(in crate::module) state: StaticState,
     pub(in crate::module) attempt: Option<Arc<InitializationAttempt>>,
+}
+
+/// The original cell map owns its occupied chain and repairs the one active sweep
+/// continuation on every removal. New cells prepend, outside a captured chain.
+#[derive(Debug, Default)]
+pub(in crate::module) struct StaticCells {
+    cells: HashMap<CellId, StaticCell>,
+    head: Option<CellId>,
+    sweep: Option<(u64, Option<CellId>)>,
+    generation: u64,
+}
+
+#[derive(Debug)]
+pub(in crate::module) struct StaticSweep {
+    generation: u64,
+}
+
+impl StaticCells {
+    pub(in crate::module) fn get(&self, id: &CellId) -> Option<&StaticCell> {
+        self.cells.get(id)
+    }
+
+    pub(in crate::module) fn get_mut(&mut self, id: &CellId) -> Option<&mut StaticCell> {
+        self.cells.get_mut(id)
+    }
+
+    pub(in crate::module) fn len(&self) -> usize {
+        self.cells.len()
+    }
+
+    #[cfg(test)]
+    pub(in crate::module) fn iter(&self) -> impl Iterator<Item = (&CellId, &StaticCell)> {
+        self.cells.iter()
+    }
+
+    #[cfg(test)]
+    pub(in crate::module) fn is_empty(&self) -> bool {
+        self.cells.is_empty()
+    }
+
+    fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
+        self.cells.try_reserve(additional)
+    }
+
+    fn insert(&mut self, id: CellId, mut cell: StaticCell) {
+        assert!(!self.cells.contains_key(&id), "non-reused static identity");
+        cell.previous = None;
+        cell.next = self.head;
+        if let Some(head) = self.head {
+            self.cells
+                .get_mut(&head)
+                .expect("occupied static head")
+                .previous = Some(id);
+        }
+        self.cells.insert(id, cell);
+        self.head = Some(id);
+    }
+
+    pub(in crate::module) fn remove(
+        &mut self,
+        id: &CellId,
+        graph: &mut GraphMarker<'_>,
+    ) -> Result<Option<StaticCell>, RuntimeError> {
+        let Some(cell) = self.cells.get(id) else {
+            return Ok(None);
+        };
+        graph.can_retire(cell.mark.as_ref())?;
+        let cell = self.cells.remove(id).expect("checked static cell");
+        if let Some(previous) = cell.previous {
+            self.cells
+                .get_mut(&previous)
+                .expect("occupied static predecessor")
+                .next = cell.next;
+        } else {
+            self.head = cell.next;
+        }
+        if let Some(next) = cell.next {
+            self.cells
+                .get_mut(&next)
+                .expect("occupied static successor")
+                .previous = cell.previous;
+        }
+        if let Some((_, next)) = &mut self.sweep
+            && *next == Some(*id)
+        {
+            *next = cell.next;
+        }
+        graph.release_singleton(cell.mark.as_ref());
+        graph.retire_prepared();
+        Ok(Some(cell))
+    }
+
+    pub(in crate::module) fn begin_sweep(&mut self) -> Result<StaticSweep, RuntimeError> {
+        self.generation = self
+            .generation
+            .checked_add(1)
+            .ok_or_else(|| RuntimeError::resource_limit("static sweep generations"))?;
+        self.sweep = Some((self.generation, self.head));
+        Ok(StaticSweep {
+            generation: self.generation,
+        })
+    }
+
+    pub(in crate::module) fn sweep_next(
+        &self,
+        cursor: &StaticSweep,
+    ) -> Result<Option<CellId>, RuntimeError> {
+        self.sweep
+            .filter(|(generation, _)| *generation == cursor.generation)
+            .map(|(_, next)| next)
+            .ok_or_else(|| RuntimeError::module_validation("stale static sweep cursor"))
+    }
+
+    pub(in crate::module) fn advance_sweep(
+        &mut self,
+        cursor: &StaticSweep,
+        id: CellId,
+    ) -> Result<(), RuntimeError> {
+        if self.sweep_next(cursor)? != Some(id) {
+            return Err(RuntimeError::module_validation(
+                "static sweep cursor changed",
+            ));
+        }
+        let next = self
+            .cells
+            .get(&id)
+            .ok_or_else(|| RuntimeError::module_validation("missing occupied static cell"))?
+            .next;
+        self.sweep = Some((cursor.generation, next));
+        Ok(())
+    }
+}
+
+impl Index<&CellId> for StaticCells {
+    type Output = StaticCell;
+
+    fn index(&self, id: &CellId) -> &Self::Output {
+        &self.cells[id]
+    }
 }
 
 impl StaticCell {
@@ -64,7 +206,7 @@ impl ModuleStoreInner {
         }
         let expected = &record.module.bytecode.module_slots.get(slot)?.contract;
         let cell = self.cells.get(record.bindings.get(slot)?)?;
-        if !self.graph.try_lock().ok()?.accessible(cell.mark.as_ref()) {
+        if !self.graph.accessible(cell.mark.as_ref()).ok()? {
             return None;
         }
         let descriptor = cell.owner.bytecode.module_slots.get(cell.slot)?;
@@ -117,6 +259,8 @@ impl ModuleStoreInner {
                 pending.push((
                     id,
                     StaticCell {
+                        previous: None,
+                        next: None,
                         mark: OwnerMark::default(),
                         owner: owner.clone(),
                         slot,
@@ -256,25 +400,10 @@ impl ModuleStore {
             let record = store.records.get_mut(&key).expect("staged member");
             record.bindings = bindings;
         }
-        // Superseded candidate-only cells may still own queued scan work. Keep
-        // their physical backing until collection can retire it; never invalidate
-        // an active cursor after the binding transaction has committed.
-        let referenced = store
-            .records
-            .values()
-            .flat_map(|record| record.bindings.iter().copied())
-            .collect::<HashSet<_>>();
-        store.cells.retain(|id, cell| {
-            if referenced.contains(id) {
-                return true;
-            }
-            if graph.can_retire(cell.mark.as_ref()).is_err() {
-                return true;
-            }
-            graph.release_singleton(cell.mark.as_ref());
-            graph.retire_prepared();
-            false
-        });
+        // Superseded candidate-only cells are no longer graph roots. Leave them
+        // to the bounded occupied-cell sweep, including gray cells with queued
+        // work. Reload neither rebuilds a global binding set nor destroys records
+        // under this borrow, and newborn cells stay outside an active sweep.
         Ok(())
     }
 }

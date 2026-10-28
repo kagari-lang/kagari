@@ -9,9 +9,13 @@ use crate::{
         },
         applications::MethodApplication,
         links::MetadataCache,
+        scan_records::ScanRecordId,
     },
     frame::types::construction::ConstructionScope,
-    gc::{graph::GraphIdentity, interfaces::InterfaceMethodBinding},
+    gc::{
+        graph::GraphIdentity, interfaces::InterfaceMethodBinding,
+        weak_cache::WEAK_CACHE_REMOVE_WORK,
+    },
     module::{ExecutableModule, Program},
     value::Value,
     value_semantics::identity_equal,
@@ -195,15 +199,22 @@ fn lazy_parent_link_publishes_an_existing_target_after_the_snapshot_is_black() {
     runtime.gc.graph.lock().finish_sweep().unwrap();
 }
 
+fn description_key(owner: &ExecutableModule, table: usize) -> InterfaceDescriptionKey {
+    InterfaceDescriptionKey {
+        owner: owner.key(),
+        table,
+        view: false,
+        arguments: vec![],
+        constructions: Default::default(),
+    }
+}
+
 #[test]
 fn weak_description_and_wrapper_promotion_reject_condemned_metadata() {
-    let (runtime, _program, _, _, value) = fixture();
+    let (runtime, _program, owner, table, value) = fixture();
     let snapshot = identity(&runtime, &value);
-    let (key, retained) = {
-        let store = runtime.gc.interfaces.borrow();
-        let (key, weak) = store.descriptions.iter().next().unwrap();
-        (key.clone(), weak.upgrade().unwrap())
-    };
+    let key = description_key(&owner, table);
+    let retained = runtime.gc.interface_description(&key).unwrap();
     runtime.gc.graph.lock().begin_cycle().unwrap();
     runtime.gc.graph.lock().finish_roots().unwrap();
     runtime.gc.drain_graph_work(&runtime.modules).unwrap();
@@ -229,6 +240,187 @@ fn weak_description_and_wrapper_promotion_reject_condemned_metadata() {
             .is_err()
     );
     assert_eq!(runtime.gc.stats(), before);
+    runtime.gc.graph.lock().finish_sweep().unwrap();
+}
+
+#[test]
+fn description_release_is_keyed_to_the_original_record_not_a_new_cache_replacement() {
+    let (runtime, _program, owner, table, value) = fixture();
+    let snapshot = identity(&runtime, &value);
+    let original = runtime
+        .gc
+        .interface_metadata(snapshot)
+        .unwrap()
+        .description
+        .clone();
+    let key = description_key(&owner, table);
+    let release = runtime
+        .gc
+        .interfaces
+        .borrow()
+        .descriptions
+        .token(&key)
+        .unwrap();
+    let evicted = runtime
+        .gc
+        .interfaces
+        .borrow_mut()
+        .descriptions
+        .remove(&release, &mut ScanBudget::new(WEAK_CACHE_REMOVE_WORK));
+    assert_eq!(evicted.0, ScanStatus::Complete);
+    drop(evicted);
+    let replacement_value = runtime
+        .make_interface(&owner, table, Value::I32(8))
+        .unwrap();
+    let replacement = runtime
+        .gc
+        .interface_metadata(identity(&runtime, &replacement_value))
+        .unwrap()
+        .description
+        .clone();
+    assert_ne!(original.scan_id, replacement.scan_id);
+    runtime.gc.graph.lock().begin_cycle().unwrap();
+    runtime
+        .publish_metadata_edge(MetadataEdge::InterfaceDescription(&replacement))
+        .unwrap();
+    runtime.gc.graph.lock().finish_roots().unwrap();
+    runtime.gc.drain_graph_work(runtime.modules()).unwrap();
+    runtime.gc.graph.lock().close_mark().unwrap();
+    let mut cursor = runtime.gc.interface_descriptions.borrow().begin_sweep();
+    let mut retired = Vec::new();
+    assert_eq!(
+        runtime
+            .gc
+            .interface_descriptions
+            .borrow_mut()
+            .detach_slice(
+                &mut cursor,
+                &mut ScanBudget::new(1),
+                1,
+                &mut runtime.gc.graph.lock(),
+                &mut retired,
+            )
+            .unwrap(),
+        ScanStatus::Pending
+    );
+    assert_eq!(retired.len(), 1);
+    assert_eq!(retired[0].id, original.scan_id);
+    runtime
+        .gc
+        .release_interface_description_cache(
+            &retired[0],
+            &mut ScanBudget::new(WEAK_CACHE_REMOVE_WORK),
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.gc.interface_description(&key).unwrap().scan_id,
+        replacement.scan_id
+    );
+
+    let release = runtime
+        .gc
+        .interfaces
+        .borrow()
+        .descriptions
+        .token(&key)
+        .unwrap();
+    let evicted = runtime
+        .gc
+        .interfaces
+        .borrow_mut()
+        .descriptions
+        .remove(&release, &mut ScanBudget::new(WEAK_CACHE_REMOVE_WORK));
+    assert_eq!(evicted.0, ScanStatus::Complete);
+    drop(evicted);
+    let reused_value = runtime
+        .make_interface(&owner, table, Value::I32(9))
+        .unwrap();
+    let reused = runtime
+        .gc
+        .interface_metadata(identity(&runtime, &reused_value))
+        .unwrap()
+        .description
+        .clone();
+    assert_eq!(reused.scan_id.parts().1, original.scan_id.parts().1);
+    assert_ne!(reused.scan_id.parts().2, original.scan_id.parts().2);
+    runtime
+        .gc
+        .release_interface_description_cache(
+            &retired[0],
+            &mut ScanBudget::new(WEAK_CACHE_REMOVE_WORK),
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.gc.interface_description(&key).unwrap().scan_id,
+        reused.scan_id
+    );
+    retired.clear();
+    assert_eq!(
+        runtime
+            .gc
+            .interface_descriptions
+            .borrow_mut()
+            .detach_slice(
+                &mut cursor,
+                &mut ScanBudget::new(1),
+                32,
+                &mut runtime.gc.graph.lock(),
+                &mut retired,
+            )
+            .unwrap(),
+        ScanStatus::Complete
+    );
+    assert!(retired.is_empty());
+    runtime.gc.graph.lock().finish_sweep().unwrap();
+
+    runtime.gc.graph.lock().begin_cycle().unwrap();
+    runtime.gc.graph.lock().finish_roots().unwrap();
+    runtime.gc.graph.lock().close_mark().unwrap();
+    let mut cursor = runtime.gc.interface_descriptions.borrow().begin_sweep();
+    assert_eq!(
+        runtime
+            .gc
+            .interface_descriptions
+            .borrow_mut()
+            .detach_slice(
+                &mut cursor,
+                &mut ScanBudget::new(2),
+                32,
+                &mut runtime.gc.graph.lock(),
+                &mut retired,
+            )
+            .unwrap(),
+        ScanStatus::Complete
+    );
+    assert_eq!(retired.len(), 2);
+    let mut insufficient = ScanBudget::new(WEAK_CACHE_REMOVE_WORK - 1);
+    for record in &retired {
+        assert_eq!(
+            runtime
+                .gc
+                .release_interface_description_cache(record, &mut insufficient)
+                .unwrap(),
+            ScanStatus::Pending
+        );
+    }
+    assert_eq!(insufficient.spent(), 0);
+    assert!(!runtime.gc.interfaces.borrow().descriptions.is_empty());
+    let mut release_budget = ScanBudget::new(retired.len() * WEAK_CACHE_REMOVE_WORK);
+    for record in &retired {
+        assert_eq!(
+            runtime
+                .gc
+                .release_interface_description_cache(record, &mut release_budget)
+                .unwrap(),
+            ScanStatus::Complete
+        );
+    }
+    assert_eq!(
+        release_budget.spent(),
+        retired.len() * WEAK_CACHE_REMOVE_WORK
+    );
+    assert!(runtime.gc.interfaces.borrow().descriptions.is_empty());
+    drop(retired);
     runtime.gc.graph.lock().finish_sweep().unwrap();
 }
 

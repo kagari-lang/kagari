@@ -11,6 +11,7 @@ use kagari_runtime::{
         binding::{Codec, NativeBinding, NativeResult},
         catalog::DeclarationCatalog,
         context::CallContext,
+        conversion::{IntoKagari, context::ConversionContext},
         types::{TypeRef, VariantRef},
     },
     value::{EnumTag, Value},
@@ -73,7 +74,7 @@ impl EnumSymbols {
         }
         let option = enumerations
             .get("Option")
-            .map(|enumeration| {
+            .map(|enumeration| -> NativeResult<_> {
                 Ok((
                     enumeration.declaration.variant("Some")?,
                     enumeration.declaration.variant("None")?,
@@ -83,6 +84,13 @@ impl EnumSymbols {
         Ok(Self {
             enumerations,
             option,
+        })
+    }
+
+    pub(crate) fn option_codec(&self) -> NativeResult<Codec> {
+        Ok(Codec::NominalEnum {
+            declaration: self.enumeration("Option")?.declaration.clone(),
+            arity: 1,
         })
     }
 
@@ -117,6 +125,19 @@ pub(crate) fn pending(
     })
 }
 
+/// Bind a fixed Option result, rejecting foreign declarations or wrong arity at
+/// registration/linking before the callback can run. Child mappings remain dynamic.
+pub(crate) fn pending_option(arguments: usize, entry: Entry) -> PendingBinding {
+    PendingBinding::implementation_with_send(move |view| {
+        let symbols = EnumSymbols::new(view.catalog(), &[OPTION])?;
+        Ok(NativeBinding::new(
+            vec![Codec::Value; arguments],
+            symbols.option_codec()?,
+            move |cx| entry(&symbols, cx),
+        ))
+    })
+}
+
 pub(crate) fn option(
     symbols: &EnumSymbols,
     cx: &CallContext<'_>,
@@ -125,6 +146,31 @@ pub(crate) fn option(
     let (some, none) = symbols.option_members()?;
     cx.allocate_enum(
         &cx.result_type_argument()?,
+        if value.is_some() { some } else { none },
+        value.into_iter().collect(),
+    )
+}
+
+/// Publish a native Option result whose Rust mapping was checked before effects.
+/// Child conversion retains reference items (including a Map entry tuple) until
+/// allocation finishes. The outer enum uses the terminal native-result handoff;
+/// callers must not allocate or reenter after this returns an unrooted Value.
+pub(crate) fn converted_option<T: IntoKagari>(
+    symbols: &EnumSymbols,
+    cx: &CallContext<'_>,
+    conversion: &mut ConversionContext<'_>,
+    result_type: &TypeArgument,
+    value: Option<T>,
+) -> NativeResult<Value> {
+    let value = value
+        .map(|value| {
+            let element = conversion.parameter(result_type, 0)?;
+            conversion.encode_value(&element, value)
+        })
+        .transpose()?;
+    let (some, none) = symbols.option_members()?;
+    cx.allocate_enum(
+        result_type,
         if value.is_some() { some } else { none },
         value.into_iter().collect(),
     )

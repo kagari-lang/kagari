@@ -213,9 +213,35 @@ impl DefinitionTable {
     }
 
     pub fn lookup(&self, path: &DefinitionPath) -> Option<DefinitionId> {
-        let mut index = self.lookup_root(&path.module)?.index;
-        for segment in &path.path {
-            let name = *self.data.symbol_indices.get(segment.name.as_str())?;
+        self.lookup_components(
+            &path.module.package.0,
+            path.module.path.iter().map(String::as_str),
+            path.path.iter().map(|segment| DefinitionSegment {
+                kind: segment.kind,
+                name: &segment.name,
+                occurrence: segment.occurrence,
+            }),
+        )
+    }
+
+    /// Find an exact symbolic identity from borrowed components without allocation.
+    ///
+    /// The result belongs to this table and retained snapshot only. Package, full
+    /// module path, and each declaration's kind, name and occurrence must match.
+    /// An interned identity (including a module prefix) does not imply that its
+    /// declaration is installed; consumers must also check their declaration store.
+    pub fn lookup_components<'a>(
+        &self,
+        package: &str,
+        module: impl IntoIterator<Item = &'a str>,
+        path: impl IntoIterator<Item = DefinitionSegment<'a>>,
+    ) -> Option<DefinitionId> {
+        let mut index = self
+            .lookup_module_components(package, module)?
+            .definition()
+            .index;
+        for segment in path {
+            let name = *self.data.symbol_indices.get(segment.name)?;
             index = *self.data.node_indices.get(&Node::Child {
                 parent: index,
                 kind: segment.kind,

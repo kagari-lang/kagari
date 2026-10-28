@@ -8,8 +8,9 @@ use crate::{
     gc::{GcHeap, HeapObjectId, storage::HeapObject},
     native::{
         binding::NativeResult,
+        payload::read::ReadReceiver,
         storage::{
-            NativeObject, NativeStorage,
+            NativeObject, NativePayload, NativeStorage,
             access::{EditPlan, StorageAccess},
         },
         views::{NativeOperationGuard, NativeOperationKind, Recovery},
@@ -156,6 +157,8 @@ impl GcHeap {
         Ok(())
     }
 
+    // Callers finish their ordered execution/borrow admission immediately before
+    // this callback-free extraction. Recovery deliberately admits only the borrow.
     fn loan_native(
         &self,
         id: HeapObjectId,
@@ -164,10 +167,6 @@ impl GcHeap {
         expected: Option<TypeId>,
         protected_revision: bool,
     ) -> NativeResult<PayloadLoan<'_>> {
-        self.ensure_no_native_borrow()?;
-        if !cleanup {
-            self.ensure_execution_allowed()?;
-        }
         let mut objects = self.objects_mut()?;
         let object = self
             .native_mut(&mut objects, id)
@@ -198,16 +197,21 @@ impl GcHeap {
         Ok(loan)
     }
 
-    pub(crate) fn read_native<P: Send + 'static, R>(
+    pub(crate) fn read_native<P: NativePayload, R>(
         &self,
         runtime: &Runtime,
-        id: HeapObjectId,
+        receiver: ReadReceiver<'_, P>,
         operation: Option<&NativeOperationGuard<'_>>,
         read: impl for<'a> FnOnce(&'a P, &mut StorageAccess<'a>) -> NativeResult<R>,
     ) -> NativeResult<R> {
+        // Poll precedes anchor/guard errors. Only closed, callback-free receiver
+        // resolution runs before the loan, so its execution admission remains valid.
+        runtime.resources().poll_execution()?;
+        let id = receiver.resolve(runtime)?;
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::NativeRead);
         self.check_native_operation(id, operation, false)?;
+        self.ensure_no_native_borrow()?;
         let mut loan = self.loan_native(id, None, false, Some(TypeId::of::<P>()), false)?;
         // SAFETY: the active loan owns access to initialized, nonmoving T. The
         // callback cannot retain this reference or collect/reenter through an alias.
@@ -229,6 +233,7 @@ impl GcHeap {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::NativeEdit);
         self.check_native_operation(id, operation, true)?;
+        self.ensure_execution_allowed()?;
         let mut loan = self.loan_native(
             id,
             Some(plan),
@@ -258,6 +263,7 @@ impl GcHeap {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::NativeRead);
         self.check_native_operation(id, None, true)?;
+        self.ensure_execution_allowed()?;
         let mut loan = self.loan_native(id, None, false, Some(TypeId::of::<P>()), false)?;
         // SAFETY: Preparation has a shared, nonescaping view. Its checked facts
         // remain valid until commit because this same loan excludes every writer.
@@ -324,6 +330,7 @@ impl GcHeap {
             let next = revision.checked_add(1).ok_or_else(|| {
                 RuntimeError::module_validation("native recovery revision exhausted")
             })?;
+            self.ensure_no_native_borrow()?;
             let mut loan = self.loan_native(
                 id,
                 Some(EditPlan {

@@ -4,7 +4,6 @@ use crate::{
     frame::types::operations::OperationBindings, value::Value,
 };
 use kagari_abi::representation::ValueType;
-use kagari_common::identity::map::DefinitionContext;
 use rstest::rstest;
 use std::sync::Arc;
 
@@ -28,35 +27,31 @@ fn extend(
 
 #[test]
 fn foreign_stale_out_of_bounds_and_exhausted_ids_cannot_alias() {
-    let definitions = DefinitionContext::new().unwrap();
-    let record = || PublishedEnvironment {
-        record: EnvironmentRecord::new(&definitions, vec![], vec![]).unwrap(),
-        dependencies: vec![],
-    };
-    let mut store = EnvironmentStore::new(1);
-    let mut other = EnvironmentStore::new(2);
-    let old = store.insert(record()).unwrap();
-    let foreign = other.insert(record()).unwrap();
-    assert!(store.get(foreign).is_none());
-    assert!(other.get(old).is_none());
+    let runtime = Runtime::default();
+    let other = Runtime::default();
+    let old = runtime.alloc_environment(empty(&runtime)).unwrap().id;
+    let foreign = other.alloc_environment(empty(&other)).unwrap().id;
+    assert!(runtime.gc.environment(foreign).is_none());
+    assert!(other.gc.environment(old).is_none());
     assert!(
-        store
-            .get(EnvironmentId {
+        runtime
+            .gc
+            .environment(EnvironmentId {
                 slot: usize::MAX,
                 ..old
             })
             .is_none()
     );
-    assert_eq!(store.detach_batch(&mut 0, 32, |_| false).len(), 1);
-    let next = store.insert(record()).unwrap();
+    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_environments, 1);
+    let next = runtime.alloc_environment(empty(&runtime)).unwrap().id;
     assert_eq!(next.slot, old.slot);
     assert_ne!(next.generation, old.generation);
-    assert!(store.get(old).is_none());
-    store.slots[next.slot].generation = u64::MAX;
-    assert_eq!(store.detach_batch(&mut 0, 32, |_| false).len(), 1);
-    let fresh = store.insert(record()).unwrap();
+    assert!(runtime.gc.environment(old).is_none());
+    runtime.gc.environments.borrow_mut().slots[next.slot].generation = u64::MAX;
+    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_environments, 1);
+    let fresh = runtime.alloc_environment(empty(&runtime)).unwrap().id;
     assert_ne!(fresh.slot, next.slot);
-    assert_eq!(store.count(), 1);
+    assert_eq!(runtime.gc.environments.borrow().count(), 1);
 }
 
 #[test]

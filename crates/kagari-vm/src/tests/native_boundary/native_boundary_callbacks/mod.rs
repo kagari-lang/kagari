@@ -320,7 +320,19 @@ fn stored_callbacks_trace_captures_through_an_ordinary_native_payload() {
         .bind(
             new,
             |cx: &mut CallContext<'_>, callback: CallableHandle<'_>| -> NativeResult<Value> {
-                cx.allocate_result_payload(callback.store(), &[])
+                let payload = callback.store();
+                cx.allocate_result_payload(&[], |call, _| {
+                    call.collect_garbage()?;
+                    let mut native = call.native_context()?;
+                    let function: Callback = native
+                        .conversion()
+                        .decode_value(&call.argument_type_argument(0)?, &call.argument(0)?)?;
+                    assert_eq!(function.call(&mut native, (0,))?, 41);
+                    drop(function);
+                    drop(native);
+                    call.collect_garbage()?;
+                    Ok(payload)
+                })
             },
         )
         .unwrap();

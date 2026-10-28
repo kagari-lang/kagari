@@ -1021,17 +1021,15 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
         .bind(
             new,
             NativeBinding::new(vec![Codec::Value], counter.codec(), move |cx| {
-                cx.allocate_result_payload(
-                    TracedCounter {
-                        values: cx.argument(0)?,
-                        contract: Some(StorageType::prepare_scoped(
-                            cx.argument_type_argument(0)?,
-                            cx.owner(),
-                        )?),
-                        dropped: capture.clone(),
-                    },
-                    &[],
-                )
+                let payload = TracedCounter {
+                    values: cx.argument(0)?,
+                    contract: Some(StorageType::prepare_scoped(
+                        cx.argument_type_argument(0)?,
+                        cx.owner(),
+                    )?),
+                    dropped: capture.clone(),
+                };
+                cx.allocate_result_payload(&[], |_, _| Ok(payload))
             }),
         )
         .unwrap();
