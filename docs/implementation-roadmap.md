@@ -594,6 +594,15 @@ products remain separate from the fixed-i32 external collection fixture.
 
 ## Test execution cost
 
+Deferred directory-readability follow-up, recorded 2026-10-28:
+[TP10-TP13](test-preparation-plan.md#directory-readability-follow-up-tp10-tp13)
+consolidate mixed test files under subsystem-local `tests/` directories, starting
+with HIR, runtime, then contract/bytecode and selected smaller groups. Preserve
+private ownership, existing clear test trees, harness boundaries and assertions;
+do not widen APIs or convert unit tests into integration targets for layout.
+The direction is agreed, but implementation is explicitly deferred. This does
+not reopen completed contract/fixture organization or claim a performance gain.
+
 Repository-wide test organization is implemented and reconciled across all 24
 workspace members and the existing Node/Python/editor/browser/product/benchmark
 families. The [testing guide](testing.md) owns semantic classification, named cases,

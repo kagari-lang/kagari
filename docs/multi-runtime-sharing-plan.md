@@ -57,7 +57,7 @@ are historical, not a current large-project capacity estimate.
 
 | Owner | Current mechanism | Required diagnosis or change |
 | --- | --- | --- |
-| [PreparedProgram](../crates/kagari/src/program/mod.rs) | Rc/RefCell preparation owner shares bytecode, optional MIR and native cache; it is neither Send nor Sync | Separate frozen execution products from mutable compiler/cache work; do not mechanically wrap the whole owner in a mutex |
+| [PreparedProgram](../crates/kagari/src/program/mod.rs) | Clones share the Rc/RefCell preparation owner, optional MIR and native cache; it is neither Send nor Sync. Runtime publication association separately clones retained MIR by value | Share immutable MIR at the publication-retention boundary as well as the preparation handle; separate frozen products from mutable compiler/cache work, not a mutex around the whole owner |
 | [VerifiedProgram and ProgramDescriptor](../crates/kagari-runtime/src/module.rs) | Arc-backed execution preparation is shared; each installation owns its descriptor, layouts and linked modules | Retain existing instruction/frame preparation sharing; attribute remaining code-sized installation records |
 | [Identity normalization](../crates/kagari-runtime/src/module/normalization.rs) | A different definition scope with referenced IDs remaps modules/exports into new records while sharing execution and the version token | Separate immutable declaration facts from Runtime binding authority; avoid reconstructing complete images on each load |
 | [Linked execution](../crates/kagari-runtime/src/module/linked_execution.rs) | Runtime-local per-function arrays and linked call/native/layout records | Separate reusable recipes from actual Runtime-local targets; do not share GC Values or authority merely because a record is immutable |
@@ -74,6 +74,60 @@ cross-domain loads must both be measured: favorable same-owner loading alone doe
 not prove the general sharing contract. Repeated loads into one shared destination
 context must not repeatedly reconstruct equivalent full normalized products either.
 
+### Confirmed MIR duplication at SDK publication retention
+
+Inspection on 2026-10-28 identified a concrete gap for the one-Runtime-per-player
+requirement. When native input is retained, sharing `PreparedProgram` does not
+prevent MIR duplication during SDK load/reload:
+
+```text
+One PreparedProgram (Rc-shared state)
+  Runtime::load_program / reload_program
+    PreparedProgram::retained_inputs()
+      self.state.mir.clone()             // Option<VerifiedMirProgram>, not Arc
+    Runtime-local Publications::stage()
+      retain the copied input under the exact publication token
+```
+
+Evidence:
+
+- [SDK load/reload](../crates/kagari/src/runtime.rs) stages `program.retained_inputs()`
+  alongside the candidate publication token before committing the installation.
+- [RetainedPreparation](../crates/kagari/src/program/inputs.rs) holds
+  `compilation: Option<Arc<CompilationInputs>>`, but `mir: Option<VerifiedMirProgram>`.
+  The former shares its owner; the latter invokes the MIR program's derived Clone.
+- [VerifiedMirProgram](../crates/kagari-mir/src/program.rs) owns a module Vec,
+  binding HashMap and other records. [VerifiedMirModule](../crates/kagari-mir/src/verify.rs)
+  owns MIR metadata and a Vec of analyses. These are value/container copies, not
+  merely one shared-pointer increment; some nested identity owners can still share.
+- [Publications](../crates/kagari/src/runtime/update.rs) retains these inputs per
+  SDK Runtime/publication. Its `current()` lookup also clones `RetainedPreparation`,
+  creating another MIR-copy opportunity independently of initial installation.
+
+The duplication is confirmed structurally, not quantified. It applies when the
+prepared input actually contains MIR, including native-enabled artifact preparation
+with portable MIR; it is not evidence that bytecode-only players retain MIR or that
+every nested allocation is duplicated. Recheck current call paths when MS00 starts.
+The preparation owner's comment that a loaded Runtime does not retain its Rc/cache
+must not be interpreted as saying the SDK retains no compiler input at all.
+
+Required model: one immutable verified MIR backing per prepared program version,
+shared by compatible Runtime publication associations and subsequent preparation
+lookups. Adding players must not copy the whole MIR program. Retaining different
+old/new versions during reload is legitimate; duplicating one version for each
+player is not. Use an audited immutable shared owner (for example Arc at the sealed
+program boundary), not an unsafe Send/Sync assertion or a global cache of copies.
+If an editing/reverification path needs an owned mutable candidate, keep that copy
+explicit and outside ordinary load/lookup. This does not itself settle identity
+adoption, cross-thread compiler caches or all native machine-code reuse.
+
+Preserve exact publication-token association, failed-publication rollback, independent
+player state and deliberate MIR release when its last legitimate owner disappears.
+Do not avoid duplication by silently disabling native-input retention or losing the
+ability to compile supported functions later. Reconcile stale sharing/lifetime
+comments with actual ownership during implementation. This is additional evidence
+inside MS00-MS04, not a new phase or authorization to implement.
+
 ## Intended ownership and execution model
 
 These are responsibilities, not a requirement for additional public types:
@@ -81,6 +135,7 @@ These are responsibilities, not a requirement for additional public types:
 ```text
 Frozen program version: shared across compatible workers/installations
   code and prepared instructions, immutable contracts/export graph,
+  optional sealed MIR/compiler input shared by program version,
   frame/layout recipes, debug data, eligible compiled products
 
 Runtime installation: private to one player Runtime
@@ -124,6 +179,75 @@ cache has an exact product/configuration/provider validity key, an explicit life
 and a measured need. Host callbacks may deliberately share captured Rust services;
 that does not permit sharing a player's mutable payload or borrow registry. A
 prelinked product is reusable only when its captured bindings permit it.
+
+### Deferred JIT delivery and Runtime-local installation
+
+User direction recorded 2026-10-28: prepare finalized machine-code products outside
+player execution, deliver them to the Runtime owner, and install them at an eligible
+safe boundary before a subsequent function call. Sharing code is acceptable, but
+ordinary execution must not acquire a shared compilation-cache lock to obtain or
+execute it. This records a design direction, not implemented automatic JIT scheduling
+or authorization to expand MS03 into a background compiler/Actor framework.
+
+Separate immutable products from mutable entry selection:
+
+```text
+Preparation task: exclusively compile and finalize a product
+  -> deliver an owning reference and exact product/version identity
+Runtime owner: receive at a permitted safe boundary
+  -> validate and install in Runtime-local entry selection
+Subsequent call: read the local installed route
+  -> invoke finalized machine code with this Runtime's context
+```
+
+- Publish only finalized immutable code and metadata. Multiple Runtimes may hold
+  references to the same product; each owns its installation/binding choice and
+  player state. Shared code does not require one globally mutable entry table.
+  Keep local routing records bounded; this is not permission to copy all immutable
+  dispatch/code metadata per player.
+- A background task must never mutate a Runtime's entry table directly. Delivery
+  may use synchronized queues and preparation caches; installation is serialized
+  by the Runtime's exclusive owner. A queue notification alone does not establish
+  permission to install, nor does `Arc` make concurrent mutation safe.
+- A function-call boundary is a candidate acceptance point, not a claim that every
+  nested call or host reentry is safe for installation. Define the permitted boundary
+  and reentry/active-frame rules before implementation. Actor message boundaries or
+  explicit owner-side processing may amortize delivery without polling a shared
+  queue on every call. Preserve the current host-top-level publication contract;
+  installing another execution strategy for the same verified version must not
+  silently publish a different source version.
+- Before installation, verify the exact function/program version, ABI/backend
+  configuration and required Runtime bindings. If reload superseded the version
+  while compilation ran, reject the stale delivery for the new version; never
+  install by matching a name alone. Handle failed installation, cancellation and
+  Runtime shutdown without leaking products or admitting execution effects.
+- Switching local entry selection affects subsequent eligible calls only. Existing
+  invocations retain their selected code owner until completion; do not patch or
+  release machine code underneath them. After source publication, ordinary inner
+  calls still obey current-call selection; this does not restore pinned dependency
+  semantics or authorize automatic deoptimization/tier replacement.
+- Normal invocation uses the retained installation and function address, not a
+  shared-cache lookup or a lock held across execution. Reference-count changes at
+  delivery/installation/retirement and bounded local dispatch costs are distinct
+  from per-call cache synchronization. Do not promise zero atomic operations for
+  the whole runtime or place shared Arc churn on every instruction.
+
+Current evidence: the SDK explicitly prepares and executes native entries;
+[Cranelift emission](../crates/kagari-codegen-cranelift/src/emit.rs) finalizes code
+before publishing its owner, and [native invocation](../crates/kagari-runtime/src/backend/native.rs)
+uses an installed entry address and an explicit Runtime context. Its code-memory
+owner's Mutex is accessed through exclusive `get_mut()` during construction/drop,
+not locked to execute finalized code. Automatic background delivery and ordinary
+call-entry replacement are not implemented. Coordinate their future scope with the
+[deferred native API review](implementation-roadmap.md#deferred-native-execution-api-boundary-review)
+and [Cranelift expansion plan](cranelift-expansion-plan.md), rather than making hosts
+manage version-specific machine-code handles for ordinary calls.
+
+When that work is activated, require evidence for stale deliveries after reload,
+independent installation by two Runtimes, in-flight code lifetime, failed/cancelled
+installation and shutdown, plus absence of shared compilation-cache access on warm
+calls. Measure delivery/installation separately from execution. This does not claim
+that the current backend supports all calls or that any latency gate has passed.
 
 ### Hot path and current-code selection
 
@@ -198,6 +322,12 @@ player initialization, representative warm calls, suspended async work, compatib
 reload with old work alive, and teardown. Do not instantiate active stacks for every
 function merely to count code. Separate source/analysis/MIR retention from execution
 products; report enabled features and intentional source-debug/native retention.
+Include MIR-present and bytecode-only controls, reusing one prepared program across
+players. Attribute retained MIR backing separately from compilation snapshots,
+bytecode, machine code and local publication records. Count allocations/copy work
+on load, reload and repeated preparation lookup; do not infer sharing solely from
+`PreparedProgram` Rc equality. Include dropping the preparation handle while
+installations remain and old/new-version coexistence during independent updates.
 
 Report:
 
@@ -250,6 +380,8 @@ and a bounded scope decision, not an unlimited sequence of local workarounds.
 - Run the bounded baseline and attribute code reconstruction, pure-link duplication,
   installation floor and real state; freeze numerical acceptance and uncertainty.
 - Choose identity, frozen-product/cache ownership and Send/Sync representation.
+  Preserve the deferred JIT delivery boundary above without implementing an automatic
+  scheduler in this phase; shared owners must not require execution-time cache locks.
   Record validation relocation, field-by-field shared/local responsibility and
   publication selection against the implemented host/update contracts before
   changing shared owners.
@@ -265,12 +397,21 @@ request that scope decision rather than adding hidden phases.
   boundary. Preserve verification, destination authority and source-free loading.
 - Keep already-shared execution preparation and payload-independent version tokens;
   remove superseded normalization owners/adapters in this checkpoint.
+- Replace by-value retained MIR duplication with the MS00 shared immutable owner
+  across SDK load/reload, publication storage and current-input lookup. Preserve
+  native-input availability, verified program/version correspondence and explicit
+  editable-candidate boundaries; migrate direct consumers in the same checkpoint.
 - Migrate direct consumers coherently; preserve nominal, foreign-runtime, layout,
   native contract and artifact rejection behavior.
 
 Acceptance: same/cross-domain multi-load evidence demonstrates shared backing and
 lower attributed retained bytes under MS00 gates; invalid identity inputs fail
-before effects. No per-instruction replacement for former load-time validation.
+before effects. MIR-present same-product installations and repeated preparation
+lookups share one verified MIR backing without whole-program clone allocations.
+Pair backing-identity checks with attributed allocation evidence, and preserve a
+small existing actual-native preparation/execution case; bytecode-only fallback
+is not proof of retained-input correctness. No per-instruction replacement for
+former load-time validation.
 
 ### MS02 — Separate reusable link facts from instance bindings
 
@@ -297,6 +438,9 @@ Acceptance: shared-product transfer and independent Runtime creation/execution/d
 pass; different host state and wrong providers do not cross-contaminate. Warm calls
 never require preparation-cache locks. Preserve source-only/artifact-only support;
 validate native product sharing only within currently supported actual-native cases.
+Cross-thread acceptance must cover the MIR-present shared owner, not just a
+bytecode-only product or same-thread Rc clones; immutable input sharing does not
+require sharing mutable backend/compiler/cache state.
 
 ### MS04 — Validate player isolation and publication lifetime
 
@@ -304,6 +448,11 @@ validate native product sharing only within currently supported actual-native ca
   cells, constants, roots, native borrow state and suspended tasks.
 - Update one installation while another stays unchanged; share immutable replacement
   products where valid. Failed publication changes neither installation's state.
+- Verify retained MIR is shared within each old/new program version, not across
+  incompatible versions. Dropping one player or the original preparation handle
+  must not invalidate another installation's supported native preparation; the last
+  legitimate retained-input owner must release its MIR backing. Failed publication
+  must not leave a new retained input behind.
 - Verify selected old computation cleanup and no new accidental lifetime extension.
   Preserve implemented current-call selection and exact retained-body semantics;
   MS does not close R13 without its own evidence.
@@ -365,6 +514,16 @@ meaningful source-free/negative coverage when refreshing affected fixtures.
 ## Progress ledger
 
 - [x] Plan requested and authored; source evidence and published references recorded.
+- [x] 2026-10-28 inspection supplement: confirmed by-value MIR cloning through SDK
+  load/reload publication retention and current-input lookup; added shared-MIR
+  ownership, allocation, native-availability and lifetime acceptance to MS00-MS04.
+  Documentation only; no implementation or new measurement. This finding does not
+  mark MIR sharing or any MS implementation phase complete.
+- [x] 2026-10-28 JIT direction supplement: background preparation may deliver
+  immutable code for Runtime-owner installation at an eligible safe call boundary;
+  mutable entry selection remains local and warm execution avoids shared-cache
+  locks. Exact boundaries and automatic delivery/scheduling remain deferred, with
+  no source changes or performance claims.
 - [ ] MS00 — Baseline, numerical gates, identity/product decisions and publication invariants.
 - [ ] MS01 — Shared code through checked identity admission.
 - [ ] MS02 — Shared link recipes and private instance bindings.

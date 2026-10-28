@@ -4,8 +4,10 @@ This finite task improves test preparation boundaries and selected contract owne
 The initial three SDK pilots and TP04's six additional SDK runners are complete.
 TP04 also removes invariant preparation from compiler ABI, provider cancellation
 and standard documentation loops. The user authorized TP05-TP09 on 2026-10-15;
-source-owned test organization and focused local acceptance are complete. Native collection migration and compiler pipeline
-redesign remain outside scope.
+source-owned test organization and focused local acceptance are complete. The
+[TP10-TP13 directory readability follow-up](#directory-readability-follow-up-tp10-tp13)
+was recorded on 2026-10-28; its direction is agreed, but implementation is deferred.
+Native collection migration and compiler pipeline redesign remain outside scope.
 
 ## Contract
 
@@ -168,6 +170,179 @@ cargo test -p kagari-compiler --lib tests::bytecode::artifacts::rejects_
 cargo test -p kagari-stdlib --test documentation
 cargo clippy -p kagari --test standard_traits --test instantiation --test associated_types --test conversion_traits --test collection_interfaces --test collection_access --test native_provider_reset --test syntax_examples --test default_methods -- -D warnings
 ```
+
+## Directory readability follow-up (TP10-TP13)
+
+Status, 2026-10-28: documentation only. The user selected subsystem-local `tests/`
+directories and explicitly deferred implementation. TP10-TP13 are queued, not
+started. They refine physical layout without reopening TP05-TP09's completed
+source ownership or the later fixture/contract organization. This section owns
+this follow-up's scope and ledger; it does not create another test-cost project.
+
+### Problem and intended result
+
+Production modules and several independently named `*_tests.rs` files currently
+share directories. Some owners also combine a `tests/` directory, `tests.rs`,
+other test subdirectories and inline test modules. A reader expanding the source
+tree must distinguish implementation from tests file by file.
+
+For example, `kagari-runtime/src/native/assembly/` contains implementation files
+such as `authoring.rs`, `draft.rs` and `seal.rs` alongside `default_tests.rs`,
+`default_tests/`, `proof_tests.rs`, `transfer_tests.rs`, `tests.rs` and `tests/`.
+The proposed layout gathers that owner's test groups under `assembly/tests/`,
+so folding that directory leaves implementation visible. Child-module private
+checks remain under their actual owner rather than moving to a sibling merely
+for visual uniformity.
+
+The objective is navigation and clear ownership, not fewer tests, faster builds
+or a measured execution speedup. Production APIs, semantics, dependency boundaries,
+harnesses and test setup policies remain unchanged.
+
+### Placement rules
+
+1. Prefer one `#[cfg(test)] mod tests;` entry for grouped tests belonging to the
+   same module, with ordinary child declarations in `tests/mod.rs`. Keep relevant
+   feature/platform gates. Within this directory, use meaningful names such as
+   `arena.rs` or `defaults/` rather than repeating `_tests` on every leaf.
+2. Keep tests at the smallest correct semantic owner. Rust private items are
+   accessible from their defining module and descendants, not arbitrary siblings
+   ([Rust privacy rules](https://doc.rust-lang.org/reference/visibility-and-privacy.html)).
+   For example, a private `analysis::body_queries` check can stay in
+   `analysis/body_queries/tests/mod.rs`, declared by `body_queries.rs`; it must not
+   require widening visibility to move under `analysis::tests`.
+3. Preserve existing clear `src/tests/` and subsystem `tests/` trees. A small,
+   single-entry `tests.rs` is acceptable; converting every such file to a directory
+   is not a goal. Extract inline test modules only where separating a substantial
+   test section improves implementation reading, preserving the logical parent.
+4. Do not gather all tests at the crate root, create a shared test crate or turn
+   unit tests into integration targets. Existing external/process/feature-isolation
+   tests retain their distinct harness boundaries. Crate-root `tests/` fixture and
+   support directories are not automatically integration targets.
+5. Use ordinary Rust modules. Do not introduce handwritten `include!`, layout-only
+   `#[path]`, forwarding modules, duplicate module declarations, new re-exports or
+   wider production visibility to make moves compile. Keep helpers with their
+   actual test consumers; do not duplicate stateful setup or preparation caches.
+
+Illustrative HIR destination, not an implemented tree:
+
+```text
+src/analysis/
+  mod.rs
+  body_queries.rs
+  declaration_queries.rs
+  tests/
+    mod.rs
+    arena.rs
+    callable.rs
+    generic_types/
+      mod.rs
+      ...
+  body_queries/
+    tests/
+      mod.rs
+      ...
+```
+
+### Inspected scope and priority
+
+The 2026-10-28 survey inspected paths and module declarations, not every private
+access or fixture dependency. Recheck the actual owner before moving each group;
+this is a bounded migration inventory, not a claim that every listed file must move.
+Paths below are relative to `crates/`.
+
+| Priority / owner | Observed layout | Intended treatment |
+| --- | --- | --- |
+| First: `kagari-hir` | Numerous `analysis/*_tests.rs`; similar groups under `imports/` and `native/api/`; existing local `tests.rs` and inline modules | Pilot `analysis/tests/`, then consolidate other mixed groups without crossing private ownership |
+| Second: `kagari-runtime` | `native/assembly/` mixes several test files and directories; `assembly/seal/`, `gc/` and `scheduler/` also contain named test files | Consolidate at each actual owner; preserve existing `native/tests/` and `host/tests/` |
+| Third: `kagari-contract` | `types/tests/` coexists with `inheritance_tests.rs` and `native_tests.rs`; additional groups under `types/proofs/`, `types/named/verify/` and `callable/wire/evidence/` | Use one grouped test entry per owner; do not flatten private child checks |
+| Third: `kagari-bytecode` | `artifact/canonical_tests.rs`, `identity_tests.rs` and `string_iter_tests.rs` are beside implementation; `verifier/async_tests.rs` is separate | Consolidate artifact/verifier test groups while retaining local verifier ownership |
+| Local follow-up: `kagari-types` | `ty/identity/tests.rs` plus `metadata_tests.rs`; `language/identity_tests.rs`, `declaration/verify/scoped_tests.rs` | Review and consolidate only mixed groups |
+| Local follow-up: `kagari-compiler` | Existing `src/tests/`; `source/lower/abi/tests.rs` plus `host_tests.rs` | Preserve the main test tree and organize the ABI-local group |
+| Local follow-up: `kagari-package` | Existing `src/tests/`; `modules/input_tests.rs` and local graph/manifest/workspace test files | Preserve semantic owners; avoid relocating clear single-entry modules unnecessarily |
+| Lower priority: inline sections | Examples in `kagari-source`, `kagari-common`, CLI, web, format, analyzer, MIR, stdlib, syntax, VM and SDK implementation files | Inspect size and reading impact; extract only justified sections at their current module boundary |
+| Already clear | SDK engine/program/runtime test trees; runtime host/native trees; analyzer/syntax/VM `src/tests/`; single test files in lint/format/Cranelift | Retain unless a concrete mixed group is found within the selected scope |
+
+No conventional test declarations were found in the surveyed ABI, codegen and
+derive crates. Do not create placeholder test directories for them. This survey
+is not a test-coverage audit or authorization to add missing tests.
+
+### Migration safety
+
+Before each batch, record old/new physical paths and qualified test names, helper
+consumers, feature/platform gates, ignored/panic attributes and fixture references.
+Inspect `super::` imports, restricted visibility, macro-generated registrations,
+`include_str!`/`include_bytes!`, `#[path]`, `file!()`/`module_path!()` and filesystem
+paths. Moving a module can change names and relative paths even if its body stays
+identical. Update current documentation, CI/script filters and any path-specific
+structure exceptions in the same batch; label historical commands rather than
+rewriting historical evidence as a current run.
+
+Keep input bytes, golden expectations, assertions, source names, route matrices,
+GC settings, cancellation behavior and setup isolation unchanged. Do not delete
+or deduplicate cases, rewrite fixtures, replace runners, add smoke tests or change
+production APIs as part of this layout work. Any necessary behavioral repair needs
+its own diagnosis and explicit scope, not a hidden exception to a mechanical move.
+
+### Queued checkpoints and acceptance
+
+- [ ] **TP10: HIR pilot and remaining mixed HIR groups.** Freeze each group's
+  mapping/private-access constraints, consolidate `analysis` first, then review
+  `imports`, `native/api` and the remaining observed HIR groups. Record justified
+  retained local layouts rather than forcing everything under `analysis/tests/`.
+- [ ] **TP11: runtime groups.** Consolidate assembly and its privately owned child
+  tests, then the observed GC/scheduler groups. Keep native/host trees and shared
+  fixture consumers intact; do not reorganize production ownership.
+- [ ] **TP12: contract, bytecode and smaller mixed groups.** Address the inventory
+  above in coherent owner-sized batches, preserving existing test trees and
+  external targets. Do not combine all crates into one unreviewable move.
+- [ ] **TP13: scoped readability review and handoff.** Review the listed inline
+  candidates, recording which substantial sections are extracted and why others
+  stay. Reconcile current links/filters, document the lasting layout convention
+  in `testing.md`, and report local evidence separately from pending CI. Do not
+  expand this checkpoint into arbitrary production refactoring or every future
+  inline test in the repository.
+
+Each batch must compile in its affected scope; there is no planned broken-build
+phase. Compare before/after harness discovery for selected moved groups, including
+parameterized and ignored cases, using an explicit old/new qualified-name mapping.
+Reject empty filters, lost cases, duplicate registration or changed attributes.
+Discovery establishes preservation, not successful execution.
+
+Run a small selected contract set for moved behavior plus directly affected
+adjacent contracts. For HIR select representative analysis/identity/diagnostic
+cases; for runtime select registration and ownership/cleanup cases; for contract
+and bytecode select admission/codec rejection; for package select input/filesystem
+contracts. Record exact nonempty filters and selection rationale at implementation
+time. Compile affected harnesses as needed, but do not execute every package suite
+as a disguised full-workspace sweep. Use default target/profiles/parallelism and
+`--no-fail-fast` for multiple selected test targets.
+
+Implementation checkpoints also require:
+
+```text
+uv run --locked scripts/check_structure.py
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+git diff --check
+```
+
+CI owns complete workspace and feature/backend/platform execution. Preserve
+existing case coverage even when only representative local cases are run. Verify
+fixture discovery/path changes in their affected scope; a successful build alone
+is insufficient. This documentation-only checkpoint needs content/link/diff checks,
+not Rust builds or tests. No benchmark is required for a readability-only move;
+the earlier preparation timing and retained-memory debt stays independent.
+
+### Follow-up ledger
+
+2026-10-28: recorded the agreed subsystem-local directory direction and the
+cross-crate survey. TP10-TP13 remain unstarted; no Rust files, test registrations,
+fixtures, APIs or harnesses changed. There are no migration build results or
+carried migration errors yet. Resume by inspecting current Git status, affected
+diffs and test owners, not by treating this survey as a verified move manifest.
+On completion, keep lasting rules in `testing.md` and unresolved acceptance in the
+roadmap. Retire this plan only after its independent preparation/measurement work
+is also resolved or transferred to its durable owner.
 
 ## In-source test organization (TP05-TP09)
 

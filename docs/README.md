@@ -42,8 +42,10 @@ below; the public Pages site has not been activated by this work.
 - [Test preparation, contract classification and execution](testing.md), including
   [compiler UI diagnostics](testing.md#compiler-ui-diagnostic-tests),
   [file-backed fixtures, golden pairs and bounded numeric cases](testing.md#existing-file-backed-patterns),
-  and native ecosystem/product boundaries. Repository-wide organization is complete;
-  remaining CI/manual and performance acceptance stays in the roadmap.
+  and native ecosystem/product boundaries. Contract/fixture organization is complete;
+  the [directory-readability follow-up](test-preparation-plan.md#directory-readability-follow-up-tp10-tp13)
+  is recorded for later implementation. Remaining CI/manual and performance
+  acceptance stays in the roadmap.
 - [Editor tooling and installation](../editors/README.md): standalone Zed/VS Code
   syntax adapters and the separate [stdio analyzer foundation](architecture.md#language-server-foundation).
 - [Performance measurements](performance-baseline.md), including the completed

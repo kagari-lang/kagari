@@ -24,6 +24,13 @@ lifetime safety remain required.
 
 - [Engineering a Compiler review](#engineering-a-compiler-chapter-review): chapter-led
   assessment at `5b57c9a8`, reconciled with current storage/optimization boundaries.
+- [Source line-index costs](#source-line-index-costs): measure construction and
+  UTF-16 conversion before changing byte scanning or source-update ownership.
+- [Copied-source mapping cleanup](#copied-source-mapping-cleanup): verify whether
+  the currently test-populated mapping still has a concrete consumer before removal.
+- [RefCell ownership and borrow boundaries](#refcell-ownership-and-borrow-boundaries):
+  retain justified interior mutability; review concrete risks and measured costs,
+  not the number of RefCell occurrences.
 - [Runtime architecture review](#runtime-architecture-review): system map and
   historical evidence at `88acbdb5`, reconciled with implemented lifecycle contracts.
 - Repository findings: [SA11](#sa11-hir-declarations-and-adt-members-carry-container-derived-identities),
@@ -52,6 +59,197 @@ not rerun behavior tests or performance probes. The remaining SA entries still
 have their described representation or missing feature. Test preparation progress
 and pending measurements belong to the [existing task](test-preparation-plan.md),
 not a separate review finding. Reconfirm affected behavior when activating a task.
+
+## RefCell ownership and borrow boundaries
+
+User direction recorded 2026-10-28: do not pursue repository-wide RefCell removal.
+If replacement makes ownership plumbing, lifetimes, execution contexts or unsafe
+invariants substantially more complicated without a concrete benefit, retain the
+existing interior-mutability design. This is a review criterion, not a diagnosed
+performance defect or authorization for an API/runtime migration.
+
+### Observed uses and distinctions
+
+The [engine](../crates/kagari/src/engine/mod.rs) wraps its source and analysis
+Databases in RefCell so [source operations](../crates/kagari/src/engine/source.rs)
+can update inputs, settings and query caches through `&self`. Explicit `&mut self`
+is a possible simplification here, but only after reviewing callers and session
+ownership; these preparation-side borrows are not established execution hotspots.
+Other inspected owners include the preparation-side native cache, SDK publication
+associations, runtime GC storage/root tables, host borrowing and execution state.
+Their purposes and constraints differ; this inspection is not an exhaustive audit.
+
+As documented by [Rust's cell module](https://doc.rust-lang.org/std/cell/index.html)
+(reviewed 2026-10-28), RefCell enforces borrowing dynamically and is not a mutex or
+an atomic synchronization primitive. Conflicting `borrow`/`borrow_mut` calls panic;
+fallible borrowing can report conflicts explicitly. RefCell is not Sync, but its
+presence alone does not prove a type is not Send. Thread transfer and concurrent
+sharing are separate questions. One Runtime driver prevents concurrent execution,
+not same-thread aliasing or synchronous script-to-host-to-script reentry.
+
+### Review criteria
+
+- Retain short, localized borrows with a clear state owner and intentional conflict
+  behavior. Query caches and low-frequency preparation do not warrant redesign
+  merely because their APIs use interior mutability.
+- Prefer ordinary exclusive access where it genuinely simplifies the complete
+  call chain. When an exclusive `&mut RefCell<T>` already exists, `get_mut()` can
+  provide access without a dynamic borrow check; replacing the type everywhere
+  is not a prerequisite. Do not introduce elaborate context/lifetime plumbing just
+  to reduce the occurrence count.
+- Investigate borrows crossing host callbacks, reentry, collection or teardown.
+  Release or narrow storage borrows before transitions that legitimately need the
+  same state; preserve transactional mutation, roots and trap/cancellation cleanup.
+  Dynamic host-loan validation is a semantic boundary, not redundant merely because
+  a Rust RefCell is removed. Fallible borrowing is not permission to reject a
+  previously supported reentrant operation rather than fixing its ownership.
+- Measure repeated checks in instruction/operand hot paths before optimizing.
+  Where safe, borrow once over a bounded region rather than once per tiny operation,
+  without extending that borrow across allocation/callback/safepoint boundaries
+  that require release. Do not assume either that all checks are expensive or that
+  the compiler always eliminates them.
+- Revisit ownership if cells conceal mixed responsibilities or circular access.
+  Do not substitute Mutex/RwLock, unchecked UnsafeCell or raw pointers solely to
+  remove RefCell. Cross-thread frozen-product/cache design remains owned by the
+  [multi-Runtime plan](multi-runtime-sharing-plan.md), not this review entry.
+
+Any proposed change must identify its actual owner, affected call/borrow boundaries
+and a concrete simplification, reproduced correctness issue or measured cost.
+Validate selected source-session/query contracts for engine changes, and relevant
+host-reentry, GC/root, cancellation/trap and cleanup contracts for runtime changes.
+Performance claims require matched measurements and the repository's usual recorded
+environment/workload limits. Apply normal focused/local-check/CI policy if activated;
+no blanket rewrite, new benchmark or behavioral test is performed by this note.
+
+## Source line-index costs
+
+Recorded 2026-10-28; inspection only, implementation deferred. This is an
+unmeasured optimization candidate, not an established large-project bottleneck.
+No benchmark, speedup or end-to-end latency attribution is claimed.
+
+### Current ownership and cost
+
+[`LineIndex::new`](../crates/kagari-source/src/line_index.rs) scans UTF-8 bytes
+for LF and stores line starts and ends, excluding CR from CRLF line content.
+Construction is O(text bytes), storage is O(lines); `as_bytes()` does not copy
+text. Initial complete indexing must inspect the input, so a faster search reduces
+constant costs rather than eliminating the scan. Ordinary UTF-8 offset-to-position
+queries binary-search the stored starts instead of rescanning the whole file.
+
+[`SourceFile`](../crates/kagari-source/src/source.rs) owns text and index together
+in immutable `Arc<SourceContent>`. Clones and inline modules share both while
+retaining original byte coordinates. Keep this ownership: neither a global index
+cache nor one index per inline module is justified.
+[`SourceDatabase`](../crates/kagari-source/src/source_database.rs) reuses unchanged
+captured files and skips refresh when effective text/module identity is unchanged.
+Changing one file does not itself rebuild every project's line index; input
+acquisition, text comparisons and snapshot-map costs must be measured separately.
+
+The [analyzer document adapter](../crates/kagari-analyzer/src/documents.rs) accepts
+full-text replacements, not ranged edits. Changing one character in a very large
+file therefore still rebuilds that file's index. Separately, UTF-16 conversions
+in `position()` and `offset()` scan the line prefix; repeated conversions near the
+end of a long line can accumulate work independently of initial construction.
+
+### Bounded candidates and reference mechanisms
+
+1. Measure current construction, allocation and coordinate-query costs separately
+   from parsing/type checking and full source-update latency. Distinguish many
+   small files from one large file and initial load from repeated edits/queries.
+2. If newline scanning matters, compare `memchr::memchr_iter(b'\n', bytes)` with
+   the current loop, preserving starts/ends and CRLF handling. This is a local
+   algorithm change, not a new source model. The owner currently has no direct
+   `memchr` dependency; adopting it requires an explicit dependency decision.
+   [memchr 2.7.6](https://docs.rs/memchr/2.7.6/memchr/fn.memchr_iter.html) supplies
+   optimized byte-search iteration without handwritten platform-specific unsafe
+   code in Kagari. Small inputs and allocation-heavy line tables may limit gains.
+3. If repeated UTF-16 conversion matters instead, evaluate per-line non-ASCII
+   metadata tied to the same immutable content lifetime. The
+   [rust-analyzer line-index source](https://github.com/rust-lang/rust-analyzer/blob/master/lib/line-index/src/lib.rs)
+   (master inspected 2026-10-28, not a pinned release) combines SSE2/NEON scanning
+   with per-line non-ASCII character records. Its bounded `TextSize` offsets and
+   coordinate validation contract differ from Kagari's `usize`/CRLF checks; borrow
+   the mechanism only after reconciling those assumptions, not the API wholesale.
+4. Only if large-document editing is an observed problem, review incremental
+   synchronization, text storage and line-index updates together. Rope/chunked
+   storage is not justified merely by a large file count. It would change source
+   snapshot and contiguous-text access boundaries and needs separate activation.
+
+### Acceptance and limits
+
+Reuse existing source position contracts, particularly
+`unicode_positions_reject_partial_codepoints_and_crlf`, plus exact-copy/inline
+source coordinate coverage. Preserve empty input, trailing-newline empty lines,
+LF/CRLF, UTF-8 character boundaries, UTF-16 surrogate boundaries, invalid offsets,
+old-snapshot isolation and shared inline origins. Add only genuinely uncovered
+boundaries; do not weaken range rejection to match a reference implementation.
+
+Compare representative small/large files, long lines, newline densities, ASCII
+and mixed Unicode. Record toolchain, machine, profile, features, default parallelism,
+cache state and workloads; separate indexing, query and end-to-end results. Use
+focused local tests and the repository's implementation checks if work is activated;
+complete workspace/backend/platform execution remains CI-owned. No source change,
+new dependency, cache, incremental-sync migration or performance acceptance is
+activated by this entry.
+
+## Copied-source mapping cleanup
+
+Recorded 2026-10-28; cleanup candidate only, removal deferred. The crate-source
+search found `SourceFile::add_copy()` calls only in its own unit test, not in
+production code. This is repository-local evidence, not proof that a public API
+has no external users. History and original intent have not been investigated;
+do not label the mechanism obsolete or promise a performance gain yet.
+
+### Observed mechanism and consumers
+
+[`SourceFile`](../crates/kagari-source/src/source.rs) stores `copies: Vec<CopiedSource>`.
+Each entry relates a local byte range to an exact original range and retains an
+`Arc<SourceFile>` for that origin. `add_copy()` requires byte-identical, disjoint
+local fragments from directly authored sources. `span()` maps contained ranges
+back to their original file/revision; `local_range()` maps original locations
+into the current analysis view. This supports text copied into generated source,
+not arbitrary rewritten source maps or edit history.
+
+The read side is wired into
+[declaration source lookup](../crates/kagari-hir/src/analysis/declaration_queries.rs),
+[documentation queries](../crates/kagari-hir/src/analysis/documentation_queries.rs)
+and [source collection](../crates/kagari-hir/src/source_inspection.rs).
+However, the inspected production paths do not populate the mapping. Ordinary
+sources start with an empty vector; inline modules clone it while independently
+preserving their physical `origin`, original byte coordinates and shared content.
+A reader of the current API must not infer that native registration actually
+constructs copied-fragment mappings merely because the consumer branches exist.
+
+### Follow-up decision and removal boundary
+
+1. Recheck all producers and consumers, including examples, macros, tests and
+   documented external use; inspect Git history to identify the original need and
+   whether another source-publication model superseded it. A test of the mechanism
+   alone is not a production requirement. Retain it only for a concrete supported
+   use, not hypothetical future generation or compatibility.
+2. If no supported use remains, remove `CopiedSource`, the `copies` field,
+   `add_copy()` and copy-specific enumeration/remapping paths coherently, including
+   HIR consumers and copy-only tests/docs. Do not retain forwarding APIs, empty
+   mapping containers or always-empty compatibility branches. Follow the existing
+   unpublished-API policy rather than inventing a versioning migration.
+3. Do not delete all of `span()` or `local_range()` just because their copy branch
+   disappears. They also implement ordinary file/revision and coordinate checks
+   used by navigation/documentation. Preserve inline module `id`/`origin`/range,
+   shared text/index ownership and snapshot validity. Keep real generated-source
+   navigation and source retention working through their actual ownership model.
+4. The current `exact_copies_preserve_authored_navigation_and_analysis_offsets`
+   test also checks shared content, inline positions and stale-revision rejection.
+   Preserve independently meaningful coverage at its source owner; remove only
+   assertions for a deliberately removed copy feature, not the entire mixed test
+   without reviewing its remaining contracts.
+
+Acceptance requires focused source/inline/Unicode position and file/revision
+checks plus selected existing HIR documentation/source lookup and SDK registration
+navigation cases. Verify generated declaration locations still resolve to the
+correct retained source and written name. Review remaining callers and run the
+normal implementation structure/format/workspace-Clippy checks; exhaustive tests
+remain CI-owned. This entry changes no Rust API or behavior and carries no build,
+functional or performance validation result for a future removal.
 
 ## Engineering a Compiler chapter review
 

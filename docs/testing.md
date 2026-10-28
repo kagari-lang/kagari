@@ -5,10 +5,13 @@ affected contract tests locally; CI owns complete workspace tests and exhaustive
 feature/backend validation. Full-workspace Clippy runs locally for implementation
 acceptance: `cargo clippy --workspace --all-targets -- -D warnings`.
 This page defines source ownership, fixture formats, justified integration targets
-and reusable test setup. The repository-wide organization migration is complete;
-Git history owns its phase ledger and command logs. Remaining performance
-measurement work belongs to the existing [preparation plan](test-preparation-plan.md),
-not a second test-organization queue.
+and reusable test setup. The repository-wide contract/fixture organization
+migration is complete; Git history owns its phase ledger and command logs.
+The deferred [directory-readability follow-up](test-preparation-plan.md#directory-readability-follow-up-tp10-tp13)
+will consolidate mixed source/test files under subsystem-local test directories
+without changing semantic or harness ownership. It is recorded, not implemented.
+That follow-up and the independent remaining performance measurement work belong
+to the existing [preparation plan](test-preparation-plan.md), not parallel queues.
 
 ## Match the test to its semantic owner
 
