@@ -125,6 +125,40 @@ with debug validation where useful; do not create general public pointer access.
 No new ABI version is required for unpublished internals; invalidate affected
 in-memory products and disposable caches, and keep artifacts address-free.
 
+### Object graph efficiency review (2026-10-28)
+
+The linked `Node` scenario discussed with the user is a correctness workload,
+not a proposed universal graph container or evidence of cache-efficient traversal.
+Direct references remove identity/storage lookup from admitted accesses; they do
+not make separately allocated nodes contiguous or remove dependent memory loads.
+Do not introduce a duplicate adjacency graph for ordinary object fields; retain
+only the collector work state and metadata dependencies that have distinct owners.
+
+Current `module/layout_storage.rs` already packs scalar fields at their actual
+width and stores each managed field as a 13-byte discriminator/owner/slot/generation
+encoding. `gc/fields.rs` scans a prepared list of reference fields. Preserve compact
+scalar storage and precise reference enumeration; do not replace every stored
+field with a general tagged `VmValue`. VM transport and physical field encoding
+have separate responsibilities. A pointer-only field is an option only when its
+exact admitted representation permits it. Interface/tagged/enum storage must keep
+all required information; do not assume `Option<Node>` is already one nullable
+pointer or add an enum-layout migration to this trial implicitly.
+
+Go 1.26.0's [heap bitmap implementation](https://github.com/golang/go/blob/go1.26.0/src/runtime/mbitmap.go)
+uses span bitmaps for small scannable objects and type metadata for larger ones,
+with separate handling for pointer-free objects. This supports separating scan
+metadata from hot field loads; it does not prove that Kagari's proposed common
+header is optimal. Keep the header as the first trial's chosen model and report
+its complete cost, including alignment, size-class rounding, page slack, physical
+metadata and shared descriptor retention. Do not promise pointer-width total
+values or per-object savings from a smaller reference alone.
+
+The vertical trial must distinguish scalar-only, pointer-rich and mixed layouts,
+and shared/cyclic graphs from the single linked-chain example, using existing
+workloads where possible. Compare field reads, allocations, scanning and total
+memory against the same fixed images. This review refines the existing trial's
+interpretation; it adds no independent optimization phase or measured result.
+
 ### Proposed host API shape
 
 The following sketches specify intended behavior, not implemented signatures.
