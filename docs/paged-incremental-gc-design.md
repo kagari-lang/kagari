@@ -2470,6 +2470,36 @@ Documentation-only work needs content/link/diff checks, not Rust builds.
 
 ## Progress and error ledger
 
+### Direct-reference boundary audit started (2026-10-28)
+
+The user accepted the recommended direction and requested the next work item.
+Begin step 1 of the finite trial: preserve/freeze the combined source baseline,
+close external value lifetimes, and then implement the integrated vertical trial.
+The compact header is a trial candidate, not an accepted performance result.
+
+Initial inspection confirms the boundary is wider than result inspection:
+
+| Existing owner | Boundary to migrate before pointer-bearing transport is safe |
+| --- | --- |
+| `gc/roots.rs` | RootedValue value/set and RootSet get/set expose or accept unrooted values |
+| `native/value_handle.rs` | ScriptValue value extraction must become scoped/owning access |
+| `native/conversion/mod.rs` | IntoKagari/FromKagari expose raw transport to user conversion implementations |
+| SDK scoped execution and VM reentry | Raw arguments/results must carry the actual scope or retention contract |
+| VM `debug.rs` | DebugBinding retains roots but its public Value can be copied past that retention |
+
+This is an initial inventory, not closure of all backend, Native storage or
+scheduler consumers. Ordinary typed execution keeps owning conversion behavior;
+callbacks must remain able to collect after releasing payload loans. Do not put
+whole conversions or callbacks under an inspection no-GC guard. A lifetime wrapper
+around copied raw transport is insufficient if it offers an escaping safe accessor.
+
+No baseline run or runtime replacement was performed at this checkpoint. Existing
+storage workloads already cover reference-rich objects, aligned Native payloads,
+scalar backing, cyclic aliases and retained reload; reuse selected existing cases
+instead of creating a new benchmark suite. Freeze exact rows and image provenance
+before timing; earlier PG05 figures are not measurements of the current source.
+Documentation diff checks pass; implementation and performance acceptance remain open.
+
 ### Direct-reference proposal handoff (2026-10-28)
 
 The user requested a concrete Go-inspired trial and resulting API shape. The
