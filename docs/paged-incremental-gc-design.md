@@ -159,6 +159,72 @@ workloads where possible. Compare field reads, allocations, scanning and total
 memory against the same fixed images. This review refines the existing trial's
 interpretation; it adds no independent optimization phase or measured result.
 
+### Recommendation from Kagari's semantic requirements (2026-10-28)
+
+The recommended trial remains nonmoving paged allocation, direct internal
+references, prepared typed field access and single-driver incremental tracing,
+with a lightweight per-object representation identifier and page-owned allocation
+state. This is a recommendation for Kagari's existing contracts, not selection
+of an entire Java, Go or Lua runtime model or a measured optimum. No implementation
+or phase acceptance is implied by this design discussion.
+
+The [project goals](project_goal.md) and [runtime specification](spec/runtime.md)
+require shared object identity, closed typed layouts, nominal interfaces/generics,
+exact Native payload mappings, scoped host loans and retained metadata across
+compatible reload. Static typing permits prepared offsets and compact scalar
+fields; it does not erase runtime layout provenance, turn shared structs into
+by-value copies, or remove tracing from cycles. Shallow readonly aliases do not
+make the referent immutable. Parked frames, closures and Futures remain roots or
+traced state with their exact execution obligations. Host resources and concurrency
+remain outside the script heap; Java-style per-object monitors are not required.
+
+For the first trial, evaluate this concrete refinement of the common header:
+
+```text
+ObjectHeader {
+    descriptor_id: u32,   // Existing descriptor-domain concept, shared layout/scan/drop facts.
+    allocation_id: u32,   // Existing physical page/large-allocation directory concept.
+}
+```
+
+This is an 8-byte logical header candidate, not a proven total allocation overhead.
+It replaces the illustrative full descriptor pointer plus page/slot header from
+the discussion. For a small page, compute the physical slot from the live object
+address, page base and stride when GC needs it; large allocations have their own
+geometry. There is no per-field page/descriptor lookup: admitted field operations
+use the direct reference and prepared offset. GC and dynamic admission can resolve
+these compact IDs through their existing owners. No new global address-to-arena
+mapping, pointer compression, per-object GC linked-list pointer or nominal-type
+page partition is required by this candidate.
+
+Before implementation, close bounds/exhaustion, descriptor retention through final
+disposal, page retirement/reuse and source-free/backend contracts. IDs cannot be
+reused while a live allocation or detached disposal still depends on them. Root
+owner/generation admission prevents foreign or expired host values from becoming
+internal references; no safe unchecked raw transport remains. Remove superseded
+identity/descriptor metadata rather than retain duplicates as a performance cache.
+Payload alignment may add padding beyond these 8 bytes, especially for Native
+payloads. Report complete object/page/table memory and metadata lookup costs; do
+not equate compact IDs with a measured speedup or promise uniform 8-byte overhead.
+
+Mature-runtime boundaries motivating this recommendation:
+
+- Go 1.26.0's [allocation header policy](https://github.com/golang/go/blob/go1.26.0/src/internal/runtime/gc/malloc.go)
+  varies header use with object size. Adopt selective, accounted metadata costs
+  and direct typed access; do not copy Go struct value semantics, scheduler or
+  concurrent collector, or assume Kagari already has its arena address mapping.
+- HotSpot 25's [mark word](https://github.com/openjdk/jdk/blob/jdk-25-ga/src/hotspot/share/oops/markWord.hpp)
+  combines class, hash, locking and GC state. Retain Kagari's exact layout metadata,
+  but do not import unrelated monitor/age/forwarding machinery into every object.
+- Lua 5.4.8's [object lists](https://github.com/lua/lua/blob/v5.4.8/lstate.h)
+  use `next` and selected `gclist` fields. Kagari's page enumeration already owns
+  physical sweep; copying those links would duplicate a responsibility.
+
+Keep the four trial steps and existing acceptance gates. The header candidate
+needs proof in the integrated vertical trial; fully headerless storage and a new
+arena allocator remain deferred. This subsection records the recommendation and
+its limits, not a parallel implementation queue.
+
 ### Proposed host API shape
 
 The following sketches specify intended behavior, not implemented signatures.
