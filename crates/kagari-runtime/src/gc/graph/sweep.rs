@@ -80,12 +80,10 @@ impl PreparedRetirement<'_, '_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gc::{
-        HeapObjectId,
-        graph::{
-            GraphIdentity, GraphState,
-            marks::{Domain, MarkBlocks},
-        },
+    use crate::execution_metadata::scan_records::{NativeApplicationScanId, ScanRecordId};
+    use crate::gc::graph::{
+        GraphIdentity, GraphState,
+        marks::{Domain, MarkBlocks},
     };
 
     #[test]
@@ -120,8 +118,8 @@ mod tests {
         for slot in 0..33 {
             graph.prepare_identity().unwrap();
             graph.admit_prepared(
-                GraphIdentity::Object(HeapObjectId::new(1, slot, 0)),
-                marks.slot(Domain::Object, slot),
+                GraphIdentity::NativeApplication(NativeApplicationScanId::from_parts(1, slot, 0)),
+                marks.slot(Domain::NativeApplication, slot),
             );
         }
         graph.begin_cycle().unwrap();
@@ -131,7 +129,11 @@ mod tests {
         let work_credits = graph.work_credits;
         {
             let batch = graph.sweep_batch().unwrap();
-            assert!(!batch.is_survivor(marks.slot(Domain::Object, 0)).unwrap());
+            assert!(
+                !batch
+                    .is_survivor(marks.slot(Domain::NativeApplication, 0))
+                    .unwrap()
+            );
             let _uncommitted = batch.prepare_retirement(32).unwrap();
         }
         assert_eq!(graph.credits, 33);
@@ -145,7 +147,7 @@ mod tests {
         assert_eq!(graph.work_credits, work_credits);
         assert_eq!(graph.pending.capacity(), capacity);
         assert!(graph.sweep_batch().unwrap().prepare_retirement(2).is_err());
-        let mark = marks.slot(Domain::Object, 32);
+        let mark = marks.slot(Domain::NativeApplication, 32);
         mark.set(graph.epoch, Color::Black);
         assert!(graph.sweep_batch().unwrap().is_survivor(mark).unwrap());
         mark.set(graph.epoch, Color::Gray);

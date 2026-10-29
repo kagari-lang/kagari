@@ -8,8 +8,10 @@ use crate::{
         storage::{
             NativePayload, NativeStorage,
             scan::{NativeScanKind, ScanBudget, ScanStatus},
+            value::StoredValue,
         },
     },
+    resource::HeapCharge,
     test_support::layouts::{allocation_owner, layout},
     value::Value,
 };
@@ -54,7 +56,7 @@ unsafe impl<const N: usize> NativePayload for Probe<N> {
         &'a self,
         _: &mut (),
         budget: &mut ScanBudget,
-        _: &mut dyn FnMut(&'a Value),
+        _: &mut dyn FnMut(&'a StoredValue),
     ) -> ScanStatus {
         budget.charge(1);
         ScanStatus::Complete
@@ -90,7 +92,7 @@ unsafe impl NativePayload for Zst {
         &'a self,
         _: &mut (),
         budget: &mut ScanBudget,
-        _: &mut dyn FnMut(&'a Value),
+        _: &mut dyn FnMut(&'a StoredValue),
     ) -> ScanStatus {
         budget.charge(1);
         ScanStatus::Complete
@@ -104,18 +106,28 @@ unsafe impl NativePayload for Zst {
 // SAFETY: zero-sized and edge-free.
 unsafe impl NativeTake for Zst {}
 
-fn allocate<T: NativeTake>(runtime: &Runtime, owner: &ExecutableModule, value: T) -> HeapObjectId {
+fn allocate<T: NativeTake>(runtime: &Runtime, owner: &ExecutableModule, value: T) -> GcRef {
     let object = NativeStorage::takeable::<T>()
         .prepare_payload(runtime.gc(), &Ty::Builtin(BuiltinType::Unit), value, owner)
         .unwrap();
     runtime.gc().alloc_native(object).unwrap()
 }
 
-fn inline_address<T: 'static>(heap: &GcHeap, id: HeapObjectId) -> usize {
+fn inline_address<T: 'static>(heap: &GcHeap, id: GcRef) -> usize {
     let objects = heap.objects.borrow();
     let object = heap.native_ref(&objects, id).unwrap();
     let (_, offset) = object.physical_layout().unwrap();
     let header = (object as *const NativeObject).addr();
+    let location = objects.direct_location(id).unwrap();
+    let checked = objects.pages.get(location).unwrap();
+    let prefix = checked.descriptor.payload_offset();
+    assert!(prefix >= ObjectHeader::SIZE);
+    assert_eq!(checked.pointer.as_ptr().addr(), header);
+    // SAFETY: this occupied allocation and both headers remain under the same
+    // storage borrow; the checked descriptor accounts for alignment padding.
+    let common = unsafe { ObjectHeader::read(checked.pointer.sub(prefix)) };
+    assert_eq!(common.allocation_id, location.page);
+    assert_ne!(common.descriptor_id, 0);
     let payload = (object.payload::<T>().unwrap() as *const T).addr();
     assert_eq!(
         payload,
@@ -162,20 +174,30 @@ fn inline_native_small_large_overaligned_and_zero_sized_lifecycles() {
     ];
     let expected_backing = {
         let objects = runtime.gc().objects.borrow();
-        let large = runtime
-            .gc()
-            .native_ref(&objects, large)
-            .unwrap()
-            .physical_layout()
-            .unwrap()
-            .0;
-        let aligned = runtime
-            .gc()
-            .native_ref(&objects, aligned)
-            .unwrap()
-            .physical_layout()
-            .unwrap()
-            .0;
+        let large = ObjectHeader::layout(
+            runtime
+                .gc()
+                .native_ref(&objects, large)
+                .unwrap()
+                .physical_layout()
+                .unwrap()
+                .0,
+        )
+        .unwrap()
+        .0
+        .pad_to_align();
+        let aligned = ObjectHeader::layout(
+            runtime
+                .gc()
+                .native_ref(&objects, aligned)
+                .unwrap()
+                .physical_layout()
+                .unwrap()
+                .0,
+        )
+        .unwrap()
+        .0
+        .pad_to_align();
         // Probe<3> and Zst may use different small classes, but each is slab-backed.
         let slabs = objects.pages.usage().slabs;
         assert!(slabs == SLAB_BYTES || slabs == 2 * SLAB_BYTES);

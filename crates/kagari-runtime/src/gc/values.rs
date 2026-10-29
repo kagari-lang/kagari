@@ -408,9 +408,8 @@ impl GcHeap {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gc::HeapObjectId;
+    use crate::gc::reference::GcRef;
     use crate::gc::{
-        directory::ObjectSlot,
         roots::RootedValue,
         storage::{Exclusive, Shared},
     };
@@ -425,15 +424,14 @@ mod tests {
         assert_copy::<Value>();
         #[cfg(not(debug_assertions))]
         assert!(size_of::<Value>() <= 16);
-        assert_eq!(size_of::<HeapObjectId>(), 12);
+        assert_eq!(size_of::<GcRef>(), 8);
         eprintln!(
-            "Value={} HeapObjectId={} HeapObject={} SharedObject={} ExclusiveObject={} ObjectSlot={} TupleData={} String={} Range={} Ephemeral={} RootedValue={} HostRoot={} HostPath={} HostBorrow={}",
+            "Value={} GcRef={} HeapObject={} SharedObject={} ExclusiveObject={} TupleData={} String={} Range={} Ephemeral={} RootedValue={} HostRoot={} HostPath={} HostBorrow={}",
             size_of::<Value>(),
-            size_of::<HeapObjectId>(),
+            size_of::<GcRef>(),
             size_of::<HeapObject>(),
             size_of::<HeapObject<Shared<'_>>>(),
             size_of::<HeapObject<Exclusive<'_>>>(),
-            size_of::<ObjectSlot>(),
             size_of::<TupleData>(),
             size_of::<String>(),
             size_of::<RangeValue>(),

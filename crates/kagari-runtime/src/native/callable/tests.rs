@@ -54,7 +54,7 @@ fn fixture() -> (Runtime, ExecutableModule, PreparedClosure) {
 #[test]
 fn prepared_and_stored_descriptors_do_not_root_recycled_closures() {
     let (runtime, loaded, prepared) = fixture();
-    let _stored = StoredCallable(prepared.clone());
+    let _stored = StoredCallable(StoredValue::new(*prepared.value()));
     let environment_id = prepared
         .snapshot(&runtime)
         .unwrap()

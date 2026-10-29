@@ -2,7 +2,7 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    gc::HeapObjectId,
+    gc::reference::GcRef,
     native::{
         binding::NativeResult,
         context::CallContext,
@@ -19,11 +19,11 @@ pub(crate) enum ReadReceiver<'view, P> {
     Borrowed(&'view BorrowedPayload<'view, P>),
     Opaque(&'view Opaque<P>),
     Argument(&'view CallContext<'view>, usize),
-    Value(HeapObjectId),
+    Value(GcRef),
 }
 
 impl<P: NativePayload> ReadReceiver<'_, P> {
-    pub(crate) fn resolve(self, runtime: &Runtime) -> NativeResult<HeapObjectId> {
+    pub(crate) fn resolve(self, runtime: &Runtime) -> NativeResult<GcRef> {
         let value = match self {
             Self::Borrowed(payload) => payload.value(runtime)?,
             Self::Opaque(payload) => payload.value(runtime.gc())?,

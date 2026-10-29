@@ -5,7 +5,7 @@ use crate::{
         pages::batch::Disposal,
         retirement::tests::{batch, begin},
     },
-    native::storage::{NativePayload, NativeStorage, scan::NativeScanKind},
+    native::storage::{NativePayload, NativeStorage, scan::NativeScanKind, value::StoredValue},
     resource::HeapCharge,
     test_support::layouts::{allocation_owner, layout},
     value::Value,
@@ -37,7 +37,7 @@ unsafe impl NativePayload for Counted {
         &'a self,
         _: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        _: &mut dyn FnMut(&'a Value),
+        _: &mut dyn FnMut(&'a StoredValue),
     ) -> ScanStatus {
         if budget.take(1) {
             ScanStatus::Complete
@@ -77,13 +77,12 @@ fn large_structures(runtime: &mut Runtime, count: usize) -> Vec<PayloadLocation>
             );
             runtime
                 .gc()
-                .identity_location(
-                    &runtime.gc().objects.borrow(),
-                    match value {
-                        Value::Struct(reference) => reference.into(),
-                        _ => unreachable!(),
-                    },
-                )
+                .objects
+                .borrow()
+                .direct_location(match value {
+                    Value::Struct(reference) => reference,
+                    _ => unreachable!(),
+                })
                 .unwrap()
         })
         .collect()

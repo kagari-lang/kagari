@@ -1,5 +1,4 @@
 use crate::tests::native_boundary::{compile, compile_program};
-use kagari_runtime::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 use kagari_runtime::{
     error::RuntimeErrorKind,
     module::entry::ProgramEntry,
@@ -8,7 +7,11 @@ use kagari_runtime::{
         builder::ModuleBuilder,
         declarations::FunctionDecl,
         module::NativeModule,
-        storage::{NativePayload, NativeStorage},
+        storage::{
+            NativePayload, NativeStorage,
+            scan::{NativeScanKind, ScanBudget, ScanStatus},
+            value::StoredValue,
+        },
     },
     resource::HeapCharge,
     value::Value,
@@ -39,7 +42,7 @@ unsafe impl NativePayload for Payload {
         &'payload self,
         _: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        _: &mut dyn FnMut(&'payload Value),
+        _: &mut dyn FnMut(&'payload StoredValue),
     ) -> ScanStatus {
         budget.charge(1);
         assert!(!self.0.trace.load(Ordering::SeqCst), "fixture trace panic");
@@ -157,9 +160,6 @@ fn destructor_panics_dispose_each_detached_payload_once_and_quarantine() {
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
         .return_value;
-    // SAFETY: The live read is retained; after drop, values is used only by the
-    // checked-ID rejection probe, never as live transport.
-    let values = unsafe { result.value_transport(vm.runtime().gc()) }.unwrap();
     drop(result);
     faults.drop.store(true, Ordering::SeqCst);
     let error = vm.runtime().collect_garbage().unwrap_err();
@@ -173,7 +173,6 @@ fn destructor_panics_dispose_each_detached_payload_once_and_quarantine() {
     assert_eq!(faults.drops.load(Ordering::SeqCst), 2);
     assert_eq!(vm.runtime().gc().stats().allocated_objects, 0);
     assert_eq!(vm.runtime().gc().stats().current_heap_units, 0);
-    assert!(!unsafe { vm.runtime().gc().validate_value_transport(&values) });
     assert_eq!(
         vm.runtime().collect_garbage().unwrap_err().kind(),
         RuntimeErrorKind::EngineFault

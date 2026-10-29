@@ -4,7 +4,7 @@ use kagari_types::language::binding;
 
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
-    gc::{GcHeap, GcObjectKind, reference::HeapObjectIdentity},
+    gc::{GcHeap, GcObjectKind},
     value::{EnumTag, Value},
 };
 
@@ -35,13 +35,11 @@ pub unsafe fn identity_equal_transport(
 
 pub(crate) fn identity_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, RuntimeError> {
     let object = |value: &Value| match value {
-        Value::Struct(reference) => {
-            Some((HeapObjectIdentity::Direct(*reference), GcObjectKind::Struct))
-        }
-        Value::Array(id) => Some((HeapObjectIdentity::Indexed(*id), GcObjectKind::Array)),
+        Value::Struct(reference) => Some((*reference, GcObjectKind::Struct)),
+        Value::Array(id) => Some((*id, GcObjectKind::Array)),
 
         Value::GcHandle(id) if gc.identity_kind(*id) == Some(GcObjectKind::Native) => {
-            Some((HeapObjectIdentity::Indexed(*id), GcObjectKind::Native))
+            Some((*id, GcObjectKind::Native))
         }
         _ => None,
     };
@@ -259,12 +257,12 @@ pub(crate) fn format_value(
                 write!(out, "Struct@{:p}", reference.pointer().as_ptr()).ok()?;
             }
             Value::Array(id) if debug => {
-                write!(out, "Array@{}:{}", id.index(), id.generation()).ok()?;
+                write!(out, "Array@{:p}", id.pointer().as_ptr()).ok()?;
             }
             Value::HostRoot(_) if debug => out.push_str("<host>"),
             Value::GcHandle(id) if debug => {
                 let name = gc.native_type_name(*id)?;
-                write!(out, "{name}@{}:{}", id.index(), id.generation()).ok()?;
+                write!(out, "{name}@{:p}", id.pointer().as_ptr()).ok()?;
             }
             Value::Interface(_) if debug => out.push_str("<interface>"),
             Value::Closure(_) if debug => out.push_str("<function>"),

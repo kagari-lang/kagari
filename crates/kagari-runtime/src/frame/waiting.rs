@@ -255,7 +255,7 @@ impl ExecutionStack<'_> {
                 return Ok(());
             }
             ColdFuture::Script(closure) => {
-                return self.push_future(runtime, closure, destination, &output);
+                return self.push_future(runtime, closure.value(), destination, &output);
             }
             ColdFuture::Native(cold) => cold,
         };

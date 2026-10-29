@@ -1,6 +1,6 @@
 use crate::{
     Runtime,
-    gc::{HeapObjectId, graph::GraphIdentity},
+    gc::graph::GraphIdentity,
     native::storage::NativeStorage,
     test_support::layouts::{allocation_owner, layout},
     value::Value,
@@ -56,15 +56,17 @@ fn generic_targets_do_not_erase_specialized_array_kind_requirements() {
         assert!(heap.validate_value(&value));
         heap.checked_target(value).unwrap().publish().unwrap();
     }
-    let stale = HeapObjectId::new(
-        u64::from(native.owner),
-        native.index(),
-        native.generation + 1,
-    );
+    let foreign = Runtime::default();
+    let other = foreign
+        .gc()
+        .alloc_string("foreign".into())
+        .unwrap()
+        .direct_reference()
+        .unwrap();
     for value in [
         Value::Array(native),
-        Value::Array(stale),
-        Value::GcHandle(stale),
+        Value::Array(other),
+        Value::GcHandle(other),
     ] {
         assert!(!heap.validate_value(&value));
         assert!(heap.checked_target(value).is_none());
@@ -92,7 +94,7 @@ fn root_slice_rejects_all_publication_if_any_identity_is_invalid() {
     heap.graph.lock().close_mark().unwrap();
     assert!(
         !heap
-            .graph_survivor(runtime.modules(), valid.heap_identity().unwrap().graph(),)
+            .graph_survivor(runtime.modules(), valid.direct_reference().unwrap().graph(),)
             .unwrap()
     );
     heap.graph.lock().finish_sweep().unwrap();

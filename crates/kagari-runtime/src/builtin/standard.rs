@@ -121,7 +121,7 @@ fn array_join(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
                 .checked_mul(values.len().saturating_sub(1))
                 .ok_or_else(overflow)?;
             for value in values {
-                let Value::Str(value) = value else {
+                let Value::Str(value) = value.value_ref() else {
                     return Err(BuiltinError::new("array.join expects string elements"));
                 };
                 let value = gc
@@ -135,7 +135,7 @@ fn array_join(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
                 if index != 0 {
                     output.push_str(&separator);
                 }
-                let Value::Str(value) = value else {
+                let Value::Str(value) = value.value_ref() else {
                     unreachable!("validated string element");
                 };
                 let value = gc

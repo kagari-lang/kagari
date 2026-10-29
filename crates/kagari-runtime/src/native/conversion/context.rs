@@ -4,7 +4,7 @@ use crate::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
     gc::{
-        reference::HeapObjectIdentity,
+        reference::GcRef,
         roots::{RootSet, RootedValue},
     },
     module::{ExecutableModule, ModuleEpochRetention, ModuleStore, retention::ProgramLease},
@@ -13,7 +13,7 @@ use crate::{
         context::CallContext,
         conversion::{FromKagari, IntoKagari, KagariType},
         payload::NativeType,
-        storage::NativePayload,
+        storage::{NativePayload, value::StoredValue},
         types::{Type, TypeRef},
         value_handle::ScriptValue,
     },
@@ -54,7 +54,7 @@ pub struct ConversionContext<'runtime> {
     depth: usize,
     nodes: usize,
     string_bytes: usize,
-    active: HashSet<HeapObjectIdentity>,
+    active: HashSet<GcRef>,
     roots: Vec<RootedValue>,
 }
 
@@ -112,7 +112,7 @@ impl ScopeAuthority<'_> {
 struct Frame<'scope, 'runtime> {
     context: &'scope mut ConversionContext<'runtime>,
     root_base: usize,
-    identity: Option<HeapObjectIdentity>,
+    identity: Option<GcRef>,
 }
 
 impl<'runtime> Deref for Frame<'_, 'runtime> {
@@ -542,7 +542,7 @@ impl<'runtime> ConversionContext<'runtime> {
         Ok(())
     }
 
-    fn enter(&mut self, identity: Option<HeapObjectIdentity>) -> NativeResult<Frame<'_, 'runtime>> {
+    fn enter(&mut self, identity: Option<GcRef>) -> NativeResult<Frame<'_, 'runtime>> {
         self.poll()?;
         if self.depth >= self.limits.max_depth {
             return Err(self.runtime.resources().limit("conversion depth limit"));
@@ -637,6 +637,26 @@ impl<'runtime> ConversionContext<'runtime> {
         self.check_value(expected, value)
     }
 
+    /// Import protected transport into a scanned Native payload after exact type
+    /// and heap admission. This does not retain the value independently.
+    ///
+    /// # Safety
+    /// Keep the source traced through validation and publication, and install the
+    /// returned carrier before source mutation, expiry or a collecting callback.
+    #[doc(hidden)]
+    pub unsafe fn store_transport(
+        &self,
+        expected: &TypeArgument,
+        value: Value,
+    ) -> NativeResult<StoredValue> {
+        self.check_value(expected, &value)?;
+        if !value.is_default_heap_payload(self.runtime.gc()) {
+            return Err(RuntimeError::module_validation("native stored transport"));
+        }
+        self.runtime.gc().publish_value(value)?;
+        Ok(StoredValue::new(value))
+    }
+
     /// Validate a raw boundary value against its checked type and supplying
     /// generation. External references additionally require a live scope and
     /// sufficient access capability; this never dereferences their Rust storage.
@@ -651,14 +671,14 @@ impl<'runtime> ConversionContext<'runtime> {
     }
 }
 
-fn identity(value: &Value) -> Option<HeapObjectIdentity> {
+fn identity(value: &Value) -> Option<GcRef> {
     match value {
-        Value::Array(id) | Value::GcHandle(id) => Some((*id).into()),
+        Value::Array(id) | Value::GcHandle(id) => Some(*id),
         Value::Enum(reference) | Value::Closure(reference) | Value::Cell(reference) => {
-            Some((*reference).into())
+            Some(*reference)
         }
-        Value::Interface(id) => Some(id.0.into()),
-        Value::Struct(reference) => Some((*reference).into()),
+        Value::Interface(id) => Some(id.0),
+        Value::Struct(reference) => Some(*reference),
         _ => None,
     }
 }

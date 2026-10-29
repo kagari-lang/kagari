@@ -5,7 +5,7 @@ use crate::collections::vector::{VecStorage, buffer::SequenceStorage, index_erro
 use kagari_runtime::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
-    gc::HeapObjectId,
+    gc::reference::GcRef,
     module::ExecutableModule,
     native::{
         binding::NativeResult,
@@ -15,12 +15,12 @@ use kagari_runtime::{
             NativePayload,
             access::StorageAccess,
             scan::{NativeScanKind, ScanBudget, ScanStatus},
+            value::StoredValue,
         },
         storage_type::StorageType,
         typed::NativeContext,
     },
     resource::HeapCharge,
-    value::Value,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -42,7 +42,7 @@ impl VecStorage {
         self.values.len()
     }
 
-    pub(crate) fn get(&self, index: usize) -> Option<Value> {
+    pub(crate) fn get(&self, index: usize) -> Option<StoredValue> {
         self.values.get(index)
     }
 
@@ -54,7 +54,7 @@ impl VecStorage {
     }
 
     /// The caller publishes the imported value before changing a slot.
-    pub(super) fn set(&mut self, index: usize, value: Value) -> NativeResult<()> {
+    pub(super) fn set(&mut self, index: usize, value: StoredValue) -> NativeResult<()> {
         if index >= self.len() {
             return Err(index_error());
         }
@@ -66,7 +66,7 @@ impl VecStorage {
         &mut self,
         access: &mut StorageAccess<'_>,
         index: usize,
-        value: Value,
+        value: StoredValue,
     ) -> NativeResult<()> {
         if index > self.len() {
             return Err(index_error());
@@ -98,7 +98,7 @@ impl VecStorage {
     /// source protects all edges until ordinary result scanner admission finishes.
     pub(crate) fn from_array(
         call: &CallContext<'_>,
-        source: HeapObjectId,
+        source: GcRef,
         result: &TypeArgument,
     ) -> NativeResult<Self> {
         let element = call.type_parameter(result, 0)?;
@@ -118,8 +118,8 @@ impl VecStorage {
                 .ok_or_else(|| RuntimeError::module_validation("Vec array element"))?;
             // SAFETY: The call-rooted source array protects every copied child
             // through result scanner admission; no child converter runs here.
-            unsafe { cx.conversion().check_transport(&element, &value) }?;
-            payload.values.push(value)?;
+            let stored = unsafe { cx.conversion().store_transport(&element, value) }?;
+            payload.values.push(stored)?;
         }
         Ok(payload)
     }
@@ -161,7 +161,7 @@ unsafe impl NativePayload for VecStorage {
         &'a self,
         state: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        visit: &mut dyn FnMut(&'a Value),
+        visit: &mut dyn FnMut(&'a StoredValue),
     ) -> ScanStatus {
         while state.0 < state.1 {
             if !budget.take(1) {

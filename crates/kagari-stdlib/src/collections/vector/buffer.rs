@@ -3,8 +3,7 @@
 
 use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
-    native::{binding::NativeResult, scalar::NativeScalar},
-    value::Value,
+    native::{binding::NativeResult, storage::value::StoredValue},
 };
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::{collections::TryReserveError, mem::size_of};
@@ -24,7 +23,7 @@ pub(crate) enum SequenceStorage {
     U64(Vec<u64>),
     F32(Vec<f32>),
     F64(Vec<f64>),
-    Traced(Vec<Value>),
+    Traced(Vec<StoredValue>),
 }
 
 macro_rules! storage {
@@ -48,7 +47,7 @@ macro_rules! storage {
             pub(crate) fn retained_bytes(&self) -> usize {
                 match self {
                     $(Self::$variant(values) => values.capacity().checked_mul(size_of::<$ty>()).expect("allocated sequence capacity"),)+
-                    Self::Traced(values) => values.capacity().checked_mul(size_of::<Value>()).expect("allocated sequence capacity"),
+                    Self::Traced(values) => values.capacity().checked_mul(size_of::<StoredValue>()).expect("allocated sequence capacity"),
                 }
             }
 
@@ -56,30 +55,30 @@ macro_rules! storage {
                 match self { $(Self::$variant(values) => values.try_reserve(additional),)+ Self::Traced(values) => values.try_reserve(additional) }
             }
 
-            pub(crate) fn get(&self, index: usize) -> Option<Value> {
-                match self { $(Self::$variant(values) => values.get(index).copied().map(NativeScalar::encode),)+ Self::Traced(values) => values.get(index).cloned() }
+            pub(crate) fn get(&self, index: usize) -> Option<StoredValue> {
+                match self { $(Self::$variant(values) => values.get(index).copied().map(StoredValue::scalar),)+ Self::Traced(values) => values.get(index).cloned() }
             }
 
-            pub(crate) fn push(&mut self, value: Value) -> NativeResult<()> {
-                match self { $(Self::$variant(values) => values.push(<$ty>::decode(value)?),)+ Self::Traced(values) => values.push(value) }
+            pub(crate) fn push(&mut self, value: StoredValue) -> NativeResult<()> {
+                match self { $(Self::$variant(values) => values.push(value.as_scalar::<$ty>()?),)+ Self::Traced(values) => values.push(value) }
                 Ok(())
             }
 
-            pub(crate) fn insert(&mut self, index: usize, value: Value) -> NativeResult<()> {
+            pub(crate) fn insert(&mut self, index: usize, value: StoredValue) -> NativeResult<()> {
                 if index > self.len() { return Err(invalid_index()); }
-                match self { $(Self::$variant(values) => values.insert(index, <$ty>::decode(value)?),)+ Self::Traced(values) => values.insert(index, value) }
+                match self { $(Self::$variant(values) => values.insert(index, value.as_scalar::<$ty>()?),)+ Self::Traced(values) => values.insert(index, value) }
                 Ok(())
             }
 
-            pub(crate) fn set(&mut self, index: usize, value: Value) -> NativeResult<()> {
+            pub(crate) fn set(&mut self, index: usize, value: StoredValue) -> NativeResult<()> {
                 if index >= self.len() { return Err(invalid_index()); }
-                match self { $(Self::$variant(values) => values[index] = <$ty>::decode(value)?,)+ Self::Traced(values) => values[index] = value }
+                match self { $(Self::$variant(values) => values[index] = value.as_scalar::<$ty>()?,)+ Self::Traced(values) => values[index] = value }
                 Ok(())
             }
 
-            pub(crate) fn remove(&mut self, index: usize) -> Option<Value> {
+            pub(crate) fn remove(&mut self, index: usize) -> Option<StoredValue> {
                 if index >= self.len() { return None; }
-                Some(match self { $(Self::$variant(values) => values.remove(index).encode(),)+ Self::Traced(values) => values.remove(index) })
+                Some(match self { $(Self::$variant(values) => StoredValue::scalar(values.remove(index)),)+ Self::Traced(values) => values.remove(index) })
             }
 
             pub(crate) fn clear(&mut self) { match self { $(Self::$variant(values) => values.clear(),)+ Self::Traced(values) => values.clear() } }
@@ -106,7 +105,7 @@ fn invalid_index() -> RuntimeError {
 }
 
 impl SequenceStorage {
-    pub(crate) fn traced(&self) -> &[Value] {
+    pub(crate) fn traced(&self) -> &[StoredValue] {
         match self {
             Self::Traced(values) => values,
             _ => &[],

@@ -2,7 +2,8 @@
 use kagari_runtime::{
     native::{
         binding::NativeResult, context::CallContext, storage::access::StorageAccess,
-        storage_type::StorageType, typed::NativeContext, value_handle::ScriptValue,
+        storage::value::StoredValue, storage_type::StorageType, typed::NativeContext,
+        value_handle::ScriptValue,
     },
     value::Value,
 };
@@ -36,7 +37,7 @@ impl Input<'_, '_> {
         self,
         access: &mut StorageAccess<'_>,
         contract: &StorageType,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<StoredValue> {
         match self {
             Self::Retained(value) => access.publish(contract, value),
             Self::Argument(call, index) => access.publish_argument(contract, call, index),

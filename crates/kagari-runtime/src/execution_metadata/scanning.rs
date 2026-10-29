@@ -261,11 +261,9 @@ impl GcHeap {
                 .get(id)
                 .ok_or_else(invalid)?
                 .scan_len(),
-            GraphIdentity::Object(_)
-            | GraphIdentity::Direct(_)
-            | GraphIdentity::Moved(_)
-            | GraphIdentity::Program(_)
-            | GraphIdentity::Static(_) => return Err(invalid()),
+            GraphIdentity::Direct(_) | GraphIdentity::Program(_) | GraphIdentity::Static(_) => {
+                return Err(invalid());
+            }
         };
         Ok(MetadataCursor {
             identity,
@@ -352,11 +350,9 @@ impl GcHeap {
                     }
                 }
             }
-            GraphIdentity::Object(_)
-            | GraphIdentity::Direct(_)
-            | GraphIdentity::Moved(_)
-            | GraphIdentity::Program(_)
-            | GraphIdentity::Static(_) => return Err(invalid()),
+            GraphIdentity::Direct(_) | GraphIdentity::Program(_) | GraphIdentity::Static(_) => {
+                return Err(invalid());
+            }
         }
         Ok(ScanStatus::Complete)
     }

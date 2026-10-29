@@ -11,9 +11,9 @@ use crate::{
     error::RuntimeError,
     frame::types::{arguments::TypeArgument, compatibility::TypeView},
     gc::{
-        GcHeap, HeapObjectId,
+        GcHeap,
         leases::{BorrowedLease, StorageBorrow},
-        reference::HeapObjectIdentity,
+        reference::GcRef,
         storage::HeapObject,
     },
     module::ExecutableModule,
@@ -48,7 +48,7 @@ impl GcHeap {
 
     pub(crate) fn with_native_data_mut<S: Send + 'static, R>(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         edit: impl for<'payload> FnOnce(&'payload mut S) -> NativeResult<R>,
     ) -> NativeResult<R> {
         self.ensure_no_storage_borrow()?;
@@ -85,10 +85,7 @@ impl GcHeap {
         edit(data)
     }
 
-    pub(crate) fn native_selections(
-        &self,
-        id: HeapObjectId,
-    ) -> NativeResult<Arc<[StoredSelection]>> {
+    pub(crate) fn native_selections(&self, id: GcRef) -> NativeResult<Arc<[StoredSelection]>> {
         self.ensure_execution_allowed()?;
         let objects = self
             .objects
@@ -104,7 +101,7 @@ impl GcHeap {
 
     pub(crate) fn try_enter_native_operation(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         kind: NativeOperationKind,
     ) -> NativeResult<Option<BorrowedLease<'_>>> {
         self.ensure_execution_allowed()?;
@@ -129,7 +126,7 @@ impl GcHeap {
 
     pub(crate) fn matches_native_argument(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         expected: &TypeArgument,
         owner: &ExecutableModule,
     ) -> bool {
@@ -138,7 +135,7 @@ impl GcHeap {
             .is_some_and(|object| object.matches_argument(expected, owner))
     }
 
-    pub(crate) fn matches_native_type(&self, id: HeapObjectId, expected: TypeView<'_>) -> bool {
+    pub(crate) fn matches_native_type(&self, id: GcRef, expected: TypeView<'_>) -> bool {
         let objects = self.objects.borrow();
         self.native_ref(&objects, id)
             .is_some_and(|object| object.matches(expected))
@@ -157,7 +154,7 @@ impl GcHeap {
             .get_or_init(NativeStorage::payload::<ArrayPayload>)
     }
 
-    pub(crate) fn native_type_name(&self, id: HeapObjectId) -> Option<String> {
+    pub(crate) fn native_type_name(&self, id: GcRef) -> Option<String> {
         let objects = self.objects.borrow();
         let object = self.native_ref(&objects, id)?;
         let Ty::NativeObject(nominal) = &object.ty else {
@@ -166,7 +163,7 @@ impl GcHeap {
         Some(object.definition_name(nominal.declaration)?.to_owned())
     }
 
-    pub(crate) fn alloc_native(&self, mut object: NativeObject) -> NativeResult<HeapObjectId> {
+    pub(crate) fn alloc_native(&self, mut object: NativeObject) -> NativeResult<GcRef> {
         self.ensure_no_storage_borrow()?;
         self.ensure_execution_allowed()?;
         object
@@ -177,16 +174,12 @@ impl GcHeap {
         // A copied payload can originate from an already mutated receiver.
         // Allocation creates a new identity; replacement does not pass here.
         object.revision = 0;
-        let HeapObjectIdentity::Indexed(id) = self.alloc_managed(HeapObject::Native(object))?
-        else {
-            unreachable!("Native allocation identity")
-        };
-        Ok(id)
+        self.alloc_object(HeapObject::Native(object))
     }
 
     pub(crate) fn check_native_payload_argument<P: 'static>(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         expected: &TypeArgument,
         owner: &ExecutableModule,
     ) -> NativeResult<()> {
@@ -212,7 +205,7 @@ impl GcHeap {
 
     pub(crate) fn check_native_payload<S: 'static>(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         data_only: bool,
     ) -> NativeResult<()> {
         let objects = self
@@ -232,13 +225,13 @@ impl GcHeap {
         Ok(())
     }
 
-    pub(crate) fn native_operation_kind(&self, id: HeapObjectId) -> Option<NativeOperationKind> {
+    pub(crate) fn native_operation_kind(&self, id: GcRef) -> Option<NativeOperationKind> {
         self.native_operations.operation(id)
     }
 
     pub(crate) fn with_native<S: Send + 'static, R>(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         access: impl for<'payload> FnOnce(&'payload S) -> NativeResult<R>,
     ) -> NativeResult<R> {
         self.with_native_operation(id, None, access)
@@ -246,7 +239,7 @@ impl GcHeap {
 
     pub(crate) fn with_native_operation<S: Send + 'static, R>(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         operation: Option<&NativeOperationGuard<'_>>,
         access: impl for<'payload> FnOnce(&'payload S) -> NativeResult<R>,
     ) -> NativeResult<R> {

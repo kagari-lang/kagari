@@ -9,6 +9,7 @@ use crate::{
     native::storage::{
         NativePayload, NativeStorage,
         scan::{NativeScanKind, ScanBudget, ScanStatus},
+        value::StoredValue,
     },
     resource::HeapCharge,
     test_support::layouts::{allocation_owner, interface_value_with},
@@ -130,7 +131,7 @@ fn object_metadata_module_and_static_owners_close_one_joint_graph_in_tiny_slices
     drain_tiny(&runtime);
     runtime.gc.graph.lock().close_mark().unwrap();
     for id in [
-        GraphIdentity::Object(array),
+        GraphIdentity::Direct(array),
         GraphIdentity::Direct(closure),
         GraphIdentity::Interface(snapshot_id),
         GraphIdentity::InterfaceDescription(description_id),
@@ -147,7 +148,10 @@ fn object_metadata_module_and_static_owners_close_one_joint_graph_in_tiny_slices
     assert!(
         !runtime
             .gc
-            .graph_survivor(runtime.modules(), garbage.heap_identity().unwrap().graph())
+            .graph_survivor(
+                runtime.modules(),
+                garbage.direct_reference().unwrap().graph()
+            )
             .unwrap()
     );
     let static_id = runtime
@@ -175,7 +179,7 @@ fn object_metadata_module_and_static_owners_close_one_joint_graph_in_tiny_slices
 
 #[derive(Debug)]
 struct Edges<const N: usize> {
-    values: Vec<Value>,
+    values: Vec<StoredValue>,
     begins: Arc<AtomicUsize>,
     fault: Arc<AtomicBool>,
 }
@@ -207,7 +211,7 @@ unsafe impl<const N: usize> NativePayload for Edges<N> {
         &'a self,
         state: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        visit: &mut dyn FnMut(&'a Value),
+        visit: &mut dyn FnMut(&'a StoredValue),
     ) -> ScanStatus {
         assert!(
             !self.fault.load(Ordering::Relaxed),
@@ -247,7 +251,7 @@ fn newborn_work_and_larger_payload_admission_preserve_the_active_object_job() {
             runtime.gc(),
             &Ty::Builtin(BuiltinType::Unit),
             Edges::<0> {
-                values: children.clone(),
+                values: children.iter().copied().map(StoredValue::new).collect(),
                 begins: begins.clone(),
                 fault: Arc::new(AtomicBool::new(false)),
             },
@@ -272,7 +276,7 @@ fn newborn_work_and_larger_payload_admission_preserve_the_active_object_job() {
     }
     assert_eq!(
         runtime.gc.graph.lock().active,
-        Some(GraphIdentity::Object(id))
+        Some(GraphIdentity::Direct(id))
     );
     let newborn_child = runtime.gc.alloc_string("newborn".into()).unwrap();
     let larger = NativeStorage::payload::<Edges<4096>>()
@@ -280,7 +284,7 @@ fn newborn_work_and_larger_payload_admission_preserve_the_active_object_job() {
             runtime.gc(),
             &Ty::Builtin(BuiltinType::Unit),
             Edges::<4096> {
-                values: vec![newborn_child],
+                values: vec![StoredValue::new(newborn_child)],
                 begins: Arc::default(),
                 fault: Arc::default(),
             },
@@ -290,7 +294,7 @@ fn newborn_work_and_larger_payload_admission_preserve_the_active_object_job() {
     let newborn = runtime.gc.alloc_native(larger).unwrap();
     assert_eq!(
         runtime.gc.graph.lock().active,
-        Some(GraphIdentity::Object(id))
+        Some(GraphIdentity::Direct(id))
     );
     drain_tiny(&runtime);
     runtime.gc.graph.lock().close_mark().unwrap();
@@ -306,7 +310,7 @@ fn newborn_work_and_larger_payload_admission_preserve_the_active_object_job() {
         assert!(
             runtime
                 .gc
-                .graph_survivor(runtime.modules(), value.heap_identity().unwrap().graph())
+                .graph_survivor(runtime.modules(), value.direct_reference().unwrap().graph())
                 .unwrap()
         );
     }
@@ -346,7 +350,10 @@ fn failed_admission_preserves_the_active_owner_and_publishes_no_credit_or_record
     {
         let graph = runtime.gc.graph.lock();
         assert_eq!(graph.credits, count);
-        assert_eq!(graph.active, Some(child.heap_identity().unwrap().graph()));
+        assert_eq!(
+            graph.active,
+            Some(child.direct_reference().unwrap().graph())
+        );
     }
     // Resource-limit errors may terminate execution admission, but the already
     // admitted graph still has intact storage and reserved completion capacity.
@@ -408,7 +415,7 @@ fn poisoned_graph_control_returns_a_trace_fault_without_panicking_during_cleanup
         assert!(
             !runtime
                 .gc
-                .heap_identity_accessible(value.heap_identity().unwrap().graph())
+                .heap_identity_accessible(value.direct_reference().unwrap().graph())
         );
         assert!(
             runtime
@@ -432,7 +439,7 @@ fn owner_fault_preserves_gray_work_and_never_allows_mark_closure() {
             runtime.gc(),
             &Ty::Builtin(BuiltinType::Unit),
             Edges::<0> {
-                values: vec![Value::Unit],
+                values: vec![StoredValue::scalar(())],
                 begins: Arc::default(),
                 fault: fault.clone(),
             },
@@ -456,7 +463,7 @@ fn owner_fault_preserves_gray_work_and_never_allows_mark_closure() {
     );
     let mut graph = runtime.gc.graph.lock();
     assert_eq!(graph.phase(), MarkPhase::Faulted);
-    assert_eq!(graph.active, Some(GraphIdentity::Object(id)));
+    assert_eq!(graph.active, Some(GraphIdentity::Direct(id)));
     assert!(graph.close_mark().is_err());
     drop(graph);
     assert!(runtime.collect_garbage().is_err());

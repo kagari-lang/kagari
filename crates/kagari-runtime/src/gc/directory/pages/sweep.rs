@@ -25,11 +25,10 @@ impl Cursor {
 
 pub(in crate::gc::directory) struct SweepSlot<'a> {
     pub(in crate::gc::directory) location: PayloadLocation,
-    pub(in crate::gc::directory) directory: u32,
     pub(in crate::gc::directory) descriptor: DescriptorId,
     pub(in crate::gc::directory) small: bool,
     pub(in crate::gc::directory) payload: CheckedPayload<'a>,
-    pub(in crate::gc::directory) mark: Option<MarkRef<'a>>,
+    pub(in crate::gc::directory) mark: MarkRef<'a>,
 }
 
 /// Bitmap evidence lives only within selection's uninterrupted storage borrow.
@@ -65,7 +64,7 @@ impl<'a> Scanner<'a> {
     ) -> Option<Option<SweepSlot<'a>>> {
         while let Some(index) = self.cursor.page {
             let allocation = self.pages.allocations.get(index as usize)?;
-            let (directory, descriptor, pointer, small) = match allocation {
+            let (descriptor, pointer, small) = match allocation {
                 Allocation::Small(page) => {
                     if !self.loaded {
                         let bits = page.bits();
@@ -114,13 +113,8 @@ impl<'a> Scanner<'a> {
                     if !budget.take(1) {
                         return Some(None);
                     }
-                    let slot = page.slot(self.cursor.slot as usize)?;
-                    (
-                        slot.directory,
-                        slot.descriptor?,
-                        page.pointer(self.cursor.slot as usize),
-                        true,
-                    )
+                    let descriptor = page.descriptor(self.cursor.slot as usize)?;
+                    (descriptor, page.pointer(self.cursor.slot as usize), true)
                 }
                 Allocation::Large(large) => {
                     if self.cursor.slot != 0 {
@@ -133,12 +127,7 @@ impl<'a> Scanner<'a> {
                         self.next_page();
                         continue;
                     };
-                    (
-                        large.header().directory,
-                        descriptor,
-                        large.backing().pointer(),
-                        false,
-                    )
+                    (descriptor, large.backing().pointer(), false)
                 }
                 Allocation::Vacant(_) => return None,
             };
@@ -149,20 +138,15 @@ impl<'a> Scanner<'a> {
                 slot: self.cursor.slot,
             };
             let payload = CheckedPayload::new(location, pointer, descriptor, description)?;
-            let mark = if directory == u32::MAX {
-                Some(allocation.marks()?.group_slot(
-                    WorkGroup {
-                        domain: Domain::Direct,
-                        block: index as usize,
-                    },
-                    location.slot as usize,
-                ))
-            } else {
-                None
-            };
+            let mark = allocation.marks()?.group_slot(
+                WorkGroup {
+                    domain: Domain::Direct,
+                    block: index as usize,
+                },
+                location.slot as usize,
+            );
             return Some(Some(SweepSlot {
                 location,
-                directory,
                 descriptor,
                 small,
                 payload,

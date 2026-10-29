@@ -562,14 +562,14 @@ fn foreign_path_views_cannot_be_chained_through_matching_local_slots() {
     );
     assert!(
         unsafe {
-            // SAFETY: Both runtimes keep these checked-ID wrappers live; foreign-owner admission rejects before access.
+            // SAFETY: Both runtimes keep these wrappers live; foreign-owner admission rejects before access.
             local.host_scope_transport(&[local_view])
         }
         .is_ok()
     );
     assert!(
         unsafe {
-            // SAFETY: Both runtimes keep these checked-ID wrappers live; foreign-owner admission rejects before access.
+            // SAFETY: Both runtimes keep these wrappers live; foreign-owner admission rejects before access.
             local.host_scope_transport(&[foreign_view])
         }
         .is_err()

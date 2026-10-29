@@ -325,9 +325,11 @@ HostCallback::new(move |context, _| {
         assert!(matches!(reenter(context, &foreign_module, main, &[]), Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::StaleHandle));
         if let Some(root) = runtime.execution_root() {
                 assert!(matches!(reenter(context, &root, echo, std::slice::from_ref(&foreign_value)), Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ModuleValidation));
-                let stale = Value::Array(runtime.alloc_array_transport(&root, Ty::Builtin(BuiltinType::I32), vec![]).unwrap());
+                let array = runtime.alloc_array_transport(&root, Ty::Builtin(BuiltinType::I32), vec![]).unwrap();
+                let retained = runtime.gc().root_value_transport(Value::Array(array)).unwrap();
                 runtime.collect_garbage().unwrap();
-                assert!(matches!(reenter(context, &root, echo, &[stale]), Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ModuleValidation));
+                assert!(matches!(reenter(context, &root, echo, &[Value::Tuple(array)]), Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ModuleValidation));
+                drop(retained);
         }
         Ok(Value::Unit)
     })

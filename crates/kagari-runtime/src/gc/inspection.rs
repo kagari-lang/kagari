@@ -186,6 +186,17 @@ pub(crate) fn inspect_value<R>(
         return Err(RuntimeError::module_validation("invalid inspected value"));
     }
     let _borrow = StorageBorrow::enter(&heap.storage_borrows);
+    inspect_loaned_value(heap, value, read)
+}
+
+/// Inspect a checked value while its caller owns storage exclusion and keeps
+/// the traced source alive. Native loans reuse their existing exclusion guard.
+pub(crate) fn inspect_loaned_value<R>(
+    heap: &GcHeap,
+    value: Value,
+    read: impl for<'view> FnOnce(ValueView<'view>) -> NativeResult<R>,
+) -> NativeResult<R> {
+    assert!(heap.storage_borrows.get() > 0);
     read(ValueView {
         heap,
         value,

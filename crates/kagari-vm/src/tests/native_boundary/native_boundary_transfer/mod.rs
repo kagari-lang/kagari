@@ -1,5 +1,4 @@
 use crate::tests::native_boundary::{compile, compile_program};
-use kagari_runtime::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 
 use kagari_runtime::{
     Runtime,
@@ -13,7 +12,11 @@ use kagari_runtime::{
         declarations::FunctionDecl,
         function_handle::Function,
         module::NativeModule,
-        storage::{NativePayload, NativeStorage},
+        storage::{
+            NativePayload, NativeStorage,
+            scan::{NativeScanKind, ScanBudget, ScanStatus},
+            value::StoredValue,
+        },
         typed::NativeContext,
         types::Type,
         views::ValueHandle,
@@ -49,7 +52,7 @@ unsafe impl NativePayload for Counter {
         &'payload self,
         _: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        _: &mut dyn FnMut(&'payload Value),
+        _: &mut dyn FnMut(&'payload StoredValue),
     ) -> ScanStatus {
         budget.charge(1);
         ScanStatus::Complete

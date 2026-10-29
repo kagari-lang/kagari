@@ -119,7 +119,7 @@ fn composition_preserves_original_optional_origin_and_checks_payload_identity() 
         owner: owner.clone(),
         inputs: [types[0].clone(), types[0].clone()],
         output: types[1].clone(),
-        values: [Value::Unit; 2],
+        values: [StoredValue::scalar(()); 2],
         policy: Arc::new(Unused),
     };
     for origin in [None, Some(ErrorTrace::capture(runtime.resources()))] {

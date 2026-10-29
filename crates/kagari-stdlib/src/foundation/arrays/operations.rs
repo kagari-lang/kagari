@@ -1,7 +1,7 @@
 //! Fixed arrays expose bounded element access; constructors copy into library storage.
 use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
-    gc::HeapObjectId,
+    gc::reference::GcRef,
     native::{binding::NativeResult, context::CallContext, scalar::NativeScalar},
     value::Value,
 };
@@ -10,7 +10,7 @@ pub(crate) fn invalid() -> RuntimeError {
     RuntimeError::module_validation("builtin array contract")
 }
 
-pub(crate) fn source(cx: &CallContext<'_>) -> NativeResult<HeapObjectId> {
+pub(crate) fn source(cx: &CallContext<'_>) -> NativeResult<GcRef> {
     // SAFETY: The call frame retains the array throughout this operation.
     let Value::Array(id) = unsafe { cx.checked_argument_transport(0) }? else {
         return Err(invalid());

@@ -94,9 +94,11 @@ impl StructStorageLayout {
                 }
                 _ => {
                     references.push(slot);
-                    // Tagged direct references or Native checked identities.
-                    // Native conversion owns removal of this 13-byte migration extent.
-                    (StoredField::Managed { offset: size }, 13)
+                    // One representation tag and one nonowning managed reference.
+                    (
+                        StoredField::Managed { offset: size },
+                        1 + size_of::<GcRef>(),
+                    )
                 }
             };
             size = size.checked_add(width)?;

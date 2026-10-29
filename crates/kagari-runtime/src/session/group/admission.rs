@@ -2,7 +2,7 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    native::{binding::NativeResult, composition::future_output},
+    native::{binding::NativeResult, composition::future_output, storage::value::StoredValue},
     session::{
         group::{GroupRecord, GroupState, RunningGroup, invalid},
         store::SessionId,
@@ -25,7 +25,7 @@ impl Runtime {
         });
         let admitted = (|| {
             self.poll_group_parent(parent)?;
-            let ids = group.contract.values.map(|value| match value {
+            let ids = group.contract.values.map(|value| match value.value() {
                 Value::GcHandle(id) => Ok(id),
                 _ => Err(invalid()),
             });
@@ -33,7 +33,8 @@ impl Runtime {
             let ids = [left?, right?];
             // State validation is left-to-right, and roots precede every callback
             // or allocation that could collect the heap after ownership transfers.
-            self.gc().validate_async_values(&group.contract.values)?;
+            self.gc()
+                .validate_async_values(StoredValue::values(&group.contract.values))?;
             let captures = self.gc().prepare_future_pair(ids)?;
             for (index, id) in ids.iter().enumerate() {
                 let (owner, ty, scope) = self.gc().future_contract(*id)?;
@@ -60,7 +61,7 @@ impl Runtime {
                 let execution = self.prepare_owned_branch(
                     parent,
                     &owner,
-                    group.contract.values[index],
+                    group.contract.values[index].value(),
                     output,
                 )?;
                 group.branches[index] = Some(execution);

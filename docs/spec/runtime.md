@@ -148,9 +148,10 @@ does not invalidate old values; rooted old enum objects keep their original layo
 
 Script struct objects share a closed layout derived from `StructLayoutRef` and
 store positional field bytes inline in nonmoving slab slots or large allocations.
-Scalars use their exact semantic widths, preserving float bits; Unit needs no bytes. Managed fields retain
-a tag and full owner/slot/generation identity. Layout-directed tracing visits only
-reference fields. Safe byte codecs also serve Value-based host/reflection access.
+Scalars use their exact semantic widths, preserving float bits; Unit needs no bytes.
+Managed fields retain direct references, plus a representation tag when the closed
+field contract requires one. Layout-directed tracing visits only reference fields.
+Typed unaligned codecs preserve pointer provenance for host/reflection access.
 The layout comes from a verified `ExecutableModule` and retains immutable version
 metadata. Objects do not duplicate field names. Allocation requires
 a layout belonging to the receiving runtime and validates field count, payload
@@ -167,7 +168,8 @@ Across generations, access requires the same runtime owner and equal nominal
 declaration, field identities, slot order, representations and permissions.
 Publication does not invalidate an object's retained layout. Root calls now pin
 their executable dependency program. Heap-valued fields still have coarse nominal
-representations, while heap references carry a unique heap owner, slot and generation.
+representations. Heap access validates that the retained allocation belongs to this
+runtime and that its descriptor matches the requested representation.
 Reachable interfaces and closures retain executable module instances through graph
 edges. Ordinary data layouts retain immutable type metadata without retaining the
 generation's mutable module state. Selected generic operations, parent scopes and
@@ -180,9 +182,9 @@ diagnostic snapshots, not heap storage or allocation APIs.
 
 Internal values are compact tagged copies; owned payloads live outside the value
 slot. The implementation uses 16-byte `Value` in release and debug builds. Builtin
-objects carry nonowning direct references to stable allocation headers; Native/Array
-aliases temporarily retain 12-byte checked identities containing owner, slot and
-allocation generation until the extraction protocol supports traced tombstones.
+objects and Native/Array payloads carry nonowning direct references to stable
+allocation headers. Native extraction retains the original allocation as a traced
+tombstone until existing aliases disappear; new access/publication rejects it.
 Copying a value does not retain its referent or allocate/copy payload bytes.
 The implemented categories are:
 
@@ -197,7 +199,7 @@ Value {
   F32(f32),
   F64(f64),
   Str/Tuple/Range/Enum/Struct/Closure/Cell(GcRef),
-  Array/GcHandle(HeapObjectId), // Native-backed collections use these tags.
+  Array/GcHandle(GcRef), // Native-backed collections use these tags.
   Interface(InterfaceObjectId), // GcRef to a wrapper tracing checked metadata.
   HostRoot/HostPathView/Ephemeral(GcRef),
   RuntimeEphemeral(EphemeralValueId)
@@ -208,8 +210,9 @@ Direct references require a live frame, root or traced owner through every runti
 query, including validation. They cannot be queried after reclamation. Host code
 retains `RootedValue` or typed handles; cloning retention does not copy script objects.
 Packed managed fields preserve pointer provenance using typed unaligned access.
-Their current 13-byte tagged extent accommodates both direct references and Native
-checked identities; the Native migration owns removal of that intermediate layout.
+Each generic managed field occupies one tag byte plus one GcRef (9 bytes on a
+64-bit target); declared struct fields need only GcRef. Scalars retain their exact
+widths. Host roots and executable metadata retain their separate checked identities.
 
 Strings and tuple membership are immutable. Updating a tuple creates replacement
 membership, sharing referenced children; mutation of an aliased mutable child
@@ -251,24 +254,28 @@ Its responsibilities include:
 
 The GC must not own Rust host borrows.
 
-The implemented collector uses stop-the-world mark-sweep over stable checked
-handles. A compact generation directory locates nonmoving slab slots and separately
-tracked large allocations. Small backing uses independent 1 KiB slabs aligned to
+The implemented collector uses precise incremental mark-sweep over nonmoving
+allocations. Mutator execution pauses during each collector slice. Retained GcRef
+values identify common object headers; physical allocation records own slab slots
+and separately tracked large allocations. Small backing uses independent 1 KiB slabs aligned to
 16 bytes, shared by size class and edge capability rather than nominal type.
 Combined layouts above 1024 bytes or aligned above 16 use exact-layout large
-allocations. These are not subdivisions of a retained 4 KiB block. Native headers
-and actual Rust payloads are colocated; struct field bytes are inline, not stored
+allocations. These are not subdivisions of a retained 4 KiB block. Native allocations
+also begin with the common 8-byte descriptor/allocation header; alignment padding,
+the Native record and actual Rust payload follow in the same allocation. Struct field bytes are inline, not stored
 in a compacting global arena. No permanent per-native-payload Box remains, although
 admission/factory transport may stage one before placement. Scoped storage borrows
 still exclude collection and reentry. It traverses
 tuples, enum payloads, array/map values and struct fields with an explicit work stack,
-handles cycles, and reclaims unreachable slots. Reuse increments the slot generation;
-a saturated generation retires its slot. Reads, writes, root registration and script
-equality reject foreign, stale or incorrectly tagged references. Failed handle
-validation cannot consume heap growth units or change the target object.
+handles cycles, and reclaims unreachable slots. Slots may be reused only after their
+traced aliases disappear and disposal completes. Reads, writes, root registration
+and script equality reject foreign, taken or incorrectly tagged live references.
+Raw transport has no post-reclamation query authority. Host root tokens retain their
+own generation validation. Failed validation cannot consume heap growth units or
+change the target object.
 
 Native mutation revisions belong to runtime-owned native records, separately from
-the common identity generation/locator. New identities begin with a fresh revision;
+the common object header and physical allocation locator. New identities begin with a fresh revision;
 ordinary collection leaves its address unchanged and payload replacement keeps
 the receiver's state.
 Structural edits, checked native writes and same-payload library recovery retain
@@ -276,26 +283,26 @@ their operation-specific invalidation/commit order. Exhaustion rejects the opera
 without wrapping. An operation guard excludes conflicting slot access, not the
 scanner; payloads remain traced while callbacks may collect.
 
-An interface heap identity directly locates a runtime-owned snapshot. Heap aliases
-have independent checked identities even when they share one metadata snapshot.
+An interface GcRef locates a wrapper containing a runtime-owned snapshot locator.
+Separate wrappers have distinct addresses even when they share one metadata snapshot.
 Metadata roots may keep the snapshot and receiver alive after heap aliases expire;
 later publication creates a fresh heap identity. Complete metadata owner/generation
 checks remain at token admission and metadata access. The compact directory locator
 requires a representable snapshot slot; publication fails before heap growth or
 identity publication when that bound is exceeded. Collection validates the complete
-graph and accounts dead wrapper units before invalidating heap IDs and detaching
-metadata. Cross-store borrow conflicts are preflighted before the first irreversible
+graph and accounts dead wrapper units before detaching allocations and metadata. Cross-store borrow conflicts are preflighted before the first irreversible
 detach. Later physical preparation failures obey the batch-atomic contract below,
 not whole-cycle rollback.
 
-The phase/epoch marker walks checked identities through storage-provided edges.
+The phase/epoch marker walks managed references and checked metadata identities
+through storage-provided edges.
 Object representations own reference traversal; closure signatures and runtime type
 compatibility have separate execution owners. Heap objects and executable programs
-share one graph driver. Its pending jobs name 128-slot blocks in original identity
-stores, with discovered/scanned bitmaps, or singleton static identities. They are
-not payload slab addresses. Each block has at most one queued job, while one owned
-cursor scans an individual identity; generations remain checked by the original
-store. Work-queue credits and admitted-identity credits have separate bounds. Published and staged programs, active-call/code leases, host roots and
+share one graph driver. Pending jobs name physical managed pages, 128-slot blocks
+in original metadata stores, or singleton static identities. Page/block owners hold
+discovered/scanned bitmaps and at most one queued job; one owned cursor scans an
+individual allocation or metadata identity. Metadata generations remain checked by
+the original store. Managed page registration lasts through final payload disposal. Work-queue credits and admitted-identity credits have separate bounds. Published and staged programs, active-call/code leases, host roots and
 heap root records seed traversal. Runtime-owned execution windows independently
 seed their values and program/environment metadata, including suspended callers.
 Prepared-method and selected-native-call metadata is stored alongside persistent
@@ -344,13 +351,15 @@ parameter_types and return_type inspection requires the owning Runtime and check
 the root identity. Public signature inspection returns copied data; call preparation
 and dispatch read the record through scoped views.
 
-Dead heap-object discovery visits occupied page/large allocations through their
-directory back-references, not every historical directory slot. Interface wrappers
-have no concrete payload row, so a narrow index records their occupied directory
-slots without owning snapshots or replacing the direct snapshot locator. Wrapper
-retirement removes those index entries before directory reuse; no wrapper is placed
-in a slab. Generation tombstones and the separate inert identities left by native
-take remain. Vacant directory slots form the free-identity chain without a separate
+Dead heap-object discovery visits occupied page/large allocations, not every
+historical directory slot. Direct objects, including interface wrappers, resolve
+through common headers and physical marks; the remaining indexed Native transport
+uses its directory back-reference. Native take leaves an edge-free tombstone at the
+same physical address, with the same mark and birth epoch. Existing aliases retain
+it until ordinary sweep; new value admission and payload access reject it. Its
+committed indirect payload charge is released at extraction, while physical backing
+remains until reclamation. No separate moved-ID registry or sweep remains.
+Vacant directory slots form the free-identity chain without a separate
 free Vec. Representation tokens retain descriptor admission for live and retiring
 payloads; a slot or large allocation cannot be reused until disposal finishes.
 The last disposed slot releases empty slab backing immediately, independently of

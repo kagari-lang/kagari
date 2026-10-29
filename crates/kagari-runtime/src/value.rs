@@ -1,10 +1,7 @@
 pub(crate) mod scalar;
 
 use crate::{
-    gc::{
-        GcHeap, HeapObjectId,
-        reference::{GcRef, HeapObjectIdentity},
-    },
+    gc::{GcHeap, reference::GcRef},
     host::{FrameHostBorrowToken, scoped::ScopedHostView},
     module::EnumVariantRef,
 };
@@ -87,8 +84,8 @@ pub enum EphemeralValue {
 
 /// Compact unrooted transport. Heap-backed payloads are accessed only through
 /// their owning heap; copying a value never copies text or establishes a root.
-/// Builtins carry direct references; Native/Array aliases retain checked IDs until
-/// their extraction protocol gains traced tombstones.
+/// All managed payloads carry direct references. Native extraction retains an
+/// inert tombstone until the last traced alias disappears.
 /// Rust equality compares transport tags and identities. Use `value_semantics::script_equal_transport`
 /// for language equality, including string contents and tuple members.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -104,10 +101,10 @@ pub enum Value {
     Str(GcRef),
     Tuple(GcRef),
     Range(GcRef),
-    Array(HeapObjectId),
+    Array(GcRef),
     Enum(GcRef),
     Struct(GcRef),
-    GcHandle(HeapObjectId),
+    GcHandle(GcRef),
     Interface(InterfaceObjectId),
     Closure(GcRef),
     Cell(GcRef),
@@ -119,28 +116,16 @@ pub enum Value {
 
 impl Value {
     pub(crate) fn is_managed(&self) -> bool {
-        self.heap_identity().is_some()
+        self.direct_reference().is_some()
     }
 
     /// Nonowning identity only; querying it neither validates nor retains storage.
-    pub(crate) fn heap_identity(&self) -> Option<HeapObjectIdentity> {
-        self.direct_reference()
-            .map(HeapObjectIdentity::Direct)
-            .or_else(|| self.checked_id().map(HeapObjectIdentity::Indexed))
-    }
-
-    /// Native aliases retain checked identities until extraction gains tombstones.
-    pub(crate) fn checked_id(&self) -> Option<HeapObjectId> {
-        match self {
-            Self::Array(id) | Self::GcHandle(id) => Some(*id),
-            _ => None,
-        }
-    }
-
     pub(crate) fn direct_reference(&self) -> Option<GcRef> {
         match self {
             Self::Interface(id) => Some(id.0),
-            Self::Str(reference)
+            Self::Array(reference)
+            | Self::GcHandle(reference)
+            | Self::Str(reference)
             | Self::Tuple(reference)
             | Self::Range(reference)
             | Self::Enum(reference)

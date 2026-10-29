@@ -34,6 +34,7 @@ use crate::{
         storage::{
             NativePayload, StorageContext,
             access::{EditPlan, StorageAccess},
+            value::StoredValue,
         },
         stored_selection::StoredSelection,
         typed::NativeContext,
@@ -394,6 +395,22 @@ impl<'call> CallContext<'call> {
             return Err(RuntimeError::module_validation("native storage argument"));
         };
         self.heap().with_native(id, access)
+    }
+
+    /// Import a retained value into this factory's scanned payload.
+    /// The source root must remain alive through payload admission. Scoped host
+    /// capabilities and foreign/expired roots are rejected before publication.
+    pub fn store(&self, root: &RootedValue) -> NativeResult<StoredValue> {
+        let value = root
+            .value(self.heap())
+            .ok_or_else(|| RuntimeError::module_validation("native factory source root"))?;
+        if !value.is_default_heap_payload(self.heap()) {
+            return Err(RuntimeError::module_validation(
+                "native factory stored edge",
+            ));
+        }
+        self.heap().publish_value(value)?;
+        Ok(StoredValue::new(value))
     }
 
     /// Read provider storage while borrowing this call's existing argument root.

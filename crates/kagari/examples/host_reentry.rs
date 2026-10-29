@@ -139,7 +139,6 @@ fn main() {
     drop(session);
     runtime.runtime().collect_garbage().unwrap();
     // SAFETY: The retained slot owns the array throughout this immediate snapshot.
-    // After clearing it below, id is used only for checked-ID expiry rejection.
     let Value::Array(id) = unsafe {
         retained
             .lock()
@@ -156,7 +155,13 @@ fn main() {
         [Value::I32(7), Value::I32(8)]
     );
     retained.lock().unwrap().take();
-    runtime.runtime().collect_garbage().unwrap();
-    assert!(unsafe { runtime.runtime().gc().array_snapshot_transport(id) }.is_none());
+    assert_eq!(
+        runtime
+            .runtime()
+            .collect_garbage()
+            .unwrap()
+            .reclaimed_objects,
+        1
+    );
     println!("host reentry returned an array; its explicit root survived collection");
 }

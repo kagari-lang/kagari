@@ -10,7 +10,7 @@ use crate::{
             operations::OperationBindings,
         },
     },
-    gc::{HeapObjectId, interfaces::InterfaceValueSnapshot, reference::GcRef},
+    gc::{interfaces::InterfaceValueSnapshot, reference::GcRef},
     module::{self, ExecutableModule},
     objects::invocation::MethodInvocation,
     value,
@@ -49,7 +49,7 @@ impl Runtime {
         owner: &ExecutableModule,
         element: Ty,
         elements: Vec<Value>,
-    ) -> Result<HeapObjectId, RuntimeError> {
+    ) -> Result<GcRef, RuntimeError> {
         self.alloc_array(owner, element, elements)
     }
 
@@ -58,7 +58,7 @@ impl Runtime {
         owner: &ExecutableModule,
         element: Ty,
         elements: Vec<Value>,
-    ) -> Result<HeapObjectId, RuntimeError> {
+    ) -> Result<GcRef, RuntimeError> {
         self.validate_executable_module(owner)?;
         self.validate_heap_payloads(&elements)?;
         self.gc.alloc_array(owner, element, elements)
@@ -79,7 +79,7 @@ impl Runtime {
         element: Ty,
         value: Value,
         count: usize,
-    ) -> Result<HeapObjectId, RuntimeError> {
+    ) -> Result<GcRef, RuntimeError> {
         self.alloc_array_repeat(owner, element, value, count)
     }
 
@@ -89,7 +89,7 @@ impl Runtime {
         element: Ty,
         value: Value,
         count: usize,
-    ) -> Result<HeapObjectId, RuntimeError> {
+    ) -> Result<GcRef, RuntimeError> {
         self.validate_executable_module(owner)?;
         self.validate_heap_payloads(slice::from_ref(&value))?;
         self.gc.alloc_array_repeat(owner, element, value, count)

@@ -1,4 +1,3 @@
-use kagari_runtime::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 mod bounded;
 mod loan_views;
 mod managed;
@@ -15,13 +14,16 @@ use kagari_runtime::{
         declarations::{FunctionDecl, MethodDecl},
         module::NativeModule,
         payload::{NativeType, Opaque, take::NativeTake},
-        storage::{NativePayload, NativeStorage},
+        storage::{
+            NativePayload, NativeStorage,
+            scan::{NativeScanKind, ScanBudget, ScanStatus},
+            value::StoredValue,
+        },
         typed::{NativeContext, loans::LoanContext},
         types::{Type, TypeRef},
         value_handle::ScriptValue,
     },
     resource::HeapCharge,
-    value::Value,
 };
 use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::reference::ReferenceAccess;
@@ -244,7 +246,7 @@ unsafe impl NativePayload for Counter {
         &'payload self,
         _: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        _: &mut dyn FnMut(&'payload Value),
+        _: &mut dyn FnMut(&'payload StoredValue),
     ) -> ScanStatus {
         budget.charge(1);
         ScanStatus::Complete
@@ -256,7 +258,7 @@ unsafe impl NativePayload for Counter {
 }
 
 #[derive(Debug)]
-struct Edge(Value);
+struct Edge(StoredValue);
 
 unsafe impl NativePayload for Edge {
     type ScanState = ();
@@ -268,7 +270,7 @@ unsafe impl NativePayload for Edge {
         &'payload self,
         _: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        visit: &mut dyn FnMut(&'payload Value),
+        visit: &mut dyn FnMut(&'payload StoredValue),
     ) -> ScanStatus {
         budget.charge(1);
         visit(&self.0);
@@ -621,6 +623,13 @@ fn payload_factories_trace_children_and_reject_foreign_edges_before_publication(
             .value_transport(vm.runtime())
     }
     .unwrap();
+    // SAFETY: child retains the source through factory admission.
+    let root = unsafe {
+        ConversionContext::new(vm.runtime(), &owner)
+            .unwrap()
+            .store_transport(child.type_argument(), root)
+    }
+    .unwrap();
     let parent = native.create(&mut cx, Edge(root), &[]).unwrap();
     drop(child);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 2);
@@ -637,6 +646,13 @@ fn payload_factories_trace_children_and_reject_foreign_edges_before_publication(
             .encode_value(child.type_argument(), child.clone())
             .unwrap()
             .value_transport(foreign.runtime())
+    }
+    .unwrap();
+    // SAFETY: the foreign child remains rooted through the local rejection probe.
+    let foreign_value = unsafe {
+        ConversionContext::new(foreign.runtime(), &foreign_owner)
+            .unwrap()
+            .store_transport(child.type_argument(), foreign_value)
     }
     .unwrap();
     assert!(native.create(&mut cx, Edge(foreign_value), &[]).is_err());
@@ -768,10 +784,16 @@ fn applied_native_handles_preserve_the_supplied_nominal_layout_scope() {
         )
         .unwrap();
     let mut cx = vm.context(&old).unwrap();
-    let old_value = old_type.create(&mut cx, Edge(Value::Unit), &[]).unwrap();
+    let old_value = old_type
+        .create(&mut cx, Edge(StoredValue::scalar(())), &[])
+        .unwrap();
     let new_owner = runtime.select_program(&_new_program).unwrap();
     let new_value = new_type
-        .create(&mut vm.context(&new_owner).unwrap(), Edge(Value::Unit), &[])
+        .create(
+            &mut vm.context(&new_owner).unwrap(),
+            Edge(StoredValue::scalar(())),
+            &[],
+        )
         .unwrap();
     let old_call = runtime
         .bind_function::<(Opaque<Edge>,), i32>(&_old_program.root(), "accept")

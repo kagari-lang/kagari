@@ -140,7 +140,7 @@ fn managed_writes_reject_foreign_kind_and_representation_before_publication() {
     assert!(
         !runtime
             .gc
-            .graph_survivor(&runtime.modules, tuple.heap_identity().unwrap().graph())
+            .graph_survivor(&runtime.modules, tuple.direct_reference().unwrap().graph())
             .unwrap()
     );
     assert_eq!(values.with_value(slots, 3, |value| *value), Some(original));
@@ -215,7 +215,7 @@ fn admitted_frame_publication_observes_phase_and_preserves_uncommitted_banks() {
             assert!(
                 runtime
                     .gc
-                    .graph_survivor(&runtime.modules, child.heap_identity().unwrap().graph())
+                    .graph_survivor(&runtime.modules, child.direct_reference().unwrap().graph())
                     .unwrap()
             );
         } else {
@@ -361,7 +361,7 @@ fn root_cursor_survives_compaction_reuse_and_direct_operand_publication() {
         assert!(
             runtime
                 .gc
-                .graph_survivor(&runtime.modules, value.heap_identity().unwrap().graph())
+                .graph_survivor(&runtime.modules, value.direct_reference().unwrap().graph())
                 .unwrap()
         );
     }
@@ -401,7 +401,10 @@ fn close_frame_cycle(runtime: &Runtime, cursor: &mut FrameCursor, retained: Valu
     assert!(
         runtime
             .gc
-            .graph_survivor(&runtime.modules, retained.heap_identity().unwrap().graph())
+            .graph_survivor(
+                &runtime.modules,
+                retained.direct_reference().unwrap().graph()
+            )
             .unwrap(),
         "published frame value must survive"
     );

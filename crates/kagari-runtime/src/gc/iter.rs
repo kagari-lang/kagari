@@ -3,12 +3,13 @@ use super::string_iter::StringTraversal;
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::types::{arguments::TypeArgument, compatibility::TypeView},
-    gc::{GcHeap, GcObjectKind, HeapObjectId, storage::HeapObject},
+    gc::{GcHeap, GcObjectKind, reference::GcRef, storage::HeapObject},
     module::ExecutableModule,
     native::{
         storage::{
             NativePayload, NativeStorage,
             scan::{NativeScanKind, ScanBudget, ScanStatus},
+            value::StoredValue,
         },
         storage_type::StorageType,
     },
@@ -45,7 +46,7 @@ impl PendingItem {
 
 #[derive(Debug)]
 pub(super) struct NativeIter {
-    pub(super) source: Value,
+    pub(super) source: StoredValue,
     pub(super) item_type: Ty,
     pub(super) item_contract: StorageType,
     pub(super) position: u128,
@@ -65,7 +66,7 @@ unsafe impl NativePayload for NativeIter {
         &'payload self,
         state: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        visit: &mut dyn FnMut(&'payload Value),
+        visit: &mut dyn FnMut(&'payload StoredValue),
     ) -> ScanStatus {
         while state.0 < state.1 {
             if !budget.take(1) {
@@ -119,7 +120,7 @@ impl GcHeap {
         }
     }
 
-    pub(crate) fn matches_iter_type(&self, id: HeapObjectId, element: TypeView<'_>) -> bool {
+    pub(crate) fn matches_iter_type(&self, id: GcRef, element: TypeView<'_>) -> bool {
         let objects = self.objects.borrow();
         matches!(self.readable_identity(&objects, id), Some(HeapObject::Native(object)) if matches!(object.ty, Ty::Iter(_)) && object.payload::<NativeIter>().is_ok_and(|iter| iter.item_contract.matches_view(element)))
     }
@@ -183,7 +184,7 @@ impl GcHeap {
         let revision = self.source_revision(source).ok_or_else(invalid)?;
         let cursor_type = Ty::Iter(Box::new(item_type.clone()));
         let payload = NativeIter {
-            source: *source,
+            source: StoredValue::new(*source),
             item_type,
             item_contract,
             position: 0,
@@ -250,13 +251,14 @@ impl GcHeap {
                 return Err(invalid());
             };
             let iter = object.payload::<NativeIter>()?;
-            if iter.item_type != **item || self.source_revision(&iter.source) != Some(iter.revision)
+            if iter.item_type != **item
+                || self.source_revision(iter.source.value_ref()) != Some(iter.revision)
             {
                 return Err(invalid());
             }
             let mut string_cursor = None;
             let (payload, advance) = if let Some(traversal) = &iter.string {
-                let Value::Str(text) = &iter.source else {
+                let Value::Str(text) = iter.source.value_ref() else {
                     return Err(invalid());
                 };
                 let (value, cursor) =
@@ -264,7 +266,7 @@ impl GcHeap {
                 string_cursor = Some(cursor);
                 (value, 0)
             } else {
-                match &iter.source {
+                match iter.source.value_ref() {
                     Value::Range(range) => (
                         self.range(*range)
                             .ok_or_else(invalid)?

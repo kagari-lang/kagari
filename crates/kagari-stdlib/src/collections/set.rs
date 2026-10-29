@@ -17,13 +17,13 @@ use kagari_runtime::{
         storage::{
             NativePayload,
             scan::{NativeScanKind, ScanBudget, ScanStatus},
+            value::StoredValue,
         },
         typed::NativeContext,
         types::Type,
         value_handle::ScriptValue,
     },
     resource::HeapCharge,
-    value::Value,
 };
 use std::{marker::PhantomData, slice};
 
@@ -68,7 +68,7 @@ unsafe impl NativePayload for SetStorage {
         &'a self,
         state: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        visit: &mut dyn FnMut(&'a Value),
+        visit: &mut dyn FnMut(&'a StoredValue),
     ) -> ScanStatus {
         self.table.scan(state, budget, visit)
     }

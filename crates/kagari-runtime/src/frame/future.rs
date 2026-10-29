@@ -11,6 +11,7 @@ use crate::{
     native::{
         binding::NativeResult,
         future::{ColdFuture, FuturePayload},
+        storage::value::StoredValue,
     },
     session::ExecutionPhase,
     value::Value,
@@ -119,7 +120,7 @@ impl ExecutionStack<'_> {
             runtime.gc(),
             future.ty(),
             FuturePayload {
-                cold: Some(ColdFuture::Script(closure)),
+                cold: Some(ColdFuture::Script(StoredValue::new(closure))),
             },
             owner,
         )?;

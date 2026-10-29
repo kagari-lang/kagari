@@ -1,15 +1,17 @@
 //! Real native payload layouts exercise ordinary registration and aligned destruction.
 use kagari::engine::{EngineConfig, KagariEngine};
-use kagari_runtime::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 use kagari_runtime::{
     native::{
         binding::NativeBinding,
         builder::ModuleBuilder,
         declarations::FunctionDecl,
-        storage::{NativePayload, NativeStorage},
+        storage::{
+            NativePayload, NativeStorage,
+            scan::{NativeScanKind, ScanBudget, ScanStatus},
+            value::StoredValue,
+        },
     },
     resource::HeapCharge,
-    value::Value,
 };
 use std::mem::{align_of, size_of};
 
@@ -29,7 +31,7 @@ macro_rules! payload {
                 &'a self,
                 _: &mut Self::ScanState,
                 budget: &mut ScanBudget,
-                _: &mut dyn FnMut(&'a Value),
+                _: &mut dyn FnMut(&'a StoredValue),
             ) -> ScanStatus {
                 budget.charge(1);
                 assert_eq!((self as *const Self as usize) % align_of::<Self>(), 0);

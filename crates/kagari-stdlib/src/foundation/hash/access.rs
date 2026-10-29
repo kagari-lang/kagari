@@ -40,7 +40,7 @@ pub(crate) fn map_get(symbols: &EnumSymbols, call: &mut CallContext<'_>) -> Nati
     // publication. No user callback runs between the completed read and allocation.
     let value = unsafe {
         operations::lookup_read(&mut cx, &object, key, |table, slot, _| {
-            Ok(slot.map(|slot| table.slots[slot].value))
+            Ok(slot.map(|slot| table.slots[slot].value.value_transport()))
         })?
     };
     option(symbols, call, value)

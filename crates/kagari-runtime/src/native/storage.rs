@@ -3,6 +3,7 @@
 pub mod access;
 mod erasure;
 pub mod scan;
+pub mod value;
 use crate::{
     Runtime,
     error::RuntimeError,
@@ -20,6 +21,7 @@ use crate::{
         storage::{
             erasure::{Erasure, Payload},
             scan::{NativeScanKind, ScanBudget, ScanEntries, ScanStatus, ScanWorkspace},
+            value::StoredValue,
         },
         storage_type::StorageType,
         stored_selection::StoredSelection,
@@ -43,7 +45,10 @@ use std::{
 /// Runtime-owned Rust storage with a single scanner and committed backing charge.
 ///
 /// # Safety
-/// Report every strong internal script edge, including temporary algorithm storage.
+/// Store every strong internal script edge as `StoredValue` and report it through
+/// the scanner, including temporary algorithm storage. Opaque carriers acquire no
+/// root: every imported carrier must still have a live source when admitted, and
+/// every inspected or retained carrier must remain protected by its traced owner.
 /// Edge, charge and structural mutations must use checked publication/accounting
 /// services, never interior mutability behind a shared loan. Before any callback, release all payload loans
 /// and protect extracted values with roots or other traced edges. Every installed
@@ -62,7 +67,7 @@ pub unsafe trait NativePayload: Any + Debug + Send {
         &'payload self,
         state: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        visit: &mut dyn FnMut(&'payload Value),
+        visit: &mut dyn FnMut(&'payload StoredValue),
     ) -> ScanStatus;
 
     /// Describe the current payload in constant time, including during unwind. Logical units exclude the heap
@@ -123,14 +128,14 @@ impl<'call> StorageContext<'call> {
         &self,
         element: TypeArgument,
         elements: Vec<Value>,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<StoredValue> {
         self.heap().ensure_no_storage_borrow()?;
         element.validate(self.runtime)?;
         self.runtime.validate_heap_payloads(&elements)?;
         let contract = Arc::new(StorageType::prepare_scoped(element, self.owner)?);
         self.heap()
             .alloc_array_with_contract(contract, elements)
-            .map(Value::Array)
+            .map(|id| StoredValue::new(Value::Array(id)))
     }
 
     pub fn type_parameter(&self, index: usize) -> NativeResult<TypeArgument> {
@@ -312,7 +317,9 @@ impl NativeStorage {
         payload: &'a dyn Any,
         visit: &mut dyn FnMut(&'a Value),
     ) -> NativeResult<()> {
-        self.entries.scan.inspect(payload, visit)
+        self.entries
+            .scan
+            .inspect(payload, &mut |edge| visit(edge.value_ref()))
     }
 
     pub fn layout(&self) -> NativeStorageLayout {
@@ -476,7 +483,7 @@ impl NativeObject {
         else {
             unreachable!("checked live inline extraction")
         };
-        // SAFETY: checked TypeId, exclusive retired allocation and initialized T.
+        // SAFETY: checked TypeId, exclusive occupied allocation and initialized T.
         // Taken prevents Drop from touching the moved value.
         unsafe { pointer.cast::<S>().as_ptr().read() }
     }
@@ -536,10 +543,13 @@ impl NativeObject {
         visit: &mut dyn FnMut(&'payload Value, &mut ScanBudget) -> NativeResult<ScanStatus>,
     ) -> NativeResult<ScanStatus> {
         let payload = self.payload.view(&self.storage.entries.erasure)?;
-        self.storage
-            .entries
-            .scan
-            .resume_traced(heap, payload, workspace, budget, visit)
+        self.storage.entries.scan.resume_traced(
+            heap,
+            payload,
+            workspace,
+            budget,
+            &mut |edge, budget| visit(edge.value_ref(), budget),
+        )
     }
 
     pub(crate) fn inspect<'payload>(
@@ -547,7 +557,10 @@ impl NativeObject {
         visit: &mut dyn FnMut(&'payload Value),
     ) -> NativeResult<()> {
         let payload = self.payload.view(&self.storage.entries.erasure)?;
-        self.storage.entries.scan.inspect(payload, visit)
+        self.storage
+            .entries
+            .scan
+            .inspect(payload, &mut |edge| visit(edge.value_ref()))
     }
 
     pub(crate) fn loan_payload(&mut self) -> NativeResult<NonNull<dyn Any + Send>> {

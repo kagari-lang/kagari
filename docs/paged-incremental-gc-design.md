@@ -71,9 +71,15 @@ observed original-PG00 normal-step gates; 34 rows remain unobserved, not passes.
 Phase 2 is locally complete. Phase 3.1 integrates common physical headers and
 direct transport for every non-Native builtin, including interface wrappers and
 execution/root/metadata graph consumers. Its selected local integration evidence
-is recorded below. Phase 3.2 owns Native StoredValue providers and traced extraction
-tombstones; phase 3.3 owns the complete lifecycle audit and bridge removal. Older
-joint performance obligations and CI remain open.
+is recorded below. Phase 3.2 has migrated Native providers to StoredValue and the
+shared inspect/retain/publish protocol. Traced extraction tombstones retain original
+slots/marks and replace the moved-ID ledger/sweep. Native/Array now use GcRef and
+physical page marks; the mixed identity enum, heap-object generation directory and
+13-byte packed-field bridge are removed. Phase 3.3 removes the unused indexed
+allocator geometry, duplicate per-slot records and forwarding helpers. Its finite
+cursor/queue/disposal/reentry lifetime audit and selected local checks are complete.
+Phase 3 is locally complete; phase 4 now owns final frozen-image performance,
+required CI and the Lua refresh. Older joint obligations remain open.
 This section owns the proposed change to reference representation and the finite
 trial below; the remainder describes the implemented handle-based migration until
 replaced by a corresponding checkpoint. PG05/NC05 and PG06/NC06 remain open. Do not
@@ -402,7 +408,7 @@ checkpoint is not automatically a completed phase.
 | --- | --- | --- |
 | 1. Close host/backend value boundaries | Locally complete | One safe retained/scoped public boundary, with all raw consumers classified and migrated |
 | 2. Prove an integrated struct path | Locally complete: 68 timing, 204 memory and 22 observed normal-step gates pass; 34 normal rows unobserved | Working direct-reference struct graph with correctness and bounded performance evidence |
-| 3. Migrate the complete runtime graph | In progress: builtin physical header integration; transport/graph conversion pending | All managed values use the selected representation; temporary bridges removed |
+| 3. Migrate the complete runtime graph | Locally complete: all managed transport, StoredValue, traced Native tombstones, physical bridge removal and lifecycle audit | All managed values use the selected representation; temporary bridges removed |
 | 4. Joint acceptance and cleanup | Not started | Required local gates and designated CI pass, final contracts documented |
 
 Already completed: source snapshot `725a4fb5`, single-process baseline observations
@@ -3074,6 +3080,450 @@ historical performance, CI and refreshed Lua comparison. No new architecture
 research is needed for this application of the already selected common-header,
 precise-root and nonmoving-page mechanisms; their source references and differing
 ownership assumptions remain above.
+
+### Native provider edge protocol: phase 3.2 checkpoint (2026-10-29)
+
+**Scope and ownership.** Following builtin transport checkpoint `35b25259`, all
+NativePayload scanners now visit opaque `StoredValue` carriers. Actual payload
+fields migrate together: builtin arrays/iterators, managed Native fields, stored
+callbacks, cold Future captures/compositions, Task outcomes, stdlib Vec including
+sorting scratch, HashMap/HashSet and lazy adapters, and the independent OrderedMap
+provider. Edge-free providers and backend/benchmark fixtures consume the same
+public trait. This is an unpublished breaking provider API change; there are no
+forwarding APIs, old scanners, format bumps or extra roots per element.
+
+`StoredValue` is transparent over the existing inert Value carrier; copying it
+does not retain the referent. Its safe operations only construct/decode scalars
+and compare carriers. Checked storage publication, live call arguments, retained
+roots and the explicitly unsafe exact-type conversion boundary supply managed
+carriers. The internal immutable slice adaptation preserves the original typed
+allocation/provenance; it performs no object dereference. No public unchecked
+constructor or safe raw-value getter is introduced. Unsafe provider transport
+extraction retains the existing continuous-source-protection obligation.
+
+`StorageAccess::inspect` checks the existing exact StorageType and reuses the
+outer loan's exclusion guard to provide the existing invariant ValueView.
+`retain` roots a checked edge before extraction/callback; `publish` and
+`publish_argument` return a checked, barrier-published StoredValue for insertion.
+Recovery retains its restricted revision/existing-edge publication services.
+For example, a map can copy a String into owned Rust text during its short loan,
+or retain that String before removing its slot and making a collecting callback.
+The first path adds no root; the second explicitly protects the removal gap.
+Provider/scanner ownership, exact declaration checks, 1024-unit normal work,
+revision guards, charge reconciliation and callback order remain unchanged.
+This applies the accepted traced-edge/retained-root/short-loan model and its
+primary references above; it adds no collector or new reference representation.
+
+**Selected validation.** Runtime protocol/scanner/Future selections pass 21 tests:
+partial scans and publication, operation conflicts, error/unwind accounting,
+retained extraction with loan-bound inspection, erased continuations/budgets and
+captured-Future transfer. The independent public provider passes seven contracts,
+including callback collection, indexed continuation, closure cycles and
+allocation-free recovery. Five VM selections pass collecting Hash/Eq, comparator
+failure, retained zip reload, managed field/callback cycles and failed conversion
+retention. The stdlib indexed-hash relocation/partial-preparation test passes.
+Two async artifact cases pass with source enabled, emitting the disposable pair
+and host-driven-async fixtures for the subsequent source-disabled consumption.
+The source-disabled invocation then passes all three selected cases: those two
+async contracts plus Native bindings/scoped release. This verifies the changed
+Future/Task and provider paths through artifacts without frontend dependencies;
+the complete feature/backend/platform matrix remains CI-only and unrun here.
+
+Reproduction uses the default workspace test profile/target/parallelism:
+
+```sh
+cargo test -p kagari-runtime --lib -- gc::native::protocol_tests native::storage::scan::tests native::future::tests
+cargo test -p kagari --test native_storage_provider
+cargo test -p kagari-vm --lib -- hash_callbacks_can_collect_and_trap_without_losing_keys_or_lookup_guards comparator_failure_stops_callbacks_and_preserves_original_elements retained_zip_keeps_sources_and_closures_but_calls_current_methods registered_payload_fields_support_aliases_reentry_and_rootless_callback_cycles failed_converters_keep_prior_initializers_and_committed_fields_rooted
+cargo test -p kagari-stdlib --lib indexed_hash_relocation_and_partial_preparation_preserve_scan_and_charge
+cargo test -p kagari --test artifact_features -- source_free_structured_pair_contract source_free_async_execution_contract
+cargo test -p kagari --no-default-features --test artifact_features -- source_free_native_bindings_execute_and_release_scopes source_free_structured_pair_contract source_free_async_execution_contract
+```
+
+Strict-provenance Miri passes three source-free runtime cases in 87.27 seconds:
+retained extraction/inspection, reserved String collection, and captured-Future
+pair claims between marker slices. It exercises the new transparent-slice
+adaptation and borrowed view without parsing source or relaxing aliasing checks:
+
+```sh
+MIRIFLAGS=-Zmiri-strict-provenance cargo +nightly-2026-07-27 miri test -p kagari-runtime --lib -- retained_extraction_survives_replacement_and_checks_publication_type_and_owner capture_roots_cover_pair_claims_between_marker_slices_without_submitting reserved_empty_string_drives_automatic_collection
+```
+
+**Repaired integration failures.** Compilation exposed remaining raw carriers in
+VM/public-provider fixtures, unused imports and an import placed before a file's
+inner cfg attribute. All are migrated or corrected. Import consolidation briefly
+placed shared test imports inside one function; they now belong to the test module.
+An existing reserved-String fixture queried transport after collection; it now
+proves exact reclamation and zero live objects/backing without dereferencing a
+reclaimed address. No assertions are weakened and no failure is suppressed.
+
+Structural review groups the changed imports, finds no new reexports/visibility
+exceptions and leaves production without globs or handwritten includes. Structure
+checks 1,850 Rust files with zero findings. Workspace all-target Clippy, formatting
+and diff checks pass. No performance experiment runs here; earlier phase-2 passes
+do not accept this changed graph. Native/Array still use indexed IDs and the
+13-byte packed managed-field bridge. Next: implement traceable taken-object
+tombstones before converting those IDs to direct references; then phase 3.3's
+queue/cursor/disposal audit and bridge removal. Phase 4 retains historical gates,
+required CI and refreshed Lua comparison; Option compaction remains deferred.
+
+### Native common-header placement and extraction handoff (2026-10-29)
+
+Following `26fe5e78`, Native physical descriptors now include the same 8-byte
+ObjectHeader as other managed allocations, before aligned NativeObject plus inline
+Rust T. Admission's backing bound includes the prefix and alignment padding.
+Placement, checked access and detached destruction reuse the existing descriptor
+payload offset; no independent address scheme or permanent payload Box is added.
+Native/Array transport and marks still use checked IDs at this buildable boundary.
+The existing small/large/overaligned/zero-sized lifecycle fixture now also checks
+both header locations and exact complete backing. Its ordinary run passes, as do
+panic-contained destruction, take between sweep slices, and the public VM take
+case with host/script aliases and reuse (three runtime tests and one VM test).
+Strict-provenance Miri passes the lifecycle case in 31.99 seconds. Structure checks
+1,850 files with zero findings; workspace all-target Clippy and fmt/diff pass.
+No timing or final CI acceptance is inferred. Commands:
+
+```sh
+cargo test -p kagari-runtime --lib -- inline_native_small_large_overaligned_and_zero_sized_lifecycles destructor_panics_quarantine_without_retry_and_teardown_drains_survivors native_take_between_slices_repairs_cursor_before_directory_and_page_reuse
+cargo test -p kagari-vm --lib take_moves_nonclone_payload_and_invalidates_host_and_script_aliases_across_slot_reuse
+MIRIFLAGS=-Zmiri-strict-provenance cargo +nightly-2026-07-27 miri test -p kagari-runtime --lib inline_native_small_large_overaligned_and_zero_sized_lifecycles
+```
+
+**Next extraction integration, within 3.2.** The old take path detaches the native
+allocation immediately and transfers color to a separate moved-ID ledger. A direct
+alias cannot survive address reuse that way. Keep its original physical slot/header
+as an inert, edge-free tombstone until aliases disappear. Transfer T exactly once;
+release committed indirect payload charge and dispose Native metadata outside heap
+borrows. The descriptor/header marks the tombstone, so it neither scans T nor runs
+T's destructor again. The existing physical mark and sweep own its lifetime; remove
+the moved-ledger identity, color transfer and separate sweep stage. Preserve pending
+scan cleanup, birth epoch, access rejection and no new roots on stale aliases.
+
+The finite reference is [mlua 0.11.4 AnyUserData::take](https://github.com/mlua-rs/mlua/blob/v0.11.4/src/userdata.rs)
+and [take_userdata](https://github.com/mlua-rs/mlua/blob/v0.11.4/src/util/userdata.rs):
+exclusive extraction invalidates dispatch and disables repeated destruction while
+Lua still owns the userdata shell. Kagari uses sealed descriptors and precise
+page marks, not mutable language metatables or mlua's shared Rust payload cells.
+NativeTake remains edge-free and retains exact Rust type/loan/operation checks.
+The custom descriptor transition fits Kagari's existing ownership kernel; it is
+not a new collector or a performance claim.
+
+Keeping an address necessarily retains its original physical allocation, including
+unused inline payload extent, while aliases live. Indirect owned bytes move out
+with T; shared/large backing is released only after the tombstone is unreachable.
+Report that real backing rather than preserving the old zero-backing-after-take
+assertion. Older indexed-only advice to separate inert IDs from physical pages is
+superseded by the accepted direct-reference requirement here. This tradeoff does
+not authorize moving survivors, weakening memory gates or an alternate payload
+boxing architecture. Existing physical lifecycle/alias/sweep tests will migrate
+to address retention and final reclamation assertions; historical performance and
+CI still gate phase 4.
+
+### Traced Native tombstones: phase 3.2 checkpoint (2026-10-29)
+
+Following common-header placement `c443f3df`, extraction now replaces the original
+occupied allocation's descriptor with an edge-free, no-destructor tombstone. The
+same slot, header address, epoch/color and graph credit survive. Descriptor admission
+is fallible only before the transition; the exclusive owner then moves NativeObject
+and T once, releases the committed indirect payload charge and disposes metadata
+outside heap borrows with panic containment. The replacement descriptor initializes
+only the common header; unused NativeObject/T extent remains backing, never a second
+owned value. The existing physical allocation owner retains its original deallocation
+layout, including large/overaligned allocations.
+
+The collector alone accepts already-traced taken aliases. Ordinary type/payload
+access, root admission and publication still reject them. Pending/active Native
+scans resolve the current tombstone and abandon any initialized provider workspace
+before completing the original mark. No queue search, new owner, color transfer or
+replacement root is needed. NativeTake stays edge-free and exact-type/loan/operation
+validation stays at its original boundary. The mlua reference and differing ownership
+assumptions in the preceding handoff motivate this state transition; no additional
+mechanism or measured speedup is claimed.
+
+Removed: MovedLedger, its mark domain/graph identity and sweep stage, active-owner
+retargeting, immediate Native detach/dispose helpers, and tests of that removed
+ledger's free list/domain bookkeeping. Existing semantic-owner tests now prove
+that taken and fresh objects cannot share a live slot, that aliases still reject
+access, and that final collection releases the actual backing. The single sweep
+preflight now accounts for ten heap stores plus modules (11 work units), without
+changing the 1024-unit normal budget. This is removal of one store, not a relaxed
+work limit. Object statistics include occupied tombstones; indirect payload charge
+moves out immediately, but physical backing is reported until aliases die.
+
+**Validation.** Six focused runtime tests pass: exact indirect-charge transfer,
+occupied discovery/reclamation, small/large/overaligned/ZST extraction and destruction,
+sweep-slice/newborn preservation, frame argument revalidation, and pending/active
+mark completion. Both public VM take cases pass (alias invalidation and denied
+extraction preserving T). Two normal-driver regressions pass budget accounting
+through sweep/disposal and later-store borrow rejection on resumed sweep.
+Strict-provenance Miri passes four selected source-free cases in 76.68 seconds:
+physical extraction, pending/active marks, sweep/newborn state and frame admission.
+
+```sh
+cargo test -p kagari-runtime --lib -- native_take occupied_discovery_retains_taken_native take_transfers_indirect_charge inline_native_small_large_overaligned_and_zero_sized_lifecycles
+cargo test -p kagari-vm --lib native_boundary_payload::take::
+cargo test -p kagari-runtime --lib -- automatic_budget_spans_mark_sweep_and_disposal_and_reports_only_new_retirements resumed_sweep_rechecks_later_store_borrows_before_any_further_detachment
+MIRIFLAGS=-Zmiri-strict-provenance cargo +nightly-2026-07-27 miri test -p kagari-runtime --lib -- native_take inline_native_small_large_overaligned_and_zero_sized_lifecycles
+```
+
+The initial compile found the removed metadata-dispatch variants, the new private
+module's method visibility, one missing test import and obsolete unused helpers;
+all were repaired or removed before running these selections. No known failed
+selection remains. Manual structural review finds no new reexports, broad visibility,
+production globs, handwritten includes or LOC exceptions. Structure checks 1,850
+files with zero findings; workspace all-target Clippy and fmt/diff pass. Tests use
+the workspace profile/default target/parallelism on the existing M1 Max/Rust 1.99.1
+host; Miri uses nightly-2026-07-27, without parser execution or relaxed aliasing flags.
+
+This closes the tombstone prerequisite, not all of 3.2. Native/Array still carry
+indexed identities and directory marks; next convert their producers/consumers to
+GcRef/common physical marks and remove the packed-field 13-byte bridge. Then audit
+all cursor, queue, disposal, metadata and reentry lifetimes in 3.3. No performance
+run is performed here, no earlier pass accepts the changed graph, and historical
+performance/required CI/Lua refresh remain phase-4 obligations. Option compaction
+remains deferred.
+
+### Native direct transport and packed references: phase 3.2 checkpoint (2026-10-29)
+
+Following `b6efddd4`, all managed families now carry GcRef. Native/Array allocation,
+field encoding, loans/operation guards, Future/Task dependencies, publication,
+initialization ownership, graph cursors and physical retirement consume that one
+transport. The allocation orchestrator always publishes into common-header direct
+pages and uses their original marks; no Native-specific object generation lookup
+remains. HeapObjectId, HeapObjectIdentity, GraphIdentity::Object/Domain::Object,
+ObjectSlot, the per-object mark array/free chain and generation-directory compaction
+are removed. Diagnostics omit that removed directory buffer instead of reporting a
+fictional allocation. Executable metadata, roots, runtime ownership, pinned reload
+and host-borrow generation checks remain with their existing owners.
+
+Generic managed fields now contain one tag plus GcRef (9 bytes on this 64-bit host),
+including Array and GcHandle. Typed unaligned loads/stores preserve provenance;
+declared struct fields remain pointer-only and scalar widths remain exact. No
+artifact identifier bump or enum/Option representation change is involved. Raw
+backend signatures now accept GcRef directly; Native debug identity formatting uses
+its allocation address like struct formatting. Safe retained host APIs do not gain
+new raw access. NativeTake continues to reject access/new roots while existing
+aliases trace its original tombstone. This reuses the accepted physical kernel and
+the preceding mlua-informed extraction design, without a new pointer scheme.
+
+**Boundary audit.** Replaced expired raw-pointer probes in runtime, VM, embedding,
+web and the host-reentry example with retained foreign/wrong-kind/taken values or
+exact reclamation evidence. Obsolete object-generation exhaustion and directory
+compaction tests are removed; root/metadata generation tests remain. Pure marker
+fixtures use the existing metadata identity domain, never fabricated GcRefs. The
+initialization-map accounting fixture allocates real references before measurement.
+Packed-field coverage now includes a traced Array graph and an unaligned Native
+reference retained across extraction/collection. Original drop, accounting,
+publication, callback, alias-conflict and source-free boundaries remain asserted.
+
+The destructor-panic regression also exposed an existing diagnostic overwrite:
+physical disposal recorded the concrete quarantine reason, then collection_result
+replaced it with `collection graph failed`. The collector now returns the existing
+quarantine error before applying that fallback. Disposal still completes the
+already-detached batch and prevents later collection/retry. This is a local error
+propagation correction, not a new lifecycle or permission mechanism.
+
+**Selected validation.** The initial runtime selection passes 12 cases; the
+subsequent field/marker/lease/provider-cursor/joint-owner selection passes 16.
+Two retained-root/admission cases and three disposal/normal-budget/resumed-borrow
+cases pass. Diagnostics-enabled physical-layout and initialization-map accounting
+pass two cases. Eight selected VM cases pass across extraction, collecting callbacks,
+closure/reload cycles, source-free parked execution, reentry, composite arguments
+and destructor panic. The two affected embedding cases, bounded web string copy,
+and two independent OrderedMap callback/recovery/cycle cases pass. No full package
+or workspace test sweep was run.
+
+```sh
+cargo test -p kagari-runtime --lib -- native_take inline_native_small_large_overaligned_and_zero_sized_lifecycles occupied_discovery_retains_taken_native packed_managed_edges packed_direct_struct_edges bounded_transaction_retires_initialization tiny_budget_preserves_initialization foreign_handles_and_wrong_value_tags rooted_clones_keep_values_alive rejected_allocations_leave_all_counters
+cargo test -p kagari-runtime --lib -- packed_native_reference packed_managed_edges gc::graph::tests:: gc::graph::sweep::tests:: failed_nested_borrow_and_unwind partial_native_cursor_keeps_an_edge object_metadata_module_and_static_owners
+cargo test -p kagari-runtime --lib -- native_root_admission_requires_a_loan identity_comparison_rejects_foreign_and_disguised_handles destructor_panics_quarantine_without_retry_and_teardown_drains_survivors automatic_budget_spans_mark_sweep_and_disposal_and_reports_only_new_retirements resumed_sweep_rechecks_later_store_borrows_before_any_further_detachment
+cargo test -p kagari-runtime --lib --features execution-diagnostics -- tiny_budget_preserves_initialization_survivors_and_releases_only_empty_capacity inline_native_small_large_overaligned_and_zero_sized_lifecycles
+cargo test -p kagari-vm --lib -- native_boundary_payload::take:: async_wait_live_storage_contract registered_payload_fields_support_aliases_reentry_and_rootless_callback_cycles stored_callback_keeps_old_code_and_releases_the_old_program_with_its_cycle reentry_rejects_foreign_and_stale_inputs composite_arguments_are_rooted_during_callbacks_and_reject_foreign_or_wrong_kind_values destructor_panics_dispose_each_detached_payload_once_and_quarantine
+cargo test -p kagari --lib -- native_iterators_validate_revisions_and_survive_gc_and_failure diagnostic_snapshots_survive_reload_without_retaining_script_values
+cargo test -p kagari --test native_storage_provider -- callbacks_alias_protection_and_allocation_free_scratch_recovery traced_closure_cycle_and_retained_get_release_without_per_element_roots
+cargo test -p kagari-web --lib strings_are_bounded_owned_copies_not_retained_heap_handles
+cargo run -p kagari --example host_reentry
+MIRIFLAGS=-Zmiri-strict-provenance cargo +nightly-2026-07-27 miri test -p kagari-runtime --lib -- packed_native_reference packed_managed_edges native_take inline_native_small_large_overaligned_and_zero_sized_lifecycles
+MIRIFLAGS=-Zmiri-strict-provenance cargo +nightly-2026-07-27 miri test -p kagari-runtime --lib -- native_root_admission_requires_a_loan foreign_handles_and_wrong_value_tags
+```
+
+Commands above consolidate the final selected filters; successful unaffected cases
+were not rerun just to create a new transcript. The first packed-field selection
+used its former `packed_builtin_edges` name before adding Array coverage; the
+renamed/extended case passed the second selection and Miri. Strict-provenance Miri
+passes the six source-free physical/tombstone/packed-field cases in 117.32 seconds.
+The two source-free admission cases also pass strict Miri in 82.21 seconds, and
+the corrected host-reentry example runs successfully. All use the existing
+M1 Max/Rust 1.99.1 workspace
+profiles, default target/parallelism and warmed development cache; Miri uses
+nightly-2026-07-27 with no relaxed aliasing flags or source parsing. Test duration is
+not a throughput measurement.
+
+Intermediate compiler failures referenced removed ID constructors/slot fields and
+redundant conversions; those producers/consumers and tests were migrated together.
+A parked-execution count initially expected one dead owner but the fixture also
+releases its consumed Future capture; each iteration now begins with clean garbage
+and asserts exactly two reclaimed/two retained owners. The diagnostic snapshot
+probe initially overclaimed an empty heap; it now asserts the two reclaimed old
+Err/payload allocations while allowing the independently retained program data.
+The destructor-message failure is resolved by the error propagation correction
+above. No semantic assertion was relaxed to accept raw expired transport.
+
+Manual review covers production imports/visibility, changed unsafe proofs and
+ownership boundaries: no new reexports, production globs, handwritten includes,
+compatibility aliases or LOC exceptions. Structure checks 1,850 files with zero
+findings. Final workspace all-target Clippy, formatting and diff checks pass.
+There are no carried compiler or selected-test failures. Full-workspace and complete
+backend/feature/platform testing remain designated CI work, not local acceptance.
+
+**Next, phase 3.3:** remove the unused indexed allocator geometry and its small-slot
+metadata/large directory discriminator (`DIRECT_GROUP_START`, indexed geometry,
+Slot and directory-bearing placement/test fixtures). The sole runtime object
+allocator already selects direct storage; this is an explicit finite physical
+bridge, not another object identity engine. Audit every cursor, queued job, sweep
+and detached owner, metadata edge and synchronous/parked reentry lifetime against
+the one GcRef contract. Retire duplicate mixed-path helpers where no longer needed.
+Then freeze phase-4 images and execute historical performance/required CI/Lua
+acceptance. No performance run was performed here; old phase-2 passes do not accept
+this changed graph. Option compaction remains deferred and the overall goal stays
+active.
+
+### One physical allocation layout: phase 3.3 checkpoint (2026-10-29)
+
+Following `35d02e31`, the allocator no longer accepts a logical object-directory
+index or chooses between indexed/direct layouts. Small slabs use one geometry per
+stride, shared by both edge groups, with control state, occupied/retiring bitmaps
+and PageMarks in a disjoint trailer. Occupied common headers supply descriptor IDs;
+there is no duplicate Slot array. Large trailers always contain PageMarks and
+active/occupancy controls, without the obsolete directory discriminator. The free
+physical allocation index and descriptor admission counts retain their original
+owners. Descriptor construction now requires the managed prefix and payload offset
+at creation, rather than temporarily admitting a headerless shape.
+
+Checked sweep candidates always include their original page mark and can reconstruct
+GcRef without an indexed fallback. The last disposed fragment must release that
+mark group before the allocation index becomes reusable. Detached tokens still
+retain the exact backing layout and descriptor outside heap borrows, through normal
+destruction and unwind. Native tombstones retain the same header/mark/slot and update
+only dispatch; their unused original extent is still real backing. The public
+StorageUsage snapshot drops the obsolete slot_metadata_bytes field; mark bytes
+remain a subset of page/large controls, not an additional allocation. No runtime
+ABI identifier changes or unmeasured speed claims are made. This removes the
+accepted finite bridge, reusing the previously reviewed physical ownership model;
+it does not introduce another collector or cache.
+
+Existing allocator fixtures now publish actual common headers. The two initial
+failures were obsolete occupancy-count assertions after deliberate bitmap damage:
+the former duplicate Slot array still enumerated the hidden slot, while the new
+sole occupancy source correctly excludes it. The fixtures now assert the exact
+corrupted bitmap remains unchanged after rejected preflight, the resulting occupied
+count, and full restoration before successful disposal. Range, corruption, panic,
+backing lifetime, layout/alignment, initialized-header and physical reuse assertions
+remain. No semantic failure is carried and no invalid raw pointer is used as a
+safe stale-handle test.
+
+**Validation.** The 19 physical allocator cases pass. Seven selected source-free
+strict-provenance Miri cases pass in 61.00 seconds: all stride/edge-group geometries,
+trailer/payload borrow disjointness, aligned builtin disposal, corrupt dispatch,
+cross-word range preflight, multi-fragment failure atomicity and unwind after owner
+teardown. Five diagnostics-enabled integration cases pass exact two-allocation/
+complete byte accounting, Native layouts/extraction, pending/active tombstone marks,
+normal sweep budgets and resumed borrow preflight. Three additional retirement
+cases pass exact backing release/accounting, non-replay of borrowed batch proofs,
+and between-slice extraction/newborn preservation. Structure checks 1,850 Rust
+files with zero findings; formatting, workspace all-target Clippy and diff checks
+pass. No full package or workspace test sweep was run.
+
+```sh
+cargo test -p kagari-runtime --lib -- gc::directory::pages::
+cargo test -p kagari-runtime --lib --features execution-diagnostics -- coallocated_controls_have_two_allocations inline_native_small_large_overaligned_and_zero_sized_lifecycles native_take_preserves automatic_budget_spans_mark_sweep_and_disposal_and_reports_only_new_retirements resumed_sweep_rechecks_later_store_borrows_before_any_further_detachment
+cargo test -p kagari-runtime --lib --features execution-diagnostics -- range_accounting_and_physical_reuse_follow_release_not_detachment borrowed_retirement_proof_cannot_replay_into_outstanding_or_reused_storage native_take_between_slices_keeps_physical_tombstones_and_newborn_marks
+MIRIFLAGS=-Zmiri-strict-provenance cargo +nightly-2026-07-27 miri test -p kagari-runtime --lib -- trailer_layout_rejects_overflow class_geometry_preserves_disjoint_controls checked_range_crosses_bitmap multi_fragment_preflight bitmap_sweep_rejects_corrupt range_unwind_fallback builtin_header_preserves_alignment
+```
+
+Tests use the existing M1 Max/Rust 1.99.1 host, workspace test profile/default
+target/default parallelism and warmed development cache. Miri uses
+nightly-2026-07-27 without relaxed provenance/aliasing flags or source parsing.
+These durations are validation evidence, not performance measurements. Manual
+review covers the changed raw layouts, header dispatch, occupied/retiring states,
+mark lifetime, imports and visibility. No new reexports, production globs,
+handwritten includes, LOC exceptions or known intermediate errors remain.
+
+**Next:** finish phase 3.3's whole-lifecycle audit of queued/active cursors, detached
+owners, metadata edges and synchronous/parked reentry. Consolidate remaining
+mixed-path helper duplication under the existing GcRef contract. Phase 3.3 is not
+closed by allocator cleanup alone. Phase 4 still owns frozen historical timing and
+memory gates, required CI and the Lua refresh; full-workspace/complete backend,
+feature and platform tests remain CI-only. Option compaction remains deferred.
+
+### Lifecycle audit and bridge closure: phase 3.3 (2026-10-29)
+
+Following physical bridge removal `7231bed4`, the remaining Value::heap_identity
+and GcHeap::identity_location forwarding helpers are deleted. Their callers use
+Value::direct_reference and the original ObjectStorage resolver. The existing
+representation checks, Array nominal validation, initialization-owner isolation,
+condemnation check and publication barriers are unchanged. The scoped struct scan
+still has its one-borrow fields/mark path; numeric builtin/provider cursors retain
+their existing semantic owners. This is bridge removal, not a new specialization
+or measured optimization. Marker comments now describe incremental service and
+traced extraction tombstones instead of the superseded synchronous/moved-ID model.
+
+The finite audit follows every persistent collector cursor and queued execution
+owner through yield, mutation, closure and disposal. The table records the actual
+source owner and the protection required by the direct-reference contract; a copied
+GcRef itself never supplies retention.
+
+| Owner reviewed | Lifetime/transition proof |
+| --- | --- |
+| [GraphWork and WorkItem](../crates/kagari-runtime/src/gc/graph.rs), [page marks](../crates/kagari-runtime/src/gc/graph/marks.rs), [driver](../crates/kagari-runtime/src/gc/graph/driver.rs) | Pending jobs contain a registered physical/metadata group or singleton; the sole active owner stays gray. No sweep begins before all roots, pending jobs and the active owner finish. Final physical-group unregister precedes allocation-index reuse. Fault/poison preserves unfinished work and forbids closure. |
+| [ObjectCursor](../crates/kagari-runtime/src/gc/graph/objects.rs), [struct scan](../crates/kagari-runtime/src/gc/graph/structures.rs), [provider workspace](../crates/kagari-runtime/src/native/storage/scan.rs) | Only GcRef/numeric extents and independently owned immutable HostPath backing survive a slice. Payload/mark loans end at return; providers resume under a fresh original-owner borrow. Native ScanState is Copy and pointer-free by the unsafe provider contract, not a borrowed iterator. Taken owners keep their original shell/mark and abandon active provider state without a second drop. Budget failure leaves the edge/progress uncommitted. |
+| [RootCursor](../crates/kagari-runtime/src/gc/roots/scanning.rs), [FrameCursor](../crates/kagari-runtime/src/frame/values/scanning.rs), [HostRootCursor](../crates/kagari-runtime/src/host/scanning.rs) | Root leases upgrade only during a visit; full root/window generations reject reuse while numeric ordinals survive compaction. Host dirty-prefix revision invalidates cleared records before reading them. Insertions/replacements publish targets even behind completed cursors. Root/frame/host generations remain necessary and are not heap-object directory bridges. |
+| [MetadataCursor](../crates/kagari-runtime/src/execution_metadata/scanning.rs), [ModuleCursor](../crates/kagari-runtime/src/module/scanning.rs) | Generation-pinned metadata/program identities are re-resolved per slice. Borrowed metadata edges are consumed by the visitor, never queued as borrowed views. Descriptor pins retain their owning slot; drop-capable descriptor completion runs without graph control. Static and old-generation program edges retain their original backing through closed marking and later retirement. |
+| [Physical SweepBatch](../crates/kagari-runtime/src/gc/directory/retirement/disposal.rs), [range tokens](../crates/kagari-runtime/src/gc/directory/pages/retirement.rs), [retirement driver](../crates/kagari-runtime/src/gc/collection/retirement.rs) | Complete preflight and work reservation precede detachment. At most 32 detached owners retain backing/descriptors, block competing detach, and are disposed outside heap/control borrows before the service yields. Only finished disposal clears retiring occupancy and releases accounting/group credits. Unwind quarantines rather than making unfinished storage reusable; payload Drop is consumed once. |
+| [ExecutionCursor](../crates/kagari-runtime/src/frame/cursor.rs), [Native operation guard](../crates/kagari-runtime/src/native/views.rs), [leases](../crates/kagari-runtime/src/gc/leases.rs) | Closed interpreter regions borrow admitted frame banks and release them before callbacks/allocation transitions. Native loans exclude collection/reentry. Callback-capable operation guards retain the receiver and recover traced scratch before dropping their lease; leases alone are not roots. Existing trap/cancellation/depth cleanup remains with the session owner. |
+| [PendingWait/QueuedFuture](../crates/kagari-runtime/src/frame/waiting.rs), [QueuedFactory](../crates/kagari-runtime/src/frame/factory.rs), [owned sessions](../crates/kagari-runtime/src/session/owned.rs), [TaskRecord](../crates/kagari-runtime/src/task/store.rs) | Waiting awaitables/results and queued entries use RootedValue; claimed captures/argument vectors use RootSet. Parked frames remain in the authoritative root bank. Task registries retain their heap handle, owner program and terminal result until retirement. Wake/dependency identifiers grant scheduling authority, not raw heap access. |
+| [StoredValue](../crates/kagari-runtime/src/native/storage/value.rs), [StorageAccess](../crates/kagari-runtime/src/native/storage/access.rs), [retained roots](../crates/kagari-runtime/src/gc/roots.rs) | Safe external access uses retained roots or a scoped payload loan. Provider edges must remain traced; extraction across source replacement/callbacks requires retain. Raw backend transport remains unsafe with explicit original-owner obligations; validation cannot resurrect a reclaimed address. The independent provider uses the same mechanism as stdlib. |
+
+No new lifetime defect was found in this audit. Existing nonmoving physical storage,
+insertion barriers, original-owner queue credits and tombstone extraction satisfy
+the accepted scope without a second retention registry or per-element roots. This
+reuses the Go/page-bitmaps and mlua/extraction-shell decisions already cited above;
+no new architecture or performance assumption is introduced.
+
+**Selected validation.** Nine runtime cases pass root replacement/reuse, insufficient
+bitmap-reset budget, newborn allocation during an active job, partial provider edge
+movement, faulted mark closure, unwind publication, parked-frame replacement,
+poll-time alias mutation and queued static/program retention across reload. Two
+forwarding helpers are removed without changing an unsafe implementation or layout;
+the strict-provenance Miri evidence for the actual phase-3 kernels remains applicable
+(including seven physical-layout/disposal cases at `7231bed4`). No parser-backed
+Miri or relaxed aliasing/provenance flags are introduced.
+
+```sh
+cargo test -p kagari-runtime --lib -- root_replacement_release_reuse_and_late_registration object_edge_cursor_does_not_advance newborn_work_and_larger_payload_admission owner_fault_preserves_gray_work partial_native_cursor_keeps_an_edge parked_frames_keep_replacements waiting_commit_rechecks_graph reload_between_slices_keeps_queued_static recovery_publication_during_existing_unwind
+cargo test -p kagari-runtime --lib --features execution-diagnostics native_body_polls_interleave_bounded_automatic_gc_and_root_mutation
+cargo test -p kagari-vm --lib -- typed_reentry_traps_cancellation_and_depth_exhaustion_release_execution_state async_wait_live_storage_contract
+```
+
+The actual installed native-body case passes with its asserted two ABI polls,
+two 1024-unit normal steps and intervening managed root mutation. Both selected VM
+cases pass cancellation/depth/trap reentry cleanup and parked wait storage across
+completion/cancellation/drop. Structure checks 1,850 Rust files with zero findings;
+formatting, workspace all-target Clippy and diff checks pass. There are no carried
+compile or selected-test failures. Tests use the existing M1 Max/Rust 1.99.1 host, workspace profiles/default
+target/default parallelism and warmed development cache. No timing acceptance is
+inferred from test duration. Manual review covers imports, visibility, removed
+forwarders and preserved validation: no new reexports, production globs, unsafe
+casts, handwritten includes or structural exceptions.
+
+**Phase handoff:** phase 3's representation, provider and finite bridge-removal work
+is locally complete; its exit evidence combines the
+preceding 3.1/3.2/3.3 checkpoints with this audit. This does not close joint PG05,
+PG06 or NC acceptance. Next freeze phase-4 ordinary/diagnostic images, preserve
+combined-source and original-PG00 denominators, and execute the historical gates,
+required CI matrix and existing Lua refresh. No performance baseline/limit is
+changed; unobserved normal-step rows remain unobserved. Option compaction and
+unrelated optimization remain deferred.
 
 ### Scalar attribution and typed Native admission: phase 2B (2026-10-29)
 

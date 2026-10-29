@@ -257,50 +257,6 @@ fn rejects_non_storable_heap_mutations() {
 }
 
 #[test]
-fn exhausted_object_generation_retires_storage_without_aliasing_old_values() {
-    let mut runtime = Runtime::default();
-    let owner = allocation_owner(&mut runtime);
-    let heap = runtime.gc();
-    let allocate = |value| {
-        let object = NativeStorage::takeable::<i32>()
-            .prepare_payload(heap, &Ty::Builtin(BuiltinType::I32), value, &owner)
-            .unwrap();
-        heap.alloc_native(object).unwrap()
-    };
-    let first = allocate(7);
-    // Advance the existing allocation to its final reusable generation without
-    // billions of collections. No stale handle is admitted as a root.
-    heap.objects.borrow_mut().slots[first.index()].generation = u32::MAX - 1;
-    let penultimate = HeapObjectId::new(heap.owner, first.index(), u32::MAX - 1);
-    let root = heap.root_value(Value::GcHandle(penultimate)).unwrap();
-    assert!(!heap.validate_value(&Value::GcHandle(first)));
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);
-    drop(root);
-    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
-
-    let last = allocate(8);
-    assert_eq!(last.index(), first.index());
-    assert_eq!(last.generation(), u32::MAX);
-    assert!(!heap.validate_value(&Value::GcHandle(penultimate)));
-    let root = heap.root_value(Value::GcHandle(last)).unwrap();
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);
-    drop(root);
-    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
-
-    let next = allocate(9);
-    assert_ne!(next.index(), last.index());
-    assert!(!heap.validate_value(&Value::GcHandle(first)));
-    assert!(!heap.validate_value(&Value::GcHandle(last)));
-    assert!(heap.root_value(Value::GcHandle(last)).is_none());
-    assert_eq!(
-        heap.with_native::<i32, _>(next, |value| Ok(*value))
-            .unwrap(),
-        9
-    );
-    assert_eq!(heap.stats().allocated_objects, 1);
-}
-
-#[test]
 fn sparse_collection_preserves_aliases_and_mutation_without_relocating_payloads() {
     let runtime = Runtime::default();
     let heap = runtime.gc();
@@ -383,12 +339,10 @@ fn occupied_discovery_follows_live_payloads_not_directory_peak() {
         reset_discovery_visits(heap);
         assert_eq!(runtime.collect_garbage().unwrap().live_objects, 8);
         assert_eq!(discovery_visits(heap), peak as usize * 4);
-        let history = heap.objects.borrow().slots.len();
         for _ in 0..3 {
             reset_discovery_visits(heap);
             assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 0);
             assert_eq!(discovery_visits(heap), 8);
-            assert_eq!(heap.objects.borrow().slots.len(), history);
             for (_, cell, record, expected) in &roots {
                 assert_eq!(
                     heap.cell_get(*cell, ValueType::I32).unwrap(),
@@ -413,7 +367,7 @@ fn occupied_discovery_follows_live_payloads_not_directory_peak() {
             .alloc_struct(schema.clone(), vec![Value::I32(42)])
             .unwrap();
         assert_eq!(heap.struct_get_slot(next, &schema, 0), Some(Value::I32(42)));
-        eprintln!("object directory peak={history}: fixed-live visits=8, empty visits=0");
+        eprintln!("allocation peak={peak}: fixed-live visits=8, empty visits=0");
     }
 }
 
@@ -484,7 +438,7 @@ fn interface_occupancy_tracks_wrappers_not_snapshot_liveness_or_history() {
 }
 
 #[test]
-fn occupied_discovery_excludes_taken_native_identity_after_slot_reuse() {
+fn occupied_discovery_retains_taken_native_slots_until_aliases_disappear() {
     let mut runtime = Runtime::default();
     let owner = allocation_owner(&mut runtime);
     let heap = runtime.gc();
@@ -504,13 +458,15 @@ fn occupied_discovery_excludes_taken_native_identity_after_slot_reuse() {
         .prepare_payload(heap, &Ty::Builtin(BuiltinType::I32), 42, &owner)
         .unwrap();
     let replacement = heap.alloc_native(object).unwrap();
-    assert_eq!(replacement.index(), taken.index());
-    assert_ne!(replacement.generation(), taken.generation());
+    assert_ne!(replacement, taken);
     let replacement_root = heap.root_value(Value::GcHandle(replacement)).unwrap();
     reset_discovery_visits(heap);
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
-    assert_eq!(discovery_visits(heap), 2);
-    assert!(heap.moved.borrow().contains_key(&taken));
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 3);
+    assert_eq!(discovery_visits(heap), 3);
+    assert_eq!(
+        heap.objects.borrow().direct_location(taken).unwrap().kind,
+        PayloadKind::Taken
+    );
     assert_eq!(
         heap.with_native::<i32, _>(roots[1].1, |value| Ok(*value))
             .unwrap(),
@@ -518,9 +474,8 @@ fn occupied_discovery_excludes_taken_native_identity_after_slot_reuse() {
     );
     drop((roots, replacement_root));
     reset_discovery_visits(heap);
-    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 2);
-    assert_eq!(discovery_visits(heap), 2);
-    assert!(heap.moved.borrow().is_empty());
+    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 3);
+    assert_eq!(discovery_visits(heap), 3);
     assert_eq!(heap.stats().current_heap_units, 0);
     assert_eq!(heap.stats().current_retained_bytes, 0);
     reset_discovery_visits(heap);
@@ -540,7 +495,7 @@ fn roots_are_explicit_storable_slots() {
 
     assert_eq!(root.value(heap).unwrap(), Value::Array(object));
     assert_eq!(heap.active_roots(), 1);
-    assert_eq!(heap.trace_roots().unwrap(), vec![object.into()]);
+    assert_eq!(heap.trace_roots().unwrap(), vec![object]);
 
     assert!(heap.root_value(host_root_value(heap, 1)).is_none());
     assert!(heap.root_value(path_view_value(heap, 1)).is_none());

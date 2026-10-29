@@ -6,8 +6,7 @@ use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::types::arguments::TypeArgument,
     gc::{
-        GcHeap, HeapObjectId, collector::Visited, reference::HeapObjectIdentity, roots::RootSet,
-        storage::append_value_edges,
+        GcHeap, collector::Visited, reference::GcRef, roots::RootSet, storage::append_value_edges,
     },
     module::ExecutableModule,
     native::{
@@ -22,9 +21,9 @@ use kagari_types::ty::Ty;
 /// Scratch for one guarded operation, never a reusable proof of object safety.
 pub(crate) struct AsyncValues<'heap> {
     heap: &'heap GcHeap,
-    visited: Visited<HeapObjectIdentity>,
+    visited: Visited<GcRef>,
     edges: Vec<Value>,
-    pending: Vec<HeapObjectIdentity>,
+    pending: Vec<GcRef>,
 }
 
 impl AsyncValues<'_> {
@@ -104,7 +103,7 @@ impl GcHeap {
 
     pub(crate) fn future_contract(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
     ) -> NativeResult<(ExecutableModule, Ty, Option<TypeArgument>)> {
         self.ensure_no_storage_borrow()?;
         self.ensure_execution_allowed()?;
@@ -123,7 +122,7 @@ impl GcHeap {
         ))
     }
 
-    pub(crate) fn future_script(&self, id: HeapObjectId) -> NativeResult<Option<Value>> {
+    pub(crate) fn future_script(&self, id: GcRef) -> NativeResult<Option<Value>> {
         let objects = self
             .objects
             .try_borrow()
@@ -132,7 +131,7 @@ impl GcHeap {
             .native_ref(&objects, id)
             .ok_or_else(|| RuntimeError::module_validation("invalid Future receiver"))?;
         Ok(match object.payload::<FuturePayload>()?.cold.as_ref() {
-            Some(ColdFuture::Script(value)) => Some(*value),
+            Some(ColdFuture::Script(value)) => Some(value.value()),
             _ => None,
         })
     }
@@ -140,7 +139,7 @@ impl GcHeap {
     /// Copy known producer identity without claiming, polling or rooting its state.
     pub(crate) fn future_native_origin(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
     ) -> NativeResult<Option<CallableObservation>> {
         self.ensure_no_storage_borrow()?;
         self.ensure_execution_allowed()?;
@@ -158,7 +157,7 @@ impl GcHeap {
     }
 
     /// Reserve roots while both heap payloads still trace their cold captures.
-    pub(crate) fn prepare_future_pair(&self, ids: [HeapObjectId; 2]) -> NativeResult<[RootSet; 2]> {
+    pub(crate) fn prepare_future_pair(&self, ids: [GcRef; 2]) -> NativeResult<[RootSet; 2]> {
         if ids[0] == ids[1] {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
@@ -198,10 +197,7 @@ impl GcHeap {
 
     /// Recheck and claim both payloads under one borrow. No callback, allocation or
     /// collection occurs between claims; callers already own their capture roots.
-    pub(crate) fn take_cold_future_pair(
-        &self,
-        ids: [HeapObjectId; 2],
-    ) -> NativeResult<[ColdFuture; 2]> {
+    pub(crate) fn take_cold_future_pair(&self, ids: [GcRef; 2]) -> NativeResult<[ColdFuture; 2]> {
         self.ensure_no_storage_borrow()?;
         self.ensure_execution_allowed()?;
         if ids[0] == ids[1] {
@@ -241,7 +237,7 @@ impl GcHeap {
         }))
     }
 
-    pub(crate) fn take_cold_future(&self, id: HeapObjectId) -> NativeResult<ColdFuture> {
+    pub(crate) fn take_cold_future(&self, id: GcRef) -> NativeResult<ColdFuture> {
         self.ensure_no_storage_borrow()?;
         self.ensure_execution_allowed()?;
         let cold = {

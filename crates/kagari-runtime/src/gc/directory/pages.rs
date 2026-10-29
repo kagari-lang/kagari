@@ -6,11 +6,12 @@ pub(in crate::gc) mod batch;
 mod header_tests;
 pub(super) mod retirement;
 mod sweep;
+mod take;
 #[cfg(test)]
 mod tests;
 
 use self::{
-    allocation::{Allocation, Large, Links, Slot, Small},
+    allocation::{Allocation, Large, Links, Small},
     backing::Backing,
     sweep::Cursor,
 };
@@ -18,14 +19,14 @@ use crate::{
     error::RuntimeError,
     gc::{
         directory::{
-            PayloadKind, PayloadLocation,
+            PayloadLocation,
             descriptors::{Descriptor, DescriptorId, Descriptors},
         },
         graph::marks::{Domain, MarkRef, WorkGroup},
         object_header::ObjectHeader,
         reference::GcRef,
     },
-    native::{binding::NativeResult, payload::take::NativeTake, storage::NativeObject},
+    native::binding::NativeResult,
 };
 use std::{
     alloc::Layout,
@@ -38,6 +39,9 @@ use std::{
     sync::Arc,
 };
 
+#[cfg(test)]
+use crate::gc::directory::PayloadKind;
+
 #[cfg(any(test, feature = "execution-diagnostics"))]
 use crate::gc::graph::marks::PageMarks;
 
@@ -47,13 +51,13 @@ pub(super) const CLASSES: [usize; 24] = [
     768, 896, 1024,
 ];
 
-const DIRECT_GROUP_START: usize = CLASSES.len() * 2;
+const GROUPS: usize = CLASSES.len() * 2;
 
 #[derive(Debug)]
 pub(super) struct Pages {
     allocations: Vec<Allocation>,
     free: Option<u32>,
-    available: [Option<u32>; DIRECT_GROUP_START * 2],
+    available: [Option<u32>; GROUPS],
     first_active: Option<u32>,
     sweep: Cursor,
     pub(super) descriptors: Descriptors,
@@ -66,7 +70,7 @@ impl Default for Pages {
         Self {
             allocations: Vec::new(),
             free: None,
-            available: [None; DIRECT_GROUP_START * 2],
+            available: [None; GROUPS],
             first_active: None,
             sweep: Cursor::default(),
             descriptors: Descriptors::default(),
@@ -94,13 +98,11 @@ impl<'a> CheckedPayload<'a> {
         if descriptor.kind != location.kind {
             return None;
         }
-        if descriptor.payload_offset() != 0 {
-            // SAFETY: occupied slot and retained descriptor prove initialized
-            // aligned header storage. Validate dispatch before reading the payload.
-            let header = unsafe { ObjectHeader::read(pointer) };
-            if header.descriptor_id != id.get() || header.allocation_id != location.page {
-                return None;
-            }
+        // SAFETY: occupied slot and retained descriptor prove initialized
+        // aligned header storage. Validate dispatch before reading the payload.
+        let header = unsafe { ObjectHeader::read(pointer) };
+        if header.descriptor_id != id.get() || header.allocation_id != location.page {
+            return None;
         }
         // SAFETY: the complete payload lies within the descriptor's allocation.
         Some(CheckedPayload {
@@ -109,13 +111,10 @@ impl<'a> CheckedPayload<'a> {
         })
     }
 
-    pub(super) fn direct_reference(&self) -> Option<GcRef> {
+    pub(super) fn direct_reference(&self) -> GcRef {
         let offset = self.descriptor.payload_offset();
-        if offset == 0 {
-            return None;
-        }
         // SAFETY: validation retained the initialized header and original allocation.
-        Some(unsafe { GcRef::from_allocation(self.pointer.sub(offset)) })
+        unsafe { GcRef::from_allocation(self.pointer.sub(offset)) }
     }
 }
 
@@ -144,24 +143,13 @@ impl Retired {
         !self.initialized
     }
 
+    #[cfg(test)]
     pub(super) fn pointer(&self) -> NonNull<u8> {
         // SAFETY: checked offset and backing retained through disposal.
         unsafe {
             self.backing
                 .pointer()
                 .add(self.offset + self.descriptor.payload_offset())
-        }
-    }
-
-    pub(in crate::gc) fn take_native<T: NativeTake>(&mut self) -> T {
-        assert!(self.initialized, "live native take");
-        assert_eq!(self.descriptor.kind, PayloadKind::Native);
-        // SAFETY: exclusively owned initialized Native header, checked TypeId inside take.
-        unsafe {
-            self.pointer()
-                .cast::<NativeObject>()
-                .as_mut()
-                .take_payload::<T>()
         }
     }
 
@@ -315,20 +303,12 @@ impl Pages {
     /// placement cannot fail after writing T; partial struct bytes need no Drop.
     pub(super) fn insert(
         &mut self,
-        directory: u32,
         descriptor: Arc<Descriptor>,
         initialize: impl FnOnce(NonNull<u8>) -> NativeResult<()>,
     ) -> NativeResult<PayloadLocation> {
-        if (directory == u32::MAX && descriptor.payload_offset() == 0)
-            || (directory != u32::MAX && descriptor.structure.is_some())
-        {
-            return Err(RuntimeError::module_validation(
-                "direct pages require a managed header; structs require direct identity",
-            ));
-        }
         let id = self.descriptors.admit(descriptor.clone())?;
         let result = catch_unwind(AssertUnwindSafe(|| {
-            self.insert_admitted(directory, &descriptor, id, initialize)
+            self.insert_admitted(&descriptor, id, initialize)
         }));
         match result {
             Ok(Ok(location)) => Ok(location),
@@ -345,19 +325,12 @@ impl Pages {
 
     fn insert_admitted(
         &mut self,
-        directory: u32,
         descriptor: &Descriptor,
         id: DescriptorId,
         initialize: impl FnOnce(NonNull<u8>) -> NativeResult<()>,
     ) -> NativeResult<PayloadLocation> {
         let (index, slot, pointer) =
-            if let Some(class) = Self::class(descriptor.layout, descriptor.edges) {
-                let group = class
-                    + if directory == u32::MAX {
-                        DIRECT_GROUP_START
-                    } else {
-                        0
-                    };
+            if let Some(group) = Self::class(descriptor.layout, descriptor.edges) {
                 let index = if let Some(index) = self.available[group] {
                     index
                 } else {
@@ -373,7 +346,7 @@ impl Pages {
                 }
                 (index, slot, pointer)
             } else {
-                let large = Large::new(descriptor.layout, directory)?;
+                let large = Large::new(descriptor.layout)?;
                 let pointer = large.backing().pointer();
                 let index = self.publish_allocation(Allocation::Large(large))?;
                 (index, 0, pointer)
@@ -397,17 +370,15 @@ impl Pages {
                 resume_unwind(error);
             }
         }
-        if descriptor.payload_offset() != 0 {
-            // SAFETY: initialization succeeded in an exclusively reserved slot.
-            // Occupancy is published below; descriptor and allocation IDs remain
-            // admitted through detach/disposal/finish, including unwinding Drop.
-            unsafe {
-                ObjectHeader {
-                    descriptor_id: id.get(),
-                    allocation_id: index,
-                }
-                .write(pointer);
+        // SAFETY: initialization succeeded in an exclusively reserved slot.
+        // Occupancy is published below; descriptor and allocation IDs remain
+        // admitted through detach/disposal/finish, including unwinding Drop.
+        unsafe {
+            ObjectHeader {
+                descriptor_id: id.get(),
+                allocation_id: index,
             }
+            .write(pointer);
         }
         match &mut self.allocations[index as usize] {
             Allocation::Small(page) => {
@@ -415,12 +386,6 @@ impl Pages {
                 let words = parts.bits.len() / 2;
                 parts.bits[words + slot / 64] &= !(1 << (slot % 64));
                 parts.bits[slot / 64] |= 1 << (slot % 64);
-                if let Some(metadata) = parts.slots.get_mut(slot) {
-                    *metadata = Slot {
-                        directory,
-                        descriptor: Some(id),
-                    };
-                }
             }
             Allocation::Large(large) => *large.descriptor_mut() = Some(id),
             Allocation::Vacant(_) => unreachable!(),
@@ -428,16 +393,6 @@ impl Pages {
         Ok(location)
     }
 
-    pub(super) fn directory(&self, location: PayloadLocation) -> Option<u32> {
-        self.get(location)?;
-        match self.allocations.get(location.page as usize)? {
-            Allocation::Small(page) => Some(page.slot(location.slot as usize)?.directory),
-            Allocation::Large(large) => Some(large.header().directory),
-            Allocation::Vacant(_) => None,
-        }
-    }
-
-    /// Resolve physical mark ownership under the same validated storage borrow.
     pub(super) fn direct_mark(&self, location: PayloadLocation) -> Option<MarkRef<'_>> {
         self.allocations[location.page as usize]
             .marks()
@@ -453,7 +408,7 @@ impl Pages {
     }
 
     pub(super) fn direct_reference(&self, location: PayloadLocation) -> Option<GcRef> {
-        self.get(location)?.direct_reference()
+        Some(self.get(location)?.direct_reference())
     }
 
     pub(super) fn next_gray_direct(&self, block: usize, epoch: u64) -> (Option<GcRef>, bool) {
@@ -495,7 +450,6 @@ impl Pages {
         let header = unsafe { ObjectHeader::read(reference.pointer()) };
         let (slot, id) = match self.allocations.get(header.allocation_id as usize)? {
             Allocation::Small(page) => {
-                page.marks()?;
                 let offset = reference
                     .pointer()
                     .as_ptr()
@@ -511,7 +465,6 @@ impl Pages {
                 (slot, DescriptorId::from_header(header.descriptor_id)?)
             }
             Allocation::Large(large) if large.backing().pointer() == reference.pointer() => {
-                large.marks()?;
                 (0, large.header().descriptor?)
             }
             _ => return None,
@@ -522,9 +475,6 @@ impl Pages {
             page: header.allocation_id,
             slot: u16::try_from(slot).ok()?,
         };
-        if descriptor.payload_offset() == 0 {
-            return None;
-        }
         let payload = CheckedPayload::new(location, reference.pointer(), id, descriptor)?;
         Some((location, payload.pointer, descriptor))
     }
@@ -532,8 +482,8 @@ impl Pages {
     pub(super) fn get(&self, location: PayloadLocation) -> Option<CheckedPayload<'_>> {
         let (pointer, id) = match self.allocations.get(location.page as usize)? {
             Allocation::Small(page) => {
-                let slot = page.slot(location.slot as usize)?;
-                (page.pointer(location.slot as usize), slot.descriptor?)
+                let id = page.descriptor(location.slot as usize)?;
+                (page.pointer(location.slot as usize), id)
             }
             Allocation::Large(large) if location.slot == 0 => {
                 (large.backing().pointer(), large.header().descriptor?)
@@ -543,7 +493,7 @@ impl Pages {
         CheckedPayload::new(location, pointer, id, self.descriptors.get(id)?)
     }
 
-    fn occupied_slots(&self) -> impl Iterator<Item = (u32, u32, u16, DescriptorId)> + '_ {
+    pub(super) fn occupied(&self) -> impl Iterator<Item = PayloadLocation> + '_ {
         iter::successors(self.first_active, |&index| {
             self.allocations[index as usize].active().unwrap().next()
         })
@@ -552,38 +502,24 @@ impl Pages {
             let count = match allocation {
                 Allocation::Small(page) => page.slot_count(),
                 Allocation::Large(_) => 1,
-                _ => 0,
+                Allocation::Vacant(_) => 0,
             };
             (0..count).filter_map(move |slot| {
-                let (directory, id) = match allocation {
-                    Allocation::Small(page) => {
-                        let metadata = page.slot(slot)?;
-                        (metadata.directory, metadata.descriptor?)
-                    }
-                    Allocation::Large(large) => {
-                        (large.header().directory, large.header().descriptor?)
-                    }
-                    _ => return None,
+                let id = match allocation {
+                    Allocation::Small(page) => page.descriptor(slot)?,
+                    Allocation::Large(large) => large.header().descriptor?,
+                    Allocation::Vacant(_) => return None,
                 };
-                Some((directory, index, slot as u16, id))
+                Some(PayloadLocation {
+                    kind: self
+                        .descriptors
+                        .get(id)
+                        .expect("admitted occupied descriptor")
+                        .kind,
+                    page: index,
+                    slot: slot as u16,
+                })
             })
-        })
-    }
-
-    pub(super) fn occupied(&self) -> impl Iterator<Item = (u32, PayloadLocation)> + '_ {
-        self.occupied_slots().map(|(directory, page, slot, id)| {
-            let descriptor = self
-                .descriptors
-                .get(id)
-                .expect("admitted occupied descriptor");
-            (
-                directory,
-                PayloadLocation {
-                    kind: descriptor.kind,
-                    page,
-                    slot,
-                },
-            )
         })
     }
 
@@ -592,11 +528,8 @@ impl Pages {
         let (backing, id, offset) = match &mut self.allocations[location.page as usize] {
             Allocation::Small(page) => {
                 let slot = location.slot as usize;
-                let id = page.slot(slot)?.descriptor?;
+                let id = page.descriptor(slot)?;
                 let parts = page.parts_mut();
-                if let Some(metadata) = parts.slots.get_mut(slot) {
-                    metadata.descriptor = None;
-                }
                 let words = parts.bits.len() / 2;
                 parts.bits[slot / 64] &= !(1 << (slot % 64));
                 parts.bits[words + slot / 64] |= 1 << (slot % 64);
@@ -663,11 +596,7 @@ impl Pages {
     #[cfg(test)]
     pub(super) fn corrupt_structure(&mut self, location: PayloadLocation) {
         let id = match &self.allocations[location.page as usize] {
-            Allocation::Small(page) => page
-                .slot(location.slot as usize)
-                .unwrap()
-                .descriptor
-                .unwrap(),
+            Allocation::Small(page) => page.descriptor(location.slot as usize).unwrap(),
             Allocation::Large(large) => large.header().descriptor.unwrap(),
             _ => unreachable!(),
         };
@@ -688,16 +617,13 @@ impl Pages {
             }
             match allocation {
                 Allocation::Small(page) => {
-                    let slots = mem::size_of_val(page.slots());
                     let bitmaps = mem::size_of_val(page.bits());
                     let header = page.control_bytes();
                     let payload = page.backing().payload_bytes();
                     usage.slabs += payload;
-                    usage.slots += slots;
                     usage.bitmaps += bitmaps;
                     usage.small_controls += header;
-                    usage.padding +=
-                        page.backing().layout().size() - payload - slots - bitmaps - header;
+                    usage.padding += page.backing().layout().size() - payload - bitmaps - header;
                     usage.backing_controls += Backing::control_bytes();
                 }
                 Allocation::Large(large) => {
@@ -722,7 +648,6 @@ pub(super) struct PageUsage {
     pub(super) mark_bytes: usize,
     pub(super) slabs: usize,
     pub(super) large: usize,
-    pub(super) slots: usize,
     pub(super) bitmaps: usize,
     #[cfg(feature = "execution-diagnostics")]
     pub(super) directory: usize,
@@ -737,7 +662,7 @@ impl Drop for Pages {
         // Fallback owner destruction also handles outstanding detached tokens:
         // they retain their own backing/descriptor and are not enumerated here.
         loop {
-            let location = self.occupied().next().map(|(_, location)| location);
+            let location = self.occupied().next();
             let Some(location) = location else {
                 break;
             };

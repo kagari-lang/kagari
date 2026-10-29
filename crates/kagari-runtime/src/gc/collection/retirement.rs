@@ -25,8 +25,8 @@ use std::{
 mod tests;
 
 const RETIRE_BATCH: usize = 32;
-// Eleven heap stores below, plus the module/static store's exclusive admission.
-pub(super) const SWEEP_PREFLIGHT_WORK: usize = 12;
+// Ten heap stores below, plus the module/static store's exclusive admission.
+pub(super) const SWEEP_PREFLIGHT_WORK: usize = 11;
 // Caller-reserved bound for credit/generation/free-list commits, accounting and
 // destruction dispatch. The owner charges inspected slots separately.
 const RETIRE_WORK: usize = 8;
@@ -34,7 +34,6 @@ const RETIRE_WORK: usize = 8;
 #[derive(Clone, Copy)]
 enum Stage {
     Physical,
-    Moved,
     Groups,
     Applications,
     Interfaces,
@@ -65,7 +64,6 @@ impl GcHeap {
     pub(super) fn preflight_sweep_access(&self, modules: &ModuleStore) -> Result<(), RuntimeError> {
         let guards = (
             self.objects.try_borrow_mut().map_err(|_| invalid())?,
-            self.moved.try_borrow_mut().map_err(|_| invalid())?,
             self.roots.try_borrow_mut().map_err(|_| invalid())?,
             self.struct_layouts
                 .try_borrow_mut()
@@ -134,7 +132,6 @@ impl GcHeap {
             .map_err(|_| invalid())?
             .begin_release_drain();
         let mut objects = self.objects.try_borrow_mut().map_err(|_| invalid())?;
-        let mut moved = self.moved.try_borrow_mut().map_err(|_| invalid())?;
         let mut graph = self.graph.try_lock()?;
         let counters = self.resources.counters();
         objects
@@ -144,7 +141,6 @@ impl GcHeap {
                 counters.current_retained_bytes,
             )
             .ok_or_else(invalid)?;
-        moved.begin_sweep(counters.current_heap_units)?;
         let storage = objects.begin_maintenance();
         graph.begin_retirement();
         Ok(Retirement {
@@ -196,20 +192,10 @@ impl GcHeap {
                             .map_err(|_| invalid())?
                             .finish_physical_sweep()
                             .ok_or_else(invalid)?;
-                        // Taken inert identities are not physical live objects. Explicit
-                        // collection always finishes a fresh, noninterleaved sweep last.
+                        // Tombstones are occupied physical allocations too. Explicit
+                        // collection finishes a fresh, noninterleaved sweep last.
                         report.live_objects = totals.live;
                     }
-                    (status, Stage::Moved)
-                }
-                Stage::Moved => {
-                    let (status, units) = self
-                        .moved
-                        .try_borrow_mut()
-                        .map_err(|_| invalid())?
-                        .sweep_slice(&mut self.graph.try_lock()?, budget)?;
-                    self.resources.release_heap_units(units);
-                    report.reclaimed_units += units;
                     (status, Stage::Groups)
                 }
                 Stage::Groups => {

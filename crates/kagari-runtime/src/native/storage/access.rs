@@ -6,10 +6,13 @@ use std::ptr;
 use crate::{
     Runtime,
     error::RuntimeError,
-    gc::publication::CheckedTarget,
+    gc::{
+        inspection::{ValueView, inspect_loaned_value},
+        publication::CheckedTarget,
+    },
     native::{
-        binding::NativeResult, context::CallContext, storage_type::StorageType,
-        value_handle::ScriptValue,
+        binding::NativeResult, context::CallContext, storage::value::StoredValue,
+        storage_type::StorageType, value_handle::ScriptValue,
     },
     value::Value,
 };
@@ -66,16 +69,39 @@ impl<'loan> StorageAccess<'loan> {
     }
 
     /// Retain a checked edge before it leaves this payload loan.
-    pub fn retain(&mut self, contract: &StorageType, value: &Value) -> NativeResult<ScriptValue> {
+    pub fn retain(
+        &mut self,
+        contract: &StorageType,
+        value: &StoredValue,
+    ) -> NativeResult<ScriptValue> {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::StorageRetention);
-        self.validate(contract, value)?;
-        ScriptValue::retain_storage(self.runtime, contract, *value)
+        self.validate(contract, value.value_ref())?;
+        ScriptValue::retain_storage(self.runtime, contract, value.value())
+    }
+
+    /// Inspect an exact-type edge during this payload loan without adding a root.
+    /// The source must remain in traced storage; collection, script calls and
+    /// competing edits remain excluded until the outer loan ends. Return owned
+    /// Rust data from `read`; borrowed views cannot escape its scope. Recovery
+    /// loans and values that differ from the storage contract are rejected.
+    pub fn inspect<R>(
+        &self,
+        contract: &StorageType,
+        value: &StoredValue,
+        read: impl for<'view> FnOnce(ValueView<'view>) -> NativeResult<R>,
+    ) -> NativeResult<R> {
+        self.validate(contract, value.value_ref())?;
+        inspect_loaned_value(self.runtime.gc(), value.value(), read)
     }
 
     /// Check exact type, runtime, generation, and heap lifetime before storing an edge.
     /// Synchronous collection cannot run until this loan ends.
-    pub fn publish(&mut self, contract: &StorageType, input: &ScriptValue) -> NativeResult<Value> {
+    pub fn publish(
+        &mut self,
+        contract: &StorageType,
+        input: &ScriptValue,
+    ) -> NativeResult<StoredValue> {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::StoragePublication);
         if self.recovery {
@@ -86,7 +112,7 @@ impl<'loan> StorageAccess<'loan> {
         let value = input.storage_value(self.runtime, contract)?;
         self.validate(contract, &value)?;
         self.runtime.gc().publish_value(value)?;
-        Ok(value)
+        Ok(StoredValue::new(value))
     }
 
     /// Publish a live caller argument without allocating an owning adapter. The
@@ -97,7 +123,7 @@ impl<'loan> StorageAccess<'loan> {
         contract: &StorageType,
         call: &CallContext<'_>,
         index: usize,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<StoredValue> {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::StoragePublication);
         if !ptr::eq(self.runtime, call.runtime) {
@@ -116,7 +142,7 @@ impl<'loan> StorageAccess<'loan> {
         }
         let value = call.argument(index)?;
         self.checked_target(contract, &value)?.publish()?;
-        Ok(value)
+        Ok(StoredValue::new(value))
     }
 
     /// Republish an edge already admitted to this same protected payload.
@@ -124,13 +150,13 @@ impl<'loan> StorageAccess<'loan> {
     /// # Safety
     /// The edge must remain traced in the same payload throughout the operation;
     /// this cannot import an external or expired value. No new edge is admitted.
-    pub unsafe fn republish_existing(&mut self, value: &Value) {
+    pub unsafe fn republish_existing(&mut self, value: &StoredValue) {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::ExistingEdgePublication);
         // Existing targets consume their admission-reserved queue credit. This
         // path calls no provider and requires no fresh execution admission.
-        if !value.is_default_heap_payload(self.runtime.gc())
-            || self.runtime.gc().publish_value(*value).is_err()
+        if !value.value_ref().is_default_heap_payload(self.runtime.gc())
+            || self.runtime.gc().publish_value(value.value()).is_err()
         {
             self.runtime
                 .resources()

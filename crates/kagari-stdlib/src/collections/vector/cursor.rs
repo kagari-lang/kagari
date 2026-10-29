@@ -10,19 +10,19 @@ use kagari_runtime::{
             NativePayload,
             access::EditPlan,
             scan::{NativeScanKind, ScanBudget, ScanStatus},
+            value::StoredValue,
         },
         storage_type::StorageType,
         typed::NativeContext,
         value_handle::ScriptValue,
     },
     resource::HeapCharge,
-    value::Value,
 };
 
 /// The standard Vec iterator is an ordinary native provider.
 #[derive(Debug)]
 pub struct VecCursor {
-    source: Value,
+    source: StoredValue,
     contract: StorageType,
     index: usize,
     revision: u64,
@@ -39,7 +39,7 @@ unsafe impl NativePayload for VecCursor {
         &'a self,
         _: &mut (),
         budget: &mut ScanBudget,
-        visit: &mut dyn FnMut(&'a Value),
+        visit: &mut dyn FnMut(&'a StoredValue),
     ) -> ScanStatus {
         budget.charge(1);
         visit(&self.source);
@@ -67,7 +67,10 @@ pub(crate) fn iter(
         values.clone().into_kagari(&mut conversion, &argument)?
     };
     // SAFETY: source retains the vector through cursor allocation and traced publication.
-    let source_value = unsafe { source.value_transport(cx.runtime()) }?;
+    let source_value = unsafe {
+        cx.conversion_scope(&owner)?
+            .store_transport(&argument, source.value_transport(cx.runtime())?)
+    }?;
     ty.create(
         cx,
         VecCursor {
@@ -97,16 +100,20 @@ pub(crate) fn next(
                 cursor.revision,
             ))
         })?;
-        let value = cx.read_payload::<VecStorage, _>(source, &contract, |values, access| {
-            access.check_revision(revision).map_err(|_| {
-                RuntimeError::module_validation("invalid or structurally modified iterator")
-            })?;
-            values
-                .values
-                .get(index)
-                .map(|value| access.retain(&values.contract, &value))
-                .transpose()
-        })?;
+        let value = cx.read_payload::<VecStorage, _>(
+            source.value_transport(),
+            &contract,
+            |values, access| {
+                access.check_revision(revision).map_err(|_| {
+                    RuntimeError::module_validation("invalid or structurally modified iterator")
+                })?;
+                values
+                    .values
+                    .get(index)
+                    .map(|value| access.retain(&values.contract, &value))
+                    .transpose()
+            },
+        )?;
         if value.is_some() {
             cursor.edit(
                 cx,

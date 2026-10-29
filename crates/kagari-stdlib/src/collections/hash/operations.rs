@@ -5,7 +5,10 @@ use kagari_runtime::native::{
     binding::NativeResult,
     conversion::IntoKagari,
     payload::{Opaque, borrowed::BorrowedPayload},
-    storage::access::{EditPlan, StorageAccess},
+    storage::{
+        access::{EditPlan, StorageAccess},
+        value::StoredValue,
+    },
     storage_type::StorageType,
     typed::NativeContext,
     value_handle::ScriptValue,
@@ -59,13 +62,20 @@ pub(crate) fn encode<P: HashPayload, T: IntoKagari>(
 fn scalar_position<V: HashValue>(
     runtime: &Runtime,
     table: &HashTable<V>,
-    key: Value,
+    key: StoredValue,
 ) -> NativeResult<(i64, Option<usize>)> {
-    let hash = unsafe { script_hash_transport(runtime.gc(), &key) }.ok_or_else(invalid)?;
+    let hash = unsafe { script_hash_transport(runtime.gc(), &key.value_transport()) }
+        .ok_or_else(invalid)?;
     let mut position = table.buckets.get(&hash).copied();
     while let Some(slot) = position {
         runtime.resources().poll_execution()?;
-        if unsafe { script_equal_transport(runtime.gc(), &table.slots[slot].key, &key) }? {
+        if unsafe {
+            script_equal_transport(
+                runtime.gc(),
+                &table.slots[slot].key.value_transport(),
+                &key.value_transport(),
+            )
+        }? {
             return Ok((hash, Some(slot)));
         }
         position = table.next(hash, slot);
@@ -209,7 +219,7 @@ fn primitive_lookup<'view, P: HashPayload>(
             let table = payload.table();
             let key = key.publish(access, &table.key)?;
             let scalar = matches!(
-                key,
+                key.value_transport(),
                 Value::Unit
                     | Value::Bool(_)
                     | Value::Char(_)
@@ -233,7 +243,8 @@ fn primitive_lookup<'view, P: HashPayload>(
             guard,
         });
     }
-    let hash = unsafe { script_hash_transport(cx.runtime().gc(), &key) }.ok_or_else(invalid)?;
+    let hash = unsafe { script_hash_transport(cx.runtime().gc(), &key.value_transport()) }
+        .ok_or_else(invalid)?;
     let mut position = None;
     let mut first = true;
     loop {
@@ -257,7 +268,13 @@ fn primitive_lookup<'view, P: HashPayload>(
         };
         match candidate {
             Some((slot, next, candidate)) => {
-                if unsafe { script_equal_transport(cx.runtime().gc(), &candidate, &key) }? {
+                if unsafe {
+                    script_equal_transport(
+                        cx.runtime().gc(),
+                        &candidate.value_transport(),
+                        &key.value_transport(),
+                    )
+                }? {
                     return Ok(Lookup {
                         hash,
                         slot: Some(slot),
@@ -302,7 +319,7 @@ pub(crate) unsafe fn with_value<P: HashPayload, R>(
     cx: &NativeContext<'_>,
     object: &BorrowedPayload<'_, P>,
     found: &Lookup<'_>,
-    extract: impl FnOnce(&StorageType, &Value, &mut StorageAccess<'_>) -> NativeResult<R>,
+    extract: impl FnOnce(&StorageType, &StoredValue, &mut StorageAccess<'_>) -> NativeResult<R>,
 ) -> NativeResult<Option<R>> {
     // SAFETY: The caller owns the lifetime of any extracted edges; the callback
     // executes under the same lookup protection used to select the slot.
@@ -411,8 +428,8 @@ fn commit_insert<V: HashValue>(
     access: &mut StorageAccess<'_>,
     hash: i64,
     slot: Option<usize>,
-    key: Value,
-    value: Option<Value>,
+    key: StoredValue,
+    value: Option<StoredValue>,
 ) -> NativeResult<bool> {
     if let Some(slot) = slot {
         if let Some(value) = value {

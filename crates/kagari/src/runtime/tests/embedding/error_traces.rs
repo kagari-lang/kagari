@@ -387,13 +387,14 @@ fn diagnostic_snapshots_survive_reload_without_retaining_script_values() {
         .unwrap(),
         failure
     );
-    let raw = unsafe { root.value_transport(runtime.runtime().gc()) }.unwrap();
     drop(root);
     drop(old);
     drop(new);
-    runtime.runtime().collect_garbage().unwrap();
-    assert!(!unsafe { runtime.runtime().gc().validate_value_transport(&raw) });
-    assert!(unsafe { runtime.runtime().result_failure_transport(&raw) }.is_none());
+    let collected = runtime.runtime().collect_garbage().unwrap();
+    assert_eq!(
+        collected.reclaimed_objects, 2,
+        "old Err and its payload are released"
+    );
     assert_eq!(failure.message, "old");
     assert_eq!(runtime.runtime().gc().active_roots(), 0);
 }

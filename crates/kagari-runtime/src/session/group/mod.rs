@@ -8,7 +8,7 @@ use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     error_trace::ErrorTrace,
     gc::roots::{RootSet, RootedValue},
-    native::{binding::NativeResult, composition::ColdComposition},
+    native::{binding::NativeResult, composition::ColdComposition, storage::value::StoredValue},
     scheduler::WorkKey,
     session::{ExecutionId, owned::OwnedExecution, store::SessionId},
 };
@@ -94,7 +94,7 @@ impl Runtime {
         self.scheduler.reserve_work()?;
         let inputs = self
             .gc()
-            .root_execution_values(cold.values.to_vec())
+            .root_execution_values(StoredValue::values(&cold.values).to_vec())
             .ok_or_else(|| RuntimeError::resource_limit("group input roots"))?;
         self.groups.borrow_mut().records.insert(
             parent,

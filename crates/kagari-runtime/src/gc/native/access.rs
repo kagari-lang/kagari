@@ -4,7 +4,7 @@ use crate::diagnostics::{self, Event};
 use crate::{
     Runtime,
     error::RuntimeError,
-    gc::{GcHeap, HeapObjectId, leases::StorageBorrow, storage::HeapObject},
+    gc::{GcHeap, leases::StorageBorrow, reference::GcRef, storage::HeapObject},
     native::{
         binding::NativeResult,
         payload::read::ReadReceiver,
@@ -125,7 +125,7 @@ impl Drop for PayloadLoan<'_> {
 impl GcHeap {
     pub(crate) fn check_native_operation(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         operation: Option<&NativeOperationGuard<'_>>,
         write: bool,
     ) -> NativeResult<()> {
@@ -160,7 +160,7 @@ impl GcHeap {
     // this callback-free extraction. Recovery deliberately admits only the borrow.
     fn loan_native(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         plan: Option<EditPlan>,
         cleanup: bool,
         expected: Option<TypeId>,
@@ -223,7 +223,7 @@ impl GcHeap {
     pub(crate) fn edit_native<P: Send + 'static, R>(
         &self,
         runtime: &Runtime,
-        id: HeapObjectId,
+        id: GcRef,
         operation: Option<&NativeOperationGuard<'_>>,
         plan: EditPlan,
         edit: impl for<'a> FnOnce(&'a mut P, &mut StorageAccess<'a>) -> NativeResult<R>,
@@ -251,7 +251,7 @@ impl GcHeap {
     pub(crate) fn edit_native_prepared<P: Send + 'static, S, R>(
         &self,
         runtime: &Runtime,
-        id: HeapObjectId,
+        id: GcRef,
         prepare: impl for<'a> FnOnce(
             &'a P,
             &mut StorageAccess<'a>,
@@ -283,7 +283,7 @@ impl GcHeap {
         edit(payload, &mut access, prepared).map(Some)
     }
 
-    pub(crate) fn prepare_native_recovery(&self, id: HeapObjectId) -> NativeResult<()> {
+    pub(crate) fn prepare_native_recovery(&self, id: GcRef) -> NativeResult<()> {
         let objects = self.objects.borrow();
         let Some(HeapObject::Native(object)) = self.readable_identity(&objects, id) else {
             return Err(RuntimeError::module_validation(
@@ -300,7 +300,7 @@ impl GcHeap {
         Ok(())
     }
 
-    pub(crate) fn finish_native_operation(&self, id: HeapObjectId) {
+    pub(crate) fn finish_native_operation(&self, id: GcRef) {
         let Ok(mut objects) = self.objects.try_borrow_mut() else {
             self.resources
                 .quarantine("native operation released during a storage loan");
@@ -316,7 +316,7 @@ impl GcHeap {
         }
     }
 
-    pub(crate) fn recover_native(&self, runtime: &Runtime, id: HeapObjectId, recovery: &Recovery) {
+    pub(crate) fn recover_native(&self, runtime: &Runtime, id: GcRef, recovery: &Recovery) {
         let result = catch_unwind(AssertUnwindSafe(|| -> NativeResult<()> {
             let (units, revision) = {
                 let objects = self.objects.borrow();

@@ -1,8 +1,8 @@
 //! Terminal publication updates one sealed Task payload without a native borrow.
 use crate::{
     error::RuntimeError,
-    gc::{GcHeap, HeapObjectId},
-    native::binding::NativeResult,
+    gc::{GcHeap, reference::GcRef},
+    native::{binding::NativeResult, storage::value::StoredValue},
     resource::HeapCharge,
     task::{
         TaskFailure, TaskId,
@@ -44,12 +44,18 @@ impl GcHeap {
             return Err(RuntimeError::module_validation("Task payload"));
         };
         let payload = object.payload::<TaskPayload>()?;
-        Ok((payload.id, payload.outcome.clone()))
+        Ok((
+            payload.id,
+            payload
+                .outcome
+                .clone()
+                .map(|outcome| outcome.map(|value| value.value())),
+        ))
     }
 
     pub(crate) fn complete_task(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         task: TaskId,
         outcome: Result<Value, TaskFailure>,
     ) -> NativeResult<()> {
@@ -79,7 +85,7 @@ impl GcHeap {
         let change = self
             .resources
             .prepare_cleanup_heap_change(object.charge, charge.logical_units)?;
-        object.payload_mut::<TaskPayload>()?.outcome = Some(outcome);
+        object.payload_mut::<TaskPayload>()?.outcome = Some(outcome.map(StoredValue::new));
         object.charge = charge;
         change.commit(charge);
         Ok(())
@@ -131,7 +137,10 @@ mod tests {
         assert!(
             runtime
                 .gc
-                .graph_survivor(runtime.modules(), result.heap_identity().unwrap().graph())
+                .graph_survivor(
+                    runtime.modules(),
+                    result.direct_reference().unwrap().graph()
+                )
                 .unwrap()
         );
         let newborn = allocate();

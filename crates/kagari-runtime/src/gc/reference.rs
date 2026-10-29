@@ -1,13 +1,13 @@
 //! Opaque, non-owning references used only under retained runtime transport.
-use crate::gc::{HeapObjectId, object_header::ObjectHeader};
+use crate::gc::object_header::ObjectHeader;
 use std::ptr::NonNull;
 
 /// A stable managed allocation address, without independent retention authority.
 ///
 /// Copying this transport neither roots the object nor permits dereferencing it.
 /// Runtime entrypoints require a live frame, root or admitted provider lifetime.
-/// Addresses never appear in portable artifacts. Native aliases retain checked IDs
-/// until extraction gains traced tombstones.
+/// Addresses never appear in portable artifacts. Taken Native aliases retain their
+/// original allocation until ordinary tracing reclaims the tombstone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct GcRef {
@@ -35,27 +35,5 @@ impl GcRef {
 
     pub(crate) fn pointer(self) -> NonNull<u8> {
         self.pointer.cast()
-    }
-}
-
-/// Non-owning identity used while inspecting a protected mixed heap graph.
-/// Direct addresses require a live traced owner through any runtime query; they
-/// are not generation-checked capabilities after reclamation. Indexed families
-/// retain their existing generation validation until their transport migration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum HeapObjectIdentity {
-    Indexed(HeapObjectId),
-    Direct(GcRef),
-}
-
-impl From<HeapObjectId> for HeapObjectIdentity {
-    fn from(id: HeapObjectId) -> Self {
-        Self::Indexed(id)
-    }
-}
-
-impl From<GcRef> for HeapObjectIdentity {
-    fn from(reference: GcRef) -> Self {
-        Self::Direct(reference)
     }
 }

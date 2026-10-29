@@ -8,9 +8,7 @@ use crate::{
 use kagari_common::cancellation::CancellationToken;
 use kagari_runtime::{
     native::{
-        conversion::{IntoKagari, context::ConversionContext},
-        typed::NativeContext,
-        value_handle::ScriptValue,
+        conversion::context::ConversionContext, typed::NativeContext, value_handle::ScriptValue,
     },
     session::ExecutionOptions,
 };
@@ -88,17 +86,6 @@ pub fn exhaust()->i32{val a=Vec::from([20]);for x in a {while true {}}0}
     let iter: ScriptValue = runtime
         .execute_typed(&loaded, "cursor", (values.clone(),), &context)
         .unwrap();
-    let cursor_type = iter.type_argument().clone();
-    let value = unsafe {
-        iter.clone()
-            .into_kagari(
-                &mut ConversionContext::new(rt, &_selected_loaded).unwrap(),
-                &cursor_type,
-            )
-            .unwrap()
-            .value_transport(rt)
-    }
-    .unwrap();
     values
         .set(
             &mut NativeContext::new(rt, &_selected_loaded).unwrap(),
@@ -139,9 +126,9 @@ pub fn exhaust()->i32{val a=Vec::from([20]);for x in a {while true {}}0}
             .is_err()
     );
     drop(iter);
-    rt.collect_garbage().unwrap();
-    // Checked-ID diagnostics confirm reclamation after the last retained cursor.
-    // Safe conversion no longer accepts raw transport; its compile-fail contract
-    // prevents reconstructing an owning cursor from this expired diagnostic ID.
-    assert!(!unsafe { rt.gc().validate_value_transport(&value) });
+    let collected = rt.collect_garbage().unwrap();
+    assert_eq!(
+        collected.live_objects, 1,
+        "only the separately rooted Vec survives"
+    );
 }

@@ -1,5 +1,4 @@
 //! Transfer only retained preparation state, never local authoring or live adapters.
-use crate::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 use crate::{
     Runtime,
     native::{
@@ -12,7 +11,11 @@ use crate::{
         binding::{Codec, NativeBinding, NativeResult},
         catalog::DeclarationCatalog,
         declarations::{FunctionDecl, MethodDecl},
-        storage::{NativePayload, NativeStorage},
+        storage::{
+            NativePayload, NativeStorage,
+            scan::{NativeScanKind, ScanBudget, ScanStatus},
+            value::StoredValue,
+        },
         types::Type,
     },
     resource::HeapCharge,
@@ -88,7 +91,7 @@ unsafe impl NativePayload for Payload {
         &'payload self,
         _: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        _: &mut dyn FnMut(&'payload Value),
+        _: &mut dyn FnMut(&'payload StoredValue),
     ) -> ScanStatus {
         budget.charge(1);
         ScanStatus::Complete

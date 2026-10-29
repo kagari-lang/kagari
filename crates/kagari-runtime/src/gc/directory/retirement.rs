@@ -19,9 +19,8 @@ use super::{
 use crate::{
     execution_metadata::interfaces::InterfaceStore,
     gc::{
-        HeapObjectId,
         graph::{GraphMarker, MarkPhase, marks::MarkRef, sweep::SweepGraph},
-        reference::HeapObjectIdentity,
+        reference::GcRef,
     },
     native::storage::scan::{ScanBudget, ScanStatus},
 };
@@ -62,16 +61,14 @@ pub(in crate::gc) struct SweepTotals {
 }
 
 struct Candidate<'a> {
-    index: usize,
     location: PayloadLocation,
     physical: (DescriptorId, bool),
     payload: CheckedPayload<'a>,
-    mark: Option<MarkRef<'a>>,
+    mark: MarkRef<'a>,
 }
 
 struct Prepared {
-    owner: u64,
-    identities: [Option<HeapObjectIdentity>; RETIRE_LIMIT],
+    identities: [Option<GcRef>; RETIRE_LIMIT],
     fragments: [Option<Fragment>; RETIRE_LIMIT],
     fragment_count: usize,
     count: usize,
@@ -81,7 +78,7 @@ struct Prepared {
 
 /// Only borrowed prefixes leave preparation; the large arrays stay in place.
 struct Commit<'a> {
-    identities: &'a [Option<HeapObjectIdentity>],
+    identities: &'a [Option<GcRef>],
     fragments: &'a [Option<Fragment>],
     units: usize,
     bytes: u128,
@@ -89,9 +86,8 @@ struct Commit<'a> {
 
 impl Prepared {
     #[inline(always)]
-    fn new(owner: u64) -> Self {
+    fn new() -> Self {
         Self {
-            owner,
             identities: [None; RETIRE_LIMIT],
             fragments: [None; RETIRE_LIMIT],
             fragment_count: 0,
@@ -112,7 +108,7 @@ impl Prepared {
     fn push(
         &mut self,
         candidate: &Candidate<'_>,
-        identity: HeapObjectIdentity,
+        identity: GcRef,
         units: usize,
         bytes: usize,
     ) -> Option<()> {
@@ -155,14 +151,6 @@ impl Commit<'_> {
         batch.objects = self.identities.len();
         batch.units = self.units;
         batch.bytes = self.bytes;
-        let mut free = objects.free_identity;
-        for identity in self.identities.iter().flatten() {
-            let HeapObjectIdentity::Indexed(id) = identity else {
-                continue;
-            };
-            objects.slots[id.index()].retire(id.index() as u32, &mut free);
-        }
-        objects.free_identity = free;
         objects.occupied = totals.live;
         if !objects.initialization_owners.is_empty() {
             for id in self.identities.iter().flatten() {
@@ -206,20 +194,9 @@ impl ObjectStorage {
         prepared: &mut Prepared,
         budget: &mut ScanBudget,
     ) -> Option<PreparedOwner> {
-        let identity = if candidate.mark.is_some() {
-            None
-        } else {
-            let slot = self.slots.get(candidate.index)?;
-            if slot.location()? != candidate.location {
-                return None;
-            }
-            Some(HeapObjectId::new(prepared.owner, candidate.index, slot.generation).into())
-        };
         #[cfg(test)]
         self.discovery_visits.set(self.discovery_visits.get() + 1);
-        let mark = candidate
-            .mark
-            .unwrap_or_else(|| self.mark_for_directory(candidate.index));
+        let mark = candidate.mark;
         if graph.is_survivor(mark).ok()? {
             return Some(PreparedOwner::Survivor);
         }
@@ -245,10 +222,7 @@ impl ObjectStorage {
         // Survivors never reconstruct an object view or perform retirement charging.
         let object = candidate.payload.view(interfaces)?;
         let charge = object.charge(interfaces)?;
-        let identity = match identity {
-            Some(identity) => identity,
-            None => HeapObjectIdentity::Direct(candidate.payload.direct_reference()?),
-        };
+        let identity = candidate.payload.direct_reference();
         prepared.push(
             candidate,
             identity,
@@ -263,7 +237,6 @@ impl ObjectStorage {
     /// after successful preflight or successful inspection-only progress.
     pub(in crate::gc) fn sweep_batch(
         &mut self,
-        owner: u64,
         interfaces: &RefCell<InterfaceStore>,
         graph: &mut GraphMarker<'_>,
         budget: &mut ScanBudget,
@@ -273,14 +246,13 @@ impl ObjectStorage {
             return None;
         }
         let graph = graph.sweep_batch().ok()?;
-        let mut prepared = Prepared::new(owner);
+        let mut prepared = Prepared::new();
         let mut scanner = self.pages.scanner();
         while prepared.count < RETIRE_LIMIT {
             let Some(slot) = scanner.peek(budget)? else {
                 break;
             };
             let candidate = Candidate {
-                index: slot.directory as usize,
                 location: slot.location,
                 physical: (slot.descriptor, slot.small),
                 payload: slot.payload,

@@ -2,7 +2,10 @@
 use crate::{
     Runtime,
     gc::object_header::ObjectHeader,
-    test_support::{layouts::layout, native::program::ProgramFixture},
+    test_support::{
+        layouts::{allocation_owner, layout},
+        native::program::ProgramFixture,
+    },
     value::Value,
 };
 use kagari_bytecode::{instruction::StructId, module::BytecodeModule, program::ModuleRef};
@@ -16,8 +19,9 @@ use kagari_types::{
 use std::sync::Arc;
 
 #[test]
-fn packed_builtin_edges_survive_collection_and_release_replaced_graphs() {
+fn packed_managed_edges_survive_collection_and_release_replaced_graphs() {
     let mut runtime = Runtime::default();
+    let owner = allocation_owner(&mut runtime);
     let string_type = Ty::Builtin(BuiltinType::String);
     let shape = layout(
         &mut runtime,
@@ -27,22 +31,35 @@ fn packed_builtin_edges_survive_collection_and_release_replaced_graphs() {
             ("label", string_type.clone(), true),
             (
                 "pair",
-                Ty::Tuple(vec![string_type.clone(), string_type]),
+                Ty::Tuple(vec![string_type.clone(), string_type.clone()]),
                 true,
             ),
+            ("items", Ty::Array(Box::new(string_type.clone())), true),
         ],
     );
     let heap = runtime.gc();
     let old = heap.alloc_string("old".into()).unwrap();
     let sibling = heap.alloc_string("sibling".into()).unwrap();
     let pair = heap.alloc_tuple(vec![old, sibling]).unwrap();
+    let array = heap
+        .alloc_array(&owner, string_type.clone(), vec![old, sibling])
+        .unwrap();
     let record = heap
-        .alloc_struct(shape.clone(), vec![Value::Bool(true), old, pair])
+        .alloc_struct(
+            shape.clone(),
+            vec![Value::Bool(true), old, pair, Value::Array(array)],
+        )
         .unwrap();
     let root = runtime.root_value(Value::Struct(record)).unwrap();
     let label_field = heap.prepare_struct_field(shape.clone(), 1).unwrap();
     let pair_field = heap.prepare_struct_field(shape.clone(), 2).unwrap();
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 4);
+    let array_field = heap.prepare_struct_field(shape.clone(), 3).unwrap();
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 5);
+    assert_eq!(
+        unsafe { array_field.read(heap, record) },
+        Some(Value::Array(array))
+    );
+    assert_eq!(heap.array_snapshot(array), Some(vec![old, sibling]));
     // SAFETY: the root retains both unaligned pointer fields and all tuple edges.
     let Value::Str(label) = (unsafe { label_field.read(heap, record) }).unwrap() else {
         panic!("declared string field");
@@ -54,22 +71,31 @@ fn packed_builtin_edges_survive_collection_and_release_replaced_graphs() {
     assert_eq!(&*heap.tuple(tuple).unwrap(), &[old, sibling]);
     let replacement = heap.alloc_string("new".into()).unwrap();
     let next_pair = heap.alloc_tuple(vec![replacement, replacement]).unwrap();
+    let next_array = heap
+        .alloc_array(&owner, string_type, vec![replacement])
+        .unwrap();
     // SAFETY: allocation/publication cannot collect between these operations;
     // the destination root remains live through both field commits.
     unsafe { label_field.write(heap, record, replacement) }.unwrap();
     unsafe { pair_field.write(heap, record, next_pair) }.unwrap();
+    unsafe { array_field.write(heap, record, Value::Array(next_array)) }.unwrap();
     let collected = runtime.collect_garbage().unwrap();
     assert_eq!(
         (collected.reclaimed_objects, collected.live_objects),
-        (3, 3)
+        (4, 4)
     );
     assert_eq!(heap.struct_get_slot(record, &shape, 1), Some(replacement));
     let Value::Tuple(tuple) = heap.struct_get_slot(record, &shape, 2).unwrap() else {
         panic!("replacement tuple field");
     };
     assert_eq!(&*heap.tuple(tuple).unwrap(), &[replacement, replacement]);
+    assert_eq!(
+        unsafe { array_field.read(heap, record) },
+        Some(Value::Array(next_array))
+    );
+    assert_eq!(heap.array_snapshot(next_array), Some(vec![replacement]));
     drop(root);
-    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 3);
+    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 4);
     assert_eq!(heap.stats().current_retained_bytes, 0);
 }
 

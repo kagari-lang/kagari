@@ -3,7 +3,6 @@ use crate::foundation::{
     enumerations::value::{self as enums, EnumSymbols, option},
     iteration::operations::increment,
 };
-use kagari_runtime::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 
 use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
@@ -13,7 +12,11 @@ use kagari_runtime::{
         context::CallContext,
         functions::NativeFunction,
         scalar::NativeScalar,
-        storage::{NativePayload, NativeStorage},
+        storage::{
+            NativePayload, NativeStorage,
+            scan::{NativeScanKind, ScanBudget, ScanStatus},
+            value::StoredValue,
+        },
         views::ValueHandle,
     },
     resource::HeapCharge,
@@ -35,8 +38,8 @@ pub(crate) enum Operation {
 
 #[derive(Debug)]
 struct Adapter {
-    source: Value,
-    second: Option<Value>,
+    source: StoredValue,
+    second: Option<StoredValue>,
     operation: Operation,
     callback: Option<StoredCallable>,
     remaining: Cell<u64>,
@@ -53,7 +56,7 @@ unsafe impl NativePayload for Adapter {
         &'payload self,
         _: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        visit: &mut dyn FnMut(&'payload Value),
+        visit: &mut dyn FnMut(&'payload StoredValue),
     ) -> ScanStatus {
         budget.charge(2);
         if let Some(callback) = &self.callback {
@@ -124,7 +127,7 @@ fn construct(cx: &mut CallContext<'_>, operation: Operation) -> NativeResult<Val
     // SAFETY: The call/receiver roots retain source and callback edges; item/result working roots
     // cover reentry.
     let source = unsafe { cx.call_values_transport(cx.selected_at(0)?, &[receiver]) }?;
-    let _source = unsafe {
+    let source_root = unsafe {
         // SAFETY: Source/result roots protect extracted children; fresh callback or tuple results are rooted before the next callback.
         cx.heap().root_value_transport(source)
     }
@@ -135,7 +138,7 @@ fn construct(cx: &mut CallContext<'_>, operation: Operation) -> NativeResult<Val
     } else {
         None
     };
-    let _second = second
+    let second_root = second
         .map(|value| {
             unsafe {
                 // SAFETY: Source/result roots protect extracted children; fresh callback or tuple results are rooted before the next callback.
@@ -146,20 +149,24 @@ fn construct(cx: &mut CallContext<'_>, operation: Operation) -> NativeResult<Val
         .transpose()?;
     // Preserve completed source callbacks before result admission. Their temporary
     // roots stay outside the builder through payload scanning and allocation.
-    let payload = Adapter {
-        source,
-        second,
-        operation,
-        callback,
-        remaining: Cell::new(remaining),
-        switched: Cell::new(false),
-    };
     // SAFETY: The call/receiver roots retain source and callback edges; item/result working roots
     // cover reentry.
     unsafe {
         cx.allocate_result_payload_transport(
             if second.is_some() { &[1, 3] } else { &[1] },
-            |_, _| Ok(payload),
+            |storage, _| {
+                Ok(Adapter {
+                    source: storage.store(&source_root)?,
+                    second: second_root
+                        .as_ref()
+                        .map(|root| storage.store(root))
+                        .transpose()?,
+                    operation,
+                    callback,
+                    remaining: Cell::new(remaining),
+                    switched: Cell::new(false),
+                })
+            },
         )
     }
 }
@@ -178,8 +185,8 @@ fn next(
     let (source, second, operation, callback, mut remaining, switched) = unsafe {
         receiver.with_payload::<Adapter, _>(Some(&_active), |adapter| {
             Ok((
-                adapter.source,
-                adapter.second,
+                adapter.source.value_transport(),
+                adapter.second.map(|value| value.value_transport()),
                 adapter.operation,
                 adapter.callback.clone(),
                 adapter.remaining.get(),

@@ -57,11 +57,11 @@ impl Descriptor {
         let mut descriptor = Self::new(
             PayloadKind::Struct,
             layout,
+            offset,
             !description.references.is_empty(),
             |_| {},
         );
         descriptor.identity = Some(identity);
-        descriptor.payload_offset = offset;
         descriptor.structure = Some(Arc::new(description));
         // Packed fields have no Rust-owned values to destroy.
         descriptor.destroy = None;

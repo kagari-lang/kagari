@@ -1,6 +1,7 @@
 use crate::{
     error::RuntimeError,
     gc::{GcHeap, iter::PendingItem},
+    native::storage::value::StoredValue,
     value::Value,
 };
 use kagari_contract::operations::StringIterKind;
@@ -16,7 +17,7 @@ pub(super) struct Cursor {
 #[derive(Debug)]
 pub(super) struct StringTraversal {
     kind: StringIterKind,
-    separator: Option<Value>,
+    separator: Option<StoredValue>,
     limit: u64,
     pub(super) cursor: Cursor,
 }
@@ -46,13 +47,13 @@ impl StringTraversal {
         };
         Ok(Self {
             kind,
-            separator,
+            separator: separator.map(StoredValue::new),
             limit,
             cursor: Cursor::default(),
         })
     }
 
-    pub(super) fn trace<'a>(&'a self, visit: &mut dyn FnMut(&'a Value)) {
+    pub(super) fn trace<'a>(&'a self, visit: &mut dyn FnMut(&'a StoredValue)) {
         if let Some(separator) = &self.separator {
             visit(separator);
         }
@@ -64,7 +65,7 @@ impl StringTraversal {
         heap: &GcHeap,
         text: &str,
     ) -> Result<(Option<PendingItem>, Cursor), RuntimeError> {
-        let separator = match self.separator {
+        let separator = match self.separator.map(|value| value.value()) {
             Some(Value::Str(id)) => Some(
                 heap.string(id)
                     .ok_or_else(|| RuntimeError::module_validation("invalid string separator"))?,

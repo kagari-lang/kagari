@@ -1,4 +1,3 @@
-use crate::native::storage::scan::{EDGE_SCAN_WORK, NativeScanKind, ScanBudget, ScanStatus};
 use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
@@ -9,7 +8,11 @@ use crate::{
         ExecutableModule,
         execution::{OperandSlot, layout::Location},
     },
-    native::storage::{NativePayload, NativeStorage},
+    native::storage::{
+        NativePayload, NativeStorage,
+        scan::{EDGE_SCAN_WORK, NativeScanKind, ScanBudget, ScanStatus},
+        value::StoredValue,
+    },
     resource::HeapCharge,
     session::owned::OwnedExecution,
     value::{EphemeralValueId, Value},
@@ -232,14 +235,14 @@ fn parked_frames_keep_replacements_published_after_initial_root_enumeration() {
             .gc
             .graph_survivor(
                 runtime.modules(),
-                replacement.heap_identity().unwrap().graph()
+                replacement.direct_reference().unwrap().graph()
             )
             .unwrap()
     );
     assert!(
         !runtime
             .gc
-            .graph_survivor(runtime.modules(), dead.heap_identity().unwrap().graph())
+            .graph_survivor(runtime.modules(), dead.direct_reference().unwrap().graph())
             .unwrap()
     );
     let resumed = runtime.resume_owned_execution(&owner).unwrap();
@@ -368,7 +371,7 @@ unsafe impl NativePayload for TraceFailure {
         &'a self,
         _: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        _: &mut dyn FnMut(&'a Value),
+        _: &mut dyn FnMut(&'a StoredValue),
     ) -> ScanStatus {
         budget.charge(1);
         assert!(!self.0.load(Ordering::Relaxed), "parking trace failure");

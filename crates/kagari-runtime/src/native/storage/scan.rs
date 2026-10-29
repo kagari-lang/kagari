@@ -7,8 +7,10 @@ use crate::{
         GcHeap,
         metrics::{IndivisibleKind, IndivisibleSample},
     },
-    native::{binding::NativeResult, storage::NativePayload},
-    value::Value,
+    native::{
+        binding::NativeResult,
+        storage::{NativePayload, value::StoredValue},
+    },
 };
 use std::{
     alloc::{Layout, alloc, dealloc},
@@ -91,13 +93,13 @@ impl ScanBudget {
     }
 }
 
-type Inspect = for<'a> fn(&'a dyn Any, &mut dyn FnMut(&'a Value)) -> NativeResult<()>;
+type Inspect = for<'a> fn(&'a dyn Any, &mut dyn FnMut(&'a StoredValue)) -> NativeResult<()>;
 type Begin = unsafe fn(&dyn Any, *mut u8);
 type Step = for<'a> unsafe fn(
     &'a dyn Any,
     *mut u8,
     &mut ScanBudget,
-    &mut dyn FnMut(&'a Value),
+    &mut dyn FnMut(&'a StoredValue),
 ) -> ScanStatus;
 
 pub(crate) struct ScanEntries {
@@ -121,7 +123,7 @@ impl ScanEntries {
             payload: &'a dyn Any,
             state: *mut u8,
             budget: &mut ScanBudget,
-            visit: &mut dyn FnMut(&'a Value),
+            visit: &mut dyn FnMut(&'a StoredValue),
         ) -> ScanStatus {
             let payload = payload.downcast_ref::<P>().expect("installed scanner type");
             // SAFETY: begin initialized this Copy state, and the workspace is exclusive.
@@ -130,7 +132,7 @@ impl ScanEntries {
 
         fn inspect<'a, P: NativePayload>(
             payload: &'a dyn Any,
-            visit: &mut dyn FnMut(&'a Value),
+            visit: &mut dyn FnMut(&'a StoredValue),
         ) -> NativeResult<()> {
             let payload = payload.downcast_ref::<P>().ok_or_else(|| {
                 RuntimeError::module_validation("native scanner payload type mismatch")
@@ -163,7 +165,7 @@ impl ScanEntries {
     pub(crate) fn inspect<'a>(
         &self,
         payload: &'a dyn Any,
-        visit: &mut dyn FnMut(&'a Value),
+        visit: &mut dyn FnMut(&'a StoredValue),
     ) -> NativeResult<()> {
         self.validate_kind()?;
         (self.inspect)(payload, visit)
@@ -212,7 +214,7 @@ impl ScanEntries {
         payload: &'a dyn Any,
         workspace: &mut ScanWorkspace,
         budget: &mut ScanBudget,
-        visit: &mut dyn FnMut(&'a Value),
+        visit: &mut dyn FnMut(&'a StoredValue),
     ) -> NativeResult<ScanStatus> {
         if workspace.state != WorkspaceState::Active(self.payload_type, self.layout)
             || payload.type_id() != self.payload_type
@@ -244,7 +246,7 @@ impl ScanEntries {
         payload: &'a dyn Any,
         workspace: &mut ScanWorkspace,
         budget: &mut ScanBudget,
-        visit: &mut dyn FnMut(&'a Value, &mut ScanBudget) -> NativeResult<ScanStatus>,
+        visit: &mut dyn FnMut(&'a StoredValue, &mut ScanBudget) -> NativeResult<ScanStatus>,
     ) -> NativeResult<ScanStatus> {
         let indivisible = self.kind == NativeScanKind::Indivisible;
         let available = if indivisible {
@@ -328,7 +330,7 @@ impl ScanEntries {
         &self,
         payload: &'a dyn Any,
         workspace: &mut ScanWorkspace,
-        visit: &mut dyn FnMut(&'a Value),
+        visit: &mut dyn FnMut(&'a StoredValue),
     ) -> NativeResult<()> {
         self.begin(payload, workspace)?;
         loop {
@@ -364,8 +366,8 @@ impl Drop for ProviderSlice<'_> {
 fn checked_step<'a>(
     kind: NativeScanKind,
     budget: &mut ScanBudget,
-    visit: &mut dyn FnMut(&'a Value),
-    step: impl FnOnce(&mut ScanBudget, &mut dyn FnMut(&'a Value)) -> ScanStatus,
+    visit: &mut dyn FnMut(&'a StoredValue),
+    step: impl FnOnce(&mut ScanBudget, &mut dyn FnMut(&'a StoredValue)) -> ScanStatus,
 ) -> NativeResult<ScanStatus> {
     // Service may drain indefinitely, but a resumable provider still receives
     // finite slices. Keep its progress contract independent of driver scheduling.

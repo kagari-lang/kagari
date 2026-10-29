@@ -1,6 +1,7 @@
 //! Persistent runtime-local work credits and colors, independent of storage borrows.
 //!
-//! Collection drains this marker synchronously; PG05 owns incremental scheduling.
+//! Collection service resumes bounded slices; explicit collection drains the same
+//! lifecycle. Original storage owners retain every queued or active allocation.
 pub(crate) mod driver;
 #[cfg(test)]
 mod driver_tests;
@@ -33,9 +34,8 @@ use crate::{
         scan_records::{InterfaceCallScanId, InterfaceDescriptionScanId, NativeApplicationScanId},
     },
     gc::{
-        HeapObjectId,
         graph::marks::{Color, MarkRef, WorkGroup},
-        reference::{GcRef, HeapObjectIdentity},
+        reference::GcRef,
     },
     module::scanning::{ProgramScanId, StaticScanId},
     native::storage::scan::{ScanBudget, ScanStatus},
@@ -245,13 +245,10 @@ impl GraphState {
     }
 }
 
-/// Domains are deliberately distinct: an inert taken identity never inherits the
-/// mark of a new heap generation occupying the same physical directory index.
+/// Metadata and heap ownership domains retain independent publication and marks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum GraphIdentity {
-    Object(HeapObjectId),
     Direct(GcRef),
-    Moved(HeapObjectId),
     Environment(EnvironmentId),
     Group(OperationGroupId),
     Application(ApplicationId),
@@ -263,12 +260,9 @@ pub(crate) enum GraphIdentity {
     Static(StaticScanId),
 }
 
-impl HeapObjectIdentity {
+impl GcRef {
     pub(crate) fn graph(self) -> GraphIdentity {
-        match self {
-            Self::Indexed(id) => GraphIdentity::Object(id),
-            Self::Direct(reference) => GraphIdentity::Direct(reference),
-        }
+        GraphIdentity::Direct(self)
     }
 }
 
@@ -321,8 +315,8 @@ pub(super) enum ScanKind {
 /// live singleton reserves one queue position before publication. A block's queued
 /// bit deduplicates jobs even while one member is active. Thus pending jobs never
 /// exceed work credits, while gray identities (including the active owner) never
-/// exceed identity credits. Empty jobs left by native take retain their block
-/// credit until resolved; they do not require a live payload or a second registry.
+/// exceed identity credits. Native extraction leaves a traced tombstone at the
+/// original address; its block credit remains registered through final disposal.
 #[derive(Debug, Default)]
 pub(crate) struct GraphWork {
     epoch: u64,
@@ -407,10 +401,7 @@ impl GraphMarker<'_> {
             self.enqueue(id, mark);
         }
         self.credits += 1;
-        if !matches!(
-            id,
-            GraphIdentity::Object(_) | GraphIdentity::Direct(_) | GraphIdentity::Moved(_)
-        ) {
+        if !matches!(id, GraphIdentity::Direct(_)) {
             self.metadata_pressure += 1;
         }
         self.check_credits();
@@ -418,31 +409,6 @@ impl GraphMarker<'_> {
 
     pub(crate) fn committed_metadata_pressure(&self) -> u128 {
         self.metadata_pressure
-    }
-
-    /// Transfer color to the inert identity's original moved-ledger slot block.
-    /// Clearing the directory bit can leave an empty block job, whose registered
-    /// block credit remains reserved. Active work retargets through the moved ledger.
-    /// Neither transfer nor resolution searches the queue or allocates.
-    pub(crate) fn admit_moved_prepared(
-        &mut self,
-        id: GraphIdentity,
-        source: MarkRef<'_>,
-        target: MarkRef<'_>,
-    ) {
-        assert!(self.prepared && self.pending.capacity() > self.work_credits);
-        self.prepared = false;
-        if target.register() {
-            self.work_credits += 1;
-        }
-        let color = source.color(self.epoch);
-        target.set(self.epoch, color);
-        source.set(self.epoch, Color::White);
-        if color == Color::Gray {
-            self.enqueue(id, target);
-        }
-        self.credits += 1;
-        self.check_credits();
     }
 
     fn enqueue(&mut self, id: GraphIdentity, mark: MarkRef<'_>) {
@@ -486,20 +452,6 @@ impl GraphMarker<'_> {
                 .expect("registered physical block credit");
         }
         self.check_credits();
-        Ok(())
-    }
-
-    pub(crate) fn retarget_taken_owner(
-        &mut self,
-        old: GraphIdentity,
-        moved: GraphIdentity,
-    ) -> Result<(), RuntimeError> {
-        if self.active != Some(old)
-            || !matches!((old, moved), (GraphIdentity::Object(a), GraphIdentity::Moved(b)) if a == b)
-        {
-            return Err(Self::invalid("invalid taken work transfer"));
-        }
-        self.active = Some(moved);
         Ok(())
     }
 
@@ -605,7 +557,7 @@ impl GraphMarker<'_> {
         self.active.is_none() && !self.pending.is_empty()
     }
 
-    /// Resolve at most one block, including an empty block left by native take.
+    /// Resolve at most one registered block, or resume the active gray owner.
     pub(crate) fn next_owner(
         &mut self,
         mut resolve: impl FnMut(WorkGroup, u64) -> Result<(Option<GraphIdentity>, bool), RuntimeError>,

@@ -196,10 +196,13 @@ fn native_root_admission_requires_a_loan_and_preserves_validation_and_borrow_che
     let mut runtime = Runtime::default();
     let owner = allocation_owner(&mut runtime);
     let heap = runtime.gc();
-    let native = NativeStorage::data::<i32>()
+    let native = NativeStorage::takeable::<i32>()
         .prepare_payload(heap, &Ty::Builtin(BuiltinType::I32), 1, &owner)
         .unwrap();
-    let stale = Value::GcHandle(heap.alloc_native(native).unwrap());
+    let taken = heap.alloc_native(native).unwrap();
+    let stale = Value::GcHandle(taken);
+    let taken_root = heap.root_value(stale).unwrap();
+    assert_eq!(heap.take_native::<i32>(taken).unwrap(), 1);
     runtime.collect_garbage().unwrap();
     let value = heap.alloc_string("retained".into()).unwrap();
     let source = heap.root_value(value).unwrap();
@@ -248,6 +251,7 @@ fn native_root_admission_requires_a_loan_and_preserves_validation_and_borrow_che
         .unwrap();
     drop(source);
     drop(receiver);
+    drop(taken_root);
     runtime.collect_garbage().unwrap();
     assert_eq!(retained.value(heap), Some(value));
     drop(retained);

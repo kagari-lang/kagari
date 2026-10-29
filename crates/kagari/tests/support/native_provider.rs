@@ -1,7 +1,6 @@
 //! Application-owned provider shared by source emission and an independent
 //! source-free embedding consumer. No runtime-private APIs are used.
 
-use kagari_runtime::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -17,7 +16,11 @@ use {
             function_handle::Function,
             functions::NativeCallback,
             module::NativeModule,
-            storage::{NativePayload, NativeStorage},
+            storage::{
+                NativePayload, NativeStorage,
+                scan::{NativeScanKind, ScanBudget, ScanStatus},
+                value::StoredValue,
+            },
             typed::NativeContext,
             types::Type,
             value_handle::ScriptValue,
@@ -75,7 +78,7 @@ pub fn module(drops: Arc<AtomicUsize>) -> NativeModule {
 
 #[derive(Debug)]
 struct Handler {
-    value: Value,
+    value: StoredValue,
     callback: StoredCallable,
     drops: Arc<AtomicUsize>,
 }
@@ -90,7 +93,7 @@ unsafe impl NativePayload for Handler {
         &'payload self,
         _: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        visit: &mut dyn FnMut(&'payload Value),
+        visit: &mut dyn FnMut(&'payload StoredValue),
     ) -> ScanStatus {
         budget.charge(1);
         visit(&self.value);
@@ -122,9 +125,9 @@ fn register_handler(module: &mut ModuleBuilder, drops: Arc<AtomicUsize>) -> Nati
             methods.bind(apply, unsafe {
                 NativeCallback::new(
                     |cx: &mut CallContext<'_>, receiver: ValueHandle<'_>| -> NativeResult<Value> {
-                        let (value, callback) = receiver
-                            .with_payload::<Handler, _>(None, |handler| {
-                                Ok((handler.value, handler.callback.clone()))
+                        let (value, callback) =
+                            receiver.with_payload::<Handler, _>(None, |handler| {
+                                Ok((handler.value.value_transport(), handler.callback.clone()))
                             })?;
                         cx.collect_garbage()?;
                         // SAFETY: The immutable Handler or active argument pack traces these edges
@@ -151,7 +154,7 @@ fn register_handler(module: &mut ModuleBuilder, drops: Arc<AtomicUsize>) -> Nati
                   -> NativeResult<Value> {
                 let payload = Handler {
                     // SAFETY: The call retains this input until the payload scanner publishes its edge.
-                    value: value.value_transport(),
+                    value: value.store()?,
                     // SAFETY: The immutable Handler or active argument pack traces these edges through
                     // the call and result publication.
                     callback: callback.store_transport(),

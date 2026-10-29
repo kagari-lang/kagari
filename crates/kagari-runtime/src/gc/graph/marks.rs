@@ -14,9 +14,7 @@ pub(crate) fn initialized_words() -> usize {
 /// Stable owner-local slot blocks, not payload addresses or cross-runtime IDs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Domain {
-    Object,
     Direct,
-    Moved,
     Environment,
     Group,
     Application,
@@ -110,7 +108,7 @@ impl PageMarks {
     pub(crate) fn slot(&self, index: usize) -> MarkRef<'_> {
         self.group_slot(
             WorkGroup {
-                domain: Domain::Object,
+                domain: Domain::NativeApplication,
                 block: 0,
             },
             index,

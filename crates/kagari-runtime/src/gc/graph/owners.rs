@@ -7,7 +7,7 @@ use crate::{
             GraphIdentity, MarkPhase,
             marks::{Domain, MarkRef, WorkGroup},
         },
-        reference::{GcRef, HeapObjectIdentity},
+        reference::GcRef,
     },
     module::ModuleStore,
     value::Value,
@@ -35,14 +35,6 @@ impl GcHeap {
             }};
         }
         Ok(match group.domain {
-            Domain::Object => {
-                let (id, more) = self.objects.try_borrow().map_err(|_| invalid())?.next_gray(
-                    self.owner,
-                    group.block,
-                    epoch,
-                );
-                (id.map(GraphIdentity::Object), more)
-            }
             Domain::Direct => {
                 let (reference, more) = self
                     .objects
@@ -51,7 +43,6 @@ impl GcHeap {
                     .next_gray_direct(group.block, epoch);
                 (reference.map(GraphIdentity::Direct), more)
             }
-            Domain::Moved => typed!(moved, Moved),
             Domain::Environment => metadata!(environments),
             Domain::Group => metadata!(operation_groups),
             Domain::Application => metadata!(applications),
@@ -71,7 +62,7 @@ impl GcHeap {
     }
 
     /// Protect an already admitted strong target before its publication. Scalars
-    /// have no graph edge; moved identities are collector-only and are rejected.
+    /// have no graph edge; taken Native aliases are collector-only and are rejected.
     #[inline]
     pub(crate) fn publish_value(&self, value: Value) -> Result<(), RuntimeError> {
         if !value.is_managed() {
@@ -119,21 +110,10 @@ impl GcHeap {
             }};
         }
         match id {
-            GraphIdentity::Object(id) => {
-                let objects = self.objects.try_borrow().map_err(|_| invalid())?;
-                self.object_location(&objects, id).ok_or_else(invalid)?;
-                action(objects.mark_for_directory(id.index()))
-            }
             GraphIdentity::Direct(reference) => {
                 let objects = self.objects.try_borrow().map_err(|_| invalid())?;
-                let location = self
-                    .identity_location(&objects, HeapObjectIdentity::Direct(reference))
-                    .ok_or_else(invalid)?;
+                let location = objects.direct_location(reference).ok_or_else(invalid)?;
                 action(objects.mark(location).ok_or_else(invalid)?)
-            }
-            GraphIdentity::Moved(id) => {
-                let moved = self.moved.try_borrow().map_err(|_| invalid())?;
-                action(moved.get(&id).ok_or_else(invalid)?)
             }
             GraphIdentity::Environment(id) => slot!(environments, id),
             GraphIdentity::Group(id) => slot!(operation_groups, id),

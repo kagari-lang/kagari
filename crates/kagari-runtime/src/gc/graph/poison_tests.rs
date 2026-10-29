@@ -1,7 +1,10 @@
 use super::{ControlError, GraphIdentity, GraphState, MarkPhase, marks::OwnerMark};
 #[cfg(feature = "execution-diagnostics")]
 use crate::diagnostics::allocations;
-use crate::{error::RuntimeError, gc::HeapObjectId};
+use crate::{
+    error::RuntimeError,
+    execution_metadata::scan_records::{NativeApplicationScanId, ScanRecordId},
+};
 use std::{
     fmt::{self, Write},
     panic::{AssertUnwindSafe, catch_unwind},
@@ -142,7 +145,7 @@ fn recovery_publication_during_existing_unwind_preserves_phase_and_checks() {
         MarkPhase::Faulted,
     ] {
         let state = GraphState::default();
-        let target = GraphIdentity::Object(HeapObjectId::new(1, 0, 0));
+        let target = GraphIdentity::NativeApplication(NativeApplicationScanId::from_parts(1, 0, 0));
         let mark = OwnerMark::default();
         {
             let mut marker = state.lock();

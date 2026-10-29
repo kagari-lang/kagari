@@ -3,7 +3,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::{ExecutionFrame, types::arguments::TypeArgument},
-    gc::HeapObjectId,
+    gc::reference::GcRef,
     module::{
         EnumVariantRef, StructLayoutRef, execution::aggregates::LayoutSite,
         linked_execution::layouts::AggregateLayout,
@@ -59,7 +59,7 @@ impl ExecutionFrame {
         runtime: &Runtime,
         element: &Ty,
         elements: Vec<Value>,
-    ) -> Result<HeapObjectId, RuntimeError> {
+    ) -> Result<GcRef, RuntimeError> {
         self.alloc_array(runtime, element, elements)
     }
 
@@ -68,7 +68,7 @@ impl ExecutionFrame {
         runtime: &Runtime,
         element: &Ty,
         elements: Vec<Value>,
-    ) -> Result<HeapObjectId, RuntimeError> {
+    ) -> Result<GcRef, RuntimeError> {
         runtime.validate_heap_payloads(&elements)?;
         runtime
             .gc
@@ -90,7 +90,7 @@ impl ExecutionFrame {
         element: &Ty,
         value: Value,
         count: u64,
-    ) -> Result<HeapObjectId, RuntimeError> {
+    ) -> Result<GcRef, RuntimeError> {
         self.alloc_array_repeat(runtime, element, value, count)
     }
 
@@ -100,7 +100,7 @@ impl ExecutionFrame {
         element: &Ty,
         value: Value,
         count: u64,
-    ) -> Result<HeapObjectId, RuntimeError> {
+    ) -> Result<GcRef, RuntimeError> {
         runtime.validate_heap_payloads(slice::from_ref(&value))?;
         runtime.gc.alloc_array_repeat_with_contract(
             self.element_contract(runtime, element)?,

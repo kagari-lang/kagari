@@ -147,7 +147,7 @@ fn early_argument_shading_is_retained_on_success_and_later_arity_failure() {
         assert!(
             runtime
                 .gc
-                .graph_survivor(&runtime.modules, child.heap_identity().unwrap().graph(),)
+                .graph_survivor(&runtime.modules, child.direct_reference().unwrap().graph(),)
                 .unwrap()
         );
         runtime.gc.graph.lock().finish_sweep().unwrap();

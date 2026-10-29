@@ -1,7 +1,7 @@
 use crate::gc::array_storage::{ArrayPayload, ArrayStorage};
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
-    gc::{GcHeap, HeapObjectId},
+    gc::{GcHeap, reference::GcRef},
     module::ExecutableModule,
     native::storage_type::StorageType,
     resource::HeapCharge,
@@ -23,7 +23,7 @@ impl GcHeap {
         owner: &ExecutableModule,
         element: Ty,
         elements: Vec<Value>,
-    ) -> Result<HeapObjectId, RuntimeError> {
+    ) -> Result<GcRef, RuntimeError> {
         self.alloc_array_with_contract(Arc::new(StorageType::prepare(element, owner)?), elements)
     }
 
@@ -31,7 +31,7 @@ impl GcHeap {
         &self,
         contract: Arc<StorageType>,
         elements: Vec<Value>,
-    ) -> Result<HeapObjectId, RuntimeError> {
+    ) -> Result<GcRef, RuntimeError> {
         self.ensure_execution_allowed()?;
         let owner = contract.owner.clone();
         let element = contract.ty().clone();
@@ -52,7 +52,7 @@ impl GcHeap {
         element: Ty,
         value: Value,
         count: usize,
-    ) -> Result<HeapObjectId, RuntimeError> {
+    ) -> Result<GcRef, RuntimeError> {
         self.alloc_array_repeat_with_contract(
             Arc::new(StorageType::prepare(element, owner)?),
             value,
@@ -65,7 +65,7 @@ impl GcHeap {
         contract: Arc<StorageType>,
         value: Value,
         count: u64,
-    ) -> Result<HeapObjectId, RuntimeError> {
+    ) -> Result<GcRef, RuntimeError> {
         self.ensure_execution_allowed()?;
         if !self.valid_payload(&value) || !contract.accepts_value(self, &value) {
             return Err(invalid());

@@ -395,7 +395,7 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
 }
 
 #[test]
-fn composite_arguments_are_rooted_during_callbacks_and_reject_foreign_or_stale_handles() {
+fn composite_arguments_are_rooted_during_callbacks_and_reject_foreign_or_wrong_kind_values() {
     let mut runtime = runtime();
     let owner = allocation_owner(&mut runtime);
     let calls = Arc::new(AtomicUsize::new(0));
@@ -463,9 +463,9 @@ fn composite_arguments_are_rooted_during_callbacks_and_reject_foreign_or_stale_h
     }
     .unwrap();
     assert!(native_invocation::invoke(&runtime, &entry, id, &[foreign]).is_err());
-    runtime.collect_garbage().unwrap();
-    assert!(unsafe { runtime.gc().array_snapshot_transport(array) }.is_none());
-    assert!(native_invocation::invoke(&runtime, &entry, id, &[value]).is_err());
+    assert!(native_invocation::invoke(&runtime, &entry, id, &[Value::Tuple(array)]).is_err());
+    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 2);
+    assert_eq!(runtime.gc().allocated_objects(), 0);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
 

@@ -11,7 +11,7 @@ use crate::{
         GcCollection, GcHeap, collector,
         graph::{MarkPhase, roots::InitialRoots},
         metrics::{IndivisibleKind, IndivisibleSample},
-        reference::HeapObjectIdentity,
+        reference::GcRef,
         storage::append_value_edges,
     },
     host::HostRegistry,
@@ -49,7 +49,7 @@ impl fmt::Debug for CollectionCycle {
 }
 
 impl GcHeap {
-    pub(super) fn trace_values(&self, values: &[Value]) -> Option<Vec<HeapObjectIdentity>> {
+    pub(super) fn trace_values(&self, values: &[Value]) -> Option<Vec<GcRef>> {
         if !values.iter().all(|value| self.validate_value(value)) {
             return None;
         }
@@ -354,6 +354,11 @@ impl GcHeap {
         if result.is_err() {
             if let Ok(mut graph) = self.graph.try_lock() {
                 graph.fault();
+            }
+            // Disposal may already have recorded the concrete terminal cause.
+            // Preserve it instead of replacing it with the graph-failure fallback.
+            if self.resources.is_quarantined() {
+                self.resources.ensure_execution_allowed()?;
             }
             return Err(self.resources.quarantine("collection graph failed"));
         }

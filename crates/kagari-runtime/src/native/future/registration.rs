@@ -8,6 +8,7 @@ use crate::{
         completion::Completion,
         conversion::{IntoKagari, arguments::FromKagariArguments, context::ConversionContext},
         future::{ColdFuture, FuturePayload, NativeFuture, NativeStart, Producer, TypedProducer},
+        storage::value::StoredValue,
         types::TypeRef,
     },
     session::ExecutionPhase,
@@ -92,7 +93,7 @@ where
                             owner: call.owner.clone(),
                             parameters: signature.params.clone(),
                             output,
-                            values,
+                            values: values.into_iter().map(StoredValue::new).collect(),
                             producer: producer.clone(),
                         })),
                     })

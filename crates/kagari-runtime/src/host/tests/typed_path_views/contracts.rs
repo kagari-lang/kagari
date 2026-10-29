@@ -412,7 +412,7 @@ fn heap_path_temporaries_survive_collection_during_write_preparation(
         assert!(
             runtime
                 .gc
-                .graph_survivor(runtime.modules(), GraphIdentity::Object(replacement))
+                .graph_survivor(runtime.modules(), GraphIdentity::Direct(replacement))
                 .unwrap()
         );
         runtime.gc.graph.lock().finish_sweep().unwrap();

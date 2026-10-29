@@ -9,6 +9,7 @@ use crate::{
             data::NativeData,
             managed::{BoundField, Managed, invalid},
         },
+        storage::value::StoredValue,
         typed::NativeContext,
     },
     value::Value,
@@ -82,7 +83,7 @@ impl<T: NativeData> ManagedBuilder<T> {
         Ok(Managed {
             data: self.data,
             schema,
-            values,
+            values: values.into_iter().map(StoredValue::new).collect(),
         })
     }
 

@@ -1,4 +1,4 @@
-//! Checked generation identities point into nonmoving, descriptor-owned page slots.
+//! Nonmoving managed allocations own headers, payloads and physical page marks.
 mod access;
 #[cfg(feature = "execution-diagnostics")]
 mod accounting;
@@ -16,17 +16,17 @@ use self::{
 use crate::{
     error::RuntimeError,
     gc::{
-        GcHeap, HeapObjectId,
+        GcHeap,
         fields::{StructView, StructViewMut},
-        graph::marks::{Domain, MarkBlocks, MarkRef},
-        reference::{GcRef, HeapObjectIdentity},
+        graph::marks::MarkRef,
+        object_header::ObjectHeader,
+        reference::GcRef,
         storage::HeapObject,
     },
     module::ModuleKey,
-    native::{binding::NativeResult, storage::NativeObject},
-    resource::HeapCharge,
+    native::{binding::NativeResult, payload::take::NativeTake, storage::NativeObject},
 };
-use std::{collections::HashMap, slice};
+use std::{collections::HashMap, slice, sync::Arc};
 
 #[cfg(test)]
 use std::cell::Cell;
@@ -37,23 +37,6 @@ pub(in crate::gc) struct ResolvedDirect<'a> {
     pub(in crate::gc) fields: Option<StructView<'a>>,
     pub(in crate::gc) mark: MarkRef<'a>,
     pub(in crate::gc) edges: bool,
-}
-
-impl GcHeap {
-    pub(super) fn dispose_payload(&self, mut retired: Retired) -> usize {
-        if retired.dispose() {
-            self.resources
-                .quarantine("native payload destruction panicked");
-        }
-        let (released, retired) = self.objects.borrow_mut().finish(retired);
-        if retired.release() {
-            self.resources
-                .quarantine("representation owner destruction panicked");
-        }
-        self.resources
-            .release_heap_charge(HeapCharge::new(0, released));
-        released
-    }
 }
 
 impl Drop for GcHeap {
@@ -75,12 +58,12 @@ pub(super) enum PayloadKind {
     HostPath,
     Ephemeral,
     Native,
+    Taken,
     Enum,
     Struct,
     Interface,
     Closure,
     Cell,
-    Vacant,
 }
 
 impl PayloadKind {
@@ -93,12 +76,12 @@ impl PayloadKind {
             Self::HostPath => "HostPath",
             Self::Ephemeral => "Ephemeral",
             Self::Native => "NativeObject",
+            Self::Taken => "TakenNative",
             Self::Enum => "Enum",
             Self::Struct => "Struct",
             Self::Interface => "Interface",
             Self::Closure => "Closure",
             Self::Cell => "Cell",
-            Self::Vacant => "Vacant",
         }
     }
 }
@@ -111,43 +94,10 @@ pub(super) struct PayloadLocation {
     slot: u16,
 }
 
-#[derive(Debug)]
-pub(super) struct ObjectSlot {
-    pub(super) generation: u32,
-    location: PayloadLocation,
-}
-
-impl ObjectSlot {
-    pub(super) fn kind(&self) -> PayloadKind {
-        self.location.kind
-    }
-
-    pub(super) fn location(&self) -> Option<PayloadLocation> {
-        (self.location.kind != PayloadKind::Vacant).then_some(self.location)
-    }
-
-    /// The caller has validated occupancy and owns this identity's retirement.
-    /// Exhausted generations stay vacant but never rejoin the reusable chain.
-    fn retire(&mut self, index: u32, free: &mut Option<u32>) {
-        self.location = PayloadLocation {
-            kind: PayloadKind::Vacant,
-            page: free.unwrap_or(0),
-            slot: u16::from(free.is_some()),
-        };
-        if let Some(generation) = self.generation.checked_add(1) {
-            self.generation = generation;
-            *free = Some(index);
-        }
-    }
-}
-
 #[derive(Debug, Default)]
 pub(super) struct ObjectStorage {
-    pub(super) slots: Vec<ObjectSlot>,
-    pub(super) initialization_owners: HashMap<HeapObjectIdentity, ModuleKey>,
+    pub(super) initialization_owners: HashMap<GcRef, ModuleKey>,
     pages: Pages,
-    marks: MarkBlocks,
-    free_identity: Option<u32>,
     // Current occupancy, unlike generation history or a sweep's visited survivors.
     occupied: usize,
     sweep: Option<Sweep>,
@@ -179,75 +129,19 @@ impl ObjectStorage {
         self.pages.direct_location(reference)
     }
 
-    /// The caller has resolved this occupied directory under the same storage
-    /// borrow. Marks belong to directory slots, so no physical-page reverse lookup
-    /// is needed after checking the full object identity.
-    pub(in crate::gc) fn mark_for_directory(&self, index: usize) -> MarkRef<'_> {
-        self.marks.slot(Domain::Object, index)
-    }
-
     pub(in crate::gc) fn mark(&self, location: PayloadLocation) -> Option<MarkRef<'_>> {
-        if let Some(mark) = self.pages.direct_mark(location) {
-            return Some(mark);
-        }
-        let directory = self.pages.directory(location)?;
-        Some(self.marks.slot(Domain::Object, directory as usize))
-    }
-
-    pub(in crate::gc) fn next_gray(
-        &self,
-        owner: u64,
-        block: usize,
-        epoch: u64,
-    ) -> (Option<HeapObjectId>, bool) {
-        let (index, more) = self.marks.next_gray(block, epoch);
-        (
-            index.map(|index| {
-                let slot = &self.slots[index];
-                assert!(slot.location().is_some(), "gray heap directory occupied");
-                HeapObjectId::new(owner, index, slot.generation)
-            }),
-            more,
-        )
-    }
-
-    pub(super) fn next_directory(&self) -> usize {
-        self.free_identity
-            .map_or(self.slots.len(), |index| index as usize)
-    }
-
-    pub(super) fn publish(&mut self, index: usize, location: PayloadLocation) {
-        if index == self.slots.len() {
-            self.slots.push(ObjectSlot {
-                generation: 0,
-                location,
-            });
-        } else {
-            let vacant = &mut self.slots[index];
-            assert_eq!(vacant.location.kind, PayloadKind::Vacant);
-            self.free_identity = (vacant.location.slot != 0).then_some(vacant.location.page);
-            vacant.location = location;
-        }
-        self.occupied = self
-            .occupied
-            .checked_add(1)
-            .expect("bounded directory occupancy");
-    }
-
-    fn retire_identity(&mut self, index: usize) {
-        let slot = &mut self.slots[index];
-        assert!(slot.location().is_some(), "retire occupied identity");
-        self.occupied = self
-            .occupied
-            .checked_sub(1)
-            .expect("occupied directory count");
-        slot.retire(index as u32, &mut self.free_identity);
+        self.pages.direct_mark(location)
     }
 
     /// Upper bound used to preflight per-admission byte arithmetic before placement.
     pub(super) fn backing_bound(object: &HeapObject) -> NativeResult<usize> {
         Ok(match object {
-            HeapObject::Native(object) => object.physical_layout()?.0.size().max(SLAB_BYTES),
+            HeapObject::Native(object) => ObjectHeader::layout(object.physical_layout()?.0)
+                .ok_or_else(|| RuntimeError::resource_limit("native object header layout"))?
+                .0
+                .pad_to_align()
+                .size()
+                .max(SLAB_BYTES),
             HeapObject::Struct { storage } => storage.descriptor.layout.size().max(SLAB_BYTES),
             _ => SLAB_BYTES,
         })
@@ -257,40 +151,19 @@ impl ObjectStorage {
         self.pages.backing_bytes
     }
 
-    pub(super) fn insert(
-        &mut self,
-        directory: u32,
-        object: HeapObject,
-    ) -> NativeResult<PayloadLocation> {
-        if directory != u32::MAX {
-            self.marks
-                .prepare(directory as usize)
-                .map_err(|_| RuntimeError::resource_limit("heap block marks"))?;
-        }
+    pub(super) fn insert(&mut self, object: HeapObject) -> NativeResult<PayloadLocation> {
         match object {
-            HeapObject::String(value) => self.place(directory, PayloadKind::String, false, value),
-            HeapObject::Tuple(value) => self.place(directory, PayloadKind::Tuple, true, value),
-            HeapObject::Range(value) => self.place(directory, PayloadKind::Range, false, value),
-            HeapObject::HostRoot(value) => {
-                self.place(directory, PayloadKind::HostRoot, false, value)
-            }
-            HeapObject::HostPath(value) => {
-                self.place(directory, PayloadKind::HostPath, true, value)
-            }
-            HeapObject::Ephemeral(value) => {
-                self.place(directory, PayloadKind::Ephemeral, false, value)
-            }
-            HeapObject::Enum(value, trace) => {
-                self.place(directory, PayloadKind::Enum, true, (value, trace))
-            }
-            HeapObject::Closure { snapshot } => {
-                self.place(directory, PayloadKind::Closure, true, snapshot)
-            }
-            HeapObject::Cell { ty, value } => {
-                self.place(directory, PayloadKind::Cell, true, (ty, value))
-            }
+            HeapObject::Taken => unreachable!("tombstones replace admitted Native owners"),
+            HeapObject::String(value) => self.place(PayloadKind::String, false, value),
+            HeapObject::Tuple(value) => self.place(PayloadKind::Tuple, true, value),
+            HeapObject::Range(value) => self.place(PayloadKind::Range, false, value),
+            HeapObject::HostRoot(value) => self.place(PayloadKind::HostRoot, false, value),
+            HeapObject::HostPath(value) => self.place(PayloadKind::HostPath, true, value),
+            HeapObject::Ephemeral(value) => self.place(PayloadKind::Ephemeral, false, value),
+            HeapObject::Enum(value, trace) => self.place(PayloadKind::Enum, true, (value, trace)),
+            HeapObject::Closure { snapshot } => self.place(PayloadKind::Closure, true, snapshot),
+            HeapObject::Cell { ty, value } => self.place(PayloadKind::Cell, true, (ty, value)),
             HeapObject::Interface { snapshot } => self.place(
-                directory,
                 PayloadKind::Interface,
                 true,
                 snapshot
@@ -300,7 +173,7 @@ impl ObjectStorage {
             HeapObject::Native(value) => {
                 let descriptor = self.pages.descriptors.native(&value)?;
                 let (_, offset) = value.physical_layout()?;
-                self.pages.insert(directory, descriptor, |pointer| {
+                self.pages.insert(descriptor, |pointer| {
                     // SAFETY: the descriptor reserves the checked header+T Layout. T is
                     // initialized first, then its owning header; no fallible step follows.
                     unsafe {
@@ -313,7 +186,7 @@ impl ObjectStorage {
             HeapObject::Struct { storage } => {
                 let descriptor = storage.descriptor;
                 let description = descriptor.structure_layout();
-                self.pages.insert(directory, descriptor.clone(), |pointer| {
+                self.pages.insert(descriptor.clone(), |pointer| {
                     // SAFETY: encoded bytes have alignment one, with the descriptor's
                     // exact length. Zero initialization also covers any layout padding.
                     let bytes = unsafe {
@@ -334,30 +207,32 @@ impl ObjectStorage {
 
     fn place<T: Send + 'static>(
         &mut self,
-        directory: u32,
         kind: PayloadKind,
         edges: bool,
         value: T,
     ) -> NativeResult<PayloadLocation> {
         let descriptor = self.pages.descriptors.builtin::<T>(kind, edges)?;
-        self.pages.insert(directory, descriptor, |pointer| {
+        self.pages.insert(descriptor, |pointer| {
             // SAFETY: sealed kind/T pairing, descriptor layout and exclusive fresh slot.
             unsafe { pointer.cast::<T>().as_ptr().write(value) };
             Ok(())
         })
     }
 
-    /// Detach without running payload destructors under the directory borrow.
-    pub(super) fn detach(&mut self, id: HeapObjectId) -> Option<Retired> {
-        let slot = self.slots.get_mut(id.index())?;
-        if slot.generation != id.generation {
-            return None;
-        }
-        let location = slot.location()?;
-        let retired = self.pages.detach(location)?;
-        self.retire_identity(id.index());
-        self.initialization_owners.remove(&id.into());
-        Some(retired)
+    /// Replace a validated Native allocation without retiring its identity or mark.
+    /// The caller checks runtime/liveness, T's take capability and borrow state.
+    /// Move T before releasing this borrow, then destroy returned metadata outside it.
+    pub(super) fn take_native<T: NativeTake>(
+        &mut self,
+        id: GcRef,
+    ) -> NativeResult<(T, NativeObject, Arc<descriptors::Descriptor>)> {
+        let location = self
+            .direct_location(id)
+            .expect("retained Native allocation");
+        let (mut native, descriptor) = self.pages.take_native(location)?;
+        self.initialization_owners.remove(&id);
+        let payload = native.take_payload::<T>();
+        Ok((payload, native, descriptor))
     }
 
     /// Unlink disposed storage, returning final owners for drop outside table borrows.
@@ -369,7 +244,7 @@ impl ObjectStorage {
     /// backing alive while all initialized values are destroyed, including panics.
     pub(super) fn teardown(&mut self, mut panic: impl FnMut()) {
         loop {
-            let location = self.pages.occupied().next().map(|(_, location)| location);
+            let location = self.pages.occupied().next();
             let Some(location) = location else {
                 break;
             };

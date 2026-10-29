@@ -2,7 +2,7 @@
 use crate::{
     error::RuntimeError,
     execution_metadata::MetadataEdge,
-    gc::{GcHeap, graph::GraphIdentity, reference::HeapObjectIdentity, storage::HeapObject},
+    gc::{GcHeap, graph::GraphIdentity, reference::GcRef, storage::HeapObject},
     host::HostPathViewHandle,
     native::storage::scan::{ScanBudget, ScanStatus},
     value::Value,
@@ -29,7 +29,7 @@ pub(crate) type ScanVisitor<'a> =
 /// never owns a heap/root lease. The active collector retains the nonowning identity; no payload loan or borrowed iterator survives a yield.
 #[derive(Debug)]
 pub(crate) struct ObjectCursor {
-    id: HeapObjectIdentity,
+    id: GcRef,
     section: u8,
     index: usize,
     end: usize,
@@ -37,10 +37,7 @@ pub(crate) struct ObjectCursor {
 }
 
 impl GcHeap {
-    pub(crate) fn begin_object_scan(
-        &self,
-        id: HeapObjectIdentity,
-    ) -> Result<ObjectCursor, RuntimeError> {
+    pub(crate) fn begin_object_scan(&self, id: GcRef) -> Result<ObjectCursor, RuntimeError> {
         let objects = self
             .objects
             .try_borrow()
@@ -93,7 +90,8 @@ impl GcHeap {
             | HeapObject::String(_)
             | HeapObject::Range(_)
             | HeapObject::HostRoot(_)
-            | HeapObject::Ephemeral(_) => true,
+            | HeapObject::Ephemeral(_)
+            | HeapObject::Taken => true,
         })
     }
 
@@ -114,6 +112,18 @@ impl GcHeap {
             .ok_or_else(|| invalid("retired object scan identity"))?;
         loop {
             match object {
+                HeapObject::Taken => {
+                    if !budget.take(1) {
+                        return Ok(ScanStatus::Pending);
+                    }
+                    if cursor.section == 1 {
+                        self.native_scan_workspace
+                            .try_borrow_mut()
+                            .map_err(|_| invalid("borrowed taken Native scan workspace"))?
+                            .abandon_taken()?;
+                    }
+                    return Ok(ScanStatus::Complete);
+                }
                 HeapObject::Native(object) => {
                     if cursor.section == 0 {
                         if cursor.index < cursor.end.saturating_mul(2) {

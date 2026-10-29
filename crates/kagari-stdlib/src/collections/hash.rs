@@ -15,12 +15,12 @@ use kagari_runtime::{
             NativePayload,
             access::StorageAccess,
             scan::{ScanBudget, ScanStatus},
+            value::StoredValue,
         },
         storage_type::StorageType,
         typed::NativeContext,
     },
     resource::HeapCharge,
-    value::Value,
 };
 use std::{
     collections::{HashMap, hash_map::Entry as BucketEntry},
@@ -50,21 +50,21 @@ impl Hasher for StoredHash {
 pub(crate) trait HashValue: Debug {
     const FIELDS: usize;
 
-    fn from_value(value: Option<Value>) -> NativeResult<Self>
+    fn from_value(value: Option<StoredValue>) -> NativeResult<Self>
     where
         Self: Sized;
 
-    fn as_value(&self) -> Option<&Value>;
+    fn as_value(&self) -> Option<&StoredValue>;
 }
 
-impl HashValue for Value {
+impl HashValue for StoredValue {
     const FIELDS: usize = 2;
 
-    fn from_value(value: Option<Value>) -> NativeResult<Self> {
+    fn from_value(value: Option<StoredValue>) -> NativeResult<Self> {
         value.ok_or_else(invalid)
     }
 
-    fn as_value(&self) -> Option<&Value> {
+    fn as_value(&self) -> Option<&StoredValue> {
         Some(self)
     }
 }
@@ -72,21 +72,21 @@ impl HashValue for Value {
 impl HashValue for () {
     const FIELDS: usize = 1;
 
-    fn from_value(value: Option<Value>) -> NativeResult<Self> {
+    fn from_value(value: Option<StoredValue>) -> NativeResult<Self> {
         if value.is_some() {
             return Err(invalid());
         }
         Ok(())
     }
 
-    fn as_value(&self) -> Option<&Value> {
+    fn as_value(&self) -> Option<&StoredValue> {
         None
     }
 }
 
 #[derive(Debug)]
 pub(crate) struct Entry<V> {
-    pub(crate) key: Value,
+    pub(crate) key: StoredValue,
     pub(crate) value: V,
     hash: i64,
     previous: usize,
@@ -156,7 +156,7 @@ impl<V: HashValue> HashTable<V> {
         &'a self,
         state: &mut (usize, usize),
         budget: &mut ScanBudget,
-        visit: &mut dyn FnMut(&'a Value),
+        visit: &mut dyn FnMut(&'a StoredValue),
     ) -> ScanStatus {
         while state.0 < state.1 {
             if !budget.take(1) {
@@ -189,7 +189,7 @@ impl<V: HashValue> HashTable<V> {
         self.buckets.try_reserve(1).map_err(|_| capacity())
     }
 
-    pub(crate) fn insert(&mut self, hash: i64, key: Value, value: V) {
+    pub(crate) fn insert(&mut self, hash: i64, key: StoredValue, value: V) {
         let slot = self.slots.len();
         // Circular links retain insertion order without a separate tail allocation.
         let (previous, next) = match self.buckets.entry(hash) {

@@ -7,6 +7,7 @@ use crate::{
     native::storage::{
         NativePayload, NativeStorage,
         scan::{NativeScanKind, ScanBudget, ScanStatus},
+        value::StoredValue,
     },
     resource::HeapCharge,
     test_support::layouts::allocation_owner,
@@ -80,7 +81,7 @@ fn internal_tuple_scan_control_acquisitions_and_work() {
             assert!(
                 runtime
                     .gc
-                    .graph_survivor(runtime.modules(), value.heap_identity().unwrap().graph())
+                    .graph_survivor(runtime.modules(), value.direct_reference().unwrap().graph())
                     .unwrap()
             );
         }
@@ -134,7 +135,7 @@ fn metadata_module_and_static_scan_control_acquisitions_and_work() {
 #[derive(Debug)]
 struct UnlockedProvider {
     graph: GraphState,
-    child: Value,
+    child: StoredValue,
     fail: Arc<AtomicBool>,
     fail_begin: bool,
 }
@@ -160,7 +161,7 @@ unsafe impl NativePayload for UnlockedProvider {
         &'a self,
         _: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        visit: &mut dyn FnMut(&'a Value),
+        visit: &mut dyn FnMut(&'a StoredValue),
     ) -> ScanStatus {
         assert!(
             self.graph.try_lock().is_ok(),
@@ -190,7 +191,7 @@ fn provider_boundaries_release_control_and_unwind_faults_without_poison() {
                 &Ty::Builtin(BuiltinType::Unit),
                 UnlockedProvider {
                     graph: runtime.gc.graph.clone(),
-                    child,
+                    child: StoredValue::new(child),
                     fail: fail.clone(),
                     fail_begin,
                 },
@@ -206,7 +207,7 @@ fn provider_boundaries_release_control_and_unwind_faults_without_poison() {
         assert!(
             runtime
                 .gc
-                .graph_survivor(runtime.modules(), child.heap_identity().unwrap().graph())
+                .graph_survivor(runtime.modules(), child.direct_reference().unwrap().graph())
                 .unwrap()
         );
         runtime.gc.graph.lock().finish_sweep().unwrap();

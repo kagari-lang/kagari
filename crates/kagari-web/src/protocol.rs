@@ -203,8 +203,8 @@ mod tests {
         runtime.collect_garbage().unwrap();
         let owned = OwnedResult::rooted(&root, heap).unwrap_or_else(|_| panic!("rooted String"));
         drop(root);
-        runtime.collect_garbage().unwrap();
-        assert!(!unsafe { heap.validate_value_transport(&value) });
+        assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
+        assert_eq!(heap.allocated_objects(), 0);
         let json = serde_json::to_value(owned).unwrap();
         assert_eq!(json["tag"], "string");
         assert_eq!(json["value"].as_str().unwrap().len(), RESULT_BYTES);

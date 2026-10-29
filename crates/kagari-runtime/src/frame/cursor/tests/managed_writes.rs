@@ -189,7 +189,10 @@ fn cached_constant_and_copies_publish_after_initial_roots() {
     assert!(
         runtime
             .gc
-            .graph_survivor(&runtime.modules, constant.heap_identity().unwrap().graph())
+            .graph_survivor(
+                &runtime.modules,
+                constant.direct_reference().unwrap().graph()
+            )
             .unwrap()
     );
     runtime.gc.graph.lock().finish_sweep().unwrap();

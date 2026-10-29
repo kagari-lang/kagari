@@ -7,7 +7,6 @@ use crate::{
 };
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_hir::declarations::DeclarationId;
-use kagari_runtime::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 
 use kagari_runtime::{
     module::entry::ProgramEntry,
@@ -18,7 +17,11 @@ use kagari_runtime::{
         conversion::KagariType,
         declarations::{FunctionDecl, MethodDecl},
         module::NativeModule,
-        storage::{NativePayload, NativeStorage},
+        storage::{
+            NativePayload, NativeStorage,
+            scan::{NativeScanKind, ScanBudget, ScanStatus},
+            value::StoredValue,
+        },
         typed::NativeContext,
         types::Type,
     },
@@ -161,7 +164,7 @@ unsafe impl NativePayload for Payload {
         &'payload self,
         _: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        _: &mut dyn FnMut(&'payload Value),
+        _: &mut dyn FnMut(&'payload StoredValue),
     ) -> ScanStatus {
         budget.charge(1);
         ScanStatus::Complete

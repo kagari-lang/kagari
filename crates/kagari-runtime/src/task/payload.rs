@@ -1,5 +1,4 @@
 //! Task results are traced edges, not independent roots that retain heap cycles.
-use crate::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 use crate::{
     Runtime,
     error::RuntimeError,
@@ -9,7 +8,11 @@ use crate::{
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
-        storage::{NativePayload, NativeStorage},
+        storage::{
+            NativePayload, NativeStorage,
+            scan::{NativeScanKind, ScanBudget, ScanStatus},
+            value::StoredValue,
+        },
         types::TypeRef,
     },
     resource::HeapCharge,
@@ -26,11 +29,11 @@ use std::sync::Arc;
 #[derive(Debug)]
 pub(crate) struct TaskPayload {
     pub id: TaskId,
-    pub outcome: Option<Result<Value, TaskFailure>>,
+    pub outcome: Option<Result<StoredValue, TaskFailure>>,
 }
 
 impl TaskPayload {
-    pub(crate) fn outcome_bytes(outcome: Option<&Result<Value, TaskFailure>>) -> usize {
+    pub(crate) fn outcome_bytes<T>(outcome: Option<&Result<T, TaskFailure>>) -> usize {
         match outcome {
             Some(Err(failure)) => failure.error.message_capacity(),
             _ => 0,
@@ -48,7 +51,7 @@ unsafe impl NativePayload for TaskPayload {
         &'a self,
         _: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        visit: &mut dyn FnMut(&'a Value),
+        visit: &mut dyn FnMut(&'a StoredValue),
     ) -> ScanStatus {
         budget.charge(1);
         if let Some(Ok(value)) = &self.outcome {
@@ -79,7 +82,7 @@ unsafe impl NativePayload for ScopePayload {
         &'a self,
         _: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        _: &mut dyn FnMut(&'a Value),
+        _: &mut dyn FnMut(&'a StoredValue),
     ) -> ScanStatus {
         budget.charge(1);
         ScanStatus::Complete

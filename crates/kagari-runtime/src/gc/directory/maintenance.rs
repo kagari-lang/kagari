@@ -14,7 +14,7 @@ use crate::{
         storage::scan::{ScanBudget, ScanStatus},
     },
 };
-use std::{mem::size_of_val, sync::Arc};
+use std::sync::Arc;
 
 pub(in crate::gc) struct Maintenance {
     descriptors: DescriptorCursor,
@@ -99,59 +99,29 @@ impl ObjectStorage {
                 };
             }
         }
-        while cursor.compact < 2 && budget.take(1) {
-            let compact = cursor.compact;
-            cursor.compact += 1;
-            if compact == 1 {
-                // Empty release has no survivor inspection or rehashing. Retain
-                // nonempty capacity rather than migrate owners beyond this budget.
-                if self.initialization_owners.is_empty()
-                    && self.initialization_owners.capacity() != 0
-                {
-                    let started = observation.as_ref().and_then(|state| state.clock.start());
-                    self.initialization_owners.shrink_to_fit();
-                    if let (Some(started), Some(state)) = (started, observation.as_mut()) {
-                        state.allocation = Some((
-                            IndivisibleKind::EmptyMapRelease,
-                            IndivisibleSample::new(
-                                "initialization_owners",
-                                0,
-                                1,
-                                None,
-                                started.elapsed(),
-                            ),
-                        ));
-                    }
-                }
-                continue;
-            }
-            let work = if self.slots.capacity() > self.slots.len()
-                && self.slots.len() > self.occupied.saturating_mul(4).max(16)
-            {
-                self.slots.len()
-            } else {
-                0
-            };
-            if work != 0 {
-                budget.charge(work);
+        if cursor.compact == 0 && budget.take(1) {
+            cursor.compact = 1;
+            // Empty release has no survivor inspection or rehashing. Retain
+            // nonempty capacity rather than migrate owners beyond this budget.
+            if self.initialization_owners.is_empty() && self.initialization_owners.capacity() != 0 {
                 let started = observation.as_ref().and_then(|state| state.clock.start());
-                self.slots.shrink_to_fit();
-                let (owner, items, bytes) = (
-                    "object directory",
-                    self.slots.len(),
-                    size_of_val(self.slots.as_slice()),
-                );
+                self.initialization_owners.shrink_to_fit();
                 if let (Some(started), Some(state)) = (started, observation.as_mut()) {
                     state.allocation = Some((
-                        IndivisibleKind::DirectoryCompaction,
-                        IndivisibleSample::new(owner, items, work, Some(bytes), started.elapsed()),
+                        IndivisibleKind::EmptyMapRelease,
+                        IndivisibleSample::new(
+                            "initialization_owners",
+                            0,
+                            1,
+                            None,
+                            started.elapsed(),
+                        ),
                     ));
                 }
-                break;
             }
         }
         MaintenanceStep {
-            status: if cursor.compact == 2 {
+            status: if cursor.compact == 1 {
                 ScanStatus::Complete
             } else {
                 ScanStatus::Pending
@@ -167,25 +137,25 @@ mod tests {
     #[cfg(feature = "execution-diagnostics")]
     use crate::diagnostics::allocations;
     use crate::{
-        Runtime, gc::HeapObjectId, module::ModuleKey, test_support::layouts::allocation_owner,
+        Runtime, gc::reference::GcRef, module::ModuleKey, test_support::layouts::allocation_owner,
     };
 
-    fn exercise_initialization_owner_maintenance(objects: &mut ObjectStorage, owner: ModuleKey) {
+    fn exercise_initialization_owner_maintenance(
+        objects: &mut ObjectStorage,
+        owner: ModuleKey,
+        references: &[GcRef],
+    ) {
         const PEAK: usize = 4096;
         const SURVIVORS: usize = 128;
         objects.initialization_owners.reserve(PEAK);
-        for index in 0..PEAK {
-            objects
-                .initialization_owners
-                .insert(HeapObjectId::new(1, index, 0).into(), owner);
+        for &reference in &references[..PEAK] {
+            objects.initialization_owners.insert(reference, owner);
         }
         // Model per-identity retirement before maintenance without introducing
         // unrelated payload/descriptor allocations into this map's accounting.
-        for index in SURVIVORS..PEAK {
+        for &reference in &references[SURVIVORS..PEAK] {
             assert_eq!(
-                objects
-                    .initialization_owners
-                    .remove(&HeapObjectId::new(1, index, 0).into()),
+                objects.initialization_owners.remove(&reference),
                 Some(owner)
             );
         }
@@ -201,7 +171,7 @@ mod tests {
             ScanStatus::Pending
         );
         assert_eq!(zero.spent(), 0);
-        for stage in 0..2 {
+        {
             let mut budget = ScanBudget::new(1);
             let step = objects.maintenance_slice(&mut cursor, &mut budget, Some(&mut observation));
             assert_eq!(
@@ -209,25 +179,16 @@ mod tests {
                 1,
                 "nonempty map maintenance cannot hide a survivor migration"
             );
-            assert_eq!(
-                step.status,
-                if stage == 1 {
-                    ScanStatus::Complete
-                } else {
-                    ScanStatus::Pending
-                }
-            );
+            assert_eq!(step.status, ScanStatus::Complete);
             assert!(step.removed_structure.is_none());
             assert_eq!(observation.destruction.count, 0);
             assert!(observation.allocation.is_none());
             assert_eq!(objects.initialization_owners.capacity(), capacity);
             assert_eq!(objects.initialization_owners.len(), SURVIVORS);
         }
-        for index in 0..SURVIVORS {
+        for &reference in &references[..SURVIVORS] {
             assert_eq!(
-                objects
-                    .initialization_owners
-                    .remove(&HeapObjectId::new(1, index, 0).into()),
+                objects.initialization_owners.remove(&reference),
                 Some(owner)
             );
         }
@@ -235,7 +196,7 @@ mod tests {
         let empty_capacity = objects.initialization_owners.capacity();
         assert!(empty_capacity > 0);
         let mut cursor = objects.begin_maintenance();
-        for stage in 0..2 {
+        {
             let mut budget = ScanBudget::new(1);
             let step = objects.maintenance_slice(&mut cursor, &mut budget, None);
             assert_eq!(
@@ -243,18 +204,8 @@ mod tests {
                 1,
                 "empty release needs no bucket inspection or rehash charge"
             );
-            assert_eq!(
-                step.status,
-                if stage == 1 {
-                    ScanStatus::Complete
-                } else {
-                    ScanStatus::Pending
-                }
-            );
-            assert_eq!(
-                objects.initialization_owners.capacity(),
-                if stage == 1 { 0 } else { empty_capacity }
-            );
+            assert_eq!(step.status, ScanStatus::Complete);
+            assert_eq!(objects.initialization_owners.capacity(), 0);
         }
     }
 
@@ -262,11 +213,21 @@ mod tests {
     fn tiny_budget_preserves_initialization_survivors_and_releases_only_empty_capacity() {
         let mut runtime = Runtime::default();
         let owner = allocation_owner(&mut runtime);
+        let references: Vec<_> = (0..4096)
+            .map(|_| {
+                runtime
+                    .gc()
+                    .alloc_string(String::new())
+                    .unwrap()
+                    .direct_reference()
+                    .unwrap()
+            })
+            .collect();
         let mut objects = ObjectStorage::default();
         #[cfg(feature = "execution-diagnostics")]
         {
             let (_, counts) = allocations::measure(|| {
-                exercise_initialization_owner_maintenance(&mut objects, owner.key());
+                exercise_initialization_owner_maintenance(&mut objects, owner.key(), &references);
             });
             assert_eq!(
                 counts.requests, 1,
@@ -278,7 +239,7 @@ mod tests {
             );
         }
         #[cfg(not(feature = "execution-diagnostics"))]
-        exercise_initialization_owner_maintenance(&mut objects, owner.key());
+        exercise_initialization_owner_maintenance(&mut objects, owner.key(), &references);
         assert_eq!(objects.initialization_owners.capacity(), 0);
     }
 }

@@ -30,7 +30,7 @@ fn struct_header_survives_failed_initialization_and_detached_owner_teardown() {
             unsafe { pointer.as_ptr().write_bytes(0x5a, size) };
             Ok(())
         };
-        let failed = pages.insert(u32::MAX, descriptor.clone(), |pointer| {
+        let failed = pages.insert(descriptor.clone(), |pointer| {
             initialize(pointer)?;
             Err(RuntimeError::module_validation(
                 "injected struct encoding failure",
@@ -40,15 +40,13 @@ fn struct_header_survives_failed_initialization_and_detached_owner_teardown() {
         assert_eq!(pages.occupied().count(), 0);
         assert_eq!(pages.backing_bytes, 0);
         let panicked = catch_unwind(AssertUnwindSafe(|| {
-            pages.insert(u32::MAX, descriptor.clone(), |_| {
+            pages.insert(descriptor.clone(), |_| {
                 panic!("injected initializer unwind")
             })
         }));
         assert!(panicked.is_err());
         assert_eq!(pages.backing_bytes, 0);
-        let location = pages
-            .insert(u32::MAX, descriptor.clone(), initialize)
-            .unwrap();
+        let location = pages.insert(descriptor.clone(), initialize).unwrap();
         let payload = pages.get(location).unwrap().pointer;
         let reference = pages.direct_reference(location).unwrap();
         pages.direct_mark(location).unwrap().set(7, Color::Black);
@@ -91,7 +89,7 @@ fn struct_header_survives_failed_initialization_and_detached_owner_teardown() {
             .unwrap();
         assert_eq!(scanned.location, location);
         assert_eq!(scanned.payload.pointer, payload);
-        assert_eq!(scanned.mark.unwrap().color(7), Color::Black);
+        assert_eq!(scanned.mark.color(7), Color::Black);
         if size != 0 {
             // SAFETY: both bytes were initialized above and are in the live payload.
             assert_eq!(unsafe { payload.as_ptr().read() }, 0x5a);
@@ -100,9 +98,7 @@ fn struct_header_survives_failed_initialization_and_detached_owner_teardown() {
         let mut retired = pages.detach(location).unwrap();
         assert!(pages.get(location).is_none());
         assert_eq!(pages.direct_mark(location).unwrap().color(7), Color::Black);
-        pages
-            .insert(u32::MAX, descriptor.clone(), initialize)
-            .unwrap();
+        pages.insert(descriptor.clone(), initialize).unwrap();
         assert_eq!(pages.direct_mark(location).unwrap().color(7), Color::Black);
         drop(descriptor);
         drop(pages);
@@ -138,7 +134,7 @@ fn builtin_header_preserves_alignment_and_detached_payload_destruction() {
     let offset = descriptor.payload_offset();
     let weak = Arc::downgrade(&descriptor);
     let location = pages
-        .insert(u32::MAX, descriptor, |pointer| {
+        .insert(descriptor, |pointer| {
             assert_eq!(pointer.as_ptr().addr() % align_of::<AlignedPayload>(), 0);
             // SAFETY: the descriptor reserves aligned storage for this exact type.
             unsafe {
@@ -218,7 +214,7 @@ fn direct_page_dispatch_preserves_mixed_kinds_and_rejects_foreign_live_addresses
         Pages::class(string.layout, string.edges)
     );
     let text = pages
-        .insert(u32::MAX, string, |pointer| {
+        .insert(string, |pointer| {
             // SAFETY: the exact String descriptor reserves initialized typed storage.
             unsafe {
                 pointer
@@ -230,7 +226,7 @@ fn direct_page_dispatch_preserves_mixed_kinds_and_rejects_foreign_live_addresses
         })
         .unwrap();
     let record = pages
-        .insert(u32::MAX, structure, |pointer| {
+        .insert(structure, |pointer| {
             // SAFETY: packed i32 fields, each valid with an all-zero encoding.
             unsafe { pointer.as_ptr().write_bytes(0, fields.len() * 4) };
             Ok(())
@@ -244,7 +240,7 @@ fn direct_page_dispatch_preserves_mixed_kinds_and_rejects_foreign_live_addresses
         .builtin::<String>(PayloadKind::String, false)
         .unwrap();
     let foreign_location = foreign
-        .insert(u32::MAX, descriptor, |pointer| {
+        .insert(descriptor, |pointer| {
             // SAFETY: the descriptor supplies precisely one String payload.
             unsafe {
                 pointer
@@ -276,8 +272,7 @@ fn direct_page_dispatch_preserves_mixed_kinds_and_rejects_foreign_live_addresses
     for location in [text, record] {
         let slot = pages.sweep_slot().unwrap();
         assert_eq!(slot.location, location);
-        assert_eq!(slot.directory, u32::MAX);
-        assert_eq!(slot.mark.unwrap().color(9), Color::Black);
+        assert_eq!(slot.mark.color(9), Color::Black);
         pages.advance_sweep();
     }
     assert!(pages.sweep_done());

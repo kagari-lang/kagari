@@ -477,6 +477,8 @@ fn async_wait_live_storage_contract() {
         functions.push(function);
     });
     for exit in 0..3 {
+        // Isolate this iteration's dead argument and consumed native capture.
+        f.vm.runtime().collect_garbage().unwrap();
         let future = f.cold(12);
         let allocate = |value| {
             ConversionContext::new(f.vm.runtime(), &f.module)
@@ -513,10 +515,11 @@ fn async_wait_live_storage_contract() {
             f.vm.drive(&execution, slice()).unwrap(),
             DriveResult::Waiting
         ));
-        f.vm.runtime().collect_garbage().unwrap();
-        assert!(
-            unsafe { f.vm.runtime().gc().object_kind_transport(dead.into()) }.is_none(),
-            "dead slots must not keep objects alive"
+        let collected = f.vm.runtime().collect_garbage().unwrap();
+        assert_eq!(
+            (collected.reclaimed_objects, collected.live_objects),
+            (2, 2),
+            "dead argument and consumed capture die; live Vec and Future roots survive"
         );
         let vector: ScriptVec<i32> = ConversionContext::new(f.vm.runtime(), &f.module)
             .unwrap()

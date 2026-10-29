@@ -14,7 +14,7 @@ use std::sync::{
 };
 
 #[test]
-fn take_moves_nonclone_payload_and_invalidates_host_and_script_aliases_across_slot_reuse() {
+fn take_moves_nonclone_payload_and_retains_tombstones_until_all_aliases_disappear() {
     let drops = Arc::new(AtomicUsize::new(0));
     let (module, declaration, _, _) = module(drops.clone());
     let source = SOURCE.to_owned()
@@ -50,7 +50,7 @@ fn take_moves_nonclone_payload_and_invalidates_host_and_script_aliases_across_sl
         })
     }
     .unwrap();
-    // Retire the temporary source-array before testing immediate native slot reuse.
+    // Retire the temporary source-array before checking the taken allocation lifetime.
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
     let before = runtime.gc().stats().current_heap_units;
     let original = object.take(&cx).unwrap();
@@ -67,7 +67,7 @@ fn take_moves_nonclone_payload_and_invalidates_host_and_script_aliases_across_sl
         vm.execute_typed::<_, i32>(&owner, "value", (alias.clone(),))
             .is_err()
     );
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
     let fresh = ty
         .create(
             &mut cx,
@@ -89,14 +89,13 @@ fn take_moves_nonclone_payload_and_invalidates_host_and_script_aliases_across_sl
     let Value::GcHandle(fresh_id) = fresh_value else {
         panic!("fresh opaque")
     };
-    assert_eq!(fresh_id.index(), old_id.index());
     assert_ne!(fresh_id, old_id);
     assert_eq!(
         unsafe { fresh.read(&cx, None, |value, _access| Ok(value.value)) }.unwrap(),
         13
     );
     assert!(unsafe { alias.read(&cx, None, |_, _access| Ok(())) }.is_err());
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 3);
     drop(fresh);
     runtime.collect_garbage().unwrap();
     assert_eq!(drops.load(Ordering::Relaxed), 1);

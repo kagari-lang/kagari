@@ -2,7 +2,7 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    gc::{HeapObjectId, graph::objects::ScanEdge, metrics::IndivisibleKind},
+    gc::{graph::objects::ScanEdge, metrics::IndivisibleKind, reference::GcRef},
     native::{
         conversion::context::ConversionContext,
         payload::read::ReadReceiver,
@@ -10,6 +10,7 @@ use crate::{
             NativePayload, NativeStorage,
             access::EditPlan,
             scan::{NativeScanKind, ScanBudget, ScanEntries, ScanStatus},
+            value::StoredValue,
         },
         storage_type::StorageType,
         views::{NativeOperationGuard, NativeOperationKind},
@@ -29,7 +30,7 @@ use std::{
 };
 
 #[derive(Debug)]
-struct Slots(Vec<Value>);
+struct Slots(Vec<StoredValue>);
 
 // SAFETY: All strong edges are the indexed Vec slots; the cursor has only numeric
 // indices. Edits in these tests use checked services or already admitted edges.
@@ -45,7 +46,7 @@ unsafe impl NativePayload for Slots {
         &'a self,
         state: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        visit: &mut dyn FnMut(&'a Value),
+        visit: &mut dyn FnMut(&'a StoredValue),
     ) -> ScanStatus {
         while state.0 < state.1 {
             if !budget.take(1) {
@@ -68,12 +69,12 @@ fn allocate(
     runtime: &Runtime,
     owner: &crate::module::ExecutableModule,
     values: Vec<Value>,
-) -> HeapObjectId {
+) -> GcRef {
     let object = NativeStorage::payload::<Slots>()
         .prepare_payload(
             runtime.gc(),
             &Ty::Builtin(BuiltinType::Unit),
-            Slots(values),
+            Slots(values.into_iter().map(StoredValue::new).collect()),
             owner,
         )
         .unwrap();
@@ -100,7 +101,7 @@ unsafe impl NativePayload for WideCursorPayload {
         &'a self,
         state: &mut WideCursor,
         budget: &mut ScanBudget,
-        _: &mut dyn FnMut(&'a Value),
+        _: &mut dyn FnMut(&'a StoredValue),
     ) -> ScanStatus {
         assert_eq!(state.0, [7; 128]);
         budget.charge(1);
@@ -128,7 +129,7 @@ fn payload_admission_and_inspection_preserve_a_suspended_heap_scan_workspace() {
         entries.begin(payload, &mut workspace)?;
         assert_eq!(
             entries.resume(payload, &mut workspace, &mut ScanBudget::new(1), &mut |v| {
-                visited.push(*v)
+                visited.push(v.value())
             })?,
             ScanStatus::Pending
         );
@@ -151,7 +152,7 @@ fn payload_admission_and_inspection_preserve_a_suspended_heap_scan_workspace() {
     heap.with_native::<Slots, _>(id, |payload| {
         let mut workspace = heap.native_scan_workspace.borrow_mut();
         while entries.resume(payload, &mut workspace, &mut ScanBudget::new(1), &mut |v| {
-            visited.push(*v)
+            visited.push(v.value())
         })? == ScanStatus::Pending
         {}
         Ok(())
@@ -183,7 +184,7 @@ unsafe impl<const INDIVISIBLE: bool> NativePayload for TraceFault<INDIVISIBLE> {
         &'a self,
         _: &mut (),
         budget: &mut ScanBudget,
-        _: &mut dyn FnMut(&'a Value),
+        _: &mut dyn FnMut(&'a StoredValue),
     ) -> ScanStatus {
         budget.charge(1);
         assert!(!self.0.load(Ordering::Relaxed), "provider trace fault");
@@ -401,11 +402,11 @@ fn partial_native_cursor_keeps_an_edge_moved_behind_it_without_restart() {
     heap.drain_graph_work(&runtime.modules).unwrap();
     heap.graph.lock().close_mark().unwrap();
     assert!(
-        heap.graph_survivor(&runtime.modules, child.heap_identity().unwrap().graph())
+        heap.graph_survivor(&runtime.modules, child.direct_reference().unwrap().graph())
             .unwrap()
     );
     assert_eq!(
-        heap.with_native::<Slots, _>(id, |payload| Ok(payload.0.clone()))
+        heap.with_native::<Slots, _>(id, |payload| Ok(StoredValue::values(&payload.0).to_vec()))
             .unwrap(),
         [child, Value::Unit]
     );
@@ -437,7 +438,7 @@ fn general_edits_reconcile_completed_changes_on_error_and_unwind() {
                     assert!(heap.with_native::<Slots, _>(id, |_| Ok(())).is_err());
                     payload.0.reserve(1);
                     access.commit_structure();
-                    payload.0.push(Value::Unit);
+                    payload.0.push(StoredValue::scalar(()));
                     if panic {
                         panic!("completed native write");
                     }
@@ -485,7 +486,7 @@ fn structural_revisions_survive_sweep_and_reject_exhaustion_before_edit() {
         |payload, access| {
             payload.0.reserve(1);
             access.commit_structure();
-            payload.0.push(Value::Unit);
+            payload.0.push(StoredValue::scalar(()));
             Ok(())
         },
     )
@@ -542,7 +543,19 @@ fn retained_extraction_survives_replacement_and_checks_publication_type_and_owne
             &runtime,
             ReadReceiver::Value(id),
             None,
-            |payload, access| access.retain(&contract, &payload.0[0]),
+            |payload, access| {
+                let text = access.inspect(&contract, &payload.0[0], |view| {
+                    assert!(runtime.gc().ensure_no_storage_borrow().is_err());
+                    Ok(view.as_str()?.to_owned())
+                })?;
+                assert_eq!(text, "retained");
+                assert!(
+                    access
+                        .inspect(&contract, &StoredValue::scalar(true), |_| Ok(()))
+                        .is_err()
+                );
+                access.retain(&contract, &payload.0[0])
+            },
         )
         .unwrap();
     runtime
@@ -575,7 +588,11 @@ fn retained_extraction_survives_replacement_and_checks_publication_type_and_owne
                 structural: true,
             },
             |payload, access| {
-                assert!(access.retain(&contract, &Value::Bool(true)).is_err());
+                assert!(
+                    access
+                        .retain(&contract, &StoredValue::scalar(true))
+                        .is_err()
+                );
                 let value = access.publish(&contract, &retained)?;
                 payload.0.reserve(1);
                 access.commit_structure();

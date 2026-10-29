@@ -37,7 +37,7 @@ pub struct RetirementUsage {
 /// page/large-control headers are separate from that area.
 /// Unused backing includes vacant slots, class rounding and page tails. Arc control
 /// records for allocation backing and representation descriptors are counted explicitly.
-/// Coallocated headers, slots, bitmaps and alignment padding are disjoint from the
+/// Coallocated page controls, marks, bitmaps and alignment padding are disjoint from the
 /// payload areas; their sum is the complete requested raw allocation, not extra backing.
 /// HashMap bucket/control arrays, canonical struct layout children, native registration
 /// metadata, roots, other payload children and allocator overhead remain outside these
@@ -45,7 +45,7 @@ pub struct RetirementUsage {
 /// Logical GC units are not allocator bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StorageUsage {
-    pub buffers: [BufferUsage; 2],
+    pub buffers: [BufferUsage; 1],
     /// Admitted identities represented by owner-local marks, including active work.
     pub graph_credits: usize,
     /// Registered slot blocks plus singleton owners covered by pending capacity.
@@ -57,13 +57,12 @@ pub struct StorageUsage {
     pub retirement: RetirementUsage,
     pub slab_bytes: usize,
     pub large_bytes: usize,
-    pub slot_metadata_bytes: usize,
     pub bitmap_bytes: usize,
     pub page_directory_bytes: usize,
     pub page_metadata_bytes: usize,
     pub large_metadata_bytes: usize,
     pub backing_control_bytes: usize,
-    /// Interior alignment gaps between payload, header, slots and bitmap regions.
+    /// Interior alignment gaps between payload, page controls, marks and bitmap regions.
     pub allocation_padding_bytes: usize,
     pub descriptor_bytes: usize,
     pub representation_descriptors: usize,

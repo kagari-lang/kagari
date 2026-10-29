@@ -3,7 +3,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
-    gc::{HeapObjectId, roots::RootedValue},
+    gc::{reference::GcRef, roots::RootedValue},
     native::{
         binding::NativeResult,
         context::{CallContext, arguments::ArgumentView},
@@ -30,7 +30,7 @@ use std::{marker::PhantomData, ptr};
 pub struct BorrowedPayload<'call, P> {
     runtime: &'call Runtime,
     source: Source<'call>,
-    id: HeapObjectId,
+    id: GcRef,
     mapping: PhantomData<fn() -> P>,
 }
 

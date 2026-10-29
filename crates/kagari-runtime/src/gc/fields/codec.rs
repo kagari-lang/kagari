@@ -1,6 +1,6 @@
-//! Packed codecs preserve scalar domains, checked IDs and direct pointer provenance.
+//! Packed codecs preserve scalar domains and direct pointer provenance.
 use crate::{
-    gc::{HeapObjectId, reference::GcRef},
+    gc::reference::GcRef,
     module::layout_storage::{ScalarEncoding, StoredField},
     value::{InterfaceObjectId, Value, scalar},
 };
@@ -94,26 +94,15 @@ pub(super) fn write_scalar(
     Some(())
 }
 
-/// Native fields retain checked IDs; builtin fields preserve pointer provenance.
-/// The migration keeps the existing 13-byte field extent until Native conversion.
+/// All managed fields retain a tag and the original allocation provenance.
 unsafe fn read_managed(bytes: &[u8], offset: usize) -> Option<Value> {
-    let bytes = bytes.get(offset..offset + 13)?;
-    if matches!(bytes[0], 4 | 9) {
-        let id = HeapObjectId {
-            owner: u32::from_ne_bytes(bytes[1..5].try_into().ok()?),
-            slot: u32::from_ne_bytes(bytes[5..9].try_into().ok()?),
-            generation: u32::from_ne_bytes(bytes[9..13].try_into().ok()?),
-        };
-        return Some(if bytes[0] == 4 {
-            Value::Array(id)
-        } else {
-            Value::GcHandle(id)
-        });
-    }
+    let bytes = bytes.get(offset..offset + 1 + size_of::<GcRef>())?;
     let construct = match bytes[0] {
         1 => Value::Str,
         2 => Value::Tuple,
         3 => Value::Range,
+        4 => Value::Array,
+        9 => Value::GcHandle,
         7 => Value::Enum,
         10 => Value::Closure,
         11 => Value::Cell,
@@ -140,32 +129,60 @@ pub(super) fn write_managed(bytes: &mut [u8], offset: usize, value: Value) -> Op
         Value::Interface(_) => 12,
         _ => return None,
     };
-    let bytes = bytes.get_mut(offset..offset + 13)?;
+    let bytes = bytes.get_mut(offset..offset + 1 + size_of::<GcRef>())?;
     bytes.fill(0);
     bytes[0] = tag;
-    if let Some(reference) = value.direct_reference() {
-        // SAFETY: the fixed extent has space for the exact nonowning pointer carrier.
-        unsafe {
-            bytes
-                .as_mut_ptr()
-                .add(1)
-                .cast::<GcRef>()
-                .write_unaligned(reference)
-        };
-    } else {
-        let id = value.checked_id()?;
-        bytes[1..5].copy_from_slice(&id.owner.to_ne_bytes());
-        bytes[5..9].copy_from_slice(&id.slot.to_ne_bytes());
-        bytes[9..13].copy_from_slice(&id.generation.to_ne_bytes());
-    }
+    let reference = value.direct_reference()?;
+    // SAFETY: the bounded destination holds one nonowning pointer carrier.
+    unsafe {
+        bytes
+            .as_mut_ptr()
+            .add(1)
+            .cast::<GcRef>()
+            .write_unaligned(reference)
+    };
     Some(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{Runtime, native::storage::NativeStorage, test_support::layouts::allocation_owner};
     use kagari_abi::representation::ValueType;
     use kagari_types::scalar::BuiltinType;
+    use kagari_types::ty::Ty;
+
+    #[test]
+    fn packed_native_reference_keeps_provenance_through_take_and_collection() {
+        let mut runtime = Runtime::default();
+        let owner = allocation_owner(&mut runtime);
+        let heap = runtime.gc();
+        let native = NativeStorage::takeable::<i32>()
+            .prepare_payload(heap, &Ty::Builtin(BuiltinType::I32), 42, &owner)
+            .unwrap();
+        let reference = heap.alloc_native(native).unwrap();
+        let root = heap.root_value(Value::GcHandle(reference)).unwrap();
+        let mut bytes = [0_u8; 2 + size_of::<GcRef>()];
+        let field = StoredField::Managed { offset: 1 };
+        write_field(&mut bytes, field, Value::GcHandle(reference)).unwrap();
+        assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);
+        // SAFETY: the exact tagged field was initialized above and the root keeps
+        // its original pointer alive, including after extraction changes dispatch.
+        let copied = unsafe { read_field(&bytes, field) }.unwrap();
+        assert_eq!(copied, Value::GcHandle(reference));
+        assert_eq!(
+            heap.with_native::<i32, _>(reference, |value| Ok(*value))
+                .unwrap(),
+            42
+        );
+        assert_eq!(heap.take_native::<i32>(reference).unwrap(), 42);
+        assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);
+        assert_eq!(unsafe { read_field(&bytes, field) }, Some(copied));
+        assert!(heap.root_value(copied).is_none());
+        drop(root);
+        assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
+        assert_eq!(heap.stats().current_retained_bytes, 0);
+    }
 
     #[test]
     fn char_fields_reject_invalid_scalars_before_reading_or_truncating_writes() {

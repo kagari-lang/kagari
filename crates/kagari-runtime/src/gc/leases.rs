@@ -1,5 +1,5 @@
 //! Heap-owned exclusion records. Guards never own storage or execution state.
-use crate::{error::RuntimeError, gc::HeapObjectId, native::views::NativeOperationKind};
+use crate::{error::RuntimeError, gc::reference::GcRef, native::views::NativeOperationKind};
 use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
@@ -38,12 +38,12 @@ impl Entry {
 /// guard removes its entry, so collection never needs to scan this table.
 #[derive(Debug, Default)]
 pub(crate) struct LeaseTable {
-    entries: RefCell<HashMap<HeapObjectId, Entry>>,
+    entries: RefCell<HashMap<GcRef, Entry>>,
 }
 
 pub(crate) struct BorrowedLease<'table> {
     table: &'table LeaseTable,
-    id: HeapObjectId,
+    id: GcRef,
 }
 
 impl Drop for BorrowedLease<'_> {
@@ -58,7 +58,7 @@ impl Drop for BorrowedLease<'_> {
 }
 
 impl LeaseTable {
-    pub(crate) fn operation(&self, id: HeapObjectId) -> Option<NativeOperationKind> {
+    pub(crate) fn operation(&self, id: GcRef) -> Option<NativeOperationKind> {
         self.entries
             .borrow()
             .get(&id)
@@ -67,7 +67,7 @@ impl LeaseTable {
 
     pub(crate) fn borrow_operation(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         kind: NativeOperationKind,
     ) -> Result<BorrowedLease<'_>, RuntimeError> {
         let lease = self.borrow(id)?;
@@ -79,12 +79,12 @@ impl LeaseTable {
         Ok(lease)
     }
 
-    pub(crate) fn is_active(&self, id: HeapObjectId) -> bool {
+    pub(crate) fn is_active(&self, id: GcRef) -> bool {
         self.entries.borrow().get(&id).is_some_and(Entry::is_active)
     }
 
     /// No per-call allocation after the keyed table is warm.
-    pub(crate) fn borrow(&self, id: HeapObjectId) -> Result<BorrowedLease<'_>, RuntimeError> {
+    pub(crate) fn borrow(&self, id: GcRef) -> Result<BorrowedLease<'_>, RuntimeError> {
         let mut entries = self.entries.borrow_mut();
         entries
             .try_reserve(1)
@@ -108,11 +108,9 @@ mod tests {
     #[test]
     fn failed_nested_borrow_and_unwind_preserve_final_guard_removal() {
         let table = LeaseTable::default();
-        let id = HeapObjectId {
-            owner: 7,
-            slot: 0,
-            generation: 0,
-        };
+        let runtime = crate::Runtime::default();
+        let value = runtime.gc().alloc_string("leased".into()).unwrap();
+        let id = value.direct_reference().unwrap();
         let first = table
             .borrow_operation(id, NativeOperationKind::ExclusiveSlots)
             .unwrap();

@@ -14,6 +14,7 @@ use kagari_runtime::{
             NativePayload, NativeStorage,
             access::EditPlan,
             scan::{NativeScanKind, ScanBudget, ScanStatus},
+            value::StoredValue,
         },
         typed::NativeContext,
         types::Type,
@@ -50,7 +51,7 @@ unsafe impl NativePayload for Buffer {
         &'a self,
         _: &mut (),
         budget: &mut ScanBudget,
-        _: &mut dyn FnMut(&'a Value),
+        _: &mut dyn FnMut(&'a StoredValue),
     ) -> ScanStatus {
         budget.charge(1);
         ScanStatus::Complete
@@ -383,15 +384,15 @@ fn assigns_stable_object_identity_and_kind() {
             .unwrap()
     );
     assert_eq!(
-        unsafe { heap.object_kind_transport(first.into()) },
+        unsafe { heap.object_kind_transport(first) },
         Some(GcObjectKind::Native)
     );
     assert_eq!(
-        unsafe { heap.object_kind_transport(second.into()) },
+        unsafe { heap.object_kind_transport(second) },
         Some(GcObjectKind::Native)
     );
     assert_eq!(
-        unsafe { heap.object_kind_transport(third.into()) },
+        unsafe { heap.object_kind_transport(third) },
         Some(GcObjectKind::Native)
     );
     assert!(unsafe { heap.struct_layout_transport(fourth) }.is_some());
@@ -588,17 +589,8 @@ fn root_scanning_traces_only_gc_managed_boundaries() {
     };
     let traced = unsafe { heap.trace_roots_transport() }.unwrap();
     assert_eq!(traced.len(), 7);
-    assert_eq!(traced[0], tuple.into());
-    assert_eq!(
-        traced[2..],
-        [
-            map.into(),
-            leaf.into(),
-            map_key.into(),
-            set.into(),
-            set_key.into()
-        ]
-    );
+    assert_eq!(traced[0], tuple);
+    assert_eq!(traced[2..], [map, leaf, map_key, set, set_key]);
     assert_eq!(
         unsafe { heap.object_kind_transport(traced[1]) },
         Some(GcObjectKind::Struct)
@@ -607,10 +599,7 @@ fn root_scanning_traces_only_gc_managed_boundaries() {
     let replacement = unsafe { heap.root_value_transport(Value::GcHandle(leaf)) }.unwrap();
     root.replace(heap, &replacement).unwrap();
     drop(replacement);
-    assert_eq!(
-        unsafe { heap.trace_roots_transport() }.unwrap(),
-        vec![leaf.into()]
-    );
+    assert_eq!(unsafe { heap.trace_roots_transport() }.unwrap(), vec![leaf]);
 
     assert_eq!(
         unsafe { root.value_transport(heap) }.unwrap(),
@@ -653,7 +642,7 @@ fn root_scanning_handles_cycles_without_duplicate_identity() {
     vm.runtime().collect_garbage().unwrap();
     let traced = unsafe { heap.trace_roots_transport() }.unwrap();
     assert_eq!(traced.len(), 2);
-    assert_eq!(traced[0], array.into());
+    assert_eq!(traced[0], array);
     assert_ne!(traced[0], traced[1]);
     assert_eq!(
         unsafe { heap.object_kind_transport(traced[1]) },

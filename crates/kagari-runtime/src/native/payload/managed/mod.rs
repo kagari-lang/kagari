@@ -1,5 +1,4 @@
 //! Declared private payload fields store graph edges instead of host root leases.
-use crate::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 mod access;
 mod application;
 pub mod construction;
@@ -12,12 +11,15 @@ use crate::{
         binding::NativeResult,
         conversion::KagariType,
         payload::{NativeType, data::NativeData},
-        storage::{NativePayload, NativeStorage},
+        storage::{
+            NativePayload, NativeStorage,
+            scan::{NativeScanKind, ScanBudget, ScanStatus},
+            value::StoredValue,
+        },
         storage_type::StorageType,
         types::Type,
     },
     resource::HeapCharge,
-    value::Value,
 };
 use std::{marker::PhantomData, sync::Arc};
 
@@ -142,7 +144,7 @@ impl<T: NativeData> ManagedStorage<T> {
 pub struct Managed<T> {
     pub(crate) data: T,
     pub(crate) schema: Arc<AppliedSchema>,
-    pub(crate) values: Vec<Value>,
+    pub(crate) values: Vec<StoredValue>,
 }
 
 impl<T> Managed<T> {
@@ -163,7 +165,7 @@ unsafe impl<T: NativeData> NativePayload for Managed<T> {
         &'payload self,
         state: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        visit: &mut dyn FnMut(&'payload Value),
+        visit: &mut dyn FnMut(&'payload StoredValue),
     ) -> ScanStatus {
         let values = self.values.as_slice();
         while state.0 < state.1 {
@@ -187,7 +189,7 @@ unsafe impl<T: NativeData> NativePayload for Managed<T> {
                 .expect("allocated managed field charge"),
             self.values
                 .capacity()
-                .checked_mul(size_of::<Value>())
+                .checked_mul(size_of::<StoredValue>())
                 .expect("allocated managed fields"),
         )
     }

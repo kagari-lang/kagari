@@ -510,7 +510,10 @@ execution after rejection. See [GC accounting](runtime.md#gc-heap) and the
 Rust access. Every strong script edge, including temporary algorithm scratch, must
 be discoverable in every installed state, including errors and unwinds. Stored
 selection metadata remains with the containing native object, not per-element
-host roots. Copying a raw `Value` does not retain it.
+host roots. Payloads store opaque `StoredValue` edges and scanners visit
+`&StoredValue`. Copying this carrier adds neither a root nor access authority.
+It has no safe raw-value getter. `scalar` and `as_scalar` copy edge-free scalar
+data; carrier equality is not language-level structural equality.
 
 One scanner serves admission and full traversal: `ScanState: Copy + Send + 'static`,
 `SCAN_KIND`, `begin_scan` and `scan(state, budget, visit) -> ScanStatus`. The
@@ -558,19 +561,28 @@ protects the value throughout the short loan. This is not raw-Value admission or
 collection-specific bypass. Existing-edge republication retains its unsafe
 continuous-tracing obligation. Publication and republication now shade through the
 phase/epoch marker using admission-reserved work capacity; existing-edge recovery
-requires no fresh execution admission. Production still drains collection synchronously,
-so these barriers do not by themselves establish interleaved-GC acceptance.
+requires no fresh execution admission. Production incremental service uses the
+existing normal-step budget; these barriers alone do not establish final GC acceptance.
 
 `StorageAccess::retain(contract, value)` validates the closed storage type and
 runtime/generation/lifetime, then returns a rooted `ScriptValue` before the loan
 ends. `publish(contract, retained)` validates a retained input before it becomes a
-stored `Value`. For example, a map removal first retains the selected value, then
+stored `StoredValue`. `inspect(contract, stored, read)` validates the same exact
+type and lends a `ValueView` under the existing storage exclusion, without adding
+a root. Its higher-ranked closure can return owned Rust data, but no borrowed
+view; collection, reentry and competing edits remain excluded. For example, a map removal first retains the selected value, then
 commits removal and ends the loan; a callback may collect before the caller reads
 the returned handle. Returning only a copied raw `Value` would leave that gap
 unprotected. `StorageContext::element_contract` supplies the scoped `StorageType`
 contract; it does not infer script types again. Its raw array factory entry,
 `allocate_array_transport`, is unsafe: input edges need protection through array
-publication, and the result needs protection through destination payload scanning.
+publication, and its returned `StoredValue` needs protection through destination
+payload scanning. For constructor inputs, `ValueHandle::store` publishes a live
+argument and `CallContext::store` imports a retained root; neither replaces exact
+destination-type validation or keeps the source alive independently.
+The unsafe conversion/backend `store_transport` validates exact type and heap
+lifetime before publication. Unsafe `StoredValue::value_transport` requires a live
+traced source or retained root throughout use, including callbacks and source edits.
 StorageAccess itself is available only inside an unsafe provider loan. Its safe
 helper methods do not authorize arbitrary raw edges or retention beyond that loan's
 source protection; the outer provider contract owns those obligations.

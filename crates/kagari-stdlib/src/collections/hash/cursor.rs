@@ -12,19 +12,19 @@ use kagari_runtime::{
             NativePayload,
             access::EditPlan,
             scan::{NativeScanKind, ScanBudget, ScanStatus},
+            value::StoredValue,
         },
         storage_type::StorageType,
         typed::NativeContext,
         value_handle::ScriptValue,
     },
     resource::HeapCharge,
-    value::Value,
 };
 use std::marker::PhantomData;
 
 #[derive(Debug)]
 pub(crate) struct HashCursor<P> {
-    source: Value,
+    source: StoredValue,
     contract: StorageType,
     position: usize,
     revision: u64,
@@ -42,7 +42,7 @@ unsafe impl<P: NativePayload> NativePayload for HashCursor<P> {
         &'a self,
         _: &mut (),
         budget: &mut ScanBudget,
-        visit: &mut dyn FnMut(&'a Value),
+        visit: &mut dyn FnMut(&'a StoredValue),
     ) -> ScanStatus {
         budget.charge(1);
         visit(&self.source);
@@ -70,7 +70,10 @@ pub(crate) fn iter<P: HashPayload>(
         conversion.encode_value(&source_type, source.clone())?
     };
     // SAFETY: source_value retains the source until ty.create publishes its traced edge.
-    let raw_source = unsafe { source_value.value_transport(cx.runtime()) }?;
+    let raw_source = unsafe {
+        cx.conversion_scope(&owner)?
+            .store_transport(&source_type, source_value.value_transport(cx.runtime())?)
+    }?;
     ty.create(
         cx,
         HashCursor {
@@ -101,9 +104,10 @@ fn next<P: HashPayload>(
                 cursor.revision,
             ))
         })?;
-        let result = cx.read_payload::<P, _>(source, &contract, |payload, access| {
-            operations::retain_entry(payload, access, revision, position)
-        })?;
+        let result =
+            cx.read_payload::<P, _>(source.value_transport(), &contract, |payload, access| {
+                operations::retain_entry(payload, access, revision, position)
+            })?;
         if result.is_some() {
             position += 1;
         }

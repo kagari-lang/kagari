@@ -1,5 +1,4 @@
 //! Registration contracts need no source compiler or standard-library fixtures.
-use crate::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 use crate::{
     Runtime,
     native::{
@@ -9,7 +8,11 @@ use crate::{
         context::CallContext,
         declarations::{CallableRequirement, FunctionDecl, MethodDecl},
         module::NativeModule,
-        storage::{NativePayload, NativeStorage},
+        storage::{
+            NativePayload, NativeStorage,
+            scan::{NativeScanKind, ScanBudget, ScanStatus},
+            value::StoredValue,
+        },
         types::{TraitRef, Type},
     },
     resource::HeapCharge,
@@ -34,7 +37,7 @@ unsafe impl NativePayload for EmptyPayload {
         &'payload self,
         _: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        _visit: &mut dyn FnMut(&'payload Value),
+        _visit: &mut dyn FnMut(&'payload StoredValue),
     ) -> ScanStatus {
         budget.charge(1);
         ScanStatus::Complete

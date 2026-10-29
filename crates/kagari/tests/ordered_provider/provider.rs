@@ -10,6 +10,7 @@ use kagari_runtime::{
             NativePayload,
             access::{EditPlan, StorageAccess},
             scan::{NativeScanKind, ScanBudget, ScanStatus},
+            value::StoredValue,
         },
         storage_type::StorageType,
         typed::NativeContext,
@@ -17,7 +18,6 @@ use kagari_runtime::{
         views::{NativeOperationGuard, NativeOperationKind},
     },
     resource::HeapCharge,
-    value::Value,
 };
 use std::{
     collections::BTreeMap,
@@ -41,7 +41,7 @@ pub struct Observations {
 #[derive(Debug)]
 pub struct OrderedMap {
     index: BTreeMap<i32, usize>,
-    slots: Vec<Option<Value>>,
+    slots: Vec<Option<StoredValue>>,
     contract: StorageType,
     // (first scratch slot, temporarily vacant indexed source slot)
     scratch: Option<(usize, usize)>,
@@ -85,7 +85,7 @@ unsafe impl NativePayload for OrderedMap {
         &'a self,
         state: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        visit: &mut dyn FnMut(&'a Value),
+        visit: &mut dyn FnMut(&'a StoredValue),
     ) -> ScanStatus {
         while state.0 < state.1 {
             if !budget.take(1) {
@@ -113,7 +113,7 @@ unsafe impl NativePayload for OrderedMap {
             self.index.len() * (size_of::<(i32, usize)>() + 4 * size_of::<usize>());
         HeapCharge::new(
             self.slots.len() + self.index.len(),
-            self.slots.capacity() * size_of::<Option<Value>>() + index_pressure,
+            self.slots.capacity() * size_of::<Option<StoredValue>>() + index_pressure,
         )
     }
 }
@@ -336,7 +336,7 @@ pub fn callback(
 
 #[derive(Debug)]
 pub struct Cursor {
-    source: Value,
+    source: StoredValue,
     contract: StorageType,
     after: Option<i32>,
     revision: u64,
@@ -353,7 +353,7 @@ unsafe impl NativePayload for Cursor {
         &'a self,
         _: &mut (),
         budget: &mut ScanBudget,
-        visit: &mut dyn FnMut(&'a Value),
+        visit: &mut dyn FnMut(&'a StoredValue),
     ) -> ScanStatus {
         budget.charge(1);
         visit(&self.source);
@@ -377,7 +377,8 @@ pub fn iter(
     let mut conversion = ConversionContext::new(cx.runtime(), cx.owner())?;
     let source = conversion.encode_value(&source_type, map)?;
     // SAFETY: source protects the map through cursor traced-edge publication.
-    let source_value = unsafe { source.value_transport(cx.runtime()) }?;
+    let source_value =
+        unsafe { conversion.store_transport(&source_type, source.value_transport(cx.runtime())?) }?;
     // The conversion's roots protect source through allocation and its safepoint.
     ty.create(
         cx,
@@ -409,24 +410,28 @@ pub fn next(
                 cursor.revision,
             ))
         })?;
-        let result = cx.read_payload::<OrderedMap, _>(source, &contract, |map, access| {
-            access.check_revision(revision)?;
-            let entry = match after {
-                None => map.index.first_key_value(),
-                Some(key) => map
-                    .index
-                    .range((Bound::Excluded(key), Bound::Unbounded))
-                    .next(),
-            };
-            entry
-                .map(|(&key, &slot)| {
-                    Ok((
-                        key,
-                        access.retain(&map.contract, map.slots[slot].as_ref().unwrap())?,
-                    ))
-                })
-                .transpose()
-        })?;
+        let result = cx.read_payload::<OrderedMap, _>(
+            source.value_transport(),
+            &contract,
+            |map, access| {
+                access.check_revision(revision)?;
+                let entry = match after {
+                    None => map.index.first_key_value(),
+                    Some(key) => map
+                        .index
+                        .range((Bound::Excluded(key), Bound::Unbounded))
+                        .next(),
+                };
+                entry
+                    .map(|(&key, &slot)| {
+                        Ok((
+                            key,
+                            access.retain(&map.contract, map.slots[slot].as_ref().unwrap())?,
+                        ))
+                    })
+                    .transpose()
+            },
+        )?;
         if let Some((key, _)) = &result {
             cursor.edit(
                 cx,

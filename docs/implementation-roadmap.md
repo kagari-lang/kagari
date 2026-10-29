@@ -589,9 +589,16 @@ measurements pass all 22 observed original-PG00 normal-step gates; 34 rows remai
 unobserved. Phase 2 is locally complete. The active goal proceeds to phase 3's
 managed/execution owners, Native providers and bridge removal. Common physical
 headers, physical interface-wrapper storage, generic direct-page marks and builtin
-transport/graph conversion are locally integrated. Native StoredValue providers and
-traced extraction tombstones are next, followed by the complete lifecycle audit and
-bridge removal. The
+transport/graph conversion are locally integrated. Native providers now use opaque
+StoredValue edges and the shared inspect/retain/publish protocol; this checkpoint's
+selected validation is recorded in the active plan. Traced extraction tombstones
+now retain original slots and marks; the moved-ID ledger/sweep is removed.
+Native/Array transport now uses GcRef/page marks too, removing the object-generation
+directory, mixed identity enum and 13-byte field bridge. Phase 3.3 also removes the
+unused indexed allocator geometry, duplicate per-slot records and forwarding helpers.
+Its cursor/queue/disposal/reentry lifecycle audit and selected local checks are
+complete. Phase 3 is locally complete; phase 4 next freezes final performance
+images and completes historical gates, required CI and the Lua refresh. The
 [ordered closure sequence](paged-incremental-gc-design.md#ordered-closure-after-expanded-gates-2026-10-29)
 records runtime references, while the
 [next goal execution contract](paged-incremental-gc-design.md#execution-contract-for-the-next-goal-2026-10-29)

@@ -588,9 +588,8 @@ impl GcHeap {
     /// Rooting cannot revive an expired reference. Source aliases must not replace
     /// the input before publication. Ordinary hosts use typed conversion or scoped
     /// retention instead of raw transport.
-    /// The checked-ID implementation also permits non-dereferencing invalid-ID
-    /// rejection probes. They are not live backend inputs and must be replaced
-    /// with inert identity/retained-wrapper checks before direct references.
+    /// Rejection probes must retain a live foreign/wrong-kind allocation or a
+    /// taken Native tombstone; reclaimed addresses are never valid inputs.
     #[doc(hidden)]
     pub unsafe fn root_value_transport(&self, value: Value) -> Option<RootedValue> {
         self.root_value(value)
@@ -685,9 +684,8 @@ impl GcHeap {
     ///     let roots = heap.root_execution_values_transport(vec![Value::Unit]);
     /// }
     /// ```
-    /// The checked-ID implementation also permits non-dereferencing invalid-ID
-    /// rejection probes. They are not live backend inputs and must be replaced
-    /// with inert identity/retained-wrapper checks before direct references.
+    /// Rejection probes must retain a live foreign/wrong-kind allocation or a
+    /// taken Native tombstone; reclaimed addresses are never valid inputs.
     #[doc(hidden)]
     pub unsafe fn root_execution_values_transport(&self, values: Vec<Value>) -> Option<RootSet> {
         self.root_execution_values(values)

@@ -2,12 +2,12 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    gc::{GcHeap, HeapObjectId, leases::BorrowedLease, roots::RootedValue},
+    gc::{GcHeap, leases::BorrowedLease, reference::GcRef, roots::RootedValue},
     native::{
         binding::NativeResult,
         context::{CallContext, arguments::ArgumentView},
         scalar::NativeScalar,
-        storage::{NativePayload, access::StorageAccess},
+        storage::{NativePayload, access::StorageAccess, value::StoredValue},
     },
     value::Value,
 };
@@ -36,7 +36,7 @@ pub(crate) type Recovery = dyn Fn(&mut (dyn Any + Send), &mut StorageAccess<'_>)
 /// No context or payload borrow spans callback execution.
 pub struct NativeOperationGuard<'guard> {
     pub(crate) heap: &'guard GcHeap,
-    pub(crate) id: HeapObjectId,
+    pub(crate) id: GcRef,
     pub(crate) runtime: Option<&'guard Runtime>,
     pub(crate) recovery: Option<Box<Recovery>>,
     pub(crate) _root: Option<RootedValue>,
@@ -95,6 +95,18 @@ impl<'call> ValueHandle<'call> {
 
     pub fn declared_type(&self) -> &'call Ty {
         self.ty
+    }
+
+    /// Publish an argument as an opaque edge for a scanned Native payload.
+    /// The argument retains its source until the call ends. Install the returned
+    /// carrier in traced storage before then; copying it does not add a root.
+    pub fn store(&self) -> NativeResult<StoredValue> {
+        let value = self.value();
+        if !value.is_default_heap_payload(self.heap) {
+            return Err(RuntimeError::module_validation("native stored argument"));
+        }
+        self.heap.publish_value(value)?;
+        Ok(StoredValue::new(value))
     }
 
     /// Extract provider transport while the source argument remains protected.

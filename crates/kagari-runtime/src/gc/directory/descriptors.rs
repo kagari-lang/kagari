@@ -43,15 +43,18 @@ impl Descriptor {
     pub(super) fn new(
         kind: PayloadKind,
         layout: Layout,
+        payload_offset: usize,
         edges: bool,
         destroy: unsafe fn(NonNull<u8>),
     ) -> Self {
+        assert!(payload_offset >= ObjectHeader::SIZE && payload_offset <= layout.size());
+        assert!(layout.align() >= align_of::<ObjectHeader>());
         Self {
             id: OnceLock::new(),
             identity: None,
             kind,
             layout,
-            payload_offset: 0,
+            payload_offset,
             edges,
             structure: None,
             destroy: Some(destroy),
@@ -186,17 +189,23 @@ impl Descriptors {
         let (layout, offset) = ObjectHeader::layout(Layout::new::<T>())
             .ok_or_else(|| RuntimeError::resource_limit("managed payload layout"))?;
         self.intern(Key::Builtin(kind), || {
-            let mut descriptor = Descriptor::new(kind, layout, edges, destroy::<T>);
-            descriptor.payload_offset = offset;
+            let mut descriptor = Descriptor::new(kind, layout, offset, edges, destroy::<T>);
             descriptor.destroy = needs_drop::<T>().then_some(destroy::<T>);
             descriptor
         })
     }
 
     pub(super) fn native(&mut self, object: &NativeObject) -> NativeResult<Arc<Descriptor>> {
-        let (layout, _) = object.physical_layout()?;
+        let (layout, offset) = ObjectHeader::layout(object.physical_layout()?.0)
+            .ok_or_else(|| RuntimeError::resource_limit("native object header layout"))?;
         self.intern(Key::Native(object.payload_type()), || {
-            Descriptor::new(PayloadKind::Native, layout, true, destroy::<NativeObject>)
+            Descriptor::new(
+                PayloadKind::Native,
+                layout.pad_to_align(),
+                offset,
+                true,
+                destroy::<NativeObject>,
+            )
         })
     }
 

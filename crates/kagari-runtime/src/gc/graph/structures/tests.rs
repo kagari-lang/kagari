@@ -113,7 +113,7 @@ fn suspended_struct_scan_retries_unshaded_field_and_observes_mutation() {
     heap.graph.lock().close_mark().unwrap();
     for (value, retained) in [(first, false), (second, true), (replacement, true)] {
         assert_eq!(
-            heap.graph_survivor(runtime.modules(), value.heap_identity().unwrap().graph())
+            heap.graph_survivor(runtime.modules(), value.direct_reference().unwrap().graph())
                 .unwrap(),
             retained
         );

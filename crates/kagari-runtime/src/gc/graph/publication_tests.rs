@@ -59,7 +59,7 @@ fn work(runtime: &Runtime) {
 fn survivor(runtime: &Runtime, value: Value) -> bool {
     runtime
         .gc
-        .graph_survivor(&runtime.modules, value.heap_identity().unwrap().graph())
+        .graph_survivor(&runtime.modules, value.direct_reference().unwrap().graph())
         .unwrap()
 }
 
@@ -132,7 +132,7 @@ fn object_edge_cursor_does_not_advance_when_its_bitmap_reset_cannot_fit() {
     runtime.gc.publish_value(parent).unwrap();
     let mut cursor = runtime
         .gc
-        .begin_object_scan(parent.direct_reference().unwrap().into())
+        .begin_object_scan(parent.direct_reference().unwrap())
         .unwrap();
     let mut visit = |edge: ScanEdge<'_>, budget: &mut ScanBudget| {
         runtime
@@ -166,7 +166,7 @@ fn object_edge_cursor_does_not_advance_when_its_bitmap_reset_cannot_fit() {
     for value in &targets {
         runtime
             .gc
-            .with_heap_mark(value.heap_identity().unwrap().graph(), |mark| {
+            .with_heap_mark(value.direct_reference().unwrap().graph(), |mark| {
                 assert_eq!(
                     mark.color(runtime.gc.graph.lock().epoch),
                     Color::Gray,
@@ -315,7 +315,7 @@ fn root_replacement_release_reuse_and_late_registration_do_not_restart_enumerati
 }
 
 #[test]
-fn native_take_transfers_pending_and_active_work_without_aliasing_the_reused_directory() {
+fn native_take_preserves_pending_and_active_marks_until_tombstone_reclamation() {
     for steps in [0, 6] {
         let mut runtime = Runtime::default();
         let owner = allocation_owner(&mut runtime);
@@ -323,11 +323,11 @@ fn native_take_transfers_pending_and_active_work_without_aliasing_the_reused_dir
             .prepare_payload(&runtime.gc, &Ty::Builtin(BuiltinType::I32), 7, &owner)
             .unwrap();
         let id = runtime.gc.alloc_native(payload).unwrap();
-        let _old_alias = runtime.root_value(Value::GcHandle(id)).unwrap();
+        let old_alias = runtime.root_value(Value::GcHandle(id)).unwrap();
         runtime.gc.graph.lock().begin_cycle().unwrap();
         runtime
             .gc
-            .publish_heap_identity(GraphIdentity::Object(id))
+            .publish_heap_identity(GraphIdentity::Direct(id))
             .unwrap();
         runtime.gc.graph.lock().finish_roots().unwrap();
         assert_eq!(
@@ -342,11 +342,13 @@ fn native_take_transfers_pending_and_active_work_without_aliasing_the_reused_dir
             .prepare_payload(&runtime.gc, &Ty::Builtin(BuiltinType::I32), 9, &owner)
             .unwrap();
         let replacement = runtime.gc.alloc_native(payload).unwrap();
-        assert_eq!(id.index(), replacement.index());
-        assert_ne!(id.generation(), replacement.generation());
+        assert_ne!(id, replacement);
         work(&runtime);
         runtime.gc.graph.lock().close_mark().unwrap();
-        for identity in [GraphIdentity::Moved(id), GraphIdentity::Object(replacement)] {
+        for identity in [
+            GraphIdentity::Direct(id),
+            GraphIdentity::Direct(replacement),
+        ] {
             assert!(
                 runtime
                     .gc
@@ -358,14 +360,17 @@ fn native_take_transfers_pending_and_active_work_without_aliasing_the_reused_dir
         runtime.gc.graph.lock().finish_sweep().unwrap();
         let collected = runtime.collect_garbage().unwrap();
         assert_eq!(collected.reclaimed_objects, 1);
-        assert_eq!(collected.live_objects, 0);
+        assert_eq!(collected.live_objects, 1);
         assert!(
             runtime
                 .gc
-                .graph_survivor(&runtime.modules, GraphIdentity::Moved(id))
+                .graph_survivor(&runtime.modules, GraphIdentity::Direct(id))
                 .is_err(),
             "marks are not authoritative in Idle"
         );
+        drop(old_alias);
+        assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
+        assert_eq!(runtime.gc.stats().current_retained_bytes, 0);
     }
 }
 

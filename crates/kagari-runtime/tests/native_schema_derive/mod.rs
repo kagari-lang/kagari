@@ -1,6 +1,5 @@
 use super::program_for_source;
 use kagari_derive::KagariValue;
-use kagari_runtime::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     gc::GcHeapConfig,
@@ -10,12 +9,15 @@ use kagari_runtime::{
         conversion::{KagariType, context::ConversionContext},
         module::NativeModule,
         payload::Opaque,
-        storage::{NativePayload, NativeStorage},
+        storage::{
+            NativePayload, NativeStorage,
+            scan::{NativeScanKind, ScanBudget, ScanStatus},
+            value::StoredValue,
+        },
         typed::NativeContext,
         types::Type,
     },
     resource::HeapCharge,
-    value::Value,
 };
 use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::ty::Ty;
@@ -139,7 +141,7 @@ unsafe impl NativePayload for InvalidStorage {
         &'payload self,
         _: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        _: &mut dyn FnMut(&'payload Value),
+        _: &mut dyn FnMut(&'payload StoredValue),
     ) -> ScanStatus {
         budget.charge(1);
         ScanStatus::Complete

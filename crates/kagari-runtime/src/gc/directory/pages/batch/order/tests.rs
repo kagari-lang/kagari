@@ -23,6 +23,7 @@ fn every_prefix_reserves_all_actual_sort_work_without_reordering_fragments() {
         .admit(Arc::new(Descriptor::new(
             PayloadKind::String,
             Layout::new::<u64>(),
+            size_of::<u64>(),
             false,
             |_| {},
         )))

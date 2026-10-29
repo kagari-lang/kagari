@@ -4,16 +4,18 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionKind, map::DefinitionContext},
 };
-use kagari_runtime::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 use kagari_runtime::{
     Runtime,
     native::{
         builder::ModuleBuilder,
         module::NativeModule,
-        storage::{NativePayload, NativeStorage},
+        storage::{
+            NativePayload, NativeStorage,
+            scan::{NativeScanKind, ScanBudget, ScanStatus},
+            value::StoredValue,
+        },
     },
     resource::HeapCharge,
-    value::Value,
 };
 use kagari_types::{
     callable::CallableImplementation,
@@ -39,7 +41,7 @@ unsafe impl NativePayload for EmptyPayload {
         &'payload self,
         _: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        _visit: &mut dyn FnMut(&'payload Value),
+        _visit: &mut dyn FnMut(&'payload StoredValue),
     ) -> ScanStatus {
         budget.charge(1);
         ScanStatus::Complete

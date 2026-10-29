@@ -120,12 +120,13 @@ impl ObjectStorage {
                     HeapObject::Ephemeral(pointer.cast::<EphemeralValue>().as_mut())
                 }
                 PayloadKind::Native => HeapObject::Native(pointer.cast::<NativeObject>().as_mut()),
+                PayloadKind::Taken => HeapObject::Taken,
                 PayloadKind::Enum => {
                     let value = pointer.cast::<EnumPayload>().as_mut();
                     HeapObject::Enum(&mut value.0, &mut value.1)
                 }
                 PayloadKind::Struct => unreachable!("structure handled above"),
-                PayloadKind::Interface | PayloadKind::Vacant => {
+                PayloadKind::Interface => {
                     unreachable!("checked physical descriptor")
                 }
                 PayloadKind::Closure => HeapObject::Closure {
@@ -181,6 +182,7 @@ impl<'a> CheckedPayload<'a> {
                     HeapObject::Ephemeral(pointer.cast::<EphemeralValue>().as_ref())
                 }
                 PayloadKind::Native => HeapObject::Native(pointer.cast::<NativeObject>().as_ref()),
+                PayloadKind::Taken => HeapObject::Taken,
                 PayloadKind::Enum => {
                     let value = pointer.cast::<EnumPayload>().as_ref();
                     HeapObject::Enum(&value.0, &value.1)
@@ -194,7 +196,6 @@ impl<'a> CheckedPayload<'a> {
                         .ok()?
                         .directory_binding(self.interface_snapshot_index()?)?,
                 },
-                PayloadKind::Vacant => unreachable!("checked physical descriptor"),
                 PayloadKind::Closure => HeapObject::Closure {
                     snapshot: pointer.cast::<ClosureValueSnapshot>().as_ref(),
                 },

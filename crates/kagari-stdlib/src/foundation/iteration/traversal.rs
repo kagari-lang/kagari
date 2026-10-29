@@ -6,7 +6,7 @@ use crate::{
 };
 use kagari_runtime::{
     error::RuntimeError,
-    gc::HeapObjectId,
+    gc::reference::GcRef,
     native::{binding::NativeResult, context::CallContext, value_handle::ScriptValue},
     value::Value,
 };
@@ -19,7 +19,7 @@ fn invalid() -> RuntimeError {
 
 // Only the standard Vec implementation promises callback-free buffer traversal.
 // Other native objects, even those with sequence storage, use their selected iterators.
-pub(crate) fn vec_argument(cx: &CallContext<'_>) -> NativeResult<Option<HeapObjectId>> {
+pub(crate) fn vec_argument(cx: &CallContext<'_>) -> NativeResult<Option<GcRef>> {
     let argument = cx.argument_type_argument(0)?;
     let Ty::NativeObject(nominal) = argument.ty() else {
         return Ok(None);

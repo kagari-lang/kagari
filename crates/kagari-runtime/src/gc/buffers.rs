@@ -4,7 +4,7 @@
 use crate::gc::array_storage::{ArrayPayload, ArrayStorage};
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
-    gc::{GcHeap, HeapObjectId},
+    gc::{GcHeap, reference::GcRef},
     native::storage_type::StorageType,
     resource::HeapCharge,
     value::Value,
@@ -20,15 +20,15 @@ fn invalid() -> RuntimeError {
 }
 
 impl GcHeap {
-    pub(crate) fn buffer_len(&self, id: HeapObjectId) -> Option<usize> {
+    pub(crate) fn buffer_len(&self, id: GcRef) -> Option<usize> {
         self.with_buffer(id, ArrayStorage::len)
     }
 
-    pub(crate) fn buffer_snapshot(&self, id: HeapObjectId) -> Option<Vec<Value>> {
+    pub(crate) fn buffer_snapshot(&self, id: GcRef) -> Option<Vec<Value>> {
         self.with_buffer(id, ArrayStorage::snapshot)
     }
 
-    pub(crate) fn buffer_get(&self, id: HeapObjectId, index: impl TryInto<usize>) -> Option<Value> {
+    pub(crate) fn buffer_get(&self, id: GcRef, index: impl TryInto<usize>) -> Option<Value> {
         let index = index.try_into().ok()?;
         self.with_buffer(id, |values| values.get(index)).flatten()
     }
@@ -36,7 +36,7 @@ impl GcHeap {
     /// Distinguish absence from unavailable storage, including a detached edit buffer.
     pub(crate) fn buffer_element(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         index: impl TryInto<usize>,
     ) -> Result<Option<Value>, RuntimeError> {
         let index = index.try_into().ok();
@@ -44,7 +44,7 @@ impl GcHeap {
             .ok_or_else(|| RuntimeError::module_validation("array handle length"))
     }
 
-    pub(crate) fn buffer_contract(&self, id: HeapObjectId) -> Option<Arc<StorageType>> {
+    pub(crate) fn buffer_contract(&self, id: GcRef) -> Option<Arc<StorageType>> {
         let objects = self.objects.borrow();
         let object = self.native_ref(&objects, id)?;
         if !matches!(object.ty, Ty::Array(..)) {
@@ -55,7 +55,7 @@ impl GcHeap {
 
     pub(super) fn validate_buffer_value(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         value: &Value,
     ) -> Result<(), RuntimeError> {
         let contract = self.buffer_contract(id).ok_or_else(invalid)?;
@@ -84,7 +84,7 @@ impl GcHeap {
         Ok(values)
     }
 
-    pub(crate) fn buffer_fill(&self, id: HeapObjectId, value: Value) -> Result<(), RuntimeError> {
+    pub(crate) fn buffer_fill(&self, id: GcRef, value: Value) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
         self.validate_buffer_value(id, &value)?;
         let length = self.buffer_len(id).ok_or_else(invalid)?;
@@ -106,8 +106,8 @@ impl GcHeap {
 
     pub(crate) fn buffer_copy_from(
         &self,
-        target: HeapObjectId,
-        source: HeapObjectId,
+        target: GcRef,
+        source: GcRef,
     ) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
         let length = self.buffer_len(target).ok_or_else(invalid)?;
@@ -134,7 +134,7 @@ impl GcHeap {
 
     pub(crate) fn buffer_copy_within(
         &self,
-        target: HeapObjectId,
+        target: GcRef,
         start: Bound<usize>,
         end: Bound<usize>,
         destination: usize,
@@ -173,7 +173,7 @@ impl GcHeap {
 
     pub(crate) fn buffer_set(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         index: impl TryInto<usize>,
         value: Value,
     ) -> Result<(), RuntimeError> {
@@ -201,7 +201,7 @@ impl GcHeap {
 
     pub(crate) fn with_buffer<R>(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         f: impl FnOnce(&ArrayStorage) -> R,
     ) -> Option<R> {
         self.check_native_operation(id, None, false).ok()?;
@@ -216,7 +216,7 @@ impl GcHeap {
 
     pub(super) fn with_buffer_mut<R>(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         growth: usize,
         f: impl FnOnce(&mut ArrayStorage) -> R,
     ) -> Result<R, RuntimeError> {

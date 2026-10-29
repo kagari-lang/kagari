@@ -1,11 +1,16 @@
 //! Finite specialization of script scalar layouts, selected from the declared type.
 //! No inference from the first element, no per-element GC roots for primitive data.
-use crate::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     native::{
-        binding::NativeResult, scalar::NativeScalar, storage::NativePayload,
+        binding::NativeResult,
+        scalar::NativeScalar,
+        storage::{
+            NativePayload,
+            scan::{NativeScanKind, ScanBudget, ScanStatus},
+            value::StoredValue,
+        },
         storage_type::StorageType,
     },
     resource::HeapCharge,
@@ -30,7 +35,7 @@ pub(crate) enum ArrayStorage {
     U64(Vec<u64>),
     F32(Vec<f32>),
     F64(Vec<f64>),
-    Traced(Vec<Value>),
+    Traced(Vec<StoredValue>),
 }
 
 macro_rules! storage {
@@ -72,17 +77,17 @@ macro_rules! storage {
             }
 
             pub(crate) fn get(&self, index: usize) -> Option<Value> {
-                match self { $(Self::$variant(values) => values.get(index).copied().map(NativeScalar::encode),)+ Self::Traced(values) => values.get(index).cloned() }
+                match self { $(Self::$variant(values) => values.get(index).copied().map(NativeScalar::encode),)+ Self::Traced(values) => values.get(index).map(StoredValue::value) }
             }
 
             pub(crate) fn push(&mut self, value: Value) -> NativeResult<()> {
-                match self { $(Self::$variant(values) => values.push(<$ty>::decode(value)?),)+ Self::Traced(values) => values.push(value) }
+                match self { $(Self::$variant(values) => values.push(<$ty>::decode(value)?),)+ Self::Traced(values) => values.push(StoredValue::new(value)) }
                 Ok(())
             }
 
             pub(crate) fn append_repeated(&mut self, value: Value, count: usize) -> NativeResult<()> {
                 let length = self.len().checked_add(count).ok_or_else(|| RuntimeError::resource_limit("array length"))?;
-                match self { $(Self::$variant(values) => values.resize(length, <$ty>::decode(value)?),)+ Self::Traced(values) => values.resize(length, value) }
+                match self { $(Self::$variant(values) => values.resize(length, <$ty>::decode(value)?),)+ Self::Traced(values) => values.resize(length, StoredValue::new(value)) }
                 Ok(())
             }
 
@@ -110,7 +115,7 @@ macro_rules! storage {
 
             pub(crate) fn set(&mut self, index: usize, value: Value) -> NativeResult<()> {
                 if index >= self.len() { return Err(invalid_index()); }
-                match self { $(Self::$variant(values) => values[index] = <$ty>::decode(value)?,)+ Self::Traced(values) => values[index] = value }
+                match self { $(Self::$variant(values) => values[index] = <$ty>::decode(value)?,)+ Self::Traced(values) => values[index] = StoredValue::new(value) }
                 Ok(())
             }
 
@@ -159,7 +164,7 @@ fn invalid_index() -> RuntimeError {
 }
 
 impl ArrayStorage {
-    pub(crate) fn traced(&self) -> &[Value] {
+    pub(crate) fn traced(&self) -> &[StoredValue] {
         match self {
             Self::Traced(values) => values,
             _ => &[],
@@ -191,7 +196,7 @@ unsafe impl NativePayload for ArrayPayload {
         &'payload self,
         state: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        visit: &mut dyn FnMut(&'payload Value),
+        visit: &mut dyn FnMut(&'payload StoredValue),
     ) -> ScanStatus {
         let values = self.values.traced();
         while state.0 < state.1 {

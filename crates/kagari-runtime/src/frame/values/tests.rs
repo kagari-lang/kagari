@@ -431,7 +431,7 @@ fn register_arguments_survive_growth_reordering_and_repeated_sources() {
         assert!(
             runtime
                 .gc
-                .graph_survivor(runtime.modules(), value.heap_identity().unwrap().graph())
+                .graph_survivor(runtime.modules(), value.direct_reference().unwrap().graph())
                 .unwrap()
         );
     }

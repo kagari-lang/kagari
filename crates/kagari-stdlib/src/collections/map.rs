@@ -17,20 +17,20 @@ use kagari_runtime::{
         storage::{
             NativePayload,
             scan::{NativeScanKind, ScanBudget, ScanStatus},
+            value::StoredValue,
         },
         typed::NativeContext,
         types::Type,
         value_handle::ScriptValue,
     },
     resource::HeapCharge,
-    value::Value,
 };
 use std::marker::PhantomData;
 
 /// Opaque HashMap payload. Reference slots and hash policy belong to the library.
 #[derive(Debug)]
 pub struct MapStorage {
-    table: HashTable<Value>,
+    table: HashTable<StoredValue>,
 }
 
 impl MapStorage {
@@ -42,13 +42,13 @@ impl MapStorage {
 }
 
 impl HashPayload for MapStorage {
-    type Value = Value;
+    type Value = StoredValue;
 
-    fn table(&self) -> &HashTable<Value> {
+    fn table(&self) -> &HashTable<StoredValue> {
         &self.table
     }
 
-    fn table_mut(&mut self) -> &mut HashTable<Value> {
+    fn table_mut(&mut self) -> &mut HashTable<StoredValue> {
         &mut self.table
     }
 }
@@ -68,7 +68,7 @@ unsafe impl NativePayload for MapStorage {
         &'a self,
         state: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        visit: &mut dyn FnMut(&'a Value),
+        visit: &mut dyn FnMut(&'a StoredValue),
     ) -> ScanStatus {
         self.table.scan(state, budget, visit)
     }

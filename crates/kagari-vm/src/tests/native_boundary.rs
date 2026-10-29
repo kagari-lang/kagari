@@ -3,7 +3,6 @@ use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::analysis::AnalysisDatabase;
-use kagari_runtime::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 
 use kagari_runtime::{
     Runtime,
@@ -19,7 +18,11 @@ use kagari_runtime::{
         module::NativeModule,
         objects::Object,
         payload::Opaque,
-        storage::{NativePayload, NativeStorage},
+        storage::{
+            NativePayload, NativeStorage,
+            scan::{NativeScanKind, ScanBudget, ScanStatus},
+            value::StoredValue,
+        },
         storage_type::StorageType,
         typed::NativeContext,
         types::Type,
@@ -363,7 +366,7 @@ fn selected_script_callbacks_return_directly_to_a_rust_loop() {
 
 #[derive(Debug)]
 struct TracedCounter {
-    values: Value,
+    values: StoredValue,
     contract: Option<StorageType>,
     dropped: Arc<AtomicUsize>,
 }
@@ -378,7 +381,7 @@ unsafe impl NativePayload for TracedCounter {
         &'payload self,
         _: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        visit: &mut dyn FnMut(&'payload Value),
+        visit: &mut dyn FnMut(&'payload StoredValue),
     ) -> ScanStatus {
         budget.charge(1);
         visit(&self.values);
@@ -463,7 +466,7 @@ fn registered_nominal_payload_traces_children_and_drops_with_the_heap() {
                             context.allocate_result_transport().unwrap_err().message(),
                             "module validation failed: script reentry during heap storage access"
                         );
-                        let Value::Array(id) = payload.values else {
+                        let Value::Array(id) = payload.values.value_transport() else {
                             panic!("counter payload");
                         };
                         context
@@ -1019,7 +1022,10 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
             NativeBinding::new_transport(vec![Codec::Value], counter.codec(), move |cx| {
                 let payload = TracedCounter {
                     // SAFETY: The call retains this input until the payload scanner publishes its edge.
-                    values: cx.argument_transport(0)?,
+                    values: cx.native_context()?.conversion().store_transport(
+                        &cx.argument_type_argument(0)?,
+                        cx.argument_transport(0)?,
+                    )?,
                     contract: Some(StorageType::prepare_scoped(
                         cx.argument_type_argument(0)?,
                         cx.owner(),

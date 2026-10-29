@@ -1109,6 +1109,11 @@ the lower-level descriptor. NativeData supplies safe `read_data`/`edit_data`;
 ManagedStorage describes private traced fields and checked writes. Complete builders
 root initializers until publication. Advanced unsafe NativePayload supplies one
 `begin_scan`/`scan` protocol, infallible constant-time `HeapCharge` and Rust destruction.
+Payload edges and algorithm scratch use opaque `StoredValue` carriers. Scanners
+visit these carriers; copying one adds no root and grants no independent heap
+access. `StorageAccess::inspect` reads under the existing non-reentrant loan;
+`retain` creates an owning `ScriptValue` for extraction or callbacks, and checked
+publication imports retained values or call arguments into traced storage.
 General `Opaque::read`/`edit` are unsafe short loans with checked `StorageAccess`
 retention/publication, `EditPlan` accounting and native-object revisions. Operation
 guards protect callback-spanning work and sealed same-payload recovery. Payload
@@ -1832,50 +1837,60 @@ Internal `Value` is a 16-byte `Copy` tagged value. Scalars retain complete paylo
 structs, strings, tuples, ranges, enums, closures, cells and host descriptors carry
 a non-owning `GcRef` to their stable allocation header. Interface wrappers carry
 the same reference and trace a separately generation-checked metadata snapshot.
-Native/Array aliases retain checked 12-byte heap identities (owner, slot, generation)
-until extraction gains traced tombstones in the ordered migration. Copying a Value neither copies
+Native/Array aliases use GcRef too; extraction leaves a traced tombstone at the
+original address. Copying a Value neither copies
 text/aggregate contents nor acquires ownership or a root. Tuple updates allocate a
 replacement tuple while sharing referenced children; mutable children retain alias
 semantics. Host descriptors are heap records, but referenced Rust state remains
 outside the script heap. Runtime-only ephemeral IDs remain a distinct value tag.
-Indexed access checks owner, generation and object kind. Direct access requires a
-retained frame/root/edge, validates the allocation against the owning heap and
-checks its representation; it cannot validate or revive a reclaimed address.
-Saturated indexed generations retire storage; owner/slot exhaustion cannot truncate
-or wrap identity.
+Managed access requires a retained frame/root/edge, validates the allocation
+against the owning heap and checks its representation; it cannot validate or revive
+a reclaimed address. Roots, executable metadata and host capabilities retain their
+own checked identities and generation-exhaustion rules.
 
-The heap directory stores generation and a private kind/location (12 bytes on the
-measured 64-bit target). It locates nonmoving small slots or separately allocated
-large payloads; vacant identities carry their own free-chain link, not a second
-free-identity Vec. Generations survive backing release and saturated identities
-never reenter that chain. Rare candidate-initialization ownership remains keyed
-by full identity outside the common slot.
+The allocation directory owns physical page/large backing records, not a second
+per-object generation table. A common header holds descriptor/allocation indices;
+physical occupancy and page marks remain with that allocation owner. Rare
+candidate-initialization ownership is keyed by GcRef outside the common header.
 
 Small allocations share independent 1 KiB, 16-byte-aligned slabs grouped by finite
 stride class and edge capability, not nominal type. The first class fitting the
 combined layout and its alignment is selected; size above 1024 or alignment above
 16 uses an exact-layout large allocation. PG02's measured correction supersedes
 initial 4 KiB slabs: these are separately released allocations, not subpages of a
-retained 4 KiB block. Every slab has occupied/retiring bits. Indexed slabs also hold
-directory back-references and numeric representation tokens. Direct slabs instead
-retain dispatch in each object's 8-byte header and marks in their page trailer,
-without duplicate per-slot directory records. Header dispatch permits different
+retained 4 KiB block. Every slab has occupied/retiring bits. All managed families,
+including Native/Array, allocate into direct slabs, retaining dispatch in each
+object's 8-byte header and marks in the page trailer without duplicate per-object
+directory records. One geometry per stride supplies both edge groups; there is no
+indexed allocation mode or headerless descriptor. Header dispatch permits different
 payload kinds to share a stride/edge class; the descriptor supplies the aligned
-payload offset. Large records do not carry small-page slot arrays or bitmaps.
+payload offset. Large records retain page marks and active links in their trailer,
+without small-page slot arrays or bitmaps.
 Empty backing is released after its last retired
 payload is disposed; surviving payloads never move during ordinary collection.
 
-Native allocations contain their identity-local header and actual aligned Rust T,
+Native allocations contain the same 8-byte descriptor/allocation prefix, followed
+by alignment padding, their identity-local record and actual aligned Rust T,
 not a permanently boxed T behind a paged header. Mutation revisions remain in the
 native header; new identities start fresh and replacement preserves the receiver's
 revision. Staging/factory transport may use a temporary Box before placement.
+Successful NativeTake moves T once and replaces the allocation's dispatch with an
+edge-free tombstone. The original mark and occupied slot remain until old aliases
+die; no moved-ID ledger or separate collection stage exists. The taken Native
+record and metadata are destroyed outside storage borrows. Indirect payload charge
+moves out immediately; physical backing, including unused inline extent, stays
+charged until ordinary sweep reclaims the tombstone. Access and new publication
+reject it, while existing traced aliases keep its address from being reused.
 Runtime-local descriptor admissions cover live and retiring allocations. Slots
 store numeric tokens rather than per-slot Arc owners; disposal retains dispatch
 and backing until destruction completes. Canonical struct layouts remain with
 one semantic interning owner, not a duplicate physical semantic-key map.
 
 The current replacement marker has checked phase/epoch state, original-owner marks
-and one active owned scan cursor. Each indexed 128-slot identity-store block holds
+and one active owned scan cursor. Managed allocations use GcRef throughout values,
+Native leases, graph work and initialization ownership. No HeapObjectId, mixed
+heap-identity enum or per-object generation directory remains. Each indexed
+128-slot executable-metadata identity-store block holds
 discovered/scanned bitmaps and deduplicates a pending block job. Direct references
 use their physical page's corresponding mark group, released after its final
 disposed occupant and before allocation-index reuse. Non-reused static cells use

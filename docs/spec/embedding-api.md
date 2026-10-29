@@ -924,9 +924,12 @@ not a runtime trait resolver.
 storage registered with `NativeStorage::takeable` (or `data`). It moves the original
 payload without Clone/Copy requirements. A failed take changes nothing; a successful
 take invalidates all old host/script aliases, parked values and method receivers.
-Reinsertion has a new generation, including when the same physical slot is reused.
-The collector retains only an inert, charged invalidation identity while old aliases
-remain; it cannot be accessed or published as a live object. Managed script-edge
+Reinsertion creates a different live allocation. The original occupied slot becomes
+an edge-free tombstone while old aliases remain; it cannot be accessed or published
+as a live object, and its address is not reused. Indirect payload charge is released
+on extraction, but the original physical backing remains until ordinary collection
+reclaims that tombstone. Object/retained-backing statistics include this occupied
+allocation. The moved Rust value is destroyed only by its new host owner. Managed script-edge
 payloads do not receive extraction capability from an empty trace function.
 
 `ScriptVec::retain` and `dedup_by` run typed callbacks under the existing exclusive

@@ -1,14 +1,14 @@
 //! Admission and operations for fixed builtin arrays.
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
-    gc::{GcHeap, GcObjectKind, HeapObjectId},
+    gc::{GcHeap, GcObjectKind, reference::GcRef},
     native::storage_type::StorageType,
     value::Value,
 };
 use std::{ops::Bound, sync::Arc};
 
 impl GcHeap {
-    fn ensure_array(&self, id: HeapObjectId) -> Result<(), RuntimeError> {
+    fn ensure_array(&self, id: GcRef) -> Result<(), RuntimeError> {
         if self.identity_kind(id) == Some(GcObjectKind::Array) && self.buffer_contract(id).is_some()
         {
             Ok(())
@@ -29,11 +29,11 @@ impl GcHeap {
     /// retained wrong-kind/foreign value or a checked root token to test rejection;
     /// never inspect a reclaimed direct address.
     #[doc(hidden)]
-    pub unsafe fn array_len_transport(&self, id: HeapObjectId) -> Option<usize> {
+    pub unsafe fn array_len_transport(&self, id: GcRef) -> Option<usize> {
         self.array_len(id)
     }
 
-    pub(crate) fn array_len(&self, id: HeapObjectId) -> Option<usize> {
+    pub(crate) fn array_len(&self, id: GcRef) -> Option<usize> {
         self.ensure_array(id).ok()?;
         self.buffer_len(id)
     }
@@ -48,11 +48,11 @@ impl GcHeap {
     /// retained wrong-kind/foreign value or a checked root token to test rejection;
     /// never inspect a reclaimed direct address.
     #[doc(hidden)]
-    pub unsafe fn array_snapshot_transport(&self, id: HeapObjectId) -> Option<Vec<Value>> {
+    pub unsafe fn array_snapshot_transport(&self, id: GcRef) -> Option<Vec<Value>> {
         self.array_snapshot(id)
     }
 
-    pub(crate) fn array_snapshot(&self, id: HeapObjectId) -> Option<Vec<Value>> {
+    pub(crate) fn array_snapshot(&self, id: GcRef) -> Option<Vec<Value>> {
         self.ensure_array(id).ok()?;
         self.buffer_snapshot(id)
     }
@@ -69,13 +69,13 @@ impl GcHeap {
     #[doc(hidden)]
     pub unsafe fn array_get_transport(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         index: impl TryInto<usize>,
     ) -> Option<Value> {
         self.array_get(id, index)
     }
 
-    pub(crate) fn array_get(&self, id: HeapObjectId, index: impl TryInto<usize>) -> Option<Value> {
+    pub(crate) fn array_get(&self, id: GcRef, index: impl TryInto<usize>) -> Option<Value> {
         self.ensure_array(id).ok()?;
         self.buffer_get(id, index)
     }
@@ -92,7 +92,7 @@ impl GcHeap {
     #[doc(hidden)]
     pub unsafe fn array_element_transport(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         index: impl TryInto<usize>,
     ) -> Result<Option<Value>, RuntimeError> {
         self.array_element(id, index)
@@ -100,7 +100,7 @@ impl GcHeap {
 
     pub(crate) fn array_element(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         index: impl TryInto<usize>,
     ) -> Result<Option<Value>, RuntimeError> {
         self.ensure_array(id)?;
@@ -119,7 +119,7 @@ impl GcHeap {
     #[doc(hidden)]
     pub unsafe fn array_set_transport(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         index: impl TryInto<usize>,
         value: Value,
     ) -> Result<(), RuntimeError> {
@@ -128,7 +128,7 @@ impl GcHeap {
 
     pub(crate) fn array_set(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         index: impl TryInto<usize>,
         value: Value,
     ) -> Result<(), RuntimeError> {
@@ -136,7 +136,7 @@ impl GcHeap {
         self.buffer_set(id, index, value)
     }
 
-    pub(crate) fn array_contract(&self, id: HeapObjectId) -> Option<Arc<StorageType>> {
+    pub(crate) fn array_contract(&self, id: GcRef) -> Option<Arc<StorageType>> {
         self.ensure_array(id).ok()?;
         self.buffer_contract(id)
     }
@@ -151,15 +151,11 @@ impl GcHeap {
     /// retained wrong-kind/foreign value or a checked root token to test rejection;
     /// never inspect a reclaimed direct address.
     #[doc(hidden)]
-    pub unsafe fn array_fill_transport(
-        &self,
-        id: HeapObjectId,
-        value: Value,
-    ) -> Result<(), RuntimeError> {
+    pub unsafe fn array_fill_transport(&self, id: GcRef, value: Value) -> Result<(), RuntimeError> {
         self.array_fill(id, value)
     }
 
-    pub(crate) fn array_fill(&self, id: HeapObjectId, value: Value) -> Result<(), RuntimeError> {
+    pub(crate) fn array_fill(&self, id: GcRef, value: Value) -> Result<(), RuntimeError> {
         self.ensure_array(id)?;
         self.buffer_fill(id, value)
     }
@@ -176,17 +172,13 @@ impl GcHeap {
     #[doc(hidden)]
     pub unsafe fn array_copy_from_transport(
         &self,
-        id: HeapObjectId,
-        source: HeapObjectId,
+        id: GcRef,
+        source: GcRef,
     ) -> Result<(), RuntimeError> {
         self.array_copy_from(id, source)
     }
 
-    pub(crate) fn array_copy_from(
-        &self,
-        id: HeapObjectId,
-        source: HeapObjectId,
-    ) -> Result<(), RuntimeError> {
+    pub(crate) fn array_copy_from(&self, id: GcRef, source: GcRef) -> Result<(), RuntimeError> {
         self.ensure_array(id)?;
         self.ensure_array(source)?;
         self.buffer_copy_from(id, source)
@@ -204,7 +196,7 @@ impl GcHeap {
     #[doc(hidden)]
     pub unsafe fn array_copy_within_transport(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         start: Bound<usize>,
         end: Bound<usize>,
         destination: usize,
@@ -214,7 +206,7 @@ impl GcHeap {
 
     pub(crate) fn array_copy_within(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         start: Bound<usize>,
         end: Bound<usize>,
         destination: usize,

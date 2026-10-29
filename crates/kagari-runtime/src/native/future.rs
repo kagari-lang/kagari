@@ -1,5 +1,4 @@
 //! Cold native producers keep traced arguments until an owned execution drives them.
-use crate::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 mod registration;
 use crate::{
     Runtime,
@@ -13,7 +12,11 @@ use crate::{
         composition::ColdComposition,
         context::arguments::ArgumentView,
         conversion::{IntoKagari, arguments::FromKagariArguments, context::ConversionContext},
-        storage::{NativePayload, NativeStorage},
+        storage::{
+            NativePayload, NativeStorage,
+            scan::{NativeScanKind, ScanBudget, ScanStatus},
+            value::StoredValue,
+        },
     },
     resource::HeapCharge,
     value::Value,
@@ -90,7 +93,10 @@ where
         let mut operation = registry.reserve::<R>()?;
         operation.set_waker(wake);
         let completion = operation.completion()?;
-        let snapshot = ArgumentView::from_values(cx.runtime().gc(), cold.values.clone())?;
+        let snapshot = ArgumentView::from_values(
+            cx.runtime().gc(),
+            StoredValue::values(&cold.values).to_vec(),
+        )?;
         let arguments = A::from_arguments(cx, &cold.parameters, &snapshot)?;
         cx.poll()?;
         match (self.entry)(arguments, completion.clone())? {
@@ -150,7 +156,7 @@ pub(crate) struct NativeFuture {
     owner: ExecutableModule,
     parameters: Vec<TypeArgument>,
     output: TypeArgument,
-    pub(crate) values: Vec<Value>,
+    pub(crate) values: Vec<StoredValue>,
     producer: Arc<dyn Producer>,
 }
 
@@ -172,7 +178,7 @@ pub(crate) enum ColdFuture {
     Composition(ColdComposition),
     // A private, fully captured resume closure keeps its executable environment
     // reachable through the existing GC metadata graph. It never escapes alone.
-    Script(Value),
+    Script(StoredValue),
 }
 
 impl ColdFuture {
@@ -195,6 +201,10 @@ impl ColdFuture {
     }
 
     pub(crate) fn values(&self) -> &[Value] {
+        StoredValue::values(self.stored_values())
+    }
+
+    fn stored_values(&self) -> &[StoredValue] {
         match self {
             Self::Native(cold) => &cold.values,
             Self::Script(closure) => slice::from_ref(closure),
@@ -223,9 +233,12 @@ unsafe impl NativePayload for FuturePayload {
         &'payload self,
         state: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        visit: &mut dyn FnMut(&'payload Value),
+        visit: &mut dyn FnMut(&'payload StoredValue),
     ) -> ScanStatus {
-        let values = self.cold.as_ref().map_or(&[][..], ColdFuture::values);
+        let values = self
+            .cold
+            .as_ref()
+            .map_or(&[][..], ColdFuture::stored_values);
         while state.0 < state.1 {
             if !budget.take(1) {
                 return ScanStatus::Pending;
@@ -295,7 +308,7 @@ mod tests {
                     owner: owner.clone(),
                     parameters: vec![],
                     output: output.clone(),
-                    values: vec![child],
+                    values: vec![StoredValue::new(child)],
                     producer: Arc::new(Unstarted),
                 })),
             };
@@ -320,7 +333,7 @@ mod tests {
             assert!(
                 runtime
                     .gc
-                    .graph_survivor(runtime.modules(), child.heap_identity().unwrap().graph())
+                    .graph_survivor(runtime.modules(), child.direct_reference().unwrap().graph())
                     .unwrap()
             );
         }
@@ -340,7 +353,7 @@ mod tests {
             .unwrap()
             .remove(0);
         let mut values = Vec::with_capacity(64);
-        values.extend([Value::Unit, Value::Unit]);
+        values.extend([StoredValue::scalar(()); 2]);
         let parameters = Vec::with_capacity(8);
         let backing = values.capacity() * size_of::<Value>()
             + parameters.capacity() * size_of::<TypeArgument>();

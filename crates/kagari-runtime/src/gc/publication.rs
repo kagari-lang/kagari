@@ -3,7 +3,7 @@
 mod tests;
 use crate::{
     error::RuntimeError,
-    gc::{GcHeap, directory::ObjectStorage, reference::HeapObjectIdentity},
+    gc::{GcHeap, directory::ObjectStorage, reference::GcRef},
     value::Value,
 };
 use std::cell::Ref;
@@ -12,7 +12,7 @@ use std::cell::Ref;
 /// must end before callbacks or collection. Nominal admission belongs to the caller.
 pub(crate) struct CheckedTarget<'owner> {
     heap: &'owner GcHeap,
-    target: Option<(HeapObjectIdentity, Ref<'owner, ObjectStorage>)>,
+    target: Option<(GcRef, Ref<'owner, ObjectStorage>)>,
 }
 
 impl GcHeap {
@@ -56,16 +56,13 @@ impl GcHeap {
     pub(super) fn publish_resolved_value(
         &self,
         objects: &ObjectStorage,
-        id: HeapObjectIdentity,
+        id: GcRef,
     ) -> Result<(), RuntimeError> {
         self.graph.with_publication(|| {
             (
                 id.graph(),
                 objects
-                    .mark(
-                        self.identity_location(objects, id)
-                            .expect("checked identity"),
-                    )
+                    .mark(objects.direct_location(id).expect("checked identity"))
                     .expect("occupied mark"),
             )
         })

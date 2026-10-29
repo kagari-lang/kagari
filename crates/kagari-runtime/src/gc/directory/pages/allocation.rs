@@ -1,8 +1,8 @@
 //! Typed trailer ownership; references cover controls only, never payload bytes.
 mod geometry;
 
-use self::geometry::{ClassGeometry, DIRECT_GEOMETRIES, GEOMETRIES, HEADER_OFFSET, PAYLOAD_LAYOUT};
-use super::{DIRECT_GROUP_START, backing::Backing};
+use self::geometry::{ClassGeometry, GEOMETRIES, HEADER_OFFSET, PAYLOAD_LAYOUT};
+use super::backing::Backing;
 use crate::{
     gc::{
         directory::descriptors::DescriptorId, graph::marks::PageMarks, object_header::ObjectHeader,
@@ -10,12 +10,6 @@ use crate::{
     native::binding::NativeResult,
 };
 use std::{alloc::Layout, mem::needs_drop, ptr::NonNull, slice, sync::Arc};
-
-#[derive(Debug, Default, Clone, Copy)]
-pub(super) struct Slot {
-    pub(super) directory: u32,
-    pub(super) descriptor: Option<DescriptorId>,
-}
 
 /// MAX is the absent link; admission rejects that physical directory index.
 #[derive(Debug, Clone, Copy)]
@@ -68,7 +62,6 @@ pub(super) struct Small {
 pub(super) struct SmallPartsMut<'a> {
     pub(super) state: &'a mut SmallState,
     pub(super) count: usize,
-    pub(super) slots: &'a mut [Slot],
     pub(super) bits: &'a mut [u64],
 }
 
@@ -78,14 +71,9 @@ impl Small {
     }
 
     pub(super) fn new(group: usize) -> NativeResult<Self> {
-        let geometry = if group < DIRECT_GROUP_START {
-            &GEOMETRIES[group / 2]
-        } else {
-            &DIRECT_GEOMETRIES[(group - DIRECT_GROUP_START) / 2]
-        };
+        let geometry = &GEOMETRIES[group / 2];
         const {
             assert!(!needs_drop::<SmallHeader>());
-            assert!(!needs_drop::<Slot>());
             assert!(!needs_drop::<PageMarks>());
         }
         let (backing, offset) = Backing::new(PAYLOAD_LAYOUT, geometry.trailer)?;
@@ -108,28 +96,18 @@ impl Small {
                         active: Links::default(),
                     },
                 });
-            let slots = backing
-                .pointer()
-                .add(geometry.slots_offset)
-                .cast::<Slot>()
-                .as_ptr();
-            for index in 0..geometry.metadata_count {
-                slots.add(index).write(Slot::default());
-            }
             backing
                 .pointer()
                 .add(geometry.bits_offset)
                 .cast::<u64>()
                 .as_ptr()
                 .write_bytes(0, geometry.bitmap_words);
-            if let Some(offset) = geometry.marks_offset {
-                backing
-                    .pointer()
-                    .add(offset)
-                    .cast::<PageMarks>()
-                    .as_ptr()
-                    .write(PageMarks::default());
-            }
+            backing
+                .pointer()
+                .add(geometry.marks_offset)
+                .cast::<PageMarks>()
+                .as_ptr()
+                .write(PageMarks::default());
         }
         Ok(Self { backing })
     }
@@ -150,18 +128,16 @@ impl Small {
         self.header().geometry
     }
 
-    pub(super) fn marks(&self) -> Option<&PageMarks> {
-        self.geometry().marks_offset.map(|offset| {
-            // SAFETY: initialized, aligned marks are disjoint from all mutable
-            // controls and payloads; only this owner exposes trailer references.
-            unsafe {
-                self.backing
-                    .pointer()
-                    .add(offset)
-                    .cast::<PageMarks>()
-                    .as_ref()
-            }
-        })
+    pub(super) fn marks(&self) -> &PageMarks {
+        // SAFETY: initialized, aligned marks are disjoint from all mutable
+        // controls and payloads; only this owner exposes trailer references.
+        unsafe {
+            self.backing
+                .pointer()
+                .add(self.geometry().marks_offset)
+                .cast::<PageMarks>()
+                .as_ref()
+        }
     }
 
     pub(super) fn stride(&self) -> usize {
@@ -181,40 +157,19 @@ impl Small {
         unsafe { &mut (*self.header_pointer().as_ptr()).state }
     }
 
-    pub(super) fn slots(&self) -> &[Slot] {
-        let geometry = self.geometry();
-        // SAFETY: immutable geometry and initialized, aligned slots; shared owner borrow.
-        unsafe {
-            slice::from_raw_parts(
-                self.backing
-                    .pointer()
-                    .add(geometry.slots_offset)
-                    .cast::<Slot>()
-                    .as_ptr(),
-                geometry.metadata_count,
-            )
-        }
-    }
-
     pub(super) fn slot_count(&self) -> usize {
         self.geometry().slot_count
     }
 
     /// Direct slabs have no duplicate per-slot directory or descriptor records.
     /// Occupancy proves header initialization before reconstructing dispatch facts.
-    pub(super) fn slot(&self, index: usize) -> Option<Slot> {
-        if self.group() < DIRECT_GROUP_START {
-            return self.slots().get(index).copied();
-        }
+    pub(super) fn descriptor(&self, index: usize) -> Option<DescriptorId> {
         if index >= self.slot_count() || self.bits()[index / 64] & (1 << (index % 64)) == 0 {
             return None;
         }
         // SAFETY: occupied direct slot, initialized under this sole owner.
         let header = unsafe { ObjectHeader::read(self.pointer(index)) };
-        Some(Slot {
-            directory: u32::MAX,
-            descriptor: Some(DescriptorId::from_header(header.descriptor_id)?),
-        })
+        DescriptorId::from_header(header.descriptor_id)
     }
 
     pub(super) fn bits(&self) -> &[u64] {
@@ -240,14 +195,6 @@ impl Small {
             SmallPartsMut {
                 count: geometry.slot_count,
                 state: &mut (*self.header_pointer().as_ptr()).state,
-                slots: slice::from_raw_parts_mut(
-                    self.backing
-                        .pointer()
-                        .add(geometry.slots_offset)
-                        .cast::<Slot>()
-                        .as_ptr(),
-                    geometry.metadata_count,
-                ),
                 bits: slice::from_raw_parts_mut(
                     self.backing
                         .pointer()
@@ -284,19 +231,13 @@ impl Small {
 
     #[cfg(any(test, feature = "execution-diagnostics"))]
     pub(super) fn control_bytes(&self) -> usize {
-        size_of::<SmallHeader>()
-            + if self.geometry().marks_offset.is_some() {
-                size_of::<PageMarks>()
-            } else {
-                0
-            }
+        size_of::<SmallHeader>() + size_of::<PageMarks>()
     }
 }
 
 #[derive(Debug)]
 pub(super) struct LargeHeader {
     pub(super) descriptor: Option<DescriptorId>,
-    pub(super) directory: u32,
     pub(super) active: Links,
 }
 
@@ -310,18 +251,14 @@ impl Large {
         &self.backing
     }
 
-    pub(super) fn new(payload: Layout, directory: u32) -> NativeResult<Self> {
+    pub(super) fn new(payload: Layout) -> NativeResult<Self> {
         const {
             assert!(!needs_drop::<LargeHeader>());
             assert!(!needs_drop::<PageMarks>());
         };
-        let (trailer, header_offset) = if directory == u32::MAX {
-            Layout::new::<PageMarks>()
-                .extend(Layout::new::<LargeHeader>())
-                .expect("fixed large control layout")
-        } else {
-            (Layout::new::<LargeHeader>(), 0)
-        };
+        let (trailer, header_offset) = Layout::new::<PageMarks>()
+            .extend(Layout::new::<LargeHeader>())
+            .expect("fixed large control layout");
         let (backing, offset) = Backing::new(payload, trailer)?;
         // SAFETY: the checked trailing layout is aligned and exclusively owned.
         unsafe {
@@ -332,17 +269,14 @@ impl Large {
                 .as_ptr()
                 .write(LargeHeader {
                     descriptor: None,
-                    directory,
                     active: Links::default(),
                 });
-            if directory == u32::MAX {
-                backing
-                    .pointer()
-                    .add(offset)
-                    .cast::<PageMarks>()
-                    .as_ptr()
-                    .write(PageMarks::default());
-            }
+            backing
+                .pointer()
+                .add(offset)
+                .cast::<PageMarks>()
+                .as_ptr()
+                .write(PageMarks::default());
         }
         Ok(Self { backing })
     }
@@ -363,27 +297,24 @@ impl Large {
         unsafe { self.header_pointer().as_ref() }
     }
 
-    pub(super) fn marks(&self) -> Option<&PageMarks> {
-        if self.header().directory != u32::MAX {
-            return None;
-        }
+    pub(super) fn marks(&self) -> &PageMarks {
         let (_, offset) = Layout::new::<PageMarks>()
             .extend(Layout::new::<LargeHeader>())
             .expect("fixed large control layout");
         // SAFETY: new initialized marks before the end-located header using this
         // layout. Header mutation and payload disposal never borrow this region.
-        Some(unsafe {
+        unsafe {
             self.header_pointer()
                 .cast::<u8>()
                 .sub(offset)
                 .cast::<PageMarks>()
                 .as_ref()
-        })
+        }
     }
 
     pub(super) fn descriptor_mut(&mut self) -> &mut Option<DescriptorId> {
-        // SAFETY: exclusive control-owner borrow of this state field only. The
-        // directory's immutable struct discriminator controls trailer geometry.
+        // SAFETY: exclusive control-owner borrow of this state field only;
+        // descriptor changes cannot alter the initialized trailer geometry.
         unsafe { &mut (*self.header_pointer().as_ptr()).descriptor }
     }
 
@@ -394,12 +325,7 @@ impl Large {
 
     #[cfg(any(test, feature = "execution-diagnostics"))]
     pub(super) fn control_bytes(&self) -> usize {
-        size_of::<LargeHeader>()
-            + if self.header().directory == u32::MAX {
-                size_of::<PageMarks>()
-            } else {
-                0
-            }
+        size_of::<LargeHeader>() + size_of::<PageMarks>()
     }
 }
 
@@ -413,8 +339,8 @@ pub(super) enum Allocation {
 impl Allocation {
     pub(super) fn marks(&self) -> Option<&PageMarks> {
         match self {
-            Self::Small(page) => page.marks(),
-            Self::Large(large) => large.marks(),
+            Self::Small(page) => Some(page.marks()),
+            Self::Large(large) => Some(large.marks()),
             Self::Vacant(_) => None,
         }
     }

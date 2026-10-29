@@ -8,7 +8,7 @@ use crate::{
         graph::{marks::initialized_words, objects::ScanEdge},
         metrics::IndivisibleKind,
     },
-    native::storage::{NativePayload, NativeStorage},
+    native::storage::{NativePayload, NativeStorage, value::StoredValue},
     resource::HeapCharge,
     test_support::layouts::allocation_owner,
     value::Value,
@@ -21,7 +21,7 @@ use std::{
 };
 
 #[derive(Debug)]
-struct Edges(Vec<Value>);
+struct Edges(Vec<StoredValue>);
 
 #[derive(Clone, Copy)]
 #[repr(align(64))]
@@ -46,7 +46,7 @@ unsafe impl NativePayload for Edges {
         &'a self,
         cursor: &mut Cursor,
         budget: &mut ScanBudget,
-        visit: &mut dyn FnMut(&'a Value),
+        visit: &mut dyn FnMut(&'a StoredValue),
     ) -> ScanStatus {
         assert_eq!((cursor as *const Cursor as usize) % 64, 0);
         while cursor.index < cursor.end {
@@ -66,7 +66,7 @@ unsafe impl NativePayload for Edges {
 
 #[test]
 fn erased_scanner_requires_admission_and_drains_an_aligned_finite_continuation() {
-    let payload = Edges(vec![Value::Unit; 1025]);
+    let payload = Edges(vec![StoredValue::scalar(()); 1025]);
     let entries = ScanEntries::new::<Edges>();
     let mut workspace = ScanWorkspace::default();
     assert!(
@@ -128,7 +128,7 @@ unsafe impl NativePayload for IndivisibleEdges {
         &'a self,
         _: &mut (),
         budget: &mut ScanBudget,
-        visit: &mut dyn FnMut(&'a Value),
+        visit: &mut dyn FnMut(&'a StoredValue),
     ) -> ScanStatus {
         budget.charge(self.0.0.len());
         for value in &self.0.0 {
@@ -151,7 +151,7 @@ fn collection_observes_indivisible_provider_type_work_and_extent_not_admission()
         .prepare_payload(
             runtime.gc(),
             &Ty::Builtin(BuiltinType::Unit),
-            IndivisibleEdges(Edges(vec![Value::Unit; 3])),
+            IndivisibleEdges(Edges(vec![StoredValue::scalar(()); 3])),
             &owner,
         )
         .unwrap();
@@ -184,7 +184,7 @@ fn traced_provider_reserves_actual_bitmap_resets_before_advancing_opaque_state()
     let values = (0..513)
         .filter_map(|index| {
             let value = runtime.gc.alloc_string(index.to_string()).unwrap();
-            (index % 128 == 0).then_some(value)
+            (index % 128 == 0).then_some(StoredValue::new(value))
         })
         .collect();
     let payload = Edges(values);
@@ -194,11 +194,12 @@ fn traced_provider_reserves_actual_bitmap_resets_before_advancing_opaque_state()
     entries.begin(&payload, &mut workspace).unwrap();
     runtime.gc.graph.lock().begin_cycle().unwrap();
     let mut visited = Vec::new();
-    let mut visit = |value: &Value, budget: &mut ScanBudget| {
-        let status =
-            runtime
-                .gc
-                .shade_scanned_edge(&runtime.modules, ScanEdge::Value(*value), budget)?;
+    let mut visit = |value: &StoredValue, budget: &mut ScanBudget| {
+        let status = runtime.gc.shade_scanned_edge(
+            &runtime.modules,
+            ScanEdge::Value(value.value()),
+            budget,
+        )?;
         if status == ScanStatus::Complete {
             visited.push(*value);
         }
@@ -279,9 +280,11 @@ fn traced_provider_reserves_actual_bitmap_resets_before_advancing_opaque_state()
                 &mut workspace,
                 &mut budget,
                 &mut |value, budget| {
-                    runtime
-                        .gc
-                        .shade_scanned_edge(&runtime.modules, ScanEdge::Value(*value), budget)
+                    runtime.gc.shade_scanned_edge(
+                        &runtime.modules,
+                        ScanEdge::Value(value.value()),
+                        budget,
+                    )
                 }
             )
             .unwrap(),
@@ -315,7 +318,7 @@ unsafe impl<const WORK: usize> NativePayload for Whole<WORK> {
         &'a self,
         _: &mut (),
         budget: &mut ScanBudget,
-        _: &mut dyn FnMut(&'a Value),
+        _: &mut dyn FnMut(&'a StoredValue),
     ) -> ScanStatus {
         assert!(budget.take(WORK));
         ScanStatus::Complete
@@ -392,7 +395,7 @@ unsafe impl NativePayload for InvalidProgress {
         &'a self,
         _: &mut (),
         _: &mut ScanBudget,
-        _: &mut dyn FnMut(&'a Value),
+        _: &mut dyn FnMut(&'a StoredValue),
     ) -> ScanStatus {
         ScanStatus::Pending
     }
@@ -418,7 +421,7 @@ fn erased_scanner_rejects_pending_without_work() {
 
 #[test]
 fn active_cursor_survives_growth_failure_and_scoped_inspection_without_restart() {
-    let payload = Edges((0..5).map(Value::I32).collect());
+    let payload = Edges((0..5).map(StoredValue::scalar).collect());
     let entries = ScanEntries::new::<Edges>();
     let mut workspace = ScanWorkspace::default();
     workspace.reserve(entries.layout).unwrap();
@@ -450,7 +453,9 @@ fn active_cursor_survives_growth_failure_and_scoped_inspection_without_restart()
     // A different finite extent must not overwrite the suspended state.
     let mut inspected = 0;
     entries
-        .inspect(&Edges(vec![Value::Unit; 1025]), &mut |_| inspected += 1)
+        .inspect(&Edges(vec![StoredValue::scalar(()); 1025]), &mut |_| {
+            inspected += 1
+        })
         .unwrap();
     assert_eq!(inspected, 1025);
     // Beginning a second collector job must not discard the active job either.
@@ -473,7 +478,7 @@ fn active_cursor_survives_growth_failure_and_scoped_inspection_without_restart()
 
 #[test]
 fn exhausted_slice_leaves_the_active_cursor_unchanged() {
-    let payload = Edges(vec![Value::I32(1), Value::I32(2)]);
+    let payload = Edges(vec![StoredValue::scalar(1_i32), StoredValue::scalar(2_i32)]);
     let entries = ScanEntries::new::<Edges>();
     let mut workspace = ScanWorkspace::default();
     workspace.reserve(entries.layout).unwrap();
@@ -521,7 +526,7 @@ unsafe impl NativePayload for PanicScanner {
         &'a self,
         _: &mut (),
         _: &mut ScanBudget,
-        _: &mut dyn FnMut(&'a Value),
+        _: &mut dyn FnMut(&'a StoredValue),
     ) -> ScanStatus {
         panic!("provider step panic");
     }
@@ -567,7 +572,7 @@ fn provider_unwind_faults_the_workspace_and_cannot_retry_or_start_another_job() 
 
 #[test]
 fn mismatched_erased_state_is_rejected_before_casting_or_invoking_the_provider() {
-    let payload = Edges(vec![Value::Unit]);
+    let payload = Edges(vec![StoredValue::scalar(())]);
     let entries = ScanEntries::new::<Edges>();
     let foreign = ScanEntries::new::<InvalidProgress>();
     let mut workspace = ScanWorkspace::default();

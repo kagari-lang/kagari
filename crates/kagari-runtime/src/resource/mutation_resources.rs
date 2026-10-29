@@ -44,10 +44,10 @@ fn rejected_allocations_leave_all_counters_and_free_slots_unchanged() {
     assert_eq!(runtime.gc().stats(), heap_before);
     assert_eq!(runtime.gc().array_get(first, 0), Some(Value::I32(1)));
     let (runtime, owner) = runtime_with_owner();
-    let old = runtime
+    runtime
         .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![])
         .unwrap();
-    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
     let before = runtime.gc().stats();
     assert!(
         runtime
@@ -62,6 +62,6 @@ fn rejected_allocations_leave_all_counters_and_free_slots_unchanged() {
     let next = runtime
         .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![])
         .unwrap();
-    assert_eq!(next.index(), old.index());
-    assert_ne!(next, old);
+    assert_eq!(runtime.gc().array_len(next), Some(0));
+    assert_eq!(runtime.gc().stats().allocated_objects, 1);
 }

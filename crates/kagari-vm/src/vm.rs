@@ -236,7 +236,7 @@ impl Vm {
             .chain(arguments.iter().cloned())
             .collect::<Vec<_>>();
         let _argument_roots = unsafe {
-            // SAFETY: No callbacks or safepoints separate receiver resolution, argument copying and checked-ID root publication.
+            // SAFETY: No callbacks or safepoints separate receiver resolution, argument copying and retained-value root publication.
             self.runtime
                 .gc()
                 .root_execution_values_transport(args.clone())

@@ -112,15 +112,16 @@ impl Pages {
                 (range.start, range.count)
             }
         };
-        if let Some(mark) = self.direct_mark(location) {
-            let empty = match &self.allocations[location.page as usize] {
-                Allocation::Small(page) => page.state().free + count == page.slot_count(),
-                Allocation::Large(_) => true,
-                Allocation::Vacant(_) => unreachable!("retiring direct allocation"),
-            };
-            if empty {
-                graph.release_retired_group(mark)?;
-            }
+        let mark = self
+            .direct_mark(location)
+            .expect("retiring allocation mark");
+        let empty = match &self.allocations[location.page as usize] {
+            Allocation::Small(page) => page.state().free + count == page.slot_count(),
+            Allocation::Large(_) => true,
+            Allocation::Vacant(_) => unreachable!("retiring allocation"),
+        };
+        if empty {
+            graph.release_retired_group(mark)?;
         }
         Ok(match disposal {
             Disposal::Payload(payload) => self.finish_payload(payload),
@@ -180,13 +181,7 @@ impl CheckedRange<'_> {
             count: self.count,
             remaining: self.count,
         };
-        let first = self.start.slot as usize;
         let parts = self.page.parts_mut();
-        if !parts.slots.is_empty() {
-            for entry in &mut parts.slots[first..first + self.count] {
-                entry.descriptor = None;
-            }
-        }
         let words = parts.bits.len() / 2;
         for (word, mask) in self.bits.words() {
             parts.bits[word] &= !mask;
@@ -240,15 +235,12 @@ impl Pages {
         if end > page.slot_count() {
             return None;
         }
-        let id = page.slot(first)?.descriptor?;
+        let id = page.descriptor(first)?;
         let descriptor = self.descriptors.get(id)?;
         let words = page.bits().len() / 2;
         let bits = RangeBits::new(first, count);
         if descriptor.kind != start.kind
-            || !(first..end).all(|index| {
-                page.slot(index)
-                    .is_some_and(|slot| slot.descriptor == Some(id))
-            })
+            || !(first..end).all(|index| page.descriptor(index) == Some(id))
             || bits.words().any(|(word, mask)| {
                 page.bits()[word] & mask != mask || page.bits()[words + word] & mask != 0
             })

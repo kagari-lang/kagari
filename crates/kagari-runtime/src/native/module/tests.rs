@@ -1,4 +1,3 @@
-use crate::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 use crate::{
     Runtime,
     host::{
@@ -14,7 +13,11 @@ use crate::{
         host::HostCallback,
         installation::NativeInstallation,
         module::NativeModule,
-        storage::{NativePayload, NativeStorage},
+        storage::{
+            NativePayload, NativeStorage,
+            scan::{NativeScanKind, ScanBudget, ScanStatus},
+            value::StoredValue,
+        },
         types::Type,
     },
     resource::HeapCharge,
@@ -55,7 +58,7 @@ unsafe impl NativePayload for CatalogOnlyPayload {
         &'payload self,
         _: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        _visit: &mut dyn FnMut(&'payload Value),
+        _visit: &mut dyn FnMut(&'payload StoredValue),
     ) -> ScanStatus {
         budget.charge(1);
         ScanStatus::Complete

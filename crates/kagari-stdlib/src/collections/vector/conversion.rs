@@ -133,9 +133,9 @@ impl<T: IntoKagari> IntoKagari for VecValues<T> {
             let value = cx.encode_value(&element, value)?;
             // SAFETY: The conversion frame retains each entry even after this
             // local handle drops, until ty.create publishes the complete payload.
-            payload
-                .values
-                .push(unsafe { value.value_transport(cx.runtime()) }?)?;
+            payload.values.push(unsafe {
+                cx.store_transport(&element, value.value_transport(cx.runtime())?)
+            }?)?;
         }
         ty.create(&mut native, payload, &[])?
             .into_kagari(cx, expected)

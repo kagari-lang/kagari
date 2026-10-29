@@ -473,7 +473,7 @@ mod tests {
                     .prepare_struct_storage(semantic, vec![Value::I32(1)])
                     .unwrap();
                 let _borrow = heap.objects.borrow();
-                assert!(heap.alloc_managed(HeapObject::Struct { storage }).is_err());
+                assert!(heap.alloc_object(HeapObject::Struct { storage }).is_err());
             } else {
                 assert!(
                     heap.prepare_struct_storage(semantic, vec![Value::Bool(false)])

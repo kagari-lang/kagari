@@ -1,9 +1,11 @@
 //! Fixed-size Rust data that cannot retain script or executable graph edges.
-use crate::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 use crate::{
-    native::storage::{NativePayload, NativeStorage},
+    native::storage::{
+        NativePayload, NativeStorage,
+        scan::{NativeScanKind, ScanBudget, ScanStatus},
+        value::StoredValue,
+    },
     resource::HeapCharge,
-    value::Value,
 };
 use std::{fmt::Debug, mem::size_of};
 
@@ -72,7 +74,7 @@ unsafe impl<T: NativeData> NativePayload for T {
         &'payload self,
         _: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        _: &mut dyn FnMut(&'payload Value),
+        _: &mut dyn FnMut(&'payload StoredValue),
     ) -> ScanStatus {
         budget.charge(1);
         ScanStatus::Complete
@@ -101,8 +103,8 @@ unsafe impl<T: NativeData> NativePayload for T {
 ///
 /// Even an otherwise copyable heap identity is not supported data:
 /// ```compile_fail
-/// use kagari_runtime::{gc::HeapObjectId, native_data};
-/// native_data! { struct Invalid { child: HeapObjectId } }
+/// use kagari_runtime::{gc::reference::GcRef, native_data};
+/// native_data! { struct Invalid { child: GcRef } }
 /// ```
 #[macro_export]
 macro_rules! native_data {

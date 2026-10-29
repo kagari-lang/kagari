@@ -17,7 +17,7 @@ impl ObjectStorage {
         let mut array_capacity_bytes = 0;
         let mut initialized_payload_bytes = 0;
         let mut object_header_bytes = 0;
-        for (_, location) in self.pages.occupied() {
+        for location in self.pages.occupied() {
             let descriptor = self
                 .pages
                 .get(location)
@@ -45,7 +45,7 @@ impl ObjectStorage {
         let (struct_identity_bytes, struct_identities) =
             self.pages.descriptors.struct_identity_usage();
         StorageUsage {
-            buffers: [BufferUsage::new("directory", &self.slots), graph_pending],
+            buffers: [graph_pending],
             graph_credits,
             graph_work_credits: 0,
             direct_mark_pages: usage.mark_pages,
@@ -53,7 +53,6 @@ impl ObjectStorage {
             retirement: Default::default(),
             slab_bytes: usage.slabs,
             large_bytes: usage.large,
-            slot_metadata_bytes: usage.slots,
             bitmap_bytes: usage.bitmaps,
             page_directory_bytes: usage.directory,
             page_metadata_bytes: usage.small_controls,

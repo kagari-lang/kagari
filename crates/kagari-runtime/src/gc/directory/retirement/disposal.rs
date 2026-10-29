@@ -120,7 +120,7 @@ impl GcHeap {
             })?;
             let mut graph = self.graph.try_lock()?;
             objects
-                .sweep_batch(self.owner, &self.interfaces, &mut graph, budget, &mut batch)
+                .sweep_batch(&self.interfaces, &mut graph, budget, &mut batch)
                 .ok_or_else(|| {
                     RuntimeError::module_validation("invalid physical retirement transaction")
                 })?;

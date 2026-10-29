@@ -106,7 +106,11 @@ pub(crate) fn get(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResu
     // SAFETY: The source stays call-rooted through Option allocation, and no
     // callback or mutation occurs between extraction and result publication.
     let value = unsafe {
-        cx.with_payload::<VecStorage, _>(0, |v| Ok(index.and_then(|index| v.get(index))))?
+        cx.with_payload::<VecStorage, _>(0, |v| {
+            Ok(index
+                .and_then(|index| v.get(index))
+                .map(|value| value.value_transport()))
+        })?
     };
     option(symbols, cx, value)
 }
@@ -115,7 +119,13 @@ pub(crate) fn index(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let index = usize::try_from(index_argument(cx, 1)?).map_err(|_| bounds())?;
     // SAFETY: Raw native result handoff runs no callback or safepoint after
     // extraction; the invoking frame publishes the result while arguments live.
-    unsafe { cx.with_payload::<VecStorage, _>(0, |v| v.get(index).ok_or_else(bounds)) }
+    unsafe {
+        cx.with_payload::<VecStorage, _>(0, |v| {
+            v.get(index)
+                .map(|value| value.value_transport())
+                .ok_or_else(bounds)
+        })
+    }
 }
 
 pub(crate) fn insert(cx: &mut CallContext<'_>) -> NativeResult<Value> {
@@ -217,7 +227,11 @@ fn remove_at(
     // SAFETY: The call roots the source across Option allocation; the allocated
     // Option then retains the removed edge through mutation and result handoff.
     let item = unsafe {
-        cx.with_payload::<VecStorage, _>(0, |v| Ok(index.and_then(|index| v.get(index))))?
+        cx.with_payload::<VecStorage, _>(0, |v| {
+            Ok(index
+                .and_then(|index| v.get(index))
+                .map(|value| value.value_transport()))
+        })?
     };
     let result = option(symbols, cx, item)?;
     let _result = unsafe {

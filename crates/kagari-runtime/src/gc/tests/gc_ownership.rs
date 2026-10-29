@@ -44,7 +44,6 @@ fn foreign_handles_and_wrong_value_tags_are_rejected_before_mutation_or_accounti
             vec![Value::I32(2)],
         )
         .unwrap();
-    assert_eq!(own.index(), foreign.index());
     assert_ne!(own, foreign);
     let own_shape = layouts::layout(
         &mut first,
@@ -139,7 +138,7 @@ fn foreign_handles_and_wrong_value_tags_are_rejected_before_mutation_or_accounti
 }
 
 #[test]
-fn rooted_clones_keep_values_alive_and_reused_slots_reject_stale_handles() {
+fn rooted_clones_keep_values_alive_until_the_final_root_is_released() {
     let mut runtime = Runtime::default();
     let runtime_owner = allocation_owner(&mut runtime);
     let object = runtime
@@ -162,17 +161,12 @@ fn rooted_clones_keep_values_alive_and_reused_slots_reject_stale_handles() {
         (collected.reclaimed_objects, collected.reclaimed_units),
         (1, 2)
     );
-    assert!(runtime.gc().array_len(object).is_none());
-    assert!(runtime.root_value(naked_copy).is_none());
     let next = runtime
         .alloc_array(&runtime_owner, Ty::Builtin(BuiltinType::I32), vec![])
         .unwrap();
-    assert_eq!(next.index(), object.index());
-    assert!(next.generation() > object.generation());
-    let before = runtime.gc().stats();
-    assert!(runtime.gc().array_set(object, 0, Value::I32(7)).is_err());
-    assert_eq!(runtime.gc().stats(), before);
-    assert!(script_equal(runtime.gc(), &Value::Array(object), &Value::Array(object)).is_err());
+    assert_eq!(runtime.gc().array_len(next), Some(0));
+    // Raw copies have no authority after the last root releases their allocation.
+    assert_eq!(runtime.gc().active_roots(), 0);
 
     runtime.collect_garbage().unwrap();
     for nested in [false, true] {
@@ -289,7 +283,7 @@ fn shared_host_callbacks_can_retain_checked_root_leases() {
 }
 
 #[test]
-fn identity_comparison_rejects_foreign_stale_and_disguised_handles() {
+fn identity_comparison_rejects_foreign_and_disguised_handles() {
     let mut first = Runtime::default();
     let first_owner = allocation_owner(&mut first);
     let mut second = Runtime::default();
@@ -304,6 +298,6 @@ fn identity_comparison_rejects_foreign_stale_and_disguised_handles() {
     assert!(identity_equal(first.gc(), &Value::Array(a), &Value::Array(b)).is_err());
     assert!(identity_equal(first.gc(), &Value::Array(a), &Value::GcHandle(a)).is_err());
     assert!(identity_equal(first.gc(), &Value::I32(1), &Value::I32(1)).is_err());
-    first.collect_garbage().unwrap();
-    assert!(identity_equal(first.gc(), &Value::Array(a), &Value::Array(a)).is_err());
+    assert_eq!(first.collect_garbage().unwrap().reclaimed_objects, 1);
+    assert_eq!(first.gc().allocated_objects(), 0);
 }

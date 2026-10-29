@@ -4,6 +4,7 @@ use crate::{
     execution_metadata::{MetadataEdge, scanning::MetadataCursor},
     gc::{
         GcHeap,
+        directory::PayloadKind,
         graph::{
             GraphIdentity, GraphMarker, ScanKind,
             marks::MarkRef,
@@ -25,7 +26,6 @@ pub(crate) enum ActiveScan {
     Metadata(MetadataCursor),
     Module(ModuleCursor),
     Static(StaticScanId),
-    Moved,
 }
 
 impl GcHeap {
@@ -101,28 +101,26 @@ impl GcHeap {
                 if !value.is_managed() {
                     return Ok(None);
                 }
-                if let Value::GcHandle(id) = value
-                    && self
-                        .moved
-                        .try_borrow()
-                        .map_err(|_| invalid())?
-                        .contains_key(&id)
-                {
-                    GraphIdentity::Moved(id)
-                } else {
-                    let objects = self.objects.try_borrow().map_err(|_| invalid())?;
-                    let id = self
-                        .validate_heap_value(&objects, &value)
-                        .ok_or_else(invalid)?;
-                    return action(
-                        id.graph(),
-                        objects
-                            .mark(self.identity_location(&objects, id).ok_or_else(invalid)?)
-                            .ok_or_else(invalid)?,
-                        ScanKind::Edges,
-                    )
-                    .map(Some);
+                let objects = self.objects.try_borrow().map_err(|_| invalid())?;
+                let identity = value.direct_reference().ok_or_else(invalid)?;
+                let location = objects.direct_location(identity).ok_or_else(invalid)?;
+                let taken =
+                    matches!(value, Value::GcHandle(_)) && location.kind == PayloadKind::Taken;
+                // Only collector tracing accepts an already retained tombstone.
+                // Normal value admission still rejects it before any publication.
+                if !taken && self.validate_heap_value(&objects, &value).is_none() {
+                    return Err(invalid());
                 }
+                return action(
+                    identity.graph(),
+                    objects.mark(location).ok_or_else(invalid)?,
+                    if taken {
+                        ScanKind::Leaf
+                    } else {
+                        ScanKind::Edges
+                    },
+                )
+                .map(Some);
             }
         };
         self.with_graph_mark(modules, id, |mark| action(id, mark, ScanKind::Edges))
@@ -168,34 +166,13 @@ impl GcHeap {
             let next =
                 graph.next_owner(|group, epoch| self.next_group_owner(modules, group, epoch))?;
             let remaining = graph.needs_owner();
-            let Some(mut id) = next else {
+            let Some(id) = next else {
                 if remaining {
                     continue;
                 }
                 return Ok(ScanStatus::Complete);
             };
             let mut active = self.graph_scan.try_borrow_mut().map_err(|_| invalid())?;
-            if let GraphIdentity::Object(object) = id
-                && self
-                    .moved
-                    .try_borrow()
-                    .map_err(|_| invalid())?
-                    .contains_key(&object)
-            {
-                if !budget.take(1) {
-                    return Ok(ScanStatus::Pending);
-                }
-                let moved = GraphIdentity::Moved(object);
-                graph.retarget_taken_owner(id, moved)?;
-                if active.is_some() {
-                    self.native_scan_workspace
-                        .try_borrow_mut()
-                        .map_err(|_| invalid())?
-                        .abandon_taken()?;
-                }
-                *active = Some(ActiveScan::Moved);
-                id = moved;
-            }
             if let GraphIdentity::Direct(reference) = id
                 && !matches!(*active, Some(ActiveScan::Object(_)))
             {
@@ -221,17 +198,13 @@ impl GcHeap {
                     return Ok(ScanStatus::Pending);
                 }
                 *active = Some(match id {
-                    GraphIdentity::Object(id) => {
-                        ActiveScan::Object(self.begin_object_scan(id.into())?)
-                    }
                     GraphIdentity::Direct(reference) => {
-                        ActiveScan::Object(self.begin_object_scan(reference.into())?)
+                        ActiveScan::Object(self.begin_object_scan(reference)?)
                     }
                     GraphIdentity::Program(id) => {
                         ActiveScan::Module(modules.begin_module_scan(id)?)
                     }
                     GraphIdentity::Static(id) => ActiveScan::Static(id),
-                    GraphIdentity::Moved(_) => ActiveScan::Moved,
                     _ => ActiveScan::Metadata(self.begin_metadata_scan(id)?),
                 });
             }
@@ -264,7 +237,6 @@ impl GcHeap {
                         modules.scan_module_fields(cursor, budget, &mut visit)?
                     }
                     ActiveScan::Static(id) => modules.scan_static_slice(*id, budget, &mut visit)?,
-                    ActiveScan::Moved => ScanStatus::Complete,
                     ActiveScan::Struct { .. } => return Err(invalid()),
                 };
                 if status == ScanStatus::Pending {

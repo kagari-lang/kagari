@@ -1,5 +1,4 @@
 //! Prepared function arguments and explicitly traced or rooted retained callbacks.
-use crate::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
 use crate::{
     Runtime,
     closure::ClosureValueSnapshot,
@@ -11,7 +10,11 @@ use crate::{
         binding::NativeResult,
         context::{CallContext, ScriptCall, arguments::ArgumentView},
         scalar::NativeScalar,
-        storage::NativePayload,
+        storage::{
+            NativePayload,
+            scan::{NativeScanKind, ScanBudget, ScanStatus},
+            value::StoredValue,
+        },
     },
     resource::HeapCharge,
     value::Value,
@@ -242,7 +245,7 @@ impl<'call> CallableHandle<'call> {
     /// This descriptor is not owning host storage; use Function for that purpose.
     #[doc(hidden)]
     pub unsafe fn store_transport(&self) -> StoredCallable {
-        StoredCallable(self.target.clone())
+        StoredCallable(StoredValue::new(self.target.value))
     }
 }
 
@@ -250,7 +253,7 @@ impl<'call> CallableHandle<'call> {
 /// the owning payload must trace it and remain rooted across invocation. Ordinary
 /// host storage uses Function, and managed payload fields retain heap edges.
 #[derive(Debug, Clone)]
-pub struct StoredCallable(PreparedClosure);
+pub struct StoredCallable(StoredValue);
 
 unsafe impl NativePayload for StoredCallable {
     type ScanState = ();
@@ -262,10 +265,10 @@ unsafe impl NativePayload for StoredCallable {
         &'payload self,
         _: &mut Self::ScanState,
         budget: &mut ScanBudget,
-        visit: &mut dyn FnMut(&'payload Value),
+        visit: &mut dyn FnMut(&'payload StoredValue),
     ) -> ScanStatus {
         budget.charge(1);
-        visit(&self.0.value);
+        visit(&self.0);
 
         ScanStatus::Complete
     }
@@ -301,8 +304,11 @@ impl StoredCallable {
         cx: &mut CallContext<'_>,
         arguments: &[Value],
     ) -> NativeResult<Value> {
-        self.0.validate(cx.runtime)?;
-        self.0.call_values(cx, arguments)
+        let target = PreparedClosure {
+            value: self.0.value(),
+        };
+        target.validate(cx.runtime)?;
+        target.call_values(cx, arguments)
     }
 }
 

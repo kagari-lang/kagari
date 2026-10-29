@@ -1,5 +1,13 @@
-use crate::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
-use crate::{Runtime, resource::HeapCharge, test_support::layouts::allocation_owner, value::Value};
+use crate::{
+    Runtime,
+    native::storage::{
+        scan::{NativeScanKind, ScanBudget, ScanStatus},
+        value::StoredValue,
+    },
+    resource::HeapCharge,
+    test_support::layouts::allocation_owner,
+    value::Value,
+};
 
 #[test]
 fn reserved_empty_string_drives_automatic_collection() {
@@ -20,9 +28,10 @@ fn reserved_empty_string_drives_automatic_collection() {
     assert!(!runtime.gc().collection_due());
     drop(root);
     let collection = runtime.collect_garbage().unwrap();
+    assert_eq!(collection.reclaimed_objects, 1);
     assert_eq!(collection.reclaimed_retained_bytes, 128 * 1024 + 1024);
     assert_eq!(runtime.gc().stats().current_retained_bytes, 0);
-    assert!(!runtime.gc().validate_value(&value));
+    assert_eq!(runtime.gc().allocated_objects(), 0);
 }
 
 #[test]
@@ -50,7 +59,7 @@ fn native_charge_is_queried_once_and_never_during_release() {
             &'a self,
             _: &mut Self::ScanState,
             budget: &mut ScanBudget,
-            _: &mut dyn FnMut(&'a Value),
+            _: &mut dyn FnMut(&'a StoredValue),
         ) -> ScanStatus {
             budget.charge(1);
             ScanStatus::Complete
@@ -108,7 +117,7 @@ fn rejected_provider_charge_never_publishes_storage_or_counters() {
             &'a self,
             _: &mut Self::ScanState,
             budget: &mut ScanBudget,
-            _: &mut dyn FnMut(&'a Value),
+            _: &mut dyn FnMut(&'a StoredValue),
         ) -> ScanStatus {
             budget.charge(1);
             ScanStatus::Complete
@@ -203,7 +212,7 @@ fn array_layouts_charge_capacity_not_values_or_zst_capacity_sentinel() {
 }
 
 #[test]
-fn take_releases_recorded_backing_once_and_keeps_the_inert_identity() {
+fn take_transfers_indirect_charge_once_and_retains_tombstone_backing() {
     use crate::{
         native::{
             payload::take::NativeTake,
@@ -232,7 +241,7 @@ fn take_releases_recorded_backing_once_and_keeps_the_inert_identity() {
             &'a self,
             _: &mut Self::ScanState,
             budget: &mut ScanBudget,
-            _: &mut dyn FnMut(&'a Value),
+            _: &mut dyn FnMut(&'a StoredValue),
         ) -> ScanStatus {
             budget.charge(1);
             ScanStatus::Complete
@@ -272,7 +281,7 @@ fn take_releases_recorded_backing_once_and_keeps_the_inert_identity() {
     );
     let payload = runtime.gc().take_native::<Payload>(id).unwrap();
     assert_eq!(queries.load(Ordering::Relaxed), 1);
-    assert_eq!(runtime.gc().stats().current_retained_bytes, 0);
+    assert_eq!(runtime.gc().stats().current_retained_bytes, 1024);
     assert_eq!(runtime.gc().stats().current_heap_units, 1);
     assert!(runtime.gc().take_native::<Payload>(id).is_err());
     drop(root);
@@ -280,4 +289,5 @@ fn take_releases_recorded_backing_once_and_keeps_the_inert_identity() {
     assert_eq!(queries.load(Ordering::Relaxed), 1);
     assert_eq!(runtime.gc().stats().current_heap_units, 0);
     assert_eq!(payload.bytes.capacity(), expected - 1024);
+    assert_eq!(runtime.gc().stats().current_retained_bytes, 0);
 }

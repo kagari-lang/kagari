@@ -21,23 +21,26 @@ fn maintain_descriptors(pages: &mut Pages) {
     }
 }
 
+/// `size` is the complete managed extent when it can contain the aligned header.
+/// Smaller requests model a payload after that header (including zero-sized T).
 fn bytes(size: usize, align: usize, edges: bool) -> Arc<Descriptor> {
-    // Allocator-only raw bytes exercise directory-backed placement. Packed Struct
-    // placement requires its real header/layout/marks; header_tests owns that case.
-    // These fixtures never construct typed HeapObject views of their payloads.
+    let offset = ObjectHeader::SIZE.next_multiple_of(align);
+    let extent = if size < offset { offset + size } else { size };
     Arc::new(Descriptor::new(
         PayloadKind::Tuple,
-        Layout::from_size_align(size, align).unwrap(),
+        Layout::from_size_align(extent, align.max(align_of::<ObjectHeader>())).unwrap(),
+        offset,
         edges,
         |_| {},
     ))
 }
 
-fn insert(pages: &mut Pages, directory: u32, descriptor: Arc<Descriptor>) -> PayloadLocation {
-    let size = descriptor.layout.size();
+fn insert(pages: &mut Pages, descriptor: Arc<Descriptor>) -> PayloadLocation {
+    let size = descriptor.layout.size() - descriptor.payload_offset();
     pages
-        .insert(directory, descriptor, |pointer| {
-            // SAFETY: this descriptor represents initialized raw bytes, not a Rust value.
+        .insert(descriptor, |pointer| {
+            // SAFETY: initialize only the descriptor's raw payload tail. Placement
+            // separately publishes the common header; no typed object view is formed.
             unsafe { pointer.as_ptr().write_bytes(0x5a, size) };
             Ok(())
         })
@@ -90,7 +93,6 @@ fn classes_alignment_full_page_reuse_and_immediate_empty_release() {
         );
         drop(backing);
     }
-    assert_eq!(size_of::<Slot>(), 8);
     assert!(
         size_of::<LargeHeader>() + Backing::control_bytes() + size_of::<Allocation>() <= 96,
         "large control={}, backing control={}, directory record={}",
@@ -103,8 +105,8 @@ fn classes_alignment_full_page_reuse_and_immediate_empty_release() {
         let descriptor = bytes(stride, 1, false);
         let count = SLAB_BYTES / stride;
         let mut locations = Vec::new();
-        for index in 0..=count {
-            locations.push(insert(&mut pages, index as u32, descriptor.clone()));
+        for _ in 0..=count {
+            locations.push(insert(&mut pages, descriptor.clone()));
         }
         assert_eq!(pages.backing_bytes, 2 * SLAB_BYTES);
         assert_eq!(
@@ -116,7 +118,7 @@ fn classes_alignment_full_page_reuse_and_immediate_empty_release() {
         let first = locations[0];
         release(&mut pages, first);
         assert!(pages.get(first).is_none());
-        let reused = insert(&mut pages, 999, descriptor.clone());
+        let reused = insert(&mut pages, descriptor.clone());
         assert_eq!(reused, first, "newly nonfull page is immediately reusable");
         assert_eq!(pages.get(survivor).unwrap().pointer, address);
         assert_eq!(pages.occupied().count(), count + 1);
@@ -132,7 +134,7 @@ fn classes_alignment_full_page_reuse_and_immediate_empty_release() {
         );
         assert!(pages.available.iter().all(Option::is_none));
         // Reuse a page ID with a different class and alignment, not its old backing.
-        let aligned = insert(&mut pages, 1000, bytes(24, 16, true));
+        let aligned = insert(&mut pages, bytes(24, 16, true));
         assert_eq!(pages.get(aligned).unwrap().pointer.as_ptr().addr() % 16, 0);
         release(&mut pages, aligned);
         assert_eq!(pages.backing_bytes, 0);
@@ -151,7 +153,7 @@ fn coallocated_controls_have_two_allocations_and_disjoint_complete_accounting() 
         .map(|(size, align)| {
             measure(|| {
                 Allocation::Large(
-                    Large::new(Layout::from_size_align(size, align).unwrap(), 0).unwrap(),
+                    Large::new(Layout::from_size_align(size, align).unwrap()).unwrap(),
                 )
             })
         });
@@ -179,7 +181,6 @@ fn coallocated_controls_have_two_allocations_and_disjoint_complete_accounting() 
         assert_eq!(
             usage.slabs
                 + usage.large
-                + usage.slots
                 + usage.bitmaps
                 + usage.small_controls
                 + usage.large_controls
@@ -209,12 +210,13 @@ fn trailer_layout_rejects_overflow_and_mutation_does_not_borrow_payload() {
     let value = unsafe { &mut *pointer.as_ptr() };
     let second = small.reserve();
     small.state_mut().active.next = 7;
-    small.parts_mut().slots[second].directory = 9;
+    small.state_mut().available.next = 9;
     *value += 1;
     assert_eq!(*value, 42);
-    assert_eq!(small.slots()[second].directory, 9);
+    assert_eq!(small.state().available.next, 9);
+    assert_ne!(first, second);
 
-    let mut large = Large::new(Layout::from_size_align(17, 64).unwrap(), 1).unwrap();
+    let mut large = Large::new(Layout::from_size_align(17, 64).unwrap()).unwrap();
     let pointer = large.backing().pointer();
     assert_eq!(pointer.as_ptr().addr() % 64, 0);
     assert_eq!(
@@ -228,7 +230,6 @@ fn trailer_layout_rejects_overflow_and_mutation_does_not_borrow_payload() {
     payload[16] = 7;
     assert_eq!(payload[0], 5);
     assert_eq!(payload[16], 7);
-    assert_eq!(large.header().directory, 1);
     assert_eq!(large.header().active.next, 2);
 }
 
@@ -240,9 +241,9 @@ fn failed_partial_byte_initialization_restores_occupancy_and_nonfull_links() {
     {
         let mut pages = Pages::default();
         let descriptor = bytes(size, align, false);
-        let survivor = keep_survivor.then(|| insert(&mut pages, 0, descriptor.clone()));
+        let survivor = keep_survivor.then(|| insert(&mut pages, descriptor.clone()));
         let before = pages.backing_bytes;
-        let result = pages.insert(1, descriptor.clone(), |pointer| {
+        let result = pages.insert(descriptor.clone(), |pointer| {
             // SAFETY: write a prefix before a fallible byte-codec step.
             unsafe { pointer.as_ptr().write_bytes(1, 3) };
             Err(RuntimeError::module_validation("injected encoding failure"))
@@ -251,13 +252,11 @@ fn failed_partial_byte_initialization_restores_occupancy_and_nonfull_links() {
         assert_eq!(pages.backing_bytes, before);
         assert_eq!(pages.occupied().count(), usize::from(keep_survivor));
         let result = catch_unwind(AssertUnwindSafe(|| {
-            pages.insert(1, descriptor.clone(), |_| {
-                panic!("injected initializer panic")
-            })
+            pages.insert(descriptor.clone(), |_| panic!("injected initializer panic"))
         }));
         assert!(result.is_err());
         assert_eq!(pages.backing_bytes, before);
-        let good = insert(&mut pages, 2, descriptor);
+        let good = insert(&mut pages, descriptor);
         if let Some(survivor) = survivor {
             release(&mut pages, survivor);
         }
@@ -269,7 +268,7 @@ fn failed_partial_byte_initialization_restores_occupancy_and_nonfull_links() {
 #[test]
 fn descriptor_ids_remain_owned_through_retirement_and_recycle_only_after_last_token() {
     let mut pages = Pages::default();
-    let first = insert(&mut pages, 0, bytes(8, 8, false));
+    let first = insert(&mut pages, bytes(8, 8, false));
     let mut retired = pages.detach(first).unwrap();
     let first_id = retired.descriptor_id;
     maintain_descriptors(&mut pages);
@@ -277,13 +276,13 @@ fn descriptor_ids_remain_owned_through_retirement_and_recycle_only_after_last_to
     let mut foreign = Pages::default();
     assert!(
         foreign
-            .insert(0, pages.descriptors.get(first_id).unwrap().clone(), |_| {
+            .insert(pages.descriptors.get(first_id).unwrap().clone(), |_| {
                 panic!("foreign descriptor must reject before initialization")
             })
             .is_err()
     );
     assert_eq!(foreign.backing_bytes, 0);
-    let second = insert(&mut pages, 1, bytes(8, 8, false));
+    let second = insert(&mut pages, bytes(8, 8, false));
     let second_descriptor = pages.get(second).unwrap().descriptor as *const Descriptor;
     assert!(!std::ptr::eq(
         second_descriptor,
@@ -293,7 +292,7 @@ fn descriptor_ids_remain_owned_through_retirement_and_recycle_only_after_last_to
     pages.finish(retired);
     maintain_descriptors(&mut pages);
     assert!(pages.descriptors.get(first_id).is_none());
-    let third = insert(&mut pages, 2, bytes(8, 8, false));
+    let third = insert(&mut pages, bytes(8, 8, false));
     let third_descriptor = pages.get(third).unwrap().descriptor as *const Descriptor;
     assert!(std::ptr::eq(
         third_descriptor,
@@ -310,8 +309,9 @@ fn detached_token_retains_exact_layout_and_descriptor_after_page_owner_drops() {
         let mut pages = Pages::default();
         let descriptor = bytes(size, align, false);
         let weak = Arc::downgrade(&descriptor);
-        let location = insert(&mut pages, 0, descriptor);
-        assert_eq!(pages.backing_bytes, size.max(1));
+        let extent = descriptor.layout.size();
+        let location = insert(&mut pages, descriptor);
+        assert_eq!(pages.backing_bytes, extent);
         let mut retired = pages.detach(location).unwrap();
         assert!(pages.get(location).is_none());
         assert_eq!(retired.pointer().as_ptr().addr() % align, 0);
@@ -350,13 +350,14 @@ fn bounded_ranges_keep_unprocessed_slots_and_contain_each_destructor_panic() {
     let descriptor = Arc::new(Descriptor::new(
         PayloadKind::String,
         Layout::from_size_align(24, 8).unwrap(),
+        ObjectHeader::SIZE,
         false,
         destroy,
     ));
     let weak = Arc::downgrade(&descriptor);
     let mut locations = Vec::new();
-    for index in 0..42 {
-        locations.push(insert(&mut pages, index, descriptor.clone()));
+    for _ in 0..42 {
+        locations.push(insert(&mut pages, descriptor.clone()));
     }
     drop(descriptor);
     let address = pages.get(locations[32]).unwrap().pointer;
@@ -423,7 +424,7 @@ fn bounded_ranges_keep_unprocessed_slots_and_contain_each_destructor_panic() {
         weak.upgrade().is_some(),
         "dispatch retained outside storage borrow"
     );
-    let replacement = insert(&mut pages, 99, bytes(32, 8, false));
+    let replacement = insert(&mut pages, bytes(32, 8, false));
     assert_eq!(replacement.page, locations[0].page);
     assert!(!retired.release());
     assert!(weak.upgrade().is_none());
@@ -436,19 +437,19 @@ fn bounded_ranges_keep_unprocessed_slots_and_contain_each_destructor_panic() {
 fn range_retirement_rejects_holes_mixed_descriptors_and_out_of_bounds() {
     let mut pages = Pages::default();
     let descriptor = bytes(256, 8, false);
-    let first = insert(&mut pages, 0, descriptor.clone());
+    let first = insert(&mut pages, descriptor.clone());
     assert!(pages.prepare_range(first, 2).is_none());
     assert!(pages.prepare_range(first, 0).is_none());
     assert!(pages.prepare_range(first, 33).is_none());
-    for index in 1..4 {
-        insert(&mut pages, index, descriptor.clone());
+    for _ in 1..4 {
+        insert(&mut pages, descriptor.clone());
     }
     let mut pending = pages.detach(first).unwrap();
     assert!(pages.prepare_range(first, 4).is_none());
     pending.dispose();
     let (_, pending) = pages.finish(pending);
     pending.release();
-    let replacement = insert(&mut pages, 4, bytes(256, 8, false));
+    let replacement = insert(&mut pages, bytes(256, 8, false));
     assert!(pages.prepare_range(replacement, 4).is_none());
     assert_eq!(pages.occupied().count(), 4);
 }
@@ -459,16 +460,18 @@ fn checked_range_crosses_bitmap_words_without_mutating_failed_or_abandoned_proof
         let mut pages = Pages::default();
         let descriptor = bytes(8, 8, false);
         let locations: Vec<_> = (0..128)
-            .map(|index| insert(&mut pages, index, descriptor.clone()))
+            .map(|_| insert(&mut pages, descriptor.clone()))
             .collect();
         let page = locations[60].page;
         let original = pages.small(page).bits().to_vec();
         // The later bitmap word must be checked before any slot changes.
         pages.small_mut(page).parts_mut().bits[1] &= !1;
+        let corrupt = pages.small(page).bits().to_vec();
         assert!(pages.prepare_range(locations[60], count).is_none());
-        assert_eq!(pages.small(page).bits()[0], original[0]);
-        assert_eq!(pages.occupied().count(), 128);
+        assert_eq!(pages.small(page).bits(), corrupt);
+        assert_eq!(pages.occupied().count(), 127);
         pages.small_mut(page).parts_mut().bits[1] = original[1];
+        assert_eq!(pages.occupied().count(), 128);
         pages.small_mut(page).parts_mut().bits[3] |= 1;
         assert!(pages.prepare_range(locations[60], count).is_none());
         pages.small_mut(page).parts_mut().bits[3] = original[3];
@@ -510,7 +513,7 @@ fn checked_range_crosses_bitmap_words_without_mutating_failed_or_abandoned_proof
             assert!(!sibling.release());
             assert_eq!(pages.small(page).state().free, count + 1);
         }
-        let remaining: Vec<_> = pages.occupied().map(|(_, location)| location).collect();
+        let remaining: Vec<_> = pages.occupied().collect();
         for location in remaining {
             release(&mut pages, location);
         }
@@ -521,14 +524,14 @@ fn checked_range_crosses_bitmap_words_without_mutating_failed_or_abandoned_proof
 #[test]
 fn sweep_cursor_unlinks_before_reuse_and_skips_prepended_allocations() {
     let mut pages = Pages::default();
-    let older = insert(&mut pages, 0, bytes(1040, 8, false));
+    let older = insert(&mut pages, bytes(1040, 8, false));
     let descriptor = bytes(24, 8, false);
     let locations: Vec<_> = (1..=42)
-        .map(|index| insert(&mut pages, index, descriptor.clone()))
+        .map(|_| insert(&mut pages, descriptor.clone()))
         .collect();
     pages.begin_sweep();
-    for directory in 1..=32 {
-        assert_eq!(pages.sweep_slot().unwrap().directory, directory);
+    for &location in &locations[..32] {
+        assert_eq!(pages.sweep_slot().unwrap().location, location);
         pages.advance_sweep();
     }
     let mut retired = pages.prepare_range(locations[0], 32).unwrap().detach();
@@ -539,13 +542,13 @@ fn sweep_cursor_unlinks_before_reuse_and_skips_prepended_allocations() {
     for &location in &locations[32..] {
         release(&mut pages, location);
     }
-    let newborn = insert(&mut pages, 100, bytes(1100, 16, false));
+    let newborn = insert(&mut pages, bytes(1100, 16, false));
     assert_eq!(newborn.page, locations[0].page);
     assert_eq!(pages.sweep_slot().unwrap().location, older);
     pages.advance_sweep();
     assert!(pages.sweep_done());
     release(&mut pages, older);
-    let another = insert(&mut pages, 101, bytes(1200, 32, false));
+    let another = insert(&mut pages, bytes(1200, 32, false));
     assert_eq!(another.page, older.page);
     assert!(
         pages.sweep_done(),
@@ -565,15 +568,15 @@ fn sweep_cursor_unlinks_before_reuse_and_skips_prepended_allocations() {
 fn multi_fragment_preflight_rejects_late_corruption_and_overlap_before_any_detach() {
     use crate::gc::directory::pages::batch::{Disposal, Fragment};
     let mut pages = Pages::default();
-    let large = insert(&mut pages, 0, bytes(1056, 64, false));
+    let large = insert(&mut pages, bytes(1056, 64, false));
     let descriptor = bytes(8, 8, false);
     let slots: Vec<_> = (1..=4)
-        .map(|id| insert(&mut pages, id, descriptor.clone()))
+        .map(|_| insert(&mut pages, descriptor.clone()))
         .collect();
     let id = |location: PayloadLocation, pages: &Pages| match &pages.allocations
         [location.page as usize]
     {
-        Allocation::Small(page) => page.slots()[location.slot as usize].descriptor.unwrap(),
+        Allocation::Small(page) => page.descriptor(location.slot as usize).unwrap(),
         Allocation::Large(large) => large.header().descriptor.unwrap(),
         _ => unreachable!(),
     };
@@ -596,8 +599,10 @@ fn multi_fragment_preflight_rejects_late_corruption_and_overlap_before_any_detac
     assert!(pages.prepare_batch(&fragments, &mut output).is_none());
     assert!(output.iter().all(Option::is_none));
     assert!(pages.get(large).is_some());
-    assert_eq!(pages.occupied().count(), 5);
+    assert_eq!(pages.small(slots[0].page).bits()[0], original & !4);
+    assert_eq!(pages.occupied().count(), 4);
     pages.small_mut(slots[0].page).parts_mut().bits[0] = original;
+    assert_eq!(pages.occupied().count(), 5);
     assert!(
         pages
             .prepare_batch(&[Some(first), Some(last), Some(last)], &mut output)
@@ -702,7 +707,7 @@ fn bitmap_sweep_charges_words_and_occupied_slots_not_vacant_runs() {
         let mut pages = Pages::default();
         let descriptor = bytes(stride, 8, false);
         let locations: Vec<_> = (0..count)
-            .map(|id| insert(&mut pages, id, descriptor.clone()))
+            .map(|_| insert(&mut pages, descriptor.clone()))
             .collect();
         for &location in &locations[..count as usize - 1] {
             release(&mut pages, location);
@@ -722,7 +727,6 @@ fn bitmap_sweep_charges_words_and_occupied_slots_not_vacant_runs() {
         let mut exact = ScanBudget::new(words + 1);
         let slot = scanner.peek(&mut exact).unwrap().unwrap();
         assert_eq!(slot.location, *locations.last().unwrap());
-        assert_eq!(slot.directory, count - 1);
         scanner.advance();
         assert!(scanner.cursor().page.is_none());
         assert_eq!(exact.spent(), words + 1);
@@ -737,7 +741,7 @@ fn bitmap_sweep_reloads_numeric_prefix_across_words_take_and_newborns() {
     let mut pages = Pages::default();
     let descriptor = bytes(8, 8, false);
     let locations: Vec<_> = (0..128)
-        .map(|id| insert(&mut pages, id, descriptor.clone()))
+        .map(|_| insert(&mut pages, descriptor.clone()))
         .collect();
     // Keep slot 64 retiring: it is neither occupied nor free and must not be read.
     let mut retiring = pages.detach(locations[64]).unwrap();
@@ -758,7 +762,7 @@ fn bitmap_sweep_reloads_numeric_prefix_across_words_take_and_newborns() {
     pages.publish_sweep(cursor);
     assert_eq!(first.spent(), 5);
     release(&mut pages, locations[63]);
-    let newborn = insert(&mut pages, 128, descriptor.clone());
+    let newborn = insert(&mut pages, descriptor.clone());
     assert_eq!(
         newborn.slot, 0,
         "reused prefix is outside the captured cursor"
@@ -767,7 +771,7 @@ fn bitmap_sweep_reloads_numeric_prefix_across_words_take_and_newborns() {
     pages.finish(retiring);
     // Reuse an unvisited slot in the same page: the next slice reloads its bitmap.
     let prefix: Vec<_> = (1..=64)
-        .map(|id| insert(&mut pages, 128 + id, descriptor.clone()))
+        .map(|_| insert(&mut pages, descriptor.clone()))
         .collect();
     assert_eq!(prefix.last().unwrap().slot, 64);
     let mut scanner = pages.scanner();
@@ -793,21 +797,31 @@ fn bitmap_sweep_reloads_numeric_prefix_across_words_take_and_newborns() {
 #[test]
 fn bitmap_sweep_rejects_corrupt_planes_cardinality_tail_and_missing_descriptor() {
     let mut pages = Pages::default();
-    let location = insert(&mut pages, 0, bytes(24, 8, false));
+    let location = insert(&mut pages, bytes(24, 8, false));
     pages.begin_sweep();
-    let descriptor = pages.small(location.page).slots()[0].descriptor;
+    let pointer = pages.small(location.page).pointer(0);
+    // SAFETY: the initialized fixture remains owned throughout temporary corruption.
+    let header = unsafe { ObjectHeader::read(pointer) };
+    let descriptor = header.descriptor_id;
     for (occupied, reserved, free, published) in [
         (0, 0, 41, descriptor),             // Missing occupied publication bit.
         (1, 1, 40, descriptor),             // Occupied and retiring cannot overlap.
         (1 | (1 << 42), 0, 40, descriptor), // Outside the 42-slot class.
         (1, 0, 42, descriptor),             // Free count contradicts occupied bits.
-        (1, 0, 41, None),                   // An authoritative occupied bit must resolve a slot.
+        (1, 0, 41, 0),                      // An authoritative occupied bit must resolve a slot.
     ] {
         let page = pages.small_mut(location.page).parts_mut();
         page.bits[0] = occupied;
         page.bits[1] = reserved;
         page.state.free = free;
-        page.slots[0].descriptor = published;
+        // SAFETY: exclusive test fixture, same aligned initialized prefix.
+        unsafe {
+            ObjectHeader {
+                descriptor_id: published,
+                ..header
+            }
+            .write(pointer)
+        };
         let mut budget = ScanBudget::new(3);
         assert!(pages.scanner().peek(&mut budget).is_none());
         assert!(
@@ -820,7 +834,8 @@ fn bitmap_sweep_rejects_corrupt_planes_cardinality_tail_and_missing_descriptor()
     page.bits[0] = 1;
     page.bits[1] = 0;
     page.state.free = 41;
-    page.slots[0].descriptor = descriptor;
+    // SAFETY: restore valid dispatch before ordinary detachment/destruction.
+    unsafe { header.write(pointer) };
     release(&mut pages, location);
     assert!(pages.sweep_done());
     assert_eq!(pages.backing_bytes, 0);
@@ -839,12 +854,13 @@ fn range_unwind_fallback_retains_backing_after_owner_teardown_and_never_retries_
     let descriptor = Arc::new(Descriptor::new(
         PayloadKind::String,
         Layout::from_size_align(80, 8).unwrap(),
+        ObjectHeader::SIZE,
         false,
         destroy,
     ));
     let weak = Arc::downgrade(&descriptor);
     let locations: Vec<_> = (0..12)
-        .map(|index| insert(&mut pages, index, descriptor.clone()))
+        .map(|_| insert(&mut pages, descriptor.clone()))
         .collect();
     drop(descriptor);
     let mut range = pages.prepare_range(locations[0], 12).unwrap().detach();

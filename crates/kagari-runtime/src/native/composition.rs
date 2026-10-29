@@ -11,6 +11,7 @@ use crate::{
         binding::NativeResult,
         context::CallContext,
         future::{ColdFuture, FuturePayload},
+        storage::value::StoredValue,
         types::VariantRef,
     },
     session::ExecutionPhase,
@@ -44,7 +45,7 @@ pub(crate) struct ColdComposition {
     pub owner: ExecutableModule,
     pub inputs: [TypeArgument; 2],
     pub output: TypeArgument,
-    pub values: [Value; 2],
+    pub values: [StoredValue; 2],
     pub policy: Arc<dyn PairPolicy>,
 }
 
@@ -281,7 +282,7 @@ impl CallContext<'_> {
             owner: self.owner.clone(),
             inputs,
             output,
-            values,
+            values: values.map(StoredValue::new),
             policy,
         };
         cold.policy.validate(&PairContext {

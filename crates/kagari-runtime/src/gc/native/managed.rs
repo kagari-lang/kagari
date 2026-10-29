@@ -1,14 +1,14 @@
 //! Checked writes to declared native fields. The collector only sees their trace.
 use crate::{
     error::RuntimeError,
-    gc::{GcHeap, HeapObjectId, leases::StorageBorrow},
+    gc::{GcHeap, leases::StorageBorrow, reference::GcRef},
     native::{
         binding::NativeResult,
         payload::{
             data::NativeData,
             managed::{AppliedSchema, Managed, invalid},
         },
-        storage::NativePayload,
+        storage::{NativePayload, value::StoredValue},
     },
     value::Value,
 };
@@ -18,7 +18,7 @@ impl GcHeap {
     /// Callers validate new edges before entering; user edits receive data alone.
     fn with_managed_mut<T: NativeData, R>(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         commit: impl FnOnce(&mut Managed<T>) -> NativeResult<R>,
     ) -> NativeResult<R> {
         self.ensure_no_storage_borrow()?;
@@ -47,7 +47,7 @@ impl GcHeap {
 
     pub(crate) fn edit_managed_data<T: NativeData, R>(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         edit: impl for<'data> FnOnce(&'data mut T) -> NativeResult<R>,
     ) -> NativeResult<R> {
         self.with_managed_mut(id, |payload: &mut Managed<T>| edit(&mut payload.data))
@@ -55,7 +55,7 @@ impl GcHeap {
 
     pub(crate) fn set_managed_field<T: NativeData>(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         schema: &AppliedSchema,
         slot: usize,
         value: Value,
@@ -75,14 +75,14 @@ impl GcHeap {
         })?;
         self.publish_value(value)?;
         self.with_managed_mut(id, |payload: &mut Managed<T>| {
-            payload.values[slot] = value;
+            payload.values[slot] = StoredValue::new(value);
             Ok(())
         })
     }
 
     pub(crate) fn replace_managed<T: NativeData>(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         replacement: Managed<T>,
     ) -> NativeResult<()> {
         self.ensure_no_storage_borrow()?;
@@ -91,7 +91,9 @@ impl GcHeap {
             return Err(invalid());
         }
         for (field, value) in replacement.schema.fields.iter().zip(&replacement.values) {
-            if !value.is_default_heap_payload(self) || !field.contract.accepts_value(self, value) {
+            if !value.value_ref().is_default_heap_payload(self)
+                || !field.contract.accepts_value(self, value.value_ref())
+            {
                 return Err(invalid());
             }
         }
@@ -106,7 +108,7 @@ impl GcHeap {
         })?;
         self.ensure_structure_mutable(id)?;
         for value in &replacement.values {
-            self.publish_value(*value)?;
+            self.publish_value(value.value())?;
         }
         let mut objects = self.objects_mut()?;
         let object = self.native_mut(&mut objects, id).ok_or_else(invalid)?;

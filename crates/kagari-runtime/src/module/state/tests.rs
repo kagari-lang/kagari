@@ -78,7 +78,7 @@ fn black_static_initialization_replacement_and_sweep_reload_preserve_published_e
         assert!(
             runtime
                 .gc
-                .graph_survivor(runtime.modules(), value.heap_identity().unwrap().graph())
+                .graph_survivor(runtime.modules(), value.direct_reference().unwrap().graph())
                 .unwrap()
         );
     }

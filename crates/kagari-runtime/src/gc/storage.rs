@@ -7,7 +7,7 @@ use crate::{
         GcHeap,
         directory::ObjectStorage,
         fields::{StructInitializer, StructView, StructViewMut},
-        reference::HeapObjectIdentity,
+        reference::GcRef,
         values::TupleData,
     },
     host::{HostPathViewHandle, HostRootHandle},
@@ -73,6 +73,8 @@ pub(super) enum HeapObject<A: ObjectAccess = Owned> {
     HostPath(A::Field<Arc<HostPathViewHandle>>),
     Ephemeral(A::Field<EphemeralValue>),
     Native(A::Field<NativeObject>),
+    /// Only the header remains initialized; no Rust payload or metadata is owned.
+    Taken,
     Enum(
         A::Field<EnumValueSnapshot>,
         A::Field<Option<Arc<ErrorTrace>>>,
@@ -108,7 +110,7 @@ impl<A: ObjectAccess> HeapObject<A> {
             Self::String(text) => text.borrow().len(),
             Self::Tuple(tuple) => tuple.borrow().members.len(),
             Self::HostPath(path) => path.borrow().retained_values().count(),
-            Self::Range(_) | Self::HostRoot(_) | Self::Ephemeral(_) => 0,
+            Self::Range(_) | Self::HostRoot(_) | Self::Ephemeral(_) | Self::Taken => 0,
             Self::Native(object) => object.borrow().charge.logical_units,
             Self::Enum(value, _) => value.borrow().fields.len(),
             Self::Struct { storage } => A::field_count(storage),
@@ -154,7 +156,11 @@ impl<'a> HeapObject<Shared<'a>> {
         native: impl FnOnce(&'a NativeObject, &mut dyn FnMut(Value)) -> Option<()>,
     ) -> Option<()> {
         match self {
-            Self::String(_) | Self::Range(_) | Self::HostRoot(_) | Self::Ephemeral(_) => {}
+            Self::String(_)
+            | Self::Range(_)
+            | Self::HostRoot(_)
+            | Self::Ephemeral(_)
+            | Self::Taken => {}
             Self::Tuple(tuple) => tuple.members.iter().rev().copied().for_each(visit),
             Self::HostPath(path) => path.retained_values().copied().for_each(visit),
             Self::Native(object) => native(object, visit)?,
@@ -176,7 +182,7 @@ pub(super) fn append_value_edges(
     heap: &GcHeap,
     objects: &ObjectStorage,
     values: &mut Vec<Value>,
-    pending: &mut Vec<HeapObjectIdentity>,
+    pending: &mut Vec<GcRef>,
 ) -> Option<()> {
     let start = pending.len();
     while let Some(value) = values.pop() {
