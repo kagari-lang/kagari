@@ -1,4 +1,4 @@
-//! Heap-owner slices. Each step resolves the full identity again under a short borrow.
+//! Indexed heap-owner slices; direct structs use their scoped physical scan owner.
 use crate::{
     error::RuntimeError,
     execution_metadata::MetadataEdge,
@@ -51,7 +51,9 @@ impl GcHeap {
         let (end, host_path) = match object {
             HeapObject::Tuple(value) => (value.members.len(), None),
             HeapObject::Enum(value, _) => (value.fields.len(), None),
-            HeapObject::Struct { storage } => (storage.description.references.len(), None),
+            HeapObject::Struct { .. } => {
+                return Err(invalid("struct requires physical scan owner"));
+            }
             HeapObject::Closure { snapshot } => (snapshot.captures.len(), None),
             HeapObject::Native(value) => (value.selected.len(), None),
             HeapObject::HostPath(path) => (0, Some(path.clone())),
@@ -196,10 +198,7 @@ impl GcHeap {
                     }
                     cursor.section += 1;
                 }
-                HeapObject::Tuple(_)
-                | HeapObject::Enum(..)
-                | HeapObject::Struct { .. }
-                | HeapObject::Closure { .. } => {
+                HeapObject::Tuple(_) | HeapObject::Enum(..) | HeapObject::Closure { .. } => {
                     if cursor.index == cursor.end {
                         return Ok(ScanStatus::Complete);
                     }
@@ -209,11 +208,6 @@ impl GcHeap {
                     let value = match object {
                         HeapObject::Tuple(value) => value.members.get(cursor.index).copied(),
                         HeapObject::Enum(value, _) => value.fields.get(cursor.index).copied(),
-                        HeapObject::Struct { storage } => storage
-                            .description
-                            .references
-                            .get(cursor.index)
-                            .and_then(|slot| storage.get(*slot)),
                         HeapObject::Closure { snapshot } => {
                             snapshot.captures.get(cursor.index).copied()
                         }
@@ -256,6 +250,9 @@ impl GcHeap {
                     } else {
                         ScanStatus::Pending
                     });
+                }
+                HeapObject::Struct { .. } => {
+                    return Err(invalid("struct requires physical scan owner"));
                 }
             }
         }

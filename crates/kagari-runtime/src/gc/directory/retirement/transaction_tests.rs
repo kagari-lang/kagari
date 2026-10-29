@@ -311,7 +311,7 @@ fn greedy_range_cuts_preserve_page_remainders_and_natural_twelve_and_forty_two_r
                 }
             }
             let status = retired.status;
-            heap.dispose_sweep_batch(&mut retired);
+            heap.dispose_sweep_batch(&mut retired).unwrap();
             if status == ScanStatus::Complete {
                 break;
             }

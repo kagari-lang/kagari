@@ -1,6 +1,8 @@
 //! Bounded multi-fragment prepare/commit with one aggregate identity/charge proof.
 pub(in crate::gc) mod disposal;
 #[cfg(test)]
+mod mark_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod transaction_tests;
@@ -29,6 +31,8 @@ pub(in crate::gc) const RETIRE_LIMIT: usize = 32;
 const WORKSPACE_WORK: usize = RETIRE_LIMIT * 5 + 2;
 const OWNER_RETIRE_WORK: usize = 8;
 // Bitmap checks, physical detach/finish, descriptor counts and final-owner release.
+// Final-page finish also checks two gray words and unregisters one mark credit;
+// this constant allowance covers that bounded control work, without a history walk.
 const FRAGMENT_FINISH_WORK: usize = 32;
 const BATCH_FINISH_WORK: usize = 32;
 

@@ -166,7 +166,7 @@ fn coallocated_controls_have_two_allocations_and_disjoint_complete_accounting() 
         assert_eq!(counts.net_bytes, counts.requested_bytes as i128);
         let payload = allocation.bytes();
         let mut pages = Pages::default();
-        let index = pages.publish_allocation(allocation, false).unwrap();
+        let index = pages.publish_allocation(allocation).unwrap();
         let usage = pages.usage();
         assert_eq!(
             pages.backing_bytes, payload,
@@ -221,11 +221,12 @@ fn trailer_layout_rejects_overflow_and_mutation_does_not_borrow_payload() {
     // SAFETY: initialize and exclusively borrow the entire payload prefix only.
     unsafe { pointer.as_ptr().write_bytes(5, 17) };
     let payload = unsafe { std::slice::from_raw_parts_mut(pointer.as_ptr(), 17) };
-    large.header_mut().directory = 2;
+    large.active_mut().next = 2;
     payload[16] = 7;
     assert_eq!(payload[0], 5);
     assert_eq!(payload[16], 7);
-    assert_eq!(large.header().directory, 2);
+    assert_eq!(large.header().directory, 1);
+    assert_eq!(large.header().active.next, 2);
 }
 
 #[test]

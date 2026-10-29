@@ -14,6 +14,7 @@ mod poison_tests;
 #[cfg(test)]
 mod publication_tests;
 pub(crate) mod roots;
+mod structures;
 pub(in crate::gc) mod sweep;
 #[cfg(test)]
 mod tests;
@@ -307,6 +308,14 @@ enum WorkItem {
     Singleton(GraphIdentity),
 }
 
+/// Whether a validated immutable representation has any managed edges. Only the
+/// representation owner can prove Leaf; native providers never use that shortcut.
+#[derive(Clone, Copy)]
+pub(super) enum ScanKind {
+    Edges,
+    Leaf,
+}
+
 /// Identity admission and pending-storage capacity have distinct bounds. Every
 /// admitted identity has an original-owner mark; every registered slot block and
 /// live singleton reserves one queue position before publication. A block's queued
@@ -455,6 +464,31 @@ impl GraphMarker<'_> {
         }
     }
 
+    /// Physical storage proves the entire block is unused while holding its
+    /// exclusive borrow. Closed marking excludes queued/active old scan owners;
+    /// later page reuse must register and reserve its work credit again.
+    pub(in crate::gc) fn release_retired_group(
+        &mut self,
+        mark: MarkRef<'_>,
+    ) -> Result<(), RuntimeError> {
+        if self.phase() != MarkPhase::Sweep || self.active.is_some() || !self.pending.is_empty() {
+            return Err(Self::invalid(
+                "graph work prevents physical mark retirement",
+            ));
+        }
+        if mark
+            .unregister_empty_group(self.epoch)
+            .ok_or_else(|| Self::invalid("unfinished physical mark block"))?
+        {
+            self.work_credits = self
+                .work_credits
+                .checked_sub(1)
+                .expect("registered physical block credit");
+        }
+        self.check_credits();
+        Ok(())
+    }
+
     pub(crate) fn retarget_taken_owner(
         &mut self,
         old: GraphIdentity,
@@ -515,6 +549,15 @@ impl GraphMarker<'_> {
         id: GraphIdentity,
         mark: MarkRef<'_>,
     ) -> Result<(), RuntimeError> {
+        self.shade_target(id, mark, ScanKind::Edges)
+    }
+
+    fn shade_target(
+        &mut self,
+        id: GraphIdentity,
+        mark: MarkRef<'_>,
+        kind: ScanKind,
+    ) -> Result<(), RuntimeError> {
         match self.phase() {
             MarkPhase::Idle => return Ok(()),
             MarkPhase::Faulted => return Err(Self::invalid("faulted graph publication")),
@@ -529,8 +572,13 @@ impl GraphMarker<'_> {
             MarkPhase::Roots | MarkPhase::Mark => {}
         }
         if mark.color(self.epoch) == Color::White {
-            mark.set(self.epoch, Color::Gray);
-            self.enqueue(id, mark);
+            match kind {
+                ScanKind::Edges => {
+                    mark.set(self.epoch, Color::Gray);
+                    self.enqueue(id, mark);
+                }
+                ScanKind::Leaf => mark.set(self.epoch, Color::Black),
+            }
         }
         self.check_credits();
         Ok(())
@@ -692,10 +740,11 @@ impl GraphMarker<'_> {
 
     /// Collector edges reserve the actual lazy reset before touching any word.
     /// Pending leaves both the target and its owning scan cursor unchanged.
-    pub(crate) fn shade_scanned(
+    pub(super) fn shade_scanned(
         &mut self,
         id: GraphIdentity,
         mark: MarkRef<'_>,
+        kind: ScanKind,
         budget: &mut ScanBudget,
     ) -> Result<ScanStatus, RuntimeError> {
         if !matches!(self.phase(), MarkPhase::Roots | MarkPhase::Mark) {
@@ -704,7 +753,9 @@ impl GraphMarker<'_> {
         if !budget.take(mark.initialization_work(self.epoch)) {
             return Ok(ScanStatus::Pending);
         }
-        self.shade(id, mark)?;
+        // Gray work already published by admission/mutation stays gray until its
+        // existing owner finishes. The leaf shortcut only admits white targets.
+        self.shade_target(id, mark, kind)?;
         Ok(ScanStatus::Complete)
     }
 

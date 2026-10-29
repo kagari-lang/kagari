@@ -126,7 +126,7 @@ impl GcHeap {
                 })?;
         }
         let status = batch.status;
-        let disposal = self.dispose_sweep_batch(&mut batch);
+        let disposal = self.dispose_sweep_batch(&mut batch)?;
         Ok(Some((status, disposal)))
     }
 
@@ -164,9 +164,12 @@ impl GcHeap {
 
     /// Charges remain committed until every token's payload and final owner have
     /// been released. The outstanding transaction blocks another detach meanwhile.
-    pub(in crate::gc) fn dispose_sweep_batch(&self, batch: &mut SweepBatch<'_>) -> SweepDisposal {
+    pub(in crate::gc) fn dispose_sweep_batch(
+        &self,
+        batch: &mut SweepBatch<'_>,
+    ) -> Result<SweepDisposal, RuntimeError> {
         if !batch.has_retirements() {
-            return SweepDisposal::default();
+            return Ok(SweepDisposal::default());
         }
         let observation = self.observation_clock();
         for token in batch.disposal[..batch.fragments].iter_mut().flatten() {
@@ -186,11 +189,9 @@ impl GcHeap {
         let mut fragments = 0usize;
         {
             let mut objects = self.objects.borrow_mut();
+            let mut graph = self.graph.try_lock()?;
             for token in batch.disposal[..batch.fragments].iter().flatten() {
-                let bytes = match token {
-                    Disposal::Payload(payload) => objects.pages.finish_payload(payload),
-                    Disposal::Range(range) => objects.pages.finish_range(range),
-                };
+                let bytes = objects.pages.finish_sweep_disposal(token, &mut graph)?;
                 released = released.checked_add(bytes).expect("bounded total backing");
                 fragments += 1;
             }
@@ -252,6 +253,6 @@ impl GcHeap {
         };
         batch.objects = 0;
         batch.fragments = 0;
-        result
+        Ok(result)
     }
 }

@@ -38,6 +38,8 @@ impl ObjectStorage {
             descriptor_registry_entries,
             descriptor_registry_capacity,
         ) = self.pages.descriptors.usage();
+        let (struct_identity_bytes, struct_identities) =
+            self.pages.descriptors.struct_identity_usage();
         StorageUsage {
             buffers: [
                 BufferUsage::new("directory", &self.slots),
@@ -46,6 +48,8 @@ impl ObjectStorage {
             ],
             graph_credits,
             graph_work_credits: 0,
+            struct_mark_pages: usage.mark_pages,
+            struct_mark_bytes: usage.mark_bytes,
             retirement: Default::default(),
             slab_bytes: usage.slabs,
             large_bytes: usage.large,
@@ -58,6 +62,8 @@ impl ObjectStorage {
             allocation_padding_bytes: usage.padding,
             descriptor_bytes,
             representation_descriptors,
+            struct_identity_bytes,
+            struct_identities,
             descriptor_directory_bytes,
             descriptor_registry_entries,
             descriptor_registry_capacity,

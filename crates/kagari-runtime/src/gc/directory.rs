@@ -18,7 +18,7 @@ use crate::{
     error::RuntimeError,
     gc::{
         GcHeap, HeapObjectId,
-        fields::StructViewMut,
+        fields::{StructView, StructViewMut},
         graph::marks::{Domain, MarkBlocks, MarkRef},
         reference::{GcRef, HeapObjectIdentity},
         storage::HeapObject,
@@ -31,6 +31,13 @@ use std::{collections::HashMap, slice};
 
 #[cfg(test)]
 use std::cell::Cell;
+
+/// Collector view of one retained struct. Payload, descriptor and physical mark
+/// share the storage borrow; none may survive a yield, callback or retirement.
+pub(in crate::gc) struct ResolvedStruct<'a> {
+    pub(in crate::gc) fields: StructView<'a>,
+    pub(in crate::gc) mark: MarkRef<'a>,
+}
 
 impl GcHeap {
     pub(super) fn dispose_payload(&self, mut retired: Retired) -> usize {

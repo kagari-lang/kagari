@@ -143,7 +143,7 @@ fn greedy_page_geometry_fills_32_owners_without_batch_allocations() {
         assert!(heap.objects.borrow_mut().finish_physical_sweep().is_none());
         assert!(heap.resources.counters().current_heap_units >= retired.units);
         let complete = retired.status == ScanStatus::Complete;
-        heap.dispose_sweep_batch(&mut retired);
+        heap.dispose_sweep_batch(&mut retired).unwrap();
         assert!(totals.objects <= 1027);
         if complete {
             break;
@@ -193,7 +193,12 @@ fn range_accounting_and_generation_reuse_follow_release_not_detachment() {
         before.current_retained_bytes
     );
     assert_eq!(heap.objects.borrow().pages.occupied().count(), 10);
-    assert_eq!(heap.dispose_sweep_batch(&mut retired).released_bytes, 0);
+    assert_eq!(
+        heap.dispose_sweep_batch(&mut retired)
+            .unwrap()
+            .released_bytes,
+        0
+    );
     assert_eq!(heap.resources.counters().current_heap_units, 10);
     assert_eq!(
         heap.resources.counters().current_retained_bytes,
@@ -213,7 +218,9 @@ fn range_accounting_and_generation_reuse_follow_release_not_detachment() {
     assert_eq!(retired.units, 10);
     assert_eq!(heap.objects.borrow().pages.occupied().count(), 1);
     assert_eq!(
-        heap.dispose_sweep_batch(&mut retired).released_bytes,
+        heap.dispose_sweep_batch(&mut retired)
+            .unwrap()
+            .released_bytes,
         0,
         "newborn pins original page without moving"
     );
@@ -276,7 +283,7 @@ fn native_take_between_slices_repairs_cursor_before_directory_and_page_reuse() {
     loop {
         let mut retired = batch(heap, 1024);
         let complete = retired.status == ScanStatus::Complete;
-        heap.dispose_sweep_batch(&mut retired);
+        heap.dispose_sweep_batch(&mut retired).unwrap();
         if complete {
             break;
         }
@@ -353,7 +360,7 @@ fn mixed_sparse_pages_reserve_retirement_work_before_detaching() {
             }
             work += budget.spent();
             let complete = retired.status == ScanStatus::Complete;
-            heap.dispose_sweep_batch(&mut retired);
+            heap.dispose_sweep_batch(&mut retired).unwrap();
             calls += 1;
             if complete {
                 break;
@@ -437,7 +444,7 @@ fn bounded_transaction_preserves_initialization_owners_and_exhausted_generations
             }
         }
     }
-    heap.dispose_sweep_batch(&mut retired);
+    heap.dispose_sweep_batch(&mut retired).unwrap();
     for _ in 0..32 {
         let new = heap
             .alloc_string(String::new())
@@ -450,7 +457,7 @@ fn bounded_transaction_preserves_initialization_owners_and_exhausted_generations
     }
     let mut retired = batch(heap, 1024);
     assert_eq!(retired.units, 10);
-    heap.dispose_sweep_batch(&mut retired);
+    heap.dispose_sweep_batch(&mut retired).unwrap();
     let totals = heap.objects.borrow_mut().finish_physical_sweep().unwrap();
     assert_eq!(totals.objects, 42);
     assert_eq!(totals.live, 32);
@@ -527,7 +534,7 @@ fn borrowed_retirement_proof_cannot_replay_into_outstanding_or_reused_storage() 
         assert!(objects.slots[id.index()].location().is_none());
     }
     assert_eq!(heap.resources.counters(), before);
-    heap.dispose_sweep_batch(&mut retired);
+    heap.dispose_sweep_batch(&mut retired).unwrap();
     let newborn = heap.alloc_string(String::with_capacity(11)).unwrap();
     let new_id = newborn.checked_id().unwrap();
     assert_eq!(new_id.index(), id.index());
@@ -583,7 +590,7 @@ fn bounded_transaction_rejects_late_credit_underflow_before_detachment() {
         .commit();
     let mut retired = batch(heap, 1024);
     assert_eq!(retired.units, 32);
-    heap.dispose_sweep_batch(&mut retired);
+    heap.dispose_sweep_batch(&mut retired).unwrap();
     let before = heap.resources.counters();
     let locations: Vec<_> = ids[32..]
         .iter()
@@ -638,7 +645,7 @@ fn retirement_reserves_disposal_and_finish_before_detaching() {
             "failed reservation leaves the owner in place"
         );
         assert!(heap.validate_value(&value));
-        let released = heap.dispose_sweep_batch(&mut retired);
+        let released = heap.dispose_sweep_batch(&mut retired).unwrap();
         assert_eq!(
             (released.objects, released.units, released.bytes),
             (0, 0, 0)
@@ -654,7 +661,7 @@ fn retirement_reserves_disposal_and_finish_before_detaching() {
     assert_eq!(budget.spent(), 75);
     assert!(!heap.validate_value(&value));
     assert_eq!(heap.resources.counters().current_heap_units, 1);
-    let released = heap.dispose_sweep_batch(&mut retired);
+    let released = heap.dispose_sweep_batch(&mut retired).unwrap();
     assert_eq!(
         (released.objects, released.units, released.bytes),
         (1, 1, SLAB_BYTES as u128 + 7)
@@ -669,7 +676,7 @@ fn retirement_reserves_disposal_and_finish_before_detaching() {
         let mut retired = batch(heap, 1);
         let status = retired.status;
         assert_eq!(retired.objects, 0);
-        heap.dispose_sweep_batch(&mut retired);
+        heap.dispose_sweep_batch(&mut retired).unwrap();
         if status == ScanStatus::Complete {
             break;
         }
@@ -700,13 +707,13 @@ fn inspection_progress_cannot_finish_another_batch_and_reports_newborn_liveness(
     {
         let objects = heap.objects.borrow_mut();
         let _stats = heap.stats.borrow_mut();
-        let empty = heap.dispose_sweep_batch(&mut progress);
+        let empty = heap.dispose_sweep_batch(&mut progress).unwrap();
         assert_eq!((empty.objects, empty.units, empty.bytes), (0, 0, 0));
         assert!(objects.sweep.as_ref().unwrap().outstanding);
         assert_eq!(heap.resources.counters(), before);
     }
     assert!(heap.objects.borrow_mut().finish_physical_sweep().is_none());
-    heap.dispose_sweep_batch(&mut retired);
+    heap.dispose_sweep_batch(&mut retired).unwrap();
     let newborn = heap.alloc_string(String::new()).unwrap();
     let complete = batch(heap, 0);
     assert_eq!(complete.status, ScanStatus::Complete);
@@ -748,14 +755,14 @@ fn reverse_wrapper_cursor_repairs_swaps_and_excludes_reused_newborns() {
     );
     assert!(heap.objects.borrow().sweep.as_ref().unwrap().outstanding);
     assert_eq!(first.status, ScanStatus::Pending);
-    heap.dispose_sweep_batch(&mut first);
+    heap.dispose_sweep_batch(&mut first).unwrap();
     assert!(!heap.validate_value(&Value::Interface(ids[6])));
     let newborn = heap.alloc_interface(snapshot).unwrap();
     assert_eq!(newborn.0.index(), ids[6].0.index());
     assert_ne!(newborn.0.generation, ids[6].0.generation);
     let mut second = batch(heap, 41);
     assert_eq!(second.objects, 1);
-    heap.dispose_sweep_batch(&mut second);
+    heap.dispose_sweep_batch(&mut second).unwrap();
     assert_eq!(
         heap.objects.borrow().slots[newborn.0.index()]
             .location()
@@ -767,7 +774,7 @@ fn reverse_wrapper_cursor_repairs_swaps_and_excludes_reused_newborns() {
         let mut retired = batch(heap, 42);
         assert!(retired.objects <= 1);
         let status = retired.status;
-        heap.dispose_sweep_batch(&mut retired);
+        heap.dispose_sweep_batch(&mut retired).unwrap();
         let objects = heap.objects.borrow();
         assert!(
             (0..objects.interface_directories.len()).all(|ordinal| objects.valid_wrapper(ordinal))
@@ -800,7 +807,7 @@ fn maintenance_charges_one_off_compaction_without_discarding_generation_history(
     loop {
         let mut retired = batch(heap, 1024);
         let status = retired.status;
-        heap.dispose_sweep_batch(&mut retired);
+        heap.dispose_sweep_batch(&mut retired).unwrap();
         if status == ScanStatus::Complete {
             break;
         }
@@ -883,7 +890,10 @@ fn zero_work_and_failed_accounting_preflight_cannot_detach() {
         let mut empty = batch(heap, 0);
         assert!(empty.status != ScanStatus::Complete);
         assert!(empty.disposal.iter().all(Option::is_none));
-        assert_eq!(heap.dispose_sweep_batch(&mut empty).released_bytes, 0);
+        assert_eq!(
+            heap.dispose_sweep_batch(&mut empty).unwrap().released_bytes,
+            0
+        );
         let location = heap.objects.borrow().slots[id.index()].location().unwrap();
         if invalid {
             heap.objects.borrow_mut().sweep.as_mut().unwrap().max_bytes = 16;

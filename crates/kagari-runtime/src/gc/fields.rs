@@ -8,7 +8,7 @@ use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     gc::{
         GcHeap,
-        directory::descriptors::Descriptor,
+        directory::descriptors::{Descriptor, structures::StructIdentity},
         reference::GcRef,
         weak_cache::{WeakCache, WeakCacheToken},
     },
@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 #[derive(Debug, Default)]
 pub(super) struct StructStorageLayouts {
-    entries: WeakCache<StructStorageKey, Descriptor>,
+    entries: WeakCache<StructStorageKey, StructIdentity>,
 }
 
 impl StructStorageLayouts {
@@ -38,11 +38,11 @@ impl StructStorageLayouts {
     /// incoming and detached tokens outside the cache borrow.
     pub(super) fn release(
         &mut self,
-        token: &WeakCacheToken<StructStorageKey, Descriptor>,
+        token: &WeakCacheToken<StructStorageKey, StructIdentity>,
         budget: &mut ScanBudget,
     ) -> (
         ScanStatus,
-        Option<WeakCacheToken<StructStorageKey, Descriptor>>,
+        Option<WeakCacheToken<StructStorageKey, StructIdentity>>,
     ) {
         self.entries.remove(token, budget)
     }
@@ -165,14 +165,16 @@ impl GcHeap {
             .struct_layouts
             .try_borrow_mut()
             .map_err(|_| RuntimeError::module_validation("struct descriptions borrowed"))?;
-        if let Some(layout) = layouts.entries.get(&key) {
-            return Ok(layout);
+        if let Some(identity) = layouts.entries.get(&key) {
+            return self.objects_mut()?.struct_description(identity);
         }
         let layout = Descriptor::structure(
             StructStorageLayout::prepare(layout)
                 .ok_or_else(|| RuntimeError::module_validation("closed struct storage layout"))?,
         )?;
-        let insertion = layouts.entries.prepare_insert(key, &layout)?;
+        let insertion = layouts
+            .entries
+            .prepare_insert(key, layout.struct_identity())?;
         let token = insertion.token();
         // Reservation finishes semantic lookup before the descriptor association
         // is installed. Commit cannot fail, including when replacing a dead hint.
@@ -552,15 +554,15 @@ mod tests {
         runtime.collect_garbage().unwrap();
         assert!(Arc::ptr_eq(
             &heap.struct_layouts.borrow().entries.get(&key).unwrap(),
-            &first,
+            first.struct_identity(),
         ));
         drop(first);
         let next = heap.struct_storage_description(semantic).unwrap();
-        assert!(!original.is_for(&next));
+        assert!(!original.is_for(next.struct_identity()));
         runtime.collect_garbage().unwrap();
         assert!(Arc::ptr_eq(
             &heap.struct_layouts.borrow().entries.get(&key).unwrap(),
-            &next,
+            next.struct_identity(),
         ));
         let mut budget = ScanBudget::new(WEAK_CACHE_REMOVE_WORK);
         let (status, removed) = heap
@@ -572,7 +574,7 @@ mod tests {
         assert!(removed.is_none());
         assert!(Arc::ptr_eq(
             &heap.struct_layouts.borrow().entries.get(&key).unwrap(),
-            &next,
+            next.struct_identity(),
         ));
         drop(next);
         runtime.collect_garbage().unwrap();

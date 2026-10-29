@@ -5,7 +5,7 @@ use crate::{
     gc::{
         GcHeap,
         graph::{
-            GraphIdentity, GraphMarker,
+            GraphIdentity, GraphMarker, ScanKind,
             marks::MarkRef,
             objects::{ObjectCursor, ScanEdge},
         },
@@ -21,6 +21,7 @@ use crate::{
 #[derive(Debug)]
 pub(crate) enum ActiveScan {
     Object(ObjectCursor),
+    Struct { next_field: usize },
     Metadata(MetadataCursor),
     Module(ModuleCursor),
     Static(StaticScanId),
@@ -33,7 +34,7 @@ impl GcHeap {
         modules: &ModuleStore,
         edge: ScanEdge<'_>,
     ) -> Result<(), RuntimeError> {
-        self.with_edge_mark(modules, edge, |id, mark| self.graph.shade(id, mark))?;
+        self.with_edge_mark(modules, edge, |id, mark, _| self.graph.shade(id, mark))?;
         Ok(())
     }
 
@@ -44,13 +45,13 @@ impl GcHeap {
         budget: &mut ScanBudget,
     ) -> Result<ScanStatus, RuntimeError> {
         Ok(self
-            .with_edge_mark(modules, edge, |id, mark| {
-                self.graph.try_lock()?.shade_scanned(id, mark, budget)
+            .with_edge_mark(modules, edge, |id, mark, kind| {
+                self.graph.try_lock()?.shade_scanned(id, mark, kind, budget)
             })?
             .unwrap_or(ScanStatus::Complete))
     }
 
-    fn shade_scanned_edge_with(
+    pub(super) fn shade_scanned_edge_with(
         &self,
         modules: &ModuleStore,
         edge: ScanEdge<'_>,
@@ -58,8 +59,8 @@ impl GcHeap {
         graph: &mut GraphMarker<'_>,
     ) -> Result<ScanStatus, RuntimeError> {
         Ok(self
-            .with_edge_mark(modules, edge, |id, mark| {
-                graph.shade_scanned(id, mark, budget)
+            .with_edge_mark(modules, edge, |id, mark, kind| {
+                graph.shade_scanned(id, mark, kind, budget)
             })?
             .unwrap_or(ScanStatus::Complete))
     }
@@ -68,12 +69,29 @@ impl GcHeap {
         &self,
         modules: &ModuleStore,
         edge: ScanEdge<'_>,
-        action: impl FnOnce(GraphIdentity, MarkRef<'_>) -> Result<R, RuntimeError>,
+        action: impl FnOnce(GraphIdentity, MarkRef<'_>, ScanKind) -> Result<R, RuntimeError>,
     ) -> Result<Option<R>, RuntimeError> {
+        let reference = match edge {
+            ScanEdge::Identity(GraphIdentity::Struct(reference))
+            | ScanEdge::Value(Value::Struct(reference)) => Some(reference),
+            _ => None,
+        };
+        if let Some(reference) = reference {
+            let objects = self.objects.try_borrow().map_err(|_| invalid())?;
+            let view = objects.resolve_struct(reference).ok_or_else(invalid)?;
+            let kind = if view.fields.description.references.is_empty() {
+                ScanKind::Leaf
+            } else {
+                ScanKind::Edges
+            };
+            return action(GraphIdentity::Struct(reference), view.mark, kind).map(Some);
+        }
         let id = match edge {
             ScanEdge::Identity(id) => id,
             ScanEdge::Metadata(MetadataEdge::Program(owner)) => {
-                return modules.with_program_edge_mark(owner, action).map(Some);
+                return modules
+                    .with_program_edge_mark(owner, |id, mark| action(id, mark, ScanKind::Edges))
+                    .map(Some);
             }
             ScanEdge::Metadata(edge) => self.metadata_scan_identity(edge)?,
             ScanEdge::Value(value) => {
@@ -98,12 +116,13 @@ impl GcHeap {
                         objects
                             .mark(self.identity_location(&objects, id).ok_or_else(invalid)?)
                             .ok_or_else(invalid)?,
+                        ScanKind::Edges,
                     )
                     .map(Some);
                 }
             }
         };
-        self.with_graph_mark(modules, id, |mark| action(id, mark))
+        self.with_graph_mark(modules, id, |mark| action(id, mark, ScanKind::Edges))
             .map(Some)
     }
 
@@ -174,6 +193,14 @@ impl GcHeap {
                 *active = Some(ActiveScan::Moved);
                 id = moved;
             }
+            if let GraphIdentity::Struct(reference) = id {
+                let status =
+                    self.scan_struct_owner(modules, reference, &mut active, budget, &mut graph)?;
+                if status == ScanStatus::Pending {
+                    return Ok(status);
+                }
+                continue;
+            }
             if active.is_none() {
                 if !budget.take(1) {
                     return Ok(ScanStatus::Pending);
@@ -182,9 +209,7 @@ impl GcHeap {
                     GraphIdentity::Object(id) => {
                         ActiveScan::Object(self.begin_object_scan(id.into())?)
                     }
-                    GraphIdentity::Struct(reference) => {
-                        ActiveScan::Object(self.begin_object_scan(reference.into())?)
-                    }
+                    GraphIdentity::Struct(_) => unreachable!("struct owner handled above"),
                     GraphIdentity::Program(id) => {
                         ActiveScan::Module(modules.begin_module_scan(id)?)
                     }
@@ -223,6 +248,7 @@ impl GcHeap {
                     }
                     ActiveScan::Static(id) => modules.scan_static_slice(*id, budget, &mut visit)?,
                     ActiveScan::Moved => ScanStatus::Complete,
+                    ActiveScan::Struct { .. } => return Err(invalid()),
                 };
                 if status == ScanStatus::Pending {
                     return Ok(status);

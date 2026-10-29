@@ -1,6 +1,6 @@
 #![cfg(test)]
 use super::{
-    GraphIdentity, GraphMarker, GraphState, MarkPhase,
+    GraphIdentity, GraphMarker, GraphState, MarkPhase, ScanKind,
     marks::{self, Color, Domain, MarkBlocks, OwnerMark, PageMarks},
 };
 use crate::{
@@ -10,6 +10,40 @@ use crate::{
 
 fn object(slot: usize, generation: u32) -> GraphIdentity {
     GraphIdentity::Object(HeapObjectId::new(1, slot, generation))
+}
+
+#[test]
+fn physical_group_credit_requires_closed_marking_and_registers_again_on_reuse() {
+    let state = GraphState::default();
+    let mut marker = state.lock();
+    let mut blocks = MarkBlocks::default();
+    blocks.prepare(0).unwrap();
+    let mark = blocks.slot(Domain::Struct, 0);
+    let id = object(0, 0);
+    marker.prepare_identity().unwrap();
+    marker.admit_prepared(id, mark);
+    assert!(marker.release_retired_group(mark).is_err());
+    marker.begin_cycle().unwrap();
+    marker.shade(id, mark).unwrap();
+    assert!(marker.release_retired_group(mark).is_err());
+    marker
+        .next_owner(|group, epoch| {
+            let (slot, more) = blocks.next_gray(group.block, epoch);
+            Ok((slot.map(|_| id), more))
+        })
+        .unwrap();
+    marker.finish_owner(id, mark).unwrap();
+    marker.finish_roots().unwrap();
+    marker.close_mark().unwrap();
+    marker.retire_prepared();
+    marker.release_retired_group(mark).unwrap();
+    marker.release_retired_group(mark).unwrap();
+    assert_eq!(marker.work_credits, 0);
+    marker.prepare_identity().unwrap();
+    marker.admit_prepared(object(0, 1), mark);
+    assert_eq!(marker.work_credits, 1);
+    assert_eq!(marker.credits, 1);
+    assert!(marker.is_survivor(mark).unwrap());
 }
 
 fn admit(marker: &mut GraphMarker, id: GraphIdentity, mark: &OwnerMark) {
@@ -203,7 +237,7 @@ fn page_marks_reset_lazily_charge_work_and_reinitialize_reused_slots() {
     let mut short = ScanBudget::new(3);
     assert_eq!(
         marker
-            .shade_scanned(object(64, 0), page.slot(64), &mut short)
+            .shade_scanned(object(64, 0), page.slot(64), ScanKind::Edges, &mut short)
             .unwrap(),
         ScanStatus::Pending
     );
@@ -217,7 +251,7 @@ fn page_marks_reset_lazily_charge_work_and_reinitialize_reused_slots() {
     let mut exact = ScanBudget::new(4);
     assert_eq!(
         marker
-            .shade_scanned(object(64, 0), page.slot(64), &mut exact)
+            .shade_scanned(object(64, 0), page.slot(64), ScanKind::Edges, &mut exact)
             .unwrap(),
         ScanStatus::Complete
     );

@@ -570,13 +570,25 @@ now specifies the next architecture experiment requested on 2026-10-28: stable
 internal object references, existing owning host handles and scoped inspection.
 The first [boundary checkpoint](paged-incremental-gc-design.md#direct-reference-scoped-inspection-checkpoint-2026-10-28)
 implements scoped host inspection and freezes the combined-source baseline. Raw
-transport migration and direct-reference storage remain unfinished; no new performance
-acceptance is claimed. Owning named field reads are also implemented; ordinary
+transport migration and direct-reference storage across all value families remain
+unfinished; no complete performance acceptance is claimed. Owning named field reads are also implemented; ordinary
 host reads need not use an inspection closure. PG05/NC05 and PG06/NC06 remain open.
 The GC plan's [four remaining phases](paged-incremental-gc-design.md#finite-trial-sequence-and-acceptance)
 own ordering, implementation checkpoints and acceptance: close raw-value boundaries,
 prove an integrated struct path, migrate all managed owners, then complete joint
-local/CI acceptance. Phase 1 remains in progress; phase 2 is gated on its completion.
+local/CI acceptance. Phase 1 is locally complete. Phase 2 has an integrated physical
+struct graph with improved field access/storage. Scoped scanning, compact identity
+leases and page-owned marks at `f77d934b` pass 29/29 storage timings, 37/39 family
+timings and 60/60 family-memory gates. Reference release and dense cyclic GC remain
+blocked; sparse GC and the current scalar control pass. The plan's progress ledger
+owns shared sweep-evidence repair, historical scalar attribution and pending
+automatic/sampling acceptance. The
+[ordered closure sequence](paged-incremental-gc-design.md#ordered-closure-after-expanded-gates-2026-10-29)
+records runtime references, while the
+[next goal execution contract](paged-incremental-gc-design.md#execution-contract-for-the-next-goal-2026-10-29)
+maps the remaining checkpoints, exit evidence and scope limits. Phase 3 has not
+started. Option compaction remains deferred; Lua is an external comparison, not a
+replacement gate or a new parity requirement.
 
 The joint [PG00-PG06/NC migration](paged-incremental-gc-design.md#execution-plan)
 was activated at `50ab194b` on 2026-10-26. PG00/NC01 contract closure and baseline

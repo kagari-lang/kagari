@@ -2,8 +2,8 @@
 use crate::{
     error::RuntimeError,
     gc::{
-        GcHeap, directory::descriptors::Descriptor, fields::codec, object_header::ObjectHeader,
-        reference::GcRef,
+        GcHeap, directory::descriptors::structures::StructIdentity, fields::codec,
+        object_header::ObjectHeader, reference::GcRef,
     },
     module::{StructLayoutRef, layout_storage::StoredField},
     value::Value,
@@ -11,11 +11,11 @@ use crate::{
 use kagari_types::scalar::BuiltinType;
 use std::{slice, sync::Arc};
 
-/// Exact runtime/environment preparation retains the descriptor against ID reuse.
+/// Exact runtime/environment preparation retains compact identity against ID reuse.
 /// It owns immutable layout facts, never objects or an additional root registry.
 #[derive(Debug)]
 pub(crate) struct PreparedStructField {
-    descriptor: Arc<Descriptor>,
+    identity: Arc<StructIdentity>,
     field: StoredField,
     slot: usize,
 }
@@ -33,7 +33,7 @@ impl GcHeap {
             .get(slot)
             .ok_or_else(|| RuntimeError::module_validation("invalid prepared field slot"))?;
         Ok(PreparedStructField {
-            descriptor,
+            identity: descriptor.struct_identity().clone(),
             field,
             slot,
         })
@@ -42,7 +42,7 @@ impl GcHeap {
 
 impl PreparedStructField {
     pub(crate) fn layout(&self) -> &StructLayoutRef {
-        &self.descriptor.structure_layout().semantic
+        &self.identity.semantic
     }
 
     /// Caller proves this live reference and preparation belong to the same heap.
@@ -137,7 +137,7 @@ impl PreparedStructField {
     unsafe fn matches(&self, reference: GcRef) -> bool {
         // SAFETY: caller retains a live reference in the preparation's runtime.
         unsafe { ObjectHeader::read(reference.pointer()) }.descriptor_id
-            == self.descriptor.registered_id()
+            == self.identity.registered_id()
     }
 
     /// Caller already matched the immutable header and completed write admission.
@@ -153,7 +153,7 @@ impl PreparedStructField {
         let bytes = unsafe {
             slice::from_raw_parts_mut(
                 reference.pointer().as_ptr().add(ObjectHeader::SIZE),
-                self.descriptor.structure_layout().size,
+                self.identity.size,
             )
         };
         write(bytes).ok_or_else(|| {
@@ -172,15 +172,15 @@ impl PreparedStructField {
         let _storage = heap.objects.try_borrow().ok()?;
         // SAFETY: the admitted operand retains a live allocation of this heap.
         let header = unsafe { ObjectHeader::read(reference.pointer()) };
-        if header.descriptor_id != self.descriptor.registered_id() {
+        if header.descriptor_id != self.identity.registered_id() {
             return None;
         }
         // SAFETY: same-runtime descriptor equality proves payload size/encoding;
-        // the retained descriptor cannot recycle, and the storage loan excludes writes.
+        // the retained identity cannot recycle, and the storage loan excludes writes.
         let bytes = unsafe {
             slice::from_raw_parts(
                 reference.pointer().as_ptr().add(ObjectHeader::SIZE),
-                self.descriptor.structure_layout().size,
+                self.identity.size,
             )
         };
         Some(read(bytes))

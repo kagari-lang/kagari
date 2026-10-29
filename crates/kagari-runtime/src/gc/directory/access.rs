@@ -4,8 +4,9 @@ use crate::{
     error_trace::ErrorTrace,
     execution_metadata::interfaces::InterfaceStore,
     gc::{
-        directory::{ObjectStorage, PayloadKind, PayloadLocation},
+        directory::{ObjectStorage, PayloadKind, PayloadLocation, ResolvedStruct},
         fields::{StructView, StructViewMut},
+        reference::GcRef,
         storage::{Exclusive, HeapObject, Shared},
         values::TupleData,
     },
@@ -21,6 +22,18 @@ type EnumPayload = (EnumValueSnapshot, Option<Arc<ErrorTrace>>);
 type CellPayload = (ValueType, Value);
 
 impl ObjectStorage {
+    pub(in crate::gc) fn resolve_struct(&self, reference: GcRef) -> Option<ResolvedStruct<'_>> {
+        let (location, pointer, descriptor) = self.pages.resolve_struct(reference)?;
+        let description = descriptor.structure.as_deref()?;
+        // SAFETY: physical resolution validated occupancy, owner, immutable header
+        // and descriptor; this same borrow retains initialized bytes and metadata.
+        let bytes = unsafe { slice::from_raw_parts(pointer.as_ptr(), description.size) };
+        Some(ResolvedStruct {
+            fields: StructView { description, bytes },
+            mark: self.pages.struct_mark(location),
+        })
+    }
+
     pub(in crate::gc) fn native(&self, location: PayloadLocation) -> Option<&NativeObject> {
         if location.kind != PayloadKind::Native {
             return None;

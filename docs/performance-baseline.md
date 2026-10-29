@@ -16,15 +16,83 @@ Keep workloads, hashes, environment and timing scope together. Allocation reques
 are not RSS; compilation/setup and execution are separate. Small differences are
 not significance claims, and local correctness does not imply GitHub CI or Lua parity.
 
-The latest result is [current Kagari/Lua execution and GC on the M1 Max](#current-kagarilua-execution-and-gc-macos-2026-10-28).
-It includes seven-process original/forms timings and matched graph/GC/accounting
-workloads. [BO17-BO19](#bo17-bo19-scalar-dispatch-windows-2026-10-27) retains the
+The latest internal comparison is the [struct collector follow-up](#struct-collector-follow-up-macos-2026-10-29).
+The preceding [Kagari/Lua comparison](#current-kagarilua-execution-and-gc-macos-2026-10-28)
+includes seven-process original/forms timings and matched graph/GC/accounting
+workloads; its Lua ratios have not been rerun after the collector repairs.
+[BO17-BO19](#bo17-bo19-scalar-dispatch-windows-2026-10-27) retains the
 preceding i9-12900K scalar-dispatch evidence; those are different revision/machine
 measurements, not a before/after comparison with the macOS results.
 
+## Struct collector follow-up, macOS 2026-10-29
+
+Clean `f77d934b3ccc3d6f9f5732eaff7d5acfab165f6e` moves struct marks into live
+physical page controls and removes their historical-index maintenance pass. It
+retains scoped struct scanning, prepared fields and compact executable identity
+leases. Against frozen `725a4fb5a4900c79160d8e7b551e0dd8b4d27048`, seven pairs pass
+**29/29 storage timings**, **37/39 family timings**, and **60/60 family-memory gates**.
+Phase 2 remains blocked by two GC rows. The baseline already has paged incremental
+GC; it is not the runtime before the GC migration.
+
+| Selected workload | Baseline | Candidate | Median paired C/B |
+| --- | ---: | ---: | ---: |
+| Field reads | 2.676 ms | 1.803 ms | 0.672 |
+| Field writes | 3.020 ms | 2.151 ms | 0.712 |
+| Point live GC | 57.542 us | 38.375 us | 0.669 |
+| Node live GC | 143.292 us | 171.125 us | 1.188 |
+| 8192-reference live GC | 748.541 us | 450.959 us | 0.603 |
+| Sparse-cycle live GC | 29.625 us | 35.125 us | 1.179 |
+| Sparse-cycle release GC | 33.375 us | 36.584 us | 1.078 |
+| Scalar Vec verification | 99.229 ms | 100.976 ms | 1.019 |
+
+The two sparse GC failures at `07a99157` now pass. Scalar verification also passes
+at 1.012-1.022 across pairs, but no call-architecture change was made; this does not
+explain the previous 6% regression. Node live collection remains within its existing
+allowance. Two expanded rows fail their unchanged estimator:
+
+| Failing row | Baseline | Candidate | Paired C/bound(B) |
+| --- | ---: | ---: | ---: |
+| 8192-reference release GC | 278.417 us | 362.458 us | **1.0935** |
+| Dense cyclic graph GC | 1071.875 us | 1298.333 us | **1.0124** |
+
+Sparse-live marks occupy **64 actual struct pages / 3,072 embedded bytes**, versus
+`07a99157`'s 1,472 historical mark entries / 86,016 allocated bytes. With the same
+129 live objects, total scoped backing falls from 344,632 to **261,688 bytes**;
+baseline is 329,296. Embedded marks are included in page controls and must not be
+added again. Final sparse-cycle release remains 93,992 versus baseline 149,008;
+sparse-types release remains 66,312 versus 60,936, under its 67,029.6-byte limit.
+All 21 family peak gates and all 294 family teardown checks pass.
+
+Additional no-argument diagnostics pass 144 backing/peak comparisons and 224 zero-net
+teardown checks. They still measure one warmed lifecycle per scenario/process with
+three stable reuse cycles, not the family's three independent lifecycles. This does
+not close the plan's three-lifecycle acceptance gap. All 56 formal processes succeed.
+
+Post-measurement diagnostic profiles identify the next boundary: in a repeated
+8192-Point release probe, 629/723 release-collection samples (87.0%) include physical
+batch preparation, with repeated representation/charge resolution visible. A dense
+cyclic probe spends 6,893/8,056 main-thread samples (85.6%) in graph scanning and
+1,130 (14.0%) in retirement. These are current-path samples, not attribution of the
+baseline delta. The next finite repair shares validated physical sweep evidence
+within one storage borrow, preserving canonical charging and whole-batch validation.
+Native provider/callback boundaries remain mandatory; no general call rewrite,
+Vec-specific collector path or concurrent collector follows from these samples.
+
+M1 Max/32 GiB, macOS 26.6.2, aarch64-apple-darwin, Rust 1.99.1 (`58cf8f9c3`),
+Cargo 1.99.1, workspace release/default build parallelism, warm dependency cache,
+source/native features with interpreter execution. Frozen images run serially,
+alternating B/C order across seven pairs, without overlapping builds/tests/probes.
+Timing uses three warmups/eleven samples; family allocation rows use the maximum of
+three lifecycle repetitions per process. Absolutes are medians of process values;
+ratios are medians of paired ratios. Compilation/loading is excluded, and desktop
+activity/frequency are uncontrolled. Requested backing is not RSS. The
+[active ledger](paged-incremental-gc-design.md#page-owned-struct-marks-phase-2a-2026-10-29)
+records hashes, reproduction, focused correctness/Miri evidence and profile limits.
+Automatic/pressure, older PG05 gates, full CI and updated Lua parity remain open.
+
 ## Current Kagari/Lua execution and GC, macOS 2026-10-28
 
-**Conclusion:** current scalar loops take about 1.5–1.6x PUC Lua time, the mixed
+**Conclusion at the recorded revision:** scalar loops take about 1.5–1.6x PUC Lua time, the mixed
 field recurrence 5.84x, ordinary calls 26.53x, and the existing array/map algorithms
 98.37x/85.10x. In the newly matched graph workloads, full live collection takes
 15.68–16.84x Lua time and construction 19.66–37.13x. Compact struct payloads alone

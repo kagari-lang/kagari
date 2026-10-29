@@ -1,5 +1,8 @@
 //! Direct references retain provenance through packed fields and graph reclamation.
-use crate::{Runtime, test_support::native::program::ProgramFixture, value::Value};
+use crate::{
+    Runtime, gc::object_header::ObjectHeader, test_support::native::program::ProgramFixture,
+    value::Value,
+};
 use kagari_bytecode::{instruction::StructId, module::BytecodeModule, program::ModuleRef};
 use kagari_common::identity::{DefinitionKind, ModuleIdentity, map::DefinitionContext};
 use kagari_contract::layout::{StructFieldLayout, StructLayout};
@@ -8,6 +11,7 @@ use kagari_types::{
     ty::{NominalTy, Ty},
     visibility::Visibility,
 };
+use std::sync::Arc;
 
 #[test]
 fn packed_direct_struct_edges_preserve_provenance_and_collection_lifetimes() {
@@ -86,6 +90,13 @@ fn packed_direct_struct_edges_preserve_provenance_and_collection_lifetimes() {
         .unwrap();
     let child_field = heap.prepare_struct_field(child_shape.clone(), 0).unwrap();
     let parent_field = heap.prepare_struct_field(parent_shape.clone(), 1).unwrap();
+    let physical_description = heap
+        .struct_storage_description(child_shape.clone())
+        .unwrap();
+    let descriptor_id = physical_description.struct_identity().registered_id();
+    let weak_description = Arc::downgrade(&physical_description);
+    let weak_scan = Arc::downgrade(physical_description.structure.as_ref().unwrap());
+    drop(physical_description);
     let old_identity = heap.objects.borrow().struct_location(child).unwrap();
     let parent = heap
         .alloc_struct(
@@ -141,19 +152,42 @@ fn packed_direct_struct_edges_preserve_provenance_and_collection_lifetimes() {
     );
     drop(root);
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
-    // Empty physical pages may be reused in later epochs. Their mark blocks keep
-    // registered work capacity, but must neither lose nor retain a new occupant.
+    assert!(weak_description.upgrade().is_none());
+    assert!(
+        weak_scan.upgrade().is_none(),
+        "field preparation must not retain scan tables"
+    );
+    drop(weak_description);
+    drop(weak_scan);
+    // Empty physical pages may be reused in later epochs. Mark backing and work
+    // registration may retire, so admission must reserve them again on reuse.
     for value in 0..3 {
         let reference = heap
             .alloc_struct(child_shape.clone(), vec![Value::I32(value)])
             .unwrap();
         let root = runtime.root_value(Value::Struct(reference)).unwrap();
         assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);
+        // SAFETY: the root retains this runtime's allocation and no collection
+        // intervenes during the header/read checks.
+        assert_eq!(
+            unsafe { ObjectHeader::read(reference.pointer()) }.descriptor_id,
+            descriptor_id
+        );
+        assert_eq!(
+            unsafe { child_field.read_scalar(heap, reference, BuiltinType::I32) },
+            Some(value as u64)
+        );
+        let descriptor = heap
+            .struct_storage_description(child_shape.clone())
+            .unwrap();
+        let weak_scan = Arc::downgrade(descriptor.structure.as_ref().unwrap());
+        drop(descriptor);
         assert_eq!(
             heap.struct_get_slot(reference, &child_shape, 0),
             Some(Value::I32(value))
         );
         drop(root);
         assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+        assert!(weak_scan.upgrade().is_none());
     }
 }

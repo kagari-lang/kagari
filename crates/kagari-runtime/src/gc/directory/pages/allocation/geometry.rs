@@ -3,7 +3,10 @@
 mod tests;
 
 use super::{Slot, SmallHeader};
-use crate::gc::directory::pages::{CLASSES, SLAB_BYTES};
+use crate::gc::{
+    directory::pages::{CLASSES, SLAB_BYTES},
+    graph::marks::PageMarks,
+};
 use std::alloc::Layout;
 
 pub(super) const PAYLOAD_LAYOUT: Layout = match Layout::from_size_align(SLAB_BYTES, 16) {
@@ -43,6 +46,7 @@ pub(super) struct ClassGeometry {
     pub(super) bitmap_words: usize,
     pub(super) slots_offset: usize,
     pub(super) bits_offset: usize,
+    pub(super) marks_offset: Option<usize>,
     pub(super) trailer: Layout,
 }
 
@@ -72,13 +76,21 @@ impl ClassGeometry {
             Ok(layout) => layout,
             Err(_) => panic!("invalid slab bitmap trailer"),
         };
+        let (trailer, marks_offset) = if indexed {
+            (trailer, None)
+        } else {
+            match trailer.extend(Layout::new::<PageMarks>()) {
+                Ok((layout, offset)) => (layout, Some(HEADER_OFFSET + offset)),
+                Err(_) => panic!("invalid slab mark trailer"),
+            }
+        };
         let (layout, header_offset) = match PAYLOAD_LAYOUT.extend(trailer) {
             Ok(layout) => layout,
             Err(_) => panic!("invalid slab composite layout"),
         };
         assert!(header_offset == HEADER_OFFSET);
         // Keep Layout::extend's exact size, without trailing pad_to_align.
-        assert!(layout.size() == header_offset + bits_offset + bits.size());
+        assert!(layout.size() == header_offset + trailer.size());
         Self {
             stride,
             slot_count,
@@ -86,6 +98,7 @@ impl ClassGeometry {
             bitmap_words,
             slots_offset: header_offset + slots_offset,
             bits_offset: header_offset + bits_offset,
+            marks_offset,
             trailer,
         }
     }

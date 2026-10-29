@@ -121,7 +121,7 @@ impl CheckedBatch<'_> {
         let backing = large.backing().clone();
         // Acquire both owners before mutation. Construct initialized ownership only
         // after clearing publication, so no early unwind can destroy a live payload.
-        large.header_mut().descriptor = None;
+        *large.descriptor_mut() = None;
         Retired::Payload {
             location: fragment.start,
             backing,

@@ -6,7 +6,7 @@ use crate::{
     gc::{
         GcCollection, GcHeap,
         directory::{
-            descriptors::Descriptor,
+            descriptors::structures::StructIdentity,
             maintenance::{Maintenance, MaintenanceObservation, MaintenanceStep},
         },
         metrics::{IndivisibleKind, IndivisibleSample, ObservationClock},
@@ -55,7 +55,7 @@ pub(super) struct Retirement {
     programs: ModuleSweep,
     releases: RootReleaseCursor,
     storage: Maintenance,
-    pending_structure: Option<(WeakCacheToken<StructStorageKey, Descriptor>, ScanStatus)>,
+    pending_structure: Option<(WeakCacheToken<StructStorageKey, StructIdentity>, ScanStatus)>,
 }
 
 impl GcHeap {

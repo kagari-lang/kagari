@@ -1,12 +1,16 @@
 //! Bounded homogeneous slot ranges share one dispatch and backing owner.
-use super::{Allocation, Pages, Small, backing::Backing};
-use crate::gc::{
-    directory::{
-        PayloadLocation,
-        descriptors::{Descriptor, DescriptorId},
-        retirement::RETIRE_LIMIT,
+use super::{Allocation, Pages, Retired, Small, backing::Backing, batch::Disposal};
+use crate::{
+    error::RuntimeError,
+    gc::{
+        directory::{
+            PayloadKind, PayloadLocation,
+            descriptors::{Descriptor, DescriptorId},
+            retirement::RETIRE_LIMIT,
+        },
+        graph::GraphMarker,
+        metrics::{IndivisibleMeasurements, IndivisibleSample, ObservationClock},
     },
-    metrics::{IndivisibleMeasurements, IndivisibleSample, ObservationClock},
 };
 use std::{
     panic::{AssertUnwindSafe, catch_unwind},
@@ -82,6 +86,47 @@ impl RetiredRange {
 impl Drop for RetiredRange {
     fn drop(&mut self) {
         self.dispose(None, || {});
+    }
+}
+
+impl Pages {
+    /// Finish a disposed fragment under closed-graph authority. The last retiring
+    /// fragment unregisters its page before the physical index becomes reusable.
+    /// Tokens retain final backing/descriptor owners until both borrows end.
+    pub(in crate::gc::directory) fn finish_sweep_disposal(
+        &mut self,
+        disposal: &Disposal,
+        graph: &mut GraphMarker<'_>,
+    ) -> Result<usize, RuntimeError> {
+        let (location, count) = match disposal {
+            Disposal::Payload(Retired::Payload {
+                location,
+                initialized,
+                ..
+            }) => {
+                assert!(!initialized);
+                (*location, 1)
+            }
+            Disposal::Payload(Retired::Interface) => return Ok(0),
+            Disposal::Range(range) => {
+                assert_eq!(range.remaining, 0);
+                (range.start, range.count)
+            }
+        };
+        if location.kind == PayloadKind::Struct {
+            let empty = match &self.allocations[location.page as usize] {
+                Allocation::Small(page) => page.state().free + count == page.slot_count(),
+                Allocation::Large(_) => true,
+                Allocation::Vacant(_) => unreachable!("retiring struct allocation"),
+            };
+            if empty {
+                graph.release_retired_group(self.struct_mark(location))?;
+            }
+        }
+        Ok(match disposal {
+            Disposal::Payload(payload) => self.finish_payload(payload),
+            Disposal::Range(range) => self.finish_range(range),
+        })
     }
 }
 

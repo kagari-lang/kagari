@@ -50,6 +50,10 @@ pub struct StorageUsage {
     pub graph_credits: usize,
     /// Registered slot blocks plus singleton owners covered by pending capacity.
     pub graph_work_credits: usize,
+    /// Allocated struct pages and their embedded mark bytes. Mark bytes are a
+    /// subset of page/large metadata, not an additional backing allocation.
+    pub struct_mark_pages: usize,
+    pub struct_mark_bytes: usize,
     pub retirement: RetirementUsage,
     pub slab_bytes: usize,
     pub large_bytes: usize,
@@ -63,6 +67,10 @@ pub struct StorageUsage {
     pub allocation_padding_bytes: usize,
     pub descriptor_bytes: usize,
     pub representation_descriptors: usize,
+    /// Compact struct identity allocations, including Arc control words.
+    /// Semantic metadata shared with loaded programs is not counted again here.
+    pub struct_identity_bytes: usize,
+    pub struct_identities: usize,
     pub descriptor_directory_bytes: usize,
     /// Registry occupancy/capacity; HashMap bucket/control overhead is not included.
     pub descriptor_registry_entries: usize,

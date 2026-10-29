@@ -117,7 +117,7 @@ impl PageMarks {
         )
     }
 
-    fn group_slot(&self, group: WorkGroup, index: usize) -> MarkRef<'_> {
+    pub(in crate::gc) fn group_slot(&self, group: WorkGroup, index: usize) -> MarkRef<'_> {
         assert!(index < 128, "bounded slot block marks");
         MarkRef::Page(self, index, group)
     }
@@ -141,6 +141,25 @@ impl PageMarks {
 }
 
 impl MarkRef<'_> {
+    /// Caller proves the physical block has no remaining occupants. Old epoch
+    /// bits need not be cleared, but current gray or queued work forbids removal.
+    pub(in crate::gc) fn unregister_empty_group(self, epoch: u64) -> Option<bool> {
+        let Self::Page(page, _, _) = self else {
+            return None;
+        };
+        if page.queued.get()
+            || (page.epoch.get() == epoch
+                && page
+                    .discovered
+                    .iter()
+                    .zip(&page.scanned)
+                    .any(|(seen, scanned)| seen.get() & !scanned.get() != 0))
+        {
+            return None;
+        }
+        Some(page.registered.replace(false))
+    }
+
     pub(crate) fn register(self) -> bool {
         !match self {
             Self::Owner(mark) => &mark.registered,

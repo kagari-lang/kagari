@@ -80,6 +80,12 @@ impl<K, V> WeakCacheToken<K, V> {
         &self.admission.key
     }
 
+    /// True while the target value has an owner. Callers must serialize target
+    /// admission/retirement; this query does not itself retain the target.
+    pub(crate) fn is_alive(&self) -> bool {
+        self.admission.target.strong_count() != 0
+    }
+
     pub(crate) fn is_for(&self, value: &Arc<V>) -> bool {
         Weak::ptr_eq(&self.admission.target, &Arc::downgrade(value))
     }

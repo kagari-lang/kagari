@@ -1,6 +1,9 @@
 //! Header publication and detached ownership share the physical allocator lifetime.
 use super::*;
-use crate::{Runtime, module::layout_storage::StructStorageLayout, test_support::layouts::layout};
+use crate::{
+    Runtime, gc::graph::marks::Color, module::layout_storage::StructStorageLayout,
+    test_support::layouts::layout,
+};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[test]
@@ -45,6 +48,7 @@ fn struct_header_survives_failed_initialization_and_detached_owner_teardown() {
             .insert(u32::MAX, descriptor.clone(), initialize)
             .unwrap();
         let payload = pages.get(location).unwrap().0;
+        pages.struct_mark(location).set(7, Color::Black);
         // SAFETY: the published struct has a header immediately before its payload.
         let base = unsafe { payload.sub(ObjectHeader::SIZE) };
         assert_eq!(base.as_ptr().addr() % align_of::<ObjectHeader>(), 0);
@@ -59,9 +63,11 @@ fn struct_header_survives_failed_initialization_and_detached_owner_teardown() {
         }
         let mut retired = pages.detach(location).unwrap();
         assert!(pages.get(location).is_none());
+        assert_eq!(pages.struct_mark(location).color(7), Color::Black);
         pages
             .insert(u32::MAX, descriptor.clone(), initialize)
             .unwrap();
+        assert_eq!(pages.struct_mark(location).color(7), Color::Black);
         drop(descriptor);
         drop(pages);
         assert!(weak.upgrade().is_some());

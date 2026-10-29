@@ -1,7 +1,7 @@
 //! Captured descriptor maintenance and explicitly indivisible, one-off compaction.
 use super::{
     ObjectStorage,
-    descriptors::{Descriptor, DescriptorCursor},
+    descriptors::{Descriptor, DescriptorCursor, structures::StructIdentity},
 };
 use crate::{
     gc::{
@@ -24,7 +24,7 @@ pub(in crate::gc) struct Maintenance {
 
 pub(in crate::gc) struct MaintenanceStep {
     pub(in crate::gc) status: ScanStatus,
-    pub(in crate::gc) removed_structure: Option<WeakCacheToken<StructStorageKey, Descriptor>>,
+    pub(in crate::gc) removed_structure: Option<WeakCacheToken<StructStorageKey, StructIdentity>>,
 }
 
 /// Optional caller-stack state, never part of a maintenance result or continuation.
@@ -45,12 +45,20 @@ impl MaintenanceObservation {
 }
 
 impl ObjectStorage {
+    /// Rebuild an expired physical description under its still-leased identity.
+    pub(in crate::gc) fn struct_description(
+        &mut self,
+        identity: Arc<StructIdentity>,
+    ) -> NativeResult<Arc<Descriptor>> {
+        self.pages.descriptors.struct_description(identity)
+    }
+
     /// Register the prepared insertion's token before committing the fields cache.
     /// This also covers a factory abandoned before any physical payload is admitted.
     pub(in crate::gc) fn register_struct_descriptor(
         &mut self,
         descriptor: &Arc<Descriptor>,
-        token: WeakCacheToken<StructStorageKey, Descriptor>,
+        token: WeakCacheToken<StructStorageKey, StructIdentity>,
     ) -> NativeResult<()> {
         self.pages.descriptors.register_structure(descriptor, token)
     }

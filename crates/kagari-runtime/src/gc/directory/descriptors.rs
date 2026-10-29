@@ -1,8 +1,9 @@
 //! Runtime-local representation IDs. Live and retiring slots hold admission counts.
+pub(in crate::gc) mod structures;
 use crate::{
     error::RuntimeError,
     gc::{
-        directory::PayloadKind,
+        directory::{PayloadKind, descriptors::structures::StructIdentity},
         metrics::{IndivisibleMeasurements, IndivisibleSample, ObservationClock},
         object_header::ObjectHeader,
         weak_cache::WeakCacheToken,
@@ -29,6 +30,7 @@ use std::{
 #[derive(Debug, Clone)]
 pub(in crate::gc) struct Descriptor {
     id: OnceLock<DescriptorId>,
+    identity: Option<Arc<StructIdentity>>,
     pub(super) kind: PayloadKind,
     pub(super) layout: Layout,
     pub(super) edges: bool,
@@ -45,34 +47,13 @@ impl Descriptor {
     ) -> Self {
         Self {
             id: OnceLock::new(),
+            identity: None,
             kind,
             layout,
             edges,
             structure: None,
             destroy: Some(destroy),
         }
-    }
-
-    /// The existing StructStorageLayouts owner interns this token by semantic key.
-    /// The physical descriptor table does not repeat semantic interning.
-    pub(in crate::gc) fn structure(description: StructStorageLayout) -> NativeResult<Arc<Self>> {
-        let layout = ObjectHeader::struct_layout(description.size)
-            .ok_or_else(|| RuntimeError::resource_limit("struct inline layout"))?;
-        let mut descriptor = Self::new(
-            PayloadKind::Struct,
-            layout,
-            !description.references.is_empty(),
-            |_| {},
-        );
-        descriptor.structure = Some(Arc::new(description));
-        // Encoded fields contain scalar bits and non-owning heap IDs. Their
-        // metadata owner lives in this descriptor, not individual slot bytes.
-        descriptor.destroy = None;
-        Ok(Arc::new(descriptor))
-    }
-
-    pub(in crate::gc) fn registered_id(&self) -> u32 {
-        self.id.get().expect("registered representation").0.get()
     }
 
     pub(in crate::gc) fn structure_layout(&self) -> &StructStorageLayout {
@@ -118,7 +99,7 @@ enum CacheKey {
     Uncached,
     Builtin(PayloadKind),
     Native(TypeId),
-    Structure(WeakCacheToken<StructStorageKey, Descriptor>),
+    Structure(WeakCacheToken<StructStorageKey, StructIdentity>),
 }
 
 /// Cache association belongs to the occupied representation, never a free slot.
@@ -132,7 +113,7 @@ enum Entry {
         cache: CacheKey,
     },
     Idle {
-        descriptor: Weak<Descriptor>,
+        descriptor: Option<Weak<Descriptor>>,
         cache: CacheKey,
     },
     Free(Option<DescriptorId>),
@@ -162,7 +143,7 @@ pub(in crate::gc) struct DescriptorCursor {
 
 pub(in crate::gc) struct DescriptorStep {
     pub(in crate::gc) status: ScanStatus,
-    pub(in crate::gc) removed_structure: Option<WeakCacheToken<StructStorageKey, Descriptor>>,
+    pub(in crate::gc) removed_structure: Option<WeakCacheToken<StructStorageKey, StructIdentity>>,
 }
 
 impl Descriptors {
@@ -194,7 +175,7 @@ impl Descriptors {
     fn resolve(&self, id: DescriptorId) -> Option<Arc<Descriptor>> {
         match self.entries.get(id.index())? {
             Entry::Admitted { descriptor, .. } => Some(descriptor.clone()),
-            Entry::Idle { descriptor, .. } => descriptor.upgrade(),
+            Entry::Idle { descriptor, .. } => descriptor.as_ref()?.upgrade(),
             Entry::Free(_) => None,
         }
     }
@@ -216,20 +197,6 @@ impl Descriptors {
         self.intern(Key::Native(object.payload_type()), || {
             Descriptor::new(PayloadKind::Native, layout, true, destroy::<NativeObject>)
         })
-    }
-
-    pub(super) fn register_structure(
-        &mut self,
-        descriptor: &Arc<Descriptor>,
-        token: WeakCacheToken<StructStorageKey, Descriptor>,
-    ) -> NativeResult<()> {
-        if descriptor.structure.is_none() || !token.is_for(descriptor) {
-            return Err(RuntimeError::module_validation(
-                "invalid struct cache descriptor target",
-            ));
-        }
-        self.register(descriptor, CacheKey::Structure(token))?;
-        Ok(())
     }
 
     fn register(
@@ -279,7 +246,7 @@ impl Descriptors {
             RuntimeError::module_validation("representation token admitted by another owner")
         })?;
         let entry = Entry::Idle {
-            descriptor: Arc::downgrade(descriptor),
+            descriptor: Some(Arc::downgrade(descriptor)),
             cache,
         };
         if id.index() == self.entries.len() {
@@ -294,8 +261,9 @@ impl Descriptors {
         Ok(id)
     }
 
-    /// IDs cannot recycle while an allocation, disposal token or preparation
-    /// retains the descriptor. Exact Arc identity rejects foreign/stale tokens.
+    /// Allocation/disposal owners retain the physical descriptor. Executable
+    /// struct preparations separately lease its ID through compact identity.
+    /// Exact Arc identity rejects foreign/stale physical descriptors.
     pub(super) fn admit(&mut self, descriptor: Arc<Descriptor>) -> NativeResult<DescriptorId> {
         // Avoid cloning the strong owner on the ordinary already-admitted path.
         if let Some(&id) = descriptor.id.get()
@@ -351,7 +319,7 @@ impl Descriptors {
             .expect("admitted descriptor count");
         if *allocations == 0 {
             *entry = Entry::Idle {
-                descriptor: Arc::downgrade(descriptor),
+                descriptor: Some(Arc::downgrade(descriptor)),
                 cache: mem::replace(cache, CacheKey::Uncached),
             };
         }
@@ -377,10 +345,27 @@ impl Descriptors {
         let mut removed_structure = None;
         while cursor.next < cursor.end && budget.take(1) {
             let index = cursor.next;
-            if matches!(&self.entries[index], Entry::Idle { descriptor, .. } if descriptor.strong_count() == 0)
+            if matches!(&self.entries[index], Entry::Idle { descriptor, .. } if descriptor.as_ref().is_none_or(|value| value.strong_count() == 0))
             {
+                if matches!(&self.entries[index], Entry::Idle { descriptor: None, cache: CacheKey::Structure(token) } if token.is_alive())
+                {
+                    cursor.next += 1;
+                    continue;
+                }
                 if !budget.take(3) {
                     break;
+                }
+                if let Entry::Idle {
+                    descriptor,
+                    cache: CacheKey::Structure(token),
+                } = &mut self.entries[index]
+                    && token.is_alive()
+                {
+                    // The identity lease protects ID reuse without retaining the
+                    // dead descriptor's Arc backing or its scan layout.
+                    release_weak_descriptor(descriptor.take(), &mut observation);
+                    cursor.next += 1;
+                    continue;
                 }
                 let id = DescriptorId(NonZeroU32::new(index as u32 + 1).expect("descriptor index"));
                 let Entry::Idle { descriptor, cache } =
@@ -404,17 +389,7 @@ impl Descriptors {
                 {
                     self.reusable.remove(&key);
                 }
-                let started = observation.as_ref().and_then(|(clock, _)| clock.start());
-                drop(descriptor);
-                if let (Some(started), Some((_, destruction))) = (started, observation.as_mut()) {
-                    destruction.record(IndivisibleSample::new(
-                        "descriptor weak state",
-                        1,
-                        1,
-                        Some(size_of::<Weak<Descriptor>>()),
-                        started.elapsed(),
-                    ));
-                }
+                release_weak_descriptor(descriptor, &mut observation);
             }
             cursor.next += 1;
             if removed_structure.is_some() {
@@ -445,7 +420,16 @@ impl Descriptors {
         let records = self
             .entries
             .iter()
-            .filter(|entry| !matches!(entry, Entry::Free(_)))
+            .filter(|entry| {
+                matches!(
+                    entry,
+                    Entry::Admitted { .. }
+                        | Entry::Idle {
+                            descriptor: Some(_),
+                            ..
+                        }
+                )
+            })
             .count();
         (
             records * (size_of::<Descriptor>() + 2 * size_of::<usize>()),
@@ -459,6 +443,26 @@ impl Descriptors {
     #[cfg(feature = "execution-diagnostics")]
     pub(super) fn structures(&self) -> usize {
         self.entries.iter().filter(|entry| matches!(entry, Entry::Admitted { descriptor, .. } if descriptor.structure.is_some())).count()
+    }
+}
+
+fn release_weak_descriptor(
+    descriptor: Option<Weak<Descriptor>>,
+    observation: &mut Option<(ObservationClock, &mut IndivisibleMeasurements)>,
+) {
+    let Some(descriptor) = descriptor else {
+        return;
+    };
+    let started = observation.as_ref().and_then(|(clock, _)| clock.start());
+    drop(descriptor);
+    if let (Some(started), Some((_, destruction))) = (started, observation.as_mut()) {
+        destruction.record(IndivisibleSample::new(
+            "descriptor weak state",
+            1,
+            1,
+            Some(size_of::<Weak<Descriptor>>()),
+            started.elapsed(),
+        ));
     }
 }
 
@@ -594,7 +598,7 @@ mod tests {
             let mut descriptors = Descriptors::default();
             let mut cache = WeakCache::default();
             let insertion = cache
-                .prepare_insert(semantic.storage_key(), &descriptor)
+                .prepare_insert(semantic.storage_key(), descriptor.struct_identity())
                 .unwrap();
             descriptors
                 .register_structure(&descriptor, insertion.token())
@@ -647,7 +651,9 @@ mod tests {
             Descriptor::structure(StructStorageLayout::prepare(semantic).unwrap()).unwrap();
         let mut descriptors = Descriptors::default();
         let mut cache = WeakCache::default();
-        let insertion = cache.prepare_insert(key.clone(), &old).unwrap();
+        let insertion = cache
+            .prepare_insert(key.clone(), old.struct_identity())
+            .unwrap();
         assert!(
             descriptors
                 .register_structure(&replacement, insertion.token())
@@ -663,7 +669,9 @@ mod tests {
         assert!(insertion.commit().is_none());
         drop(old);
         let mut old_cursor = descriptors.begin_maintenance();
-        let insertion = cache.prepare_insert(key.clone(), &replacement).unwrap();
+        let insertion = cache
+            .prepare_insert(key.clone(), replacement.struct_identity())
+            .unwrap();
         descriptors
             .register_structure(&replacement, insertion.token())
             .unwrap();
@@ -676,7 +684,10 @@ mod tests {
         );
         assert_eq!(status, ScanStatus::Complete);
         assert!(removed.is_none());
-        assert!(Arc::ptr_eq(&cache.get(&key).unwrap(), &replacement));
+        assert!(Arc::ptr_eq(
+            &cache.get(&key).unwrap(),
+            replacement.struct_identity()
+        ));
         drop(replacement);
         let mut cursor = descriptors.begin_maintenance();
         let step = descriptors.maintenance_slice(&mut cursor, &mut ScanBudget::new(5), None);
