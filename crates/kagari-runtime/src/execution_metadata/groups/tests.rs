@@ -15,7 +15,7 @@ use crate::{
     gc::graph::{GraphIdentity, objects::ScanEdge},
     gc::interfaces::InterfaceResultBinding,
     module::{ExecutableModule, Program},
-    native::storage::scan::{ScanBudget, ScanStatus},
+    native::storage::scan::{EDGE_SCAN_WORK, ScanBudget, ScanStatus},
     value::Value,
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
@@ -627,18 +627,21 @@ fn scoped_call_slices_normalize_operations_and_visit_all_generic_member_fields()
         )
         .unwrap();
     runtime.gc.graph.lock().finish_roots().unwrap();
+    let mut complete = false;
     for _ in 0..1000 {
-        let mut budget = ScanBudget::new(1);
+        let mut budget = ScanBudget::new(EDGE_SCAN_WORK);
         if runtime
             .gc
             .scan_graph_slice(runtime.modules(), &mut budget)
             .unwrap()
             == ScanStatus::Complete
         {
+            complete = true;
             break;
         }
-        assert_eq!(budget.spent(), 1);
+        assert!(budget.spent() > 0 && budget.spent() <= EDGE_SCAN_WORK);
     }
+    assert!(complete, "metadata graph scan must finish");
     let mut graph = runtime.gc.graph.lock();
     graph.close_mark().unwrap();
     for id in [

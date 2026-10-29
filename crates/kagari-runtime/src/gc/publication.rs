@@ -21,7 +21,7 @@ impl GcHeap {
     pub(crate) fn checked_target(&self, value: Value) -> Option<CheckedTarget<'_>> {
         let target = if value.is_managed() {
             let objects = self.objects.try_borrow().ok()?;
-            let id = self.validate_heap_value(&objects, &value)?;
+            let id = objects.validate_value(&value)?;
             Some((id, objects))
         } else {
             None
@@ -40,7 +40,7 @@ impl GcHeap {
             if objects.is_none() {
                 objects = Some(self.objects.try_borrow().ok()?);
             }
-            self.validate_heap_value(objects.as_ref()?, value)?;
+            objects.as_ref()?.validate_value(value)?;
         }
         for value in values {
             if value.is_managed() {

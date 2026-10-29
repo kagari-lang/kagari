@@ -628,7 +628,7 @@ Vec<T> {
     from(array: [T]) -> Vec<T>
     default() -> Vec<T>
     from_iter<I: Iterable<Item = T>>(source: I) -> Vec<T>
-    iter(self) -> CollectionCursor<T>
+    iter(self) -> alloc::vec::VecCursor<T>
 
     push(self, value: T) -> Vec<T>
     insert(self, index: u64, value: T) -> Vec<T>
@@ -679,7 +679,7 @@ HashMap<K: Eq + Hash, V> {
     from_iter<I: Iterable<Item = (K, V)>>(source: I) -> HashMap<K, V>
     insert(self, key: K, value: V) -> HashMap<K, V>
     clear(self) -> HashMap<K, V>
-    iter(self) -> CollectionCursor<(K, V)>
+    iter(self) -> HashMapCursor<K, V>
 }
 HashSet<T: Eq + Hash> {
     new() -> HashSet<T>
@@ -687,7 +687,7 @@ HashSet<T: Eq + Hash> {
     from_iter<I: Iterable<Item = T>>(source: I) -> HashSet<T>
     insert(self, value: T) -> HashSet<T>
     clear(self) -> HashSet<T>
-    iter(self) -> CollectionCursor<T>
+    iter(self) -> HashSetCursor<T>
 }
 ```
 

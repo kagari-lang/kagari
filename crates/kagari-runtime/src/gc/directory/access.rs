@@ -18,6 +18,7 @@ use crate::{
     value::{EnumValueSnapshot, EphemeralValue, Value},
 };
 use kagari_abi::representation::ValueType;
+use kagari_types::ty::Ty;
 use std::{cell::RefCell, slice, sync::Arc};
 
 type EnumPayload = (EnumValueSnapshot, Option<Arc<ErrorTrace>>);
@@ -25,26 +26,22 @@ type CellPayload = (ValueType, Value);
 
 impl ObjectStorage {
     pub(in crate::gc) fn resolve_direct(&self, reference: GcRef) -> Option<ResolvedDirect<'_>> {
-        let (location, pointer, descriptor) = self.pages.resolve_reference(reference)?;
-        let fields = descriptor.structure.as_deref().map(|description| {
-            // SAFETY: resolution retained initialized packed fields and their layout.
-            let bytes = unsafe { slice::from_raw_parts(pointer.as_ptr(), description.size) };
-            StructView { description, bytes }
-        });
+        let (location, payload) = self.pages.resolve_reference(reference)?;
         Some(ResolvedDirect {
-            fields,
+            payload,
             mark: self.pages.direct_mark(location)?,
-            edges: descriptor.edges,
         })
     }
 
+    /// Validate transport against one admitted physical representation.
+    pub(in crate::gc) fn validate_value(&self, value: &Value) -> Option<GcRef> {
+        let reference = value.direct_reference()?;
+        let (_, payload) = self.pages.resolve_reference(reference)?;
+        payload.accepts_value(value).then_some(reference)
+    }
+
     pub(in crate::gc) fn native(&self, location: PayloadLocation) -> Option<&NativeObject> {
-        if location.kind != PayloadKind::Native {
-            return None;
-        }
-        let pointer = self.pages.get(location)?.pointer;
-        // SAFETY: checked occupied kind has exactly this initialized representation.
-        Some(unsafe { pointer.cast::<NativeObject>().as_ref() })
+        self.pages.get(location)?.native()
     }
 
     pub(in crate::gc) fn native_mut(
@@ -59,6 +56,7 @@ impl ObjectStorage {
         Some(unsafe { pointer.cast::<NativeObject>().as_mut() })
     }
 
+    #[cfg(test)]
     pub(in crate::gc) fn structure(&self, location: PayloadLocation) -> Option<StructView<'_>> {
         self.pages.get(location)?.structure()
     }
@@ -75,14 +73,6 @@ impl ObjectStorage {
         // SAFETY: exclusive directory borrow excludes any other view of these bytes.
         let bytes = unsafe { slice::from_raw_parts_mut(pointer.as_ptr(), description.size) };
         Some(StructViewMut { description, bytes })
-    }
-
-    pub(in crate::gc) fn get(
-        &self,
-        location: PayloadLocation,
-        interfaces: &RefCell<InterfaceStore>,
-    ) -> Option<HeapObject<Shared<'_>>> {
-        self.pages.get(location)?.view(interfaces)
     }
 
     pub(in crate::gc) fn get_mut(
@@ -144,7 +134,81 @@ impl ObjectStorage {
     }
 }
 
+impl<'a> ResolvedDirect<'a> {
+    pub(in crate::gc) fn native(&self) -> Option<&'a NativeObject> {
+        self.payload.native()
+    }
+
+    pub(in crate::gc) fn fields(&self) -> Option<StructView<'a>> {
+        self.payload.structure()
+    }
+
+    pub(in crate::gc) fn edges(&self) -> bool {
+        self.payload.descriptor.edges
+    }
+
+    pub(in crate::gc) fn taken(&self) -> bool {
+        self.payload.descriptor.kind == PayloadKind::Taken
+    }
+
+    pub(in crate::gc) fn accepts_value(&self, value: &Value) -> bool {
+        self.payload.accepts_value(value)
+    }
+
+    pub(in crate::gc) fn object(
+        &self,
+        interfaces: &RefCell<InterfaceStore>,
+    ) -> Option<HeapObject<Shared<'a>>> {
+        self.payload.view(interfaces)
+    }
+}
+
 impl<'a> CheckedPayload<'a> {
+    fn native(&self) -> Option<&'a NativeObject> {
+        if self.descriptor.kind != PayloadKind::Native {
+            return None;
+        }
+        // SAFETY: checked occupied kind has exactly this initialized representation.
+        Some(unsafe { self.pointer.cast::<NativeObject>().as_ref() })
+    }
+
+    /// The single representation rule for mutator admission and collector edges.
+    /// Taken aliases remain a collector-only exception at its tracing boundary.
+    fn accepts_value(&self, value: &Value) -> bool {
+        let kind = self.descriptor.kind;
+        match value {
+            Value::GcHandle(_) => kind == PayloadKind::Native,
+            Value::Str(_) => kind == PayloadKind::String,
+            Value::Tuple(_) => kind == PayloadKind::Tuple,
+            Value::Range(_) => kind == PayloadKind::Range,
+            Value::HostRoot(_) => kind == PayloadKind::HostRoot,
+            Value::HostPathView(_) => kind == PayloadKind::HostPath,
+            Value::Ephemeral(_) => kind == PayloadKind::Ephemeral,
+            Value::Array(_) => {
+                if kind != PayloadKind::Native {
+                    return false;
+                }
+                // SAFETY: checked occupied Native placement retains its exact payload.
+                let native = unsafe { self.pointer.cast::<NativeObject>().as_ref() };
+                matches!(native.ty, Ty::Array(..))
+            }
+            Value::Enum(_) => kind == PayloadKind::Enum,
+            Value::Struct(_) => kind == PayloadKind::Struct,
+            Value::Interface(_) => kind == PayloadKind::Interface,
+            Value::Closure(_) => kind == PayloadKind::Closure,
+            Value::Cell(_) => kind == PayloadKind::Cell,
+            Value::Unit
+            | Value::Bool(_)
+            | Value::Char(_)
+            | Value::I32(_)
+            | Value::I64(_)
+            | Value::U64(_)
+            | Value::F32(_)
+            | Value::F64(_)
+            | Value::RuntimeEphemeral(_) => false,
+        }
+    }
+
     fn interface_snapshot_index(&self) -> Option<u32> {
         if self.descriptor.kind != PayloadKind::Interface {
             return None;

@@ -569,13 +569,18 @@ fn unique<T: Eq + Hash>(values: HashSet<T>) -> u64 {
         .expect("installed declaration analysis")
         .into_checked()
         .expect_err("f64 map keys should reject");
-    assert!(diagnostics.iter().any(|diagnostic| {
-        matches!(
-            &diagnostic.kind,
-            DiagnosticKind::StandardConstraintNotSatisfied { type_name, constraint, .. }
-                if type_name == "f64" && constraint == "Eq + Hash"
-        )
-    }));
+    for required in ["Eq", "Hash"] {
+        assert!(
+            diagnostics.iter().any(|diagnostic| {
+                matches!(
+                    &diagnostic.kind,
+                    DiagnosticKind::GenericBoundNotSatisfied { type_name, trait_name }
+                        if type_name == "f64" && trait_name == required
+                )
+            }),
+            "missing {required}: {diagnostics:?}"
+        );
+    }
 
     let lowered = common::lower_ok(
         "use std::collections::{HashMap};\nfn bad<K, V>(values: HashMap<K, V>) -> u64 { values.len() }",
@@ -584,13 +589,18 @@ fn unique<T: Eq + Hash>(values: HashSet<T>) -> u64 {
         .expect("installed declaration analysis")
         .into_checked()
         .expect_err("unconstrained generic map key should reject");
-    assert!(diagnostics.iter().any(|diagnostic| {
-        matches!(
-            &diagnostic.kind,
-            DiagnosticKind::StandardConstraintNotSatisfied { type_name, constraint, .. }
-                if type_name == "K" && constraint == "Eq + Hash"
-        )
-    }));
+    for required in ["Eq", "Hash"] {
+        assert!(
+            diagnostics.iter().any(|diagnostic| {
+                matches!(
+                    &diagnostic.kind,
+                    DiagnosticKind::GenericBoundNotSatisfied { type_name, trait_name }
+                        if type_name == "K" && trait_name == required
+                )
+            }),
+            "missing {required}: {diagnostics:?}"
+        );
+    }
 
     // Header checking must defer nominal proofs, then reject missing evidence
     // even when no function body constructs or accesses the declaration.
@@ -606,11 +616,16 @@ fn unique<T: Eq + Hash>(values: HashSet<T>) -> u64 {
                 .expect("installed declaration analysis")
                 .into_checked()
                 .expect_err("nominal keys still require explicit protocols");
-        assert!(diagnostics.iter().any(|diagnostic| matches!(
-            &diagnostic.kind,
-            DiagnosticKind::StandardConstraintNotSatisfied { type_name, constraint, .. }
-                if type_name == "Key" && constraint == "Eq + Hash"
-        )));
+        for required in ["Eq", "Hash"] {
+            assert!(
+                diagnostics.iter().any(|diagnostic| matches!(
+                    &diagnostic.kind,
+                    DiagnosticKind::GenericBoundNotSatisfied { type_name, trait_name }
+                        if type_name == "Key" && trait_name == required
+                )),
+                "missing {required}: {diagnostics:?}"
+            );
+        }
     }
 }
 

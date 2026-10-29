@@ -205,7 +205,7 @@ fn inherited_closed_dispatch_does_not_allocate_parent_wrappers_or_copy_unused_me
 fn cached_native_receiver_defaults_release_their_program_and_gc_values() {
     let (vm, loaded) = load(
         r#"use std::collections::{List};
-use std::iter::{CollectionCursor};
+use std::vec::VecCursor;
 use std::ops::{Index};
 
 struct Sequence { val items: Vec<i32> }
@@ -215,8 +215,8 @@ impl Index<u64> for Sequence {
 }
 impl Iterable for Sequence {
     type Item = i32;
-    type Iter = CollectionCursor<i32>;
-    fn iter(self) -> CollectionCursor<i32> { self.items.iter() }
+    type Iter = VecCursor<i32>;
+    fn iter(self) -> VecCursor<i32> { self.items.iter() }
 }
 impl List<i32> for Sequence {
     fn len(self) -> u64 { self.items.len() }

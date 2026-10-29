@@ -81,7 +81,9 @@ fn impl_where_constraints_are_inherited_without_leaking_through_shadowing() {
             foundation_catalog::shared().unwrap(),
         )
         .expect("installed declaration analysis");
-        assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::StandardConstraintNotSatisfied { constraint, .. } if constraint == "Eq + Hash")), "{:?}", analysis.diagnostics());
+        for required in ["Eq", "Hash"] {
+            assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::GenericBoundNotSatisfied { type_name, trait_name } if type_name == "T" && trait_name == required)), "missing {required}: {:?}", analysis.diagnostics());
+        }
         assert!(analysis.into_codegen().is_err());
     }
 }
@@ -153,7 +155,7 @@ fn method_where_constraints_do_not_leak_to_sibling_methods() {
         .filter(|diagnostic| {
             matches!(
                 diagnostic.kind,
-                DiagnosticKind::StandardConstraintNotSatisfied { .. }
+                DiagnosticKind::GenericBoundNotSatisfied { .. }
             )
         })
         .collect::<Vec<_>>();

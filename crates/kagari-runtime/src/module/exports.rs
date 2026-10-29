@@ -613,12 +613,14 @@ mod tests {
             RuntimeErrorKind::StaleHandle
         );
         assert!(runtime.validate_executable_module(&old).is_err());
+        // Exact executable binders first admit execution, which close cancels.
+        // Live namespace navigation above instead rejects retired installations.
         assert_eq!(
             runtime
                 .bind_constructor::<i32>(&old, &argument)
                 .unwrap_err()
                 .kind(),
-            RuntimeErrorKind::StaleHandle
+            RuntimeErrorKind::Cancelled
         );
     }
 

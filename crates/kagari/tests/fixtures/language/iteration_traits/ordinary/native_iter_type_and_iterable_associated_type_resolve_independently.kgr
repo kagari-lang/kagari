@@ -1,4 +1,4 @@
-use std::iter::{ CollectionCursor };
+use alloc::vec::{ VecCursor };
 
 struct Values {
     val items: Vec<i32>
@@ -6,7 +6,7 @@ struct Values {
 
 impl Iterable for Values {
     type Item = i32;
-    type Iter = CollectionCursor<i32>;
+    type Iter = VecCursor<i32>;
     fn iter(self) -> Self::Iter {
         self.items.iter()
     }
@@ -22,6 +22,6 @@ fn sum<I: Iterable<Item = i32>>(source: I) -> i32 {
 
 fn main() -> i32 {
     val values = Values { items: Vec::from([20, 22]) };
-    val items: CollectionCursor<i32> = values.iter();
+    val items: VecCursor<i32> = values.iter();
     sum(items)
 }

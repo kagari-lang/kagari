@@ -448,6 +448,8 @@ fn main() -> i32 {
 
 #[test]
 fn standard_collection_reflection_metadata_reports_runtime_categories() {
+    // Ordinary native providers share the generic managed payload category;
+    // collection identities belong to nominal declarations, not Value tags.
     let (runtime, loaded) = load_bytecode_program(
         "test.kgr",
         compile_test_bytecode(
@@ -482,11 +484,11 @@ fn standard_collection_reflection_metadata_reports_runtime_categories() {
                     .alloc_tuple_transport(vec![
                         vm.runtime()
                             .gc()
-                            .alloc_string_transport("map".to_owned())
+                            .alloc_string_transport("gc_handle".to_owned())
                             .unwrap(),
                         vm.runtime()
                             .gc()
-                            .alloc_string_transport("set".to_owned())
+                            .alloc_string_transport("gc_handle".to_owned())
                             .unwrap(),
                     ])
                     .unwrap()),

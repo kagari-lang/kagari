@@ -10,18 +10,14 @@ mod retirement;
 mod tests;
 
 use self::{
-    pages::{Pages, Retired, SLAB_BYTES},
+    pages::{CheckedPayload, Pages, Retired, SLAB_BYTES},
     retirement::Sweep,
 };
 use crate::{
     error::RuntimeError,
     gc::{
-        GcHeap,
-        fields::{StructView, StructViewMut},
-        graph::marks::MarkRef,
-        object_header::ObjectHeader,
-        reference::GcRef,
-        storage::HeapObject,
+        GcHeap, fields::StructViewMut, graph::marks::MarkRef, object_header::ObjectHeader,
+        reference::GcRef, storage::HeapObject,
     },
     module::ModuleKey,
     native::{binding::NativeResult, payload::take::NativeTake, storage::NativeObject},
@@ -31,12 +27,12 @@ use std::{collections::HashMap, slice, sync::Arc};
 #[cfg(test)]
 use std::cell::Cell;
 
-/// Collector view of one retained direct allocation. Payload, descriptor and physical mark
-/// share the storage borrow; none may survive a yield, callback or retirement.
+/// Scoped view of one retained direct allocation. Payload, descriptor and physical mark
+/// share the storage borrow; none may survive a yield or retirement. Provider
+/// callbacks keep their existing payload loan but reacquire completion marks.
 pub(in crate::gc) struct ResolvedDirect<'a> {
-    pub(in crate::gc) fields: Option<StructView<'a>>,
+    payload: CheckedPayload<'a>,
     pub(in crate::gc) mark: MarkRef<'a>,
-    pub(in crate::gc) edges: bool,
 }
 
 impl Drop for GcHeap {

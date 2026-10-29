@@ -1,14 +1,14 @@
 //! Ordinary nominal cursor with a traced source and runtime-owned revision check.
 use crate::collections::vector::{ScriptVec, VecStorage};
 use kagari_runtime::{
-    error::RuntimeError,
+    error::{RuntimeError, RuntimeErrorKind},
     native::{
         binding::NativeResult,
         conversion::IntoKagari,
         payload::{Opaque, borrowed::BorrowedPayload},
         storage::{
             NativePayload,
-            access::EditPlan,
+            access::{EditPlan, StorageAccess},
             scan::{NativeScanKind, ScanBudget, ScanStatus},
             value::StoredValue,
         },
@@ -104,9 +104,7 @@ pub(crate) fn next(
             source.value_transport(),
             &contract,
             |values, access| {
-                access.check_revision(revision).map_err(|_| {
-                    RuntimeError::module_validation("invalid or structurally modified iterator")
-                })?;
+                check_revision(access, revision)?;
                 values
                     .values
                     .get(index)
@@ -130,4 +128,13 @@ pub(crate) fn next(
         }
         Ok(value)
     }
+}
+
+pub(super) fn check_revision(access: &StorageAccess<'_>, revision: u64) -> NativeResult<()> {
+    access.check_revision(revision).map_err(|_| {
+        RuntimeError::new(
+            RuntimeErrorKind::ScriptTrap,
+            "invalid or structurally modified iterator",
+        )
+    })
 }

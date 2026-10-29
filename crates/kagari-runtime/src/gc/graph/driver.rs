@@ -4,7 +4,6 @@ use crate::{
     execution_metadata::{MetadataEdge, scanning::MetadataCursor},
     gc::{
         GcHeap,
-        directory::PayloadKind,
         graph::{
             GraphIdentity, GraphMarker, ScanKind,
             marks::MarkRef,
@@ -72,20 +71,43 @@ impl GcHeap {
         action: impl FnOnce(GraphIdentity, MarkRef<'_>, ScanKind) -> Result<R, RuntimeError>,
     ) -> Result<Option<R>, RuntimeError> {
         let reference = match edge {
-            ScanEdge::Identity(GraphIdentity::Direct(reference))
-            | ScanEdge::Value(Value::Struct(reference)) => Some(reference),
+            ScanEdge::Identity(GraphIdentity::Direct(reference)) => Some(reference),
+            ScanEdge::Value(value) => {
+                if !value.is_managed() {
+                    return Ok(None);
+                }
+                Some(value.direct_reference().ok_or_else(invalid)?)
+            }
             _ => None,
         };
         if let Some(reference) = reference {
             let objects = self.objects.try_borrow().map_err(|_| invalid())?;
             let view = objects.resolve_direct(reference).ok_or_else(invalid)?;
-            if matches!(edge, ScanEdge::Value(Value::Struct(_))) && view.fields.is_none() {
-                return Err(invalid());
-            }
-            let kind = if view.edges {
-                ScanKind::Edges
-            } else {
-                ScanKind::Leaf
+            let kind = match edge {
+                ScanEdge::Value(value) if !matches!(value, Value::Struct(_)) => {
+                    // Only tracing accepts an already retained Native tombstone.
+                    // Array aliases still require their actual Native nominal type.
+                    let taken = matches!(value, Value::GcHandle(_)) && view.taken();
+                    if !taken && !view.accepts_value(&value) {
+                        return Err(invalid());
+                    }
+                    if taken {
+                        ScanKind::Leaf
+                    } else {
+                        ScanKind::Edges
+                    }
+                }
+                _ => {
+                    if matches!(edge, ScanEdge::Value(Value::Struct(_))) && view.fields().is_none()
+                    {
+                        return Err(invalid());
+                    }
+                    if view.edges() {
+                        ScanKind::Edges
+                    } else {
+                        ScanKind::Leaf
+                    }
+                }
             };
             return action(GraphIdentity::Direct(reference), view.mark, kind).map(Some);
         }
@@ -97,31 +119,7 @@ impl GcHeap {
                     .map(Some);
             }
             ScanEdge::Metadata(edge) => self.metadata_scan_identity(edge)?,
-            ScanEdge::Value(value) => {
-                if !value.is_managed() {
-                    return Ok(None);
-                }
-                let objects = self.objects.try_borrow().map_err(|_| invalid())?;
-                let identity = value.direct_reference().ok_or_else(invalid)?;
-                let location = objects.direct_location(identity).ok_or_else(invalid)?;
-                let taken =
-                    matches!(value, Value::GcHandle(_)) && location.kind == PayloadKind::Taken;
-                // Only collector tracing accepts an already retained tombstone.
-                // Normal value admission still rejects it before any publication.
-                if !taken && self.validate_heap_value(&objects, &value).is_none() {
-                    return Err(invalid());
-                }
-                return action(
-                    identity.graph(),
-                    objects.mark(location).ok_or_else(invalid)?,
-                    if taken {
-                        ScanKind::Leaf
-                    } else {
-                        ScanKind::Edges
-                    },
-                )
-                .map(Some);
-            }
+            ScanEdge::Value(_) => unreachable!("values classified above"),
         };
         self.with_graph_mark(modules, id, |mark| action(id, mark, ScanKind::Edges))
             .map(Some)
@@ -145,8 +143,12 @@ impl GcHeap {
             if let Ok(mut graph) = self.graph.try_lock() {
                 graph.fault();
             }
-            self.resources
-                .quarantine("graph scanner failed before closure");
+            // The callback boundary may already own the concrete terminal cause.
+            // Preserve it for collection_result and subsequent rejected entries.
+            if !self.resources.is_quarantined() {
+                self.resources
+                    .quarantine("graph scanner failed before closure");
+            }
         }
         result
     }
@@ -173,12 +175,10 @@ impl GcHeap {
                 return Ok(ScanStatus::Complete);
             };
             let mut active = self.graph_scan.try_borrow_mut().map_err(|_| invalid())?;
-            if let GraphIdentity::Direct(reference) = id
-                && !matches!(*active, Some(ActiveScan::Object(_)))
-            {
+            if let GraphIdentity::Direct(reference) = id {
                 let objects = self.objects.try_borrow().map_err(|_| invalid())?;
                 let view = objects.resolve_direct(reference).ok_or_else(invalid)?;
-                if view.fields.is_some() {
+                if view.fields().is_some() {
                     let status = self.scan_struct_owner(
                         modules,
                         reference,
@@ -192,15 +192,49 @@ impl GcHeap {
                     }
                     continue;
                 }
+                let object = view.object(&self.interfaces).ok_or_else(invalid)?;
+                if active.is_none() {
+                    if !budget.take(1) {
+                        return Ok(ScanStatus::Pending);
+                    }
+                    *active = Some(ActiveScan::Object(ObjectCursor::begin(object)?));
+                }
+                let Some(ActiveScan::Object(cursor)) = active.as_mut() else {
+                    return Err(invalid());
+                };
+                if object.scan_is_internal() {
+                    let status =
+                        self.scan_object_slice(object, cursor, budget, &mut |edge, budget| {
+                            self.shade_scanned_edge_with(modules, edge, budget, &mut graph)
+                        })?;
+                    if status == ScanStatus::Pending {
+                        return Ok(status);
+                    }
+                    graph.finish_owner(id, view.mark)?;
+                } else {
+                    // Keep the provider's existing payload loan, but release control.
+                    // Completion reacquires its mark after that loan/callback segment.
+                    drop(graph);
+                    let status =
+                        self.scan_object_slice(object, cursor, budget, &mut |edge, budget| {
+                            self.shade_scanned_edge(modules, edge, budget)
+                        })?;
+                    if status == ScanStatus::Pending {
+                        return Ok(status);
+                    }
+                    drop(objects);
+                    graph = self.graph.try_lock()?;
+                    self.with_graph_mark(modules, id, |mark| graph.finish_owner(id, mark))?;
+                }
+                *active = None;
+                continue;
             }
             if active.is_none() {
                 if !budget.take(1) {
                     return Ok(ScanStatus::Pending);
                 }
                 *active = Some(match id {
-                    GraphIdentity::Direct(reference) => {
-                        ActiveScan::Object(self.begin_object_scan(reference)?)
-                    }
+                    GraphIdentity::Direct(_) => unreachable!("direct owner handled above"),
                     GraphIdentity::Program(id) => {
                         ActiveScan::Module(modules.begin_module_scan(id)?)
                     }
@@ -209,52 +243,34 @@ impl GcHeap {
                 });
             }
             let scan = active.as_mut().expect("started graph cursor");
-            if let ActiveScan::Object(cursor) = scan
-                && !self.object_scan_is_internal(cursor)?
-            {
-                // Native begin/resume invokes providers; HostPath advancement can
-                // drop an Arc. Neither may inherit the collector control borrow.
+            let mut visit = |edge: ScanEdge<'_>, budget: &mut ScanBudget| {
+                self.shade_scanned_edge_with(modules, edge, budget, &mut graph)
+            };
+            let status = match scan {
+                ActiveScan::Metadata(cursor) => {
+                    self.scan_metadata_slice(cursor, budget, &mut visit)?
+                }
+                ActiveScan::Module(cursor) => {
+                    modules.scan_module_fields(cursor, budget, &mut visit)?
+                }
+                ActiveScan::Static(id) => modules.scan_static_slice(*id, budget, &mut visit)?,
+                ActiveScan::Struct { .. } | ActiveScan::Object(_) => return Err(invalid()),
+            };
+            if status == ScanStatus::Pending {
+                return Ok(status);
+            }
+            if let ActiveScan::Module(cursor) = scan {
+                // Descriptor scan_finish may release an evicted entry and
+                // its dependencies. Keep that entire suffix on per-edge locks.
                 drop(graph);
-                let status = self.scan_object_slice(cursor, budget, &mut |edge, budget| {
-                    self.shade_scanned_edge(modules, edge, budget)
-                })?;
+                let status =
+                    modules.scan_module_descriptors(cursor, budget, &mut |edge, budget| {
+                        self.shade_scanned_edge(modules, edge, budget)
+                    })?;
                 if status == ScanStatus::Pending {
                     return Ok(status);
                 }
                 graph = self.graph.try_lock()?;
-            } else {
-                let mut visit = |edge: ScanEdge<'_>, budget: &mut ScanBudget| {
-                    self.shade_scanned_edge_with(modules, edge, budget, &mut graph)
-                };
-                let status = match scan {
-                    ActiveScan::Object(cursor) => {
-                        self.scan_object_slice(cursor, budget, &mut visit)?
-                    }
-                    ActiveScan::Metadata(cursor) => {
-                        self.scan_metadata_slice(cursor, budget, &mut visit)?
-                    }
-                    ActiveScan::Module(cursor) => {
-                        modules.scan_module_fields(cursor, budget, &mut visit)?
-                    }
-                    ActiveScan::Static(id) => modules.scan_static_slice(*id, budget, &mut visit)?,
-                    ActiveScan::Struct { .. } => return Err(invalid()),
-                };
-                if status == ScanStatus::Pending {
-                    return Ok(status);
-                }
-                if let ActiveScan::Module(cursor) = scan {
-                    // Descriptor scan_finish may release an evicted entry and
-                    // its dependencies. Keep that entire suffix on per-edge locks.
-                    drop(graph);
-                    let status =
-                        modules.scan_module_descriptors(cursor, budget, &mut |edge, budget| {
-                            self.shade_scanned_edge(modules, edge, budget)
-                        })?;
-                    if status == ScanStatus::Pending {
-                        return Ok(status);
-                    }
-                    graph = self.graph.try_lock()?;
-                }
             }
             self.with_graph_mark(modules, id, |mark| graph.finish_owner(id, mark))?;
             *active = None;

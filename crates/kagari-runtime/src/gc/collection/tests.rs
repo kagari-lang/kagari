@@ -150,7 +150,7 @@ fn physical_drop_observations_count_individual_payloads_not_only_batch_maxima() 
 #[test]
 fn automatic_budget_spans_mark_sweep_and_disposal_and_reports_only_new_retirements() {
     let runtime = runtime(Some(1500));
-    // Exact directory capacity avoids the separately tested allocator-compaction exception.
+    // A finite population large enough to span multiple normal-service slices.
     const OBJECTS: usize = 2048;
     garbage(&runtime, OBJECTS);
     runtime.gc_safepoint().unwrap();
@@ -240,24 +240,6 @@ fn resumed_sweep_rechecks_later_store_borrows_before_any_further_detachment() {
         drop(view);
         assert!(runtime.gc.operation_group(group).is_some());
     }
-}
-
-#[test]
-fn indivisible_directory_compaction_reports_its_work_and_duration() {
-    let runtime = runtime(Some(1500));
-    garbage(&runtime, 2000);
-    runtime.collect_garbage().unwrap();
-    let service = runtime.gc.collection_observation().unwrap();
-    assert!(
-        service.slices.max_work >= 2000,
-        "copied directory slots are not hidden"
-    );
-    let compaction = service.indivisible[IndivisibleKind::DirectoryCompaction as usize];
-    assert_eq!(compaction.count, 1);
-    assert_eq!(compaction.total_work, 2000);
-    assert!(compaction.slowest.unwrap().time > Duration::ZERO);
-    assert!(service.cycles.last_work >= service.slices.max_work);
-    assert!(service.cycles.last_time <= service.explicit.last_time);
 }
 
 #[test]

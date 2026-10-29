@@ -16,7 +16,6 @@ use kagari_runtime::{
     frame::ExecutionFrame,
     module::ExecutableModule,
     session::{ExecutionEvent, ExecutionObserver},
-    value::Value,
 };
 use kagari_source::source::SourceFile;
 use kagari_vm::{error::VmError, vm::JitExecutionStatus};
@@ -126,8 +125,11 @@ fn result(
         JitExecutionStatus::Native
     );
     assert_eq!(
-        report.return_value.value(runtime.runtime().gc()),
-        Some(Value::I32(expected))
+        report
+            .return_value
+            .inspect(runtime.runtime(), |view| view.as_i32())
+            .unwrap(),
+        expected
     );
 }
 
@@ -334,8 +336,11 @@ fn deployed_failures_keep_origins_cleanup_and_pre_entry_observer_routing() {
         JitExecutionStatus::InterpreterFallback
     );
     assert_eq!(
-        report.return_value.value(runtime.runtime().gc()),
-        Some(Value::I32(42))
+        report
+            .return_value
+            .inspect(runtime.runtime(), |view| view.as_i32())
+            .unwrap(),
+        42
     );
     drop(report);
     drop(session);
@@ -480,8 +485,11 @@ fn publication_is_complete_and_build_errors_preserve_existing_deployments() {
         JitExecutionStatus::Native
     );
     assert_eq!(
-        report.return_value.value(runtime.runtime().gc()),
-        Some(Value::I32(42))
+        report
+            .return_value
+            .inspect(runtime.runtime(), |view| view.as_i32())
+            .unwrap(),
+        42
     );
     let artifact = engine
         .compile_to_artifact(

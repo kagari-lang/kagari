@@ -148,7 +148,8 @@ fn builtin_header_preserves_alignment_and_detached_payload_destruction() {
         .unwrap();
     let payload = pages.get(location).unwrap().pointer;
     let reference = pages.direct_reference(location).unwrap();
-    let (resolved, pointer, _) = pages.resolve_reference(reference).unwrap();
+    let (resolved, checked) = pages.resolve_reference(reference).unwrap();
+    let pointer = checked.pointer;
     assert_eq!(resolved, location);
     assert_eq!(pointer, payload);
     assert!(pages.direct_mark(location).is_some());
@@ -261,7 +262,8 @@ fn direct_page_dispatch_preserves_mixed_kinds_and_rejects_foreign_live_addresses
         let (reference, pending) = pages.next_gray_direct(location.page as usize, 9);
         assert_eq!(pending, more);
         let reference = reference.unwrap();
-        let (resolved, _, descriptor) = pages.resolve_reference(reference).unwrap();
+        let (resolved, payload) = pages.resolve_reference(reference).unwrap();
+        let descriptor = payload.descriptor;
         assert_eq!(resolved, location);
         assert_eq!(descriptor.kind, location.kind);
         pages.direct_mark(location).unwrap().set(9, Color::Black);

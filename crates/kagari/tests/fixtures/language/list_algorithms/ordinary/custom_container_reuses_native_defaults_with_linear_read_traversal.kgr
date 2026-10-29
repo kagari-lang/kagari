@@ -1,6 +1,6 @@
 use std::collections::{ List, MutableList };
 
-use std::iter::{ CollectionCursor };
+use alloc::vec::{ VecCursor };
 
 use std::ops::{ Index };
 
@@ -17,8 +17,8 @@ impl Index<u64> for Sequence {
 
 impl Iterable for Sequence {
     type Item = i32;
-    type Iter = CollectionCursor<i32>;
-    fn iter(self) -> CollectionCursor<i32> {
+    type Iter = VecCursor<i32>;
+    fn iter(self) -> VecCursor<i32> {
         self.items.iter()
     }
 }

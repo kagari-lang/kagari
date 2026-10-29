@@ -9,20 +9,16 @@ mod transaction_tests;
 
 use self::disposal::SweepBatch;
 use super::{
-    ObjectStorage, PayloadLocation,
-    descriptors::DescriptorId,
-    pages::{
-        CheckedPayload,
-        batch::{Fragment, order::ordering_work},
-    },
+    ObjectStorage,
+    pages::batch::{Decision, Selection, order::ordering_work},
 };
 use crate::{
     execution_metadata::interfaces::InterfaceStore,
     gc::{
-        graph::{GraphMarker, MarkPhase, marks::MarkRef, sweep::SweepGraph},
+        graph::{GraphMarker, MarkPhase},
         reference::GcRef,
     },
-    native::storage::scan::{ScanBudget, ScanStatus},
+    native::storage::scan::ScanBudget,
 };
 use std::{cell::RefCell, mem};
 
@@ -37,12 +33,6 @@ const OWNER_RETIRE_WORK: usize = 8;
 // this constant allowance covers that bounded control work, without a history walk.
 const FRAGMENT_FINISH_WORK: usize = 32;
 const BATCH_FINISH_WORK: usize = 32;
-
-enum PreparedOwner {
-    Survivor,
-    Retire,
-    Pending,
-}
 
 #[derive(Debug)]
 pub(super) struct Sweep {
@@ -60,17 +50,8 @@ pub(in crate::gc) struct SweepTotals {
     pub(in crate::gc) live: usize,
 }
 
-struct Candidate<'a> {
-    location: PayloadLocation,
-    physical: (DescriptorId, bool),
-    payload: CheckedPayload<'a>,
-    mark: MarkRef<'a>,
-}
-
 struct Prepared {
     identities: [Option<GcRef>; RETIRE_LIMIT],
-    fragments: [Option<Fragment>; RETIRE_LIMIT],
-    fragment_count: usize,
     count: usize,
     units: usize,
     bytes: u128,
@@ -79,7 +60,6 @@ struct Prepared {
 /// Only borrowed prefixes leave preparation; the large arrays stay in place.
 struct Commit<'a> {
     identities: &'a [Option<GcRef>],
-    fragments: &'a [Option<Fragment>],
     units: usize,
     bytes: u128,
 }
@@ -89,43 +69,15 @@ impl Prepared {
     fn new() -> Self {
         Self {
             identities: [None; RETIRE_LIMIT],
-            fragments: [None; RETIRE_LIMIT],
-            fragment_count: 0,
             count: 0,
             units: 0,
             bytes: 0,
         }
     }
 
-    fn extends(&self, candidate: &Candidate<'_>) -> bool {
-        let (descriptor, small) = candidate.physical;
-        small
-            && self.fragment_count != 0
-            && self.fragments[self.fragment_count - 1]
-                .is_some_and(|fragment| fragment.extends(candidate.location, descriptor))
-    }
-
-    fn push(
-        &mut self,
-        candidate: &Candidate<'_>,
-        identity: GcRef,
-        units: usize,
-        bytes: usize,
-    ) -> Option<()> {
+    fn push(&mut self, identity: GcRef, units: usize, bytes: usize) -> Option<()> {
         self.units = self.units.checked_add(units)?;
         self.bytes = self.bytes.checked_add(bytes as u128)?;
-        let (descriptor, small) = candidate.physical;
-        if self.extends(candidate) {
-            self.fragments[self.fragment_count - 1].as_mut()?.count += 1;
-        } else {
-            self.fragments[self.fragment_count] = Some(Fragment {
-                start: candidate.location,
-                descriptor,
-                count: 1,
-                small,
-            });
-            self.fragment_count += 1;
-        }
         self.identities[self.count] = Some(identity);
         self.count += 1;
         Some(())
@@ -136,10 +88,8 @@ impl Prepared {
     fn seal(&mut self) -> Commit<'_> {
         let count = mem::take(&mut self.count);
         assert_ne!(count, 0, "nonempty unconsumed retirement proof");
-        let fragments = mem::take(&mut self.fragment_count);
         Commit {
             identities: &self.identities[..count],
-            fragments: &self.fragments[..fragments],
             units: mem::take(&mut self.units),
             bytes: mem::take(&mut self.bytes),
         }
@@ -186,52 +136,6 @@ impl ObjectStorage {
         Some(())
     }
 
-    fn prepare_owner(
-        &self,
-        candidate: &Candidate<'_>,
-        interfaces: &RefCell<InterfaceStore>,
-        graph: &SweepGraph<'_, '_>,
-        prepared: &mut Prepared,
-        budget: &mut ScanBudget,
-    ) -> Option<PreparedOwner> {
-        #[cfg(test)]
-        self.discovery_visits.set(self.discovery_visits.get() + 1);
-        let mark = candidate.mark;
-        if graph.is_survivor(mark).ok()? {
-            return Some(PreparedOwner::Survivor);
-        }
-        let new_fragment = !prepared.extends(candidate);
-        let reserve = OWNER_RETIRE_WORK
-            + if prepared.count == 0 {
-                BATCH_FINISH_WORK
-            } else {
-                0
-            }
-            + if new_fragment {
-                FRAGMENT_FINISH_WORK + ordering_work(prepared.fragment_count + 1)
-                    - ordering_work(prepared.fragment_count)
-            } else {
-                0
-            };
-        // Reserve the monotone proof-bound delta before admitting this fragment:
-        // both scratch arrays, merge comparisons/writes and adjacent interval checks.
-        if !budget.take(reserve) {
-            return Some(PreparedOwner::Pending);
-        }
-        // Physical validation and mark selection share the scanner's storage borrow.
-        // Survivors never reconstruct an object view or perform retirement charging.
-        let object = candidate.payload.view(interfaces)?;
-        let charge = object.charge(interfaces)?;
-        let identity = candidate.payload.direct_reference();
-        prepared.push(
-            candidate,
-            identity,
-            charge.logical_units,
-            charge.retained_bytes,
-        )?;
-        Some(PreparedOwner::Retire)
-    }
-
     /// Greedily select at most 32 actual owners across physical allocations. All
     /// fragments validate before the first detach. Preview cursors publish only
     /// after successful preflight or successful inspection-only progress.
@@ -247,26 +151,40 @@ impl ObjectStorage {
         }
         let graph = graph.sweep_batch().ok()?;
         let mut prepared = Prepared::new();
-        let mut scanner = self.pages.scanner();
-        while prepared.count < RETIRE_LIMIT {
-            let Some(slot) = scanner.peek(budget)? else {
-                break;
-            };
-            let candidate = Candidate {
-                location: slot.location,
-                physical: (slot.descriptor, slot.small),
-                payload: slot.payload,
-                mark: slot.mark,
-            };
-            if matches!(
-                self.prepare_owner(&candidate, interfaces, &graph, &mut prepared, budget)?,
-                PreparedOwner::Pending
-            ) {
-                break;
-            }
-            scanner.advance();
-        }
-        let cursor = scanner.cursor();
+        let mut selection = Selection::new();
+        let physical = self.pages.prepare_batch(
+            &mut selection,
+            &mut batch.disposal,
+            budget,
+            |slot, new_fragment, budget| {
+                #[cfg(test)]
+                self.discovery_visits.set(self.discovery_visits.get() + 1);
+                if graph.is_survivor(slot.mark).ok()? {
+                    return Some(Decision::Survivor);
+                }
+                let reserve = OWNER_RETIRE_WORK
+                    + if prepared.count == 0 {
+                        BATCH_FINISH_WORK
+                    } else {
+                        0
+                    }
+                    + new_fragment.map_or(0, |count| {
+                        FRAGMENT_FINISH_WORK + ordering_work(count) - ordering_work(count - 1)
+                    });
+                // Reserve the monotone proof-bound delta before admitting a fragment.
+                if !budget.take(reserve) {
+                    return Some(Decision::Pending);
+                }
+                // Survivors never reconstruct a view or perform retirement charging.
+                let charge = slot.payload.view(interfaces)?.charge(interfaces)?;
+                prepared.push(
+                    slot.payload.direct_reference(),
+                    charge.logical_units,
+                    charge.retained_bytes,
+                )?;
+                Some(Decision::Retire)
+            },
+        )?;
         let sweep = self.sweep.as_ref()?;
         let totals = SweepTotals {
             objects: sweep.totals.objects.checked_add(prepared.count)?,
@@ -277,24 +195,16 @@ impl ObjectStorage {
         if totals.units > sweep.max_units || totals.bytes > sweep.max_bytes {
             return None;
         }
-        let status = if cursor.page.is_none() {
-            ScanStatus::Complete
-        } else {
-            ScanStatus::Pending
-        };
+        let status = physical.status();
         if prepared.count != 0 {
             let credits = graph.prepare_retirement(prepared.count).ok()?;
             let proof = prepared.seal();
-            let physical = self
-                .pages
-                .prepare_batch(proof.fragments, &mut batch.disposal)?;
-            batch.fragments = proof.fragments.len();
+            batch.fragments = physical.fragments();
             physical.detach();
-            self.pages.publish_sweep(cursor);
             proof.commit(self, batch, totals);
             credits.commit();
         } else {
-            self.pages.publish_sweep(cursor);
+            physical.detach();
         }
         batch.status = status;
         Some(())

@@ -214,7 +214,8 @@ fn canonical_foundation_contracts_survive_scoped_publication_and_installation() 
             .iter()
             .map(|module| module.records().types.len())
             .sum::<usize>(),
-        34
+        // Vec, HashMap and HashSet each own a nominal cursor type.
+        37
     );
     assert_eq!(
         first
@@ -228,15 +229,17 @@ fn canonical_foundation_contracts_survive_scoped_publication_and_installation() 
             .iter()
             .map(|module| module.records().implementations.len())
             .sum::<usize>(),
-        // Includes integer/float policies and the four character construction/conversion impls.
-        242
+        // Ordinary providers remove ten readonly Map/Set duplicates and add
+        // three cursor Iterator implementations to the former 242 entries.
+        235
     );
     assert_eq!(
         first
             .iter()
             .map(|module| module.records().exports.len())
             .sum::<usize>(),
-        94
+        // The std::vec facade also exports the provider's VecCursor.
+        95
     );
     assert_eq!(
         first
@@ -248,9 +251,9 @@ fn canonical_foundation_contracts_survive_scoped_publication_and_installation() 
                 .filter(|requirements| !requirements.is_empty())
                 .count())
             .sum::<usize>(),
-        // SR01 had 92 entries, five empty; fluent inherent methods add fourteen
-        // empty entries, not new selected-call obligations.
-        87
+        // Hash providers retain key operations at construction; ordinary access
+        // and removed readonly duplicates no longer repeat those requirements.
+        71
     );
     assert_eq!(
         first

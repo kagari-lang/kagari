@@ -1,9 +1,9 @@
 use std::collections::{ List, MutableList, Set, list_content_equal };
 
-use std::iter::{ CollectionCursor };
+use alloc::vec::{ VecCursor };
 
 mod storage {
-    use std::iter::CollectionCursor;
+    use alloc::vec::VecCursor;
     use std::ops::Index;
     pub struct Sequence {
         pub val items: Vec<i32>
@@ -16,8 +16,8 @@ mod storage {
     }
     impl Iterable for Sequence {
         type Item = i32;
-        type Iter = CollectionCursor<i32>;
-        fn iter(self) -> CollectionCursor<i32> {
+        type Iter = VecCursor<i32>;
+        fn iter(self) -> VecCursor<i32> {
             self.items.iter()
         }
     }
@@ -78,8 +78,8 @@ impl PartialEq for Singleton {
 
 impl Iterable for Singleton {
     type Item = f64;
-    type Iter = CollectionCursor<f64>;
-    fn iter(self) -> CollectionCursor<f64> {
+    type Iter = VecCursor<f64>;
+    fn iter(self) -> VecCursor<f64> {
         Vec::from([self.value]).iter()
     }
 }

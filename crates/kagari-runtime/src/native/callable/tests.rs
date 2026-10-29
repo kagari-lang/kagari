@@ -12,6 +12,7 @@ use kagari_contract::ids::FunctionRef;
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::scalar::BuiltinType;
+use std::ops::Bound::Unbounded;
 
 fn fixture() -> (Runtime, ExecutableModule, PreparedClosure) {
     let mut sources = SourceDatabase::default();
@@ -138,6 +139,13 @@ fn scoped_closure_views_reject_mutation_without_panicking_or_partial_writes() {
     );
     assert!(runtime.gc.array_set(array, 0, Value::I32(3)).is_err());
     assert!(runtime.gc.array_fill(array, Value::I32(3)).is_err());
+    assert!(runtime.gc.array_copy_from(array, array).is_err());
+    assert!(
+        runtime
+            .gc
+            .array_copy_within(array, Unbounded, Unbounded, 0)
+            .is_err()
+    );
     assert_eq!(
         runtime.gc.array_snapshot(array).unwrap(),
         vec![Value::I32(1)]

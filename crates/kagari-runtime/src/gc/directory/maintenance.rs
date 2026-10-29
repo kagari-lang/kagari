@@ -1,4 +1,4 @@
-//! Captured descriptor maintenance and explicitly indivisible, one-off compaction.
+//! Captured descriptor maintenance and explicitly indivisible empty-map release.
 use super::{
     ObjectStorage,
     descriptors::{Descriptor, DescriptorCursor, structures::StructIdentity},
@@ -74,9 +74,9 @@ impl ObjectStorage {
     /// A returned token's weak-cache dispatch is reserved. The caller consumes it
     /// outside this borrow and reports identity-probe work and final destruction;
     /// retirement never hashes or compares the semantic struct key.
-    /// Vec relocation is an explicit allocator exception: charge every copied slot
-    /// and stop after one operation, reporting its duration separately. Nonempty
-    /// maps cannot use that exception: shrinking them traverses and rehashes owners.
+    /// Empty-map backing release is an explicit allocator exception, with its
+    /// duration reported separately. Nonempty maps cannot use that exception:
+    /// shrinking them traverses and rehashes owners.
     pub(in crate::gc) fn maintenance_slice(
         &mut self,
         cursor: &mut Maintenance,

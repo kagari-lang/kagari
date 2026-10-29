@@ -639,8 +639,12 @@ fn taken_opaque_aliases_reject_edits_and_pinned_method_calls_after_reinsertion()
     let fresh = ty.create(&mut cx, state, &[]).unwrap();
     assert_eq!(fresh.call(&mut cx, &damage, (1,)).unwrap(), 99);
     assert!(alias.call(&mut cx, &damage, (1,)).is_err());
+    // Retained aliases keep the taken tombstone address alive independently of
+    // the fresh payload. Releasing them reclaims only that old allocation.
+    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 2);
+    drop((player, alias));
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 1);
-    drop((player, alias, fresh));
+    drop(fresh);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     assert_eq!(vm.runtime().gc().stats().current_heap_units, 0);
 }

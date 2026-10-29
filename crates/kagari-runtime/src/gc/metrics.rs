@@ -57,14 +57,13 @@ pub enum IndivisibleKind {
     RootDrop,
     DescriptorDrop,
     WeakTokenDrop,
-    DirectoryCompaction,
     EmptyMapRelease,
     QueueCompaction,
     LifecycleDrop,
 }
 
 impl IndivisibleKind {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 10] = [
         Self::ProviderScan,
         Self::PayloadDrop,
         Self::BackingRelease,
@@ -72,7 +71,6 @@ impl IndivisibleKind {
         Self::RootDrop,
         Self::DescriptorDrop,
         Self::WeakTokenDrop,
-        Self::DirectoryCompaction,
         Self::EmptyMapRelease,
         Self::QueueCompaction,
         Self::LifecycleDrop,
@@ -184,7 +182,7 @@ pub struct CollectionObservation {
     pub active_cycle_at_start: bool,
     pub slices: SliceMeasurements,
     /// Indexed by IndivisibleKind; use IndivisibleKind::ALL when reporting.
-    pub indivisible: [IndivisibleMeasurements; 11],
+    pub indivisible: [IndivisibleMeasurements; IndivisibleKind::ALL.len()],
 }
 
 /// Stack-scoped opt-in for one operation or bounded batch. It contains no owner

@@ -25,6 +25,8 @@ fn scoped_reference_targets_forward_without_copy_or_capability_upgrade() {
         fn generic<T>(value: Ref<T>) -> i32 { 3 }
         fn apply(value: Ref<Player>) -> i32 { generic(value) }
         fn apply_mut(value: RefMut<Player>) -> i32 { generic(value) }
+        fn vector(value: Ref<Vec<i32>>) -> i32 { 4 }
+        fn vector_mut(value: RefMut<Vec<i32>>) -> i32 { vector(value) }
     "#,
         ),
         catalog::shared().unwrap(),
@@ -122,7 +124,7 @@ fn scoped_reference_targets_forward_without_copy_or_capability_upgrade() {
 fn scoped_reference_escape_storage_targets_and_captures_reject() {
     for source in [
         "fn wrong(value: Ref<i32>) {}",
-        "fn wrong(value: Ref<Vec<i32>>) {}",
+        "fn wrong(value: Ref<[i32]>) {}",
         "fn wrong(value: Ref<Ref<Player>>) {}",
         "fn wrong(value: Vec<Ref<Player>>) {}",
         "struct Saved { var value: Ref<Player> }",

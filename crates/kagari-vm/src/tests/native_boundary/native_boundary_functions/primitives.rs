@@ -148,7 +148,7 @@ fn vector_provider_preserves_element_access_aliases_and_bounds() {
             .unwrap()
             .ty()
     };
-    for receiver in [array(), list()] {
+    for (receiver, argument) in [(array(), "[1, 2]"), (list(), "Vec::from([1, 2])")] {
         let mut builder = ModuleBuilder::new("example::vector", &catalog).unwrap();
         let function = builder
             .define_function(
@@ -158,20 +158,37 @@ fn vector_provider_preserves_element_access_aliases_and_bounds() {
                     .returns(Type::i32()),
             )
             .unwrap();
-        assert!(
-            builder
-                .bind(
-                    function,
-                    |cx: &mut NativeContext<'_>,
-                     (values, index): (ScriptVec<i32>, u64)|
-                     -> NativeResult<i32> {
-                        values.get(cx, index as usize)?.ok_or_else(|| {
-                            RuntimeError::new(RuntimeErrorKind::IndexOutOfBounds, "vector index")
-                        })
-                    }
-                )
-                .is_err()
+        let calls = Arc::new(AtomicUsize::new(0));
+        let observed = calls.clone();
+        // Contextual Rust mappings are checked against the installed concrete
+        // invocation before conversion or callback effects, including interfaces.
+        builder
+            .bind(
+                function,
+                move |cx: &mut NativeContext<'_>,
+                      (values, index): (ScriptVec<i32>, u64)|
+                      -> NativeResult<i32> {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    values.get(cx, index as usize)?.ok_or_else(|| {
+                        RuntimeError::new(RuntimeErrorKind::IndexOutOfBounds, "vector index")
+                    })
+                },
+            )
+            .unwrap();
+        let module = builder.finish().unwrap();
+        let (vm, owner) = fixture(
+            &format!(
+                "use example::vector::operation; fn main() -> i32 {{ operation({argument}, 0) }}"
+            ),
+            Some(&module),
         );
+        let loaded = vm.runtime().select_program(&owner).unwrap();
+        let error = vm.execute(&loaded, ProgramEntry::Main).unwrap_err();
+        assert!(
+            matches!(error.cause(), VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::ModuleValidation)
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     }
     let mut builder = ModuleBuilder::new("example::vector", &catalog).unwrap();
     let read = builder

@@ -211,6 +211,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         |_, _| Ok(()),
     )?;
     module.bind_storage(&cursor_type, NativeStorage::payload::<VecCursor>())?;
+    module.document(cursor_type.id(), documentation::markdown(CURSOR_DOCS))?;
     let iterator = interface(module, "Iterator", 0)?;
     let iterator_item = module.reference_associated_type(&iterator, "Item", 0)?;
     let next_entry = override_entry(
@@ -308,6 +309,11 @@ fn scoped(arguments: Vec<Codec>, entry: Entry) -> NativeBinding {
 const TYPE_DOCS: (&str, &str) = (
     "A shared mutable sequence. Copies retain the same storage identity. Indexing traps out of bounds; get returns None. Structural mutation honors active borrows and invalidates existing cursors.",
     "fn append(values: Vec<i32>) -> u64 { values.push(3); values.len() }",
+);
+
+const CURSOR_DOCS: (&str, &str) = (
+    "A shared cursor retaining its source Vec. Aliases share progress. Each next call checks the source revision, including at exhaustion; structural edits invalidate the cursor without preventing the edit.",
+    "fn first(values: Vec<i32>) -> Option<i32> { val cursor = values.iter(); cursor.next() }",
 );
 
 pub(super) const MODULE_DOCS: (&str, &str) = (

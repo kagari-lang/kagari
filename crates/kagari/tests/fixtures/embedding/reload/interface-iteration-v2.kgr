@@ -1,6 +1,6 @@
 use std::collections::{ List, list_content_equal };
 
-use std::iter::CollectionCursor;
+use alloc::vec::VecCursor;
 
 use std::ops::Index;
 
@@ -17,8 +17,8 @@ impl Index<u64> for Bag {
 
 impl Iterable for Bag {
     type Item = f32;
-    type Iter = CollectionCursor<f32>;
-    fn iter(self) -> CollectionCursor<f32> {
+    type Iter = VecCursor<f32>;
+    fn iter(self) -> VecCursor<f32> {
         Vec::from([0.0f32 / 0.0f32]).iter()
     }
 }

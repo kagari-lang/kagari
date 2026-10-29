@@ -780,9 +780,9 @@ carried total wholly to the new workload/window. Entry-guard timing is available
 while observation is enabled; cycle service totals exclude gaps spent running mutator
 code and are not wall-clock elapsed time from first to last slice.
 
-Indivisible attribution is an array indexed by the eleven `IndivisibleKind` values:
+Indivisible attribution is an array indexed by the ten `IndivisibleKind` values:
 `ProviderScan`, `PayloadDrop`, `BackingRelease`, `MetadataDrop`, `RootDrop`,
-`DescriptorDrop`, `WeakTokenDrop`, `DirectoryCompaction`, `EmptyMapRelease`,
+`DescriptorDrop`, `WeakTokenDrop`, `EmptyMapRelease`,
 `QueueCompaction` and `LifecycleDrop`. Each kind accumulates count, total items/work,
 known bytes, unknown-size count and duration, retaining only its slowest sample.
 Physical payload destruction counts **each actual payload destructor**, including

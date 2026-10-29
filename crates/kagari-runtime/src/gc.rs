@@ -19,9 +19,9 @@ use crate::{
     },
     gc::{
         collection::CollectionCycle,
-        directory::{ObjectStorage, PayloadKind, PayloadLocation},
+        directory::{ObjectStorage, PayloadKind, PayloadLocation, ResolvedDirect},
         fields::{StructStorageLayouts, StructView, StructViewMut},
-        graph::{GraphIdentity, GraphState, driver::ActiveScan},
+        graph::{GraphIdentity, GraphState, driver::ActiveScan, marks::MarkRef},
         interfaces::{InterfaceDescription, InterfaceValueSnapshot},
         leases::LeaseTable,
         reference::GcRef,
@@ -661,45 +661,7 @@ impl GcHeap {
         }
         self.objects
             .try_borrow()
-            .is_ok_and(|objects| self.validate_heap_value(&objects, value).is_some())
-    }
-
-    /// Check identity and representation under the original storage borrow.
-    /// Every managed reference resolves its retained physical owner and exact kind.
-    /// Scalars have no heap identity.
-    fn validate_heap_value(&self, objects: &ObjectStorage, value: &Value) -> Option<GcRef> {
-        let identity = value.direct_reference()?;
-        let location = objects.direct_location(identity)?;
-        let kind = location.kind;
-        // Occupied kinds are installed only after payload initialization and retired
-        // before disposal. Array additionally requires its Native nominal type.
-        let matches = match value {
-            Value::GcHandle(_) => kind == PayloadKind::Native,
-            Value::Str(_) => kind == PayloadKind::String,
-            Value::Tuple(_) => kind == PayloadKind::Tuple,
-            Value::Range(_) => kind == PayloadKind::Range,
-            Value::HostRoot(_) => kind == PayloadKind::HostRoot,
-            Value::HostPathView(_) => kind == PayloadKind::HostPath,
-            Value::Ephemeral(_) => kind == PayloadKind::Ephemeral,
-            Value::Array(_) => {
-                kind == PayloadKind::Native && matches!(objects.native(location)?.ty, Ty::Array(..))
-            }
-            Value::Enum(_) => kind == PayloadKind::Enum,
-            Value::Struct(_) => kind == PayloadKind::Struct,
-            Value::Interface(_) => kind == PayloadKind::Interface,
-            Value::Closure(_) => kind == PayloadKind::Closure,
-            Value::Cell(_) => kind == PayloadKind::Cell,
-            Value::Unit
-            | Value::Bool(_)
-            | Value::Char(_)
-            | Value::I32(_)
-            | Value::I64(_)
-            | Value::U64(_)
-            | Value::F32(_)
-            | Value::F64(_)
-            | Value::RuntimeEphemeral(_) => return None,
-        };
-        matches.then_some(identity)
+            .is_ok_and(|objects| objects.validate_value(value).is_some())
     }
 
     pub(crate) fn validate_candidate_value(&self, value: &Value) -> bool {
@@ -847,7 +809,7 @@ impl GcHeap {
     }
 
     fn native_ref<'a>(&self, objects: &'a ObjectStorage, id: GcRef) -> Option<&'a NativeObject> {
-        objects.native(self.readable_identity_location(objects, id)?)
+        self.readable_direct(objects, id)?.native()
     }
 
     fn native_mut<'a>(
@@ -871,11 +833,32 @@ impl GcHeap {
         identity: GcRef,
     ) -> Option<PayloadLocation> {
         let location = objects.direct_location(identity)?;
-        if !self
-            .graph
-            .with_access(|| objects.mark(location).expect("occupied direct mark"))
-            .ok()?
-        {
+        self.admit_identity(objects, identity, || {
+            objects.mark(location).expect("occupied direct mark")
+        })?;
+        Some(location)
+    }
+
+    /// Read admission retains the physical evidence until its typed view ends.
+    /// Mutable access instead consumes its numeric location before borrowing the
+    /// payload exclusively; both paths share graph and initialization policy.
+    fn readable_direct<'a>(
+        &self,
+        objects: &'a ObjectStorage,
+        identity: GcRef,
+    ) -> Option<ResolvedDirect<'a>> {
+        let resolved = objects.resolve_direct(identity)?;
+        self.admit_identity(objects, identity, || resolved.mark)?;
+        Some(resolved)
+    }
+
+    fn admit_identity<'a>(
+        &self,
+        objects: &ObjectStorage,
+        identity: GcRef,
+        mark: impl FnOnce() -> MarkRef<'a>,
+    ) -> Option<()> {
+        if !self.graph.with_access(mark).ok()? {
             return None;
         }
         if let Some(session) = self
@@ -887,7 +870,7 @@ impl GcHeap {
         {
             return None;
         }
-        Some(location)
+        Some(())
     }
 
     fn identity_ref<'a>(
@@ -895,7 +878,7 @@ impl GcHeap {
         objects: &'a ObjectStorage,
         identity: GcRef,
     ) -> Option<HeapObject<Shared<'a>>> {
-        objects.get(objects.direct_location(identity)?, &self.interfaces)
+        objects.resolve_direct(identity)?.object(&self.interfaces)
     }
 
     fn readable_identity<'a>(
@@ -903,16 +886,13 @@ impl GcHeap {
         objects: &'a ObjectStorage,
         identity: GcRef,
     ) -> Option<HeapObject<Shared<'a>>> {
-        objects.get(
-            self.readable_identity_location(objects, identity)?,
-            &self.interfaces,
-        )
+        self.readable_direct(objects, identity)?
+            .object(&self.interfaces)
     }
 
     fn with_struct<R>(&self, reference: GcRef, f: impl FnOnce(StructView<'_>) -> R) -> Option<R> {
         let objects = self.objects.borrow();
-        let location = self.readable_identity_location(&objects, reference)?;
-        Some(f(objects.structure(location)?))
+        Some(f(self.readable_direct(&objects, reference)?.fields()?))
     }
 
     fn with_struct_mut<R>(

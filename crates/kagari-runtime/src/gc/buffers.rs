@@ -89,6 +89,10 @@ impl GcHeap {
         self.validate_buffer_value(id, &value)?;
         let length = self.buffer_len(id).ok_or_else(invalid)?;
         self.resources.poll_execution()?;
+        self.check_native_operation(id, None, true)?;
+        // Scoped descriptor views also borrow the directory without a payload
+        // loan. Reject them before committing temporary preparation accounting.
+        drop(self.objects_mut()?);
         let _temporary = self.resources.reserve_temporary_heap(length)?;
         let contract = self.buffer_contract(id).ok_or_else(invalid)?;
         let mut prepared = ArrayStorage::empty(contract.ty());
@@ -123,6 +127,8 @@ impl GcHeap {
             return Err(invalid());
         }
         self.resources.poll_execution()?;
+        self.check_native_operation(target, None, true)?;
+        drop(self.objects_mut()?);
         let _temporary = self.resources.reserve_temporary_heap(length)?;
         let prepared = self
             .with_buffer(source, |values| values.copy_range(0, length))
@@ -162,6 +168,8 @@ impl GcHeap {
             return Err(bounds());
         }
         self.resources.poll_execution()?;
+        self.check_native_operation(target, None, true)?;
+        drop(self.objects_mut()?);
         let _temporary = self.resources.reserve_temporary_heap(end - start)?;
         let prepared = self
             .with_buffer(target, |values| values.copy_range(start, end))

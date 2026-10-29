@@ -32,7 +32,7 @@ PHASES = {
 KINDS = {"normal", "pressure_assist", "explicit", "cycles", "carried_cycles"}
 INDIVISIBLE = {
     "ProviderScan", "PayloadDrop", "BackingRelease", "MetadataDrop", "RootDrop",
-    "DescriptorDrop", "WeakTokenDrop", "DirectoryCompaction", "EmptyMapRelease",
+    "DescriptorDrop", "WeakTokenDrop", "EmptyMapRelease",
     "QueueCompaction", "LifecycleDrop",
 }
 

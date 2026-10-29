@@ -489,31 +489,30 @@ fn borrowed_retirement_proof_cannot_replay_into_outstanding_or_reused_storage() 
     let mut prepared = Prepared::new();
     {
         let mut objects = heap.objects.borrow_mut();
-        let mut scanner = objects.pages.scanner();
-        let physical = scanner
-            .peek(&mut ScanBudget::new(usize::MAX))
-            .unwrap()
-            .unwrap();
-        scanner.advance();
-        let cursor = scanner.cursor();
-        let candidate = Candidate {
-            location: physical.location,
-            physical: (physical.descriptor, physical.small),
-            payload: physical.payload,
-            mark: physical.mark,
-        };
+        let mut selection = Selection::new();
         let mut marker = heap.graph.lock();
         let graph = marker.sweep_batch().unwrap();
-        assert!(matches!(
-            objects.prepare_owner(
-                &candidate,
-                &heap.interfaces,
-                &graph,
-                &mut prepared,
-                &mut ScanBudget::new(usize::MAX)
-            ),
-            Some(PreparedOwner::Retire)
-        ));
+        let physical = objects
+            .pages
+            .prepare_batch(
+                &mut selection,
+                &mut retired.disposal,
+                &mut ScanBudget::new(usize::MAX),
+                |slot, _, _| {
+                    assert!(!graph.is_survivor(slot.mark).unwrap());
+                    let charge = slot
+                        .payload
+                        .view(&heap.interfaces)?
+                        .charge(&heap.interfaces)?;
+                    prepared.push(
+                        slot.payload.direct_reference(),
+                        charge.logical_units,
+                        charge.retained_bytes,
+                    )?;
+                    Some(Decision::Retire)
+                },
+            )
+            .unwrap();
         let totals = SweepTotals {
             objects: 1,
             units: prepared.units,
@@ -522,13 +521,8 @@ fn borrowed_retirement_proof_cannot_replay_into_outstanding_or_reused_storage() 
         };
         let credits = graph.prepare_retirement(1).unwrap();
         let proof = prepared.seal();
-        let checked = objects
-            .pages
-            .prepare_batch(proof.fragments, &mut retired.disposal)
-            .unwrap();
-        retired.fragments = proof.fragments.len();
-        checked.detach();
-        objects.pages.publish_sweep(cursor);
+        retired.fragments = physical.fragments();
+        physical.detach();
         proof.commit(&mut objects, &mut retired, totals);
         credits.commit();
     }

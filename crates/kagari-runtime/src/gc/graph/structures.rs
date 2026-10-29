@@ -36,7 +36,7 @@ impl GcHeap {
         let Some(ActiveScan::Struct { next_field }) = active else {
             return Err(invalid());
         };
-        let fields = view.fields.ok_or_else(invalid)?;
+        let fields = view.fields().ok_or_else(invalid)?;
         while let Some(slot) = fields.description.references.get(*next_field) {
             if !budget.take(1) {
                 return Ok(ScanStatus::Pending);

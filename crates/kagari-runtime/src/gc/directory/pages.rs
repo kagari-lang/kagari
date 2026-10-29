@@ -436,7 +436,7 @@ impl Pages {
     /// The caller retains the referenced object; checking an ID cannot revive it.
     pub(super) fn direct_location(&self, reference: GcRef) -> Option<PayloadLocation> {
         self.resolve_reference(reference)
-            .map(|(location, _, _)| location)
+            .map(|(location, _)| location)
     }
 
     /// Resolve location, initialized payload and descriptor under one owner borrow.
@@ -444,7 +444,7 @@ impl Pages {
     pub(super) fn resolve_reference(
         &self,
         reference: GcRef,
-    ) -> Option<(PayloadLocation, NonNull<u8>, &Descriptor)> {
+    ) -> Option<(PayloadLocation, CheckedPayload<'_>)> {
         // SAFETY: internal transport is protected by its source frame/root/edge.
         // A foreign live allocation is readable, but cannot match this owner's base.
         let header = unsafe { ObjectHeader::read(reference.pointer()) };
@@ -476,7 +476,7 @@ impl Pages {
             slot: u16::try_from(slot).ok()?,
         };
         let payload = CheckedPayload::new(location, reference.pointer(), id, descriptor)?;
-        Some((location, payload.pointer, descriptor))
+        Some((location, payload))
     }
 
     pub(super) fn get(&self, location: PayloadLocation) -> Option<CheckedPayload<'_>> {

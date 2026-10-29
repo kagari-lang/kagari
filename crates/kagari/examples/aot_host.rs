@@ -41,7 +41,8 @@ fn main() {
     let log = logging.declared_function("log").expect("log function");
     logging
         .bind(log, unsafe {
-            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            // SAFETY: The host frame protects String bytes through printing.
+            // No managed copy escapes; the callback returns Unit.
             HostCallback::new(|cx: &HostCallContext<'_>, args: &[Value]| {
                 let [Value::Str(message)] = args else {
                     return Err(HostError::new("host.log expects one string argument"));
@@ -49,7 +50,7 @@ fn main() {
                 let message = cx
                     .runtime()
                     .gc()
-                    .string(*message)
+                    .string_transport(*message)
                     .ok_or_else(|| HostError::new("invalid host.log string"))?;
                 println!("{}", &*message);
                 Ok(Value::Unit)

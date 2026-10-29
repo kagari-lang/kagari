@@ -124,6 +124,14 @@ fn declare_collection<P: HashPayload>(
     )?;
     module.bind_storage(&cursor, NativeStorage::payload::<HashCursor<P>>())?;
     module.document(
+        cursor.id(),
+        documentation::markdown(if map {
+            MAP_CURSOR_DOCS
+        } else {
+            SET_CURSOR_DOCS
+        }),
+    )?;
+    module.document(
         reference.id(),
         documentation::markdown(if map { MAP_DOCS } else { SET_DOCS }),
     )?;
@@ -431,6 +439,15 @@ const MAP_DOCS: (&str, &str) = (
 const SET_DOCS: (&str, &str) = (
     "A shared hash set. Equal members occupy one entry, and must hash equally. Lookup and structural mutation use checked synchronous guards.",
     "fn has(values: std::collections::HashSet<i32>) -> bool { values.contains(1) }",
+);
+
+const MAP_CURSOR_DOCS: (&str, &str) = (
+    "A shared cursor retaining its source HashMap and yielding key/value pairs. Aliases share progress. Structural edits invalidate subsequent reads, including exhaustion; iteration order is unspecified.",
+    "fn first(values: std::collections::HashMap<i32, String>) -> Option<(i32, String)> { val cursor = values.iter(); cursor.next() }",
+);
+const SET_CURSOR_DOCS: (&str, &str) = (
+    "A shared cursor retaining its source HashSet. Aliases share progress. Structural edits invalidate subsequent reads, including exhaustion; iteration order is unspecified.",
+    "fn first(values: std::collections::HashSet<i32>) -> Option<i32> { val cursor = values.iter(); cursor.next() }",
 );
 
 pub(super) const MODULE_DOCS: (&str, &str) = (

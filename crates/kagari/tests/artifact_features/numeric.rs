@@ -6,7 +6,7 @@ use kagari::{
     engine::{EngineConfig, KagariEngine},
     program::PreparedProgram,
 };
-use kagari_runtime::{module::entry::ProgramEntry, value::Value};
+use kagari_runtime::module::entry::ProgramEntry;
 use std::{env, fs};
 
 #[test]
@@ -26,19 +26,21 @@ fn source_free_numeric_sampling_executes_and_releases_roots() {
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     // main and the exported checksum both include exact PRNG and tolerant geometry checks.
-    for (entry, expected) in [
-        (ProgramEntry::Main, Value::I32(42)),
-        (
-            ProgramEntry::Export("sampling_checksum"),
-            Value::U64(0x396d503bb05c761a),
-        ),
+    for entry in [
+        ProgramEntry::Main,
+        ProgramEntry::Export("sampling_checksum"),
     ] {
         let result = runtime.execute(&loaded, entry, &[], &context).unwrap();
-        assert_eq!(
-            result.return_value.value(runtime.runtime().gc()).unwrap(),
-            expected,
-            "{entry:?}",
-        );
+        result
+            .return_value
+            .inspect(runtime.runtime(), |view| {
+                match entry {
+                    ProgramEntry::Main => assert_eq!(view.as_i32()?, 42),
+                    ProgramEntry::Export(_) => assert_eq!(view.as_u64()?, 0x396d503bb05c761a),
+                }
+                Ok(())
+            })
+            .unwrap();
         drop(result);
         assert_eq!(runtime.runtime().gc().active_roots(), 0, "{entry:?}");
         assert_eq!(

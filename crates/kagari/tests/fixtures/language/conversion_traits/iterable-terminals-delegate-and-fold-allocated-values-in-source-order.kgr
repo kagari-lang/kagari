@@ -10,8 +10,8 @@ struct Counted {
 
 impl Iterable for Counted {
     type Item = i32;
-    type Iter = core::iter::CollectionCursor<i32>;
-    fn iter(self) -> core::iter::CollectionCursor<i32> {
+    type Iter = alloc::vec::VecCursor<i32>;
+    fn iter(self) -> alloc::vec::VecCursor<i32> {
         self.calls[0] += 1;
         Vec::from([2, 4]).iter()
     }

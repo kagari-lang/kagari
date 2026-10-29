@@ -7,7 +7,7 @@ use crate::{
     gc::graph::{
         GraphIdentity,
         marks::{Color, initialized_words},
-        objects::ScanEdge,
+        objects::{ObjectCursor, ScanEdge, ScanVisitor},
         roots::InitialRoots,
     },
     native::storage::{
@@ -130,10 +130,16 @@ fn object_edge_cursor_does_not_advance_when_its_bitmap_reset_cannot_fit() {
     let parent = runtime.gc.alloc_tuple(targets.clone()).unwrap();
     runtime.gc.graph.lock().begin_cycle().unwrap();
     runtime.gc.publish_value(parent).unwrap();
-    let mut cursor = runtime
-        .gc
-        .begin_object_scan(parent.direct_reference().unwrap())
-        .unwrap();
+    let reference = parent.direct_reference().unwrap();
+    let mut cursor = {
+        let objects = runtime.gc.objects.borrow();
+        let object = objects
+            .resolve_direct(reference)
+            .unwrap()
+            .object(&runtime.gc.interfaces)
+            .unwrap();
+        ObjectCursor::begin(object).unwrap()
+    };
     let mut visit = |edge: ScanEdge<'_>, budget: &mut ScanBudget| {
         runtime
             .gc
@@ -141,11 +147,17 @@ fn object_edge_cursor_does_not_advance_when_its_bitmap_reset_cannot_fit() {
     };
     let before = initialized_words();
     let mut short = ScanBudget::new(4);
+    let scan = |cursor: &mut ObjectCursor, budget: &mut ScanBudget, visit: &mut ScanVisitor<'_>| {
+        let objects = runtime.gc.objects.borrow();
+        let object = objects
+            .resolve_direct(reference)
+            .unwrap()
+            .object(&runtime.gc.interfaces)
+            .unwrap();
+        runtime.gc.scan_object_slice(object, cursor, budget, visit)
+    };
     assert_eq!(
-        runtime
-            .gc
-            .scan_object_slice(&mut cursor, &mut short, &mut visit)
-            .unwrap(),
+        scan(&mut cursor, &mut short, &mut visit).unwrap(),
         ScanStatus::Pending
     );
     assert_eq!(short.spent(), 1);
@@ -153,10 +165,7 @@ fn object_edge_cursor_does_not_advance_when_its_bitmap_reset_cannot_fit() {
     for _ in 0..6 {
         let before = initialized_words();
         let mut budget = ScanBudget::new(5);
-        let status = runtime
-            .gc
-            .scan_object_slice(&mut cursor, &mut budget, &mut visit)
-            .unwrap();
+        let status = scan(&mut cursor, &mut budget, &mut visit).unwrap();
         assert!(initialized_words() - before <= budget.spent());
         assert!(budget.spent() <= 5);
         if status == ScanStatus::Complete {

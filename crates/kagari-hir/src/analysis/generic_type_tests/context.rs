@@ -220,13 +220,12 @@ fn partial_annotations_preserve_independent_container_constraint_errors() {
         "fn main() { val value: TYPE = loop {}; }",
         "struct Marker<T> { val value: i32 } fn main() { Marker<TYPE> { value: 7 }; }",
     ] {
-        for (annotation, expected_constraints) in [
-            ("HashMap<f32, Missing>", 1),
-            ("HashMap<Missing, i32>", 0),
-            ("HashMap<i32, (Missing, HashSet<f32>)>", 1),
-            // Maps have no Eq/Hash implementation; both the outer key and the
-            // inner f32 key independently violate their collection contracts.
-            ("HashMap<HashMap<f32, Missing>, i32>", 2),
+        for (annotation, invalid_keys) in [
+            ("HashMap<f32, Missing>", &["f32"][..]),
+            ("HashMap<Missing, i32>", &[][..]),
+            ("HashMap<i32, (Missing, HashSet<f32>)>", &["f32"][..]),
+            // Both known keys must be checked despite the unresolved inner value.
+            ("HashMap<f64, HashMap<f32, Missing>>", &["f32", "f64"][..]),
         ] {
             let text = format!(
                 "use std::collections::{{HashMap, HashSet}}; {}",
@@ -235,16 +234,26 @@ fn partial_annotations_preserve_independent_container_constraint_errors() {
             let source = SourceFile::new("partial-constraints.kgr", text.clone());
             let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
                 .expect("installed declaration analysis");
-            let constraints = analysis
+            let mut constraints = analysis
                 .diagnostics()
                 .iter()
-                .filter(|diagnostic| {
-                    matches!(
-                        diagnostic.kind,
-                        DiagnosticKind::StandardConstraintNotSatisfied { .. }
-                    )
+                .filter_map(|diagnostic| {
+                    if let DiagnosticKind::GenericBoundNotSatisfied {
+                        type_name,
+                        trait_name,
+                    } = &diagnostic.kind
+                    {
+                        Some((type_name.as_str(), trait_name.as_str()))
+                    } else {
+                        None
+                    }
                 })
-                .count();
+                .collect::<Vec<_>>();
+            constraints.sort_unstable();
+            let expected_constraints = invalid_keys
+                .iter()
+                .flat_map(|key| [(*key, "Eq"), (*key, "Hash")])
+                .collect::<Vec<_>>();
             assert_eq!(
                 constraints,
                 expected_constraints,
@@ -410,10 +419,12 @@ fn local_container_annotations_enforce_the_same_key_bounds_as_signatures() {
             analysis.diagnostics()
         );
         if !valid {
-            assert!(analysis.diagnostics().iter().any(|d| matches!(
-                d.kind,
-                DiagnosticKind::StandardConstraintNotSatisfied { .. }
-            )));
+            for required in ["Eq", "Hash"] {
+                assert!(analysis.diagnostics().iter().any(|d| matches!(
+                    &d.kind,
+                    DiagnosticKind::GenericBoundNotSatisfied { trait_name, .. } if trait_name == required
+                )), "missing {required}: {:?}", analysis.diagnostics());
+            }
         }
         assert_eq!(analysis.into_codegen().is_ok(), valid);
     }

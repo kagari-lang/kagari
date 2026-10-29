@@ -174,13 +174,9 @@ fn scoped_payload_read_validates_contract_identity_and_mapping_before_callback()
     }
     drop(root);
     runtime.collect_garbage().unwrap();
-    // SAFETY: Stale handles must reject before touching payload storage.
-    assert!(unsafe { cx.read_payload::<u32, ()>(value, &contract, |_, _| panic!()) }.is_err());
-    let replacement = invoke(&runtime, &owner, 0, &[]).unwrap();
-    let _replacement_root = runtime.root_value(replacement).unwrap();
-    assert_ne!(replacement, value);
-    // SAFETY: Reuse must not make the old full identity accessible.
-    assert!(unsafe { cx.read_payload::<u32, ()>(value, &contract, |_, _| panic!()) }.is_err());
+    // Raw direct references require live protection even for rejection probes.
+    // Expired root-token rejection belongs to the inspection/root contracts;
+    // never dereference `value` after its last root and allocation are gone.
 }
 
 #[test]

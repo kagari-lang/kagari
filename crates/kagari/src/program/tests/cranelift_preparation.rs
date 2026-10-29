@@ -430,7 +430,8 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
             .runtime()
             .begin_execution(module, context.runtime_options())
             .unwrap();
-        let dead = unsafe {
+        let baseline = runtime.runtime().collect_garbage().unwrap().live_objects;
+        unsafe {
             runtime.runtime().alloc_array_transport(
                 module,
                 Ty::Builtin(BuiltinType::I32),
@@ -438,7 +439,11 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
             )
         }
         .unwrap();
-        let collections = runtime.runtime().gc().stats().collections;
+        runtime
+            .runtime()
+            .gc()
+            .start_collection_observation()
+            .unwrap();
         let report = runtime
             .backend()
             .execute_prepared(module, ProgramEntry::Main, native)
@@ -452,8 +457,19 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
         );
         assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
         drop(report.return_value);
-        assert!(runtime.runtime().gc().stats().collections > collections);
-        assert!(unsafe { runtime.runtime().gc().array_len_transport(dead) }.is_none());
+        let observation = runtime
+            .runtime()
+            .gc()
+            .finish_collection_observation()
+            .unwrap();
+        assert!(observation.normal.count > 0);
+        assert!(observation.normal.total_work > 0);
+        // One native safepoint need not finish the incremental cycle. Drain it
+        // before checking reclamation; never resolve a reclaimed raw address.
+        assert_eq!(
+            runtime.runtime().collect_garbage().unwrap().live_objects,
+            baseline
+        );
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
         assert_eq!(
             runtime.runtime().resources().counters().current_call_depth,

@@ -69,9 +69,7 @@ impl GcHeap {
             return Ok(());
         }
         let objects = self.objects.try_borrow().map_err(|_| invalid())?;
-        let id = self
-            .validate_heap_value(&objects, &value)
-            .ok_or_else(invalid)?;
+        let id = objects.validate_value(&value).ok_or_else(invalid)?;
         self.publish_resolved_value(&objects, id)
     }
 

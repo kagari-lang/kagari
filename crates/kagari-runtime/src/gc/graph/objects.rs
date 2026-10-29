@@ -2,7 +2,11 @@
 use crate::{
     error::RuntimeError,
     execution_metadata::MetadataEdge,
-    gc::{GcHeap, graph::GraphIdentity, reference::GcRef, storage::HeapObject},
+    gc::{
+        GcHeap,
+        graph::GraphIdentity,
+        storage::{HeapObject, Shared},
+    },
     host::HostPathViewHandle,
     native::storage::scan::{ScanBudget, ScanStatus},
     value::Value,
@@ -29,22 +33,14 @@ pub(crate) type ScanVisitor<'a> =
 /// never owns a heap/root lease. The active collector retains the nonowning identity; no payload loan or borrowed iterator survives a yield.
 #[derive(Debug)]
 pub(crate) struct ObjectCursor {
-    id: GcRef,
     section: u8,
     index: usize,
     end: usize,
     host_path: Option<Arc<HostPathViewHandle>>,
 }
 
-impl GcHeap {
-    pub(crate) fn begin_object_scan(&self, id: GcRef) -> Result<ObjectCursor, RuntimeError> {
-        let objects = self
-            .objects
-            .try_borrow()
-            .map_err(|_| invalid("borrowed object scan storage"))?;
-        let object = self
-            .identity_ref(&objects, id)
-            .ok_or_else(|| invalid("invalid object scan identity"))?;
+impl ObjectCursor {
+    pub(super) fn begin(object: HeapObject<Shared<'_>>) -> Result<Self, RuntimeError> {
         let (end, host_path) = match object {
             HeapObject::Tuple(value) => (value.members.len(), None),
             HeapObject::Enum(value, _) => (value.fields.len(), None),
@@ -56,30 +52,20 @@ impl GcHeap {
             HeapObject::HostPath(path) => (0, Some(path.clone())),
             _ => (0, None),
         };
-        Ok(ObjectCursor {
-            id,
+        Ok(Self {
             section: 0,
             index: 0,
             end,
             host_path,
         })
     }
+}
 
-    /// Classify the currently resolved owner, not a cached representation in the
-    /// cursor. The driver cannot mutate or call out between this check and scan.
+impl HeapObject<Shared<'_>> {
+    /// Classify this admitted view, never a kind cached across collector yields.
     /// Native providers and HostPath Arc advancement require unlocked control.
-    pub(super) fn object_scan_is_internal(
-        &self,
-        cursor: &ObjectCursor,
-    ) -> Result<bool, RuntimeError> {
-        let objects = self
-            .objects
-            .try_borrow()
-            .map_err(|_| invalid("borrowed object scan storage"))?;
-        let object = self
-            .identity_ref(&objects, cursor.id)
-            .ok_or_else(|| invalid("retired object scan identity"))?;
-        Ok(match object {
+    pub(super) fn scan_is_internal(&self) -> bool {
+        match self {
             HeapObject::Native(_) | HeapObject::HostPath(_) => false,
             HeapObject::Tuple(_)
             | HeapObject::Enum(..)
@@ -92,24 +78,20 @@ impl GcHeap {
             | HeapObject::HostRoot(_)
             | HeapObject::Ephemeral(_)
             | HeapObject::Taken => true,
-        })
+        }
     }
+}
 
+impl GcHeap {
     /// Publication must shade insertions and moves; this cursor never restarts on
     /// mutation. Native providers capture their own initialized extents at begin.
-    pub(crate) fn scan_object_slice(
+    pub(super) fn scan_object_slice(
         &self,
+        object: HeapObject<Shared<'_>>,
         cursor: &mut ObjectCursor,
         budget: &mut ScanBudget,
         visit: &mut ScanVisitor<'_>,
     ) -> Result<ScanStatus, RuntimeError> {
-        let objects = self
-            .objects
-            .try_borrow()
-            .map_err(|_| invalid("borrowed object scan storage"))?;
-        let object = self
-            .identity_ref(&objects, cursor.id)
-            .ok_or_else(|| invalid("retired object scan identity"))?;
         loop {
             match object {
                 HeapObject::Taken => {

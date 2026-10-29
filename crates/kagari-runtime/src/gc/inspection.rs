@@ -13,7 +13,7 @@ use crate::{
     native::binding::NativeResult,
     value::{Value, ValueCategory},
 };
-use std::{cell::Ref, marker::PhantomData};
+use std::{cell::Ref, fmt, marker::PhantomData};
 
 /// A checked value available only during a non-reentrant inspection loan.
 ///
@@ -40,6 +40,14 @@ pub struct ValueView<'view> {
     heap: &'view GcHeap,
     value: Value,
     invariant: PhantomData<fn(&'view ()) -> &'view ()>,
+}
+
+/// Debug reports transport tags and scalar data, not recursive heap contents.
+/// Formatting remains inside the inspection loan, including writer callbacks.
+impl fmt::Debug for ValueView<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.value.fmt(formatter)
+    }
 }
 
 impl ValueView<'_> {

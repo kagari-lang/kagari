@@ -795,8 +795,11 @@ constructor path and exported by the prelude. Their semantic record contains the
 target type and Shared/Mutable capability, never a Rust pointer, field offset or
 second nominal target declaration. The initial target subset is ordinary nominal
 structs and opaque native payload types; generic target binders are checked again
-after application. Collection, Future and Task storage does not grant this payload
-reference contract. Ordinary DTO values cannot implicitly become a Ref/RefMut.
+after application. Vec, HashMap and HashSet are ordinary nominal Native payloads
+and follow this same target rule; fixed arrays, Future and Task do not grant it.
+The type annotation alone does not acquire a loan or expose Rust storage: installed
+payload mappings and scoped runtime borrowing still control access. Ordinary DTO
+values cannot implicitly become a Ref/RefMut.
 
 Direct view parameters and locals may be forwarded with their checked capability.
 An outer RefMut<T> may supply Ref<T> while retaining the same target; nested type

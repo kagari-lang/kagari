@@ -1,6 +1,6 @@
 use std::collections::{ HashMap, HashSet };
 
-use std::iter::{ CollectionCursor };
+use alloc::vec::{ VecCursor };
 
 fn sum<C: Iterable<Item = i32>>(values: C) -> i32 {
     var total = 0;
@@ -19,7 +19,7 @@ fn first<I: Iterator<Item = i32>>(values: I) -> i32 {
 
 fn main() -> i32 {
     val a = Vec::from([20, 22]);
-    val iter: CollectionCursor<i32> = a.iter();
+    val iter: VecCursor<i32> = a.iter();
     if first(iter) != 20 {
         return 0;
     }

@@ -287,14 +287,16 @@ fn readonly_mutation_and_unhashable_default_keys_are_rejected() {
     );
     let errors =
         diagnostics("use std::collections::{HashMap};\nfn bad(value: HashMap<f64, i32>) { }");
-    assert!(
-        errors
-            .iter()
-            .any(|error| error.contains("StandardConstraintNotSatisfied")
-                && error.contains("f64")
-                && error.contains("Eq + Hash")),
-        "default hash storage did not reject its concrete key bound: {errors:#?}"
-    );
+    for required in ["Eq", "Hash"] {
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("GenericBoundNotSatisfied")
+                    && error.contains("f64")
+                    && error.contains(&format!("trait_name: \"{required}\""))),
+            "default hash storage did not reject {required}: {errors:#?}"
+        );
+    }
     let errors = diagnostics("use std::collections::{Map};\nfn valid<T>(value: Map<T, i32>) { }");
     assert!(
         errors.is_empty(),

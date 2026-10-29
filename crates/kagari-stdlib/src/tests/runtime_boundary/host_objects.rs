@@ -5,7 +5,7 @@ use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lowe
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
-    error::RuntimeError,
+    error::{RuntimeError, RuntimeErrorKind},
     frame::types::arguments::TypeArgument,
     gc::GcHeapConfig,
     module::Program,
@@ -446,6 +446,7 @@ fn collection_handles_preserve_identity_access_and_traversal_invalidation() {
         })
         .unwrap_err();
     assert!(error.message().contains("structurally modified iterator"));
+    assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
     assert_eq!(count, 1);
     assert_eq!(values.get(&mut cx, 3).unwrap(), Some(99));
     // Callback failure and invalidation do not roll back completed edits.

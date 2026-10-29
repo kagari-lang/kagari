@@ -15,6 +15,7 @@ use crate::{
     },
     resource::HeapCharge,
     session::owned::OwnedExecution,
+    test_support::layouts::path_view_value,
     value::{EphemeralValueId, Value},
 };
 use kagari_abi::representation::ValueType;
@@ -271,11 +272,10 @@ fn declined_parking_retains_activation_for_retry_and_errors_retain_trace() {
         .start_owned_execution(&module, FunctionRef::new(0), &[], Default::default())
         .unwrap();
     let mut activation = Some(runtime.resume_owned_execution(&owner).unwrap());
-    set_frame(
-        &runtime,
-        activation.as_ref().unwrap(),
-        Value::RuntimeEphemeral(EphemeralValueId(1)),
-    );
+    // A valid managed frame value can still be scoped and therefore unparkable.
+    // RuntimeEphemeral is rejected by slot representation admission itself.
+    let scoped = path_view_value(runtime.gc(), 1);
+    set_frame(&runtime, activation.as_ref().unwrap(), scoped);
     assert!(!ExecutionStack::try_park_ready(&mut activation, &runtime).unwrap());
     assert!(!owner.is_ready());
     assert_eq!(runtime.resources().counters().current_call_depth, 1);

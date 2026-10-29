@@ -2,10 +2,15 @@ use super::*;
 use crate::{
     Runtime,
     gc::directory::{
+        PayloadLocation,
         pages::batch::Disposal,
         retirement::tests::{batch, begin},
     },
-    native::storage::{NativePayload, NativeStorage, scan::NativeScanKind, value::StoredValue},
+    native::storage::{
+        NativePayload, NativeStorage,
+        scan::{NativeScanKind, ScanStatus},
+        value::StoredValue,
+    },
     resource::HeapCharge,
     test_support::layouts::{allocation_owner, layout},
     value::Value,

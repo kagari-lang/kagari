@@ -6,7 +6,7 @@ use kagari_hir::analysis::AnalysisDatabase;
 
 use kagari_runtime::{
     Runtime,
-    error::RuntimeError,
+    error::{RuntimeError, RuntimeErrorKind},
     module::{Program, entry::ProgramEntry},
     native::{
         binding::{Codec, NativeBinding, NativeResult},
@@ -573,12 +573,9 @@ fn rooted_sequence_len(
     cx.collect_garbage()?;
     assert_eq!(values.len(cx)?, length);
     values.with_slice::<i32, _>(cx, |_| {
-        assert!(
-            cx.collect_garbage()
-                .unwrap_err()
-                .message()
-                .contains("native storage access")
-        );
+        let error = cx.collect_garbage().unwrap_err();
+        assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
+        assert!(error.message().contains("heap storage access"));
         Ok(())
     })?;
     Ok(length)

@@ -1,6 +1,6 @@
 use std::collections::{ Map, map_content_equal };
 
-use std::iter::CollectionCursor;
+use alloc::vec::VecCursor;
 
 struct Key {
     val tag: i32
@@ -30,8 +30,8 @@ struct Pairs {
 
 impl Iterable for Pairs {
     type Item = (Key, Value);
-    type Iter = CollectionCursor<(Key, Value)>;
-    fn iter(self) -> CollectionCursor<(Key, Value)> {
+    type Iter = VecCursor<(Key, Value)>;
+    fn iter(self) -> VecCursor<(Key, Value)> {
         self.entries.iter()
     }
 }

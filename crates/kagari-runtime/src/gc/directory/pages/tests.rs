@@ -566,132 +566,138 @@ fn sweep_cursor_unlinks_before_reuse_and_skips_prepended_allocations() {
 
 #[test]
 fn multi_fragment_preflight_rejects_late_corruption_and_overlap_before_any_detach() {
-    use crate::gc::directory::pages::batch::{Disposal, Fragment};
+    use crate::gc::directory::pages::batch::{Decision, Disposal, Selection};
     let mut pages = Pages::default();
-    let large = insert(&mut pages, bytes(1056, 64, false));
     let descriptor = bytes(8, 8, false);
     let slots: Vec<_> = (1..=4)
         .map(|_| insert(&mut pages, descriptor.clone()))
         .collect();
-    let id = |location: PayloadLocation, pages: &Pages| match &pages.allocations
-        [location.page as usize]
-    {
-        Allocation::Small(page) => page.descriptor(location.slot as usize).unwrap(),
-        Allocation::Large(large) => large.header().descriptor.unwrap(),
-        _ => unreachable!(),
-    };
-    let first = Fragment {
-        start: large,
-        descriptor: id(large, &pages),
-        count: 1,
-        small: false,
-    };
-    let last = Fragment {
-        start: slots[0],
-        descriptor: id(slots[0], &pages),
-        count: 4,
-        small: true,
-    };
-    let fragments = [Some(first), Some(last)];
+    let large = insert(&mut pages, bytes(1056, 64, false));
+    pages.begin_sweep();
     let mut output = [const { None }; 32];
     let original = pages.small(slots[0].page).bits()[0];
+    // The large prefix has been admitted before invalid small-page publication.
     pages.small_mut(slots[0].page).parts_mut().bits[0] &= !4;
-    assert!(pages.prepare_batch(&fragments, &mut output).is_none());
+    let mut visits = 0;
+    assert!(
+        pages
+            .prepare_batch(
+                &mut Selection::new(),
+                &mut output,
+                &mut ScanBudget::new(usize::MAX),
+                |_, _, _| {
+                    visits += 1;
+                    Some(Decision::Retire)
+                },
+            )
+            .is_none()
+    );
+    assert_eq!(visits, 1);
     assert!(output.iter().all(Option::is_none));
     assert!(pages.get(large).is_some());
     assert_eq!(pages.small(slots[0].page).bits()[0], original & !4);
     assert_eq!(pages.occupied().count(), 4);
+    assert_eq!(pages.sweep.page, Some(large.page));
     pages.small_mut(slots[0].page).parts_mut().bits[0] = original;
-    assert_eq!(pages.occupied().count(), 5);
-    assert!(
-        pages
-            .prepare_batch(&[Some(first), Some(last), Some(last)], &mut output)
-            .is_none()
-    );
-    assert_eq!(pages.occupied().count(), 5);
-    let wrong = Fragment {
-        descriptor: first.descriptor,
-        ..last
-    };
-    assert!(
-        pages
-            .prepare_batch(&[Some(first), Some(wrong)], &mut output)
-            .is_none()
-    );
-    let nested = Fragment {
-        start: slots[1],
-        count: 2,
-        ..last
-    };
-    let wrong_kind = Fragment {
-        start: PayloadLocation {
-            kind: PayloadKind::Native,
-            ..last.start
-        },
-        ..last
-    };
-    let wrong_variant = Fragment {
-        small: false,
-        ..last
-    };
-    let late_invalid = Fragment {
-        start: slots[3],
-        count: 2,
-        ..last
-    };
+
+    // Descriptor/header failures late in the selected prefix also abandon the
+    // complete transaction, not just the final fragment.
+    let pointer = pages.small(slots[0].page).pointer(3);
+    // SAFETY: retained initialized test allocation, no outstanding payload loan.
+    let header = unsafe { ObjectHeader::read(pointer) };
     for invalid in [
-        [Some(last), Some(first), Some(nested)],
-        [Some(first), Some(last), Some(first)],
-        [Some(last), Some(first), Some(wrong_kind)],
-        [Some(first), Some(wrong_variant), None],
-        [Some(first), Some(last), Some(late_invalid)],
-        [
-            Some(last),
-            Some(Fragment {
-                descriptor: last.descriptor,
-                ..first
-            }),
-            None,
-        ],
-        [
-            Some(last),
-            Some(Fragment {
-                start: PayloadLocation {
-                    kind: PayloadKind::Native,
-                    ..first.start
-                },
-                ..first
-            }),
-            None,
-        ],
-        [
-            Some(last),
-            Some(Fragment {
-                start: PayloadLocation {
-                    slot: 1,
-                    ..first.start
-                },
-                ..first
-            }),
-            None,
-        ],
+        ObjectHeader {
+            descriptor_id: 0,
+            ..header
+        },
+        ObjectHeader {
+            allocation_id: large.page,
+            ..header
+        },
     ] {
-        assert!(pages.prepare_batch(&invalid, &mut output).is_none());
+        // SAFETY: exclusive fixture injects corruption only until restoring header.
+        unsafe { invalid.write(pointer) };
+        visits = 0;
+        assert!(
+            pages
+                .prepare_batch(
+                    &mut Selection::new(),
+                    &mut output,
+                    &mut ScanBudget::new(usize::MAX),
+                    |_, _, _| {
+                        visits += 1;
+                        Some(Decision::Retire)
+                    },
+                )
+                .is_none()
+        );
+        assert_eq!(visits, 4);
         assert!(output.iter().all(Option::is_none));
-        assert_eq!(pages.occupied().count(), 5);
         assert_eq!(pages.small(slots[0].page).bits()[0], original);
         assert!(pages.get(large).is_some());
-        assert!(slots.iter().all(|&location| pages.get(location).is_some()));
+        assert_eq!(pages.sweep.page, Some(large.page));
     }
-    // Sorting proof ordinals must not change original token/destructor order.
-    let fragments = [Some(last), Some(first)];
+    // SAFETY: restore valid dispatch before ordinary detachment/destruction.
+    unsafe { header.write(pointer) };
+
+    // A corrupt active chain can revisit checked owners. The disjoint interval
+    // proof must reject both a repeated large owner and an overlapping small range.
+    for repeated in [large.page, slots[0].page] {
+        pages.allocations[slots[0].page as usize].active_mut().next = repeated;
+        assert!(
+            pages
+                .prepare_batch(
+                    &mut Selection::new(),
+                    &mut output,
+                    &mut ScanBudget::new(usize::MAX),
+                    |_, _, _| Some(Decision::Retire),
+                )
+                .is_none()
+        );
+        pages.allocations[slots[0].page as usize].active_mut().next = u32::MAX;
+        assert!(output.iter().all(Option::is_none));
+        assert_eq!(pages.occupied().count(), 5);
+        assert_eq!(pages.sweep.page, Some(large.page));
+    }
+    // Dropping a successful proof without committing must not publish progress.
+    let mut abandoned = Selection::new();
+    {
+        let _proof = pages
+            .prepare_batch(
+                &mut abandoned,
+                &mut output,
+                &mut ScanBudget::new(usize::MAX),
+                |_, _, _| Some(Decision::Retire),
+            )
+            .unwrap();
+    }
+    assert_eq!(pages.occupied().count(), 5);
+    assert_eq!(pages.sweep.page, Some(large.page));
+    assert!(
+        pages
+            .prepare_batch(
+                &mut abandoned,
+                &mut output,
+                &mut ScanBudget::new(usize::MAX),
+                |_, _, _| Some(Decision::Retire),
+            )
+            .is_none(),
+        "a selected workspace cannot be replayed"
+    );
+    let mut selected = Selection::new();
     pages
-        .prepare_batch(&fragments, &mut output)
+        .prepare_batch(
+            &mut selected,
+            &mut output,
+            &mut ScanBudget::new(usize::MAX),
+            |_, _, _| Some(Decision::Retire),
+        )
         .unwrap()
         .detach();
-    assert!(matches!(output[0], Some(Disposal::Range(_))));
-    assert!(matches!(output[1], Some(Disposal::Payload(_))));
+    assert!(matches!(output[0], Some(Disposal::Payload(_))));
+    assert!(matches!(output[1], Some(Disposal::Range(_))));
     assert_eq!(pages.occupied().count(), 0);
+    assert!(pages.sweep_done());
     drop(pages);
     for token in output.iter_mut().flatten() {
         match token {

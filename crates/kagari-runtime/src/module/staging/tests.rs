@@ -4,7 +4,7 @@ use crate::{
     Runtime, RuntimeConfig, StagedLoad, StagedReload,
     error::RuntimeErrorKind,
     module::{Module, ModuleEpochRetention, Program, VerifiedProgram},
-    native::storage::scan::{ScanBudget, ScanStatus},
+    native::storage::scan::{EDGE_SCAN_WORK, ScanBudget, ScanStatus},
 };
 use kagari_bytecode::{
     module::BytecodeModule,
@@ -310,22 +310,29 @@ fn abandoned_programs_are_retired_at_safepoints_and_before_further_staging() {
         .gc
         .begin_initial_roots(&runtime.modules, &runtime.host)
         .unwrap();
+    let mut root_slices = 0;
+    // A new mark block needs four bitmap resets in addition to slot inspection.
+    // Repeating a one-unit slice can never publish its first root.
     while runtime
         .gc
         .scan_initial_root_slice(
             &runtime.modules,
             &runtime.host,
             &mut roots,
-            &mut ScanBudget::new(1),
+            &mut ScanBudget::new(EDGE_SCAN_WORK),
         )
         .unwrap()
         == ScanStatus::Pending
-    {}
+    {
+        root_slices += 1;
+        assert!(root_slices < 32, "initial root scan must finish");
+    }
     thread::spawn(move || drop(candidate)).join().unwrap();
     runtime.gc.drain_graph_work(&runtime.modules).unwrap();
     runtime.gc.graph.lock().close_mark().unwrap();
     let mut sweep = runtime.modules.begin_sweep().unwrap();
     let mut retired_modules = Vec::new();
+    let mut module_slices = 0;
     while runtime
         .modules
         .sweep_programs(
@@ -337,15 +344,22 @@ fn abandoned_programs_are_retired_at_safepoints_and_before_further_staging() {
         )
         .unwrap()
         == ScanStatus::Pending
-    {}
+    {
+        module_slices += 1;
+        assert!(module_slices < 32, "program sweep must finish");
+    }
     assert!(retired_modules.is_empty());
     let mut retired_cells = Vec::new();
+    let mut cell_slices = 0;
     while runtime
         .modules
         .sweep_cells(&mut sweep, &mut ScanBudget::new(1), 32, &mut retired_cells)
         .unwrap()
         == ScanStatus::Pending
-    {}
+    {
+        cell_slices += 1;
+        assert!(cell_slices < 32, "static cell sweep must finish");
+    }
     assert!(retired_cells.is_empty());
     runtime.gc.graph.lock().finish_sweep().unwrap();
     ticket.finish();

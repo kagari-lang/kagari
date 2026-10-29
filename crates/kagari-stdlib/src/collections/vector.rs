@@ -245,8 +245,9 @@ impl<T> ScriptVec<T> {
     pub(crate) fn check_revision(&self, cx: &NativeContext<'_>, revision: u64) -> NativeResult<()> {
         // SAFETY: Only the scalar revision is inspected.
         unsafe {
-            self.object
-                .read(cx, None, |_, access| access.check_revision(revision))
+            self.object.read(cx, None, |_, access| {
+                cursor::check_revision(access, revision)
+            })
         }
     }
 
@@ -317,19 +318,12 @@ impl<T: FromKagari> ScriptVec<T> {
         let revision = self.revision(cx)?;
         let count = self.len(cx)?;
         for index in 0..count {
-            // SAFETY: Revision check has no extracted data.
-            unsafe {
-                self.object
-                    .read(cx, None, |_, access| access.check_revision(revision))?;
-            }
+            self.check_revision(cx, revision)?;
             let value = self.get(cx, index)?.ok_or_else(index_error)?;
             visit(cx, value)?;
         }
-        // SAFETY: Includes the exhaustion read after the final callback.
-        unsafe {
-            self.object
-                .read(cx, None, |_, access| access.check_revision(revision))
-        }
+        // Includes the exhaustion read after the final callback.
+        self.check_revision(cx, revision)
     }
 }
 

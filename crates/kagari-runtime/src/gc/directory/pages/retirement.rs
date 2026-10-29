@@ -1,17 +1,19 @@
 //! Bounded homogeneous slot ranges share one dispatch and backing owner.
 use super::{Allocation, Pages, Retired, Small, backing::Backing, batch::Disposal};
+#[cfg(test)]
+use crate::gc::directory::retirement::RETIRE_LIMIT;
 use crate::{
     error::RuntimeError,
     gc::{
         directory::{
             PayloadLocation,
             descriptors::{Descriptor, DescriptorId},
-            retirement::RETIRE_LIMIT,
         },
         graph::GraphMarker,
         metrics::{IndivisibleMeasurements, IndivisibleSample, ObservationClock},
     },
 };
+
 use std::{
     panic::{AssertUnwindSafe, catch_unwind},
     sync::Arc,
@@ -167,10 +169,6 @@ pub(in crate::gc::directory) struct CheckedRange<'a> {
 }
 
 impl CheckedRange<'_> {
-    pub(super) fn descriptor_id(&self) -> DescriptorId {
-        self.descriptor_id
-    }
-
     pub(in crate::gc::directory) fn detach(self) -> RetiredRange {
         let retired = RetiredRange {
             backing: self.page.backing().clone(),
@@ -219,6 +217,7 @@ impl Pages {
 
     /// Validate before any irreversible change. The returned proof borrows both
     /// page and descriptor until detachment consumes it without further fallibility.
+    #[cfg(test)]
     pub(in crate::gc::directory) fn prepare_range(
         &mut self,
         start: PayloadLocation,

@@ -37,8 +37,8 @@ constructors and tooling navigation.
 | `core::option`, `core::result` | Option and Result |
 | `core::future` | Cold single-drive Future |
 | `core::task` | Task, TaskScope, SpawnError and cold two-input join/try_join |
-| `alloc::string`, `alloc::vec` | String and Vec |
-| `std::collections` | List/MutableList, Map/MutableMap, Set/MutableSet, HashMap and HashSet |
+| `alloc::string`, `alloc::vec` | String, Vec and VecCursor |
+| `std::collections` | List/MutableList, Map/MutableMap, Set/MutableSet, HashMap, HashSet, HashMapCursor and HashSetCursor |
 
 Corresponding `std::ops`, `std::cmp`, `std::hash`, `std::fmt`, `std::convert`,
 `std::iter`, `std::str`, `std::default`, `std::num`, `std::char`, `std::option`, `std::result`, `std::future`, `std::string`
@@ -672,10 +672,13 @@ bounds. It cannot also declare a conflicting Iterable implementation.
 Custom iterables return an iterator whose Item agrees with their own Item.
 
 The default containers implement Iterable with checked associated iterator
-types, available without optional library adapters. The foundation's shared
-`CollectionCursor<Item>` implements Iterator and identity Iterable.
-The concrete `CollectionCursor<T>` type is distinct from the `Iterable::Iter` associated type:
-an Iterable implementation may use `type Iter = CollectionCursor<T>` or select a custom iterator.
+types, available without optional library adapters. Arrays and ranges use the
+foundation's `CollectionCursor<Item>`. Vec uses `alloc::vec::VecCursor<T>`;
+HashMap and HashSet use `std::collections::HashMapCursor<K, V>` and
+`std::collections::HashSetCursor<T>`. Each implements Iterator and identity Iterable.
+These concrete cursor types are distinct from the `Iterable::Iter` associated type:
+an Iterable implementation declares the actual iterator returned by its body,
+including a custom iterator when appropriate.
 Array/Set items are elements, Map items are `(key, value)` tuples in the
 concrete implementation's traversal order. String's
 [explicit traversal methods](#explicit-string-traversal) return cursors, rather

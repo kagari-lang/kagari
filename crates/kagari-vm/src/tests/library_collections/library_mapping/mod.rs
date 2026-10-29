@@ -39,17 +39,17 @@ fn break_allows_source_writes_and_dynamic_views_preserve_shared_progress() {
             run(&format!(
                 r#"
 
-            fn main() -> i32 {{
+            fn main() -> bool {{
                 val values = Vec::from([10,20,30]); val mapped{annotation} = values.map(|item| item + 1);
                 var first = 0; for item in mapped {{ first = item; break; }}
                 val second = match mapped.next() {{ Some(item) => item, None => -1 }};
                 for item in mapped {{ break; }}
                 values.push(40);
-                first + second + values[3]
+                first == 11 && second == 21 && values[3] == 40
             }}
         "#
             )),
-            Value::I32(72)
+            Value::Bool(true)
         );
     }
 }
