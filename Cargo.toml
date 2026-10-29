@@ -54,7 +54,7 @@ kagari-derive = { path = "crates/kagari-derive" }
 kagari-syntax = { path = "crates/kagari-syntax" }
 kagari-vm = { path = "crates/kagari-vm" }
 cranelift-codegen = "0.136.2"
-cranelift-frontend = "0.136.2"
+cranelift-frontend = "0.137.0"
 cranelift-jit = "0.136.2"
 cranelift-module = "0.136.2"
 cranelift-native = "0.136.2"
