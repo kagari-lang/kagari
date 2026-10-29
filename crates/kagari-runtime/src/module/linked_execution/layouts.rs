@@ -12,7 +12,6 @@ use crate::{
             ExecutionFunction,
             aggregates::{AggregateKind, AggregateOperand, LayoutSite},
         },
-        linked_execution::LinkedFunction,
     },
 };
 use kagari_bytecode::module::BytecodeFunction;
@@ -56,19 +55,6 @@ pub(crate) struct FunctionLayouts {
     sites: Box<[(usize, usize)]>,
     operands: Box<[LinkedLayout]>,
     scoped_count: usize,
-}
-
-impl LinkedFunction {
-    pub(crate) fn ready_field_layout(&self, site: LayoutSite) -> Option<&StructLayoutRef> {
-        let AggregateLayout::Struct(layout) = self
-            .layouts
-            .as_ref()?
-            .ready(self.applied_layouts.as_deref(), site)?
-        else {
-            return None;
-        };
-        Some(layout)
-    }
 }
 
 impl FunctionLayouts {
@@ -145,18 +131,6 @@ impl FunctionLayouts {
 
     fn operand(&self, site: LayoutSite) -> Option<&LinkedLayout> {
         self.operands.get(self.sites.get(site.0)?.1)
-    }
-
-    /// Read admitted facts without preparing metadata inside a closed cursor.
-    pub(crate) fn ready<'a>(
-        &'a self,
-        active: Option<&'a AppliedLayouts>,
-        site: LayoutSite,
-    ) -> Option<&'a AggregateLayout> {
-        match self.operand(site)? {
-            LinkedLayout::Closed(layout) => Some(layout),
-            LinkedLayout::Scoped { index, .. } => active?.entries.get(*index)?.get(),
-        }
     }
 
     pub(crate) fn resolve<'a>(

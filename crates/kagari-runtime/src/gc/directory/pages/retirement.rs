@@ -48,7 +48,13 @@ impl RetiredRange {
             let failed_drop = catch_unwind(AssertUnwindSafe(|| {
                 // SAFETY: checked initialized range, exact common descriptor and
                 // retained backing. Consume before dispatch, including on unwind.
-                unsafe { destroy(self.backing.pointer().add(slot * self.stride)) };
+                unsafe {
+                    destroy(
+                        self.backing
+                            .pointer()
+                            .add(slot * self.stride + self.descriptor.payload_offset()),
+                    )
+                };
             }))
             .is_err();
             if let (Some(started), Some((_, measurements))) = (started, observation.as_mut()) {
@@ -132,8 +138,10 @@ impl CheckedRange<'_> {
         };
         let first = self.start.slot as usize;
         let parts = self.page.parts_mut();
-        for entry in &mut parts.slots[first..first + self.count] {
-            entry.descriptor = None;
+        if !parts.slots.is_empty() {
+            for entry in &mut parts.slots[first..first + self.count] {
+                entry.descriptor = None;
+            }
         }
         let words = parts.bits.len() / 2;
         for (word, mask) in self.bits.words() {
@@ -185,13 +193,18 @@ impl Pages {
         };
         let first = start.slot as usize;
         let end = first.checked_add(count)?;
-        let slots = page.slots().get(first..end)?;
-        let id = slots.first()?.descriptor?;
+        if end > page.slot_count() {
+            return None;
+        }
+        let id = page.slot(first)?.descriptor?;
         let descriptor = self.descriptors.get(id)?;
         let words = page.bits().len() / 2;
         let bits = RangeBits::new(first, count);
         if descriptor.kind != start.kind
-            || !slots.iter().all(|slot| slot.descriptor == Some(id))
+            || !(first..end).all(|index| {
+                page.slot(index)
+                    .is_some_and(|slot| slot.descriptor == Some(id))
+            })
             || bits.words().any(|(word, mask)| {
                 page.bits()[word] & mask != mask || page.bits()[words + word] & mask != 0
             })
@@ -220,10 +233,7 @@ impl Pages {
             .free
             .checked_add(retired.count)
             .expect("bounded slab free count");
-        assert!(
-            free <= parts.slots.len(),
-            "retiring range belongs to this page"
-        );
+        assert!(free <= parts.count, "retiring range belongs to this page");
         // Validate every word before changing any of them. Retiring bits prohibit
         // reuse, including after take/admission between separate sweep slices.
         for (word, mask) in bits.words() {
@@ -235,7 +245,7 @@ impl Pages {
         }
         let was_full = parts.state.free == 0;
         parts.state.free = free;
-        if free == parts.slots.len() {
+        if free == parts.count {
             if !was_full {
                 self.unlink_available(retired.start.page);
             }

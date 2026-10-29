@@ -1,6 +1,7 @@
 //! Runtime-local execution links are admitted with their supplying program.
 pub(crate) mod builtin_results;
 pub(crate) mod calls;
+mod fields;
 pub(crate) mod layouts;
 mod native_calls;
 use crate::{
@@ -17,6 +18,7 @@ use crate::{
         linked_execution::{
             builtin_results::BuiltinResults,
             calls::LinkedCall,
+            fields::LinkedFields,
             layouts::{AppliedLayouts, FunctionLayouts},
         },
     },
@@ -29,6 +31,7 @@ use std::{cell::RefCell, sync::Arc};
 pub(crate) struct LinkedFunction {
     pub(crate) constants: Arc<ConstantPool>,
     calls: Arc<[LinkedCall]>,
+    fields: Arc<LinkedFields>,
     pub(crate) layouts: Option<Arc<FunctionLayouts>>,
     native_calls: Arc<[LinkedNativeCall]>,
     pub(crate) applied_layouts: Option<Arc<AppliedLayouts>>,
@@ -129,6 +132,7 @@ impl Runtime {
                 native_calls: self.link_native_calls(owner, function, prepared)?.into(),
                 layouts: FunctionLayouts::link(self, owner, function, prepared)?,
                 applied_layouts: None,
+                fields: Arc::new(LinkedFields::new(prepared.fields.len())),
                 constants: constants.clone(),
                 calls,
             })));
@@ -200,6 +204,7 @@ impl LinkedExecution {
         // reference. Its layout cells contain pure facts, not executable edges.
         let mut applied = linked.as_ref().clone();
         applied.applied_layouts = Some(layouts.application(environment));
+        applied.fields = Arc::new(LinkedFields::new(linked.fields.len()));
         let applied = Arc::new(applied);
         // Optional retention failure cannot revoke the new frame's reference.
         let _ = applications.insert(environment, function, applied.clone());

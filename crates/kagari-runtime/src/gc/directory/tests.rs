@@ -289,32 +289,40 @@ fn inline_struct_bytes_do_not_move_and_release_the_last_sparse_page() {
                 .unwrap(),
         );
     }
+    let stale = heap.objects.borrow().struct_location(ids[0]).unwrap();
     let id = ids[17];
+    let identity = heap.objects.borrow().struct_location(id).unwrap();
     let root = runtime.root_value(Value::Struct(id)).unwrap();
     let address = {
         let objects = heap.objects.borrow();
-        let view = objects
-            .structure(objects.slots[id.index()].location().unwrap())
-            .unwrap();
+        let view = objects.structure(identity).unwrap();
         assert_eq!(view.bytes.len(), 8);
         view.bytes.as_ptr().addr()
     };
     assert_eq!(
         heap.objects.borrow().backing_bytes(),
-        (520usize * 8).div_ceil(SLAB_BYTES) * SLAB_BYTES
+        (520usize * 16).div_ceil(SLAB_BYTES) * SLAB_BYTES
     );
+    #[cfg(feature = "execution-diagnostics")]
+    {
+        let usage = heap.storage_usage().unwrap();
+        assert_eq!(usage.object_header_bytes, 520 * 8);
+        assert_eq!(usage.initialized_payload_bytes, 520 * 16);
+        assert_eq!(
+            usage.initialized_payload_bytes + usage.unused_backing_bytes,
+            usage.slab_bytes + usage.large_bytes
+        );
+    }
     runtime.collect_garbage().unwrap();
     assert_eq!(heap.objects.borrow().backing_bytes(), SLAB_BYTES);
     {
         let objects = heap.objects.borrow();
-        let view = objects
-            .structure(objects.slots[id.index()].location().unwrap())
-            .unwrap();
+        let view = objects.structure(identity).unwrap();
         assert_eq!(view.bytes.as_ptr().addr(), address);
         assert_eq!(view.get(0), Some(Value::I32(17)));
         assert_eq!(view.get(1), Some(Value::I32(-17)));
     }
-    assert!(!heap.validate_value(&Value::Struct(ids[0])));
+    assert!(heap.objects.borrow().structure(stale).is_none());
     drop(root);
     runtime.collect_garbage().unwrap();
     assert_eq!(heap.objects.borrow().backing_bytes(), 0);

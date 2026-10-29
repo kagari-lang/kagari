@@ -122,7 +122,7 @@ fn managed_writes_reject_foreign_kind_and_representation_before_publication() {
     runtime.gc.graph.lock().finish_roots().unwrap();
     for rejected in [
         foreign_string,
-        Value::Str(tuple.object_id().unwrap()),
+        Value::Str(tuple.checked_id().unwrap()),
         tuple,
         Value::I32(9),
     ] {
@@ -142,7 +142,7 @@ fn managed_writes_reject_foreign_kind_and_representation_before_publication() {
             .gc
             .graph_survivor(
                 &runtime.modules,
-                GraphIdentity::Object(tuple.object_id().unwrap())
+                GraphIdentity::Object(tuple.checked_id().unwrap())
             )
             .unwrap()
     );
@@ -220,7 +220,7 @@ fn admitted_frame_publication_observes_phase_and_preserves_uncommitted_banks() {
                     .gc
                     .graph_survivor(
                         &runtime.modules,
-                        GraphIdentity::Object(child.object_id().unwrap())
+                        GraphIdentity::Object(child.checked_id().unwrap())
                     )
                     .unwrap()
             );
@@ -369,7 +369,7 @@ fn root_cursor_survives_compaction_reuse_and_direct_operand_publication() {
                 .gc
                 .graph_survivor(
                     &runtime.modules,
-                    GraphIdentity::Object(value.object_id().unwrap())
+                    GraphIdentity::Object(value.checked_id().unwrap())
                 )
                 .unwrap()
         );
@@ -412,7 +412,7 @@ fn close_frame_cycle(runtime: &Runtime, cursor: &mut FrameCursor, retained: Valu
             .gc
             .graph_survivor(
                 &runtime.modules,
-                GraphIdentity::Object(retained.object_id().unwrap())
+                GraphIdentity::Object(retained.checked_id().unwrap())
             )
             .unwrap(),
         "published frame value must survive"

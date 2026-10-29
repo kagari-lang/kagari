@@ -1,12 +1,15 @@
 //! Typed trailer ownership; references cover controls only, never payload bytes.
 mod geometry;
 
-use self::geometry::{ClassGeometry, GEOMETRIES, HEADER_OFFSET, PAYLOAD_LAYOUT};
-use super::backing::Backing;
-use crate::{gc::directory::descriptors::DescriptorId, native::binding::NativeResult};
+use self::geometry::{ClassGeometry, GEOMETRIES, HEADER_OFFSET, PAYLOAD_LAYOUT, STRUCT_GEOMETRIES};
+use super::{STRUCT_GROUP_START, backing::Backing};
+use crate::{
+    gc::{directory::descriptors::DescriptorId, object_header::ObjectHeader},
+    native::binding::NativeResult,
+};
 use std::{alloc::Layout, mem::needs_drop, ptr::NonNull, slice, sync::Arc};
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, Copy)]
 pub(super) struct Slot {
     pub(super) directory: u32,
     pub(super) descriptor: Option<DescriptorId>,
@@ -62,6 +65,7 @@ pub(super) struct Small {
 
 pub(super) struct SmallPartsMut<'a> {
     pub(super) state: &'a mut SmallState,
+    pub(super) count: usize,
     pub(super) slots: &'a mut [Slot],
     pub(super) bits: &'a mut [u64],
 }
@@ -72,7 +76,11 @@ impl Small {
     }
 
     pub(super) fn new(group: usize) -> NativeResult<Self> {
-        let geometry = &GEOMETRIES[group / 2];
+        let geometry = if group < STRUCT_GROUP_START {
+            &GEOMETRIES[group / 2]
+        } else {
+            &STRUCT_GEOMETRIES[(group - STRUCT_GROUP_START) / 2]
+        };
         const {
             assert!(!needs_drop::<SmallHeader>());
             assert!(!needs_drop::<Slot>());
@@ -102,7 +110,7 @@ impl Small {
                 .add(geometry.slots_offset)
                 .cast::<Slot>()
                 .as_ptr();
-            for index in 0..geometry.slot_count {
+            for index in 0..geometry.metadata_count {
                 slots.add(index).write(Slot::default());
             }
             backing
@@ -158,9 +166,30 @@ impl Small {
                     .add(geometry.slots_offset)
                     .cast::<Slot>()
                     .as_ptr(),
-                geometry.slot_count,
+                geometry.metadata_count,
             )
         }
+    }
+
+    pub(super) fn slot_count(&self) -> usize {
+        self.geometry().slot_count
+    }
+
+    /// Struct slabs have no duplicate per-slot directory or descriptor records.
+    /// Occupancy proves header initialization before reconstructing dispatch facts.
+    pub(super) fn slot(&self, index: usize) -> Option<Slot> {
+        if self.group() < STRUCT_GROUP_START {
+            return self.slots().get(index).copied();
+        }
+        if index >= self.slot_count() || self.bits()[index / 64] & (1 << (index % 64)) == 0 {
+            return None;
+        }
+        // SAFETY: occupied direct-struct slot, initialized under this sole owner.
+        let header = unsafe { ObjectHeader::read(self.pointer(index)) };
+        Some(Slot {
+            directory: u32::MAX,
+            descriptor: Some(DescriptorId::from_header(header.descriptor_id)?),
+        })
     }
 
     pub(super) fn bits(&self) -> &[u64] {
@@ -184,6 +213,7 @@ impl Small {
         // Payloads and immutable geometry are not included in these mutable references.
         unsafe {
             SmallPartsMut {
+                count: geometry.slot_count,
                 state: &mut (*self.header_pointer().as_ptr()).state,
                 slots: slice::from_raw_parts_mut(
                     self.backing
@@ -191,7 +221,7 @@ impl Small {
                         .add(geometry.slots_offset)
                         .cast::<Slot>()
                         .as_ptr(),
-                    geometry.slot_count,
+                    geometry.metadata_count,
                 ),
                 bits: slice::from_raw_parts_mut(
                     self.backing
@@ -218,7 +248,7 @@ impl Small {
         for word in 0..words {
             let bits = !(page.bits[word] | page.bits[words + word]);
             let slot = word * 64 + bits.trailing_zeros() as usize;
-            if bits != 0 && slot < page.slots.len() {
+            if bits != 0 && slot < page.count {
                 page.bits[words + slot / 64] |= 1 << (slot % 64);
                 page.state.free -= 1;
                 return slot;

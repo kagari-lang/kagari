@@ -4,7 +4,7 @@ use crate::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
     gc::{
-        HeapObjectId,
+        reference::HeapObjectIdentity,
         roots::{RootSet, RootedValue},
     },
     module::{ExecutableModule, ModuleEpochRetention, ModuleStore, retention::ProgramLease},
@@ -54,7 +54,7 @@ pub struct ConversionContext<'runtime> {
     depth: usize,
     nodes: usize,
     string_bytes: usize,
-    active: HashSet<HeapObjectId>,
+    active: HashSet<HeapObjectIdentity>,
     roots: Vec<RootedValue>,
 }
 
@@ -112,7 +112,7 @@ impl ScopeAuthority<'_> {
 struct Frame<'scope, 'runtime> {
     context: &'scope mut ConversionContext<'runtime>,
     root_base: usize,
-    identity: Option<HeapObjectId>,
+    identity: Option<HeapObjectIdentity>,
 }
 
 impl<'runtime> Deref for Frame<'_, 'runtime> {
@@ -542,7 +542,7 @@ impl<'runtime> ConversionContext<'runtime> {
         Ok(())
     }
 
-    fn enter(&mut self, identity: Option<HeapObjectId>) -> NativeResult<Frame<'_, 'runtime>> {
+    fn enter(&mut self, identity: Option<HeapObjectIdentity>) -> NativeResult<Frame<'_, 'runtime>> {
         self.poll()?;
         if self.depth >= self.limits.max_depth {
             return Err(self.runtime.resources().limit("conversion depth limit"));
@@ -651,15 +651,15 @@ impl<'runtime> ConversionContext<'runtime> {
     }
 }
 
-fn identity(value: &Value) -> Option<HeapObjectId> {
+fn identity(value: &Value) -> Option<HeapObjectIdentity> {
     match value {
         Value::Array(id)
         | Value::Enum(id)
-        | Value::Struct(id)
         | Value::GcHandle(id)
         | Value::Closure(id)
-        | Value::Cell(id) => Some(*id),
-        Value::Interface(id) => Some(id.0),
+        | Value::Cell(id) => Some((*id).into()),
+        Value::Interface(id) => Some(id.0.into()),
+        Value::Struct(reference) => Some((*reference).into()),
         _ => None,
     }
 }

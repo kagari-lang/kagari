@@ -24,12 +24,10 @@ impl ExecutionCursor<'_> {
         if operation.reference.is_some() {
             return Ok(FieldContinuation::Prepare);
         }
-        let Some(layout) = self
-            .links
-            .and_then(|links| links.ready_field_layout(operation.layout_site))
-        else {
+        let Some(field) = self.links.and_then(|links| links.ready_field(index)) else {
             return Ok(FieldContinuation::Prepare);
         };
+        let layout = field.layout();
         if let Some(ty) = operation.scalar {
             let bits = match operation.access {
                 FieldAccess::Read { .. } => None,
@@ -53,21 +51,25 @@ impl ExecutionCursor<'_> {
             };
             match operation.access {
                 FieldAccess::Read { dst } => {
-                    let bits = self
-                        .runtime
-                        .gc()
-                        .struct_scalar(id, layout, operation.slot as usize, ty)
+                    // SAFETY: admitted operands belong to this runtime and the
+                    // closed cursor cannot collect or invoke callbacks before publication.
+                    let bits = unsafe { field.read_scalar(self.runtime.gc(), id, ty) }
                         .ok_or(RegionError::TypeMismatch("struct layout or field mismatch"))?;
                     self.write_payload(dst.operand.scalar().ok_or_else(|| self.invalid())?, bits)
                         .ok_or_else(|| self.invalid())?;
                 }
-                FieldAccess::Write { .. } => self.runtime.gc().set_struct_scalar(
-                    id,
-                    layout,
-                    operation.slot as usize,
-                    ty,
-                    bits.expect("prepared scalar write"),
-                )?,
+                FieldAccess::Write { .. } => {
+                    // SAFETY: admitted receiver remains rooted through the closed
+                    // scalar commit, which cannot collect or invoke a callback.
+                    unsafe {
+                        field.write_scalar(
+                            self.runtime.gc(),
+                            id,
+                            ty,
+                            bits.expect("prepared scalar write"),
+                        )
+                    }?;
+                }
             }
             return Ok(FieldContinuation::Complete);
         }
@@ -84,7 +86,26 @@ impl ExecutionCursor<'_> {
             .values
             .read_location(operation.base)
             .ok_or_else(|| self.invalid())?;
-        if let Some(value) = action.execute(self.runtime, layout, operation.slot as usize, base)? {
+        let result = match (action, base) {
+            (FieldAction::Read, Value::Struct(reference)) => {
+                // SAFETY: the traced receiver and operand-bank loan remain live
+                // through this read and publication, without reentry or collection.
+                Some(
+                    unsafe { field.read(self.runtime.gc(), reference) }
+                        .ok_or(RegionError::TypeMismatch("struct layout or field mismatch"))?,
+                )
+            }
+            (FieldAction::Write(value), Value::Struct(reference)) => {
+                // SAFETY: both admitted operands remain protected through barrier
+                // publication and commit, with no intervening safepoint.
+                unsafe { field.write(self.runtime.gc(), reference, value) }?;
+                None
+            }
+            (action, base) => {
+                action.execute(self.runtime, layout, operation.slot as usize, base)?
+            }
+        };
+        if let Some(value) = result {
             let FieldAccess::Read { dst } = operation.access else {
                 return Err(self.invalid().into());
             };

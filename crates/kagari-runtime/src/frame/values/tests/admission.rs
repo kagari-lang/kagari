@@ -149,7 +149,7 @@ fn early_argument_shading_is_retained_on_success_and_later_arity_failure() {
                 .gc
                 .graph_survivor(
                     &runtime.modules,
-                    GraphIdentity::Object(child.object_id().unwrap()),
+                    GraphIdentity::Object(child.checked_id().unwrap()),
                 )
                 .unwrap()
         );

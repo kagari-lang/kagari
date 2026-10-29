@@ -407,7 +407,7 @@ fn partial_native_cursor_keeps_an_edge_moved_behind_it_without_restart() {
     assert!(
         heap.graph_survivor(
             &runtime.modules,
-            GraphIdentity::Object(child.object_id().unwrap())
+            GraphIdentity::Object(child.checked_id().unwrap())
         )
         .unwrap()
     );

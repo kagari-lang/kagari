@@ -5,7 +5,10 @@ use crate::{
     closure::CallableObservation,
     error::{RuntimeError, RuntimeErrorKind},
     frame::types::arguments::TypeArgument,
-    gc::{GcHeap, HeapObjectId, collector::Visited, roots::RootSet, storage::append_value_edges},
+    gc::{
+        GcHeap, HeapObjectId, collector::Visited, reference::HeapObjectIdentity, roots::RootSet,
+        storage::append_value_edges,
+    },
     module::ExecutableModule,
     native::{
         binding::NativeResult,
@@ -19,9 +22,9 @@ use kagari_types::ty::Ty;
 /// Scratch for one guarded operation, never a reusable proof of object safety.
 pub(crate) struct AsyncValues<'heap> {
     heap: &'heap GcHeap,
-    visited: Visited<HeapObjectId>,
+    visited: Visited<HeapObjectIdentity>,
     edges: Vec<Value>,
-    pending: Vec<HeapObjectId>,
+    pending: Vec<HeapObjectIdentity>,
 }
 
 impl AsyncValues<'_> {
@@ -49,18 +52,18 @@ impl AsyncValues<'_> {
             let objects = heap.objects.try_borrow().ok()?;
             let interfaces = heap.interfaces.try_borrow().ok()?;
 
-            append_value_edges(edges, pending);
+            append_value_edges(heap, &objects, edges, pending)?;
             visited.mark(pending, |id, pending| {
                 #[cfg(test)]
                 retention_probe::record(heap, Event::Object(id));
-                heap.readable_object(&objects, id)?
+                heap.readable_identity(&objects, id)?
                     .inspect(&interfaces, &mut |value| edges.push(value))?;
                 #[cfg(test)]
                 retention_probe::record(heap, Event::Edges(id, edges.len()));
                 if !valid_edges(edges) {
                     return None;
                 }
-                append_value_edges(edges, pending);
+                append_value_edges(heap, &objects, edges, pending)?;
                 Some(())
             })
         })();

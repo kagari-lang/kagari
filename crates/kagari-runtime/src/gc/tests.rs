@@ -387,7 +387,7 @@ fn occupied_discovery_follows_live_payloads_not_directory_peak() {
                 );
             }
         }
-        let stale = roots[1].2;
+        let stale = heap.objects.borrow().struct_location(roots[1].2).unwrap();
         drop(roots);
         reset_discovery_visits(heap);
         assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 8);
@@ -395,8 +395,11 @@ fn occupied_discovery_follows_live_payloads_not_directory_peak() {
         reset_discovery_visits(heap);
         runtime.collect_garbage().unwrap();
         assert_eq!(discovery_visits(heap), 0);
-        heap.alloc_struct(schema, vec![Value::I32(42)]).unwrap();
-        assert!(!heap.validate_value(&Value::Struct(stale)));
+        assert!(heap.objects.borrow().structure(stale).is_none());
+        let next = heap
+            .alloc_struct(schema.clone(), vec![Value::I32(42)])
+            .unwrap();
+        assert_eq!(heap.struct_get_slot(next, &schema, 0), Some(Value::I32(42)));
         eprintln!("object directory peak={history}: fixed-live visits=8, empty visits=0");
     }
 }
@@ -512,7 +515,7 @@ fn roots_are_explicit_storable_slots() {
 
     assert_eq!(root.value(heap).unwrap(), Value::Array(object));
     assert_eq!(heap.active_roots(), 1);
-    assert_eq!(heap.trace_roots().unwrap(), vec![object]);
+    assert_eq!(heap.trace_roots().unwrap(), vec![object.into()]);
 
     assert!(heap.root_value(host_root_value(heap, 1)).is_none());
     assert!(heap.root_value(path_view_value(heap, 1)).is_none());
@@ -604,7 +607,10 @@ fn replacement_errors_preserve_targets_and_internal_fault_categories() {
         Some(Value::I32(7))
     );
     // Simulate a broken engine invariant rather than a script type error.
-    heap.objects.borrow_mut().corrupt_structure_for_test(object);
+    let identity = heap.objects.borrow().struct_location(object).unwrap();
+    heap.objects
+        .borrow_mut()
+        .corrupt_structure_for_test(identity);
     let error = crate::reflection::set_field(heap, &Value::Struct(object), "value", Value::I32(9))
         .unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);

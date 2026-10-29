@@ -61,7 +61,7 @@ fn survivor(runtime: &Runtime, value: Value) -> bool {
         .gc
         .graph_survivor(
             &runtime.modules,
-            GraphIdentity::Object(value.object_id().unwrap()),
+            GraphIdentity::Object(value.checked_id().unwrap()),
         )
         .unwrap()
 }
@@ -135,7 +135,7 @@ fn object_edge_cursor_does_not_advance_when_its_bitmap_reset_cannot_fit() {
     runtime.gc.publish_value(parent).unwrap();
     let mut cursor = runtime
         .gc
-        .begin_object_scan(parent.object_id().unwrap())
+        .begin_object_scan(parent.checked_id().unwrap().into())
         .unwrap();
     let mut visit = |edge: ScanEdge<'_>, budget: &mut ScanBudget| {
         runtime
@@ -169,7 +169,7 @@ fn object_edge_cursor_does_not_advance_when_its_bitmap_reset_cannot_fit() {
     for value in &targets {
         runtime
             .gc
-            .with_heap_mark(GraphIdentity::Object(value.object_id().unwrap()), |mark| {
+            .with_heap_mark(GraphIdentity::Object(value.checked_id().unwrap()), |mark| {
                 assert_eq!(
                     mark.color(runtime.gc.graph.lock().epoch),
                     Color::Gray,

@@ -9,7 +9,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
-    gc::{HeapObjectId, roots::RootedValue},
+    gc::{reference::GcRef, roots::RootedValue},
     module::{ExecutableModule, StructLayoutRef, retention::ProgramLease},
     native::{binding::NativeResult, typed::NativeContext},
     value::Value,
@@ -82,7 +82,7 @@ impl<S> Object<S> {
         &self.object_type
     }
 
-    pub(crate) fn id(&self, cx: &NativeContext<'_>) -> NativeResult<HeapObjectId> {
+    pub(crate) fn id(&self, cx: &NativeContext<'_>) -> NativeResult<GcRef> {
         cx.runtime().gc().ensure_no_storage_borrow()?;
         cx.runtime().resources().ensure_execution_allowed()?;
         match self.root.value(cx.runtime().gc()) {

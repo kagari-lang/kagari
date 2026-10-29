@@ -16,6 +16,7 @@ use crate::{
     gc::{
         HeapObjectId,
         graph::{GraphMarker, MarkPhase, sweep::SweepGraph},
+        reference::HeapObjectIdentity,
     },
     native::storage::scan::{ScanBudget, ScanStatus},
 };
@@ -62,7 +63,7 @@ struct Candidate {
 
 struct Prepared {
     owner: u64,
-    identities: [Option<HeapObjectId>; RETIRE_LIMIT],
+    identities: [Option<HeapObjectIdentity>; RETIRE_LIMIT],
     fragments: [Option<Fragment>; RETIRE_LIMIT],
     fragment_count: usize,
     count: usize,
@@ -72,7 +73,7 @@ struct Prepared {
 
 /// Only borrowed prefixes leave preparation; the large arrays stay in place.
 struct Commit<'a> {
-    identities: &'a [Option<HeapObjectId>],
+    identities: &'a [Option<HeapObjectIdentity>],
     fragments: &'a [Option<Fragment>],
     units: usize,
     bytes: u128,
@@ -104,7 +105,7 @@ impl Prepared {
     fn push(
         &mut self,
         candidate: &Candidate,
-        generation: u32,
+        identity: HeapObjectIdentity,
         units: usize,
         bytes: usize,
     ) -> Option<()> {
@@ -123,8 +124,7 @@ impl Prepared {
                 self.fragment_count += 1;
             }
         }
-        self.identities[self.count] =
-            Some(HeapObjectId::new(self.owner, candidate.index, generation));
+        self.identities[self.count] = Some(identity);
         self.count += 1;
         Some(())
     }
@@ -150,7 +150,10 @@ impl Commit<'_> {
         batch.units = self.units;
         batch.bytes = self.bytes;
         let mut free = objects.free_identity;
-        for id in self.identities.iter().flatten() {
+        for identity in self.identities.iter().flatten() {
+            let HeapObjectIdentity::Indexed(id) = identity else {
+                continue;
+            };
             let location = objects.slots[id.index()]
                 .location()
                 .expect("prepared occupied identity");
@@ -204,16 +207,18 @@ impl ObjectStorage {
         prepared: &mut Prepared,
         budget: &mut ScanBudget,
     ) -> Option<PreparedOwner> {
-        let slot = self.slots.get(candidate.index)?;
-        if slot.location()? != candidate.location {
-            return None;
-        }
+        let identity = if candidate.location.kind == PayloadKind::Struct {
+            HeapObjectIdentity::Struct(self.pages.struct_reference(candidate.location)?)
+        } else {
+            let slot = self.slots.get(candidate.index)?;
+            if slot.location()? != candidate.location {
+                return None;
+            }
+            HeapObjectId::new(prepared.owner, candidate.index, slot.generation).into()
+        };
         #[cfg(test)]
         self.discovery_visits.set(self.discovery_visits.get() + 1);
-        if graph
-            .is_survivor(self.mark_for_directory(candidate.index))
-            .ok()?
-        {
+        if graph.is_survivor(self.mark(candidate.location)?).ok()? {
             return Some(PreparedOwner::Survivor);
         }
         let new_fragment = candidate.physical.is_some() && !prepared.extends(candidate);
@@ -239,7 +244,7 @@ impl ObjectStorage {
             .charge(interfaces)?;
         prepared.push(
             candidate,
-            slot.generation,
+            identity,
             charge.logical_units,
             charge.retained_bytes,
         )?;

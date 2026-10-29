@@ -481,13 +481,15 @@ impl ExecutionValues {
         value: Value,
     ) -> Option<()> {
         write_operand(
-            heap,
             self.values.get_mut(ranges.managed.clone())?,
             self.payloads.get_mut(ranges.scalars.clone())?,
             self.initialized.get_mut(ranges.scalars.clone())?,
             location,
             value,
-            || heap.ensure_execution_allowed().ok(),
+            |value| {
+                heap.ensure_execution_allowed().ok()?;
+                heap.publish_value(value).ok()
+            },
         )
     }
 

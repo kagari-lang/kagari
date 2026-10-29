@@ -2,6 +2,8 @@
 mod allocation;
 mod backing;
 pub(in crate::gc) mod batch;
+#[cfg(test)]
+mod header_tests;
 pub(super) mod retirement;
 mod sweep;
 #[cfg(test)]
@@ -14,9 +16,14 @@ use self::{
 };
 use crate::{
     error::RuntimeError,
-    gc::directory::{
-        PayloadKind, PayloadLocation,
-        descriptors::{Descriptor, DescriptorId, Descriptors},
+    gc::{
+        directory::{
+            PayloadKind, PayloadLocation,
+            descriptors::{Descriptor, DescriptorId, Descriptors},
+        },
+        graph::marks::{Domain, MarkBlocks, MarkRef},
+        object_header::ObjectHeader,
+        reference::GcRef,
     },
     native::{binding::NativeResult, payload::take::NativeTake, storage::NativeObject},
 };
@@ -37,11 +44,14 @@ pub(super) const CLASSES: [usize; 24] = [
     768, 896, 1024,
 ];
 
+const STRUCT_GROUP_START: usize = CLASSES.len() * 2;
+
 #[derive(Debug)]
 pub(super) struct Pages {
     allocations: Vec<Allocation>,
+    struct_marks: MarkBlocks,
     free: Option<u32>,
-    available: [Option<u32>; 48],
+    available: [Option<u32>; STRUCT_GROUP_START * 2],
     first_active: Option<u32>,
     sweep: Cursor,
     pub(super) descriptors: Descriptors,
@@ -53,8 +63,9 @@ impl Default for Pages {
     fn default() -> Self {
         Self {
             allocations: Vec::new(),
+            struct_marks: MarkBlocks::default(),
             free: None,
-            available: [None; 48],
+            available: [None; STRUCT_GROUP_START * 2],
             first_active: None,
             sweep: Cursor::default(),
             descriptors: Descriptors::default(),
@@ -93,13 +104,16 @@ impl Retired {
 
     pub(super) fn pointer(&self) -> NonNull<u8> {
         let Self::Payload {
-            backing, offset, ..
+            backing,
+            offset,
+            descriptor,
+            ..
         } = self
         else {
             unreachable!("physical payload")
         };
         // SAFETY: checked offset and backing retained through disposal.
-        unsafe { backing.pointer().add(*offset) }
+        unsafe { backing.pointer().add(*offset + descriptor.payload_offset()) }
     }
 
     pub(in crate::gc) fn take_native<T: NativeTake>(&mut self) -> T {
@@ -147,7 +161,7 @@ impl Retired {
         };
         catch_unwind(AssertUnwindSafe(|| {
             // SAFETY: initialization consumed before dispatch, even on panic.
-            unsafe { destroy(backing.pointer().add(*offset)) };
+            unsafe { destroy(backing.pointer().add(*offset + descriptor.payload_offset())) };
         }))
         .is_err()
     }
@@ -211,7 +225,11 @@ impl Pages {
         self.small_mut(index).state_mut().available = Links::default();
     }
 
-    fn publish_allocation(&mut self, mut allocation: Allocation) -> NativeResult<u32> {
+    fn publish_allocation(
+        &mut self,
+        mut allocation: Allocation,
+        direct: bool,
+    ) -> NativeResult<u32> {
         let index = self
             .free
             .map_or_else(|| u32::try_from(self.allocations.len()).ok(), Some)
@@ -221,6 +239,13 @@ impl Pages {
             self.allocations
                 .try_reserve(1)
                 .map_err(|_| RuntimeError::resource_limit("physical allocation directory"))?;
+        }
+        if direct {
+            // Blocks preserve registration across backing release and physical-index
+            // reuse; no pending gray struct can be detached before mark closure.
+            self.struct_marks
+                .prepare(index as usize * 128)
+                .map_err(|_| RuntimeError::resource_limit("physical struct marks"))?;
         }
         let bytes = self
             .backing_bytes
@@ -278,6 +303,11 @@ impl Pages {
         descriptor: Arc<Descriptor>,
         initialize: impl FnOnce(NonNull<u8>) -> NativeResult<()>,
     ) -> NativeResult<PayloadLocation> {
+        if (directory == u32::MAX) != descriptor.structure.is_some() {
+            return Err(RuntimeError::module_validation(
+                "struct pages require direct identity; other pages require indexed identity",
+            ));
+        }
         let id = self.descriptors.admit(descriptor.clone())?;
         let result = catch_unwind(AssertUnwindSafe(|| {
             self.insert_admitted(directory, &descriptor, id, initialize)
@@ -302,34 +332,47 @@ impl Pages {
         id: DescriptorId,
         initialize: impl FnOnce(NonNull<u8>) -> NativeResult<()>,
     ) -> NativeResult<PayloadLocation> {
-        let (index, slot, pointer) =
-            if let Some(group) = Self::class(descriptor.layout, descriptor.edges) {
-                let index = if let Some(index) = self.available[group] {
-                    index
+        let (index, slot, pointer) = if let Some(class) =
+            Self::class(descriptor.layout, descriptor.edges)
+        {
+            let group = class
+                + if directory == u32::MAX {
+                    STRUCT_GROUP_START
                 } else {
-                    let index = self.publish_allocation(Allocation::Small(Small::new(group)?))?;
-                    self.link_available(index);
-                    index
+                    0
                 };
-                let page = self.small_mut(index);
-                let slot = page.reserve();
-                let pointer = page.pointer(slot);
-                if page.state().free == 0 {
-                    self.unlink_available(index);
-                }
-                (index, slot, pointer)
+            let index = if let Some(index) = self.available[group] {
+                index
             } else {
-                let large = Large::new(descriptor.layout, directory)?;
-                let pointer = large.backing().pointer();
-                let index = self.publish_allocation(Allocation::Large(large))?;
-                (index, 0, pointer)
+                let index = self.publish_allocation(
+                    Allocation::Small(Small::new(group)?),
+                    directory == u32::MAX,
+                )?;
+                self.link_available(index);
+                index
             };
+            let page = self.small_mut(index);
+            let slot = page.reserve();
+            let pointer = page.pointer(slot);
+            if page.state().free == 0 {
+                self.unlink_available(index);
+            }
+            (index, slot, pointer)
+        } else {
+            let large = Large::new(descriptor.layout, directory)?;
+            let pointer = large.backing().pointer();
+            let index = self.publish_allocation(Allocation::Large(large), directory == u32::MAX)?;
+            (index, 0, pointer)
+        };
         let location = PayloadLocation {
             kind: descriptor.kind,
             page: index,
             slot: u16::try_from(slot).expect("bounded slab slot"),
         };
-        match catch_unwind(AssertUnwindSafe(|| initialize(pointer))) {
+        // SAFETY: the descriptor reserves both the header and the complete payload.
+        // A zero-sized payload may point just past the header and is never read.
+        let payload = unsafe { pointer.add(descriptor.payload_offset()) };
+        match catch_unwind(AssertUnwindSafe(|| initialize(payload))) {
             Ok(Ok(())) => {}
             Ok(Err(error)) => {
                 self.finish_slot(location);
@@ -340,16 +383,30 @@ impl Pages {
                 resume_unwind(error);
             }
         }
+        if descriptor.structure.is_some() {
+            // SAFETY: initialization succeeded in an exclusively reserved slot.
+            // Occupancy is published below; descriptor and allocation IDs remain
+            // admitted through detach/disposal/finish, including unwinding Drop.
+            unsafe {
+                ObjectHeader {
+                    descriptor_id: id.get(),
+                    allocation_id: index,
+                }
+                .write(pointer);
+            }
+        }
         match &mut self.allocations[index as usize] {
             Allocation::Small(page) => {
                 let parts = page.parts_mut();
                 let words = parts.bits.len() / 2;
                 parts.bits[words + slot / 64] &= !(1 << (slot % 64));
                 parts.bits[slot / 64] |= 1 << (slot % 64);
-                parts.slots[slot] = Slot {
-                    directory,
-                    descriptor: Some(id),
-                };
+                if let Some(metadata) = parts.slots.get_mut(slot) {
+                    *metadata = Slot {
+                        directory,
+                        descriptor: Some(id),
+                    };
+                }
             }
             Allocation::Large(large) => large.header_mut().descriptor = Some(id),
             Allocation::Vacant(_) => unreachable!(),
@@ -360,16 +417,76 @@ impl Pages {
     pub(super) fn directory(&self, location: PayloadLocation) -> Option<u32> {
         self.get(location)?;
         match self.allocations.get(location.page as usize)? {
-            Allocation::Small(page) => Some(page.slots()[location.slot as usize].directory),
+            Allocation::Small(page) => Some(page.slot(location.slot as usize)?.directory),
             Allocation::Large(large) => Some(large.header().directory),
             Allocation::Vacant(_) => None,
         }
     }
 
+    /// Resolve physical mark ownership under the same validated storage borrow.
+    pub(super) fn struct_mark(&self, location: PayloadLocation) -> MarkRef<'_> {
+        self.struct_marks.slot(
+            Domain::Struct,
+            location.page as usize * 128 + location.slot as usize,
+        )
+    }
+
+    pub(super) fn struct_reference(&self, location: PayloadLocation) -> Option<GcRef> {
+        let (payload, descriptor) = self.get(location)?;
+        descriptor.structure.as_ref()?;
+        // SAFETY: occupied initialized header retained by the original owner.
+        Some(unsafe { GcRef::from_allocation(payload.sub(ObjectHeader::SIZE)) })
+    }
+
+    pub(super) fn next_gray_struct(&self, block: usize, epoch: u64) -> (Option<GcRef>, bool) {
+        let (index, more) = self.struct_marks.next_gray(block, epoch);
+        let reference = index.map(|index| {
+            self.struct_reference(PayloadLocation {
+                kind: PayloadKind::Struct,
+                page: block as u32,
+                slot: (index % 128) as u16,
+            })
+            .expect("gray struct retains its physical allocation")
+        });
+        (reference, more)
+    }
+
+    /// Resolve a retained reference to its original physical allocation.
+    /// The caller retains the referenced struct; checking an ID cannot revive it.
+    pub(super) fn struct_location(&self, reference: GcRef) -> Option<PayloadLocation> {
+        // SAFETY: internal transport is protected by its source frame/root/edge.
+        // A foreign live allocation is readable, but cannot match this owner's base.
+        let header = unsafe { ObjectHeader::read(reference.pointer()) };
+        let slot = match self.allocations.get(header.allocation_id as usize)? {
+            Allocation::Small(page) => {
+                let offset = reference
+                    .pointer()
+                    .as_ptr()
+                    .addr()
+                    .checked_sub(page.backing().pointer().as_ptr().addr())?;
+                if offset % page.stride() != 0 || offset / page.stride() >= page.slot_count() {
+                    return None;
+                }
+                offset / page.stride()
+            }
+            Allocation::Large(large) if large.backing().pointer() == reference.pointer() => 0,
+            _ => return None,
+        };
+        let location = PayloadLocation {
+            kind: PayloadKind::Struct,
+            page: header.allocation_id,
+            slot: u16::try_from(slot).ok()?,
+        };
+        let (payload, descriptor) = self.get(location)?;
+        descriptor.structure.as_ref()?;
+        // SAFETY: published header occupies the first eight bytes of this allocation.
+        (payload == unsafe { reference.pointer().add(ObjectHeader::SIZE) }).then_some(location)
+    }
+
     pub(super) fn get(&self, location: PayloadLocation) -> Option<(NonNull<u8>, &Descriptor)> {
         let (pointer, id) = match self.allocations.get(location.page as usize)? {
             Allocation::Small(page) => {
-                let slot = page.slots().get(location.slot as usize)?;
+                let slot = page.slot(location.slot as usize)?;
                 (page.pointer(location.slot as usize), slot.descriptor?)
             }
             Allocation::Large(large) if location.slot == 0 => {
@@ -378,7 +495,22 @@ impl Pages {
             _ => return None,
         };
         let descriptor = self.descriptors.get(id)?;
-        (descriptor.kind == location.kind).then_some((pointer, descriptor))
+        if descriptor.kind != location.kind {
+            return None;
+        }
+        if descriptor.structure.is_some() {
+            // SAFETY: occupied slot and retained descriptor prove initialized
+            // aligned header storage. Validate dispatch before reading the payload.
+            let header = unsafe { ObjectHeader::read(pointer) };
+            if header.descriptor_id != id.get() || header.allocation_id != location.page {
+                return None;
+            }
+        }
+        // SAFETY: the complete payload lies within the descriptor's allocation.
+        Some((
+            unsafe { pointer.add(descriptor.payload_offset()) },
+            descriptor,
+        ))
     }
 
     fn occupied_slots(&self) -> impl Iterator<Item = (u32, u32, u16, DescriptorId)> + '_ {
@@ -388,14 +520,15 @@ impl Pages {
         .flat_map(move |index| {
             let allocation = &self.allocations[index as usize];
             let count = match allocation {
-                Allocation::Small(page) => page.slots().len(),
+                Allocation::Small(page) => page.slot_count(),
                 Allocation::Large(_) => 1,
                 _ => 0,
             };
             (0..count).filter_map(move |slot| {
                 let (directory, id) = match allocation {
                     Allocation::Small(page) => {
-                        (page.slots()[slot].directory, page.slots()[slot].descriptor?)
+                        let metadata = page.slot(slot)?;
+                        (metadata.directory, metadata.descriptor?)
                     }
                     Allocation::Large(large) => {
                         (large.header().directory, large.header().descriptor?)
@@ -429,8 +562,11 @@ impl Pages {
         let (backing, id, offset) = match &mut self.allocations[location.page as usize] {
             Allocation::Small(page) => {
                 let slot = location.slot as usize;
+                let id = page.slot(slot)?.descriptor?;
                 let parts = page.parts_mut();
-                let id = parts.slots[slot].descriptor.take()?;
+                if let Some(metadata) = parts.slots.get_mut(slot) {
+                    metadata.descriptor = None;
+                }
                 let words = parts.bits.len() / 2;
                 parts.bits[slot / 64] &= !(1 << (slot % 64));
                 parts.bits[words + slot / 64] |= 1 << (slot % 64);
@@ -487,7 +623,7 @@ impl Pages {
                 parts.bits[words + slot / 64] &= !(1 << (slot % 64));
                 let was_full = parts.state.free == 0;
                 parts.state.free += 1;
-                if parts.state.free == parts.slots.len() {
+                if parts.state.free == parts.count {
                     if !was_full {
                         self.unlink_available(location.page);
                     }
@@ -507,7 +643,11 @@ impl Pages {
     #[cfg(test)]
     pub(super) fn corrupt_structure(&mut self, location: PayloadLocation) {
         let id = match &self.allocations[location.page as usize] {
-            Allocation::Small(page) => page.slots()[location.slot as usize].descriptor.unwrap(),
+            Allocation::Small(page) => page
+                .slot(location.slot as usize)
+                .unwrap()
+                .descriptor
+                .unwrap(),
             Allocation::Large(large) => large.header().descriptor.unwrap(),
             _ => unreachable!(),
         };

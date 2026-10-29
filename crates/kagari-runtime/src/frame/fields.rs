@@ -86,6 +86,24 @@ impl FieldAction {
 }
 
 impl ExecutionFrame {
+    fn prepare_field_storage(
+        &self,
+        runtime: &Runtime,
+        index: usize,
+        operation: &PreparedFieldOperation,
+        layout: &StructLayoutRef,
+    ) -> Result<(), RegionError> {
+        self.links
+            .as_ref()
+            .ok_or_else(|| {
+                runtime
+                    .resources()
+                    .quarantine("missing field execution links")
+            })?
+            .prepare_field(runtime, index, layout.clone(), operation.slot as usize)?;
+        Ok(())
+    }
+
     pub(super) fn prepared_field(&self, index: usize) -> Option<&PreparedFieldOperation> {
         let CallableTarget::Script(function) = self.target else {
             return None;
@@ -153,6 +171,7 @@ impl ExecutionStack<'_> {
                 None
             };
             let layout = frame.field_layout(runtime, operation.layout_site)?;
+            frame.prepare_field_storage(runtime, index, operation, &layout)?;
             let Value::Struct(id) = read(operation.base)? else {
                 return Err(RegionError::TypeMismatch(match access {
                     FieldAccess::Read { .. } => "read_field expects struct value",
@@ -205,6 +224,9 @@ impl ExecutionStack<'_> {
         };
         action.validate(runtime)?;
         let layout = frame.field_layout(runtime, operation.layout_site)?;
+        if operation.reference.is_none() {
+            frame.prepare_field_storage(runtime, index, operation, &layout)?;
+        }
         let base = read(operation.base)?;
         let mut result_root = None;
         let result = if let Some(access) = operation.reference {

@@ -229,7 +229,7 @@ fn parked_frames_keep_replacements_published_after_initial_root_enumeration() {
             .gc
             .graph_survivor(
                 runtime.modules(),
-                GraphIdentity::Object(replacement.object_id().unwrap())
+                GraphIdentity::Object(replacement.checked_id().unwrap())
             )
             .unwrap()
     );
@@ -238,7 +238,7 @@ fn parked_frames_keep_replacements_published_after_initial_root_enumeration() {
             .gc
             .graph_survivor(
                 runtime.modules(),
-                GraphIdentity::Object(dead.object_id().unwrap())
+                GraphIdentity::Object(dead.checked_id().unwrap())
             )
             .unwrap()
     );

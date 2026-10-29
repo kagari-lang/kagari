@@ -1,5 +1,5 @@
 //! Test-only, heap-filtered accounting for one explicitly scoped retention probe.
-use crate::gc::{GcHeap, HeapObjectId, storage::HeapObject};
+use crate::gc::{GcHeap, HeapObjectId, reference::HeapObjectIdentity, storage::HeapObject};
 use crate::value::Value;
 use std::{cell::RefCell, collections::HashSet};
 
@@ -11,8 +11,8 @@ pub(crate) struct Counts {
     pub roots: usize,
     pub objects: usize,
     pub edges: usize,
-    pub distinct_objects: HashSet<HeapObjectId>,
-    pub distinct_edges: HashSet<(HeapObjectId, usize)>,
+    pub distinct_objects: HashSet<HeapObjectIdentity>,
+    pub distinct_edges: HashSet<(HeapObjectIdentity, usize)>,
 }
 
 pub(crate) enum Event {
@@ -20,8 +20,8 @@ pub(crate) enum Event {
     Frame,
     Walk,
     Roots(usize),
-    Object(HeapObjectId),
-    Edges(HeapObjectId, usize),
+    Object(HeapObjectIdentity),
+    Edges(HeapObjectIdentity, usize),
 }
 
 thread_local! {

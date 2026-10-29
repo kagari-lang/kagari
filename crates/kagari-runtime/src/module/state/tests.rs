@@ -81,7 +81,7 @@ fn black_static_initialization_replacement_and_sweep_reload_preserve_published_e
                 .gc
                 .graph_survivor(
                     runtime.modules(),
-                    GraphIdentity::Object(value.object_id().unwrap())
+                    GraphIdentity::Object(value.checked_id().unwrap())
                 )
                 .unwrap()
         );

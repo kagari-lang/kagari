@@ -1,7 +1,7 @@
 pub(crate) mod scalar;
 
 use crate::{
-    gc::{GcHeap, HeapObjectId},
+    gc::{GcHeap, HeapObjectId, reference::GcRef},
     host::{FrameHostBorrowToken, scoped::ScopedHostView},
     module::EnumVariantRef,
 };
@@ -84,7 +84,8 @@ pub enum EphemeralValue {
 
 /// Compact unrooted transport. Heap-backed payloads are accessed only through
 /// their owning heap; copying a value never copies text or establishes a root.
-/// Rust equality compares transport tags and IDs. Use `value_semantics::script_equal`
+/// Structs carry direct references; other managed families still carry checked IDs.
+/// Rust equality compares transport tags and identities. Use `value_semantics::script_equal_transport`
 /// for language equality, including string contents and tuple members.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Value {
@@ -101,7 +102,7 @@ pub enum Value {
     Range(HeapObjectId),
     Array(HeapObjectId),
     Enum(HeapObjectId),
-    Struct(HeapObjectId),
+    Struct(GcRef),
     GcHandle(HeapObjectId),
     Interface(InterfaceObjectId),
     Closure(HeapObjectId),
@@ -113,7 +114,12 @@ pub enum Value {
 }
 
 impl Value {
-    pub(crate) fn object_id(&self) -> Option<HeapObjectId> {
+    pub(crate) fn is_managed(&self) -> bool {
+        matches!(self, Self::Struct(_)) || self.checked_id().is_some()
+    }
+
+    /// Remaining checked-ID families; structs resolve through the owning heap bridge.
+    pub(crate) fn checked_id(&self) -> Option<HeapObjectId> {
         match self {
             Self::Unit
             | Self::Bool(_)
@@ -123,14 +129,14 @@ impl Value {
             | Self::U64(_)
             | Self::F32(_)
             | Self::F64(_)
-            | Self::RuntimeEphemeral(_) => None,
+            | Self::RuntimeEphemeral(_)
+            | Self::Struct(_) => None,
             Self::Interface(id) => Some(id.0),
             Self::Str(id)
             | Self::Tuple(id)
             | Self::Range(id)
             | Self::Array(id)
             | Self::Enum(id)
-            | Self::Struct(id)
             | Self::GcHandle(id)
             | Self::Closure(id)
             | Self::Cell(id)

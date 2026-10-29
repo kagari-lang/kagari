@@ -3,7 +3,7 @@
 mod tests;
 use crate::{
     error::RuntimeError,
-    gc::{GcHeap, HeapObjectId, directory::ObjectStorage, graph::GraphIdentity},
+    gc::{GcHeap, directory::ObjectStorage, reference::HeapObjectIdentity},
     value::Value,
 };
 use std::cell::Ref;
@@ -12,16 +12,16 @@ use std::cell::Ref;
 /// must end before callbacks or collection. Nominal admission belongs to the caller.
 pub(crate) struct CheckedTarget<'owner> {
     heap: &'owner GcHeap,
-    target: Option<(HeapObjectId, Ref<'owner, ObjectStorage>)>,
+    target: Option<(HeapObjectIdentity, Ref<'owner, ObjectStorage>)>,
 }
 
 impl GcHeap {
     /// Check the exact value once and retain its original owner through a short,
     /// non-reentrant admission. No mark is constructed until publication needs it.
     pub(crate) fn checked_target(&self, value: Value) -> Option<CheckedTarget<'_>> {
-        let target = if let Some(id) = value.object_id() {
+        let target = if value.is_managed() {
             let objects = self.objects.try_borrow().ok()?;
-            self.validate_heap_value(&objects, &value)?;
+            let id = self.validate_heap_value(&objects, &value)?;
             Some((id, objects))
         } else {
             None
@@ -34,7 +34,7 @@ impl GcHeap {
     pub(super) fn publish_root_values(&self, values: &[Value]) -> Option<()> {
         let mut objects = None;
         for value in values {
-            if value.object_id().is_none() {
+            if !value.is_managed() {
                 continue;
             }
             if objects.is_none() {
@@ -43,7 +43,8 @@ impl GcHeap {
             self.validate_heap_value(objects.as_ref()?, value)?;
         }
         for value in values {
-            if let Some(id) = value.object_id() {
+            if value.is_managed() {
+                let id = self.value_identity(objects.as_ref()?, value)?;
                 self.publish_resolved_value(objects.as_ref()?, id).ok()?;
             }
         }
@@ -55,12 +56,17 @@ impl GcHeap {
     pub(super) fn publish_resolved_value(
         &self,
         objects: &ObjectStorage,
-        id: HeapObjectId,
+        id: HeapObjectIdentity,
     ) -> Result<(), RuntimeError> {
         self.graph.with_publication(|| {
             (
-                GraphIdentity::Object(id),
-                objects.mark_for_directory(id.index()),
+                id.graph(),
+                objects
+                    .mark(
+                        self.identity_location(objects, id)
+                            .expect("checked identity"),
+                    )
+                    .expect("occupied mark"),
             )
         })
     }

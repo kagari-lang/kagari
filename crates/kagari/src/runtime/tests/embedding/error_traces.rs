@@ -120,7 +120,12 @@ fn native_overflow_reports_the_same_instruction_as_the_interpreter() {
     assert_eq!(traces[0], traces[1]);
 }
 
-fn run_failure(source: &str, expected_origin: &str, expected_line: u32, expected_message: &str) {
+fn run_failure(
+    source: &str,
+    expected_origin: &str,
+    expected_line: u32,
+    check_message: impl Fn(&str),
+) {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let engine = KagariEngine::new(config);
@@ -171,7 +176,7 @@ fn run_failure(source: &str, expected_origin: &str, expected_line: u32, expected
         }
         .unwrap();
         let failure = report.failure.unwrap();
-        assert_eq!(failure.message, expected_message);
+        check_message(&failure.message);
         assert_eq!(failure.trace.frames[0].function_name, expected_origin);
         assert_eq!(failure.trace.frames[0].line, Some(expected_line));
         assert_eq!(runtime.runtime().gc().active_roots(), 1);
@@ -207,7 +212,7 @@ fn main()->Result<i32,String> {
 "#,
         "origin",
         2,
-        "original",
+        |message| assert_eq!(message, "original"),
     );
 }
 
@@ -226,7 +231,7 @@ fn main()->Result<i32, String> { middle(origin()) }
 "#,
         "origin",
         2,
-        "converted original",
+        |message| assert_eq!(message, "converted original"),
     );
 }
 
@@ -242,7 +247,7 @@ fn main()->Result<i32,String>{
 "#,
         "main",
         3,
-        "original",
+        |message| assert_eq!(message, "original"),
     );
 }
 
@@ -262,7 +267,7 @@ fn main()->Result<i32,String>{
 "#,
         "origin",
         2,
-        "same",
+        |message| assert_eq!(message, "same"),
     );
 }
 
@@ -509,7 +514,12 @@ fn main()->Result<i32,Problem>{Err(Problem {code:7})}
 "#,
         "main",
         4,
-        "Struct@0:0",
+        |message| {
+            let address = message
+                .strip_prefix("Struct@0x")
+                .expect("opaque struct preview");
+            assert_ne!(usize::from_str_radix(address, 16).unwrap(), 0);
+        },
     );
 }
 

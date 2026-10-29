@@ -8,9 +8,10 @@ use crate::{
     clock::Instant,
     error::RuntimeError,
     gc::{
-        GcCollection, GcHeap, HeapObjectId, collector,
+        GcCollection, GcHeap, collector,
         graph::{MarkPhase, roots::InitialRoots},
         metrics::{IndivisibleKind, IndivisibleSample},
+        reference::HeapObjectIdentity,
         storage::append_value_edges,
     },
     host::HostRegistry,
@@ -48,7 +49,7 @@ impl fmt::Debug for CollectionCycle {
 }
 
 impl GcHeap {
-    pub(super) fn trace_values(&self, values: &[Value]) -> Option<Vec<HeapObjectId>> {
+    pub(super) fn trace_values(&self, values: &[Value]) -> Option<Vec<HeapObjectIdentity>> {
         if !values.iter().all(|value| self.validate_value(value)) {
             return None;
         }
@@ -56,14 +57,14 @@ impl GcHeap {
         let objects = self.objects.try_borrow().ok()?;
         let mut pending = Vec::new();
         let mut edges = values.iter().rev().copied().collect();
-        append_value_edges(&mut edges, &mut pending);
+        append_value_edges(self, &objects, &mut edges, &mut pending)?;
         collector::mark(pending, |id, pending| {
-            let object = self.object_ref(&objects, id)?;
+            let object = self.identity_ref(&objects, id)?;
             object.inspect(&interfaces, &mut |value| edges.push(value))?;
             if self.resources.is_quarantined() {
                 return None;
             }
-            append_value_edges(&mut edges, pending);
+            append_value_edges(self, &objects, &mut edges, pending)?;
             Some(())
         })
     }

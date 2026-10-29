@@ -1,6 +1,7 @@
 //! Closed field offsets retain immutable layout provenance, never executable roots.
 use crate::{
     frame::types::compatibility::TypeIdentity,
+    gc::reference::GcRef,
     host::HostRegistryId,
     module::{InstallationId, ModuleKey, StructLayoutRef, layout_identity::LayoutIdentity},
 };
@@ -54,6 +55,9 @@ pub(crate) enum StoredField {
         offset: usize,
         encoding: ScalarEncoding,
     },
+    Struct {
+        offset: usize,
+    },
     Managed {
         offset: usize,
     },
@@ -84,6 +88,10 @@ impl StructStorageLayout {
                     },
                     scalar_width(*ty)?,
                 ),
+                Ty::Struct(_) => {
+                    references.push(slot);
+                    (StoredField::Struct { offset: size }, size_of::<GcRef>())
+                }
                 _ => {
                     references.push(slot);
                     // Representation discriminator plus checked owner/slot/generation.

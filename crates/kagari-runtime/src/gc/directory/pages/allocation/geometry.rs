@@ -24,10 +24,21 @@ pub(super) static GEOMETRIES: [ClassGeometry; CLASSES.len()] = {
     entries
 };
 
+pub(super) static STRUCT_GEOMETRIES: [ClassGeometry; CLASSES.len()] = {
+    let mut entries = [ClassGeometry::with_metadata(CLASSES[0], false); CLASSES.len()];
+    let mut index = 0;
+    while index < CLASSES.len() {
+        entries[index] = ClassGeometry::with_metadata(CLASSES[index], false);
+        index += 1;
+    }
+    entries
+};
+
 #[derive(Debug, Clone, Copy)]
 pub(super) struct ClassGeometry {
     pub(super) stride: usize,
     pub(super) slot_count: usize,
+    pub(super) metadata_count: usize,
     /// Both occupied and retiring planes; each has half these words.
     pub(super) bitmap_words: usize,
     pub(super) slots_offset: usize,
@@ -37,10 +48,15 @@ pub(super) struct ClassGeometry {
 
 impl ClassGeometry {
     const fn new(stride: usize) -> Self {
+        Self::with_metadata(stride, true)
+    }
+
+    const fn with_metadata(stride: usize, indexed: bool) -> Self {
         assert!(stride != 0 && stride <= SLAB_BYTES);
         let slot_count = SLAB_BYTES / stride;
         let bitmap_words = slot_count.div_ceil(64) * 2;
-        let slots = match Layout::array::<Slot>(slot_count) {
+        let metadata_count = if indexed { slot_count } else { 0 };
+        let slots = match Layout::array::<Slot>(metadata_count) {
             Ok(layout) => layout,
             Err(_) => panic!("invalid slab slot layout"),
         };
@@ -66,6 +82,7 @@ impl ClassGeometry {
         Self {
             stride,
             slot_count,
+            metadata_count,
             bitmap_words,
             slots_offset: header_offset + slots_offset,
             bits_offset: header_offset + bits_offset,

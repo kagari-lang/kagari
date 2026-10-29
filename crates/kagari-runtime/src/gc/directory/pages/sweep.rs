@@ -64,7 +64,7 @@ impl Scanner<'_> {
                     if !self.loaded {
                         let bits = page.bits();
                         let words = bits.len() / 2;
-                        let count = page.slots().len();
+                        let count = page.slot_count();
                         if self.cursor.slot as usize >= count || words > self.occupied.len() {
                             return None;
                         }
@@ -108,7 +108,7 @@ impl Scanner<'_> {
                     if !budget.take(1) {
                         return Some(None);
                     }
-                    let slot = page.slots().get(self.cursor.slot as usize)?;
+                    let slot = page.slot(self.cursor.slot as usize)?;
                     (slot.directory, slot.descriptor?, true)
                 }
                 Allocation::Large(large) => {

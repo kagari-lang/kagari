@@ -114,15 +114,35 @@ impl OperandWindow<'_> {
         read_operand(self.managed, self.payloads, self.initialized, location)
     }
 
+    /// Copy only from the retained source bank of this uninterrupted region.
+    /// External/produced values still enter through checked write_location.
+    pub(crate) fn copy_location(&mut self, dst: Location, src: Location) -> Option<()> {
+        let value = self.read_location(src)?;
+        write_operand(
+            self.managed,
+            self.payloads,
+            self.initialized,
+            dst,
+            value,
+            |value| match value {
+                // SAFETY: the admitted source bank retains this runtime's struct,
+                // which cannot be taken. Copy cannot collect, call out or release it.
+                Value::Struct(reference) => unsafe {
+                    self.heap.publish_admitted_struct(reference).ok()
+                },
+                value => self.heap.publish_value(value).ok(),
+            },
+        )
+    }
+
     pub(crate) fn write_location(&mut self, location: Location, value: Value) -> Option<()> {
         write_operand(
-            self.heap,
             self.managed,
             self.payloads,
             self.initialized,
             location,
             value,
-            || Some(()),
+            |value| self.heap.publish_value(value).ok(),
         )
     }
 }
@@ -162,13 +182,12 @@ fn with_operand<R>(
 // execution after representation/bounds preflight; a closed OperandWindow already
 // admitted it. Keep that ordering because permission rejection can quarantine.
 pub(super) fn write_operand(
-    heap: &GcHeap,
     managed: &mut [Value],
     payloads: &mut [u64],
     initialized: &mut [bool],
     location: Location,
     value: Value,
-    admit_managed_write: impl FnOnce() -> Option<()>,
+    publish_managed_write: impl FnOnce(Value) -> Option<()>,
 ) -> Option<()> {
     if !location.admits(&value) {
         return None;
@@ -176,10 +195,9 @@ pub(super) fn write_operand(
     let slot = location.operand;
     if slot.managed() {
         let destination = managed.get_mut(slot.index())?;
-        admit_managed_write()?;
-        // Every managed bank publication, including direct frame transfers, must
-        // protect a new edge even when the root cursor has passed this slot.
-        heap.publish_value(value).ok()?;
+        // Publication protects the edge even after the root cursor passed this
+        // destination; its caller supplies checked admission or a closed-copy proof.
+        publish_managed_write(value)?;
         *destination = value;
     } else {
         let destination = payloads.get_mut(slot.index())?;

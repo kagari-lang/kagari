@@ -197,10 +197,10 @@ fn explicit_roots_trace_script_objects_without_crossing_host_boundaries() {
     };
     assert_eq!(
         runtime.gc().trace_roots().unwrap(),
-        vec![tuple, record, leaf]
+        vec![tuple.into(), record.into(), leaf.into()]
     );
     root.set(runtime.gc(), Value::GcHandle(leaf)).unwrap();
-    assert_eq!(runtime.gc().trace_roots().unwrap(), vec![leaf]);
+    assert_eq!(runtime.gc().trace_roots().unwrap(), vec![leaf.into()]);
     assert_eq!(root.value(runtime.gc()).unwrap(), Value::GcHandle(leaf));
     drop(root);
     assert!(runtime.gc().trace_roots().unwrap().is_empty());
@@ -381,5 +381,8 @@ fn host_objects_are_not_gc_payloads_or_trace_targets() {
     let Value::Tuple(tuple) = root.value(runtime.gc()).unwrap() else {
         unreachable!()
     };
-    assert_eq!(runtime.gc().trace_roots().unwrap(), vec![tuple, script]);
+    assert_eq!(
+        runtime.gc().trace_roots().unwrap(),
+        vec![tuple.into(), script.into()]
+    );
 }

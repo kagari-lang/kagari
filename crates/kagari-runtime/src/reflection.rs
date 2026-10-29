@@ -1,6 +1,6 @@
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
-    gc::{GcHeap, HeapObjectId},
+    gc::{GcHeap, reference::GcRef},
     module::StructLayoutRef,
     value::Value,
 };
@@ -253,7 +253,7 @@ pub(crate) fn set_index(
 
 fn resolve_field(
     gc: &GcHeap,
-    handle: HeapObjectId,
+    handle: GcRef,
     name: &str,
 ) -> Result<(StructLayoutRef, usize), ReflectionError> {
     let layout = gc

@@ -301,7 +301,7 @@ impl GcHeap {
         let payload = payload.map(|item| item.materialize(self)).transpose()?;
         let _payload_root = payload
             .as_ref()
-            .filter(|value| value.object_id().is_some())
+            .filter(|value| value.is_managed())
             .map(|value| self.root_value(*value).ok_or_else(invalid))
             .transpose()?;
         let has_item = payload.is_some();

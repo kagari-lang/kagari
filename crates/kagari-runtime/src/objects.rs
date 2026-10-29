@@ -10,7 +10,7 @@ use crate::{
             operations::OperationBindings,
         },
     },
-    gc::{HeapObjectId, interfaces::InterfaceValueSnapshot},
+    gc::{HeapObjectId, interfaces::InterfaceValueSnapshot, reference::GcRef},
     module::{self, ExecutableModule},
     objects::invocation::MethodInvocation,
     value,
@@ -108,7 +108,7 @@ impl Runtime {
         &self,
         layout: module::StructLayoutRef,
         fields: Vec<Value>,
-    ) -> Result<HeapObjectId, RuntimeError> {
+    ) -> Result<GcRef, RuntimeError> {
         self.alloc_struct(layout, fields)
     }
 
@@ -116,7 +116,7 @@ impl Runtime {
         &self,
         layout: module::StructLayoutRef,
         fields: Vec<Value>,
-    ) -> Result<HeapObjectId, RuntimeError> {
+    ) -> Result<GcRef, RuntimeError> {
         self.validate_heap_payloads(&fields)?;
         // The layout retains a verified generation; allocation does not depend on
         // whether that generation remains a current module-store entry.

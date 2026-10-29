@@ -16,9 +16,11 @@ impl ObjectStorage {
         let mut array_element_bytes = 0;
         let mut array_capacity_bytes = 0;
         let mut initialized_payload_bytes = 0;
+        let mut object_header_bytes = 0;
         for (_, location) in self.pages.occupied() {
             let (_, descriptor) = self.pages.get(location).expect("occupied descriptor");
             initialized_payload_bytes += descriptor.layout.size();
+            object_header_bytes += descriptor.payload_offset();
             if let Some(object) = self.native(location) {
                 native_payload_bytes += object.payload_bytes();
                 if let Ok(sequence) = object.payload::<ArrayPayload>() {
@@ -60,6 +62,7 @@ impl ObjectStorage {
             descriptor_registry_entries,
             descriptor_registry_capacity,
             initialized_payload_bytes,
+            object_header_bytes,
             unused_backing_bytes: usage.slabs + usage.large - initialized_payload_bytes,
             interface_snapshots,
             distinct_struct_layouts: self.pages.descriptors.structures(),

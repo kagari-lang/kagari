@@ -1,9 +1,54 @@
-//! Safe byte codecs share scalar domains and preserve complete managed identities.
+//! Packed codecs preserve scalar domains, checked IDs and direct pointer provenance.
 use crate::{
-    gc::HeapObjectId,
-    module::layout_storage::ScalarEncoding,
+    gc::{HeapObjectId, reference::GcRef},
+    module::layout_storage::{ScalarEncoding, StoredField},
     value::{InterfaceObjectId, Value, scalar},
 };
+
+/// Bytes contain initialized, traced runtime fields, including pointer provenance.
+pub(super) unsafe fn read_field(bytes: &[u8], field: StoredField) -> Option<Value> {
+    match field {
+        StoredField::Scalar { offset, encoding } => scalar::decode(
+            encoding.representation,
+            read_scalar(bytes, offset, encoding)?,
+        ),
+        StoredField::Struct { offset } => {
+            let bytes = bytes.get(offset..offset + size_of::<GcRef>())?;
+            // SAFETY: the exact declared struct field contains an initialized
+            // pointer carrier. Unaligned typed loads preserve its provenance.
+            Some(Value::Struct(unsafe {
+                bytes.as_ptr().cast::<GcRef>().read_unaligned()
+            }))
+        }
+        StoredField::Managed { offset } => read_managed(bytes, offset),
+    }
+}
+
+pub(super) fn write_field(bytes: &mut [u8], field: StoredField, value: Value) -> Option<()> {
+    match field {
+        StoredField::Scalar { offset, encoding } => {
+            if !value.has_representation(encoding.representation) {
+                return None;
+            }
+            write_scalar(bytes, offset, encoding, scalar::encode(&value)?)
+        }
+        StoredField::Struct { offset } => {
+            let Value::Struct(reference) = value else {
+                return None;
+            };
+            let bytes = bytes.get_mut(offset..offset + size_of::<GcRef>())?;
+            // SAFETY: exclusive bounded destination for a nonowning Copy carrier.
+            unsafe {
+                bytes
+                    .as_mut_ptr()
+                    .cast::<GcRef>()
+                    .write_unaligned(reference)
+            };
+            Some(())
+        }
+        StoredField::Managed { offset } => write_managed(bytes, offset, value),
+    }
+}
 
 pub(super) fn read_scalar(bytes: &[u8], offset: usize, encoding: ScalarEncoding) -> Option<u64> {
     let width = encoding.width;
@@ -46,6 +91,7 @@ pub(super) fn write_scalar(
     Some(())
 }
 
+/// Remaining mixed families retain their checked owner/slot/generation encoding.
 pub(super) fn read_managed(bytes: &[u8], offset: usize) -> Option<Value> {
     let bytes = bytes.get(offset..offset + 13)?;
     let id = HeapObjectId {
@@ -59,7 +105,6 @@ pub(super) fn read_managed(bytes: &[u8], offset: usize) -> Option<Value> {
         3 => Value::Range(id),
         4 => Value::Array(id),
         7 => Value::Enum(id),
-        8 => Value::Struct(id),
         9 => Value::GcHandle(id),
         10 => Value::Closure(id),
         11 => Value::Cell(id),
@@ -76,7 +121,6 @@ pub(super) fn write_managed(bytes: &mut [u8], offset: usize, value: Value) -> Op
         Value::Array(id) => (4, id),
 
         Value::Enum(id) => (7, id),
-        Value::Struct(id) => (8, id),
         Value::GcHandle(id) => (9, id),
         Value::Closure(id) => (10, id),
         Value::Cell(id) => (11, id),

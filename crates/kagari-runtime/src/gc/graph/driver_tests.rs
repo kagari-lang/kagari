@@ -67,7 +67,7 @@ fn internal_tuple_scan_control_acquisitions_and_work() {
                     .gc
                     .graph_survivor(
                         runtime.modules(),
-                        GraphIdentity::Object(value.object_id().unwrap())
+                        GraphIdentity::Object(value.checked_id().unwrap())
                     )
                     .unwrap()
             );
@@ -196,7 +196,7 @@ fn provider_boundaries_release_control_and_unwind_faults_without_poison() {
                 .gc
                 .graph_survivor(
                     runtime.modules(),
-                    GraphIdentity::Object(child.object_id().unwrap())
+                    GraphIdentity::Object(child.checked_id().unwrap())
                 )
                 .unwrap()
         );

@@ -4,8 +4,10 @@ use crate::{
     error_trace::ErrorTrace,
     execution_metadata::interfaces::{InterfaceSnapshotId, InterfaceStore},
     gc::{
-        HeapObjectId,
+        GcHeap,
+        directory::ObjectStorage,
         fields::{StructInitializer, StructView, StructViewMut},
+        reference::HeapObjectIdentity,
         values::TupleData,
     },
     host::{HostPathViewHandle, HostRootHandle},
@@ -170,33 +172,18 @@ impl<'a> HeapObject<Shared<'a>> {
 
 /// Append checked identities without exposing value kinds to the graph marker.
 /// Immutable aggregates own their edges in heap storage like other objects.
-pub(super) fn append_value_edges(values: &mut Vec<Value>, pending: &mut Vec<HeapObjectId>) {
+pub(super) fn append_value_edges(
+    heap: &GcHeap,
+    objects: &ObjectStorage,
+    values: &mut Vec<Value>,
+    pending: &mut Vec<HeapObjectIdentity>,
+) -> Option<()> {
     let start = pending.len();
     while let Some(value) = values.pop() {
-        match value {
-            Value::Str(id)
-            | Value::Tuple(id)
-            | Value::Range(id)
-            | Value::HostRoot(id)
-            | Value::HostPathView(id)
-            | Value::Ephemeral(id)
-            | Value::Array(id)
-            | Value::Enum(id)
-            | Value::Struct(id)
-            | Value::GcHandle(id)
-            | Value::Closure(id)
-            | Value::Cell(id) => pending.push(id),
-            Value::Interface(id) => pending.push(id.0),
-            Value::Unit
-            | Value::Bool(_)
-            | Value::Char(_)
-            | Value::I32(_)
-            | Value::I64(_)
-            | Value::U64(_)
-            | Value::F32(_)
-            | Value::F64(_)
-            | Value::RuntimeEphemeral(_) => {}
+        if value.is_managed() {
+            pending.push(heap.value_identity(objects, &value)?);
         }
     }
     pending[start..].reverse();
+    Some(())
 }

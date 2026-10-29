@@ -189,7 +189,7 @@ mod tests {
         for index in 0..PEAK {
             objects
                 .initialization_owners
-                .insert(HeapObjectId::new(1, index, 0), owner);
+                .insert(HeapObjectId::new(1, index, 0).into(), owner);
         }
         // Model per-identity retirement before maintenance without introducing
         // unrelated payload/descriptor allocations into this map's accounting.
@@ -197,7 +197,7 @@ mod tests {
             assert_eq!(
                 objects
                     .initialization_owners
-                    .remove(&HeapObjectId::new(1, index, 0)),
+                    .remove(&HeapObjectId::new(1, index, 0).into()),
                 Some(owner)
             );
         }
@@ -239,7 +239,7 @@ mod tests {
             assert_eq!(
                 objects
                     .initialization_owners
-                    .remove(&HeapObjectId::new(1, index, 0)),
+                    .remove(&HeapObjectId::new(1, index, 0).into()),
                 Some(owner)
             );
         }

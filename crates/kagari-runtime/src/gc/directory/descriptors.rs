@@ -4,6 +4,7 @@ use crate::{
     gc::{
         directory::PayloadKind,
         metrics::{IndivisibleMeasurements, IndivisibleSample, ObservationClock},
+        object_header::ObjectHeader,
         weak_cache::WeakCacheToken,
     },
     module::layout_storage::{StructStorageKey, StructStorageLayout},
@@ -55,8 +56,8 @@ impl Descriptor {
     /// The existing StructStorageLayouts owner interns this token by semantic key.
     /// The physical descriptor table does not repeat semantic interning.
     pub(in crate::gc) fn structure(description: StructStorageLayout) -> NativeResult<Arc<Self>> {
-        let layout = Layout::from_size_align(description.size, 1)
-            .map_err(|_| RuntimeError::resource_limit("struct inline layout"))?;
+        let layout = ObjectHeader::struct_layout(description.size)
+            .ok_or_else(|| RuntimeError::resource_limit("struct inline layout"))?;
         let mut descriptor = Self::new(
             PayloadKind::Struct,
             layout,
@@ -70,10 +71,22 @@ impl Descriptor {
         Ok(Arc::new(descriptor))
     }
 
+    pub(in crate::gc) fn registered_id(&self) -> u32 {
+        self.id.get().expect("registered representation").0.get()
+    }
+
     pub(in crate::gc) fn structure_layout(&self) -> &StructStorageLayout {
         self.structure
             .as_deref()
             .expect("canonical struct representation")
+    }
+
+    pub(super) fn payload_offset(&self) -> usize {
+        if self.structure.is_some() {
+            ObjectHeader::SIZE
+        } else {
+            0
+        }
     }
 }
 
@@ -81,6 +94,14 @@ impl Descriptor {
 pub(in crate::gc) struct DescriptorId(NonZeroU32);
 
 impl DescriptorId {
+    pub(in crate::gc) fn from_header(value: u32) -> Option<Self> {
+        NonZeroU32::new(value).map(Self)
+    }
+
+    pub(super) fn get(self) -> u32 {
+        self.0.get()
+    }
+
     fn index(self) -> usize {
         self.0.get() as usize - 1
     }

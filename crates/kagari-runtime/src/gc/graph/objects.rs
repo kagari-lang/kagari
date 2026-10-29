@@ -2,7 +2,7 @@
 use crate::{
     error::RuntimeError,
     execution_metadata::MetadataEdge,
-    gc::{GcHeap, HeapObjectId, graph::GraphIdentity, storage::HeapObject},
+    gc::{GcHeap, graph::GraphIdentity, reference::HeapObjectIdentity, storage::HeapObject},
     host::HostPathViewHandle,
     native::storage::scan::{ScanBudget, ScanStatus},
     value::Value,
@@ -29,7 +29,7 @@ pub(crate) type ScanVisitor<'a> =
 /// never owns a heap/root lease. No address or borrowed iterator is retained.
 #[derive(Debug)]
 pub(crate) struct ObjectCursor {
-    id: HeapObjectId,
+    id: HeapObjectIdentity,
     section: u8,
     index: usize,
     end: usize,
@@ -37,13 +37,16 @@ pub(crate) struct ObjectCursor {
 }
 
 impl GcHeap {
-    pub(crate) fn begin_object_scan(&self, id: HeapObjectId) -> Result<ObjectCursor, RuntimeError> {
+    pub(crate) fn begin_object_scan(
+        &self,
+        id: HeapObjectIdentity,
+    ) -> Result<ObjectCursor, RuntimeError> {
         let objects = self
             .objects
             .try_borrow()
             .map_err(|_| invalid("borrowed object scan storage"))?;
         let object = self
-            .object_ref(&objects, id)
+            .identity_ref(&objects, id)
             .ok_or_else(|| invalid("invalid object scan identity"))?;
         let (end, host_path) = match object {
             HeapObject::Tuple(value) => (value.members.len(), None),
@@ -75,7 +78,7 @@ impl GcHeap {
             .try_borrow()
             .map_err(|_| invalid("borrowed object scan storage"))?;
         let object = self
-            .object_ref(&objects, cursor.id)
+            .identity_ref(&objects, cursor.id)
             .ok_or_else(|| invalid("retired object scan identity"))?;
         Ok(match object {
             HeapObject::Native(_) | HeapObject::HostPath(_) => false,
@@ -105,7 +108,7 @@ impl GcHeap {
             .try_borrow()
             .map_err(|_| invalid("borrowed object scan storage"))?;
         let object = self
-            .object_ref(&objects, cursor.id)
+            .identity_ref(&objects, cursor.id)
             .ok_or_else(|| invalid("retired object scan identity"))?;
         loop {
             match object {

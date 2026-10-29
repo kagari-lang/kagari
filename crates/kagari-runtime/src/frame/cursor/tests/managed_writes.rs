@@ -192,7 +192,7 @@ fn cached_constant_and_copies_publish_after_initial_roots() {
             .gc
             .graph_survivor(
                 &runtime.modules,
-                GraphIdentity::Object(constant.object_id().unwrap())
+                GraphIdentity::Object(constant.checked_id().unwrap())
             )
             .unwrap()
     );

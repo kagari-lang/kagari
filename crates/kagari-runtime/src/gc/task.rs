@@ -133,7 +133,7 @@ mod tests {
                 .gc
                 .graph_survivor(
                     runtime.modules(),
-                    GraphIdentity::Object(result.object_id().unwrap())
+                    GraphIdentity::Object(result.checked_id().unwrap())
                 )
                 .unwrap()
         );

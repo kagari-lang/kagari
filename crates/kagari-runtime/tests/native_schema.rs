@@ -10,7 +10,7 @@ use kagari_hir::{analysis::AnalysisDatabase, native::render::declaration_source}
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     frame::types::arguments::TypeArgument,
-    gc::{GcHeapConfig, HeapObjectId},
+    gc::{GcHeapConfig, reference::GcRef},
     native::{
         binding::NativeResult,
         builder::ModuleBuilder,
@@ -210,7 +210,7 @@ impl IntoKagari for Leaf {
 }
 
 thread_local! {
-    static REWRITE_PARENT: Cell<Option<HeapObjectId>> = const { Cell::new(None) };
+    static REWRITE_PARENT: Cell<Option<GcRef>> = const { Cell::new(None) };
     static PANIC_IN_LEAF: Cell<bool> = const { Cell::new(false) };
 }
 

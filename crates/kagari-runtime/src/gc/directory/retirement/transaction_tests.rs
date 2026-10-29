@@ -60,7 +60,7 @@ impl Drop for Counted {
     }
 }
 
-fn large_structures(runtime: &mut Runtime, count: usize) -> Vec<Value> {
+fn large_structures(runtime: &mut Runtime, count: usize) -> Vec<PayloadLocation> {
     let names: Vec<_> = (0..129).map(|i| format!("field{i}")).collect();
     let fields: Vec<_> = names
         .iter()
@@ -69,12 +69,22 @@ fn large_structures(runtime: &mut Runtime, count: usize) -> Vec<Value> {
     let shape = layout(runtime, "Large", &fields);
     (0..count)
         .map(|_| {
-            Value::Struct(
+            let value = Value::Struct(
                 runtime
                     .gc()
                     .alloc_struct(shape.clone(), vec![Value::I64(0); 129])
                     .unwrap(),
-            )
+            );
+            runtime
+                .gc()
+                .identity_location(
+                    &runtime.gc().objects.borrow(),
+                    match value {
+                        Value::Struct(reference) => reference.into(),
+                        _ => unreachable!(),
+                    },
+                )
+                .unwrap()
         })
         .collect()
 }
@@ -121,7 +131,11 @@ fn multi_allocation_full_and_normal_batches_share_the_owner_bound_and_allocate_n
         } else {
             assert!(counts.iter().any(|&count| count < 32));
         }
-        assert!(values.iter().all(|value| !heap.validate_value(value)));
+        assert!(
+            values
+                .iter()
+                .all(|id| heap.objects.borrow().structure(*id).is_none())
+        );
         assert_eq!(heap.resources.counters().current_retained_bytes, 0);
         assert_eq!(
             heap.objects
@@ -182,7 +196,7 @@ fn second_fragment_prepays_sort_scratch_and_merge_before_admission() {
         assert_eq!(
             values
                 .iter()
-                .filter(|value| heap.validate_value(value))
+                .filter(|id| heap.objects.borrow().structure(**id).is_some())
                 .count(),
             usize::from(short)
         );
@@ -210,13 +224,17 @@ fn late_accounting_failure_preserves_preview_cursor_and_all_fragment_identities(
     let values = large_structures(&mut runtime, 3);
     let heap = runtime.gc();
     begin(heap);
-    let ids: Vec<_> = values
+    let ids = values;
+    let addresses: Vec<_> = ids
         .iter()
-        .map(|value| value.object_id().unwrap())
-        .collect();
-    let locations: Vec<_> = ids
-        .iter()
-        .map(|id| heap.objects.borrow().slots[id.index()].location())
+        .map(|location| {
+            heap.objects
+                .borrow()
+                .structure(*location)
+                .unwrap()
+                .bytes
+                .as_ptr()
+        })
         .collect();
     let before = heap.resources.counters();
     assert_eq!(before.current_heap_units % 3, 0);
@@ -230,9 +248,11 @@ fn late_accounting_failure_preserves_preview_cursor_and_all_fragment_identities(
     );
     {
         let objects = heap.objects.borrow();
-        for (id, location) in ids.iter().zip(locations) {
-            assert_eq!(objects.slots[id.index()].generation, id.generation);
-            assert_eq!(objects.slots[id.index()].location(), location);
+        for (location, address) in ids.iter().zip(addresses) {
+            assert_eq!(
+                objects.structure(*location).unwrap().bytes.as_ptr(),
+                address
+            );
         }
         assert!(!objects.sweep.as_ref().unwrap().outstanding);
     }
@@ -258,23 +278,23 @@ fn late_accounting_failure_preserves_preview_cursor_and_all_fragment_identities(
 fn greedy_range_cuts_preserve_page_remainders_and_natural_twelve_and_forty_two_runs() {
     for large_count in [20, 21] {
         let mut runtime = Runtime::default();
-        let names: Vec<_> = (0..10).map(|i| format!("field{i}")).collect();
+        let names: Vec<_> = (0..9).map(|i| format!("field{i}")).collect();
         let fields: Vec<_> = names
             .iter()
             .map(|name| (name.as_str(), Ty::Builtin(BuiltinType::I64), true))
             .collect();
-        let forty_two = layout(&mut runtime, "FortyTwo", &fields[..3]);
+        let forty_two = layout(&mut runtime, "FortyTwo", &fields[..2]);
         let twelve = layout(&mut runtime, "Twelve", &fields);
         for _ in 0..42 {
             runtime
                 .gc()
-                .alloc_struct(forty_two.clone(), vec![Value::I64(0); 3])
+                .alloc_struct(forty_two.clone(), vec![Value::I64(0); 2])
                 .unwrap();
         }
         for _ in 0..12 {
             runtime
                 .gc()
-                .alloc_struct(twelve.clone(), vec![Value::I64(0); 10])
+                .alloc_struct(twelve.clone(), vec![Value::I64(0); 9])
                 .unwrap();
         }
         let _large = large_structures(&mut runtime, large_count);

@@ -1,11 +1,15 @@
 //! Ordinary structs borrow initialized inline bytes under the heap storage guard.
 mod codec;
+pub(crate) mod prepared;
+#[cfg(test)]
+mod provenance_tests;
 
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     gc::{
-        GcHeap, HeapObjectId,
+        GcHeap,
         directory::descriptors::Descriptor,
+        reference::GcRef,
         weak_cache::{WeakCache, WeakCacheToken},
     },
     module::{
@@ -66,13 +70,8 @@ pub(super) struct StructViewMut<'a> {
 
 impl StructView<'_> {
     pub(super) fn get(&self, slot: usize) -> Option<Value> {
-        match *self.description.fields.get(slot)? {
-            StoredField::Scalar { offset, encoding } => scalar::decode(
-                encoding.representation,
-                codec::read_scalar(self.bytes, offset, encoding)?,
-            ),
-            StoredField::Managed { offset } => codec::read_managed(self.bytes, offset),
-        }
+        // SAFETY: initialized published fields remain traced throughout this loan.
+        unsafe { codec::read_field(self.bytes, *self.description.fields.get(slot)?) }
     }
 
     pub(super) fn scalar(&self, slot: usize, expected: BuiltinType) -> Option<u64> {
@@ -94,15 +93,7 @@ impl StructView<'_> {
 
 impl StructViewMut<'_> {
     pub(super) fn set(&mut self, slot: usize, value: Value) -> Option<()> {
-        match *self.description.fields.get(slot)? {
-            StoredField::Scalar { offset, encoding } => {
-                if !value.has_representation(encoding.representation) {
-                    return None;
-                }
-                codec::write_scalar(self.bytes, offset, encoding, scalar::encode(&value)?)
-            }
-            StoredField::Managed { offset } => codec::write_managed(self.bytes, offset, value),
-        }
+        codec::write_field(self.bytes, *self.description.fields.get(slot)?, value)
     }
 
     pub(super) fn set_scalar(
@@ -142,7 +133,7 @@ impl GcHeap {
                             scalar::admits_payload(encoding.representation, Some(encoding.ty), bits)
                         })
                 }
-                StoredField::Managed { .. } => {
+                StoredField::Struct { .. } | StoredField::Managed { .. } => {
                     self.valid_payload(value)
                         && description
                             .semantic
@@ -212,19 +203,18 @@ impl GcHeap {
     /// # Safety
     /// Keep managed inputs live through this query. Type/owner validation cannot
     /// establish the lifetime of an expired direct reference.
-    /// With the current checked-ID representation, invalid-ID rejection probes
-    /// must remain non-dereferencing; replace them with inert identity or retained
-    /// wrapper checks before converting these paths to direct references.
+    /// Struct references must remain live even for rejection probes. Save an inert
+    /// allocation identity while live when testing retirement or address reuse.
     #[doc(hidden)]
-    pub unsafe fn struct_layout_transport(&self, id: HeapObjectId) -> Option<StructLayoutRef> {
+    pub unsafe fn struct_layout_transport(&self, id: GcRef) -> Option<StructLayoutRef> {
         self.struct_layout(id)
     }
 
-    pub(crate) fn struct_layout(&self, id: HeapObjectId) -> Option<StructLayoutRef> {
+    pub(crate) fn struct_layout(&self, id: GcRef) -> Option<StructLayoutRef> {
         self.with_struct(id, |storage| storage.description.semantic.clone())
     }
 
-    pub(crate) fn struct_name(&self, id: HeapObjectId) -> Option<String> {
+    pub(crate) fn struct_name(&self, id: GcRef) -> Option<String> {
         self.with_struct(id, |storage| {
             let layout = &storage.description.semantic;
             layout
@@ -241,21 +231,17 @@ impl GcHeap {
     /// Keep source objects live through the read. Protect copied managed edges
     /// or identities before callbacks, collection or source mutation can remove
     /// their last traced owner. A returned snapshot is not a root.
-    /// With the current checked-ID representation, invalid-ID rejection probes
-    /// must remain non-dereferencing; replace them with inert identity or retained
-    /// wrapper checks before converting these paths to direct references.
+    /// Struct references must remain live even for rejection probes. Save an inert
+    /// allocation identity while live when testing retirement or address reuse.
     #[doc(hidden)]
     pub unsafe fn struct_snapshot_transport(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
     ) -> Option<(String, Vec<StructValueField>)> {
         self.struct_snapshot(id)
     }
 
-    pub(crate) fn struct_snapshot(
-        &self,
-        id: HeapObjectId,
-    ) -> Option<(String, Vec<StructValueField>)> {
+    pub(crate) fn struct_snapshot(&self, id: GcRef) -> Option<(String, Vec<StructValueField>)> {
         self.with_struct(id, |storage| {
             let layout = &storage.description.semantic;
             let fields = layout
@@ -288,13 +274,12 @@ impl GcHeap {
     /// Keep source objects live through the read. Protect copied managed edges
     /// or identities before callbacks, collection or source mutation can remove
     /// their last traced owner. A returned snapshot is not a root.
-    /// With the current checked-ID representation, invalid-ID rejection probes
-    /// must remain non-dereferencing; replace them with inert identity or retained
-    /// wrapper checks before converting these paths to direct references.
+    /// Struct references must remain live even for rejection probes. Save an inert
+    /// allocation identity while live when testing retirement or address reuse.
     #[doc(hidden)]
     pub unsafe fn struct_get_slot_transport(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         expected: &StructLayoutRef,
         slot: usize,
     ) -> Option<Value> {
@@ -303,7 +288,7 @@ impl GcHeap {
 
     pub(crate) fn struct_get_slot(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         expected: &StructLayoutRef,
         slot: usize,
     ) -> Option<Value> {
@@ -324,13 +309,12 @@ impl GcHeap {
     /// Keep the target and every managed input live through checked publication
     /// and commit. Preserve source protection across preparation; an unrooted copy
     /// cannot be used after callbacks or mutation remove its last traced owner.
-    /// With the current checked-ID representation, invalid-ID rejection probes
-    /// must remain non-dereferencing; replace them with inert identity or retained
-    /// wrapper checks before converting these paths to direct references.
+    /// Struct references must remain live even for rejection probes. Save an inert
+    /// allocation identity while live when testing retirement or address reuse.
     #[doc(hidden)]
     pub unsafe fn struct_set_slot_transport(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         expected: &StructLayoutRef,
         slot: usize,
         next_value: Value,
@@ -340,29 +324,12 @@ impl GcHeap {
 
     pub(crate) fn struct_set_slot(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         expected: &StructLayoutRef,
         slot: usize,
         next_value: Value,
     ) -> Result<(), RuntimeError> {
-        self.ensure_execution_allowed()?;
-        if !self.valid_payload(&next_value) {
-            return Err(field_error("invalid heap payload"));
-        }
-        let field = expected
-            .layout()
-            .fields
-            .get(slot)
-            .ok_or_else(|| field_error("invalid field slot"))?;
-        if !field.mutable
-            || !expected.field_type(slot).is_some_and(|(ty, environment)| {
-                matches_type_in(self, &next_value, ty, expected.module(), environment)
-            })
-        {
-            return Err(field_error(
-                "field is read-only or value has the wrong concrete type",
-            ));
-        }
+        self.admit_struct_write(expected, slot, &next_value)?;
         self.publish_value(next_value)?;
         self.with_struct_mut(id, |mut storage| {
             if !storage.description.semantic.matches(expected) {
@@ -377,6 +344,35 @@ impl GcHeap {
     }
 }
 
+impl GcHeap {
+    fn admit_struct_write(
+        &self,
+        expected: &StructLayoutRef,
+        slot: usize,
+        next_value: &Value,
+    ) -> Result<(), RuntimeError> {
+        self.ensure_execution_allowed()?;
+        if !self.valid_payload(next_value) {
+            return Err(field_error("invalid heap payload"));
+        }
+        let field = expected
+            .layout()
+            .fields
+            .get(slot)
+            .ok_or_else(|| field_error("invalid field slot"))?;
+        if !field.mutable
+            || !expected.field_type(slot).is_some_and(|(ty, environment)| {
+                matches_type_in(self, next_value, ty, expected.module(), environment)
+            })
+        {
+            return Err(field_error(
+                "field is read-only or value has the wrong concrete type",
+            ));
+        }
+        Ok(())
+    }
+}
+
 fn field_error(message: &'static str) -> RuntimeError {
     RuntimeError::new(RuntimeErrorKind::ScriptTrap, message)
 }
@@ -385,7 +381,7 @@ impl GcHeap {
     /// Read a checked scalar field without constructing a transport Value.
     pub(crate) fn struct_scalar(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         expected: &StructLayoutRef,
         slot: usize,
         ty: BuiltinType,
@@ -404,7 +400,29 @@ impl GcHeap {
     /// Preserve write admission and commit order while accepting scalar-bank bits.
     pub(crate) fn set_struct_scalar(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
+        expected: &StructLayoutRef,
+        slot: usize,
+        ty: BuiltinType,
+        bits: u64,
+    ) -> Result<(), RuntimeError> {
+        self.admit_struct_scalar_write(expected, slot, ty, bits)?;
+        self.with_struct_mut(id, |mut storage| {
+            if !storage.description.semantic.matches(expected) {
+                return Err(field_error("struct layout mismatch"));
+            }
+            storage.set_scalar(slot, ty, bits).ok_or_else(|| {
+                self.resources
+                    .quarantine("struct storage does not match its layout")
+            })
+        })
+        .ok_or_else(|| field_error("invalid heap target"))?
+    }
+}
+
+impl GcHeap {
+    fn admit_struct_scalar_write(
+        &self,
         expected: &StructLayoutRef,
         slot: usize,
         ty: BuiltinType,
@@ -424,16 +442,7 @@ impl GcHeap {
                 "field is read-only or value has the wrong concrete type",
             ));
         }
-        self.with_struct_mut(id, |mut storage| {
-            if !storage.description.semantic.matches(expected) {
-                return Err(field_error("struct layout mismatch"));
-            }
-            storage.set_scalar(slot, ty, bits).ok_or_else(|| {
-                self.resources
-                    .quarantine("struct storage does not match its layout")
-            })
-        })
-        .ok_or_else(|| field_error("invalid heap target"))?
+        Ok(())
     }
 }
 
@@ -462,7 +471,7 @@ mod tests {
                     .prepare_struct_storage(semantic, vec![Value::I32(1)])
                     .unwrap();
                 let _borrow = heap.objects.borrow();
-                assert!(heap.alloc_object(HeapObject::Struct { storage }).is_err());
+                assert!(heap.alloc_managed(HeapObject::Struct { storage }).is_err());
             } else {
                 assert!(
                     heap.prepare_struct_storage(semantic, vec![Value::Bool(false)])

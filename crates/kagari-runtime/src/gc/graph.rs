@@ -34,6 +34,7 @@ use crate::{
     gc::{
         HeapObjectId,
         graph::marks::{Color, MarkRef, WorkGroup},
+        reference::{GcRef, HeapObjectIdentity},
     },
     module::scanning::{ProgramScanId, StaticScanId},
     native::storage::scan::{ScanBudget, ScanStatus},
@@ -248,6 +249,7 @@ impl GraphState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum GraphIdentity {
     Object(HeapObjectId),
+    Struct(GcRef),
     Moved(HeapObjectId),
     Environment(EnvironmentId),
     Group(OperationGroupId),
@@ -258,6 +260,15 @@ pub(crate) enum GraphIdentity {
     InterfaceDescription(InterfaceDescriptionScanId),
     Program(ProgramScanId),
     Static(StaticScanId),
+}
+
+impl HeapObjectIdentity {
+    pub(crate) fn graph(self) -> GraphIdentity {
+        match self {
+            Self::Indexed(id) => GraphIdentity::Object(id),
+            Self::Struct(reference) => GraphIdentity::Struct(reference),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -387,7 +398,10 @@ impl GraphMarker<'_> {
             self.enqueue(id, mark);
         }
         self.credits += 1;
-        if !matches!(id, GraphIdentity::Object(_) | GraphIdentity::Moved(_)) {
+        if !matches!(
+            id,
+            GraphIdentity::Object(_) | GraphIdentity::Struct(_) | GraphIdentity::Moved(_)
+        ) {
             self.metadata_pressure += 1;
         }
         self.check_credits();

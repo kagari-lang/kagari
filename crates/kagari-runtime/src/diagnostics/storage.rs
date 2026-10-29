@@ -32,7 +32,9 @@ pub struct RetirementUsage {
 }
 
 /// Physical heap backing and side tables. Slab and large bytes are disjoint;
-/// initialized payload and Native payload bytes are subsets, not additional allocations.
+/// initialized payload, object headers and Native payload bytes are subsets, not
+/// additional allocations. Object headers are within the initialized payload area;
+/// page/large-control headers are separate from that area.
 /// Unused backing includes vacant slots, class rounding and page tails. Arc control
 /// records for allocation backing and representation descriptors are counted explicitly.
 /// Coallocated headers, slots, bitmaps and alignment padding are disjoint from the
@@ -65,7 +67,10 @@ pub struct StorageUsage {
     /// Registry occupancy/capacity; HashMap bucket/control overhead is not included.
     pub descriptor_registry_entries: usize,
     pub descriptor_registry_capacity: usize,
+    /// Complete occupied representations, including in-object headers.
     pub initialized_payload_bytes: usize,
+    /// In-object headers, already included in initialized_payload_bytes.
+    pub object_header_bytes: usize,
     pub unused_backing_bytes: usize,
     pub interface_snapshots: BufferUsage,
     pub distinct_struct_layouts: usize,

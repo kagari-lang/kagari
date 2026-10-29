@@ -56,8 +56,15 @@ platform CI remains unrun.
 
 Status: the user accepted the trial direction and started implementation on
 2026-10-28. Scoped host inspection is implemented in the first boundary checkpoint
-recorded below; raw-transport migration remains open. No direct-reference storage
-implementation or new performance acceptance is claimed.
+recorded below. Phase 1 boundary migration is locally complete. Phase 2 implements
+the struct header, direct transport and prepared field reads/writes, but its first
+seven-pair integrated storage comparison FAILED 9 of 29 timing gates. The user
+approved the revised struct integration order. Struct allocation, publication,
+marking and physical retirement now share direct identity without a legacy struct
+slot. The revised candidate passes 24/29 storage timings and 58/60 family-memory
+gates; live GC and two empty-heap metadata tails fail. Phase 2 is stopped for the
+collector/metadata ownership review below. Phase 3 has not begun; automatic/pressure
+and ordinary family timing remain unrun, and no overall acceptance is claimed.
 This section owns the proposed change to reference representation and the finite
 trial below; the remainder describes the implemented handle-based migration until
 replaced by a corresponding checkpoint. PG05/NC05 and PG06/NC06 remain open. Do not
@@ -66,8 +73,8 @@ trial as closure of the existing gates.
 
 ### Evidence, scope and reference implementations
 
-The current `Value` is public, Copy, and unrooted; managed variants carry
-`HeapObjectId { owner, slot, generation }`. A concrete scalar field operation in
+In the pre-trial baseline, `Value` was public, Copy, and unrooted; managed variants
+carried `HeapObjectId { owner, slot, generation }`. A concrete scalar field operation in
 `frame/cursor/objects.rs` obtains an admitted layout but still calls the heap with
 an object ID and field slot. Heap access resolves identity and physical storage.
 The earlier field-read regression was observed with automatic GC disabled; it
@@ -385,7 +392,7 @@ checkpoint is not automatically a completed phase.
 | Trial phase | Current status | Exit artifact |
 | --- | --- | --- |
 | 1. Close host/backend value boundaries | Locally complete | One safe retained/scoped public boundary, with all raw consumers classified and migrated |
-| 2. Prove an integrated struct path | Not started | Working direct-reference struct graph with correctness and bounded performance evidence |
+| 2. Prove an integrated struct path | Stopped: physical graph integrated; live GC and metadata tails fail | Working direct-reference struct graph with correctness and bounded performance evidence |
 | 3. Migrate the complete runtime graph | Not started | All managed values use the selected representation; temporary bridges removed |
 | 4. Joint acceptance and cleanup | Not started | Required local gates and designated CI pass, final contracts documented |
 
@@ -2647,6 +2654,579 @@ Full-workspace tests and the complete feature/backend/platform matrix remain CI-
 Documentation-only work needs content/link/diff checks, not Rust builds.
 
 ## Progress and error ledger
+
+### Phase 2 revised gates: field path recovered, collector and metadata blocked (2026-10-28)
+
+**Decision/status:** candidate `b289797a087fef98b39abbc896f307269ca5e06a`
+(tree `15a25ff98f4f8e6a6caaaa6e6f1eca38265c19d5`) fails the frozen phase-2
+acceptance boundary: **24/29 storage timing gates pass; 5 fail**, all live GC.
+Separate family-memory pairing passes **58/60** gates, with two release-tail
+failures. Do not enter phase 3 or repeatedly time this unchanged candidate.
+The user authorized stopping to discuss blockers; the concrete next model below is
+recorded for that discussion, not implemented or accepted.
+
+**Measurement boundary/provenance:** Apple M1 Max, 32 GiB, macOS 26.6.2 (25G83),
+arm64; rustc 1.99.1 (`58cf8f9c3`, LLVM 23.1.1), Cargo 1.99.1. Workspace release,
+default Cargo parallelism; no build/probe overlapped paired measurement. Ordinary
+and diagnostic images were built separately with `cargo build --release --locked
+-p kagari-lua-benchmark --example runtime_storage` and the same command plus
+`--features diagnostics`. Compilation/setup is separate from execution. Normal OS
+cache and unchanged workload warmups apply. Baseline source remains
+`725a4fb5a4900c79160d8e7b551e0dd8b4d27048`, which already contains the preceding
+paged/incremental collector. The ordinary candidate SHA-256 is
+`ed7e990eef0f25ffef76de6a9b85de5733dfe8f039462e43257341b7ac94a999`;
+diagnostic SHA-256 is
+`867245cf9ecf548e5741b17fc779b1980259cf07350707d076c4a500b841b26f`.
+
+Run seven process pairs per mode, B/C on odd pairs and C/B on even pairs. Ordinary
+no-argument `runtime_storage` retains three warmups and eleven samples per row.
+Acceptance uses median paired C/bound(B), not ratios of aggregate medians. The
+following B/C columns are process-median medians; pair ratios/ranges are independent.
+
+| Row | Baseline (us) | Candidate (us) | Median paired C/B | Pair-ratio range | C/bound(B) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| execute/read_fields | 2658.334 | 1909.542 | 0.718117 | 0.712074–0.741410 | 0.652833 |
+| execute/write_fields | 2995.042 | 2190.583 | 0.729455 | 0.724044–0.740868 | 0.663141 |
+| execute/fields | 6367.750 | 4733.583 | 0.743480 | 0.732025–0.766330 | 0.675891 |
+| execute/float_fields | 6427.000 | 4870.625 | 0.758155 | 0.705344–0.764330 | 0.689232 |
+| construct/points | 723.084 | 744.625 | 1.029790 | 1.021364–1.068858 | 0.936173 |
+| live_gc/points | 55.292 | 103.875 | 1.874141 | 1.832399–1.924312 | 1.561784 |
+| live_gc/nodes | 139.375 | 216.625 | 1.551417 | 1.540642–1.559943 | 1.292847 |
+| live_gc/interfaces | 130.250 | 184.709 | 1.437205 | 1.394065–1.457601 | 1.197671 |
+| live_gc/wide_interfaces | 129.250 | 184.791 | 1.439799 | 1.413315–1.470264 | 1.199832 |
+| live_gc/generic_interfaces | 128.291 | 184.958 | 1.441910 | 1.409204–1.482129 | 1.201591 |
+
+Scalar control C/B is 0.9962; traversal and revision/numeric-buffer controls pass.
+All construction and release-GC rows pass. This establishes the field-path recovery
+for this workload; it does not establish full GC acceptance or explain the whole
+before/after difference with one operation.
+
+**Complete-memory boundary:** diagnostic no-argument and `--families` modes each
+ran seven alternating pairs. Family mode checks three complete lifecycles per
+process, maxima for peaks, 39 backing rows and 21 peak metrics. All repeated backing,
+zero-net Runtime teardowns and six Native size/alignment assertions pass. The
+no-argument mode also retains its equal-cycle/reuse/zero-teardown assertions; its
+single warmed lifecycle rows are supplementary, not substitutes for family maxima.
+
+| Selected metric (bytes) | Baseline | Candidate | Median C/bound(B) | Result |
+| --- | ---: | ---: | ---: | --- |
+| references_8192/live_gc/backing | 486928 | 308480 | 0.575930 | pass |
+| references_8192/post_setup_peak_delta_bytes | 489200 | 310752 | 0.577477 | pass |
+| mixed_native_128x6/live_gc/backing | 531160 | 531160 | 0.909091 | pass |
+| sparse_types_32x4/release_gc/backing | 60936 | 70856 | 1.057085 | FAIL |
+| sparse_cycles_4096_keep64/release_gc/backing | 149008 | 186104 | 1.135412 | FAIL |
+
+The reference-heavy live backing delta is 36.7% lower; all 21 peak metrics pass.
+Both failed release phases have zero payload slab/large bytes, so these failures
+are retained metadata rather than live payload leakage. Sparse types retain 32
+prepared representation descriptors (2304 descriptor bytes versus zero baseline),
+while the indexed directory falls from 257 to 129 entries. Sparse cycles reduce
+indexed-directory entries 8322→4162 but raise graph work credits 68→226 and pending
+capacity 128→256 (32 bytes/entry). Physical mark-block high-water storage and
+prepared layout retention remain relevant costs. These observations identify
+lifetime owners; they do not yet fully reconcile every residual allocator byte.
+
+**Renewed architecture diagnosis:** the old checked object accessor boundary is
+still repeated inside one collector operation. For an edge, `with_edge_mark`
+validates the struct and then resolves its physical location again for its mark.
+Gray dequeue constructs the direct identity through Pages; begin-scan,
+internal/provider classification, field scan and finish-mark each independently
+resolve it again. `identity_ref` resolves location and then accesses the same
+payload once more. Even a scalar-only Point traverses this complete gray-owner
+protocol despite its empty reference map. This is repeated preparation at the
+collector/storage boundary, not evidence that direct field loads regressed.
+
+A separate, disposable diagnostic harness retained the unchanged 512-Point workload
+and performed 300000 completed full collections after setup. `/usr/bin/sample PID
+8 1 -file ...` sampled only that loop (6423 main-thread samples): `Pages::get` was
+top of stack in 1563 samples (24.3%), `Pages::struct_location` in 575 (9.0%); the
+collector graph-scan subtree accounted for 5761 (89.7%). Samples also include
+provider-edge mutex work, so lookup removal is not a promise to erase the full
+87% regression. This is one candidate-only repeated-collection profile, not a
+paired speed estimate or the one-shot frozen lifecycle. The probe only added a
+branch after harness setup, changed no GC code, and was removed; tracked source
+and the saved ordinary executable were restored and the worktree checked clean.
+
+**Concrete next model, still phase 2:** make one validated physical struct view the
+short-lived owner of an uninterrupted collector slice. Resolve ownership,
+occupancy, descriptor and mark once at admission/resume; use that same storage
+borrow for exact reference-map scanning and completion. Persist only the traced
+identity and numeric progress across yields, never a payload loan or unvalidated
+host pointer. Merge the repeated generic accessor/classification paths into this
+owner instead of introducing a lookup cache or second collector. For descriptors
+with no managed edges, mark black directly under the same budget/epoch/fault rules
+rather than enqueue an empty scan. Go 1.26.0
+[`greyobject`](https://github.com/golang/go/blob/go1.26.0/src/runtime/mgcmark.go)
+uses known span/index mark ownership and a noscan black path; Kagari must retain
+its own single-driver budgets, precise roots, candidate isolation and reentry rules,
+not copy Go's concurrent heap ownership or treat Native providers as noscan.
+
+Separately, align metadata retention with its actual lifetime: distinguish active
+physical-page mark capacity from retired-page history and retire its work credits
+only after no pending/active scan can name that page; preserve NativeTake's independent
+inert-ID lifetime. Prepared executable fields must retain exact descriptor identity
+against reuse, but need not indefinitely pin all retired payload scan/layout backing.
+Review that identity-versus-payload-metadata boundary before changing retention;
+never drop the current Arc guard without replacing its ABA/lifetime guarantee.
+Include both retained backing and queue/mark capacity in the next accounting proof.
+
+Next acceptance must keep the existing root/cycle/foreign-owner/reload/unwind/Miri
+contracts, add only uncovered idle-page/credit-reuse coverage, preserve 1024 work and
+32 detached owners, and rerun the unchanged frozen paired gates on a new coherent
+candidate. Ordinary family timing and automatic/pressure/normal-step latency were
+not run after the failed storage gate; no pass is claimed for them. Exhaustive CI
+also remains pending. Raw temporary artifacts are disposable; all decisions,
+methods, failed metrics and limitations needed to resume are recorded here.
+
+### Phase 2 physical struct graph integration (2026-10-28)
+
+Structs now allocate without `ObjectSlot` generation records and without the small
+slab's duplicate per-slot directory/descriptor trailer. The immutable 8-byte header
+owns descriptor dispatch and physical allocation location; occupancy bits prove
+initialization before its header is read. Indexed and struct slabs share the same
+allocator, geometry classes, sweep and disposal owner but use separate allocation
+groups because only indexed payloads need the trailer. Different nominal struct
+descriptors still share a compatible size/scan group. Large structs keep the common
+large-allocation control; its directory sentinel is not a usable heap identity.
+Indexed allocation rejects the reserved sentinel, and Pages rejects mismatched
+indexed/direct descriptor admission.
+
+The existing GraphState adds a struct identity domain. Pages owns reusable physical
+mark blocks indexed by allocation/slot, retaining registration/work capacity across
+empty-page release. A pending gray struct cannot be swept or taken; sweep starts
+only after gray work closes, and new sweep allocations are black. Remaining
+NativeTake/indexed families retain their original directory and moved-identity
+marks. No second collector, pointer-to-ID registry or per-object mark record is
+introduced. Mark storage is prepared before publishing physical allocations;
+nonstruct allocations do not allocate struct marks. Physical-index high-water
+capacity is retained and must be counted in complete allocator measurements.
+
+Publication, graph cursors, root enumeration, async retention and conversion cycle
+checks carry a mixed `HeapObjectIdentity` directly. Collector validation checks
+ownership/representation without importing candidate-initialization read policy;
+script reads and candidate boundary admission keep that policy at their owners.
+Initialization ownership and retirement bookkeeping now accept direct struct
+identity. Bounded retirement still validates all fragments/accounting before any
+mutation, preserves the 32-owner bound and prepays disposal/finish work. Tests use
+saved physical locations to inspect occupancy after reclamation, never expired
+GcRef dereferences. The heterogeneous fragment fixture now mixes two same-sized
+nominal struct descriptors, preserving the same exact work/fragment assertions.
+
+Unpublished unsafe backend API change: `trace_roots_transport` returns mixed
+identities and `object_kind_transport` accepts them. Safe rooted Object/field APIs
+are unchanged. Struct diagnostic previews now use opaque `Struct@0x...` identity
+rather than deleted directory ordinals; preview tests still require no user Debug
+call, stable error trace and retention across GC. Pointer text is diagnostic only,
+not portable identity or retention authority.
+
+Local validation passed: 63 distinct focused cases (42 directory/physical storage,
+17 publication/provenance/sparse discovery/field/ownership/root-cycle/reload cases,
+one candidate host-result boundary, one diagnostic-preview case and two DTO/Serde
+snapshot reentry/unwind cases). The 18 physical retirement contracts also passed
+with `execution-diagnostics`, including zero retirement allocations. Both packed
+pointer/collection/page-reuse and header/failed-initialization/detached-teardown cases
+passed Miri 2026-07-27 with `MIRIFLAGS='-Zmiri-strict-provenance'` and default alias
+checks. These source-free kernel fixtures do not resolve the separate Rowan issue.
+
+Reproduce the selected groups with `cargo test -p kagari-runtime --lib
+gc::directory::`, the focused filters recorded in the preceding direct-transport
+checkpoint, `cargo test -p kagari-runtime --lib --features execution-diagnostics
+gc::directory::retirement::`, `cargo test -p kagari-runtime --lib
+candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocations`,
+`cargo test -p kagari --lib
+diagnostic_previews_do_not_call_user_debug_and_cannot_turn_err_into_a_trap`, and
+`cargo test -p kagari-runtime --test native_schema --features serde snapshot_survives`.
+Miri uses the normal lib filters
+`packed_direct_struct_edges_preserve_provenance_and_collection_lifetimes` and
+`struct_header_survives_failed_initialization_and_detached_owner_teardown`.
+Structure (1840 files, zero findings), formatting, workspace all-target Clippy with
+warnings denied and diff checks passed. Initial test/API migration compile errors
+and an unused import were repaired; no build failure is carried at this checkpoint.
+
+No performance claim or phase-2 acceptance yet. The previous failed candidate
+remains evidence. The revised frozen seven-pair storage, family, automatic/pressure
+and separate diagnostic-memory gates are next. Exhaustive workspace/backend/platform
+CI remains unrun. Phase 3 remains closed.
+
+### Phase 2 revised struct integration authorized (2026-10-28)
+
+The first checkpoint separates the closed-frame struct copy proof from checked
+external/produced-value writes. Idle copies perform no reverse-ID resolution;
+active publication and graph fault/poison remain on the existing owner. Checked
+publication and collector edge admission now reuse the identity returned by their
+validation instead of resolving it twice. NativeTake aliases retain full checking.
+The active-cycle physical bridge remains explicitly pending the next checkpoint.
+No timing was run and no phase-2 acceptance is claimed.
+
+Local validation: nine cases passed via `cargo test -p kagari-runtime --lib
+gc::publication::tests::`, `cargo test -p kagari-runtime --lib
+closed_write_regions_revalidate_after_cancellation_or_graph_fault` and
+`cargo test -p kagari-vm --lib scalar_field`. The publication tests include a new
+struct-specific active-cycle and fault/poison contract; existing checked NativeTake,
+foreign-owner and all-or-nothing root admission remain covered. Structure (1840
+files, zero findings), formatting, workspace all-target Clippy with warnings denied
+and diff checks passed. Exhaustive CI remains unrun. This step adds no raw pointer
+dereference; strict-provenance lifetime tests remain required at the physical owner
+checkpoint.
+
+Physical-owner review additionally consulted Go 1.26.0
+[mbitmap.go](https://github.com/golang/go/blob/go1.26.0/src/runtime/mbitmap.go)
+(`objIndex`, `markBitsForAddr`) and
+[mgcmark.go](https://github.com/golang/go/blob/go1.26.0/src/runtime/mgcmark.go)
+(`greyobject`): resolve an admitted object to its allocation owner/index and use
+that owner's mark bits. Kagari retains its single-driver epoch/gray-work protocol,
+compact allocation ID and existing page sweep instead of Go's concurrent spans or
+arena map. Struct page mark work cannot outlive its payload allocation; reusable
+page-index mark blocks stay owned by Pages and must preserve registered work credits
+across empty-page release. Remaining takeable ID families retain directory-owned
+marks until their separate migration, within the same GraphState driver.
+
+The user accepted moving the complete struct publication/marking/reclamation slice
+and removal of its old identity metadata into phase 2, then instructed execution.
+The failed candidate and frozen gates remain unchanged evidence. Phase 3 stays
+closed until the revised struct slice passes. This resumes implementation, not
+acceptance or repeated timing of the rejected candidate.
+
+Implementation checkpoints follow the existing semantic owners: first distinguish
+admitted closed-frame struct copies from external admission and remove duplicate
+resolution in checked publication; then move struct tracing/mark/sweep ownership
+to the physical allocation and remove its legacy identity records. Finally run
+focused boundary/Miri checks and the frozen integrated measurements. No compiler
+Move elimination, extra object cache, new collector or other-family transport
+migration is included.
+
+The closed-copy proof is struct-specific: a retained struct cannot be taken or
+invalidated during a callback-free region. NativeTake aliases keep checked admission.
+Graph fault/poison and active-cycle publication remain mandatory. Physical mark
+integration must preserve pending-work/page-retirement lifetime and existing budget
+charges; do not make NativeTake's physical pages the lifetime of its inert IDs.
+
+### Phase 2 architecture stop: field access is direct, publication is not (2026-10-28)
+
+**Decision/status:** stop expansion after the first frozen seven-pair storage mode
+failed 9 of 29 timing gates. Candidate implementation `8479746c956c01340177e1cf2456a65c69d5d1bd`
+remains a correctness-checked development checkpoint, not an accepted performance
+replacement. Do not begin phase 3 or rerun unchanged timings until green. The user
+explicitly allowed stopping for discussion on a blocker. The revised finite scope
+proposed below is recorded for that discussion, not marked implemented or accepted.
+
+**Method and immutable inputs:** baseline `725a4fb5a4900c79160d8e7b551e0dd8b4d27048`,
+candidate source tree `4ab6201eb4bdb143e1cbeac745e48dd4aff90c83`; clean source at build.
+Apple M1 Max, 32 GiB, macOS 26.6.2 (25G83), aarch64; rustc 1.99.1
+(58cf8f9c3, LLVM 23.1.1), Cargo 1.99.1. Workspace release profile, package defaults,
+default build parallelism, normal OS cache, serial processes with no concurrent
+builds/probes. Build `cargo build --release --locked -p kagari-lua-benchmark --example
+runtime_storage`, adding `--features diagnostics` only for allocation observations.
+Ordinary SHA-256: baseline `a0a4b085751d8c04c9a3c98f923c6f20e94e4a1cf9a20a9b64d2e95e25e9168c`,
+candidate `bf796da5ad076e13bc856e1ede2666f3ebbda1b2915b58f2cd649a55364d978c`.
+Diagnostic candidate SHA-256 `b0fda9e80c580fdced10df6efef13d9932bdebf289be55582096e2b73241499e`.
+Cargo.lock SHA-256 `220aa5888cf294b291a8216f8400948bb16b8c29873f952ebda6ecd7761d4ad2`.
+
+Run the unchanged no-argument workload in exactly seven B/C pairs, B,C on odd pairs,
+C,B on even pairs. All 14 processes completed their semantic assertions; every one
+of the 29 timing rows retained three warmups and eleven raw samples, with checked
+sample medians/minima/maxima. Compile/prepare/link are separate and excluded from
+these execution/lifecycle rows. The table shows all failures plus the scalar
+control. B/C columns are medians of process medians, whereas ratios are medians of
+paired ratios. Acceptance uses C/bound(B), including max(1.20 B, B+10 us) for GC;
+raw GC ratios alone are not the gate. The other 19 rows passed this comparison.
+
+| Row | Baseline median (us) | Candidate median (us) | Median paired C/B | Pair-ratio range | Median C/bound(B) |
+| --- | ---: | ---: | ---: | --- | ---: |
+| execute/scalar | 535.500 | 549.583 | 1.011628 | 0.974151–1.082945 | 0.919662 |
+| execute/read_fields | 2672.042 | 4093.250 | 1.523838 | 1.494079–1.570039 | 1.385307 |
+| execute/write_fields | 3007.042 | 4426.208 | 1.465192 | 1.420235–1.516350 | 1.331992 |
+| execute/fields | 6392.542 | 8929.750 | 1.396901 | 1.358299–1.444766 | 1.269910 |
+| execute/float_fields | 6385.083 | 8832.958 | 1.385524 | 1.342535–1.405543 | 1.259567 |
+| execute/traverse | 461.000 | 567.750 | 1.229643 | 1.203207–1.262950 | 1.117857 |
+| execute/traverse_pairs | 460.625 | 569.125 | 1.234035 | 1.198531–1.266395 | 1.121850 |
+| construct/points | 720.125 | 825.500 | 1.132964 | 1.114331–1.154025 | 1.029967 |
+| live_gc/points | 54.834 | 75.208 | 1.360258 | 1.264197–1.392221 | 1.133548 |
+| live_gc/nodes | 140.083 | 177.500 | 1.270281 | 1.242985–1.276316 | 1.058567 |
+
+Numeric-buffer and revision-growth/iterator/callback controls had paired ratios
+1.017845, 1.013320, 1.006649 and 1.040588 respectively (all below 1.05).
+This combined-snapshot comparison does not erase the earlier PG00/PG05 failures.
+The `--families` run was stopped after two completed pairs and a partial third
+baseline; none of those partial-mode timings is acceptance evidence. Automatic,
+pressure and seven-pair diagnostic modes were not completed. No latency or full
+matrix pass is inferred. The planned stop condition supersedes finishing a failed
+candidate's remaining performance matrix.
+
+**Diagnosis, with scope of evidence:** a disposable non-timing assertion probe
+replaced the prepared read fallback with an exact-header-ID assertion. The complete
+no-argument workload passed: repeated prepared reads did not miss their descriptor
+and fall back. A separate disposable bytecode dump confirmed the hot loops:
+
+```text
+read_fields, each iteration:
+  Move receiver_temp <- p
+  ReadAggregateField result <- receiver_temp.y
+write_fields, each iteration:
+  Move receiver_temp <- p
+  WriteAggregateField receiver_temp.x <- i
+```
+
+`frame/cursor/kernel.rs` implements Move through `OperandWindow::write_location`.
+`frame/values/operands.rs` publishes every managed destination through
+`gc/graph/owners.rs::publish_value`. That owner first calls `validate_heap_value`
+and then `value_identity`; both resolve a struct pointer through the physical
+allocation and old directory identity. Thus each receiver Move still performs
+**two reverse-identity resolutions**, even though the actual prepared field load
+uses no directory. Reference construction/tracing also use this bridge. The
+observed repeated path is established by code and actual bytecode; its exact share
+of the measured slowdown has not been isolated with a CPU profile. Do not claim
+that all 52% is quantitatively attributed or that Go-style references themselves
+are disproven. Both diagnostic source edits were restored; neither probe's timings
+is included in the seven-pair report.
+
+**Complete-cost evidence, descriptive rather than paired acceptance:** one run of
+the preserved candidate diagnostic binary in each existing mode completed, including
+zero-net Runtime teardown and repeated backing checks. The family summarizer
+validated all three repetitions and full phase/peak coverage. Against the preserved
+baseline diagnostic snapshot, references_8192 live backing delta rises from
+486,928 to 560,144 B (+73,216 B, about 15%). Initialized header bytes are 65,536 B
+(8,192 x 8); payload slabs rise 66,560 -> 132,096 B. The old 65,560 B of slot
+metadata remains, while page-directory bytes rise 2,048 -> 4,096 and page metadata
+2,600 -> 5,160. The requested post-setup peak delta rises 489,200 -> 562,416 B.
+This is concrete duplicated-metadata cost, not just nominal header arithmetic.
+Mixed-Native live backing remains 531,160 B, and the existing six alignment/size
+classes pass their assertions. Sparse-type post-release backing rises
+60,936 -> 72,200 B, consistent with newly retained preparation facts also needing
+accounting. These single-process observations cannot satisfy seven-pair memory
+acceptance or substitute for the unrun automatic/pressure scenarios.
+
+**One proposed revised integration model before another candidate experiment:**
+complete the struct slice through its existing frame/root publication and physical
+mark/sweep owner in phase 2, rather than leave those hot bridges and duplicated
+struct identity records for phase 3. Keep the selected nonmoving pages, compact
+header, exact host roots and one incremental driver. Apply the already-reviewed
+Go 1.26 typed-reference/liveness boundary, not its concurrent barrier algorithm.
+
+1. Separate checked external admission from publication of a live struct reference
+   already admitted by the closed execution owner. Preserve cancellation/quarantine,
+   marking and edge-publication order. Do not skip checks for arbitrary raw values
+   or remaining NativeTake/ID families: a rooted moved Native is not a valid value.
+2. Give struct publication/tracing one physical-owner resolution and the original
+   mark owner, eliminating the repeated pointer-to-ID validation/lookup chain.
+   Remove superseded struct directory/slot identity metadata as part of this same
+   slice. Keep other families on their current checked path until their own phase;
+   do not add per-object caches, a second graph or an unchecked general fast path.
+3. Revalidate active-cycle roots, aliases, moved-Native rejection, collecting reentry,
+   traps/cancellation, retained reload and strict-provenance reuse/disposal. Then
+   run the complete unchanged seven-pair matrix with all total-memory gates.
+   No unmeasured speedup or memory saving is promised. Reconsider the 8-byte header
+   only from complete ownership costs if the coherent slice still misses its gates.
+
+The defect in the current staging is that the field-access change was isolated
+from the interpreter's per-iteration managed publication costs, while new headers
+were added before old struct identity metadata could be removed. This requires a
+cohesive owner-boundary correction, not speculative compiler Move elimination,
+more field caches, relaxed thresholds or unrestricted continuation into phase 3.
+
+### Phase 2 prepared direct struct fields (2026-10-28)
+
+The interpreter now retains physical field operands in its existing runtime-local
+LinkedFunction, with fresh preparation cells for each exact generic EnvironmentId.
+At the original instruction, outside operand-bank loans, the semantic layout admits
+one retained canonical storage descriptor and field offset. No per-object cache or
+second root registry is introduced. Retaining the descriptor prevents its header ID
+from recycling while an operand can use it. This extends the phase-2 Go-style typed
+layout/reference model already sourced above; it does not import concurrent GC.
+
+Subsequent admitted reads and writes compare the live header's descriptor ID and
+use the prepared offset directly, without resolving object IDs, pages or slots.
+The closed cursor proves same-runtime ownership and receiver/input liveness; the
+internal unsafe kernel is not an unchecked host entrypoint. A different descriptor
+uses the original nominal/reload compatibility path before accessing payload bytes.
+Scalar domain, readonly/type admission, publication barriers and storage-loan
+exclusion remain at their existing owners. The first execution retains the checked
+field path after preparation. Host reference fields retain their scoped owner.
+The obsolete ready-layout lookup was removed instead of kept as a second cache.
+
+Declared struct fields now encode one pointer-width GcRef, including unaligned
+packed offsets; their exact type supplies the representation. The temporary tagged
+struct arm was removed from the 13-byte codec. Remaining ID-based families keep
+that codec until phase 3. Shared field codecs serve checked and prepared access.
+The collector, native loans, reflection and first/cross-generation field accesses
+still use the explicitly tracked ID bridge; no whole-runtime direct-reference
+claim is made.
+
+Local validation passed: 10 selected behavior cases covering packed direct
+read/write/replacement and collection, checked scalar boundaries and failed writes,
+nominal/generic reload, source-free artifact rejection, scoped barrier retention,
+collecting serialization callbacks and mixed native cycles. Existing scalar tests
+now repeat the same field sites so both preparation and reuse execute. The packed
+source-free kernel passed Miri with strict provenance, including unaligned references,
+readonly rejection and a mismatched receiver smaller than the expected payload.
+
+```text
+cargo test -p kagari-runtime --lib packed_direct_struct_edges_preserve_provenance_and_collection_lifetimes
+cargo test -p kagari-vm --lib scalar_field
+cargo test -p kagari-vm --lib shared_aggregate_fields_retain_the_callers_nominal_generation
+cargo test -p kagari-vm --lib aggregate_field_instructions_reject_a_different_nominal_receiver
+cargo test -p kagari-runtime --lib scoped_field_read_survives_removal_before_parent_scan
+cargo test -p kagari-runtime --test native_schema --features serde snapshot_survives
+cargo test -p kagari-vm --lib root_scanning_
+MIRIFLAGS='-Zmiri-strict-provenance' cargo +nightly-2026-07-27 miri test -p kagari-runtime --lib packed_direct_struct_edges_preserve_provenance_and_collection_lifetimes
+uv run --locked scripts/check_structure.py
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+git diff --check
+```
+
+Structure validation reports 1840 files and no violations. Handwritten imports,
+visibility, descriptor ownership and internal unsafe call proofs were reviewed.
+The full feature/backend/platform matrix remains CI-only and unrun. Phase 2 remains
+open for the frozen integrated measurement/architecture decision; phase 3 has not
+started. No performance improvement is asserted by this implementation checkpoint.
+
+**Pre-measurement harness clarification:** inspection of the unchanged diagnostic
+no-argument binary shows one measured fresh lifecycle after warmup, followed by
+three checked reuse cycles, not three fresh measured lifecycles. The earlier
+freeze text described family-mode repetition as applying to both modes. Preserve
+both frozen binaries/workloads and all seven process pairs; report no-argument
+samples as actually emitted. Three-lifecycle maxima apply to `--families`, which
+also supplies independently reset post-setup peaks. Do not pretend no-argument
+peak counters establish the family-mode post-setup measurement contract.
+
+### Phase 2 direct struct transport and graph bridge (2026-10-28)
+
+Struct Value transport now carries opaque GcRef rather than HeapObjectId. Its
+only constructor is runtime-private and unsafe; copying, hashing or formatting
+the carrier never dereferences or retains it. Rooted/scoped APIs established in
+phase 1 remain the safe host boundary. Frame banks and traced Native/aggregate
+edges carry the same Value, so struct references reach the existing collector
+without a parallel graph or per-edge owning root. Packed fields copy GcRef with
+typed unaligned pointer operations, preserving provenance rather than rebuilding
+pointers from integer bytes. The current mixed-format field remains 13 bytes;
+remaining checked-ID families still need their tag and full identity.
+
+The temporary collector/dynamic-admission bridge reads the live header, resolves
+its physical allocation, checks the original base/stride/occupancy, then obtains
+the existing inert directory identity. A foreign live pointer cannot acquire a
+local identity through coincident descriptor/page IDs. Only scalars bypass heap
+admission; an invalid struct reference cannot be mistaken for a scalar. This
+bridge remains in cold field access for now: prepared direct field offsets are
+next, and no throughput result is claimed. Descriptor and slot duplication still
+have the phase-3 removal checkpoint recorded above.
+
+Retirement tests now save inert identities before reclamation instead of reading
+freed struct pointers. Wrong-tag checks use remaining checked-ID variants; a safe
+host cannot fabricate GcRef from an arbitrary ID. Native/struct identity assertions
+use language identity rather than private allocation ordinals. The 12/42-slot and
+heterogeneous-page fixtures adjust scalar payload size for the new header while
+preserving their exact batching, work, no-allocation, rollback and release assertions.
+Root traversal still checks the complete reachable graph, including cyclic aliases.
+
+Selected local evidence: 29 distinct behavioral cases passed across packed pointer
+replacement/collection, 18 physical retirement contracts, sparse page release,
+VM root scanning/cycles, DTO/Serde snapshot reentry/unwind, publication before
+parent-edge removal, retained nominal reload, wrong-tag/foreign-runtime rejection
+and internal-fault classification. Reproduction filters:
+
+```sh
+cargo test -p kagari-runtime --lib packed_direct_struct_edges_preserve_provenance_and_collection_lifetimes
+cargo test -p kagari-runtime --lib gc::directory::retirement::
+cargo test -p kagari-runtime --lib inline_struct_bytes_do_not_move_and_release_the_last_sparse_page
+cargo test -p kagari-vm --lib root_scanning_
+cargo test -p kagari-runtime --test native_schema --features serde snapshot_survives
+cargo test -p kagari-runtime --lib scoped_field_read_survives_removal_before_parent_scan
+cargo test -p kagari-vm --lib shared_aggregate_fields_retain_the_callers_nominal_generation
+cargo test -p kagari-runtime --lib replacement_errors_preserve_targets_and_internal_fault_categories
+cargo test -p kagari-runtime --lib foreign_handles_and_wrong_value_tags_are_rejected_before_mutation_or_accounting
+cargo test -p kagari-runtime --lib identity_comparison_rejects_foreign_stale_and_disguised_handles
+```
+
+Both the packed direct-edge case and the extended foreign-runtime case passed
+Miri 2026-07-27 with `MIRIFLAGS='-Zmiri-strict-provenance'` and otherwise the same
+package/lib/filter arguments. This validates source-free admitted layouts, unaligned
+pointer copies, collection, replacement and live foreign-owner rejection under
+strict provenance and Stacked Borrows. The new fixture errors were repaired using
+two nominal declarations in one normally validated source-free program; no input
+validation or behavioral assertion was disabled.
+
+**Separate unresolved compiler-side Miri finding:** an initial source-built version
+of the packed-edge fixture stopped before heap operations: default isolation rejected
+SourceDatabase's getcwd; permitting environment access then reported a Stacked Borrows
+retag violation in rowan 0.17.0 `src/arc.rs:264`, reached from Parser::bump while
+creating a token. This is a potential dependency/alias-model issue, not evidence
+against or for the GC kernel. The final kernel fixture avoids the compiler entirely,
+retains strict provenance and default isolation, and passes. Source compilation
+under Miri is not accepted by these results. The syntax/dependency owner must assess
+that diagnostic separately; do not change Rowan, switch alias models or disable
+pointer checks as part of the GC trial merely to get a passing transcript.
+
+Structure (1838 Rust files, zero violations/exceptions), formatting, workspace
+all-target Clippy and diff checks passed. Macro/trait visibility, pointer construction,
+Send/Sync transport obligations, root publication and source-free carriers were
+reviewed manually. No carried runtime build/test error, performance measurement
+or CI matrix success is claimed. Phase 2 remains open for direct prepared loads,
+its final kernel checks and the frozen integrated comparison.
+
+
+### Phase 2 struct header kernel checkpoint (2026-10-28)
+
+Actual struct allocations now reserve an aligned 8-byte ObjectHeader before their
+packed fields. The header stores the existing nonzero descriptor ID and physical
+page/large-allocation ID. Struct payload offsets remain relative to the packed
+payload for now; prepared direct offsets are the next integration step. Other
+object families, including Native alignment/layout, retain their current storage.
+No direct GcRef or field-load speedup is implemented in this checkpoint.
+
+The existing physical allocator owns reservation and rollback. Only successful,
+complete payload initialization publishes the header and occupancy; partial encoded
+fields contain no Rust Drop owners and are discarded on error/unwind. Header size
+and Layout/isize bounds are checked before allocation. Descriptor and allocation
+ID limits/reuse remain with the existing directories. Detached single/range tokens
+retain descriptor/backing until disposal and finish; headers cannot authorize
+access after that lifetime. The new lifecycle case includes zero fields, an ordinary
+small payload and a 1,032-byte payload crossing into the large path.
+
+The current checked-ID bridge validates the live header against its slot metadata
+before lending the payload. This duplicate identification is a temporary migration
+bridge, not a retained lookup cache or final field-read path: phase 2 replaces the
+admitted field path, and phase 3 removes obsolete identity/slot descriptor duplication.
+Header bytes participate in size-class selection, resource preflight and complete
+backing accounting. Diagnostics expose object_header_bytes as a subset of occupied
+representation bytes; they must not be added again to requested backing totals.
+The two-i32 Point's occupied representation is now 16 bytes rather than 8; no
+memory saving is claimed before the complete integrated comparison.
+
+Kernel guidance also follows Rust 1.99.1's
+[pointer provenance](https://doc.rust-lang.org/std/ptr/index.html#provenance) and
+[unaligned access](https://doc.rust-lang.org/std/ptr/fn.read_unaligned.html) contracts:
+retain allocation-derived pointers, never reconstruct a usable pointer from a bare
+address, and do not create aligned Rust references to packed fields. This checkpoint
+only reads/writes the aligned Copy header through allocation-derived pointers;
+the pending managed field codec must preserve pointer provenance through storage.
+
+Selected local validation passed:
+
+```sh
+cargo test -p kagari-runtime --lib struct_header_survives_failed_initialization_and_detached_owner_teardown
+cargo test -p kagari-runtime --lib inline_struct_bytes_do_not_move_and_release_the_last_sparse_page
+cargo test -p kagari-runtime --lib inline_native_small_large_overaligned_and_zero_sized_lifecycles
+cargo test -p kagari-vm --lib scalar_fields_transfer_all_checked_integer_domains
+cargo test -p kagari-vm --lib shared_aggregate_fields_retain_the_callers_nominal_generation
+cargo +nightly-2026-07-27 miri test -p kagari-runtime --lib struct_header_survives_failed_initialization_and_detached_owner_teardown
+```
+
+The Miri kernel case passed on miri dc3f85158a (2026-07-26), including initialization
+failure/unwind and detached ownership after page-owner teardown. This covers the
+new physical lifetime, not future direct field loads or the whole runtime. The
+selected VM cases cover packed scalar domains and retained nominal generation
+through actual script execution. No timing or CI matrix run is claimed.
+
+The selected diagnostics variant also passed:
+`cargo test -p kagari-runtime --lib --features execution-diagnostics inline_struct_bytes_do_not_move_and_release_the_last_sparse_page`.
+It verifies that occupied bytes include the header exactly once and that occupied
+plus slack equals page/large backing. Structure (1836 Rust files, zero violations
+or exceptions), formatting, workspace all-target Clippy and diff checks passed.
+There are no carried build/test errors at this checkpoint. Next is opaque direct
+struct transport, its collector bridge and prepared field offsets; other managed
+families still use checked IDs.
+
 
 ### Phase 1 closure and phase-2 measurement freeze (2026-10-28)
 

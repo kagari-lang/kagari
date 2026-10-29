@@ -4,7 +4,7 @@ use kagari_types::language::binding;
 
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
-    gc::{GcHeap, GcObjectKind},
+    gc::{GcHeap, GcObjectKind, reference::HeapObjectIdentity},
     value::{EnumTag, Value},
 };
 
@@ -35,11 +35,13 @@ pub unsafe fn identity_equal_transport(
 
 pub(crate) fn identity_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, RuntimeError> {
     let object = |value: &Value| match value {
-        Value::Struct(id) => Some((*id, GcObjectKind::Struct)),
-        Value::Array(id) => Some((*id, GcObjectKind::Array)),
+        Value::Struct(reference) => {
+            Some((HeapObjectIdentity::Struct(*reference), GcObjectKind::Struct))
+        }
+        Value::Array(id) => Some((HeapObjectIdentity::Indexed(*id), GcObjectKind::Array)),
 
         Value::GcHandle(id) if gc.object_kind(*id) == Some(GcObjectKind::Native) => {
-            Some((*id, GcObjectKind::Native))
+            Some((HeapObjectIdentity::Indexed(*id), GcObjectKind::Native))
         }
         _ => None,
     };
@@ -49,7 +51,7 @@ pub(crate) fn identity_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bo
             "identity comparison requires object references",
         ));
     };
-    if gc.object_kind(a) != Some(a_kind) || gc.object_kind(b) != Some(b_kind) {
+    if gc.identity_kind(a) != Some(a_kind) || gc.identity_kind(b) != Some(b_kind) {
         return Err(RuntimeError::new(
             RuntimeErrorKind::ScriptTrap,
             "invalid heap handle in identity comparison",
@@ -250,13 +252,14 @@ pub(crate) fn format_value(
                     out.push(')');
                 }
             }
-            Value::Struct(id) | Value::Array(id) if debug => {
-                let name = if matches!(value, Value::Struct(_)) {
-                    "Struct"
-                } else {
-                    "Array"
-                };
-                write!(out, "{name}@{}:{}", id.index(), id.generation()).ok()?;
+            Value::Struct(reference) if debug => {
+                if !gc.validate_value(value) {
+                    return None;
+                }
+                write!(out, "Struct@{:p}", reference.pointer().as_ptr()).ok()?;
+            }
+            Value::Array(id) if debug => {
+                write!(out, "Array@{}:{}", id.index(), id.generation()).ok()?;
             }
             Value::HostRoot(_) if debug => out.push_str("<host>"),
             Value::GcHandle(id) if debug => {

@@ -149,7 +149,7 @@ fn object_metadata_module_and_static_owners_close_one_joint_graph_in_tiny_slices
             .gc
             .graph_survivor(
                 runtime.modules(),
-                GraphIdentity::Object(garbage.object_id().unwrap())
+                GraphIdentity::Object(garbage.checked_id().unwrap())
             )
             .unwrap()
     );
@@ -311,7 +311,7 @@ fn newborn_work_and_larger_payload_admission_preserve_the_active_object_job() {
                 .gc
                 .graph_survivor(
                     runtime.modules(),
-                    GraphIdentity::Object(value.object_id().unwrap())
+                    GraphIdentity::Object(value.checked_id().unwrap())
                 )
                 .unwrap()
         );
@@ -354,7 +354,7 @@ fn failed_admission_preserves_the_active_owner_and_publishes_no_credit_or_record
         assert_eq!(graph.credits, count);
         assert_eq!(
             graph.active,
-            Some(GraphIdentity::Object(child.object_id().unwrap()))
+            Some(GraphIdentity::Object(child.checked_id().unwrap()))
         );
     }
     // Resource-limit errors may terminate execution admission, but the already
@@ -370,7 +370,7 @@ fn idle_publication_checks_original_identity_and_kind_without_locking_work() {
     let foreign = Runtime::default();
     let value = runtime.gc.alloc_string("local".into()).unwrap();
     let other = foreign.gc.alloc_string("foreign".into()).unwrap();
-    let id = value.object_id().unwrap();
+    let id = value.checked_id().unwrap();
     let stale = HeapObjectId::new(u64::from(id.owner), id.index(), id.generation + 1);
     let guard = runtime.gc.graph.lock();
     runtime.gc.publish_value(value).unwrap();
@@ -419,7 +419,7 @@ fn poisoned_graph_control_returns_a_trace_fault_without_panicking_during_cleanup
         assert!(
             !runtime
                 .gc
-                .heap_identity_accessible(GraphIdentity::Object(value.object_id().unwrap()))
+                .heap_identity_accessible(GraphIdentity::Object(value.checked_id().unwrap()))
         );
         assert!(
             runtime

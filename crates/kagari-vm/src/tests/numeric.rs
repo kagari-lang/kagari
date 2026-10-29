@@ -397,8 +397,14 @@ fn scalar_fields_transfer_all_checked_integer_domains() {
              pub fn {entry}() -> bool {{
                 val p = S_{ty} {{ before: true, value: {min}{ty}, after: false }};
                 val initial = p.value == {min}{ty};
-                p.value = {max}{ty};
-                initial && p.before && !p.after && p.value == {max}{ty}
+                var round = 0;
+                var correct = initial;
+                while round < 3 {{
+                    p.value = {max}{ty};
+                    correct = correct && p.before && !p.after && p.value == {max}{ty};
+                    round += 1;
+                }}
+                correct
              }}\n"
         ));
         entries.push(entry);

@@ -515,7 +515,7 @@ fn async_wait_live_storage_contract() {
         ));
         f.vm.runtime().collect_garbage().unwrap();
         assert!(
-            unsafe { f.vm.runtime().gc().object_kind_transport(dead) }.is_none(),
+            unsafe { f.vm.runtime().gc().object_kind_transport(dead.into()) }.is_none(),
             "dead slots must not keep objects alive"
         );
         let vector: ScriptVec<i32> = ConversionContext::new(f.vm.runtime(), &f.module)

@@ -2,7 +2,7 @@ use crate::{
     Runtime,
     gc::{HeapObjectId, graph::GraphIdentity},
     native::storage::NativeStorage,
-    test_support::layouts::allocation_owner,
+    test_support::layouts::{allocation_owner, layout},
     value::Value,
 };
 use kagari_types::{scalar::BuiltinType, ty::Ty};
@@ -17,13 +17,13 @@ fn exact_target_borrow_preserves_owner_generation_kind_and_idle_publication() {
     let heap = runtime.gc();
     let value = heap.alloc_string("checked".into()).unwrap();
     let other = foreign.gc().alloc_string("foreign".into()).unwrap();
-    let id = value.object_id().unwrap();
+    let id = value.checked_id().unwrap();
     let stale = HeapObjectId::new(u64::from(id.owner), id.index(), id.generation + 1);
     let roots = heap.active_roots();
     let guard = heap.graph.lock();
     for invalid in [
         other,
-        Value::GcHandle(other.object_id().unwrap()),
+        Value::GcHandle(other.checked_id().unwrap()),
         Value::Str(stale),
         Value::GcHandle(stale),
         Value::Tuple(id),
@@ -92,7 +92,7 @@ fn root_slice_rejects_all_publication_if_any_identity_is_invalid() {
         !heap
             .graph_survivor(
                 runtime.modules(),
-                GraphIdentity::Object(valid.object_id().unwrap()),
+                GraphIdentity::Object(valid.checked_id().unwrap()),
             )
             .unwrap()
     );
@@ -148,4 +148,40 @@ fn root_slice_shades_during_mark_and_scalars_need_no_owner_borrow() {
     let _graph = heap.graph.lock();
     let scalars = [Value::Unit, Value::I32(42)];
     heap.publish_root_values(&scalars).unwrap();
+}
+
+#[test]
+fn admitted_struct_copies_preserve_active_barriers_and_sticky_faults() {
+    for poison in [false, true] {
+        let mut runtime = Runtime::default();
+        let shape = layout(&mut runtime, "Record", &[]);
+        let heap = runtime.gc();
+        let reference = heap.alloc_struct(shape, vec![]).unwrap();
+        let _root = runtime.root_value(Value::Struct(reference)).unwrap();
+        // SAFETY: this runtime's root retains the struct through each publication;
+        // no callback, collection or source mutation intervenes in these copies.
+        unsafe { heap.publish_admitted_struct(reference) }.unwrap();
+        heap.graph.lock().begin_cycle().unwrap();
+        heap.graph.lock().finish_roots().unwrap();
+        unsafe { heap.publish_admitted_struct(reference) }.unwrap();
+        heap.drain_graph_work(runtime.modules()).unwrap();
+        heap.graph.lock().close_mark().unwrap();
+        assert!(
+            heap.graph_survivor(runtime.modules(), GraphIdentity::Struct(reference))
+                .unwrap()
+        );
+        heap.graph.lock().finish_sweep().unwrap();
+        if poison {
+            assert!(
+                catch_unwind(AssertUnwindSafe(|| {
+                    let _marker = heap.graph.lock();
+                    panic!("interrupted graph transition");
+                }))
+                .is_err()
+            );
+        } else {
+            heap.graph.lock().fault();
+        }
+        assert!(unsafe { heap.publish_admitted_struct(reference) }.is_err());
+    }
 }

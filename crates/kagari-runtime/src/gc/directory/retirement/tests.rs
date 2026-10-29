@@ -95,14 +95,14 @@ fn greedy_page_geometry_fills_32_owners_without_batch_allocations() {
         .iter()
         .map(|name| (name.as_str(), Ty::Builtin(BuiltinType::I64), true))
         .collect();
-    let twelve = layout(&mut runtime, "Twelve", &fields[..10]);
-    let forty_two = layout(&mut runtime, "FortyTwo", &fields[..3]);
+    let twelve = layout(&mut runtime, "Twelve", &fields[..9]);
+    let forty_two = layout(&mut runtime, "FortyTwo", &fields[..2]);
     let large = layout(&mut runtime, "Large", &fields);
     let heap = runtime.gc();
     for _ in 0..504 {
-        heap.alloc_struct(twelve.clone(), vec![Value::I64(0); 10])
+        heap.alloc_struct(twelve.clone(), vec![Value::I64(0); 9])
             .unwrap();
-        heap.alloc_struct(forty_two.clone(), vec![Value::I64(0); 3])
+        heap.alloc_struct(forty_two.clone(), vec![Value::I64(0); 2])
             .unwrap();
     }
     for _ in 0..19 {
@@ -296,35 +296,46 @@ fn mixed_sparse_pages_reserve_retirement_work_before_detaching() {
         let mut runtime = Runtime::default();
         let shape = layout(
             &mut runtime,
-            "Three",
+            "Two",
             &[
                 ("a", Ty::Builtin(BuiltinType::I64), true),
                 ("b", Ty::Builtin(BuiltinType::I64), true),
-                ("c", Ty::Builtin(BuiltinType::I64), true),
+            ],
+        );
+        let other = layout(
+            &mut runtime,
+            "OtherTwo",
+            &[
+                ("a", Ty::Builtin(BuiltinType::I64), true),
+                ("b", Ty::Builtin(BuiltinType::I64), true),
             ],
         );
         let heap = runtime.gc();
         let mut values = Vec::new();
         for _ in 0..6 {
-            values.push(heap.alloc_string("payload".into()).unwrap());
             values.push(Value::Struct(
-                heap.alloc_struct(shape.clone(), vec![Value::I64(0); 3])
+                heap.alloc_struct(other.clone(), vec![Value::I64(0); 2])
+                    .unwrap(),
+            ));
+            values.push(Value::Struct(
+                heap.alloc_struct(shape.clone(), vec![Value::I64(0); 2])
                     .unwrap(),
             ));
         }
         let roots = [values[1], values[8]].map(|value| heap.root_value(value).unwrap());
-        let first_page = heap.objects.borrow().slots[values[0].object_id().unwrap().index()]
-            .location()
-            .unwrap()
-            .page;
-        for value in &values {
-            assert_eq!(
-                heap.objects.borrow().slots[value.object_id().unwrap().index()]
-                    .location()
-                    .unwrap()
-                    .page,
-                first_page
-            );
+        let ids: Vec<_> = values
+            .iter()
+            .map(|value| {
+                heap.identity_location(
+                    &heap.objects.borrow(),
+                    heap.value_identity(&heap.objects.borrow(), value).unwrap(),
+                )
+                .unwrap()
+            })
+            .collect();
+        let first_page = ids[0].page;
+        for id in &ids {
+            assert_eq!(id.page, first_page);
         }
         begin_with_roots(&runtime);
         let mut calls = 0;
@@ -372,8 +383,11 @@ fn mixed_sparse_pages_reserve_retirement_work_before_detaching() {
         assert_eq!(totals.objects, 10);
         assert_eq!(totals.live, 2);
         assert_eq!(heap.objects.borrow().backing_bytes(), SLAB_BYTES);
-        for (index, value) in values.into_iter().enumerate() {
-            assert_eq!(heap.validate_value(&value), index == 1 || index == 8);
+        for (index, id) in ids.into_iter().enumerate() {
+            assert_eq!(
+                heap.objects.borrow().structure(id).is_some(),
+                index == 1 || index == 8
+            );
         }
         drop(roots);
     }
@@ -388,7 +402,7 @@ fn bounded_transaction_preserves_initialization_owners_and_exhausted_generations
         .map(|_| {
             heap.alloc_string(String::new())
                 .unwrap()
-                .object_id()
+                .checked_id()
                 .unwrap()
         })
         .collect();
@@ -400,7 +414,7 @@ fn bounded_transaction_preserves_initialization_owners_and_exhausted_generations
             ids[ordinal] = HeapObjectId::new(heap.owner, index, u32::MAX);
         }
         for &id in &ids {
-            objects.initialization_owners.insert(id, owner.key());
+            objects.initialization_owners.insert(id.into(), owner.key());
         }
     }
     begin(heap);
@@ -410,7 +424,7 @@ fn bounded_transaction_preserves_initialization_owners_and_exhausted_generations
         assert_eq!(objects.initialization_owners.len(), 10);
         for (ordinal, id) in ids.iter().enumerate() {
             assert_eq!(
-                objects.initialization_owners.contains_key(id),
+                objects.initialization_owners.contains_key(&(*id).into()),
                 ordinal >= 32
             );
             let slot = &objects.slots[id.index()];
@@ -428,7 +442,7 @@ fn bounded_transaction_preserves_initialization_owners_and_exhausted_generations
         let new = heap
             .alloc_string(String::new())
             .unwrap()
-            .object_id()
+            .checked_id()
             .unwrap();
         assert_ne!(new.index(), ids[0].index());
         assert_ne!(new.index(), ids[17].index());
@@ -449,7 +463,7 @@ fn borrowed_retirement_proof_cannot_replay_into_outstanding_or_reused_storage() 
     let runtime = Runtime::default();
     let heap = runtime.gc();
     let old = heap.alloc_string(String::with_capacity(7)).unwrap();
-    let id = old.object_id().unwrap();
+    let id = old.checked_id().unwrap();
     begin(heap);
     let mut initialization = ScanBudget::new(WORKSPACE_WORK);
     assert!(initialization.take(WORKSPACE_WORK));
@@ -515,7 +529,7 @@ fn borrowed_retirement_proof_cannot_replay_into_outstanding_or_reused_storage() 
     assert_eq!(heap.resources.counters(), before);
     heap.dispose_sweep_batch(&mut retired);
     let newborn = heap.alloc_string(String::with_capacity(11)).unwrap();
-    let new_id = newborn.object_id().unwrap();
+    let new_id = newborn.checked_id().unwrap();
     assert_eq!(new_id.index(), id.index());
     assert_ne!(new_id, id);
     let before = heap.resources.counters();
@@ -553,7 +567,7 @@ fn bounded_transaction_rejects_late_credit_underflow_before_detachment() {
         .map(|_| {
             heap.alloc_string(String::with_capacity(17))
                 .unwrap()
-                .object_id()
+                .checked_id()
                 .unwrap()
         })
         .collect();

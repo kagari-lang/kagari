@@ -433,7 +433,7 @@ fn register_arguments_survive_growth_reordering_and_repeated_sources() {
                 .gc
                 .graph_survivor(
                     runtime.modules(),
-                    GraphIdentity::Object(value.object_id().unwrap())
+                    GraphIdentity::Object(value.checked_id().unwrap())
                 )
                 .unwrap()
         );

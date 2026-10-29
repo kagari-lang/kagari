@@ -4,7 +4,7 @@ use kagari_derive::KagariSchema;
 use kagari_runtime::{
     Runtime,
     error::RuntimeErrorKind,
-    gc::{HeapObjectId, roots::RootedValue},
+    gc::{reference::GcRef, roots::RootedValue},
     module::ExecutableModule,
     native::{
         binding::NativeResult,
@@ -37,7 +37,7 @@ pub(super) struct Graph {
 struct Reentrant(i32);
 
 enum Hook {
-    Rewrite(Rc<Runtime>, HeapObjectId, RootedValue),
+    Rewrite(Rc<Runtime>, GcRef, RootedValue),
     Panic,
 }
 

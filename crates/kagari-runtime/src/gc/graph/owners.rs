@@ -4,9 +4,10 @@ use crate::{
     gc::{
         GcHeap,
         graph::{
-            GraphIdentity,
+            GraphIdentity, MarkPhase,
             marks::{Domain, MarkRef, WorkGroup},
         },
+        reference::{GcRef, HeapObjectIdentity},
     },
     module::ModuleStore,
     value::Value,
@@ -42,6 +43,14 @@ impl GcHeap {
                 );
                 (id.map(GraphIdentity::Object), more)
             }
+            Domain::Struct => {
+                let (reference, more) = self
+                    .objects
+                    .try_borrow()
+                    .map_err(|_| invalid())?
+                    .next_gray_struct(group.block, epoch);
+                (reference.map(GraphIdentity::Struct), more)
+            }
             Domain::Moved => typed!(moved, Moved),
             Domain::Environment => metadata!(environments),
             Domain::Group => metadata!(operation_groups),
@@ -65,13 +74,33 @@ impl GcHeap {
     /// have no graph edge; moved identities are collector-only and are rejected.
     #[inline]
     pub(crate) fn publish_value(&self, value: Value) -> Result<(), RuntimeError> {
-        let Some(id) = value.object_id() else {
+        if !value.is_managed() {
             return Ok(());
-        };
+        }
         let objects = self.objects.try_borrow().map_err(|_| invalid())?;
-        self.validate_heap_value(&objects, &value)
+        let id = self
+            .validate_heap_value(&objects, &value)
             .ok_or_else(invalid)?;
         self.publish_resolved_value(&objects, id)
+    }
+
+    /// Publish a copy from this runtime's admitted, traced frame storage.
+    ///
+    /// # Safety
+    /// The closed execution region must retain this live struct in the same heap,
+    /// with no callback/collection/reentry between reading and committing the copy.
+    /// Structs cannot be taken while retained. This proof does not apply to Native
+    /// aliases or arbitrary raw Values, which keep checked admission on every write.
+    #[inline]
+    pub(crate) unsafe fn publish_admitted_struct(
+        &self,
+        reference: GcRef,
+    ) -> Result<(), RuntimeError> {
+        if self.graph.phase() == MarkPhase::Idle {
+            return Ok(());
+        }
+        // Active marking and sticky faults still use the sole publication owner.
+        self.publish_value(Value::Struct(reference))
     }
 
     pub(crate) fn publish_heap_identity(&self, id: GraphIdentity) -> Result<(), RuntimeError> {
@@ -94,6 +123,13 @@ impl GcHeap {
                 let objects = self.objects.try_borrow().map_err(|_| invalid())?;
                 self.object_location(&objects, id).ok_or_else(invalid)?;
                 action(objects.mark_for_directory(id.index()))
+            }
+            GraphIdentity::Struct(reference) => {
+                let objects = self.objects.try_borrow().map_err(|_| invalid())?;
+                let location = self
+                    .identity_location(&objects, HeapObjectIdentity::Struct(reference))
+                    .ok_or_else(invalid)?;
+                action(objects.mark(location).ok_or_else(invalid)?)
             }
             GraphIdentity::Moved(id) => {
                 let moved = self.moved.try_borrow().map_err(|_| invalid())?;

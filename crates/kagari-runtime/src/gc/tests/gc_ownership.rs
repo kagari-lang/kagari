@@ -46,7 +46,44 @@ fn foreign_handles_and_wrong_value_tags_are_rejected_before_mutation_or_accounti
         .unwrap();
     assert_eq!(own.index(), foreign.index());
     assert_ne!(own, foreign);
+    let own_shape = layouts::layout(
+        &mut first,
+        "OwnedPoint",
+        &[("value", Ty::Builtin(BuiltinType::I32), true)],
+    );
+    let foreign_shape = layouts::layout(
+        &mut second,
+        "ForeignPoint",
+        &[("value", Ty::Builtin(BuiltinType::I32), true)],
+    );
+    let own_struct = first
+        .gc()
+        .alloc_struct(own_shape.clone(), vec![Value::I32(1)])
+        .unwrap();
+    let foreign_struct = second
+        .gc()
+        .alloc_struct(foreign_shape, vec![Value::I32(2)])
+        .unwrap();
+    let _own_root = first.root_value(Value::Struct(own_struct)).unwrap();
+    let _foreign_root = second.root_value(Value::Struct(foreign_struct)).unwrap();
     let before = first.gc().stats();
+    assert!(first.root_value(Value::Struct(foreign_struct)).is_none());
+    assert!(
+        first
+            .gc()
+            .struct_get_slot(foreign_struct, &own_shape, 0)
+            .is_none()
+    );
+    assert!(
+        first
+            .gc()
+            .struct_set_slot(foreign_struct, &own_shape, 0, Value::I32(3))
+            .is_err()
+    );
+    assert_eq!(
+        first.gc().struct_get_slot(own_struct, &own_shape, 0),
+        Some(Value::I32(1))
+    );
     assert!(first.gc().array_get(foreign, 0).is_none());
     assert!(first.gc().array_set(foreign, 0, Value::I32(3)).is_err());
     assert!(first.gc().array_set(own, 0, Value::Array(foreign)).is_err());
@@ -76,7 +113,7 @@ fn foreign_handles_and_wrong_value_tags_are_rejected_before_mutation_or_accounti
             .is_err()
     );
     assert!(first.root_value(Value::Array(foreign)).is_none());
-    assert!(first.root_value(Value::Struct(own)).is_none());
+    assert!(first.root_value(Value::Enum(own)).is_none());
 
     assert_eq!(
         first
@@ -259,7 +296,7 @@ fn identity_comparison_rejects_foreign_stale_and_disguised_handles() {
         .unwrap();
     assert!(identity_equal(first.gc(), &Value::Array(a), &Value::Array(a)).unwrap());
     assert!(identity_equal(first.gc(), &Value::Array(a), &Value::Array(b)).is_err());
-    assert!(identity_equal(first.gc(), &Value::Array(a), &Value::Struct(a)).is_err());
+    assert!(identity_equal(first.gc(), &Value::Array(a), &Value::GcHandle(a)).is_err());
     assert!(identity_equal(first.gc(), &Value::I32(1), &Value::I32(1)).is_err());
     first.collect_garbage().unwrap();
     assert!(identity_equal(first.gc(), &Value::Array(a), &Value::Array(a)).is_err());

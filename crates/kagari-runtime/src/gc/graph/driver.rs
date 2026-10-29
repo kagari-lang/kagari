@@ -77,10 +77,10 @@ impl GcHeap {
             }
             ScanEdge::Metadata(edge) => self.metadata_scan_identity(edge)?,
             ScanEdge::Value(value) => {
-                let Some(id) = value.object_id() else {
+                if !value.is_managed() {
                     return Ok(None);
-                };
-                if matches!(value, Value::GcHandle(_))
+                }
+                if let Value::GcHandle(id) = value
                     && self
                         .moved
                         .try_borrow()
@@ -90,11 +90,14 @@ impl GcHeap {
                     GraphIdentity::Moved(id)
                 } else {
                     let objects = self.objects.try_borrow().map_err(|_| invalid())?;
-                    self.validate_heap_value(&objects, &value)
+                    let id = self
+                        .validate_heap_value(&objects, &value)
                         .ok_or_else(invalid)?;
                     return action(
-                        GraphIdentity::Object(id),
-                        objects.mark_for_directory(id.index()),
+                        id.graph(),
+                        objects
+                            .mark(self.identity_location(&objects, id).ok_or_else(invalid)?)
+                            .ok_or_else(invalid)?,
                     )
                     .map(Some);
                 }
@@ -176,7 +179,12 @@ impl GcHeap {
                     return Ok(ScanStatus::Pending);
                 }
                 *active = Some(match id {
-                    GraphIdentity::Object(id) => ActiveScan::Object(self.begin_object_scan(id)?),
+                    GraphIdentity::Object(id) => {
+                        ActiveScan::Object(self.begin_object_scan(id.into())?)
+                    }
+                    GraphIdentity::Struct(reference) => {
+                        ActiveScan::Object(self.begin_object_scan(reference.into())?)
+                    }
                     GraphIdentity::Program(id) => {
                         ActiveScan::Module(modules.begin_module_scan(id)?)
                     }
@@ -264,7 +272,7 @@ mod tests {
         let foreign = Runtime::default();
         let value = runtime.gc.alloc_string("local".into()).unwrap();
         let other = foreign.gc.alloc_string("foreign".into()).unwrap();
-        let id = value.object_id().unwrap();
+        let id = value.checked_id().unwrap();
         let stale = HeapObjectId::new(u64::from(id.owner), id.index(), id.generation + 1);
         let mut graph = runtime.gc.graph.lock();
         graph.begin_cycle().unwrap();

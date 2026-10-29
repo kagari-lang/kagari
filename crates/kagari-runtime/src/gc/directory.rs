@@ -20,6 +20,7 @@ use crate::{
         GcHeap, HeapObjectId,
         fields::StructViewMut,
         graph::marks::{Domain, MarkBlocks, MarkRef},
+        reference::{GcRef, HeapObjectIdentity},
         storage::HeapObject,
     },
     module::ModuleKey,
@@ -142,7 +143,7 @@ struct InterfaceWrapper {
 #[derive(Debug, Default)]
 pub(super) struct ObjectStorage {
     pub(super) slots: Vec<ObjectSlot>,
-    pub(super) initialization_owners: HashMap<HeapObjectId, ModuleKey>,
+    pub(super) initialization_owners: HashMap<HeapObjectIdentity, ModuleKey>,
     pages: Pages,
     marks: MarkBlocks,
     free_identity: Option<u32>,
@@ -156,6 +157,29 @@ pub(super) struct ObjectStorage {
 }
 
 impl ObjectStorage {
+    pub(super) fn struct_reference(&self, location: PayloadLocation) -> Option<GcRef> {
+        self.pages.struct_reference(location)
+    }
+
+    pub(super) fn publish_struct(&mut self) {
+        self.occupied = self
+            .occupied
+            .checked_add(1)
+            .expect("bounded heap occupancy");
+    }
+
+    pub(in crate::gc) fn next_gray_struct(
+        &self,
+        block: usize,
+        epoch: u64,
+    ) -> (Option<GcRef>, bool) {
+        self.pages.next_gray_struct(block, epoch)
+    }
+
+    pub(super) fn struct_location(&self, reference: GcRef) -> Option<PayloadLocation> {
+        self.pages.struct_location(reference)
+    }
+
     /// The caller has resolved this occupied directory under the same storage
     /// borrow. Marks belong to directory slots, so no physical-page reverse lookup
     /// is needed after checking the full object identity.
@@ -164,6 +188,9 @@ impl ObjectStorage {
     }
 
     pub(in crate::gc) fn mark(&self, location: PayloadLocation) -> Option<MarkRef<'_>> {
+        if location.kind == PayloadKind::Struct {
+            return Some(self.pages.struct_mark(location));
+        }
         let directory = if location.kind == PayloadKind::Interface {
             self.interface_directories
                 .get(location.page as usize)?
@@ -236,9 +263,7 @@ impl ObjectStorage {
     pub(super) fn backing_bound(object: &HeapObject) -> NativeResult<usize> {
         Ok(match object {
             HeapObject::Native(object) => object.physical_layout()?.0.size().max(SLAB_BYTES),
-            HeapObject::Struct { storage } => {
-                storage.descriptor.structure_layout().size.max(SLAB_BYTES)
-            }
+            HeapObject::Struct { storage } => storage.descriptor.layout.size().max(SLAB_BYTES),
             _ => SLAB_BYTES,
         })
     }
@@ -252,9 +277,11 @@ impl ObjectStorage {
         directory: u32,
         object: HeapObject,
     ) -> NativeResult<PayloadLocation> {
-        self.marks
-            .prepare(directory as usize)
-            .map_err(|_| RuntimeError::resource_limit("heap block marks"))?;
+        if directory != u32::MAX {
+            self.marks
+                .prepare(directory as usize)
+                .map_err(|_| RuntimeError::resource_limit("heap block marks"))?;
+        }
         match object {
             HeapObject::String(value) => self.place(directory, PayloadKind::String, false, value),
             HeapObject::Tuple(value) => self.place(directory, PayloadKind::Tuple, true, value),
@@ -363,7 +390,7 @@ impl ObjectStorage {
             self.pages.detach(location)?
         };
         self.retire_identity(id.index());
-        self.initialization_owners.remove(&id);
+        self.initialization_owners.remove(&id.into());
         Some(retired)
     }
 
@@ -403,8 +430,7 @@ impl ObjectStorage {
     }
 
     #[cfg(test)]
-    pub(super) fn corrupt_structure_for_test(&mut self, id: HeapObjectId) {
-        self.pages
-            .corrupt_structure(self.slots[id.index()].location().unwrap());
+    pub(super) fn corrupt_structure_for_test(&mut self, location: PayloadLocation) {
+        self.pages.corrupt_structure(location);
     }
 }

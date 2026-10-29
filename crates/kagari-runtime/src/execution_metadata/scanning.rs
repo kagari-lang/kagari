@@ -262,6 +262,7 @@ impl GcHeap {
                 .ok_or_else(invalid)?
                 .scan_len(),
             GraphIdentity::Object(_)
+            | GraphIdentity::Struct(_)
             | GraphIdentity::Moved(_)
             | GraphIdentity::Program(_)
             | GraphIdentity::Static(_) => return Err(invalid()),
@@ -352,6 +353,7 @@ impl GcHeap {
                 }
             }
             GraphIdentity::Object(_)
+            | GraphIdentity::Struct(_)
             | GraphIdentity::Moved(_)
             | GraphIdentity::Program(_)
             | GraphIdentity::Static(_) => return Err(invalid()),

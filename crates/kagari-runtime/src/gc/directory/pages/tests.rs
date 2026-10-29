@@ -166,7 +166,7 @@ fn coallocated_controls_have_two_allocations_and_disjoint_complete_accounting() 
         assert_eq!(counts.net_bytes, counts.requested_bytes as i128);
         let payload = allocation.bytes();
         let mut pages = Pages::default();
-        let index = pages.publish_allocation(allocation).unwrap();
+        let index = pages.publish_allocation(allocation, false).unwrap();
         let usage = pages.usage();
         assert_eq!(
             pages.backing_bytes, payload,
