@@ -47,7 +47,7 @@ impl GcHeap {
     pub(crate) fn buffer_contract(&self, id: GcRef) -> Option<Arc<StorageType>> {
         let objects = self.objects.borrow();
         let object = self.native_ref(&objects, id)?;
-        if !matches!(object.ty, Ty::Array(..)) {
+        if !matches!(object.ty(), Ty::Array(..)) {
             return None;
         }
         Some(object.payload::<ArrayPayload>().ok()?.contract.clone())
@@ -215,7 +215,7 @@ impl GcHeap {
         self.check_native_operation(id, None, false).ok()?;
         let objects = self.objects.borrow();
         let object = self.native_ref(&objects, id)?;
-        if !matches!(object.ty, Ty::Array(..)) {
+        if !matches!(object.ty(), Ty::Array(..)) {
             return None;
         }
         let array = object.payload::<ArrayPayload>().ok()?;
@@ -232,7 +232,7 @@ impl GcHeap {
         let mut objects = self.objects_mut()?;
         let object = self.native_mut(&mut objects, id).ok_or_else(invalid)?;
         let revision = object.revision.checked_add(1).ok_or_else(invalid)?;
-        if !matches!(object.ty, Ty::Array(..)) {
+        if !matches!(object.ty(), Ty::Array(..)) {
             return Err(invalid());
         }
         let max_units = object

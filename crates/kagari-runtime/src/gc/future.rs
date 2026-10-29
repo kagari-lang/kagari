@@ -117,8 +117,8 @@ impl GcHeap {
         object.payload::<FuturePayload>()?;
         Ok((
             object.owner().clone(),
-            object.ty.clone(),
-            object.scope.clone(),
+            object.ty().clone(),
+            object.scope().cloned(),
         ))
     }
 

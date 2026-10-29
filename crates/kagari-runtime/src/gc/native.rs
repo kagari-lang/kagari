@@ -157,7 +157,7 @@ impl GcHeap {
     pub(crate) fn native_type_name(&self, id: GcRef) -> Option<String> {
         let objects = self.objects.borrow();
         let object = self.native_ref(&objects, id)?;
-        let Ty::NativeObject(nominal) = &object.ty else {
+        let Ty::NativeObject(nominal) = object.ty() else {
             return None;
         };
         Some(object.definition_name(nominal.declaration)?.to_owned())

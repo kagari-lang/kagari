@@ -122,7 +122,7 @@ impl GcHeap {
 
     pub(crate) fn matches_iter_type(&self, id: GcRef, element: TypeView<'_>) -> bool {
         let objects = self.objects.borrow();
-        matches!(self.readable_identity(&objects, id), Some(HeapObject::Native(object)) if matches!(object.ty, Ty::Iter(_)) && object.payload::<NativeIter>().is_ok_and(|iter| iter.item_contract.matches_view(element)))
+        matches!(self.readable_identity(&objects, id), Some(HeapObject::Native(object)) if matches!(object.ty(), Ty::Iter(_)) && object.payload::<NativeIter>().is_ok_and(|iter| iter.item_contract.matches_view(element)))
     }
 
     pub(crate) fn new_iter(

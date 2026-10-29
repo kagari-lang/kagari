@@ -163,8 +163,7 @@ impl Runtime {
             .storage
             .get_id(nominal.declaration)
             .ok_or_else(|| RuntimeError::module_validation("task storage binding"))?;
-        let mut object = storage.prepare_payload(self.gc(), ty.ty(), payload, owner)?;
-        object.scope = Some(ty);
+        let object = storage.prepare_payload(self.gc(), &ty, payload, owner)?;
         let value = Value::GcHandle(self.gc().alloc_native(object)?);
         self.root_value(value)
             .ok_or_else(|| RuntimeError::module_validation("task storage root"))

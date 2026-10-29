@@ -6327,6 +6327,115 @@ focused tests, Miri and Clippy remain evidence for unchanged code. The three
 historical timing failures, final integrated timing/memory/normal-step evidence
 and final-revision Lua comparison remain open.
 
+### Native type ownership trial (2026-10-29)
+
+Source review confirms scoped Native construction duplicates the closed semantic
+type: `LinkedNativeFunction::prepare_signature` closes its signature without an
+environment, while `apply` constructs the applied signature directly from the
+closed arguments. Typed payload, Future and Task construction also supply the same
+argument's `ty()`. The immutable TypeArgument already owns that type, definitions
+and origin. Its origin does **not** replace the object's lexical executable owner.
+
+Select one bounded representation trial: replace the simultaneous inline `Ty` and
+optional TypeArgument with an exclusive type owner. Scoped objects retain their
+existing TypeArgument; unscoped internal objects retain a boxed independent Ty.
+Keep the lexical owner, storage descriptor, selected operation edges, publication,
+matching and payload lifetime unchanged. Construct the chosen representation at
+admission rather than allocating/cloning a fallback and replacing it afterward.
+All consumers read type and optional scope through this owner. No new cache,
+interning table, GC graph, unsafe access, Option encoding or call-frame change.
+
+[OpenJDK 25 object metadata](https://github.com/openjdk/jdk/blob/jdk-25-ga/src/hotspot/share/oops/oop.hpp)
+and [.NET 10 Object/MethodTable](https://github.com/dotnet/runtime/blob/v10.0.0/src/coreclr/vm/object.h)
+provide the relevant separation: instances refer to shared type metadata rather
+than each embedding a semantic type tree. Kagari reuses its existing owned closed
+argument, not their class-loader, raw metadata-pointer or generic-erasure model.
+Unscoped objects still need independent metadata; the extra fallback Box is an
+explicit allocation tradeoff to measure, not an assumed improvement.
+
+Validation: affected Native mapping/provenance/reload, Future/Task and physical
+placement/disposal contracts; focused strict-provenance Miri for inline placement
+and destruction; structure/fmt/workspace Clippy/diff. Then one authenticated
+ordinary B/C pair (29 storage + 39 family rows) and diagnostic backing/peak/teardown
+comparison against the retained alignment image. Record layouts and allocation
+changes; retain only a justified integrated tradeoff. Original PG00 and final
+seven-pair/normal-step/CI/Lua obligations remain unchanged.
+
+**Decision:** retain this ownership correction for its measured Native release and
+backing improvements, carrying the regressions below into final validation. This is
+local checkpoint acceptance, not closure of an original performance gate. A temporary
+layout print in the existing source-free Miri lifecycle test confirms NativeObject
+**160 -> 104 B**, Ty 64 B and ObjectType 16 B on aarch64. The print is removed.
+These shallow sizes exclude the common header, provider payload and indirect metadata.
+
+**Validation and repaired defect:** 18 selected ordinary tests pass: six Native
+context, six directory/mark/unwind, three VM generic/retained-reload and three
+owned-drive/native-completion contracts. Initial integration missed the private
+type field read at `gc.rs:454`; it now uses the accessor. Strict-provenance Miri
+passes the inline Native small/large/overaligned/ZST and panic/quarantine lifecycles,
+then detects a pre-existing dangling read in
+`payload_builder_borrows_call_authority_and_result_survives_without_factory_program`:
+after dropping its last root and collecting, the test called `validate_value` on
+reclaimed transport. `stored_selections_select_current_with_frame_roots_and_checked_calls`
+also contained this invalid probe and a subsequent call with that address.
+Both tests now require exactly one reclaimed object and zero live objects, retaining
+their module-retirement/rooted-result checks. The selected-call rejection uses a
+valid wrong-type scalar. No production validation is weakened or stale-pointer
+rejection API introduced. Both repaired tests pass Miri in 275.87 s, using
+nightly-2026-07-27 and `MIRIFLAGS=-Zmiri-strict-provenance`. Together with the initial
+two completed cases, four selected Miri cases pass; no selected failure remains.
+Workspace Clippy, structure (1850 files, zero violations), fmt and diff pass.
+Manual review finds no new unsafe code, re-export, glob, long production path or
+structural debt. Full workspace tests remain CI-only.
+
+**Single-pair timing diagnostic:** B is the retained alignment image
+`40d52807e19bca4d85313a1e58f77eb1c509a7f2c23da330d5ffcc4956720514`;
+C is `86d174647142dcb894fb635aa125e40b80f7d24f16ea825c3374fde552da08d4`
+(48b06282 plus this source change). Same M1 Max/32 GiB, macOS 26.6.2,
+Rust/Cargo 1.99.1, default release/target/parallelism and interpreter workloads.
+Builds finished before timing; no overlapping build/test/profile. Identical harness
+and workload hashes; three warmups/eleven samples; all 29 storage and 39 family
+contracts pass. Serial B/C processes take 6.419/6.203 s (storage) and 17.744/17.720 s
+(families). This is not the seven-pair estimator or a new baseline.
+
+| Operation | B median us | C median us | C/B |
+| --- | ---: | ---: | ---: |
+| Mixed Native release | 76.917 | 61.417 | 0.798484 |
+| Mixed Native construction | 1074.709 | 1033.250 | 0.961423 |
+| Sparse cycle release | 29.750 | 27.584 | 0.927193 |
+| Iterator | 5563.125 | 5566.458 | 1.000599 |
+| Field read | 1835.917 | 1973.333 | 1.074849 |
+| Field write | 2147.208 | 2284.375 | 1.063882 |
+| Combined fields | 4699.084 | 5207.792 | 1.108257 |
+| Dense GC | 1046.084 | 1178.750 | 1.126822 |
+| Reference release | 133.666 | 142.000 | 1.062349 |
+
+Cycle sparsification/churn improves from 430.542/432.875/462.958/432.500 to
+330.334/335.542/335.000/334.708 us. Script-key live/release GC regresses from
+79.875/43.042 to 83.750/45.375 us. Adverse results are not dismissed as noise.
+The original frozen baselines/limits remain unchanged; comparing this single sample
+with an old baseline median cannot establish a paired historical pass.
+
+**Separate memory diagnostic:** C
+`19a1c3e2a9718839bb2ab11dde80fab8d0b9336101c28ba9aa734483f0820cb9`
+is compared with retained alignment memory image 5b1db369. All **60/60** selected
+backing/setup/peak controls pass and **42/42 Runtime teardowns are zero**. Mixed
+live retained delta is 549624 -> 500432 B, with 64 fewer construction requests;
+post-setup peak is 552696 -> 503504 B. Dense cycles retain 2417120 -> 1753896 B,
+with 4779 fewer construction requests; post-setup peak is 2457952 -> 1783668 B.
+Sparse live backing is 209400 -> 205240 B. These families' setup bytes decrease
+by 288 B. Global allocation measurements include the extra unscoped Box and metadata
+allocations. This family-only pair does not cover final storage-memory acceptance.
+Raw evidence is under `target/gc-native-type-owner`; this ledger retains the method,
+results and limitations independently of those disposable files.
+
+**Next:** diagnose the field/dense tradeoff at the affected type-classification and
+physical traversal owners before another implementation. Do not repeat the unchanged
+pair to choose a favorable result. Mixed release has a promising diagnostic result;
+iterator and sparse release remain unresolved, and all three still need the final
+historical comparison. Final-revision CI, integrated seven-pair timing/memory/
+normal-step evidence and Lua refresh remain open.
+
 ### Final graph acceptance: phase 4 first frozen image (2026-10-29)
 
 Phase 3 is locally complete at `eba45f89646fc29122ddb9f24f631ce226130726`, tree

@@ -314,8 +314,9 @@ fn payload_builder_borrows_call_authority_and_result_survives_without_factory_pr
         42
     );
     drop(root);
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
-    assert!(!runtime.gc().validate_value(&value));
+    let collected = runtime.collect_garbage().unwrap();
+    assert_eq!(collected.reclaimed_objects, 1);
+    assert_eq!(collected.live_objects, 0);
 }
 
 fn invoke_stored(
@@ -615,14 +616,12 @@ fn stored_selections_select_current_with_frame_roots_and_checked_calls() {
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
     assert_eq!(runtime.gc().active_roots(), 0);
-    assert!(
-        runtime
-            .collect_garbage()
-            .unwrap()
-            .reclaimed_modules
-            .contains(&old.key())
-    );
-    assert!(!runtime.gc().validate_value(&value));
+    let collected = runtime.collect_garbage().unwrap();
+    assert!(collected.reclaimed_modules.contains(&old.key()));
+    assert_eq!(collected.reclaimed_objects, 1);
+    assert_eq!(collected.live_objects, 0);
+    // A direct address cannot be inspected after its retention ends. Exercise
+    // argument rejection with a valid scalar of the wrong type instead.
     let stack = runtime.enter_execution_stack(&current).unwrap();
     assert!(
         stack
@@ -630,7 +629,7 @@ fn stored_selections_select_current_with_frame_roots_and_checked_calls() {
                 &runtime,
                 current,
                 CallableTarget::Native(probe),
-                &[value],
+                &[Value::I64(0)],
                 None
             )
             .is_err()

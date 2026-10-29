@@ -451,7 +451,7 @@ impl GcHeap {
             PayloadKind::HostRoot => GcObjectKind::HostRoot,
             PayloadKind::HostPath => GcObjectKind::HostPath,
             PayloadKind::Ephemeral => GcObjectKind::Ephemeral,
-            PayloadKind::Native => match objects.native(location)?.ty {
+            PayloadKind::Native => match objects.native(location)?.ty() {
                 Ty::Array(..) => GcObjectKind::Array,
 
                 Ty::Iter(..) => GcObjectKind::Iter,

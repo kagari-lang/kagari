@@ -1126,6 +1126,13 @@ scoped aggregate validation remains active.
 
 `NativeType::create(cx, payload, selected_slots)` is the independently owned typed
 creation path; a constructor needing that descriptor uses `result_native_type`.
+Each Native object retains one semantic type owner: a prepared closed TypeArgument
+when supplied, or an independently boxed Ty for internal unscoped construction.
+Closed objects read their type from that argument instead of copying its tree into
+every object. The object's lexical executable metadata owner remains separate from
+the argument's origin; neither can replace the other for naming and compatibility.
+Selected executable operations remain traced metadata edges. This changes no host
+root, payload-loan, publication or reload lifetime contract.
 Immediate raw results use `CallContext::allocate_result_payload(selected_slots, builder)`:
 exact occurrence/mapping/publication preflight, call-scoped payload construction, then
 selected-slot resolution and revalidated allocation through the common NativeStorage

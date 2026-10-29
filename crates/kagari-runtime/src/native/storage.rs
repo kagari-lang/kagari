@@ -333,9 +333,11 @@ impl NativeStorage {
             )
         })?;
         let payload = factory(context)?;
-        let mut object = self.object(context.heap(), context.ty, payload, context.owner)?;
-        object.scope = context.scope.cloned();
-        Ok(object)
+        let ty = match context.scope {
+            Some(scope) => ObjectType::from(scope),
+            None => ObjectType::from(context.ty),
+        };
+        self.object(context.heap(), ty, payload, context.owner)
     }
 
     /// One admission/publication path for typed opaque and checked low-level native results.
@@ -354,8 +356,7 @@ impl NativeStorage {
         })?;
         scope.validate(runtime)?;
         runtime.resources().poll_execution()?;
-        let mut object = self.prepare_payload(runtime.gc(), context.ty, payload, context.owner)?;
-        object.scope = Some(scope.clone());
+        let mut object = self.prepare_payload(runtime.gc(), scope, payload, context.owner)?;
         runtime.publish_metadata_edge(MetadataEdge::Selections(&selected))?;
         object.selected = selected;
         let id = runtime.gc().alloc_native(object)?;
@@ -369,7 +370,7 @@ impl NativeStorage {
     pub(crate) fn prepare_payload<S: NativePayload>(
         &self,
         heap: &GcHeap,
-        ty: &Ty,
+        ty: impl Into<ObjectType>,
         payload: S,
         owner: &ExecutableModule,
     ) -> NativeResult<NativeObject> {
@@ -378,13 +379,13 @@ impl NativeStorage {
                 "native allocation payload type mismatch",
             ));
         }
-        self.object(heap, ty, Box::new(payload), owner)
+        self.object(heap, ty.into(), Box::new(payload), owner)
     }
 
     fn object(
         &self,
         heap: &GcHeap,
-        ty: &Ty,
+        ty: ObjectType,
         payload: Box<dyn Any + Send>,
         owner: &ExecutableModule,
     ) -> NativeResult<NativeObject> {
@@ -402,12 +403,30 @@ impl NativeStorage {
             charge,
             storage: self.clone(),
             payload: Payload::Staged(payload),
-            ty: ty.clone(),
+            ty,
             _owner: owner.clone(),
-            scope: None,
             selected: Arc::default(),
             revision: 0,
         })
+    }
+}
+
+/// One owner for the semantic type. Closed applications already retain their
+/// type tree and provenance; internal unscoped values own an independent tree.
+pub(crate) enum ObjectType {
+    Unscoped(Box<Ty>),
+    Scoped(TypeArgument),
+}
+
+impl From<&Ty> for ObjectType {
+    fn from(ty: &Ty) -> Self {
+        Self::Unscoped(Box::new(ty.clone()))
+    }
+}
+
+impl From<&TypeArgument> for ObjectType {
+    fn from(argument: &TypeArgument) -> Self {
+        Self::Scoped(argument.clone())
     }
 }
 
@@ -423,22 +442,35 @@ pub(crate) struct NativeObject {
     /// Committed indirect payload charge; slab/large backing is accounted separately.
     pub(crate) charge: HeapCharge,
     payload: Payload,
-    pub(crate) ty: Ty,
+    ty: ObjectType,
     _owner: ExecutableModule,
-    pub(crate) scope: Option<TypeArgument>,
     pub(crate) selected: Arc<[StoredSelection]>,
 }
 
 impl Debug for NativeObject {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("NativeObject")
-            .field("ty", &self.ty)
+            .field("ty", self.ty())
             .field("storage", &self.storage)
             .finish_non_exhaustive()
     }
 }
 
 impl NativeObject {
+    pub(crate) fn ty(&self) -> &Ty {
+        match &self.ty {
+            ObjectType::Unscoped(ty) => ty,
+            ObjectType::Scoped(argument) => argument.ty(),
+        }
+    }
+
+    pub(crate) fn scope(&self) -> Option<&TypeArgument> {
+        match &self.ty {
+            ObjectType::Unscoped(_) => None,
+            ObjectType::Scoped(argument) => Some(argument),
+        }
+    }
+
     #[cfg(feature = "execution-diagnostics")]
     pub(crate) fn payload_bytes(&self) -> usize {
         self.storage.entries.erasure.layout.size()
@@ -508,7 +540,7 @@ impl NativeObject {
         // owner rather than reconstructing a layout graph on every native call.
         // Unequal identities may still describe reload-compatible layouts, so
         // they retain the complete existing compatibility check below.
-        if let Some(actual) = &self.scope
+        if let Some(actual) = self.scope()
             && let (Some(actual), Some(expected)) = (
                 actual.borrowed_identity(&self._owner),
                 expected.borrowed_identity(owner),
@@ -521,9 +553,9 @@ impl NativeObject {
     }
 
     pub(crate) fn matches(&self, expected: TypeView<'_>) -> bool {
-        let actual = match &self.scope {
+        let actual = match self.scope() {
             Some(scope) => scope.view(&self._owner),
-            None => TypeView::new(&self.ty, &self._owner, None),
+            None => TypeView::new(self.ty(), &self._owner, None),
         };
         // Preserve the caller's closed proof and lexical scope together. Rebuilding
         // a view from its type spelling would repeat preparation for every operand.

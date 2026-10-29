@@ -197,7 +197,7 @@ impl<'a> CheckedPayload<'a> {
                 }
                 // SAFETY: checked occupied Native placement retains its exact payload.
                 let native = unsafe { self.pointer.cast::<NativeObject>().as_ref() };
-                matches!(native.ty, Ty::Array(..))
+                matches!(native.ty(), Ty::Array(..))
             }
             Value::Enum(_) => kind == PayloadKind::Enum,
             Value::Struct(_) => kind == PayloadKind::Struct,

@@ -116,15 +116,14 @@ impl ExecutionStack<'_> {
             .storage
             .get_id(nominal.declaration)
             .ok_or_else(invalid)?;
-        let mut object = storage.prepare_payload(
+        let object = storage.prepare_payload(
             runtime.gc(),
-            future.ty(),
+            &future,
             FuturePayload {
                 cold: Some(ColdFuture::Script(StoredValue::new(closure))),
             },
             owner,
         )?;
-        object.scope = Some(future);
         runtime.gc().alloc_native(object).map(Value::GcHandle)
     }
 
